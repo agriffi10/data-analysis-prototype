@@ -132,9 +132,10 @@ Today it serves `/healthz`, the username directory, the feature-flag document an
 surface** — listing, head, exists, content read and write, copy, move, delete, free-name, and the two
 presign routes. File **bytes** do not travel through it: an upload is a presigned `PUT` and a download
 a presigned `GET`, both signed server-side by the caller's own assumed session, so the transfer is
-between the browser and S3 and compute never touches it. What is left on the browser's own AWS
-clients is Athena, Glue and SQS. The rule that keeps the two from drifting is **no new browser-side
-AWS SDK call on a path an API route already serves**, and **no second API**.
+between the browser and S3 and compute never touches it. It also serves the **catalog surface** —
+Athena start, status, results and stop, and Glue get-database and list-tables — so **SQS is the only
+AWS service the browser still calls directly**. The rule that keeps the two from drifting is **no new
+browser-side AWS SDK call on a path an API route already serves**, and **no second API**.
 
 A document that belongs to no user — `_directory/usernames.json`, `_config/feature-flags.json` — gets
 a route of its own rather than riding the object surface, because the space resolver refuses a prefix
@@ -160,10 +161,10 @@ Amplify checks the session
   → 1-hour temporary credentials, cached and refreshed by Amplify
 ```
 
-The app reads them with `fetchAuthSession()` and hands them to the Athena, Glue and SQS clients; on a
-credential-expiry error it retries once with a forced refresh. **There is no browser-side S3 client
-any more** — the object surface is the API's, and the expired-credential retry that used to wrap
-every S3 call is a server-side re-assume. Tokens are held **per tab**, not for the whole browser.
+The app reads them with `fetchAuthSession()` and hands them to the SQS client; on a
+credential-expiry error it retries once with a forced refresh. **There is no browser-side S3, Athena
+or Glue client any more** — those surfaces are the API's, and the expired-credential retry that used
+to wrap every one of their calls is a server-side re-assume. Tokens are held **per tab**, not for the whole browser.
 
 The tag mapping is `aws_cognito_identity_pool_provider_principal_tag` in
 `infra/modules/auth/identity-pool.tf`, and the tag **value** must be the `cognito:username` claim —

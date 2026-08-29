@@ -57,7 +57,7 @@ export async function getQueryStatus(queryExecutionId: string): Promise<ServiceR
     success: true,
     data: {
       queryExecutionId,
-      state: state as QueryState,
+      state,
       stateChangeReason: stateChangeReason ?? undefined,
       dataScannedBytes: dataScannedBytes ?? undefined,
       engineExecutionTimeMillis: engineExecutionTimeMillis ?? undefined,

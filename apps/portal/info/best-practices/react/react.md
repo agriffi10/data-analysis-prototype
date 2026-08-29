@@ -250,8 +250,9 @@ The app targets three widths with **project-custom breakpoints** (SPEC-095), not
 ## §21 Testing
 Vitest + React Testing Library, jsdom. Tests describe **user-observable behavior**, not implementation. The goal is few, high-value tests — coverage comes from exercising real code paths, not from many shallow tests.
 
-**The boundary: mock only AWS, nothing else.** Services (`*.service.ts`) and `src/lib` AWS clients are the app's only real seam. A component/feature/hook test mocks *those* and lets the **real** hooks and **real** child components render.
-- ✅ `vi.mock('./x.service')` (or the `src/lib/*Client` / `awsCredentials` / `aws-amplify/auth` module it calls) and drive the returned `ServiceResult`. Render the real tree.
+**The boundary: mock the SERVICE seam, nothing else.** Services (`*.service.ts`) and the API client (`lib/apiClient.ts`) are the app's only real seam — most of what used to be an `src/lib/*Client` AWS module is gone, and a test that names one is a test pointing at a file that no longer exists. A component/feature/hook test mocks *those* and lets the **real** hooks and **real** child components render.
+- ✅ `vi.mock('./x.service')` (or `lib/apiClient` / `awsCredentials` / `aws-amplify/auth`) and drive the returned `ServiceResult`. Render the real tree.
+- ✅ When you stub a module, prefer `importOriginal` and override the one export you are faking. A factory that lists exports becomes the failure case the day the module grows one — and the symptom is an unrelated suite failing on a name it never used.
 - 🔴 Don't `vi.mock` the feature's own hooks (`useFileBrowser`, `useDelete`, …) or stub its child components (`MoveDialog`, `MetadataPanel`, …). Mocking the internals is what makes tests brittle *and* fragments coverage (the mocked-out code only gets covered by its own file). One integration render covers the hook, the children, and the wiring at once.
 - ✅ A child that is genuinely heavy/global and covered elsewhere may be stubbed **by exception**, with a one-line `//` why (Monaco editor, the upload dropzone). Default is: don't.
 
@@ -296,7 +297,7 @@ a name it never used. ✅ Prefer `importOriginal` and override the one export yo
 pure helper stays real.
 
 **Where a test belongs.**
-- **Service unit test** (`*.service.test.ts`) — pure logic: request shaping, response parsing, `ServiceResult` wrapping, error mapping. Mock the SDK client here; keep these — they're cheap and exhaustive.
+- **Service unit test** (`*.service.test.ts`) — pure logic: request shaping, response parsing, `ServiceResult` wrapping, error mapping. Mock `apiRequest` here (the shared `src/test/apiMock.ts` records the route, body, query and path params of every call); keep these — they're cheap and exhaustive. Where the work moved to the API, the assertion moved with it: don't re-assert server-side arithmetic against a fake here.
 - **Component/feature test** — behavior a user drives through the UI, with services mocked at the boundary. Don't re-assert service parsing here.
 - **Hook test** (`renderHookWithProviders`) — only for hooks with non-trivial state/derivation not better exercised through a component.
 - 🔴 Don't test the same logic at two levels. If the service test covers a parse branch, the component test asserts the *rendered outcome*, not the parse.

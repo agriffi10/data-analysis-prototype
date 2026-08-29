@@ -31,7 +31,10 @@ Attributes:
     carried both the machine name and the sentence.
   SYNTAX_MARKERS: The fragments that identify a statement the user can FIX inside the same
     exception. They exist so the browser can say "there is a syntax error in your query" instead
-    of the generic sentence — which is reserved for what a user cannot act on.
+    of the generic sentence — which is reserved for what a user cannot act on. Deliberately does
+    NOT carry "cannot be resolved": on the failed-execution path that text reaches a more specific
+    rule about a column, so claiming it here would have the two paths answering one message with
+    two different sentences.
   INVALID_REQUEST_CODE: The one Athena exception name this module reads, and it is ambiguous by
     itself — it covers a malformed query at submit, a results read before an execution finished,
     and a stop against an execution that already has. Each site says which of those it means and
@@ -54,7 +57,7 @@ DEFAULT_MAX_ROWS = 100
 
 NOT_FINISHED_MARKERS = ("invalid_query_execution_state", "has not yet finished")
 
-SYNTAX_MARKERS = ("syntax_error", "mismatched input", "parse error", "cannot be resolved")
+SYNTAX_MARKERS = ("syntax_error", "mismatched input", "parse error")
 
 _LINE_COLUMN_RE = re.compile(r"line \d+:\d+")
 

@@ -18,6 +18,10 @@ const allAppSources = import.meta.glob('../**/*.{ts,tsx}', {
   eager: true
 }) as Record<string, string>;
 
+const packageJson = Object.values(
+  import.meta.glob('../../package.json', {query: '?raw', import: 'default', eager: true}) as Record<string, string>
+)[0];
+
 /**
  * THE WHOLE APP, not just `features/`. Scoped to `features/` the sweeps could not see `src/lib/`,
  * `src/routes/`, `src/components/` or `src/hooks/` — a `fetch` in any of those passed, which was
@@ -150,16 +154,37 @@ describe('the one door', () => {
     expect(uploader?.[1]).toContain('XMLHttpRequest');
   });
 
-  it('has no module importing the three S3 packages this surface retired', () => {
-    // NAMED, not "any @aws-sdk import": Athena, Glue and SQS are still called from the browser
-    // and their packages stay. A sweep phrased as the dependency CLASS would go red on work this
-    // spec does not do, and would be loosened rather than heeded.
-    const RETIRED = ['@aws-sdk/client-s3', '@aws-sdk/lib-storage', '@aws-sdk/s3-request-presigner'];
+  it('has no module importing the AWS packages these surfaces retired', () => {
+    // NAMED, not "any @aws-sdk import": SQS is still called from the browser and its package
+    // stays. A sweep phrased as the dependency CLASS would go red on work no spec has done yet,
+    // and would be loosened rather than heeded.
+    //
+    // Athena and Glue joined the list when the catalog moved behind the API. The comment here
+    // used to say those two were staying, which is the failure a named list invites: it is only
+    // true on the day it is written, and it reads as a decision rather than a snapshot.
+    const RETIRED = [
+      '@aws-sdk/client-s3',
+      '@aws-sdk/lib-storage',
+      '@aws-sdk/s3-request-presigner',
+      '@aws-sdk/client-athena',
+      '@aws-sdk/client-glue'
+    ];
     const offenders = Object.entries(appSources)
       .filter(([, source]) => RETIRED.some((pkg) => code(source).includes(pkg)))
       .map(([path]) => path);
 
     expect(offenders).toEqual([]);
+  });
+
+  it('has no retired package left in the manifest either', () => {
+    // The source sweep above only sees imports. A package nothing imports still ships in the
+    // lockfile, still resolves, and is still something a later feature can reach for by
+    // accident — which is the whole reason the spec removes them rather than leaving them unused.
+    const manifest = JSON.parse(packageJson) as {dependencies?: Record<string, string>};
+    const retired = ['@aws-sdk/client-athena', '@aws-sdk/client-glue', '@aws-sdk/client-s3'];
+
+    expect(retired.filter((pkg) => manifest.dependencies?.[pkg] !== undefined)).toEqual([]);
+    expect(manifest.dependencies?.['@aws-sdk/client-sqs']).toBeDefined();
   });
 
   it('has no module outside apiClient building a URL from the API origin', () => {
@@ -176,14 +201,42 @@ describe('the one door', () => {
   it('has no feature passing a retry option that is not the contract policy', () => {
     // Idempotency is declared per route. A hook deciding it locally is how a billed, stateful
     // call comes to be retried because it looked like a read.
+    //
+    // THE POPULATION IS EVERY MODULE THAT SETS A RETRY, not every module naming `apiRequest`.
+    // Filtered on that substring, the sweep could not see the one hook whose retry this rule
+    // exists for: `useExploration` reaches the API through a service and mentions `apiRequest`
+    // nowhere, so the exact call the incident was about sat outside the guard named after it.
+    // Nothing else in the app sets a retry that is neither `false` nor the policy — measured, not
+    // assumed — so widening the population costs no exemptions.
     const offenders = Object.entries(appSources)
-      .filter(([, source]) => code(source).includes('apiRequest'))
+      // ONE exemption, by exact path: `queryClient.ts` is the composition root's own default, and
+      // a default is the thing a route policy overrides rather than an instance of one. It is
+      // also what makes the rule matter — a hook that omits its policy silently inherits this.
+      .filter(([path]) => !path.endsWith('/queryClient.ts') && path !== './queryClient.ts')
       .filter(([, source]) => {
         const retries = [...code(source).matchAll(/retry:\s*([^,\n}]+)/g)].map(([, value]) => value.trim());
-        return retries.some((value) => value !== 'false' && !value.startsWith('apiRetryPolicy('));
+        return retries.some(
+          (value) =>
+            value !== 'false' &&
+            !value.startsWith('apiRetryPolicy(') &&
+            // A `retry(…)` CALLBACK is a different thing wearing the same key — the upload
+            // queue's "try this file again" handler, and the exploration region's. They take a
+            // decision and re-run a gesture; they are not a transport policy.
+            !value.startsWith('(') &&
+            !value.startsWith('()')
+        );
       })
       .map(([path]) => path);
 
     expect(offenders).toEqual([]);
+  });
+
+  it('sees the module whose retry this rule was written for', () => {
+    // Guard-the-guard, and it is not hypothetical: filtered on modules naming `apiRequest`, the
+    // sweep above resolved onto a population that excluded `useExploration` — the one hook whose
+    // retry the incident was about. A population that misses its own subject passes forever.
+    const population = Object.entries(appSources).filter(([, source]) => /retry:\s*/.test(code(source)));
+
+    expect(population.map(([path]) => path)).toContain('../features/data-explorer/useExploration.ts');
   });
 });

@@ -16,7 +16,14 @@ vi.mock('./fileBrowser.service', async (importActual) => ({
   ...(await importActual<typeof import('./fileBrowser.service')>()),
   uploadFile: vi.fn()
 }));
-vi.mock('../../lib/apiClient', () => ({apiRequest: vi.fn()}));
+// `importOriginal` rather than a factory listing exports: this suite renders a real tree, so it
+// loads whatever the tree imports, and a factory goes red on a name it never used the moment one
+// of those modules reaches for one more. That is not hypothetical — it happened to the data
+// explorer's save suite in this same change.
+vi.mock('../../lib/apiClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/apiClient')>()),
+  apiRequest: vi.fn()
+}));
 vi.mock('./invalidateListing', () => ({
   invalidateListing: vi.fn().mockResolvedValue(undefined)
 }));

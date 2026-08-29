@@ -192,7 +192,7 @@ describe('QueryWorkspace', () => {
   const mockEnqueueRefresh = vi.mocked(enqueueTableRefresh);
   const mockEnqueueShare = vi.mocked(enqueueTableShare);
 
-  // SaveResultsDialog / runQuery outputLocation read these at render/module time.
+  // SaveResultsDialog / the results location, which the API now derives read these at render/module time.
   vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-bucket');
   vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-bucket');
 
