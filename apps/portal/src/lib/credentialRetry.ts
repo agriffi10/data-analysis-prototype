@@ -16,7 +16,7 @@ export function isExpiryError(code?: string): boolean {
 /**
  * Runs a service operation with an authenticated client, transparently
  * refreshing the credentials and retrying ONCE if they expired mid-session.
- * Shared by the S3, Athena, Glue, and SQS call sites.
+ * It has NO consumer left in this tree — the S3, Athena, Glue and SQS call sites it was built for all reach AWS server-side now. It survives only because the Identity Pool does, and both go together.
  *
  * `op(client)` must surface a credential-expiry failure via its error `code`
  * so this helper knows to refresh and retry. Never throws — propagates the
@@ -26,7 +26,7 @@ export function isExpiryError(code?: string): boolean {
  * @param op - The authenticated call to run (and possibly re-run).
  *
  * @example
- * const result = await withCredentialRetry(getSqsClient, (sqs) => sendMessage(sqs, body));
+ * const result = await withCredentialRetry(getSessionCredentials, (creds) => doSomething(creds));
  */
 export async function withCredentialRetry<C, T>(
   getClient: (forceRefresh?: boolean) => Promise<ServiceResult<C>>,

@@ -1,24 +1,17 @@
-import {describe, it, expect, vi, beforeEach, afterEach, type MockedFunction} from 'vitest';
+import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 
 vi.mock('../../lib/apiClient', () => ({apiRequest: vi.fn()}));
-vi.mock('../../lib/sqsClient', () => ({getSqsClient: vi.fn()}));
-vi.mock('../../lib/awsCredentials', () => ({getIdToken: vi.fn()}));
 
 import {apiRequest} from '../../lib/apiClient';
-import {getSqsClient} from '../../lib/sqsClient';
-import {getIdToken} from '../../lib/awsCredentials';
+import {apiFailure, mockApi} from '../../test/apiMock';
+import type {ApiMock} from '../../test/apiMock';
 import {getNotifications, enqueueNotificationAction} from './notifications.service';
 import type {Notification} from './notifications.types';
 
 const mockApiRequest = vi.mocked(apiRequest);
-const mockGetSqs = getSqsClient as unknown as MockedFunction<() => Promise<unknown>>;
-const mockGetIdToken = getIdToken as unknown as MockedFunction<() => Promise<unknown>>;
 
 const USER = 'alice';
 const BUCKET = 'dat-prod-user-space';
-const QUEUE = 'https://sqs.us-east-1.amazonaws.com/123/dat-prod-notifications-requests.fifo';
-
-type Cmd = {input: Record<string, unknown>};
 
 // Fake the document route. `body === null` is an absent object, which the route reports as
 // NotFound and the reader turns into the empty feed — absence has nothing to lose. `failWith` is
@@ -33,14 +26,6 @@ function fakeS3(opts: {body?: string | null; failWith?: string}) {
   return {send};
 }
 
-function fakeQueue(rejectWith?: unknown) {
-  const send = vi.fn<(cmd: Cmd) => Promise<{MessageId: string}>>();
-  if (rejectWith !== undefined) send.mockRejectedValue(rejectWith);
-  else send.mockResolvedValue({MessageId: 'm1'});
-  mockGetSqs.mockResolvedValue({success: true, data: {send}});
-  return {send};
-}
-
 const note = (over: Partial<Notification>): Notification => ({
   id: 'n1',
   message: 'hello',
@@ -51,8 +36,6 @@ const note = (over: Partial<Notification>): Notification => ({
 
 beforeEach(() => {
   vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', BUCKET);
-  vi.stubEnv('VITE_NOTIFICATIONS_QUEUE_URL', QUEUE);
-  mockGetIdToken.mockResolvedValue({success: true, data: 'id-token-abc'});
 });
 
 afterEach(() => {
@@ -209,66 +192,64 @@ describe('getNotifications', () => {
   });
 });
 
+/**
+ * The notifications enqueue, now over the API.
+ *
+ * **The FIFO group id is deliberately absent from this file.** It was the caller-supplied
+ * username, and that is precisely what changed in the move: the API groups on the VERIFIED actor
+ * and ignores a `username` in the body, asserted against a body that carries someone else's in
+ * `lambdas/api/test_fifo_derivations.py`. The dedup id — the one id this plane mints, fresh every
+ * time, because a mark-read is idempotent and must never be absorbed — has its own test there
+ * too, and the `idToken` field is stamped by the API from the verified bearer.
+ *
+ * The `username` argument stays on this service's input because its callers pass it and the query
+ * keys read it; it simply no longer reaches the wire.
+ */
 describe('enqueueNotificationAction', () => {
-  it('sends markRead with id, the verified token, and MessageGroupId = username', async () => {
-    const {send} = fakeQueue();
+  let api: ApiMock;
+
+  beforeEach(() => {
+    api = mockApi(mockApiRequest);
+  });
+
+  it('sends the action and the id it applies to, exactly once', async () => {
+    api.on('notifications.enqueue', {success: true, data: {requestId: null}});
+
     const result = await enqueueNotificationAction({action: 'markRead', username: USER, id: 'n9'});
-    expect(result.success).toBe(true);
-    const cmd = send.mock.calls[0][0] as Cmd;
-    expect(cmd.input.QueueUrl).toBe(QUEUE);
-    expect(cmd.input.MessageGroupId).toBe(USER);
-    expect(cmd.input.MessageDeduplicationId).toEqual(expect.any(String));
-    expect(JSON.parse(cmd.input.MessageBody as string)).toEqual({
-      action: 'markRead',
-      idToken: 'id-token-abc',
-      id: 'n9'
-    });
+
+    expect(result).toEqual({success: true, data: undefined});
+    expect(api.routes()).toEqual(['notifications.enqueue']);
+    // `toEqual`, not `toMatchObject`: that no client-asserted username rides along is the
+    // assertion, and the API refuses a body claiming an identity outright.
+    expect(api.bodyFor('notifications.enqueue')).toEqual({action: 'markRead', id: 'n9'});
   });
 
-  it('sends markAllRead without an id', async () => {
-    const {send} = fakeQueue();
-    await enqueueNotificationAction({action: 'markAllRead', username: USER});
-    const cmd = send.mock.calls[0][0] as Cmd;
-    expect(JSON.parse(cmd.input.MessageBody as string)).toEqual({
-      action: 'markAllRead',
-      idToken: 'id-token-abc'
-    });
+  it('sends markAllRead with an explicit null id, because the field cannot be defaulted', async () => {
+    // The contract declares `id` as `string | null` rather than optional: a wire vocabulary with
+    // no optional field would otherwise make an omitted id and a forgotten one the same request.
+    api.on('notifications.enqueue', {success: true, data: {requestId: null}});
+
+    const result = await enqueueNotificationAction({action: 'markAllRead', username: USER});
+
+    expect(result).toEqual({success: true, data: undefined});
+    expect(api.bodyFor('notifications.enqueue')).toEqual({action: 'markAllRead', id: null});
   });
 
-  it('never puts a client-asserted username in the body', async () => {
-    const {send} = fakeQueue();
-    await enqueueNotificationAction({action: 'markAllRead', username: USER});
-    const body = JSON.parse((send.mock.calls[0][0] as Cmd).input.MessageBody as string);
-    expect(body).not.toHaveProperty('username');
-  });
-
-  it('rejects markRead without an id and sends nothing', async () => {
-    const {send} = fakeQueue();
+  it('rejects markRead without an id and calls nothing', async () => {
+    // Still refused in the browser: a markRead with no id is a request the writer cannot act on,
+    // and refusing it here is what keeps the failure attributable to the gesture that made it.
     const result = await enqueueNotificationAction({action: 'markRead', username: USER});
-    expect(result.success).toBe(false);
-    expect(send).not.toHaveBeenCalled();
+
+    expect(result.success === false && result.error.code).toBe('InvalidRequest');
+    expect(api.calls).toEqual([]);
   });
 
-  it('fails when the queue URL is not configured', async () => {
-    vi.stubEnv('VITE_NOTIFICATIONS_QUEUE_URL', '');
-    const {send} = fakeQueue();
-    const result = await enqueueNotificationAction({action: 'markAllRead', username: USER});
-    expect(result.success).toBe(false);
-    expect(send).not.toHaveBeenCalled();
-  });
+  it('returns the failure as a result and never throws', async () => {
+    api.on('notifications.enqueue', apiFailure('RateLimited'));
 
-  it('propagates an ID-token failure', async () => {
-    fakeQueue();
-    mockGetIdToken.mockResolvedValue({success: false, error: {message: 'no token'}});
     const result = await enqueueNotificationAction({action: 'markAllRead', username: USER});
-    expect(result.success).toBe(false);
-    if (!result.success) expect(result.error.message).toBe('no token');
-  });
 
-  it('returns a typed error when SendMessage fails', async () => {
-    fakeQueue({name: 'Throttling', message: 'slow down'});
-    const result = await enqueueNotificationAction({action: 'markAllRead', username: USER});
     expect(result.success).toBe(false);
-    if (!result.success) expect(result.error.code).toBe('Throttling');
+    expect(result.success === false && result.error.code).toBe('RateLimited');
   });
 });

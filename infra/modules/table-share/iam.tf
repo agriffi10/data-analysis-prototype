@@ -41,18 +41,6 @@ resource "aws_iam_role_policy" "execution" {
   })
 }
 
-# ── Portal role — table-share enqueue policy ────────────────
-# The browser's ONLY privilege on this plane: sqs:SendMessage. Attached BY NAME (the role is
-# created in module.data). No Lambda invoke, no DLQ, no Step Function.
-resource "aws_iam_role_policy" "portal_table_share" {
-  name = "table-share-enqueue"
-  role = var.portal_role_name
-
-  policy = templatefile("${path.module}/policies/portal-role-table-share.json.tftpl", {
-    request_queue_arn = aws_sqs_queue.requests.arn
-  })
-}
-
 # ── Step Function role (orchestrates the verbs) ──────────────────────────────
 resource "aws_iam_role" "sfn" {
   name               = local.sfn_role_name

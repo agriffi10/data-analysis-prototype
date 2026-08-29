@@ -71,9 +71,10 @@ Go to **Settings → Secrets and variables → Actions → Variables**.
 | `VITE_S3_USER_SPACE_BUCKET` | `tofu output s3_user_space_bucket_name` | Bucket provisioned in SPEC-010; read by the file browser starting SPEC-013. Required — an unset one fails the deploy at the render step |
 | `API_BASE_URL` | `https://api.dataquarry.app` | The API's origin, no trailing slash. **Required**: the browser reads it on every ported route, and this workflow refuses to publish a document without it rather than shipping a portal that cannot boot. |
 
-The table above is the set an operator populates first. The queue URLs (`VITE_*_QUEUE_URL`) are
-listed per control plane in `apps/portal/.env.example`, each with its `tofu output`; an unset one
-disables that one feature rather than the app.
+The table above is the set an operator populates first. The control-plane queue URLs are no
+longer among them: the browser does not write a queue, so the eight URLs are wired straight from
+each module's output onto the API function by Terraform, with no repository variable and no build
+env in between.
 
 > **Chicken-and-egg note for `VITE_APP_URL`:** On the very first deploy, the CloudFront domain isn't known yet. Set `VITE_APP_URL` to a placeholder (or empty string), let the first deploy complete, then update the variable to the value from `tofu output cloudfront_domain` and redeploy.
 

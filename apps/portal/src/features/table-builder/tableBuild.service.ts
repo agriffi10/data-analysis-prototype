@@ -1,41 +1,72 @@
-import {enqueueFifoRequest} from '../../lib/enqueueFifo';
+import {apiRequest} from '../../lib/apiClient';
+import {discardPayload} from '../../lib/serviceResult';
 import {CATALOG_IDENTIFIER_RE} from '../../lib/catalogIdentifier';
 import type {ServiceResult} from '../../types/service.types';
-import type {TableBuildRequest} from './tableBuild.types';
+import type {PartitionKey, TableBuildRequest} from './tableBuild.types';
 import type {TableRefreshRequest} from './tableRefresh.types';
-import {configValue} from '../../lib/runtimeConfig';
+
+/**
+ * One partition key, as the API declares it.
+ *
+ * The API's contract cannot express the three-variant union this type models — its vocabulary has
+ * no union of object shapes — so the variants are flattened into one shape whose per-kind fields
+ * are optional, and the projection bounds travel as strings. Both halves are safe rather than
+ * lossy: the control plane accepts bounds that are numbers or strings, and the DDL builder
+ * interpolates the pair into one `lo,hi` property without arithmetic, so the table property is
+ * byte-identical either way. What is genuinely given up is that the API no longer refuses a date
+ * field on an integer key; the plane still validates every combination and refuses by name.
+ *
+ * @param key - The key as the dialog models it.
+ * @returns The key as the wire carries it.
+ */
+function onTheWire(key: PartitionKey): {
+  name: string;
+  type: PartitionKey['type'];
+  range?: string[];
+  format?: string;
+  values?: string[];
+  digits?: number;
+  interval?: number;
+  intervalUnit?: string;
+} {
+  if (key.type === 'string') return {name: key.name, type: key.type, values: key.values};
+  const range = [String(key.range[0]), String(key.range[1])];
+  if (key.type === 'integer') {
+    return {
+      name: key.name,
+      type: key.type,
+      range,
+      ...(key.digits === undefined ? {} : {digits: key.digits})
+    };
+  }
+  return {
+    name: key.name,
+    type: key.type,
+    range,
+    format: key.format,
+    ...(key.interval === undefined ? {} : {interval: key.interval}),
+    ...(key.intervalUnit === undefined ? {} : {intervalUnit: key.intervalUnit})
+  };
+}
 
 /**
  * Enqueue a create-table request onto the table-builder FIFO queue — the browser's
- * only table-builder AWS call. The async control plane creates the table and
+ * only table-builder write. The async control plane creates the table and
  * notifies the actor of the outcome, so success means enqueued, not created.
  *
- * The body carries the caller's ID token (the server derives the actor from the
- * verified claim — a body username is never trusted). MessageGroupId = the target
- * database (per-DB serialization closes the duplicate-name race); a fresh requestId
- * is the dedup id.
+ * The identity and the FIFO group are the API's; the request id is still minted here.
  */
 export async function enqueueTableBuild(req: TableBuildRequest): Promise<ServiceResult<void>> {
-  const requestId = crypto.randomUUID();
-  return enqueueFifoRequest<void>({
-    queueUrl: configValue('tableBuildQueueUrl'),
-    notConfiguredMessage: 'Table creation is not configured',
-    build: (idToken) => ({
-      // The body is built field by field, so a new request field is NOT forwarded by
-      // being added to the type: `mode` is deliberately absent here, and the
-      // server reads its absence as 'create'. The refresh caller sets it.
+  return discardPayload(
+    await apiRequest('tableBuild.create', {
       body: {
-        idToken,
+        requestId: crypto.randomUUID(),
         space: req.space,
         tableName: req.tableName,
-        partitionKeys: req.partitionKeys ?? [],
-        requestId
-      },
-      messageGroupId: req.space.database,
-      deduplicationId: requestId,
-      data: undefined
+        partitionKeys: (req.partitionKeys ?? []).map(onTheWire)
+      }
     })
-  });
+  );
 }
 
 /**
@@ -51,25 +82,17 @@ export async function enqueueTableBuild(req: TableBuildRequest): Promise<Service
  * different request than an absent one.
  */
 export async function enqueueTableRefresh(req: TableRefreshRequest): Promise<ServiceResult<void>> {
-  const requestId = crypto.randomUUID();
-  return enqueueFifoRequest<void>({
-    queueUrl: configValue('tableBuildQueueUrl'),
-    notConfiguredMessage: 'Table refresh is not configured',
-    build: (idToken) => ({
+  return discardPayload(
+    await apiRequest('tableBuild.refresh', {
       body: {
-        idToken,
-        mode: 'refresh',
+        requestId: crypto.randomUUID(),
         space: req.space,
         tableName: req.tableName,
         partitionKeys: [],
-        ...(req.allowRemovals === true ? {allowRemovals: true} : {}),
-        requestId
-      },
-      messageGroupId: req.space.database,
-      deduplicationId: requestId,
-      data: undefined
+        ...(req.allowRemovals === true ? {allowRemovals: true} : {})
+      }
     })
-  });
+  );
 }
 
 /**

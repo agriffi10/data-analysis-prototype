@@ -55,14 +55,6 @@ OPTIONAL_ENV=(
   -e CONFIG_maxUploadBytes=1048576
   -e CONFIG_sharedSpaceBucket=fixture-shared-space
   -e CONFIG_cognitoIdentityPoolId=us-east-1:fixture
-  -e CONFIG_sharedSpaceQueueUrl=https://sqs.us-east-1.amazonaws.com/1/a.fifo
-  -e CONFIG_notificationsQueueUrl=https://sqs.us-east-1.amazonaws.com/1/b.fifo
-  -e CONFIG_tableBuildQueueUrl=https://sqs.us-east-1.amazonaws.com/1/c.fifo
-  -e CONFIG_tableShareQueueUrl=https://sqs.us-east-1.amazonaws.com/1/d.fifo
-  -e CONFIG_dataQualityQueueUrl=https://sqs.us-east-1.amazonaws.com/1/e.fifo
-  -e CONFIG_fileSendQueueUrl=https://sqs.us-east-1.amazonaws.com/1/f.fifo
-  -e CONFIG_archiveQueueUrl=https://sqs.us-east-1.amazonaws.com/1/g.fifo
-  -e CONFIG_fileOpsQueueUrl=https://sqs.us-east-1.amazonaws.com/1/h.fifo
 )
 # The mounts ECS creates, with the ownership that is the whole reason they are tmpfs rather than
 # task volumes. A volume arrives empty and root-owned, which a non-root container cannot write.

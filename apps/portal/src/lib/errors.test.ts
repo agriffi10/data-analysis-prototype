@@ -397,7 +397,7 @@ describe('serviceErrorContract', () => {
       // the "did not run is never clean" rule, applied to a test.
       const subjects = Object.keys(MODULES).filter(isSubject);
       expect(subjects.length).toBeGreaterThan(50);
-      expect(subjects.some((p) => p.endsWith('/enqueueFifo.ts'))).toBe(true);
+      expect(subjects.some((p) => p.endsWith('/apiClient.ts'))).toBe(true);
     });
 
     it('finds authored failure literals to assert over', () => {

@@ -7,7 +7,7 @@ type SessionCredentials = NonNullable<Awaited<ReturnType<typeof fetchAuthSession
 /**
  * Fetches the signed-in user's scoped Identity Pool credentials.
  *
- * Shared by the Athena/Glue/SQS client builders. `forceRefresh` drives the
+ * Its remaining consumers are the forced refreshes in `useConnections` and `useSharedSpaceAccessRecovery`. `forceRefresh` drives the
  * credential-expiry retry path. Never throws — returns a ServiceResult.
  */
 export async function getSessionCredentials(forceRefresh = false): Promise<ServiceResult<SessionCredentials>> {

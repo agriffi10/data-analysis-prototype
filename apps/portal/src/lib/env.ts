@@ -43,15 +43,7 @@ export const VITE_NAME = {
   environment: 'VITE_ENVIRONMENT',
   maxUploadBytes: 'VITE_MAX_UPLOAD_BYTES',
   sharedSpaceBucket: 'VITE_S3_SHARED_SPACE_BUCKET',
-  cognitoIdentityPoolId: 'VITE_COGNITO_IDENTITY_POOL_ID',
-  sharedSpaceQueueUrl: 'VITE_SHARED_SPACE_QUEUE_URL',
-  notificationsQueueUrl: 'VITE_NOTIFICATIONS_QUEUE_URL',
-  tableBuildQueueUrl: 'VITE_TABLE_BUILD_QUEUE_URL',
-  tableShareQueueUrl: 'VITE_TABLE_SHARE_QUEUE_URL',
-  dataQualityQueueUrl: 'VITE_DATA_QUALITY_QUEUE_URL',
-  fileSendQueueUrl: 'VITE_FILE_SEND_QUEUE_URL',
-  archiveQueueUrl: 'VITE_ARCHIVE_QUEUE_URL',
-  fileOpsQueueUrl: 'VITE_FILE_OPS_QUEUE_URL'
+  cognitoIdentityPoolId: 'VITE_COGNITO_IDENTITY_POOL_ID'
 } as const satisfies Record<RuntimeConfigKey, string | null>;
 
 /** Every variable a dev fallback can read, derived from the table above. */
@@ -84,15 +76,7 @@ function readEnv(): Record<PortalEnvVar, string | undefined> {
     VITE_ENVIRONMENT: import.meta.env.VITE_ENVIRONMENT as string | undefined,
     VITE_COGNITO_IDENTITY_POOL_ID: import.meta.env.VITE_COGNITO_IDENTITY_POOL_ID as string | undefined,
     VITE_S3_SHARED_SPACE_BUCKET: import.meta.env.VITE_S3_SHARED_SPACE_BUCKET as string | undefined,
-    VITE_MAX_UPLOAD_BYTES: import.meta.env.VITE_MAX_UPLOAD_BYTES as string | undefined,
-    VITE_SHARED_SPACE_QUEUE_URL: import.meta.env.VITE_SHARED_SPACE_QUEUE_URL as string | undefined,
-    VITE_NOTIFICATIONS_QUEUE_URL: import.meta.env.VITE_NOTIFICATIONS_QUEUE_URL as string | undefined,
-    VITE_TABLE_BUILD_QUEUE_URL: import.meta.env.VITE_TABLE_BUILD_QUEUE_URL as string | undefined,
-    VITE_TABLE_SHARE_QUEUE_URL: import.meta.env.VITE_TABLE_SHARE_QUEUE_URL as string | undefined,
-    VITE_DATA_QUALITY_QUEUE_URL: import.meta.env.VITE_DATA_QUALITY_QUEUE_URL as string | undefined,
-    VITE_FILE_SEND_QUEUE_URL: import.meta.env.VITE_FILE_SEND_QUEUE_URL as string | undefined,
-    VITE_ARCHIVE_QUEUE_URL: import.meta.env.VITE_ARCHIVE_QUEUE_URL as string | undefined,
-    VITE_FILE_OPS_QUEUE_URL: import.meta.env.VITE_FILE_OPS_QUEUE_URL as string | undefined
+    VITE_MAX_UPLOAD_BYTES: import.meta.env.VITE_MAX_UPLOAD_BYTES as string | undefined
   };
 }
 

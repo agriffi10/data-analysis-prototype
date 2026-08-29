@@ -1,21 +1,9 @@
 import {readJsonDocument} from '../../lib/s3Json';
 import {ok} from '../../lib/serviceResult';
-import {enqueueFifoRequest} from '../../lib/enqueueFifo';
+import {apiRequest} from '../../lib/apiClient';
 import {userSpaceBucket, userSettingsKey} from '../../lib/userSpace';
 import type {ServiceResult} from '../../types/service.types';
-import type {
-  Member,
-  SharedConnectionEntry,
-  SharedConnectionsCache,
-  SharedSpaceAction,
-  SharedSpaceRequest
-} from './sharedSpaces.types';
-import {configValue} from '../../lib/runtimeConfig';
-
-// A constant MessageGroupId serializes ALL shared-space requests so two users can't
-// create the same name concurrently; the requestId doubles as the dedup id so an
-// accidental resend is collapsed.
-const MESSAGE_GROUP_ID = 'shared-space';
+import type {Member, SharedConnectionEntry, SharedConnectionsCache, SharedSpaceAction} from './sharedSpaces.types';
 
 export type EnqueueInput = {
   action: SharedSpaceAction;
@@ -25,30 +13,20 @@ export type EnqueueInput = {
 };
 
 /**
- * Enqueue one shared-space request onto the FIFO control queue — the browser's only
- * shared-space write. Returns the generated requestId on success. The trusted actor
- * is derived server-side from the verified idToken; the body `actor` is advisory.
+ * Enqueue one shared-space request — the browser's only shared-space write. Returns the
+ * generated requestId on success.
+ *
+ * The actor is no longer sent: the API stamps it from the verified bearer, and a body that
+ * tried to supply one is refused at the door. `EnqueueInput.actor` survives on the caller's
+ * side because every call site already has the username to hand and removing it would touch
+ * six components for no gain.
  */
 export async function enqueueSharedSpaceRequest(input: EnqueueInput): Promise<ServiceResult<{requestId: string}>> {
   const requestId = crypto.randomUUID();
-  return enqueueFifoRequest({
-    queueUrl: configValue('sharedSpaceQueueUrl'),
-    notConfiguredMessage: 'Shared connections are not configured',
-    build: (idToken) => ({
-      body: {
-        schemaVersion: 1,
-        requestId,
-        action: input.action,
-        actor: input.actor,
-        space: input.space,
-        payload: input.payload ?? {},
-        idToken
-      } satisfies SharedSpaceRequest,
-      messageGroupId: MESSAGE_GROUP_ID,
-      deduplicationId: requestId,
-      data: {requestId}
-    })
+  const result = await apiRequest('sharedSpace.enqueue', {
+    body: {requestId, action: input.action, space: input.space, payload: input.payload ?? {}}
   });
+  return result.success ? {success: true, data: {requestId}} : result;
 }
 
 // The per-user cache lives at {username}/user_settings/shared-connections.json.

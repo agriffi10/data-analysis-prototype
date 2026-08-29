@@ -77,12 +77,6 @@
         "s3:AbortMultipartUpload"
       ],
       "Resource": "${shared_space_bucket_arn}/*/archive/*"
-    },
-    {
-      "Sid": "SharedSpaceEnqueue",
-      "Effect": "Allow",
-      "Action": "sqs:SendMessage",
-      "Resource": "${request_queue_arn}"
     }
   ]
 }

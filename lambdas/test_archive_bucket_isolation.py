@@ -91,7 +91,11 @@ def test_the_portal_role_names_the_archive_bucket_nowhere():
     """The browser's only relationship with this bucket is that it has none. The only route to
     archived bytes is a restore request through this plane, which is what makes archiving
     reversible only through something that takes hours rather than a click."""
-    for path in (PORTAL_PERSONAL, PORTAL_SHARED, PORTAL_ARCHIVE):
+    # PORTAL_ARCHIVE is gone: the browser's one archive privilege was an enqueue, and the API is
+    # the only writer now. Its absence is asserted below rather than by reading a missing file.
+    assert not PORTAL_ARCHIVE.exists(), "the browser's archive enqueue grant is retired"
+
+    for path in (PORTAL_PERSONAL, PORTAL_SHARED):
         body = _read(path)
 
         assert "archive_bucket" not in body, f"{path.name} names the archive bucket"

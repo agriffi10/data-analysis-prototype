@@ -19,7 +19,7 @@ output "github_actions_role_arn" {
 }
 
 output "aws_region" {
-  description = "AWS region where resources are deployed. Maps to VITE_AWS_REGION."
+  description = "AWS region where resources are deployed."
   value       = var.aws_region
 }
 
@@ -86,7 +86,7 @@ output "shared_space_bucket_name" {
 }
 
 output "shared_space_request_queue_url" {
-  description = "URL of the FIFO shared-space request queue. The browser enqueues control-plane requests here once granted sqs:SendMessage; maps to VITE_SHARED_SPACE_QUEUE_URL."
+  description = "URL of the FIFO shared-space request queue. The API enqueues control-plane requests here through its one grant."
   value       = module.shared_spaces.request_queue_url
 }
 
@@ -102,12 +102,12 @@ output "shared_space_state_machine_arn" {
 
 # ── Notifications write pipeline ──────────────────────────────────
 output "notifications_queue_url" {
-  description = "URL of the FIFO notifications request queue (ends in .fifo). The browser enqueues markRead/markAllRead here once granted sqs:SendMessage (granted in this spec); maps to VITE_NOTIFICATIONS_QUEUE_URL."
+  description = "URL of the FIFO notifications request queue (ends in .fifo). The API enqueues markRead/markAllRead here through its one grant."
   value       = module.notifications.notifications_queue_url
 }
 
 output "notifications_queue_arn" {
-  description = "ARN of the FIFO notifications request queue — the sqs:SendMessage scope for the portal role and for every trusted producer. The portal role's half is unconditioned; the writer refuses a `create` from it by SenderId."
+  description = "ARN of the FIFO notifications request queue — the `sqs:SendMessage` scope for the API and for every trusted producer."
   value       = module.notifications.notifications_queue_arn
 }
 

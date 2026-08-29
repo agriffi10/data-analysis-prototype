@@ -45,19 +45,6 @@ resource "aws_iam_role_policy" "execution" {
   })
 }
 
-# ── Portal role — file-send enqueue policy ─────────────────
-# The browser's ONLY privilege on this plane: sqs:SendMessage. NO CROSS-PREFIX S3 WRITE IS
-# GRANTED TO ANY USER, EVER — that the browser cannot write into another user's prefix is the
-# isolation model working, and is the entire reason this plane exists.
-resource "aws_iam_role_policy" "portal_file_send" {
-  name = "file-send-enqueue"
-  role = var.portal_role_name
-
-  policy = templatefile("${path.module}/policies/portal-role-file-send.json.tftpl", {
-    request_queue_arn = aws_sqs_queue.requests.arn
-  })
-}
-
 # ── Step Function role (orchestrates the verbs) ──────────────────────────────
 resource "aws_iam_role" "sfn" {
   name               = local.sfn_role_name

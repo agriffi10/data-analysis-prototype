@@ -18,9 +18,10 @@
  * later port widens that — so it belongs with the values whose absence stops the app
  * rather than one feature.
  *
- * The queue URLs are NOT here — each enqueue path degrades on its own through
- * `enqueueFifo`'s `notConfiguredMessage`, which disables one feature rather than the
- * app. Nor is the shared-space bucket (a user may belong to no shared space), nor the
+ * The queue URLs are gone from this document entirely — the browser no longer writes a queue,
+ * so the URLs are the API function's configuration and an unset one is an operator fault it
+ * reports rather than a feature that quietly disables itself. Not here either is
+ * the shared-space bucket (a user may belong to no shared space), nor the
  * Identity Pool (sign-in works without it; only credentials don't). The test for
  * membership is whether SOMETHING catches its absence and says so — not whether the
  * app is useful without it.
@@ -44,15 +45,7 @@ export const OPTIONAL_CONFIG = [
   'environment',
   'maxUploadBytes',
   'sharedSpaceBucket',
-  'cognitoIdentityPoolId',
-  'sharedSpaceQueueUrl',
-  'notificationsQueueUrl',
-  'tableBuildQueueUrl',
-  'tableShareQueueUrl',
-  'dataQualityQueueUrl',
-  'fileSendQueueUrl',
-  'archiveQueueUrl',
-  'fileOpsQueueUrl'
+  'cognitoIdentityPoolId'
 ] as const;
 
 export type RequiredConfigKey = (typeof REQUIRED_CONFIG)[number];

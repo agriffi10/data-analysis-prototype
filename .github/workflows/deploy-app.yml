@@ -56,14 +56,6 @@ jobs:
           VITE_S3_USER_SPACE_BUCKET: ${{ vars.VITE_S3_USER_SPACE_BUCKET }}
           VITE_S3_SHARED_SPACE_BUCKET: ${{ vars.VITE_S3_SHARED_SPACE_BUCKET }}
           VITE_MAX_UPLOAD_BYTES: ${{ vars.VITE_MAX_UPLOAD_BYTES }}
-          VITE_SHARED_SPACE_QUEUE_URL: ${{ vars.VITE_SHARED_SPACE_QUEUE_URL }}
-          VITE_NOTIFICATIONS_QUEUE_URL: ${{ vars.VITE_NOTIFICATIONS_QUEUE_URL }}
-          VITE_TABLE_BUILD_QUEUE_URL: ${{ vars.VITE_TABLE_BUILD_QUEUE_URL }}
-          VITE_TABLE_SHARE_QUEUE_URL: ${{ vars.VITE_TABLE_SHARE_QUEUE_URL }}
-          VITE_FILE_SEND_QUEUE_URL: ${{ vars.VITE_FILE_SEND_QUEUE_URL }}
-          VITE_ARCHIVE_QUEUE_URL: ${{ vars.VITE_ARCHIVE_QUEUE_URL }}
-          VITE_FILE_OPS_QUEUE_URL: ${{ vars.VITE_FILE_OPS_QUEUE_URL }}
-          VITE_DATA_QUALITY_QUEUE_URL: ${{ vars.VITE_DATA_QUALITY_QUEUE_URL }}
 
       # THE DOCUMENT PRODUCTION ACTUALLY READS. The build env above is inlined into the
       # bundle and is the DEV fallback only; every value a deployed portal resolves comes
@@ -92,21 +84,13 @@ jobs:
           CONFIG_cognitoIdentityPoolId: ${{ vars.VITE_COGNITO_IDENTITY_POOL_ID }}
           CONFIG_userSpaceBucket: ${{ vars.VITE_S3_USER_SPACE_BUCKET }}
           CONFIG_sharedSpaceBucket: ${{ vars.VITE_S3_SHARED_SPACE_BUCKET }}
-          CONFIG_sharedSpaceQueueUrl: ${{ vars.VITE_SHARED_SPACE_QUEUE_URL }}
-          CONFIG_notificationsQueueUrl: ${{ vars.VITE_NOTIFICATIONS_QUEUE_URL }}
-          CONFIG_tableBuildQueueUrl: ${{ vars.VITE_TABLE_BUILD_QUEUE_URL }}
-          CONFIG_tableShareQueueUrl: ${{ vars.VITE_TABLE_SHARE_QUEUE_URL }}
-          CONFIG_dataQualityQueueUrl: ${{ vars.VITE_DATA_QUALITY_QUEUE_URL }}
-          CONFIG_fileSendQueueUrl: ${{ vars.VITE_FILE_SEND_QUEUE_URL }}
-          CONFIG_archiveQueueUrl: ${{ vars.VITE_ARCHIVE_QUEUE_URL }}
-          CONFIG_fileOpsQueueUrl: ${{ vars.VITE_FILE_OPS_QUEUE_URL }}
         run: |
           # The keys the document may carry, named rather than taken from whatever the
           # runner happens to have. A bare `startswith("CONFIG_")` scoop publishes any
           # same-prefixed variable a workflow-level env, a composite action or a
           # self-hosted runner introduces — into a world-readable document. Both lists
           # below are asserted against the classification by test.
-          KEYS='apiBaseUrl appUrl awsRegion environment maxUploadBytes cognitoUserPoolId cognitoUserPoolClientId cognitoDomain cognitoIdentityPoolId userSpaceBucket sharedSpaceBucket sharedSpaceQueueUrl notificationsQueueUrl tableBuildQueueUrl tableShareQueueUrl dataQualityQueueUrl fileSendQueueUrl archiveQueueUrl fileOpsQueueUrl'
+          KEYS='apiBaseUrl appUrl awsRegion environment maxUploadBytes cognitoUserPoolId cognitoUserPoolClientId cognitoDomain cognitoIdentityPoolId userSpaceBucket sharedSpaceBucket'
           REQUIRED='apiBaseUrl appUrl awsRegion userSpaceBucket cognitoUserPoolId cognitoUserPoolClientId cognitoDomain'
 
           jq -n --arg keys "$KEYS" '($keys | split(" ")) as $allowed

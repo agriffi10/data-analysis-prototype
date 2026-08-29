@@ -17,6 +17,12 @@
       "Resource": "${logs_queue_arn}"
     },
     {
+      "Sid": "EnqueueControlPlaneRequests",
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": ${request_queue_arns_json}
+    },
+    {
       "Sid": "AssumeThePortalRoleAsTheCaller",
       "Effect": "Allow",
       "Action": [

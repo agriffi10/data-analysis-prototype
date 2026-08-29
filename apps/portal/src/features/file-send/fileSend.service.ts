@@ -1,9 +1,7 @@
-import {enqueueFifoRequest} from '../../lib/enqueueFifo';
-import {spaceDigest} from '../../lib/spaceDigest';
+import {apiRequest} from '../../lib/apiClient';
+import {discardPayload} from '../../lib/serviceResult';
 import type {ServiceResult} from '../../types/service.types';
-import type {FileSendRequest, SendSourceSpace} from './fileSend.types';
-import {configValue} from '../../lib/runtimeConfig';
-import {spaceBuckets} from '../../lib/userSpace';
+import type {FileSendRequest} from './fileSend.types';
 
 /**
  * The control plane's own caps, mirrored (`fscommon/config.py`). Terraform and Python already
@@ -19,28 +17,14 @@ const SEND_MAX_ITEMS = 200;
 const SEND_MAX_ITEM_BYTES = 96 * 1024;
 
 /**
- * The bucket a source space lives in, derived exactly as the control plane derives it
- * (`fscommon.authz.authorize_source`): personal spaces are in the user-space bucket, shared
- * spaces in the shared-space bucket. Used only to build the FIFO group id — the enqueued body
- * never carries a bucket, because the verb resolves it server-side from the verified actor.
- */
-function sourceBucket(space: SendSourceSpace): string {
-  const {user, shared} = spaceBuckets();
-  return (space.kind === 'personal' ? user : shared) ?? '';
-}
-
-/**
  * Enqueue a send-files request onto the file-send FIFO queue — the browser's only file-send
- * AWS call, and its only file-send privilege. The async control plane copies the files into
+ * write, and its only file-send privilege. The async control plane copies the files into
  * each recipient's `shared_files/{sender}/` inbox, so success means *enqueued*, not sent.
  *
- * The token rides as a top-level `actor`, matching every other plane's envelope: the
- * shared DLQ drain reads and redacts that field flatly, so a nested one would mean a
- * dead-lettered send notified nobody and wrote the raw JWT to CloudWatch.
  *
- * `MessageDeduplicationId` is the caller's `requestId` — the queue has content-based dedup
- * OFF, so that id is the only double-submit guard, and it must therefore be minted per submit
- * rather than per dialog.
+ * The `requestId` stays minted PER SUBMIT in the browser: it is still the double-submit guard,
+ * the API echoes it rather than minting one, and reusing it across a retry would make the retry a
+ * silent no-op. The FIFO keys themselves are derived server-side now.
  */
 export async function enqueueFileSend(req: FileSendRequest): Promise<ServiceResult<void>> {
   const selectionBytes = new TextEncoder().encode(JSON.stringify(req.items)).length;
@@ -51,19 +35,13 @@ export async function enqueueFileSend(req: FileSendRequest): Promise<ServiceResu
     };
   }
 
-  return enqueueFifoRequest<void>({
-    queueUrl: configValue('fileSendQueueUrl'),
-    notConfiguredMessage: 'Sending files is not configured',
-    build: async (idToken) => ({
+  return discardPayload(
+    await apiRequest('fileSend.enqueue', {
       body: {
         requestId: req.requestId,
-        actor: idToken,
         source: {space: req.space, items: req.items},
         recipients: req.recipients
-      },
-      messageGroupId: await spaceDigest(sourceBucket(req.space), req.space.name),
-      deduplicationId: req.requestId,
-      data: undefined
+      }
     })
-  });
+  );
 }

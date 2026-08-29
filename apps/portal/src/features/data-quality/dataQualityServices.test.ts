@@ -1,16 +1,14 @@
-import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import type {MockedFunction} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {asSentence, isApproximateIssue, locationLabel, sourceFolderPrefix} from './dataQuality.format';
-import {getSqsClient} from '../../lib/sqsClient';
-import {getIdToken} from '../../lib/awsCredentials';
 import {enqueueQualityCheck} from './dataQuality.service';
 import {getQualityReport, reportKey} from './dataQualityReport.service';
 import {apiRequest} from '../../lib/apiClient';
+import {apiFailure, mockApi} from '../../test/apiMock';
+import type {ApiMock} from '../../test/apiMock';
 import {getRunsIndex} from './dataQualityRuns.service';
 import type {DataQualityRequest} from './dataQuality.types';
 
 // ─── from dataQuality.format.test.ts ───
-vi.mock('../../lib/sqsClient', () => ({getSqsClient: vi.fn()}));
 vi.mock('../../lib/awsCredentials', () => ({
   getIdToken: vi.fn(),
   getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}})
@@ -89,21 +87,7 @@ describe('dataQuality.format', () => {
 // ─── from dataQuality.service.test.ts ───
 
 describe('dataQuality.service', () => {
-  const mockGetSqs = getSqsClient as unknown as MockedFunction<() => Promise<unknown>>;
-  const mockGetIdToken = getIdToken as unknown as MockedFunction<() => Promise<unknown>>;
-
-  const QUEUE = 'https://sqs.us-east-1.amazonaws.com/123/dat-prod-data-quality-requests.fifo';
   const REQUEST_ID = '11111111-2222-4333-8444-555555555555';
-
-  type Cmd = {input: Record<string, unknown>};
-
-  function fakeQueue(rejectWith?: unknown) {
-    const send = vi.fn<(cmd: Cmd) => Promise<{MessageId: string}>>();
-    if (rejectWith !== undefined) send.mockRejectedValue(rejectWith);
-    else send.mockResolvedValue({MessageId: 'm1'});
-    mockGetSqs.mockResolvedValue({success: true, data: {send}});
-    return {send};
-  }
 
   function makeReq(over: Partial<DataQualityRequest> = {}): DataQualityRequest {
     return {
@@ -114,83 +98,50 @@ describe('dataQuality.service', () => {
     };
   }
 
-  beforeEach(() => {
-    vi.stubEnv('VITE_DATA_QUALITY_QUEUE_URL', QUEUE);
-    mockGetIdToken.mockResolvedValue({success: true, data: 'id-token-abc'});
-  });
-
-  afterEach(() => {
-    vi.clearAllMocks();
-    vi.unstubAllEnvs();
-  });
-
+  /**
+   * The data-quality enqueue, now over the API.
+   *
+   * **The location group id is deliberately absent from this file.** It was the digest of
+   * `{bucket}/{location}` — hashed rather than raw because SQS caps a group id at 128 characters
+   * where an S3 key reaches 1024 — and the whole of it moved: the digest itself is replayed
+   * against vectors captured from this service in `lambdas/api/test_fifo_derivations.py`, and the
+   * one-character divergence that made two spellings of one location serialize (this plane strips
+   * BOTH ends where the space-keyed planes keep a trailing slash) has its own named test there.
+   *
+   * The `idToken` field went the same way — the API stamps it from the verified bearer and
+   * refuses a body that claims one.
+   */
   describe('enqueueQualityCheck', () => {
-    it('sends the envelope with the token and no username', async () => {
-      const {send} = fakeQueue();
+    let api: ApiMock;
+
+    beforeEach(() => {
+      api = mockApi(vi.mocked(apiRequest));
+    });
+
+    it('sends the check once and echoes back the caller’s own request id', async () => {
+      api.on('dataQuality.enqueue', {success: true, data: {requestId: REQUEST_ID}});
+
       const res = await enqueueQualityCheck(makeReq());
 
+      // This service is the one of the ten that keeps a payload: the id is what the runs index
+      // and the report link are keyed on, and it is the caller's, never the API's.
       expect(res).toEqual({success: true, data: {requestId: REQUEST_ID}});
-      const input = send.mock.calls[0][0].input;
-      expect(input.QueueUrl).toBe(QUEUE);
-      const body = JSON.parse(input.MessageBody as string);
-      expect(body).toEqual({
+      expect(api.routes()).toEqual(['dataQuality.enqueue']);
+      // `toEqual`, not `toMatchObject`: the absence of a claimed identity is the assertion.
+      expect(api.bodyFor('dataQuality.enqueue')).toEqual({
         requestId: REQUEST_ID,
-        idToken: 'id-token-abc',
         space: {kind: 'personal', bucket: 'dat-prod-user-space', prefix: 'alice/'},
         location: 'alice/sales/'
       });
-      // The actor is derived server-side from the verified claim — the body must not
-      // carry an identity the caller could assert.
-      expect(body).not.toHaveProperty('actor');
-      expect(body).not.toHaveProperty('username');
     });
 
-    it('hashes a location far longer than SQS allows into a 64-char group id', async () => {
-      // The failure this prevents: SQS caps MessageGroupId at 128 chars while S3 keys reach
-      // 1024, so a RAW location group id would fail the send in the browser — for exactly
-      // the users with the deepest folders.
-      const deep = `alice/${'nested-folder/'.repeat(20)}data/`;
-      expect(deep.length).toBeGreaterThan(128);
+    it('returns the failure as a result and never throws', async () => {
+      api.on('dataQuality.enqueue', apiFailure('ApiUnavailable'));
 
-      const {send} = fakeQueue();
-      const res = await enqueueQualityCheck(makeReq({location: deep}));
-
-      expect(res.success).toBe(true);
-      const groupId = send.mock.calls[0][0].input.MessageGroupId as string;
-      expect(groupId).toHaveLength(64);
-      expect(groupId).toMatch(/^[0-9a-f]{64}$/);
-      expect(groupId).not.toContain('nested-folder');
-    });
-
-    it('gives the same group id to the same location (they serialize)', async () => {
-      const {send} = fakeQueue();
-      await enqueueQualityCheck(makeReq({requestId: 'req-a'}));
-      await enqueueQualityCheck(makeReq({requestId: 'req-b'}));
-
-      const [a, b] = send.mock.calls.map((c) => c[0].input.MessageGroupId);
-      expect(a).toBe(b);
-    });
-
-    it('treats trailing-slash variants of one location as the same group', async () => {
-      const {send} = fakeQueue();
-      await enqueueQualityCheck(makeReq({location: 'alice/sales/'}));
-      await enqueueQualityCheck(makeReq({location: 'alice/sales'}));
-
-      const [a, b] = send.mock.calls.map((c) => c[0].input.MessageGroupId);
-      expect(a).toBe(b);
-    });
-
-    it('returns a failure when the queue is not configured', async () => {
-      vi.stubEnv('VITE_DATA_QUALITY_QUEUE_URL', '');
       const res = await enqueueQualityCheck(makeReq());
-      expect(res.success).toBe(false);
-    });
 
-    it('never throws when the send fails', async () => {
-      fakeQueue(Object.assign(new Error('SQS down'), {name: 'ServiceUnavailable'}));
-      const res = await enqueueQualityCheck(makeReq());
       expect(res.success).toBe(false);
-      if (!res.success) expect(res.error.code).toBe('ServiceUnavailable');
+      expect(res.success === false && res.error.code).toBe('ApiUnavailable');
     });
   });
 });

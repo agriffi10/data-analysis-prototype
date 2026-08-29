@@ -23,11 +23,6 @@ variable "user_space_bucket_name" {
   type        = string
 }
 
-variable "portal_role_name" {
-  description = "Name of the shared portal role (created in module.data) this module attaches the sqs:SendMessage inline policy to, by name — mirrors how the analytics / shared-spaces modules attach their portal policies."
-  type        = string
-}
-
 variable "portal_role_unique_id" {
   description = "The portal role's IAM unique ID (AROA…), set on the writer as NOTIFICATIONS_UNTRUSTED_SENDER_ID. SQS stamps SenderId as {unique_id}:{session-name}; the writer refuses a `create` whose role-id half matches this, which is what makes trusted-producer-only true of the running system rather than only of the design. NO DEFAULT ON PURPOSE: a root that forgets to wire it must fail at plan, because the writer's own fail-closed would otherwise deploy a function that silently refuses every notification in the product."
   type        = string

@@ -10,12 +10,12 @@ output "shared_space_bucket_arn" {
 }
 
 output "request_queue_url" {
-  description = "URL of the FIFO request queue. The browser enqueues control-plane requests here (sqs:SendMessage, granted to the portal role). Maps to VITE_SHARED_SPACE_QUEUE_URL."
+  description = "URL of the FIFO request queue. The API enqueues control-plane requests here."
   value       = aws_sqs_queue.requests.url
 }
 
 output "request_queue_arn" {
-  description = "ARN of the FIFO request queue — the portal-role sqs:SendMessage scope."
+  description = "ARN of the FIFO request queue — the API execution role's sqs:SendMessage scope."
   value       = aws_sqs_queue.requests.arn
 }
 

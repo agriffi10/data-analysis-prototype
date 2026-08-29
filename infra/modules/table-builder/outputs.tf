@@ -1,10 +1,10 @@
 output "table_build_queue_url" {
-  description = "URL of the FIFO request queue (ends in .fifo). The browser enqueues create-table requests here (sqs:SendMessage, granted to the portal role). Maps to VITE_TABLE_BUILD_QUEUE_URL."
+  description = "URL of the FIFO request queue (ends in .fifo). The API enqueues create-table requests here."
   value       = aws_sqs_queue.requests.url
 }
 
 output "table_build_queue_arn" {
-  description = "ARN of the FIFO request queue — the portal-role sqs:SendMessage scope."
+  description = "ARN of the FIFO request queue — the API execution role's sqs:SendMessage scope."
   value       = aws_sqs_queue.requests.arn
 }
 

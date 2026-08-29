@@ -1,5 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {screen, waitFor, within} from '@testing-library/react';
+import {toUserMessage} from '../../lib/errorMessages';
 import type {ReactElement} from 'react';
 import {act} from '@testing-library/react';
 import {createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
@@ -256,15 +257,19 @@ describe('the same-folder copy probes FIRST, then forks on the item kind (FR-001
 });
 
 describe('a failed enqueue says why (FR-002 AC8)', () => {
-  it('surfaces the mapped not-configured message rather than doing nothing', async () => {
+  // Driven with a code the enqueue path can ACTUALLY produce. It used to be `NotConfigured`,
+  // which the browser can no longer mint at all — the queue URLs are the API's configuration now
+  // — so the one flow-level assertion that a failed enqueue reaches a rendered sentence was
+  // anchored to a case nothing can reach.
+  it('surfaces the mapped message rather than doing nothing', async () => {
     mockSubmit.mockResolvedValue({
       success: false,
-      error: {message: 'File operations are not configured', code: 'NotConfigured'}
+      error: {message: 'the queue is unavailable', code: 'ApiUnavailable'}
     });
     const {user} = render();
     await selectAnd(user, 'folder docs', 'Delete selected items');
     await user.click(await screen.findByRole('button', {name: 'Delete'}));
-    expect(await screen.findByText('File operations are not configured')).toBeInTheDocument();
+    expect(await screen.findByText(toUserMessage({code: 'ApiUnavailable'}).message)).toBeInTheDocument();
   });
 });
 

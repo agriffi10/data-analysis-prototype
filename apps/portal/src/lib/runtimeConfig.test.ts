@@ -69,7 +69,7 @@ describe('runtimeConfig — the document', () => {
     await loadRuntimeConfig();
 
     expect(configValue('userSpaceBucket')).toBe('served-userSpaceBucket');
-    expect(configValue('archiveQueueUrl')).toBe('served-archiveQueueUrl');
+    expect(configValue('sharedSpaceBucket')).toBe('served-sharedSpaceBucket');
     expect(isPortalConfigured()).toBe(true);
   });
 
@@ -149,7 +149,7 @@ describe('runtimeConfig — the dev fallback', () => {
     // The two tables are exhaustive by the compiler; that a key is paired with the RIGHT
     // variable is not a thing a type can say.
     const paired = [...REQUIRED_CONFIG, ...OPTIONAL_CONFIG].filter((key) => VITE_NAME[key] !== null);
-    expect(paired).toHaveLength(19);
+    expect(paired).toHaveLength(11);
 
     for (const key of paired) vi.stubEnv(VITE_NAME[key] as string, `env-${key}`);
 

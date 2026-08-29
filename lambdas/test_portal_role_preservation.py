@@ -9,6 +9,7 @@ Attributes:
   INFRA: The IaC tree.
   BASELINE_COMMIT: The commit these templates are pinned to.
   ADDED_SINCE_BASELINE: Permission templates added since, named one by one.
+  RETIRED_SINCE_BASELINE: Permission templates removed since, named one by one.
   TRUST: The one template this spec edits.
   API_ROLE_ARN: A rendered API execution role ARN.
   PORTAL_ROLE_ARN: A rendered portal role ARN.
@@ -31,7 +32,36 @@ BASELINE_COMMIT = "b01930c8"
 #: cannot see a file that was not in it.
 ADDED_SINCE_BASELINE: frozenset[str] = frozenset()
 
+#: Permission templates RETIRED since the baseline, each named deliberately, for the same reason
+#: additions are named: a byte comparison cannot argue for a file's absence, so a deletion has to
+#: be read by a person once. These seven were the browser's per-plane ``sqs:SendMessage`` grants.
+#: They came off in the change that repointed the browser at the API, and they came off THERE
+#: rather than later on purpose — the message's identity block becomes authoritative in the next
+#: spec, and a trusted actor field plus a browser credential able to write the queue is
+#: impersonation. The eighth grant, shared-space's, was one statement inside a template whose
+#: other statements are membership grants; that template survives and its bytes are compared
+#: below like every other.
+#:
+#: **Do not add to this to make a red run green.** A name here says someone decided the browser
+#: should stop being able to do that thing.
+RETIRED_SINCE_BASELINE: frozenset[str] = frozenset(
+    {
+        "infra/modules/archive/policies/portal-role-archive.json.tftpl",
+        "infra/modules/data-quality/policies/portal-role-data-quality.json.tftpl",
+        "infra/modules/file-ops/policies/portal-role-file-ops.json.tftpl",
+        "infra/modules/file-send/policies/portal-role-file-send.json.tftpl",
+        "infra/modules/notifications/policies/portal-role-notifications.json.tftpl",
+        "infra/modules/table-builder/policies/portal-role-table-builder.json.tftpl",
+        "infra/modules/table-share/policies/portal-role-table-share.json.tftpl",
+    }
+)
+
 TRUST = "infra/modules/data/policies/portal-role-trust.json.tftpl"
+
+#: The one PERMISSION template this change edits, exempted from the byte comparison and asserted
+#: by content instead — the same treatment the trust template gets, and for the same reason: a
+#: byte comparison can only say "changed", which is not an answer to "changed how".
+EDITED = "infra/modules/shared-spaces/policies/portal-role-shared-space.json.tftpl"
 
 API_ROLE_ARN = "arn:aws:iam::696000197480:role/dat-prod-api-role"
 PORTAL_ROLE_ARN = "arn:aws:iam::696000197480:role/dat-portal-user-role"
@@ -43,7 +73,9 @@ EXPECTED_FEDERATED_STATEMENT = {
     "Action": ["sts:AssumeRoleWithWebIdentity", "sts:TagSession"],
     "Condition": {
         "StringEquals": {"cognito-identity.amazonaws.com:aud": IDENTITY_POOL_ID},
-        "ForAnyValue:StringLike": {"cognito-identity.amazonaws.com:amr": "authenticated"},
+        "ForAnyValue:StringLike": {
+            "cognito-identity.amazonaws.com:amr": "authenticated"
+        },
     },
 }
 
@@ -157,7 +189,9 @@ def _permission_templates(commit: str) -> set[str]:
     return {
         path
         for path in listed.splitlines()
-        if re.fullmatch(r"infra/modules/[^/]+/policies/portal-role-.*\.json\.tftpl", path)
+        if re.fullmatch(
+            r"infra/modules/[^/]+/policies/portal-role-.*\.json\.tftpl", path
+        )
         and path != TRUST
     }
 
@@ -165,7 +199,9 @@ def _permission_templates(commit: str) -> set[str]:
 # ── FR-008: what stays true ───────────────────────────────────────────────────
 
 
-def test_ACCEPTED_the_portal_role_permission_templates_are_byte_identical_to_the_baseline() -> None:
+def test_ACCEPTED_the_portal_role_permission_templates_are_byte_identical_to_the_baseline() -> (
+    None
+):
     """The preservation claim, as bytes. Nine templates, none of them touched.
 
     **If this reddens, a portal-role permission template changed.** That is not automatically
@@ -198,8 +234,18 @@ def test_ACCEPTED_the_portal_role_permission_templates_are_byte_identical_to_the
         for path in INFRA.glob("modules/*/policies/portal-role-*.json.tftpl")
         if str(path.relative_to(REPO)) != TRUST
     }
-    missing = baseline - present
-    assert not missing, f"a portal-role permission template was deleted: {sorted(missing)}"
+    missing = baseline - present - RETIRED_SINCE_BASELINE
+    assert not missing, (
+        f"a portal-role permission template was deleted: {sorted(missing)}"
+    )
+
+    # A name in the retirement set that is back on disk is a re-grant, and it would otherwise
+    # read as tidy: the set would simply stop matching anything.
+    resurrected = RETIRED_SINCE_BASELINE & present
+    assert not resurrected, (
+        f"a retired portal-role grant is back: {sorted(resurrected)}. The API is the only writer "
+        "of these queues; a browser credential that can write one can forge an actor."
+    )
 
     added = present - baseline - ADDED_SINCE_BASELINE
     assert not added, (
@@ -209,7 +255,7 @@ def test_ACCEPTED_the_portal_role_permission_templates_are_byte_identical_to_the
         "in ADDED_SINCE_BASELINE so it is an argued edit rather than a silent one."
     )
 
-    for path in sorted(baseline):
+    for path in sorted(baseline - RETIRED_SINCE_BASELINE - {EDITED}):
         assert _git("show", f"{BASELINE_COMMIT}:{path}") == (REPO / path).read_text(), (
             f"{path} differs from its pre-change bytes"
         )
@@ -218,7 +264,9 @@ def test_ACCEPTED_the_portal_role_permission_templates_are_byte_identical_to_the
 # ── FR-003: the trust policy ──────────────────────────────────────────────────
 
 
-def test_the_tag_key_set_is_the_same_in_the_trust_policy_and_the_identity_pool() -> None:
+def test_the_tag_key_set_is_the_same_in_the_trust_policy_and_the_identity_pool() -> (
+    None
+):
     """A fourth copy of the slot name arrived with this spec, so it joins the comparison.
 
     The name is written in the Identity Pool's map, in the portal role's shared-space policy, in
@@ -238,7 +286,9 @@ def test_the_tag_key_set_is_the_same_in_the_trust_policy_and_the_identity_pool()
     block = re.search(r"principal_tags\s*=\s*merge\((.*?)\n\s*\)", pool, re.DOTALL)
     assert block, "no principal_tags merge() was found — this comparison has no subject"
 
-    literal = re.search(r"\{\s*([A-Za-z_][\w]*)\s*=\s*\"([^\"]+)\"\s*\}", block.group(1))
+    literal = re.search(
+        r"\{\s*([A-Za-z_][\w]*)\s*=\s*\"([^\"]+)\"\s*\}", block.group(1)
+    )
     comprehension = re.search(r':\s*"([^"]*\$\{k\}[^"]*)"\s*=>', block.group(1))
     assert literal and comprehension, "the principal-tag map's shape changed"
 
@@ -271,7 +321,9 @@ def test_the_api_assumes_the_EXISTING_portal_role_and_creates_none() -> None:
       AssertionError: If a new role appeared, or the function is pointed at anything else.
     """
     main = (INFRA / "main.tf").read_text()
-    api_block = main[main.index('module "api" {') : main.index("\n}\n", main.index('module "api" {'))]
+    api_block = main[
+        main.index('module "api" {') : main.index("\n}\n", main.index('module "api" {'))
+    ]
     assert re.search(r"portal_role_arn\s*=\s*local\.portal_role_arn", api_block), (
         "the API is not pointed at the existing portal role"
     )
@@ -315,3 +367,75 @@ def test_ACCEPTED_a_recreated_api_role_would_not_redraw_the_trust_policy() -> No
         if "AWS" in statement.get("Principal", {})
     ]
     assert len(principals) == 1
+
+
+def test_the_shared_space_template_lost_ONLY_its_enqueue_statement() -> None:
+    """The one edited permission template, checked by content because bytes cannot say how.
+
+    Its other statements are the membership grants — the per-slot S3 allows, the list condition,
+    the Glue grants and the three denies — and they are what a member's access to a shared space
+    actually is. An edit that took one of those out with the enqueue would read as the same diff.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the enqueue statement survived, or any other statement did not.
+    """
+
+    # WHOLE STATEMENTS, not their names. A Sid-set comparison says a statement is still called
+    # what it was called, which is not the same as it still saying what it said: deleting the
+    # `Condition` from `SharedSpaceList` leaves the Sid, the Action and the Resource untouched and
+    # turns "list the spaces your principal tags name" into "list the whole shared-space bucket"
+    # for every signed-in user.
+    #
+    # Split by text rather than parsed: this template carries `%{ for }` directives for the
+    # per-slot grants, so it is not JSON until Terraform renders it.
+    def statements(body: str) -> dict[str, str]:
+        chunks = re.split(r'(?=\{\s*\n\s*"Sid")', body)
+        found = {}
+        for chunk in chunks:
+            name = re.search(r'"Sid"\s*:\s*"([^"]+)"', chunk)
+            if name:
+                # Cut at the statement's OWN closing brace. Splitting on the next statement makes
+                # the last chunk absorb the document's closing brackets, and removing the final
+                # element then reads as a change to its predecessor — punctuation presenting as a
+                # narrowed grant.
+                depth, end = 0, len(chunk)
+                for index, character in enumerate(chunk):
+                    if character == "{":
+                        depth += 1
+                    elif character == "}":
+                        depth -= 1
+                        if depth == 0:
+                            end = index + 1
+                            break
+                found[name.group(1)] = re.sub(r"\s+", " ", chunk[:end]).strip()
+        return found
+
+    before = statements(_git("show", f"{BASELINE_COMMIT}:{EDITED}"))
+    after = statements((REPO / EDITED).read_text())
+
+    assert len(before) >= 6, (
+        "the sweep found nothing, so every comparison below is vacuous"
+    )
+
+    survived = set(before) & set(after)
+    changed = [name for name in sorted(survived) if before[name] != after[name]]
+    assert changed == [], (
+        f"a statement that should be untouched changed: {changed}. These are the membership "
+        "grants — what a member's access to a shared space actually IS — and an edit that "
+        "narrowed or widened one would be the same diff as removing the enqueue."
+    )
+
+    assert set(before) - set(after) == {"SharedSpaceEnqueue"}, (
+        f"this change should remove exactly the enqueue statement; it removed "
+        f"{set(before) - set(after)}"
+    )
+    assert set(after) - set(before) == set(), (
+        f"it should add none; it added {set(after) - set(before)}"
+    )
+    assert "sqs:SendMessage" not in (REPO / EDITED).read_text()
