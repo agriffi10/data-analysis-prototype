@@ -63,16 +63,18 @@ describe('errorMessages', () => {
       ).toContain('column');
     });
 
-    it('maps a results-read-too-early 400 to "still running", not the generic fallback', () => {
+    it('maps a results-read-too-early to "still running", not the generic fallback', () => {
       // GetQueryResults against a QUEUED execution. Until 2026-08-15 this reached a user, on an
       // ordinary first load of the Data Explorer, as "Something went wrong. Contact the
       // Administrator." — the app's most alarming sentence, for a transient race of our own.
-      // The real fix is the SUCCEEDED gate in `ExplorationResultsRegion`; this rule is the
-      // backstop, so a future slip reads as "still running" rather than as an outage.
-      const {message} = toUserMessage({
-        code: 'InvalidRequestException',
-        message: 'Query has not yet finished. Current state: QUEUED'
-      });
+      //
+      // It arrives as a CODE now. The rule that read the engine's text is gone with the path that
+      // produced it: the browser no longer calls Athena, so nothing can hand this mapper a raw
+      // `InvalidRequestException` again. That rule could never have been a code rule, because the
+      // AWS name means two different things and `code` outranks every message rule — the API
+      // resolves the ambiguity at the one layer that holds the message.
+      const {message} = toUserMessage({code: 'QueryNotFinished'});
+
       expect(message).toBe('The query is still running. Give it a moment and try again.');
       expect(message).not.toMatch(/Contact the Administrator/i);
     });
@@ -91,32 +93,14 @@ describe('errorMessages', () => {
       expect(toUserMessage({code: 'QuerySyntaxError'}).message).not.toMatch(/Contact the Administrator/i);
     });
 
-    it('says exactly the same thing when the API resolves that condition to a code', () => {
-      // The API can key on the message where the browser never could, so the too-early read now
-      // also arrives as a machine code — and a `code` rule outranks every message rule, so this
-      // sentence is the one a user gets from here on.
-      //
-      // Compared against the OTHER RULE's output rather than against a literal: a third copy of
-      // the sentence is a third thing to keep in step, and it would agree with itself while the
-      // wording moved. Both rules exist at once during the port, and the whole claim is that the
-      // move is invisible.
-      const viaMessage = toUserMessage({
-        code: 'InvalidRequestException',
-        message: 'Query has not yet finished. Current state: QUEUED'
-      });
-
-      expect(toUserMessage({code: 'QueryNotFinished'}).message).toBe(viaMessage.message);
-    });
-
-    it('still calls a StartQueryExecution rejection a syntax error', () => {
-      // The guard on the rule above. A rejected START surfaces with `code` = the AWS name
-      // (`toServiceError`), and `InvalidRequestException` is the name for BOTH a malformed
-      // query and the too-early read — so keying the new rule on that name would have been a
-      // `code` rule, and `code` rules outrank every message rule. This is the case that would
-      // have broken.
+    it('still reads a syntax error out of a FAILED execution reason', () => {
+      // The match rule that survives the port, and the path that keeps it alive: most syntax
+      // errors are not rejected at submit at all — Athena accepts the query, the execution
+      // reaches FAILED, and the reason travels on a 200 for this rule to read. The submit-time
+      // half now arrives as `QuerySyntaxError`, asserted above to say the very same sentence.
       expect(
         toUserMessage({
-          code: 'InvalidRequestException',
+          code: 'FAILED',
           message: "line 3:36: mismatched input '>'. Expecting: ')', ','"
         }).message
       ).toBe('There’s a syntax error in your query. Check the SQL and try again.');

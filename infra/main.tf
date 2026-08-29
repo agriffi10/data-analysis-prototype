@@ -444,7 +444,6 @@ locals {
     cognitoIdentityPoolId   = module.auth.identity_pool_id
     userSpaceBucket         = local.user_space_bucket_name
     sharedSpaceBucket       = local.shared_space_bucket_name
-    athenaWorkgroup         = local.athena_workgroup_name
     sharedSpaceQueueUrl     = module.shared_spaces.request_queue_url
     notificationsQueueUrl   = module.notifications.notifications_queue_url
     tableBuildQueueUrl      = module.table_builder.table_build_queue_url

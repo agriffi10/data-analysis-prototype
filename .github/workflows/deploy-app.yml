@@ -55,7 +55,6 @@ jobs:
           VITE_COGNITO_IDENTITY_POOL_ID: ${{ vars.VITE_COGNITO_IDENTITY_POOL_ID }}
           VITE_S3_USER_SPACE_BUCKET: ${{ vars.VITE_S3_USER_SPACE_BUCKET }}
           VITE_S3_SHARED_SPACE_BUCKET: ${{ vars.VITE_S3_SHARED_SPACE_BUCKET }}
-          VITE_ATHENA_WORKGROUP: ${{ vars.VITE_ATHENA_WORKGROUP }}
           VITE_MAX_UPLOAD_BYTES: ${{ vars.VITE_MAX_UPLOAD_BYTES }}
           VITE_SHARED_SPACE_QUEUE_URL: ${{ vars.VITE_SHARED_SPACE_QUEUE_URL }}
           VITE_NOTIFICATIONS_QUEUE_URL: ${{ vars.VITE_NOTIFICATIONS_QUEUE_URL }}
@@ -93,7 +92,6 @@ jobs:
           CONFIG_cognitoIdentityPoolId: ${{ vars.VITE_COGNITO_IDENTITY_POOL_ID }}
           CONFIG_userSpaceBucket: ${{ vars.VITE_S3_USER_SPACE_BUCKET }}
           CONFIG_sharedSpaceBucket: ${{ vars.VITE_S3_SHARED_SPACE_BUCKET }}
-          CONFIG_athenaWorkgroup: ${{ vars.VITE_ATHENA_WORKGROUP }}
           CONFIG_sharedSpaceQueueUrl: ${{ vars.VITE_SHARED_SPACE_QUEUE_URL }}
           CONFIG_notificationsQueueUrl: ${{ vars.VITE_NOTIFICATIONS_QUEUE_URL }}
           CONFIG_tableBuildQueueUrl: ${{ vars.VITE_TABLE_BUILD_QUEUE_URL }}
@@ -108,8 +106,8 @@ jobs:
           # same-prefixed variable a workflow-level env, a composite action or a
           # self-hosted runner introduces — into a world-readable document. Both lists
           # below are asserted against the classification by test.
-          KEYS='apiBaseUrl appUrl awsRegion environment maxUploadBytes cognitoUserPoolId cognitoUserPoolClientId cognitoDomain cognitoIdentityPoolId userSpaceBucket sharedSpaceBucket athenaWorkgroup sharedSpaceQueueUrl notificationsQueueUrl tableBuildQueueUrl tableShareQueueUrl dataQualityQueueUrl fileSendQueueUrl archiveQueueUrl fileOpsQueueUrl'
-          REQUIRED='apiBaseUrl appUrl awsRegion userSpaceBucket athenaWorkgroup cognitoUserPoolId cognitoUserPoolClientId cognitoDomain'
+          KEYS='apiBaseUrl appUrl awsRegion environment maxUploadBytes cognitoUserPoolId cognitoUserPoolClientId cognitoDomain cognitoIdentityPoolId userSpaceBucket sharedSpaceBucket sharedSpaceQueueUrl notificationsQueueUrl tableBuildQueueUrl tableShareQueueUrl dataQualityQueueUrl fileSendQueueUrl archiveQueueUrl fileOpsQueueUrl'
+          REQUIRED='apiBaseUrl appUrl awsRegion userSpaceBucket cognitoUserPoolId cognitoUserPoolClientId cognitoDomain'
 
           jq -n --arg keys "$KEYS" '($keys | split(" ")) as $allowed
             | {version: 1} + ($ENV

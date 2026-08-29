@@ -119,7 +119,7 @@ describe('runtimeConfig — a production load that fails', () => {
   });
 
   it('names every missing required key', async () => {
-    respondWith(JSON.stringify({version: 1, ...withoutKeys('userSpaceBucket', 'athenaWorkgroup')}));
+    respondWith(JSON.stringify({version: 1, ...withoutKeys('userSpaceBucket', 'cognitoDomain')}));
     const {loadRuntimeConfig: load, configValue: read} = await productionModule();
 
     const result = await load();
@@ -127,7 +127,7 @@ describe('runtimeConfig — a production load that fails', () => {
     expect(result).toEqual({
       ok: false,
       reason: 'missing-required',
-      missing: ['userSpaceBucket', 'athenaWorkgroup']
+      missing: ['userSpaceBucket', 'cognitoDomain']
     });
     // AND THE KEYS IT DID CARRY ARE NOT SERVED. Left installed, an incomplete document
     // answers `undefined` for the missing ones — the bucket-named-undefined failure, on
@@ -149,7 +149,7 @@ describe('runtimeConfig — the dev fallback', () => {
     // The two tables are exhaustive by the compiler; that a key is paired with the RIGHT
     // variable is not a thing a type can say.
     const paired = [...REQUIRED_CONFIG, ...OPTIONAL_CONFIG].filter((key) => VITE_NAME[key] !== null);
-    expect(paired).toHaveLength(20);
+    expect(paired).toHaveLength(19);
 
     for (const key of paired) vi.stubEnv(VITE_NAME[key] as string, `env-${key}`);
 

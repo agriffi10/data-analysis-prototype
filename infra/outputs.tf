@@ -70,7 +70,7 @@ output "pre_signup_function_name" {
 }
 
 output "athena_workgroup_name" {
-  description = "Name of the shared Athena workgroup. Set VITE_ATHENA_WORKGROUP to this value."
+  description = "Name of the shared Athena workgroup. Read by the API function and the control planes as ATHENA_WORKGROUP; the browser no longer knows it."
   value       = module.analytics.athena_workgroup_name
 }
 

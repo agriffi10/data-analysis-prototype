@@ -18,11 +18,11 @@ set -eu
 # The document's keys, named rather than scooped from the environment. A bare
 # `CONFIG_*` sweep publishes whatever same-prefixed variable a task definition, a base image
 # or an orchestrator introduces — into a world-readable document.
-KEYS='apiBaseUrl appUrl awsRegion environment maxUploadBytes cognitoUserPoolId cognitoUserPoolClientId cognitoDomain cognitoIdentityPoolId userSpaceBucket sharedSpaceBucket athenaWorkgroup sharedSpaceQueueUrl notificationsQueueUrl tableBuildQueueUrl tableShareQueueUrl dataQualityQueueUrl fileSendQueueUrl archiveQueueUrl fileOpsQueueUrl'
+KEYS='apiBaseUrl appUrl awsRegion environment maxUploadBytes cognitoUserPoolId cognitoUserPoolClientId cognitoDomain cognitoIdentityPoolId userSpaceBucket sharedSpaceBucket sharedSpaceQueueUrl notificationsQueueUrl tableBuildQueueUrl tableShareQueueUrl dataQualityQueueUrl fileSendQueueUrl archiveQueueUrl fileOpsQueueUrl'
 
 # The ones with no degraded path. A container serving a document without these renders a boot
 # failure to every user, so it refuses to serve at all instead.
-REQUIRED='apiBaseUrl appUrl awsRegion userSpaceBucket athenaWorkgroup cognitoUserPoolId cognitoUserPoolClientId cognitoDomain'
+REQUIRED='apiBaseUrl appUrl awsRegion userSpaceBucket cognitoUserPoolId cognitoUserPoolClientId cognitoDomain'
 
 # The version the browser's loader accepts. It refuses a document whose version differs — it
 # does not guess — so a mismatch here is a white screen, not a degraded feature.

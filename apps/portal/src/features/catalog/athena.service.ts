@@ -1,27 +1,8 @@
-import {
-  StartQueryExecutionCommand,
-  GetQueryExecutionCommand,
-  GetQueryResultsCommand,
-  StopQueryExecutionCommand
-} from '@aws-sdk/client-athena';
-import {getAthenaClient} from '../../lib/athenaClient';
-import {withCredentialRetry} from '../../lib/credentialRetry';
-import {toServiceError} from '../../lib/serviceResult';
-import {userSpaceBucket} from '../../lib/userSpace';
+import {apiRequest} from '../../lib/apiClient';
 import type {ServiceResult} from '../../types/service.types';
 import {DEFAULT_MAX_ROWS} from './catalog.constants';
 import {normalizeColumnType} from './catalog.format';
 import type {QueryColumn, QueryResultPage, QueryState, QueryStatus} from './catalog.types';
-import {configValue} from '../../lib/runtimeConfig';
-
-// The caller's own protected results prefix. The app supplies this OutputLocation
-// per query, but it is enforced server-side: IAM restricts
-// writes to `{username}/athenaresults/*` and explicitly DENIES delete there, so a
-// query pointed at another user's prefix is denied. The workgroup deliberately
-// does not enforce a fixed output location.
-function outputLocation(username: string): string {
-  return `s3://${userSpaceBucket()}/${username}/athenaresults/`;
-}
 
 // Athena terminal execution states — polling stops once one is reached.
 const TERMINAL_STATES: ReadonlySet<QueryState> = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED']);
@@ -34,8 +15,15 @@ export function isTerminalState(state: QueryState): boolean {
 /**
  * Start an Athena query for the signed-in user. The same path runs both
  * `SELECT` and DDL (`CREATE TABLE`, `DROP TABLE`, CTAS, `INSERT`) — it does not inspect
- * the query type. Results always land in the caller's own `{username}/athenaresults/`
- * prefix (the IAM-enforced isolation boundary).
+ * the query type.
+ *
+ * **Three values that used to travel from here are now derived server-side**: the workgroup, the
+ * results location and the caller's identity. `username` stays on the signature so no call site
+ * changes, and is deliberately NOT sent — the API reads the verified claim, and a username on the
+ * wire would be a field the server has to decide whether to trust.
+ *
+ * @param p - The statement, the caller (unused on the wire) and an optional execution database.
+ * @returns The execution id, or the machine code a surface maps to wording.
  */
 export async function runQuery(p: {
   sql: string;
@@ -44,88 +32,64 @@ export async function runQuery(p: {
   // fully-qualified `database.table`. `database` is optional and, when omitted (the
   // default), `QueryExecutionContext.Database` is not sent at all.
   database?: string;
-  // Where results land. Omitted → the personal prefix; a shared
-  // path is chosen explicitly at Save time, no longer per run.
-  outputLocation?: string;
 }): Promise<ServiceResult<{queryExecutionId: string}>> {
-  const {sql, database, username, outputLocation: outLoc} = p;
-  return withCredentialRetry(getAthenaClient, async (client) => {
-    try {
-      const response = await client.send(
-        new StartQueryExecutionCommand({
-          QueryString: sql,
-          WorkGroup: configValue('athenaWorkgroup') as string,
-          // Omit the field entirely when there's no database — Athena then resolves
-          // only fully-qualified names, which is the intended behavior.
-          ...(database ? {QueryExecutionContext: {Database: database}} : {}),
-          ResultConfiguration: {OutputLocation: outLoc ?? outputLocation(username)}
-        })
-      );
-      const queryExecutionId = response.QueryExecutionId;
-      if (!queryExecutionId) {
-        return {
-          success: false,
-          // No rule matches this code on purpose — Athena accepting the start call
-          // without returning an id is a service fault, and GENERIC is what a user
-          // should see. The code exists so the mapper decides that, not a fallthrough.
-          error: {message: 'Athena did not return a query execution id', code: 'AthenaNoExecutionId'}
-        };
-      }
-      return {success: true, data: {queryExecutionId}};
-    } catch (err) {
-      return toServiceError(err, 'Failed to start query');
-    }
+  return apiRequest('athena.start', {
+    body: p.database ? {sql: p.sql, database: p.database} : {sql: p.sql}
   });
 }
 
 /**
  * Fetch a query's current execution status, mapped onto {@link QueryStatus}.
- * The Athena state strings map 1:1 onto `QueryState`; a missing status defaults to
- * `QUEUED` (the query was just submitted).
+ *
+ * A FAILED or CANCELLED execution is a **success** here, as it always was: the query failing is
+ * data about the query, not a failure of the request, and `stateChangeReason` is what the caller
+ * turns into wording. The wire says `null` where the domain type says absent.
+ *
+ * @param queryExecutionId - The execution to poll.
+ * @returns The status, or the machine code a surface maps to wording.
  */
 export async function getQueryStatus(queryExecutionId: string): Promise<ServiceResult<QueryStatus>> {
-  return withCredentialRetry(getAthenaClient, async (client) => {
-    try {
-      const response = await client.send(new GetQueryExecutionCommand({QueryExecutionId: queryExecutionId}));
-      const exec = response.QueryExecution;
-      const state = (exec?.Status?.State ?? 'QUEUED') as QueryState;
-      return {
-        success: true,
-        data: {
-          queryExecutionId,
-          state,
-          stateChangeReason: exec?.Status?.StateChangeReason,
-          dataScannedBytes: exec?.Statistics?.DataScannedInBytes,
-          engineExecutionTimeMillis: exec?.Statistics?.EngineExecutionTimeInMillis,
-          outputLocation: exec?.ResultConfiguration?.OutputLocation
-        }
-      };
-    } catch (err) {
-      return toServiceError(err, 'Failed to get query status');
+  const result = await apiRequest('athena.status', {params: {queryExecutionId}});
+  if (!result.success) return result;
+
+  const {state, stateChangeReason, dataScannedBytes, engineExecutionTimeMillis, outputLocation} = result.data;
+  return {
+    success: true,
+    data: {
+      queryExecutionId,
+      state: state as QueryState,
+      stateChangeReason: stateChangeReason ?? undefined,
+      dataScannedBytes: dataScannedBytes ?? undefined,
+      engineExecutionTimeMillis: engineExecutionTimeMillis ?? undefined,
+      outputLocation: outputLocation ?? undefined
     }
-  });
+  };
 }
 
 /**
- * Cancel a running query. `StopQueryExecution` transitions the execution to
- * `CANCELLED`, which the poller then observes as a terminal state.
+ * Cancel a running query. The execution transitions to `CANCELLED`, which the poller then
+ * observes as a terminal state.
+ *
+ * @param queryExecutionId - The execution to stop.
+ * @returns Nothing, or the machine code a surface maps to wording.
  */
 export async function stopQuery(queryExecutionId: string): Promise<ServiceResult<void>> {
-  return withCredentialRetry(getAthenaClient, async (client) => {
-    try {
-      await client.send(new StopQueryExecutionCommand({QueryExecutionId: queryExecutionId}));
-      return {success: true, data: undefined};
-    } catch (err) {
-      return toServiceError(err, 'Failed to cancel query');
-    }
-  });
+  const result = await apiRequest('athena.stop', {params: {queryExecutionId}});
+  if (!result.success) return result;
+  return {success: true, data: undefined};
 }
 
 /**
- * Read one page of a succeeded query's results. Columns come from
- * `ResultSetMetadata` (name + type); rows are the string cells (Athena returns every
- * value as a string). Pagination threads `nextToken`. A DDL/CTAS query that produced no
- * result set yields empty columns/rows — not an error.
+ * Read one page of a succeeded query's results.
+ *
+ * **The Athena-shaped arithmetic moved to the API** — the first-page `+1` overfetch, the 1000
+ * clamp and the repeated-header-row drop are the server's now, and this asks for a page and gets
+ * clean columns and rows. What did NOT move is the distinction the page carries: a cell is `null`
+ * where Athena reported SQL NULL and `''` where it reported an empty string, and no consumer can
+ * reconstruct that if it is flattened.
+ *
+ * @param p - The execution, an optional continuation token and an optional page size.
+ * @returns The page, or the machine code a surface maps to wording.
  */
 export async function getQueryResults(p: {
   queryExecutionId: string;
@@ -133,57 +97,24 @@ export async function getQueryResults(p: {
   maxRows?: number;
 }): Promise<ServiceResult<QueryResultPage>> {
   const {queryExecutionId, nextToken, maxRows} = p;
-  const pageSize = maxRows ?? DEFAULT_MAX_ROWS;
-  // Athena prepends the column names as the first row of the FIRST page of a
-  // SELECT (the header foot-gun handled below). Request one extra row on page 1
-  // so that, after dropping that header, a SELECT still nets a full `pageSize`
-  // data rows; continuation pages have no header and request exactly `pageSize`.
-  // Athena rejects MaxResults > 1000, so at the
-  // 1000-row maximum the +1 is clamped away and page 1 nets 999 data rows —
-  // callers must not assume uniform page lengths (useQueryResults numbers rows
-  // from the actual loaded pages).
-  const isFirstPage = !nextToken;
-  const ATHENA_MAX_RESULTS = 1000;
-  return withCredentialRetry(getAthenaClient, async (client) => {
-    try {
-      const response = await client.send(
-        new GetQueryResultsCommand({
-          QueryExecutionId: queryExecutionId,
-          NextToken: nextToken,
-          MaxResults: Math.min(isFirstPage ? pageSize + 1 : pageSize, ATHENA_MAX_RESULTS)
-        })
-      );
+  // Sent explicitly rather than left to the server's own default. The two agree today, and a
+  // caller that stops naming its page size would be depending on them continuing to.
+  const query: {maxRows: string; nextToken?: string} = {
+    maxRows: String(maxRows ?? DEFAULT_MAX_ROWS)
+  };
+  if (nextToken !== undefined) query.nextToken = nextToken;
 
-      const meta = response.ResultSet?.ResultSetMetadata;
-      const columns: QueryColumn[] = (meta?.ColumnInfo ?? []).map((c) => ({
-        name: c.Name ?? '',
-        type: normalizeColumnType(c.Type ?? '')
-      }));
-      // An ABSENT `VarCharValue` is SQL NULL; an empty one is an empty string. Collapsing
-      // the two to `''` here destroyed the difference for every caller, and no consumer
-      // can reconstruct it — the Value panel has to show which one a cell holds.
-      let rows: (string | null)[][] = (response.ResultSet?.Rows ?? []).map((r) =>
-        (r.Data ?? []).map((d) => d.VarCharValue ?? null)
-      );
+  const result = await apiRequest('athena.results', {params: {queryExecutionId}, query});
+  if (!result.success) return result;
 
-      // Athena foot-gun: for `SELECT`, GetQueryResults repeats the column names as
-      // the FIRST row of the FIRST page only (never on paged continuations). Drop
-      // it when it matches the column metadata. DDL/CTAS return no rows, so this is
-      // a no-op there.
-      if (!nextToken && rows.length > 0) {
-        const first = rows[0];
-        const isHeaderRow = first.length === columns.length && first.every((value, i) => value === columns[i].name);
-        if (isHeaderRow) rows = rows.slice(1);
-      }
-
-      return {
-        success: true,
-        data: {columns, rows, nextToken: response.NextToken}
-      };
-    } catch (err) {
-      return toServiceError(err, 'Failed to fetch query results');
-    }
-  });
+  const columns: QueryColumn[] = result.data.columns.map((column) => ({
+    name: column.name,
+    type: normalizeColumnType(column.type)
+  }));
+  return {
+    success: true,
+    data: {columns, rows: result.data.rows, nextToken: result.data.nextToken ?? undefined}
+  };
 }
 
 const STMT_POLL_INTERVAL_MS = 400;
@@ -217,6 +148,10 @@ export function isAbandoned(result: ServiceResult<unknown>): boolean {
  * {@link QueryStatus}. Succeeds for ANY terminal state — the caller inspects
  * `.state`. Used by internal/background runs (View DDL, Drop table) that aren't driven
  * by the per-tab UI poller. Never throws.
+ *
+ * **The loop stays here**, and that is a decision rather than an omission: waiting for a query
+ * behind an API would put a multi-minute wait under a 30-second gateway ceiling that cannot be
+ * raised. It now polls over API calls instead of SDK calls, and is otherwise untouched.
  */
 export async function runStatementToCompletion(p: {
   sql: string;
@@ -282,9 +217,9 @@ export async function getTableDdl(p: {
   }
 
   // SHOW CREATE TABLE returns one column; each row is a DDL line. Cap at 999:
-  // getQueryResults overfetches by one on the first page (pageSize + 1), and
-  // Athena's GetQueryResults rejects MaxResults > 1000. 999 nets a full 1000-row
-  // first page — far beyond any real DDL, which is one line per row.
+  // the first page overfetches by one (pageSize + 1) and Athena rejects
+  // MaxResults > 1000, so 999 nets a full 1000-row first page — far beyond any
+  // real DDL, which is one line per row.
   const results = await getQueryResults({
     queryExecutionId: done.data.queryExecutionId,
     maxRows: 999

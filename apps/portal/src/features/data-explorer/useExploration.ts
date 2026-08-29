@@ -3,6 +3,7 @@ import {useQuery, useQueryClient} from '@tanstack/react-query';
 import {useAuth} from '../auth';
 import {isTerminalState, runQuery} from '../catalog/athena.service';
 import {useQueryExecution} from '../catalog/useQueryExecution';
+import {apiRetryPolicy} from '../../lib/apiClient';
 import {unwrap} from '../../lib/serviceResult';
 import {NO_KEY} from '../../lib/queryKeys';
 import {explorerKeys, explorationSourceScope} from './explorerKeys';
@@ -85,6 +86,11 @@ export function useExploration(exploration: Exploration | null): UseExplorationR
     // lasts longer than five minutes; the cache is a few dozen strings.
     staleTime: Infinity,
     gcTime: Infinity,
+    // Idempotency is the ROUTE's property, not this hook's. Under TanStack's default this
+    // inherited `retry: 1`, so a failing apply issued two `StartQueryExecution` calls about a
+    // second apart — two executions, two bills, for one gesture — on the strength of it looking
+    // like a read. The contract says starting a query is not one.
+    retry: apiRetryPolicy('athena.start'),
     queryFn: async (): Promise<string> => {
       const result = await runQuery({sql: sql as string, username});
       return unwrap(result).queryExecutionId;

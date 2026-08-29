@@ -46,7 +46,6 @@ function completeDocument(): Record<string, unknown> {
     appUrl: 'https://portal.test',
     awsRegion: 'us-east-1',
     userSpaceBucket: 'user-space',
-    athenaWorkgroup: 'wg',
     cognitoUserPoolId: 'pool',
     cognitoUserPoolClientId: 'client',
     cognitoDomain: 'auth.test'

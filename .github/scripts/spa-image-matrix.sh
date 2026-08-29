@@ -46,7 +46,6 @@ REQUIRED_ENV=(
   -e CONFIG_appUrl=https://portal.fixture.test
   -e CONFIG_awsRegion=us-east-1
   -e CONFIG_userSpaceBucket=fixture-user-space
-  -e CONFIG_athenaWorkgroup=fixture-workgroup
   -e CONFIG_cognitoUserPoolId=us-east-1_FIXTURE
   -e CONFIG_cognitoUserPoolClientId=fixtureclientid
   -e CONFIG_cognitoDomain=auth.fixture.test

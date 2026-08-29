@@ -23,7 +23,12 @@ import {chooseExplorationOption, explorationOption} from './explorationOptions.t
 // `lib/apiClient` is the seam the STORE lands on now, so the assertions below can count the
 // requests the save actually issues.
 const {mockSend} = vi.hoisted(() => ({mockSend: vi.fn()}));
-vi.mock('../../lib/apiClient', () => ({apiRequest: mockSend}));
+// `apiRetryPolicy` is kept REAL rather than stubbed: it reads the generated route table and is
+// pure, so a stub would have this suite driving a retry policy the contract does not declare.
+vi.mock('../../lib/apiClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/apiClient')>()),
+  apiRequest: mockSend
+}));
 vi.mock('../catalog/glue.service', () => ({
   getDatabase: vi.fn(),
   listTables: vi.fn()

@@ -30,7 +30,6 @@ export const REQUIRED_CONFIG = [
   'appUrl',
   'awsRegion',
   'userSpaceBucket',
-  'athenaWorkgroup',
   'cognitoUserPoolId',
   'cognitoUserPoolClientId',
   'cognitoDomain'

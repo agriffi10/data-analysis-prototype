@@ -195,7 +195,6 @@ describe('QueryWorkspace', () => {
   // SaveResultsDialog / runQuery outputLocation read these at render/module time.
   vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-bucket');
   vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-bucket');
-  vi.stubEnv('VITE_ATHENA_WORKGROUP', 'primary');
 
   const ok = <T,>(data: T) => ({success: true as const, data});
   const fail = (message: string, code?: string) => ({
