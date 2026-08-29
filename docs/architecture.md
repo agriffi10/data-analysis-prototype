@@ -28,7 +28,7 @@ register.
                         │  read at runtime from /config.json           │
                         └───┬─────────────┬──────────────┬─────────────┘
                             │             │              │
-                   presigned bytes   bearer token   sqs:SendMessage
+                   presigned bytes   bearer token
                  (signed server-side)      │              │
                             │              ▼              ▼
                             │       API Gateway    FIFO request queue
@@ -133,8 +133,9 @@ surface** — listing, head, exists, content read and write, copy, move, delete,
 presign routes. File **bytes** do not travel through it: an upload is a presigned `PUT` and a download
 a presigned `GET`, both signed server-side by the caller's own assumed session, so the transfer is
 between the browser and S3 and compute never touches it. It also serves the **catalog surface** —
-Athena start, status, results and stop, and Glue get-database and list-tables — so **`client-sqs`
-is the only AWS SDK left in the browser**. The browser still reaches AWS without it: a presigned
+Athena start, status, results and stop, and Glue get-database and list-tables — and the **ten enqueue
+routes** over the eight control-plane queues, so **no `@aws-sdk/*` package is left in the browser at
+all**. The browser still reaches AWS without one: a presigned
 `PUT`/`GET` goes straight to S3, and Amplify talks to Cognito throughout. The rule that keeps the two from drifting is **no new
 browser-side AWS SDK call on a path an API route already serves**, and **no second API**.
 
@@ -254,12 +255,13 @@ archiving into Glacier with its restore, and copying/moving/deleting files. Each
 recorded exception to browser-direct access, **for its mutations only**.
 
 ```
-browser ──sqs:SendMessage──▶ FIFO request queue ──▶ EventBridge Pipe ──▶ Step Function ──▶ verb Lambdas
+browser ──▶ API ──sqs:SendMessage──▶ FIFO request queue ──▶ Pipe ──▶ Step Function ──▶ verb Lambdas
                                      │                                                          │
                                      └──▶ DLQ ──▶ scheduled drain              notifications queue
 ```
 
-- **The browser's only privilege on any plane is `sqs:SendMessage`** to that plane's request queue.
+- **The browser has no privilege on any plane.** It calls an API route; the API's execution role is
+  the only principal that may write a request queue (SPEC-200).
   The request body carries the caller's ID token.
 - **One shared execution role per plane, and its own DLQ** — a plane sharing another's DLQ lets one
   malformed request dead-letter someone else's work.
@@ -311,7 +313,7 @@ for the browser to choose wording from.
 ## Notifications and observability
 
 **Notifications** are a single-writer FIFO queue feeding one writer Lambda — deliberately simpler than
-a control plane, with no Pipe and no state machine. The browser only reads its own feed and enqueues;
+a control plane, with no Pipe and no state machine. The browser only reads its own feed;
 every plane's outcome reaches the user this way, and a request that dead-letters is swept by a
 scheduled drain into the same inbox.
 
@@ -447,7 +449,7 @@ superseded decision keeps its row and gains a note saying which row replaced it.
 
 | # | Decision | Context | Notes |
 |---|---|---|---|
-| 24 | [Privileged work runs on a control plane, not in the browser](decisions/identity-and-access.md#no-backend) | Cross-user, multi-step work needs permissions no browser session should hold, and durable retry across a closed tab. A synchronous API route would need the same permissions and still lose the work when the request ends. | The browser's only grant is `sqs:SendMessage`, which is what keeps the privileged surface off user credentials. The register has no entry of its own for this: the decision lives as the **superseded marker** on the `No backend` entry it reversed, which is what the link lands on. The pattern and its fences are [`decisions/control-planes.md`](decisions/control-planes.md). |
+| 24 | [Privileged work runs on a control plane, not in the browser](decisions/identity-and-access.md#no-backend) | Cross-user, multi-step work needs permissions no browser session should hold, and durable retry across a closed tab. A synchronous API route would need the same permissions and still lose the work when the request ends. | The browser held one grant, `sqs:SendMessage`, which kept the privileged surface off user credentials; SPEC-200 moved even that behind the API, so the browser now holds none (ADR row 42). The register has no entry of its own for this: the decision lives as the **superseded marker** on the `No backend` entry it reversed, which is what the link lands on. The pattern and its fences are [`decisions/control-planes.md`](decisions/control-planes.md). |
 | 25 | [One execution role and one DLQ per plane](../infra/info/control-plane-shape.md) | Per-verb roles were built and deliberately consolidated: the union policy is readable, and seven roles per plane were not. | A plane sharing another's DLQ lets one malformed request dead-letter someone else's work. |
 | 26 | [`cpcommon` owns the algorithm; a domain layer owns the wording](decisions/control-planes.md#the-deliberate-twins-are-discharged-one-implementation-per-cross-plane-helper-spec-156) | The same CAS loop, lock protocol and failure resolver existed three times and had already diverged. | **Do not merge the domain layers wholesale.** Where a layer is packaged by an explicit file list, a test asserts set equality with the directory. |
 | 27 | [Everything unbounded travels by pointer, never on the state](decisions/control-planes.md#everything-unbounded-on-the-state-travels-by-pointer--including-the-definition-spec-161-extending-spec-090160) | The 256 KB Step Functions state cap raises `States.DataLimitExceeded`, which escapes every `Catch` — so the failure mode is silence. | A cap on the list is not a substitute for a pointer. Every cap that does exist is computed by a test against the budget that sized it. |
@@ -468,3 +470,4 @@ superseded decision keeps its row and gains a note saying which row replaced it.
 | 37 | [A gate blocks on a narrowed count, never a total](decisions/gates-and-tests.md#a-scanner-gate-blocks-on-a-narrowed-count-never-a-total-2026-08-09-completes-spec-138) | Enforcing what passes is a ratchet; suppressing what fails is a list that grows. A line matching no finding is a hard error. | **"Did not run" is never "clean."** A broken scanner fails the job even in report mode. |
 | 38 | [Coverage floors and compiler strictness are declared, never inherited](decisions/gates-and-tests.md#compiler-and-coverage-defaults-are-declared-never-inherited-spec-150) | An inherited default changes under you when a tool upgrades, and the change is invisible in the diff. | Ratchets at the measured level. Never lower one for a regression — the doc-layout budgets follow the same rule. |
 | 41 | [The API makes exactly one AWS call per request, and every loop stays in the browser](decisions/identity-and-access.md#the-api-makes-exactly-one-aws-call-per-request-and-every-loop-stays-in-the-browser-spec-199) | "The API waits for the query" is the shape a reader reaches for. A five-minute query is 10× a **non-raisable** 30-second integration ceiling, so the rejected design does not fail at the margin — it fails always, and it holds a Lambda open for the duration of a user's query while doing so. | The count is on the **route's own service client**, never on botocore — the session cache fires `AssumeRole` on some invocations and not others. SPEC-198's free-name route is the arc's one exception. A route may now carry **path parameters**, and a value that is not one segment is refused in the browser. |
+| 42 | [The browser's queue grants come off with the switchover, not with the trust flip](decisions/identity-and-access.md#the-browsers-queue-grants-come-off-with-the-switchover-not-with-the-trust-flip-spec-200) | The eight FIFO request queues were the browser's last privileged write and its only remaining AWS grant. Moving the send behind the API is what lets a plane trust an actor the API stamps from a verified bearer rather than a token it verifies itself — and the grant had to come off in the SAME change, because the Identity Pool survives to SPEC-202 and a trusted `actor` field plus a browser credential able to write the queue is impersonation. | The API's execution role is the only principal that may write a request queue; the browser holds no AWS grant at all. The message carries a nested `identity` block ALONGSIDE the token it does not yet replace — SPEC-201 flips the planes onto it and only then stops the token being sent. Supersedes row 24's "the browser's only grant is `sqs:SendMessage`". |

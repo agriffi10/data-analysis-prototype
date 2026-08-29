@@ -609,6 +609,22 @@ matches nothing here.
 | `RegisterTaskDefinition` with **tmpfs** on FARGATE | accepted; the mounts came back `drwxrwxrwt nginx nginx` |
 | `ecs:RegisterTaskDefinition` scoped by resource TYPE | works — the task definition was created on the first apply |
 
+## SPEC-200 — the enqueue paths (2026-08-29)
+
+**None of Phase 5 has been run**, because no browser was connected to the session that shipped it.
+The steps are written in full at `arc-b-api-container-e2e.md` §G. What is verified is that the code
+merged and all four deploy workflows went green on `b0ad3f5b`; everything about how the deployed
+system behaves is offline reasoning until §G runs.
+
+| Owed | Why it matters |
+|---|---|
+| §G.1 — one request per plane, ten in all, judged on the OUTCOME | This is every plane's first real request through the API. A wrong FIFO group still answers 200. |
+| §G.2 — the double-submit guard, and table-share's across a forced token refresh | The only place the actor-keyed dedup digest is observable live; the change it makes is one share where there used to be two. |
+| §G.3 — one API log record per plane, and the four things that must be absent from it | The field rule at a boundary that now holds a bearer and a user's file selection. |
+| §G.4 — the 401, the forged-identity 400 and the 413, each with zero sends | A refusal issued AFTER a successful send looks identical from outside. |
+| §G.5 — the IAM simulation against both DEPLOYED roles | The only evidence the browser's grants are actually gone rather than merely absent from the templates. |
+| A shared space where the submitter is a non-owner member | Needs a second account. |
+
 ## 3. Discharged, and worth not re-litigating
 
 Kept short on purpose — the reasoning lives in `docs/decisions/` and the delivery docs. These are

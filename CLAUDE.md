@@ -36,10 +36,10 @@ the domain rulebooks and inventories live beside the code they govern, in each t
 ## Project Overview
 
 A web portal where authenticated users upload/download files to/from their own S3 prefix.
-Auth is AWS Cognito (standalone User Pool + Identity Pool). Arc B has moved the object surface and
-the catalog behind an API (`api.dataquarry.app`); what the browser still calls directly is
-**presigned S3 bytes**, Cognito through Amplify, and **eight control-plane `sqs:SendMessage`
-enqueues** (SPEC-200). Status: greenfield, no production users yet.
+Auth is AWS Cognito (standalone User Pool + Identity Pool). Arc B has moved the object surface, the
+catalog and the eight control-plane queues behind an API (`api.dataquarry.app`); what the browser
+still calls directly is **presigned S3 bytes** and Cognito through Amplify. Status: greenfield, no
+production users yet.
 
 ## Monorepo (npm workspaces)
 
@@ -53,7 +53,7 @@ enqueues** (SPEC-200). Status: greenfield, no production users yet.
 | Layer | Tech |
 |---|---|
 | Frontend | React 19 + Vite, TypeScript (strict), TailwindCSS; `focus-trap-react` (focus trapping for Modal/Drawer) |
-| AWS | `aws-amplify` v6 for Cognito; `@aws-sdk/client-sqs` (control-plane enqueues) — **the only AWS SDK left in the browser**. `client-s3`, `lib-storage`, `s3-request-presigner`, `client-athena` and `client-glue` are all gone: objects, bytes and the catalog go through the API |
+| AWS | `aws-amplify` v6 for Cognito — **no `@aws-sdk/*` package is left in the browser at all**. `client-s3`, `lib-storage`, `s3-request-presigner`, `client-athena`, `client-glue` and `client-sqs` are all gone: objects, bytes, the catalog and the eight control-plane queues go through the API |
 | Editor | `@monaco-editor/react` + `monaco-editor` (self-hosted workers; lazy-loaded on the Query route only, SPEC-035) |
 | Routing / state | `react-router` v8 (**not** `react-router-dom` — that package is gone in v8; import everything from `react-router`); TanStack Query (server state) + Context/`useReducer` (UI state); no Redux |
 | Testing / lint | Vitest + React Testing Library + `@testing-library/user-event`; `@vitest/coverage-v8` (`npm run test:coverage`); `vitest-axe` (axe-core a11y assertions, SPEC-045); ESLint + Prettier. Tests are **integration-style** — **import only the component under test**, render real hooks/children, mock only the service boundary (`*.service.ts` / `lib/apiClient`); **1–3 scenarios each** (4–5 where earned; a dozen means the unit is scoped wrong), **arrange/act/assert**, happy path and failure path first; shared harness `src/test/renderWithProviders.tsx`. Rules: `apps/portal/info/best-practices/react/react.md` §21, `lambdas/info/best-practices/lambdas/lambdas.md` §11 |
@@ -93,15 +93,16 @@ recorded nowhere else** — when a spec closes, prune here rather than appending
 
 ### Current work
 
-- **API layer & containerisation (192 → 202, 192–199 done)** — "Arc B". CloudFront is still
-  production and the rollback. Next: the queues (200), then 202 retires the Identity Pool's browser
-  credentials. **The browser's only remaining AWS calls are presigned S3 bytes and eight
-  `sqs:SendMessage` enqueues.**
-  **Owed and unrun:** `arc-b-api-container-e2e.md` §F, and the SPEC-198 and SPEC-199 blocks of
-  `e2e.md` §4.2/§4.3/§4.5 — chiefly the multi-GiB upload that settles whether a presigned URL's
-  expiry is evaluated at request receipt, the live foreign-prefix 403, and the **Lake Formation
-  positive, which also discharges SPEC-196 Phase 5 item 4** and is the arc's central claim. §D/§E
-  were **partly run on 2026-08-27** (`sessions.md`). Read the `ARCS.md` arc entry first.
+- **API layer & containerisation (192 → 202, 192–200 done)** — "Arc B". CloudFront is still
+  production and the rollback. Next: 201 flips the planes onto `identity.actor`, then 202 retires
+  the Identity Pool. **The browser's only remaining AWS call is presigned S3 bytes.**
+  **Owed and unrun:** `arc-b-api-container-e2e.md` §F; the SPEC-198/199 blocks of `e2e.md`
+  §4.2/§4.3/§4.5 — chiefly the multi-GiB upload settling whether a presigned URL's expiry is
+  evaluated at request receipt, the live foreign-prefix 403, and the **Lake Formation positive,
+  which also discharges SPEC-196 Phase 5 item 4** and is the arc's central claim; and **all of
+  SPEC-200's Phase 5**, which is every plane's first real request through the API and the
+  simulation proving the browser's grants are gone. §D/§E were **partly run on 2026-08-27**
+  (`sessions.md`). Read the `ARCS.md` arc entry first.
 
 ### Live checks
 
@@ -402,7 +403,7 @@ is a smell.
 
 OpenTofu, bounded-context modules under `infra/modules/`, IAM policies as `.tftpl` rendered by
 `templatefile()`. Notifications are a **single-writer** FIFO queue → writer Lambda; the browser only
-reads and enqueues.
+only reads; the API enqueues on its behalf.
 
 - **Deploy-role IAM is in-scope work for any spec that provisions new infra**, and **grants land in
   their own PR before the resources that need them** — every grants-only PR in Arc B applied green
