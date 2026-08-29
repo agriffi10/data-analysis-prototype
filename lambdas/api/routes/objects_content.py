@@ -78,15 +78,23 @@ def write_content(context: RequestContext) -> dict[str, Any]:
       The key written and its new ETag.
 
     Raises:
-      ApiError: ``AccessDenied`` on an unauthorized space, an escaping key, a marker key or a
-        write-locked location; ``PayloadTooLarge`` above the cap, refused BEFORE any S3 call;
-        ``Conflict`` when the key is occupied and ``overwrite`` is false.
+      ApiError: ``AccessDenied`` on an unauthorized space, an escaping key, a write-locked
+        location, or a marker key with ``overwrite`` true — creating a marker is permitted, which
+        is how ``ensurePrefixMarker`` holds a prefix open; ``PayloadTooLarge`` above the cap,
+        refused BEFORE any S3 call; ``Conflict`` when the key is occupied and ``overwrite`` is
+        false.
       IdentityUnavailableError: If the caller's role cannot be assumed.
     """
     body = context.body if isinstance(context.body, dict) else {}
     space = _objects.space_from_body(context)
     key = _objects.contained(space, str(body.get("key", "")))
-    protected.assert_writable(space, key)
+    overwrite = bool(body.get("overwrite", False))
+    # CREATING a marker is how a space's prefix is held open, and both bucket policies permit it —
+    # they Deny only its deletion. Replacing one is refused, and that is the whole difference.
+    if overwrite:
+        protected.assert_replaceable(space, key)
+    else:
+        protected.assert_writable(space, key)
 
     payload = str(body.get("body", "")).encode("utf-8")
     if len(payload) > s3_config.MAX_DOCUMENT_BYTES:
@@ -97,7 +105,7 @@ def write_content(context: RequestContext) -> dict[str, Any]:
         )
 
     client = _objects.client(context)
-    if not body.get("overwrite", False):
+    if not overwrite:
         _refuse_if_occupied(client, space.bucket, key)
 
     written = client.put_object(

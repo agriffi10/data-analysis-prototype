@@ -746,6 +746,95 @@ class TestMutations:
         assert answer["statusCode"] == 403
         assert fake.calls == []
 
+
+class TestTheMarkerRuleIsAboutREMOVAL:
+    """FR-009 AC3 — and the half of it that shipped broken.
+
+    Both bucket policies Deny ``s3:DeleteObject`` on ``*/DO_NOT_DELETE.txt`` and **nothing else**.
+    A guard that folded the marker into the write rule was stricter than the policy it claims to
+    mirror, and it refused the two shipped paths that CREATE one. Driven through the routes rather
+    than through ``protected``: the unit rule was right, and the route called the wrong half of it.
+    """
+
+    def test_CREATING_a_marker_is_permitted_because_that_is_how_a_prefix_is_held_open(self, s3) -> None:
+        """Driven through the ROUTE, not through `protected` — the unit rule was right and the
+        route called the wrong half of it.
+
+        Both bucket policies Deny ``s3:DeleteObject`` on ``*/DO_NOT_DELETE.txt`` and nothing else.
+        A write guard that also refused creation made `ensurePrefixMarker` and
+        `ensureSavedQueriesFolder` answer 403: a brand-new user's prefix would never be created, and
+        a saved-queries folder would vanish once emptied. Both are best-effort background writes
+        that log and carry on, so the failure is silent — the browser sees a `ServiceResult` it was
+        already written to ignore.
+        """
+        fake = s3(RecordingS3(head=None))
+
+        answer = router.route(
+            "PUT",
+            "/v1/objects/content",
+            bearer(),
+            "rq",
+            {
+                "space": {"kind": "personal", "name": "alice"},
+                "key": "alice/DO_NOT_DELETE.txt",
+                "body": "This file keeps your storage space active.",
+                "contentType": "text/plain",
+                "overwrite": False,
+            },
+        )
+
+        assert answer["statusCode"] == 200
+        assert [call[0] for call in fake.calls] == ["head_object", "put_object"]
+
+    def test_REPLACING_a_marker_is_refused_which_is_the_half_that_stays(self, s3) -> None:
+        """Overwriting a marker leaves the prefix open with a file at a key the listing hides by
+        basename and the bucket policy will not let anyone delete.
+
+        IAM permits it; every surface in this app refuses it, and so does the route.
+        """
+        fake = s3(RecordingS3(head={"ContentLength": 1}))
+
+        answer = router.route(
+            "PUT",
+            "/v1/objects/content",
+            bearer(),
+            "rq",
+            {
+                "space": {"kind": "personal", "name": "alice"},
+                "key": "alice/DO_NOT_DELETE.txt",
+                "body": "something else",
+                "contentType": "text/plain",
+                "overwrite": True,
+            },
+        )
+
+        assert answer["statusCode"] == 403
+        assert json.loads(answer["body"])["error"]["code"] == "AccessDenied"
+        assert fake.calls == []
+
+    def test_an_upload_url_is_never_minted_for_a_marker_key(self, s3) -> None:
+        """No surface uploads a marker, so the presign route takes the stricter rule at both
+        settings — and mints nothing, because a route that mints first has already handed out the
+        capability."""
+        fake = s3(RecordingS3(head=None))
+
+        answer = router.route(
+            "POST",
+            "/v1/objects/upload-url",
+            bearer(),
+            "rq",
+            {
+                "space": {"kind": "personal", "name": "alice"},
+                "key": "alice/reports/DO_NOT_DELETE.txt",
+                "contentType": "text/plain",
+                "overwrite": False,
+            },
+        )
+
+        assert answer["statusCode"] == 403
+        assert "url" not in json.loads(answer["body"])
+        assert fake.calls == []
+
     def test_deleting_a_marker_is_refused_server_side(self, s3) -> None:
         """The browser refuses it as an affordance; a disabled button is not a permission."""
         fake = s3(RecordingS3())

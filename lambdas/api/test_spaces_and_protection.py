@@ -133,15 +133,27 @@ class TestTheArchiveWriteLockMirrorsEachBucket:
         assert protected.is_write_locked(PERSONAL, key_personal) is False
         assert protected.is_write_locked(SHARED, key_shared) is True
 
-    def test_a_marker_key_is_refused_by_basename(self) -> None:
-        """Any depth, by basename — the rule both bucket policies encode as `*/DO_NOT_DELETE.txt`."""
+    def test_a_marker_key_may_not_be_REMOVED_or_replaced_at_any_depth(self) -> None:
+        """By basename — the rule both bucket policies encode as `*/DO_NOT_DELETE.txt`."""
         with pytest.raises(ApiError) as raised:
-            protected.assert_writable(PERSONAL, "alice/reports/DO_NOT_DELETE.txt")
+            protected.assert_replaceable(PERSONAL, "alice/reports/DO_NOT_DELETE.txt")
         assert raised.value.code == "AccessDenied"
+
+    def test_a_marker_key_IS_creatable_because_that_is_how_a_prefix_is_held_open(self) -> None:
+        """The half the two rules exist to keep apart, and the one that shipped broken.
+
+        Both bucket policies Deny ``s3:DeleteObject`` on the marker and nothing else. A guard that
+        refused the WRITE too was stricter than the policy it mirrors, and it refused
+        ``ensurePrefixMarker`` and ``ensureSavedQueriesFolder`` — a brand-new user's prefix would
+        never be created, and a saved-queries folder would vanish once emptied. Both are best-effort
+        background writes that log and carry on, so it fails in **silence**.
+        """
+        protected.assert_writable(PERSONAL, "alice/DO_NOT_DELETE.txt")
+        protected.assert_writable(SHARED, "finance/saved_queries/DO_NOT_DELETE.txt")
 
     def test_a_key_merely_containing_the_marker_name_is_writable(self) -> None:
         """By basename, not by substring — `DO_NOT_DELETE.txt.bak` is an ordinary file."""
-        protected.assert_writable(PERSONAL, "alice/DO_NOT_DELETE.txt.bak")
+        protected.assert_replaceable(PERSONAL, "alice/DO_NOT_DELETE.txt.bak")
 
     def test_the_marker_rule_does_not_inherit_the_listing_exclusions(self) -> None:
         """`cpcommon.is_ignored` also hides `athenaresults/` and `user_settings/`.
@@ -149,8 +161,8 @@ class TestTheArchiveWriteLockMirrorsEachBucket:
         Those are listing conveniences, not write rules. Taking the predicate instead of the
         constant would make both undeletable through the API, which no bucket policy says.
         """
-        protected.assert_writable(PERSONAL, "alice/athenaresults/result.csv")
-        protected.assert_writable(PERSONAL, "alice/user_settings/notifications.json")
+        protected.assert_replaceable(PERSONAL, "alice/athenaresults/result.csv")
+        protected.assert_replaceable(PERSONAL, "alice/user_settings/notifications.json")
 
 
 class TestTheCapsAreSizedAgainstABudget:
