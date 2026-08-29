@@ -74,6 +74,29 @@ ROUTE_STATUSES: Final[frozenset[int]] = frozenset(
 )
 
 
+class ErrorParams(TypedDict, total=False):
+    """The typed values a client needs to compose its own sentence for a failure.
+
+    **Never free text, and never the sentence itself.** ``detail`` is operator prose the browser
+    renders nowhere; this is the structured half — the colliding name, the bound that was hit —
+    from which the SPA mints the wording it already ships. Five of ``errorMessages.ts``'s
+    ``passthrough`` codes belong to the object surface and none of them may travel on the wire
+    (the disjointness guard forbids it), so the values behind them travel here instead.
+
+    Every key is optional, which is legal by DECLARATION rather than by exception: ``total=False``
+    is inside the closed vocabulary and emits ``key?: X``.
+
+    Attributes:
+      name: The colliding leaf name, for a Conflict.
+      attempts: The bound a free-name search exhausted, for a Conflict.
+      limit: The byte cap that refused a payload, for a PayloadTooLarge.
+    """
+
+    name: str
+    attempts: int
+    limit: int
+
+
 class ApiErrorDetail(TypedDict):
     """The inner object of every failure body.
 
@@ -86,11 +109,14 @@ class ApiErrorDetail(TypedDict):
       code: The machine code, drawn from the closed set.
       requestId: The gateway's id for the request, so a user-reported failure is findable.
       detail: Optional operator text. Never a stringified exception.
+      params: Optional typed values the client composes its own wording from. Absent unless the
+        raise site has something structured to hand over.
     """
 
     code: ErrorCode
     requestId: str
     detail: NotRequired[str]
+    params: NotRequired[ErrorParams]
 
 
 class ApiErrorBody(TypedDict):

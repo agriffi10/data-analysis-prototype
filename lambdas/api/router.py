@@ -314,7 +314,9 @@ def route(
         observability.warning(
             "request refused", reason=exc.code, route=asked_for, request_id=request_id
         )
-        return _answered(envelope.failure(exc.code, request_id, exc.detail), exc.code)
+        return _answered(
+            envelope.failure(exc.code, request_id, exc.detail, exc.params), exc.code
+        )
     except Exception as exc:
         classified = errors.for_exception(exc, request_id)
         if classified is None:

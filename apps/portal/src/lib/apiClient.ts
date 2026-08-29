@@ -1,5 +1,12 @@
 import {API_ROUTES} from '../types/apiContract.generated';
-import type {ApiErrorCode, ApiRouteId, QueryOf, RequestOf, ResponseOf} from '../types/apiContract.generated';
+import type {
+  ApiErrorCode,
+  ApiRouteId,
+  ErrorParams,
+  QueryOf,
+  RequestOf,
+  ResponseOf
+} from '../types/apiContract.generated';
 import {configValue} from './runtimeConfig';
 import type {ServiceResult} from '../types/service.types';
 
@@ -232,10 +239,13 @@ async function interpret<R extends ApiRouteId>(response: Response): Promise<Serv
     return {success: true, data: body as ResponseOf<R>};
   }
 
-  const envelope = (body as {error?: {code?: unknown; detail?: unknown}} | undefined)?.error;
+  const envelope = (body as {error?: {code?: unknown; detail?: unknown; params?: unknown}} | undefined)?.error;
   if (envelope && typeof envelope.code === 'string') {
     logDetail(envelope.code, envelope.detail);
-    return failure(envelope.code as ApiErrorCode);
+    // `params` is carried; `detail` is not. The detail is operator prose and the browser renders
+    // no server sentence — the params are the structured half a service needs to mint the wording
+    // it already owns.
+    return failure(envelope.code as ApiErrorCode, envelope.params as ErrorParams | undefined);
   }
 
   // NOT envelope-shaped, and never parsed for text. API Gateway's own errors — its 413 at the
@@ -275,8 +285,8 @@ function logDetail(code: string, detail: unknown): void {
  * `message` is deliberately empty: the wording is chosen client-side from the code, by
  * `lib/errorMessages.ts`. A message authored here would be a second source of user-facing text.
  */
-function failure<T>(code: ApiErrorCode | ApiClientCode): ServiceResult<T> {
-  return {success: false, error: {message: '', code}};
+function failure<T>(code: ApiErrorCode | ApiClientCode, params?: ErrorParams): ServiceResult<T> {
+  return {success: false, error: {message: '', code, ...(params ? {params} : {})}};
 }
 
 function requestId(): string {
