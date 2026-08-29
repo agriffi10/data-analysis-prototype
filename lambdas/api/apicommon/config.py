@@ -19,8 +19,10 @@ Attributes:
   MAX_STACK_BYTES: Ceiling on the stack trace attached to a failed span. A PLAIN CONSTANT with
     no environment behind it, deliberately: it is read where structured logging is configured,
     which happens at module scope, so an environment read here would be the cold-start failure
-    this module's laziness exists to prevent. It is a ceiling and not a control — what keeps a
-    credential out of a log record is the scrub, never this number.
+    this module's laziness exists to prevent. It is a ceiling and not a control, and what keeps a
+    credential out of a log record is **that nothing is given one to emit** — a handler receives
+    the verified principal and no bearer, and ``format_exception`` renders source lines rather
+    than locals. There is no scrubber; a line here once said there was.
   ASSUME_ROLE_DURATION_SECONDS: How long a caller's assumed session lasts. Matches the enhanced
     flow's hour exactly, and it is a CEILING IN BOTH DIRECTIONS. Shortening it caps every
     presigned download link and every multipart upload window at the shorter value, a
@@ -64,6 +66,7 @@ _IDENTITY_VARS = {
     "MAX_SHARED_MEMBERSHIPS": "MAX_SHARED_MEMBERSHIPS",
     "SHARED_SPACE_BUCKET": "SHARED_SPACE_BUCKET",
     "USER_SPACE_BUCKET": "USER_SPACE_BUCKET",
+    "ATHENA_WORKGROUP": "ATHENA_WORKGROUP",
 }
 
 
@@ -215,6 +218,26 @@ def user_space_bucket() -> str:
       ConfigError: If the variable is unset or empty.
     """
     return _require(_IDENTITY_VARS["USER_SPACE_BUCKET"])
+
+
+def athena_workgroup() -> str:
+    """Returns the workgroup every query this API starts runs in.
+
+    Required, with no default, and the absent default is the point: an unset workgroup sends
+    queries to Athena's ``primary``, whose results location is the account default. That is a
+    write outside the isolation model, made by a query that otherwise succeeds — so it fails
+    here, loudly, rather than there, silently.
+
+    Args:
+      None.
+
+    Returns:
+      The workgroup name.
+
+    Raises:
+      ConfigError: If the variable is unset or empty.
+    """
+    return _require(_IDENTITY_VARS["ATHENA_WORKGROUP"])
 
 
 def shared_space_bucket() -> str:

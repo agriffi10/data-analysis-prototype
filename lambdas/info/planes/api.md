@@ -4,9 +4,18 @@ One HTTP API, one `$default` route, one Lambda. It is **not** a control plane: n
 Function, no verb fan-out. It verifies a bearer token and serves routes directly.
 
 Arc B is porting the browser's direct AWS calls behind it. Today it serves `/healthz`, the username
-directory, the feature-flag document and the whole **object surface**: list, metadata, exists,
-content read and write, copy, move, delete, free-name, and the two presign routes. CloudFront is
-still production and the rollback.
+directory, the feature-flag document, the whole **object surface** (list, metadata, exists, content
+read and write, copy, move, delete, free-name and the two presign routes) and the **catalog
+surface** — Athena start, status, results and stop, plus Glue get-database and list-tables.
+CloudFront is still production and the rollback.
+
+**A route may name a resource in its path.** `/v1/queries/{queryExecutionId}` and
+`/v1/catalog/databases/{database}` are matched segment-wise against the contract's templates, and
+two declarations that could match one path are refused where a route is declared rather than
+arbitrated where a request arrives. The gateway hands the function a percent-**decoded** path
+(measured: `GET /health%7A` answers 200), so the browser encodes each segment, nothing here decodes,
+and a value that is not one path segment is refused in the browser — decoded, it would address a
+sibling template rather than fail.
 
 **File bytes do not pass through it.** An upload is a presigned `PUT` and a download a presigned
 `GET`, minted here and redeemed by the browser directly against S3.
@@ -68,6 +77,16 @@ still production and the rollback.
 - **A prefix is not a key.** `assert_inside_root(root, "")` raises, and an empty prefix is the file
   browser's very first listing request — so a listing prefix and an object key have different
   containment rules.
+- **No route waits, sleeps or polls.** A five-minute query against a 30-second gateway ceiling does
+  not fail at the margin, it fails always — so the four loops that poll an execution and page its
+  results stay in the browser, and the API makes exactly one AWS call per request.
+- **Neither the SQL statement nor Athena's `stateChangeReason` may be a log field.** Both routinely
+  quote a user's own cell values back, so the span carries `sql_bytes`, `state`, `row_count` and
+  `column_count` instead. The reason still travels on the response body, where the browser's
+  authored wording is chosen from it.
+- **A failed query is a 200 and a too-early results read is a 409.** The second is classified by
+  Athena's MESSAGE, never by its exception name: `InvalidRequestException` is also what a malformed
+  query raises at submit, and a name-keyed mapper turns a syntax error into "still running".
 - **No route lists more than ONE page.** Every `list_objects_v2` passes `Delimiter='/'` and a bounded
   `MaxKeys`, and no module imports `get_paginator`. A route that walks a subtree recreates the loop
   Arc A moved off the browser, one layer down, under a 29-second ceiling — and it works, for small

@@ -64,6 +64,8 @@ from cpcommon import observability
 from cpcommon.auth import AuthError, VerifierUnavailable
 from cpcommon.observability import build_version
 from routes import (
+    athena,
+    catalog,
     feature_flags,
     objects_content,
     objects_free_name,
@@ -98,6 +100,12 @@ HANDLERS: dict[str, Callable[[RequestContext], dict[str, Any]]] = {
     "objects.uploadUrl": objects_presign.upload_url,
     "objects.downloadUrl": objects_presign.download_url,
     "objects.freeName": objects_free_name.free_name,
+    "athena.start": athena.start,
+    "athena.status": athena.status,
+    "athena.results": athena.results,
+    "athena.stop": athena.stop,
+    "catalog.database.get": catalog.get_database,
+    "catalog.tables.list": catalog.list_tables,
 }
 
 

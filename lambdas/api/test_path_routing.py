@@ -23,7 +23,6 @@ from a path the caller meant, which is why the value is refused in the browser.
 import pytest
 import router
 from apicommon import contract, planes
-from conftest import bearer
 
 CATALOG_PATH_PREFIXES = ("/v1/queries", "/v1/catalog/")
 
@@ -291,11 +290,16 @@ def test_the_overlap_check_does_not_fire_on_a_table_that_is_fine() -> None:
     contract.check_routes()
 
 
-def test_a_templated_route_is_a_404_until_a_handler_serves_it() -> None:
-    """The six routes are declared here and served in the next change, and that gap is inert.
+def test_every_declared_route_has_a_handler_and_every_handler_has_a_route() -> None:
+    """The registry guard this module's docstring has always claimed, and did not have.
 
-    A route the contract declares and the router cannot serve answers exactly what an unknown
-    path answers — same status, same body — so this change is invisible to every caller.
+    It said a route with no handler and a handler with no route are "what the registry guard
+    refuses, in both directions". Nothing checked either: six routes and one handler were added
+    and nothing went red. A route with no handler is a 404 the contract promises works; a handler
+    with no route is code the router can never reach.
+
+    Set equality, not containment — the containment version passes against an empty map on one
+    side, which is the state this is here to notice.
 
     Args:
       None.
@@ -304,15 +308,15 @@ def test_a_templated_route_is_a_404_until_a_handler_serves_it() -> None:
       None.
 
     Raises:
-      AssertionError: If a declared-but-unserved route answers anything else.
+      AssertionError: If the two tables disagree in either direction.
     """
-    unserved = router.route("GET", "/v1/queries/abc-123", bearer(), "rq")
-    unknown = router.route("GET", "/v1/nothing-here", bearer(), "rq")
+    declared = {route.id for route in contract.ROUTES}
+    served = set(router.HANDLERS)
 
-    assert unknown["statusCode"] == 404
-    assert unserved["statusCode"] == unknown["statusCode"]
-    assert unserved["body"] == unknown["body"]
-    assert unserved["headers"] == unknown["headers"]
+    assert declared == served, {
+        "declared with no handler": sorted(declared - served),
+        "handled with no route": sorted(served - declared),
+    }
 
 
 def test_every_catalog_route_is_declared_on_the_USER_plane() -> None:
