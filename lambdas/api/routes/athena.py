@@ -31,10 +31,15 @@ Attributes:
     carried both the machine name and the sentence.
   SYNTAX_MARKERS: The fragments that identify a statement the user can FIX inside the same
     exception. They exist so the browser can say "there is a syntax error in your query" instead
-    of the generic sentence — which is reserved for what a user cannot act on. Deliberately does
-    NOT carry "cannot be resolved": on the failed-execution path that text reaches a more specific
-    rule about a column, so claiming it here would have the two paths answering one message with
-    two different sentences.
+    of the generic sentence — which is reserved for what a user cannot act on.
+
+    **They do not reproduce the browser's rules, and are not meant to.** Athena's own messages of
+    this family carry ``line N:M``, which the pattern beside this tuple matches, so a column error
+    refused at submit is classified here as a statement the user can fix while the same message on
+    the failed-execution path reaches the browser's more specific rule about a column. The two
+    paths therefore answer one message with two different sentences — accepted, because both tell
+    the user to go and look at their SQL, and the rule this serves is that neither says "contact
+    the administrator" for something they can fix.
   INVALID_REQUEST_CODE: The one Athena exception name this module reads, and it is ambiguous by
     itself — it covers a malformed query at submit, a results read before an execution finished,
     and a stop against an execution that already has. Each site says which of those it means and

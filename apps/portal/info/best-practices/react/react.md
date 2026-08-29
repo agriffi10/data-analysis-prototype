@@ -260,6 +260,11 @@ Vitest + React Testing Library, jsdom. Tests describe **user-observable behavior
 
 **Use the shared harness** (`src/test/renderWithProviders.tsx`): `renderWithProviders(ui, {route, auth})` wires QueryClient (retries off) + MemoryRouter + AuthContext and returns `{user, queryClient}`; `renderHookWithProviders` does the same for hooks. Inject auth with the `authFixtures` builders (`authenticated()`, `unauthenticated()`).
 - 🔴 Don't hand-roll a `QueryClientProvider` + `MemoryRouter` wrapper per file — use the harness.
+- 🔴 **But note what "retries off" hides: a hook's own `retry` option is invisible under it.** A
+  query that must not be retried — a billed or stateful call — passes identically with the option
+  and without it, so deleting the line is green. Assert that one by passing a `queryClient` that
+  *would* retry (`{retry: 1, retryDelay: 0}`) and counting the calls. The same caution applies to
+  any behaviour the harness normalises away.
 - ✅ Interact with `userEvent` (`await user.click(...)`), not `fireEvent`, in new/reworked tests — it models real focus/typing.
 - ✅ Query by role/label/text (`getByRole`, `findByRole`); assert what the user sees. 🔴 No `data-testid` unless there's no accessible handle.
 
@@ -290,11 +295,6 @@ the production code once, watch the test redden, and revert **with the editor** 
 discards the fix you are also holding). This is worth a minute per load-bearing guard. Sweeping
 every assertion afterwards is not: it costs a suite run each and finds what writing the test
 carefully already would.
-
-**A test's fixture is code that rots.** A mock that stubs a module by listing its exports silently
-becomes the failure case when the module grows one — the symptom is an unrelated suite failing on
-a name it never used. ✅ Prefer `importOriginal` and override the one export you are faking, so a
-pure helper stays real.
 
 **Where a test belongs.**
 - **Service unit test** (`*.service.test.ts`) — pure logic: request shaping, response parsing, `ServiceResult` wrapping, error mapping. Mock `apiRequest` here (the shared `src/test/apiMock.ts` records the route, body, query and path params of every call); keep these — they're cheap and exhaustive. Where the work moved to the API, the assertion moved with it: don't re-assert server-side arithmetic against a fake here.

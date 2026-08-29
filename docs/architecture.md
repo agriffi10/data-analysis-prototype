@@ -133,8 +133,9 @@ surface** — listing, head, exists, content read and write, copy, move, delete,
 presign routes. File **bytes** do not travel through it: an upload is a presigned `PUT` and a download
 a presigned `GET`, both signed server-side by the caller's own assumed session, so the transfer is
 between the browser and S3 and compute never touches it. It also serves the **catalog surface** —
-Athena start, status, results and stop, and Glue get-database and list-tables — so **SQS is the only
-AWS service the browser still calls directly**. The rule that keeps the two from drifting is **no new
+Athena start, status, results and stop, and Glue get-database and list-tables — so **`client-sqs`
+is the only AWS SDK left in the browser**. The browser still reaches AWS without it: a presigned
+`PUT`/`GET` goes straight to S3, and Amplify talks to Cognito throughout. The rule that keeps the two from drifting is **no new
 browser-side AWS SDK call on a path an API route already serves**, and **no second API**.
 
 A document that belongs to no user — `_directory/usernames.json`, `_config/feature-flags.json` — gets

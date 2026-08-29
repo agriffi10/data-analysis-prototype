@@ -61,7 +61,13 @@ describe('a failing start is not retried', () => {
     // `StartQueryExecution` calls about a second apart — two executions for one gesture.
     const {QueryClient} = await import('@tanstack/react-query');
     const retrying = new QueryClient({
-      defaultOptions: {queries: {retry: 1, staleTime: 0, gcTime: 0}, mutations: {retry: false}}
+      // `retryDelay: 0` so the retry, if one happens, lands INSIDE `waitFor`'s window. Left at
+      // TanStack's ~1s first delay it ties RTL's 1s timeout, and which assertion reports the
+      // failure is a coin-flip on a slower machine — the count is the one this test is named for.
+      defaultOptions: {
+        queries: {retry: 1, retryDelay: 0, staleTime: 0, gcTime: 0},
+        mutations: {retry: false}
+      }
     });
     vi.mocked(runQuery).mockResolvedValue(fail('Athena refused', 'InvalidRequest'));
 

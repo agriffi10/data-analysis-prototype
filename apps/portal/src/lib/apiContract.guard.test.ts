@@ -56,6 +56,35 @@ function code(source: string): string {
 
 const FETCH_EXEMPT = ['/runtimeConfig.ts', '/apiClient.ts', './runtimeConfig.ts', './apiClient.ts'];
 
+/**
+ * One glob key as a path under `src/`.
+ *
+ * The globs run from `src/lib/`, so a sibling arrives as `./queryClient.ts` and everything else
+ * as `../features/…`. Two spellings for the same idea is how an exemption list comes to miss the
+ * file it names, so exemptions compare against this.
+ */
+function srcPath(key: string): string {
+  return key.startsWith('./') ? `lib/${key.slice(2)}` : key.replace(/^\.\.\//, '');
+}
+
+/**
+ * The AWS packages the API surfaces retired, read by the source sweep AND the manifest check.
+ *
+ * NAMED, not "any `@aws-sdk` import": SQS is still called from the browser and its package stays.
+ * A sweep phrased as the dependency CLASS would go red on work no spec has done yet, and would be
+ * loosened rather than heeded.
+ *
+ * ONE list for both checks. They were two, and had already diverged by the time anyone looked —
+ * the source sweep named five packages and the manifest check three.
+ */
+const RETIRED = [
+  '@aws-sdk/client-s3',
+  '@aws-sdk/lib-storage',
+  '@aws-sdk/s3-request-presigner',
+  '@aws-sdk/client-athena',
+  '@aws-sdk/client-glue'
+];
+
 describe('the wording boundary', () => {
   it('keeps the API codes and the PASSTHROUGH codes disjoint', () => {
     // THE TRAP THIS EXISTS TO CLOSE. A passthrough rule returns the service's message unchanged.
@@ -155,20 +184,9 @@ describe('the one door', () => {
   });
 
   it('has no module importing the AWS packages these surfaces retired', () => {
-    // NAMED, not "any @aws-sdk import": SQS is still called from the browser and its package
-    // stays. A sweep phrased as the dependency CLASS would go red on work no spec has done yet,
-    // and would be loosened rather than heeded.
-    //
-    // Athena and Glue joined the list when the catalog moved behind the API. The comment here
-    // used to say those two were staying, which is the failure a named list invites: it is only
+    // Athena and Glue joined `RETIRED` when the catalog moved behind the API. The comment there
+    // used to say those two were staying — which is the failure a named list invites: it is only
     // true on the day it is written, and it reads as a decision rather than a snapshot.
-    const RETIRED = [
-      '@aws-sdk/client-s3',
-      '@aws-sdk/lib-storage',
-      '@aws-sdk/s3-request-presigner',
-      '@aws-sdk/client-athena',
-      '@aws-sdk/client-glue'
-    ];
     const offenders = Object.entries(appSources)
       .filter(([, source]) => RETIRED.some((pkg) => code(source).includes(pkg)))
       .map(([path]) => path);
@@ -177,14 +195,21 @@ describe('the one door', () => {
   });
 
   it('has no retired package left in the manifest either', () => {
+    // ONE list, read by both halves. Two hand-kept copies had already diverged by three entries
+    // before this was written — the source sweep named five and the manifest check named three.
     // The source sweep above only sees imports. A package nothing imports still ships in the
     // lockfile, still resolves, and is still something a later feature can reach for by
     // accident — which is the whole reason the spec removes them rather than leaving them unused.
-    const manifest = JSON.parse(packageJson) as {dependencies?: Record<string, string>};
-    const retired = ['@aws-sdk/client-athena', '@aws-sdk/client-glue', '@aws-sdk/client-s3'];
+    const manifest = JSON.parse(packageJson) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    // BOTH dependency maps: a retired package moved to `devDependencies` still resolves from
+    // `src`, so checking only the one it used to live in is a hole with the shape of a fix.
+    const declared = {...manifest.devDependencies, ...manifest.dependencies};
 
-    expect(retired.filter((pkg) => manifest.dependencies?.[pkg] !== undefined)).toEqual([]);
-    expect(manifest.dependencies?.['@aws-sdk/client-sqs']).toBeDefined();
+    expect(RETIRED.filter((pkg) => declared[pkg] !== undefined)).toEqual([]);
+    expect(declared['@aws-sdk/client-sqs']).toBeDefined();
   });
 
   it('has no module outside apiClient building a URL from the API origin', () => {
@@ -206,29 +231,49 @@ describe('the one door', () => {
     // Filtered on that substring, the sweep could not see the one hook whose retry this rule
     // exists for: `useExploration` reaches the API through a service and mentions `apiRequest`
     // nowhere, so the exact call the incident was about sat outside the guard named after it.
-    // Nothing else in the app sets a retry that is neither `false` nor the policy — measured, not
-    // assumed — so widening the population costs no exemptions.
+    //
+    // **A CALLBACK IS THE MOST DANGEROUS VALUE HERE, NOT AN EXEMPT ONE.** A first version of this
+    // widening excused any value starting with `(`, to get past two domain properties that happen
+    // to be spelled `retry`. That let `retry: (failureCount, error) => …` — TanStack's documented
+    // way to write a custom policy, and a deliberate decision rather than a typo — pass unseen,
+    // while a literal `retry: 3` was caught. The value shape says nothing about intent, so the
+    // three modules whose `retry` is not a transport policy are named by path instead.
+    const NOT_A_TRANSPORT_POLICY = [
+      // The composition root's own default. A default is the thing a route policy overrides
+      // rather than an instance of one — and it is what makes this rule matter, since a hook
+      // that writes no `retry` at all silently inherits it.
+      'lib/queryClient.ts',
+      // A domain property that shares the key's name: "the upload collided, here is my decision,
+      // run it again". It takes a `CollisionDecision` and re-runs a gesture.
+      'features/file-browser/useFileUpload.ts',
+      // The same, one layer up: the type of the exploration region's "run it again" affordance.
+      'features/data-explorer/useExplorationQuery.ts'
+    ];
     const offenders = Object.entries(appSources)
-      // ONE exemption, by exact path: `queryClient.ts` is the composition root's own default, and
-      // a default is the thing a route policy overrides rather than an instance of one. It is
-      // also what makes the rule matter — a hook that omits its policy silently inherits this.
-      .filter(([path]) => !path.endsWith('/queryClient.ts') && path !== './queryClient.ts')
+      // EXACT paths, not suffixes: `endsWith('/queryClient.ts')` would exempt a future
+      // `features/anything/queryClient.ts` as well, which is how a named exemption quietly
+      // becomes a pattern one. `srcPath` normalises the glob's own `./` and `../` prefixes so
+      // there is one spelling to compare against.
+      .filter(([path]) => !NOT_A_TRANSPORT_POLICY.includes(srcPath(path)))
       .filter(([, source]) => {
         const retries = [...code(source).matchAll(/retry:\s*([^,\n}]+)/g)].map(([, value]) => value.trim());
-        return retries.some(
-          (value) =>
-            value !== 'false' &&
-            !value.startsWith('apiRetryPolicy(') &&
-            // A `retry(…)` CALLBACK is a different thing wearing the same key — the upload
-            // queue's "try this file again" handler, and the exploration region's. They take a
-            // decision and re-run a gesture; they are not a transport policy.
-            !value.startsWith('(') &&
-            !value.startsWith('()')
-        );
+        return retries.some((value) => value !== 'false' && !value.startsWith('apiRetryPolicy('));
       })
       .map(([path]) => path);
 
     expect(offenders).toEqual([]);
+  });
+
+  it('catches a retry CALLBACK, which is the shape a decision takes', () => {
+    // The regression the exemption-by-value-shape introduced, pinned so it cannot come back: a
+    // custom policy written as a function is the case this rule most needs to see, and it is the
+    // one an "it starts with a paren, it must be a domain handler" filter waves through.
+    const offends = (value: string) => value !== 'false' && !value.startsWith('apiRetryPolicy(');
+
+    expect(offends('(failureCount, error) => failureCount < 3')).toBe(true);
+    expect(offends('3')).toBe(true);
+    expect(offends('false')).toBe(false);
+    expect(offends("apiRetryPolicy('athena.start')")).toBe(false);
   });
 
   it('sees the module whose retry this rule was written for', () => {
