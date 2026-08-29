@@ -109,7 +109,15 @@ session you notice it (two hand-synced copies of one procedure is how numbering 
    not per-phase checkpoints baked into the spec — is what gates the work.
 6. **Put the plan through the reviewer gate before the first line of code** (*The reviewer contract*,
    below). A plan is reviewed for the same reason a PR is: the author cannot see what they assumed.
-   Confirm the reviewed plan with the user, then build.
+7. **Put the PR grouping through the same gate**, before the first push. Group consecutive phases
+   into as few PRs as the dependencies allow — a phase is a unit of work, not a unit of PR, and the
+   useful boundaries are inert-vs-live, either side of a switchover, a deletion following its last
+   caller, and infra that must apply before a live check.
+
+**These two reviews are the gates, and they are the only ones that need answering.** Once the plan
+and the grouping have each been reviewed, the build runs to completion without checking in. The user
+confirmed the work when they set the spec going; a per-phase check-in re-asks a question already
+answered, and on a twelve-phase spec it asks it twelve times.
 
 **During the build — one spec, in phases**
 - Every file-changing task is done on its **own branch** and opened as a **PR** — automatically, without
@@ -125,10 +133,14 @@ session you notice it (two hand-synced copies of one procedure is how numbering 
   and get them green. These quality gates are a pre-push step — don't push red and leave CI to discover
   it. **`build` (`tsc -b`) is the only one that typechecks** — the test run does not, and
   `tsc -p tsconfig.json` silently checks nothing (see §6).
-- Work the **reviewed** plan's phases in order. After each phase, **stop and summarize** what was
-  built and how it maps back to the plan before continuing. Re-review the plan only if the phase
+- Work the **reviewed** plan's phases in order, **straight through to completion**. Summarize a phase
+  in passing where it is worth saying, but do not end the turn on it — a summary that ends the turn
+  *is* a request for approval, whatever its wording says. Re-review the plan only if the phase
   changed it — a phase that revises the plan has produced a new artifact, and it goes through the
   gate as one.
+- **Stop only for a question that genuinely needs an answer:** a product-changing or ambiguous call,
+  a finding that changes scope, a phase discovering the plan was wrong. Reporting is not the same act
+  as asking, and doing the first while intending the second is how the build stalls.
 - Before writing code in a domain that has a rulebook (React, accessibility, Lambda shape, Python),
   route through `docs/best-practices/INDEX.md` — which names the tree each rulebook lives in — and
   load only the relevant section(s). Apply the rules as you write;

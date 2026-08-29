@@ -28,7 +28,7 @@
 - **§18 Tooling** — StrictMode + eslint-plugin-react-hooks; never suppress the linter.
 - **§19 JSDoc component docs** — document components with JSDoc for hover/usage; let TS own types; `@typedef` props, `@example`, extend HTML attrs, element-type reference; JSDoc (not inline comments) is the primary source of context.
 - **§20 Responsive design** — mobile-first; the project's `tablet:`/`desktop:` breakpoint vocabulary; responsive-by-default (utilities on one tree) vs. a justified separate-markup branch; the one viewport hook (`useBreakpoint`) is mount-gating only.
-- **§21 Testing** — integration-style tests; render real hooks/children, mock only the service boundary; one test per user-observable behavior (not per assertion); **assert the reason, never that something failed**; refusals are the half coverage cannot see; mutation-test the silent guard; the shared `renderWithProviders` + `userEvent`.
+- **§21 Testing** — integration-style tests; **import only the component under test**; **1–3 scenarios per component** (4–5 where earned; a dozen means split it), **arrange/act/assert**, happy path and failure path first; render real hooks/children, mock only the service boundary; one test per user-observable behavior (not per assertion); **assert the reason, never that something failed**; refusals are the half coverage cannot see; mutation-test the silent guard; the shared `renderWithProviders` + `userEvent`.
 
 ---
 
@@ -256,7 +256,15 @@ Vitest + React Testing Library, jsdom. Tests describe **user-observable behavior
 - 🔴 Don't `vi.mock` the feature's own hooks (`useFileBrowser`, `useDelete`, …) or stub its child components (`MoveDialog`, `MetadataPanel`, …). Mocking the internals is what makes tests brittle *and* fragments coverage (the mocked-out code only gets covered by its own file). One integration render covers the hook, the children, and the wiring at once.
 - ✅ A child that is genuinely heavy/global and covered elsewhere may be stubbed **by exception**, with a one-line `//` why (Monaco editor, the upload dropzone). Default is: don't.
 
+**Import only the component under test.** A test file imports the parent — the page, the feature root, the dialog — and reaches everything below it by rendering. 🔴 Importing a child component, a hook or a helper *alongside* the parent to assert on it directly couples the test to a private shape, so a refactor that keeps every behaviour reads as a regression. This is the same rule the Lambda side states as "drive the handler" (`lambdas/info/best-practices/lambdas/lambdas.md` §11).
+
+**1–3 scenarios per component**, chosen for how a user actually reaches it, not one per branch. Four or five is fine where a component genuinely earns them; a dozen is a sign the component is doing too much, and the fix is to split it (§1), not to keep the tests. **Coverage floors stay at 85% and are met this way** — if a unit cannot reach the floor from a handful of user-driven scenarios, that is the signal its scoping is wrong.
+
+**Structure each test arrange / act / assert**, in that order and visibly: set up fixtures and mocked `ServiceResult`s, render and drive with `userEvent`, then assert. One act phase per `it` — a test that arranges, asserts, re-arranges and asserts again is two scenarios sharing a name.
+
 **One test per behavior, not per assertion.** A single `it` may make several assertions about one user-visible outcome. 🔴 Five `it`s for "renders name / size / date / order / icon" → ✅ one `it('renders a populated folder')`. Split only when the *scenario* differs (empty vs error vs populated), not when the field differs.
+
+**Cover the happy path and the failure path first.** Those two are what the 1–3 budget is for; a third slot goes to whichever remaining scenario a user actually hits (an empty state, a refusal). Assert the **reason** — the message, the named item — never merely that something failed.
 
 **Use the shared harness** (`src/test/renderWithProviders.tsx`): `renderWithProviders(ui, {route, auth})` wires QueryClient (retries off) + MemoryRouter + AuthContext and returns `{user, queryClient}`; `renderHookWithProviders` does the same for hooks. Inject auth with the `authFixtures` builders (`authenticated()`, `unauthenticated()`).
 - 🔴 Don't hand-roll a `QueryClientProvider` + `MemoryRouter` wrapper per file — use the harness.
