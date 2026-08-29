@@ -1,47 +1,48 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import type {MockedFunction} from 'vitest';
-import {getS3Client} from '../../lib/s3Client';
+import {apiRequest} from '../../lib/apiClient';
 import {appendQueryHistory, getQueryHistory, updateQueryHistoryEntry} from './queryHistory.service';
 import type {QueryHistory, QueryHistoryEntry} from './query.types';
 
-vi.mock('../../lib/s3Client', () => ({getS3Client: vi.fn()}));
+vi.mock('../../lib/apiClient', () => ({apiRequest: vi.fn()}));
 
 // ─── from queryHistory.service.test.ts ───
 
 describe('queryHistory.service', () => {
-  const mockGetClient = getS3Client as unknown as MockedFunction<() => Promise<unknown>>;
-
-  // A stateful fake user-space bucket: GetObject reads the stored JSON (or throws
-  // NoSuchKey when absent); PutObject (input has a Body) overwrites it; CopyObject
-  // (input has a CopySource) is RECORDED rather than stored, so `stored()` keeps
-  // answering for the document under test while `copies` shows what was set aside.
-  // `copyFails` denies the copy, which is the only way to reach the refusal that must
-  // never become a silent overwrite.
+  // A stateful fake user-space document, now behind the API rather than the SDK. The read route
+  // returns the stored text (or NotFound when absent); the write route overwrites it; the copy
+  // route is RECORDED rather than stored, so `stored()` keeps answering for the document under
+  // test while `copies` shows what was set aside. `copyFails` denies the copy, which is the only
+  // way to reach the refusal that must never become a silent overwrite.
+  //
+  // `commands` holds ROUTE IDS where it used to hold SDK command names. That is the same
+  // assertion one layer out: the read-copy-write ORDER is what SPEC-159's quarantine turns on,
+  // and it is observable either way.
   function fakeBucket(initial: string | null, opts: {copyFails?: boolean; putFails?: boolean} = {}) {
     let stored = initial;
     const commands: string[] = [];
     const copies: {key: string; source: string}[] = [];
-    const send = vi.fn(
-      async (cmd: {constructor: {name: string}; input: {Body?: string; Key?: string; CopySource?: string}}) => {
-        commands.push(cmd.constructor.name);
-        if (cmd.input.CopySource !== undefined) {
-          if (opts.copyFails) throw Object.assign(new Error('denied'), {name: 'AccessDenied'});
-          copies.push({key: cmd.input.Key as string, source: cmd.input.CopySource});
-          return {};
-        }
-        if (cmd.input.Body !== undefined) {
-          if (opts.putFails) throw Object.assign(new Error('denied'), {name: 'AccessDenied'});
-          stored = cmd.input.Body;
-          return {};
-        }
-        if (stored === null) {
-          throw Object.assign(new Error('missing'), {name: 'NoSuchKey'});
-        }
-        const body = stored;
-        return {Body: {transformToString: async () => body}};
+
+    const send = vi.mocked(apiRequest);
+    send.mockImplementation((async (route: string, options?: {body?: Record<string, unknown>; query?: Record<string, string>}) => {
+      commands.push(route);
+      if (route === 'objects.copy') {
+        if (opts.copyFails) return {success: false, error: {message: '', code: 'AccessDenied'}};
+        const body = options?.body ?? {};
+        copies.push({
+          key: String(body.destinationKey),
+          source: `user-bucket/${String(body.sourceKey)}`
+        });
+        return {success: true, data: {key: String(body.destinationKey), etag: 'e'}};
       }
-    );
-    mockGetClient.mockResolvedValue({success: true, data: {send}});
+      if (route === 'objects.writeContent') {
+        if (opts.putFails) return {success: false, error: {message: '', code: 'AccessDenied'}};
+        stored = String((options?.body ?? {}).body);
+        return {success: true, data: {key: String((options?.body ?? {}).key), etag: 'e'}};
+      }
+      if (stored === null) return {success: false, error: {message: '', code: 'NotFound'}};
+      return {success: true, data: {body: stored, etag: 'e'}};
+    }) as never);
+
     return {send, stored: () => stored, commands, copies};
   }
 
@@ -186,7 +187,7 @@ describe('queryHistory.service', () => {
       if (!result.success) return;
       expect(result.recovered).toBe(true);
       expect(result.data.entries.map((e) => e.queryExecutionId)).toEqual(['new']);
-      expect(fake.commands).toEqual(['GetObjectCommand', 'CopyObjectCommand', 'PutObjectCommand']);
+      expect(fake.commands).toEqual(['objects.readContent', 'objects.copy', 'objects.writeContent']);
       expect(fake.copies[0].key).toMatch(
         /^alice\/user_settings\/query-history\.json\.unreadable-\d{8}T\d{6}Z-[0-9a-f]{8}\.json$/
       );
@@ -212,7 +213,7 @@ describe('queryHistory.service', () => {
       expect(result.success).toBe(false);
       if (result.success) return;
       expect(result.error.code).toBe('QueryHistoryQuarantineFailed');
-      expect(fake.commands).not.toContain('PutObjectCommand');
+      expect(fake.commands).not.toContain('objects.writeContent');
       expect(fake.stored()).toBe('not json{');
     });
 
@@ -224,7 +225,7 @@ describe('queryHistory.service', () => {
       expect(result.success).toBe(false);
       if (result.success) return;
       expect(result.error.code).toBe('QueryHistoryNewerVersion');
-      expect(fake.commands).toEqual(['GetObjectCommand']);
+      expect(fake.commands).toEqual(['objects.readContent']);
       expect(fake.stored()).toBe(body);
     });
 
@@ -236,7 +237,7 @@ describe('queryHistory.service', () => {
       expect(result.success).toBe(false);
       if (result.success) return;
       expect(result.error.code).toBe('QueryHistoryNewerVersion');
-      expect(fake.commands).toEqual(['GetObjectCommand']);
+      expect(fake.commands).toEqual(['objects.readContent']);
       expect(fake.stored()).toBe(body);
     });
 

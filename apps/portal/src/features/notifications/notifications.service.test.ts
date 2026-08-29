@@ -1,16 +1,16 @@
 import {describe, it, expect, vi, beforeEach, afterEach, type MockedFunction} from 'vitest';
 
-vi.mock('../../lib/s3Client', () => ({getS3Client: vi.fn()}));
+vi.mock('../../lib/apiClient', () => ({apiRequest: vi.fn()}));
 vi.mock('../../lib/sqsClient', () => ({getSqsClient: vi.fn()}));
 vi.mock('../../lib/awsCredentials', () => ({getIdToken: vi.fn()}));
 
-import {getS3Client} from '../../lib/s3Client';
+import {apiRequest} from '../../lib/apiClient';
 import {getSqsClient} from '../../lib/sqsClient';
 import {getIdToken} from '../../lib/awsCredentials';
 import {getNotifications, enqueueNotificationAction} from './notifications.service';
 import type {Notification} from './notifications.types';
 
-const mockGetS3 = getS3Client as unknown as MockedFunction<() => Promise<unknown>>;
+const mockApiRequest = vi.mocked(apiRequest);
 const mockGetSqs = getSqsClient as unknown as MockedFunction<() => Promise<unknown>>;
 const mockGetIdToken = getIdToken as unknown as MockedFunction<() => Promise<unknown>>;
 
@@ -20,18 +20,16 @@ const QUEUE = 'https://sqs.us-east-1.amazonaws.com/123/dat-prod-notifications-re
 
 type Cmd = {input: Record<string, unknown>};
 
-// Fake an S3 client whose GetObject returns the given body (or rejects). `body ===
-// null` simulates a missing object body.
-function fakeS3(opts: {body?: string | null; rejectWith?: unknown}) {
-  const send = vi.fn();
-  if (opts.rejectWith !== undefined) {
-    send.mockRejectedValue(opts.rejectWith);
-  } else {
-    send.mockResolvedValue({
-      Body: opts.body == null ? undefined : {transformToString: async () => opts.body}
-    });
-  }
-  mockGetS3.mockResolvedValue({success: true, data: {send}});
+// Fake the document route. `body === null` is an absent object, which the route reports as
+// NotFound and the reader turns into the empty feed — absence has nothing to lose. `failWith` is
+// a machine code, since a failure now arrives as a code rather than as a thrown AWS error.
+function fakeS3(opts: {body?: string | null; failWith?: string}) {
+  const send = mockApiRequest;
+  send.mockImplementation(async () => {
+    if (opts.failWith !== undefined) return {success: false, error: {message: '', code: opts.failWith}};
+    if (opts.body == null) return {success: false, error: {message: '', code: 'NotFound'}};
+    return {success: true, data: {body: opts.body, etag: 'e'}};
+  });
   return {send};
 }
 
@@ -67,8 +65,12 @@ describe('getNotifications', () => {
     const {send} = fakeS3({body: '[]'});
     await getNotifications(USER);
     expect(send).toHaveBeenCalledTimes(1);
-    const cmd = send.mock.calls[0][0] as Cmd;
-    expect(cmd.input).toMatchObject({Bucket: BUCKET, Key: 'alice/user_settings/notifications.json'});
+    // The bucket no longer travels — the API resolves the space from the caller's claims — so the
+    // key and the derived space are what remain observable, and they are what this always meant.
+    expect(send.mock.calls[0][0]).toBe('objects.readContent');
+    expect(send.mock.calls[0][1]).toMatchObject({
+      query: {spaceKind: 'personal', spaceName: 'alice', key: 'alice/user_settings/notifications.json'}
+    });
   });
 
   it('returns rows newest-first', async () => {
@@ -182,7 +184,7 @@ describe('getNotifications', () => {
   });
 
   it('treats a 404 (missing inbox) as the empty state', async () => {
-    fakeS3({rejectWith: {name: 'NoSuchKey'}});
+    fakeS3({failWith: 'NotFound'});
     const result = await getNotifications(USER);
     expect(result).toEqual({success: true, data: []});
   });
@@ -200,7 +202,7 @@ describe('getNotifications', () => {
   });
 
   it('surfaces any other S3 error', async () => {
-    fakeS3({rejectWith: {name: 'AccessDenied', message: 'no'}});
+    fakeS3({failWith: 'AccessDenied'});
     const result = await getNotifications(USER);
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.code).toBe('AccessDenied');

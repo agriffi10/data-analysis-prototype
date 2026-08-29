@@ -1,5 +1,4 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
-import {GetObjectCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand} from '@aws-sdk/client-s3';
 import {
   __resetSavedQueriesFolderCache,
   deleteSavedQuery,
@@ -19,12 +18,9 @@ import type {QuerySpace} from '../catalog/catalog.types';
 // The AWS boundary is the only seam (react.md §21): the service composes
 // `objectExists`/`deleteObject` from the file browser and `readJsonDocument` from `lib/`,
 // and every one of them lands on this same client.
-const {mockSend, mockGetS3Client} = vi.hoisted(() => ({mockSend: vi.fn(), mockGetS3Client: vi.fn()}));
+const {mockSend} = vi.hoisted(() => ({mockSend: vi.fn()}));
 
-vi.mock('../../lib/s3Client', () => ({
-  s3Client: {send: vi.fn()},
-  getS3Client: mockGetS3Client
-}));
+vi.mock('../../lib/apiClient', () => ({apiRequest: mockSend}));
 
 const PERSONAL: QuerySpace = {
   id: 'personal',
@@ -44,19 +40,40 @@ const SHARED: QuerySpace = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockGetS3Client.mockResolvedValue({success: true, data: {send: mockSend}});
   __resetSavedQueriesFolderCache();
 });
 
-function notFoundError() {
-  return Object.assign(new Error('Not Found'), {name: 'NotFound', $metadata: {httpStatusCode: 404}});
+/** The route's answer when a key is absent — one spelling now, where the SDK had three. */
+function notFound() {
+  return {success: false as const, error: {message: '', code: 'NotFound'}};
 }
 
-function listed(contents: {Key: string; Size?: number; LastModified?: Date}[], rest: Record<string, unknown> = {}) {
-  return {Contents: contents, ...rest};
+/** A write or a copy answering successfully. */
+function written(key = 'k') {
+  return {success: true as const, data: {key, etag: 'e'}};
 }
 
-const commandsOfType = (type: unknown) => mockSend.mock.calls.filter((c) => c[0] instanceof (type as never));
+/** One page from the listing route: files and folders in one array, each with a `kind`. */
+function listed(
+  contents: {Key: string; Size?: number; LastModified?: Date}[],
+  rest: {IsTruncated?: boolean; NextContinuationToken?: string} = {}
+) {
+  return {
+    success: true as const,
+    data: {
+      items: contents.map((object) => ({
+        kind: 'file' as const,
+        key: object.Key,
+        size: object.Size ?? 0,
+        lastModified: (object.LastModified ?? new Date(0)).toISOString()
+      })),
+      nextToken: rest.NextContinuationToken ?? null
+    }
+  };
+}
+
+/** Every call to one route, in order — the successor of filtering by SDK command type. */
+const callsTo = (route: string) => mockSend.mock.calls.filter((call) => call[0] === route);
 
 describe('the name ↔ key rules (FR-004)', () => {
   it('never doubles the extension, and strips it case-insensitively', () => {
@@ -126,36 +143,39 @@ describe('isLinkedSavedQuery (SPEC-175 FR-004)', () => {
 
 describe('ensureSavedQueriesFolder (FR-001)', () => {
   it('HEADs the marker and PUTs it only when absent', async () => {
-    mockSend.mockRejectedValueOnce(notFoundError()).mockResolvedValueOnce({});
+    mockSend
+      .mockResolvedValueOnce({success: true, data: {exists: false}})
+      .mockResolvedValueOnce(written());
 
     const result = await ensureSavedQueriesFolder(PERSONAL);
 
     expect(result.success).toBe(true);
-    expect(commandsOfType(HeadObjectCommand)[0][0].input).toMatchObject({
-      Bucket: 'user-space',
-      Key: 'alice/saved_queries/DO_NOT_DELETE.txt'
+    // The bucket no longer travels: the API resolves the space from the caller's claims.
+    expect(callsTo('objects.exists')[0][1].query).toMatchObject({
+      spaceName: 'alice',
+      key: 'alice/saved_queries/DO_NOT_DELETE.txt'
     });
-    expect(commandsOfType(PutObjectCommand)[0][0].input).toMatchObject({
-      Key: 'alice/saved_queries/DO_NOT_DELETE.txt',
-      Body: SAVED_QUERIES_MARKER_BODY
+    expect(callsTo('objects.writeContent')[0][1].body).toMatchObject({
+      key: 'alice/saved_queries/DO_NOT_DELETE.txt',
+      body: SAVED_QUERIES_MARKER_BODY
     });
   });
 
   it('never overwrites an existing marker', async () => {
-    mockSend.mockResolvedValueOnce({}); // HEAD succeeds
+    mockSend.mockResolvedValueOnce({success: true, data: {exists: true}});
 
     await ensureSavedQueriesFolder(PERSONAL);
 
-    expect(commandsOfType(PutObjectCommand)).toHaveLength(0);
+    expect(callsTo('objects.writeContent')).toHaveLength(0);
   });
 
   it('checks each space separately', async () => {
-    mockSend.mockResolvedValue({});
+    mockSend.mockResolvedValue({success: true, data: {exists: true}});
 
     await ensureSavedQueriesFolder(PERSONAL);
     await ensureSavedQueriesFolder(SHARED);
 
-    expect(commandsOfType(HeadObjectCommand).map((c) => c[0].input.Key)).toEqual([
+    expect(callsTo('objects.exists').map((c) => c[1].query.key)).toEqual([
       'alice/saved_queries/DO_NOT_DELETE.txt',
       'project_alpha/saved_queries/DO_NOT_DELETE.txt'
     ]);
@@ -168,7 +188,7 @@ describe('listSavedQueries (FR-004)', () => {
 
     await listSavedQueries({space: PERSONAL});
 
-    expect(commandsOfType(ListObjectsV2Command)[0][0].input).toMatchObject({
+    expect(callsTo('objects.list')[0][1].query).toMatchObject({
       Bucket: 'user-space',
       Prefix: 'alice/saved_queries/',
       Delimiter: '/',
@@ -210,7 +230,7 @@ describe('listSavedQueries (FR-004)', () => {
     const result = await listSavedQueries({space: PERSONAL});
 
     expect(result.success && result.data.queries.map((q) => q.key)).toEqual(['alice/saved_queries/current.sql']);
-    expect(commandsOfType(ListObjectsV2Command)[0][0].input.Delimiter).toBe('/');
+    expect(callsTo('objects.list')[0][1].query.Delimiter).toBe('/');
   });
 
   it('carries the space, the key, the name, the modified time and the size', async () => {
@@ -235,12 +255,12 @@ describe('listSavedQueries (FR-004)', () => {
 
     const result = await listSavedQueries({space: PERSONAL, continuationToken: 'page-1'});
 
-    expect(commandsOfType(ListObjectsV2Command)[0][0].input.ContinuationToken).toBe('page-1');
+    expect(callsTo('objects.list')[0][1].query.ContinuationToken).toBe('page-1');
     expect(result.success && result.data).toMatchObject({isTruncated: true, nextContinuationToken: 'page-2'});
   });
 
   it('treats a missing folder as an EMPTY list, not an error', async () => {
-    mockSend.mockResolvedValue({});
+    mockSend.mockResolvedValue(written());
 
     const result = await listSavedQueries({space: PERSONAL});
 
@@ -255,7 +275,7 @@ describe('readSavedQuery (FR-004)', () => {
     const result = await readSavedQuery({bucket: 'user-space', key: 'alice/saved_queries/q1.sql'});
 
     expect(result).toEqual({success: true, data: 'SELECT 1'});
-    expect(commandsOfType(GetObjectCommand)[0][0].input).toMatchObject({Key: 'alice/saved_queries/q1.sql'});
+    expect(callsTo('objects.readContent')[0][1].query).toMatchObject({Key: 'alice/saved_queries/q1.sql'});
   });
 
   it('names the query in a user-safe message when the file is gone', async () => {
@@ -273,24 +293,24 @@ describe('readSavedQuery (FR-004)', () => {
 
 describe('writeSavedQuery (FR-004)', () => {
   it('HEADs the exact key and refuses a collision rather than clobbering', async () => {
-    mockSend.mockResolvedValueOnce({}); // HEAD finds it
+    mockSend.mockResolvedValueOnce(written()); // HEAD finds it
 
     const result = await writeSavedQuery({space: PERSONAL, name: 'report', sql: 'SELECT 1'});
 
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.error.code).toBe('Collision');
-    expect(commandsOfType(HeadObjectCommand)[0][0].input.Key).toBe('alice/saved_queries/report.sql');
-    expect(commandsOfType(PutObjectCommand)).toHaveLength(0);
+    expect(callsTo('objects.exists')[0][1].query.Key).toBe('alice/saved_queries/report.sql');
+    expect(callsTo('objects.writeContent')).toHaveLength(0);
   });
 
   it('puts unconditionally with overwrite, and returns the SavedQuery just written', async () => {
-    mockSend.mockResolvedValue({});
+    mockSend.mockResolvedValue(written());
 
     const result = await writeSavedQuery({space: PERSONAL, name: 'report', sql: 'SELECT 1', overwrite: true});
 
-    expect(commandsOfType(HeadObjectCommand)).toHaveLength(0);
-    expect(commandsOfType(PutObjectCommand)[0][0].input).toMatchObject({
+    expect(callsTo('objects.exists')).toHaveLength(0);
+    expect(callsTo('objects.writeContent')[0][1].body).toMatchObject({
       Bucket: 'user-space',
       Key: 'alice/saved_queries/report.sql',
       Body: 'SELECT 1',
@@ -305,18 +325,18 @@ describe('writeSavedQuery (FR-004)', () => {
   });
 
   it('writes past a HEAD that says absent', async () => {
-    mockSend.mockRejectedValueOnce(notFoundError()).mockResolvedValueOnce({});
+    mockSend.mockResolvedValueOnce(notFound()).mockResolvedValueOnce({});
 
     const result = await writeSavedQuery({space: SHARED, name: 'q1', sql: 'SELECT 2'});
 
     expect(result.success).toBe(true);
-    expect(commandsOfType(PutObjectCommand)[0][0].input.Key).toBe('project_alpha/saved_queries/q1.sql');
+    expect(callsTo('objects.writeContent')[0][1].body.Key).toBe('project_alpha/saved_queries/q1.sql');
   });
 });
 
 describe('deleteSavedQuery (FR-004)', () => {
   it('delegates to deleteObject, so the prefix-marker refusal applies unchanged', async () => {
-    mockSend.mockResolvedValue({});
+    mockSend.mockResolvedValue(written());
 
     const result = await deleteSavedQuery({
       bucket: 'user-space',

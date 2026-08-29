@@ -1,8 +1,6 @@
-import {CopyObjectCommand, GetObjectCommand, PutObjectCommand} from '@aws-sdk/client-s3';
-import {getS3Client} from './s3Client';
-import {withCredentialRetry} from './credentialRetry';
-import {toServiceError} from './serviceResult';
-import {isNotFound} from './s3Errors';
+import {apiRequest} from './apiClient';
+import {spaceFor} from './objectSpace';
+import {fromApiFailure, toServiceError} from './serviceResult';
 import type {ServiceResult} from '../types/service.types';
 
 /**
@@ -139,14 +137,18 @@ export async function quarantineDocument(opts: {
   const {bucket, key, now = new Date()} = opts;
   const quarantineKey = `${key}.unreadable-${basicUtcTimestamp(now)}-${crypto.randomUUID().slice(0, 8)}.json`;
 
-  return withCredentialRetry(getS3Client, async (client) => {
-    try {
-      await client.send(new CopyObjectCommand({Bucket: bucket, Key: quarantineKey, CopySource: `${bucket}/${key}`}));
-      return {success: true, data: {quarantineKey}};
-    } catch (err) {
-      return toServiceError(err, 'Failed to set the unreadable file aside');
+  const space = spaceFor(bucket, key);
+  const copied = await apiRequest('objects.copy', {
+    body: {
+      source: space,
+      sourceKey: key,
+      destination: space,
+      destinationKey: quarantineKey,
+      overwrite: false
     }
   });
+  if (!copied.success) return fromApiFailure(copied.error, 'Failed to set the unreadable file aside');
+  return {success: true, data: {quarantineKey}};
 }
 
 /** `2026-08-10T13:15:00.123Z` → `20260810T131500Z` (ISO-8601 basic, UTC). */
@@ -182,8 +184,10 @@ function basicUtcTimestamp(now: Date): string {
  * Never throws — `ServiceResult` in, `ServiceResult` out, like every service in this repo.
  * A `parse` that throws anyway is caught and wrapped in `fallbackMessage`, but no caller
  * should rely on that: interpreting the body is the parser's whole job.
- * Follows `lib/enqueueFifo.ts`'s conventions: one options object, the user-safe wording
- * supplied by the caller, `withCredentialRetry` around the send.
+ * Follows `lib/enqueueFifo.ts`'s conventions: one options object and the user-safe wording
+ * supplied by the caller. The credential retry that used to wrap the send is gone from here: an
+ * expired session is now re-assumed server-side, and an expired ID token is a 401 the transport
+ * answers with one forced refresh. Neither is this module's business any more.
  *
  * @example
  * return readJsonDocument({
@@ -205,15 +209,33 @@ export async function readJsonDocument<T>(opts: {
 }): Promise<ServiceResult<T>> {
   const {bucket, key, parse, onMissing, fallbackMessage} = opts;
 
-  return withCredentialRetry(getS3Client, async (client) => {
+  const read = await apiRequest('objects.readContent', {
+    query: {...spaceQuery(bucket, key), key}
+  });
+  if (read.success) {
     try {
-      const response = await client.send(new GetObjectCommand({Bucket: bucket, Key: key}));
-      return parse(await response.Body?.transformToString());
+      // An EMPTY object reads as `undefined`, not as `''`. The SDK path handed `undefined` to
+      // `parse` whenever there was no body, and every caller's parser treats that as the empty
+      // document — `raw ?? 'null'` is the common shape. Passing `''` through instead would make
+      // `JSON.parse('')` throw and turn an empty file into a failure, which is a behaviour change
+      // nobody asked for and which only shows up on an object nobody has written to yet.
+      return parse(read.data.body === '' ? undefined : read.data.body);
     } catch (err) {
-      if (onMissing && isNotFound(err)) return onMissing();
+      // `parse` is documented as total, and this is the net under it — the SAME net, through the
+      // same helper, so a parser bug still surfaces exactly the message it did before. A caught
+      // exception here is this app's own defect, not a service's prose, which is why it is the one
+      // place a raw message is still allowed through.
       return toServiceError(err, fallbackMessage);
     }
-  });
+  }
+  if (onMissing && read.error.code === 'NotFound') return onMissing();
+  return fromApiFailure(read.error, fallbackMessage);
+}
+
+/** The flattened space a GET route's query carries — a query string holds only strings. */
+function spaceQuery(bucket: string, key: string): {spaceKind: 'personal' | 'shared'; spaceName: string} {
+  const space = spaceFor(bucket, key);
+  return {spaceKind: space.kind, spaceName: space.name};
 }
 
 /**
@@ -243,19 +265,18 @@ export async function writeJsonDocument(opts: {
 }): Promise<ServiceResult<void>> {
   const {bucket, key, value, fallbackMessage} = opts;
 
-  return withCredentialRetry(getS3Client, async (client) => {
-    try {
-      await client.send(
-        new PutObjectCommand({
-          Bucket: bucket,
-          Key: key,
-          Body: JSON.stringify(value),
-          ContentType: 'application/json'
-        })
-      );
-      return {success: true, data: undefined};
-    } catch (err) {
-      return toServiceError(err, fallbackMessage);
+  const written = await apiRequest('objects.writeContent', {
+    body: {
+      space: spaceFor(bucket, key),
+      key,
+      // The SAME serialisation the browser did before. The route stores what it is given byte for
+      // byte, so moving the stringify server-side would have changed key order and whitespace for
+      // every document in the app — invisible, and not byte-identical.
+      body: JSON.stringify(value),
+      contentType: 'application/json',
+      overwrite: true
     }
   });
+  if (!written.success) return fromApiFailure(written.error, fallbackMessage);
+  return {success: true, data: undefined};
 }
