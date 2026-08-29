@@ -26,8 +26,16 @@ Attributes:
   ROUTES: Every route the API serves. The router dispatches from this table, the plane table
     derives from it, and the generated TypeScript is emitted from it — so a route cannot exist
     in one of those places and not the others.
+  QueryState: The five execution states this product models. Athena documents a sixth,
+    ``CANCELLING``, which the browser has never known — admitting it here would deliver an
+    unhandled value to the one surface that reads state.
+  PARAMETER_NAME_RE: What a path template's placeholder may be called. A segment wearing braces
+    whose name does not match is REFUSED at declaration time rather than read as a literal —
+    read as a literal it would match nothing, and every request to that route would be an
+    ordinary 404 with no symptom anywhere.
 """
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import (
@@ -53,6 +61,7 @@ ErrorCode = Literal[
     "IdentityUnavailable",
     "InternalError",
     "ApiUnavailable",
+    "QueryNotFinished",
 ]
 
 ERROR_STATUS: Final[dict[str, int]] = {
@@ -67,11 +76,14 @@ ERROR_STATUS: Final[dict[str, int]] = {
     "IdentityUnavailable": 500,
     "InternalError": 500,
     "ApiUnavailable": 503,
+    "QueryNotFinished": 409,
 }
 
 ROUTE_STATUSES: Final[frozenset[int]] = frozenset(
     {200, 400, 401, 403, 404, 409, 413, 415, 429, 500, 503}
 )
+
+PARAMETER_NAME_RE: Final[re.Pattern[str]] = re.compile(r"[a-z][A-Za-z0-9]*\Z")
 
 
 class ErrorParams(TypedDict, total=False):
@@ -460,6 +472,186 @@ class FreeNameResponse(TypedDict):
     name: str
 
 
+QueryState = Literal["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"]
+
+
+class StartQueryRequest(TypedDict):
+    """What the browser sends to start a query.
+
+    It carries no username, no bucket and no workgroup: all three are derived server-side, from
+    the verified claim and this function's own environment. A body naming any of them is refused
+    rather than ignored — an ignored field is a field that comes back.
+
+    Attributes:
+      sql: The statement, opaque to this API. Never parsed, split, trimmed or logged, and passed
+        to Athena byte-identical: the Data Explorer discloses this string to the user as the
+        query it is about to bill them for, and the disclosure is trusted BECAUSE it is the same
+        bytes.
+      database: The execution context, omitted entirely when absent rather than sent empty —
+        queries carry no active database, so every base table is fully qualified and a present
+        but empty context would change what resolves.
+    """
+
+    sql: str
+    database: NotRequired[str]
+
+
+class StartQueryResponse(TypedDict):
+    """The execution the browser polls.
+
+    Attributes:
+      queryExecutionId: Athena's id for the execution.
+    """
+
+    queryExecutionId: str
+
+
+class QueryStatusResponse(TypedDict):
+    """One poll of an execution.
+
+    **A failed query is a 200.** The execution failing is data about the query, not a failure of
+    the request — and the browser's authored wording for six distinct engine conditions is chosen
+    by reading ``stateChangeReason``. Mapping a FAILED execution onto an error envelope is the
+    change that looks most correct and silently retires all six.
+
+    Attributes:
+      queryExecutionId: The execution this describes.
+      state: Athena's state, over the five this app models. ``CANCELLING`` is deliberately absent:
+        the browser's terminal-state test and switch arms have never known it, so admitting it
+        here would deliver an unhandled value to the one surface that reads state.
+      stateChangeReason: Athena's engine text, VERBATIM — never truncated, never mapped to a code,
+        never merged into ``detail``. It is mapped to authored wording in the browser and rendered
+        by nothing on this side.
+      dataScannedBytes: Null while non-terminal, never 0 — a confident zero freezes the tab's cost
+        figure at zero for the whole run.
+      engineExecutionTimeMillis: Null while non-terminal, for the same reason.
+      outputLocation: Where Athena wrote the results, present once it reports one.
+    """
+
+    queryExecutionId: str
+    state: QueryState
+    stateChangeReason: str | None
+    dataScannedBytes: int | None
+    engineExecutionTimeMillis: int | None
+    outputLocation: str | None
+
+
+class QueryResultsQuery(TypedDict, total=False):
+    """How a caller asks for one page of results.
+
+    Both values are strings because a query string carries nothing else; the range check on
+    ``maxRows`` therefore lives in the route rather than in this declaration.
+
+    Attributes:
+      nextToken: Athena's continuation token, opaque — stored and returned unmodified.
+      maxRows: How many data rows the page should hold, 1 to 1000.
+    """
+
+    nextToken: str
+    maxRows: str
+
+
+class QueryColumnWire(TypedDict):
+    """One result column.
+
+    Attributes:
+      name: The column's name, as Athena reports it.
+      type: Athena's RAW type string. Normalising it is the browser's job and stays there, so the
+        wire carries what the engine said rather than an opinion about it.
+    """
+
+    name: str
+    type: str
+
+
+class QueryResultsResponse(TypedDict):
+    """One page of a succeeded query's results.
+
+    A page that is not a bare collection carries its own payload keys beside ``nextToken`` rather
+    than being wrapped as ``items``: a tabular page is two parallel shapes, and wrapping it would
+    either lose the column list or nest every row a level deeper for every consumer.
+
+    Attributes:
+      columns: The result's columns, in order.
+      rows: The cells, aligned to the columns. **``null`` is SQL NULL and ``""`` is the empty
+        string, and the two are distinct on the wire** — collapsing them destroys a difference no
+        consumer can rebuild, and the Value panel exists to tell them apart.
+      nextToken: The continuation token, or None on the last page.
+    """
+
+    columns: list[QueryColumnWire]
+    rows: list[list[str | None]]
+    nextToken: str | None
+
+
+class StopQueryResponse(TypedDict):
+    """What stopping an execution answers.
+
+    Empty, and it stays empty: the poller observes the terminal state either way, so there is
+    nothing here a caller would read. It exists because every 200 body is an object.
+    """
+
+
+class DatabaseResponse(TypedDict):
+    """One catalog database, as the schema browser needs it.
+
+    Attributes:
+      name: The database's name.
+    """
+
+    name: str
+
+
+class TablesQuery(TypedDict, total=False):
+    """How a caller asks for one page of a database's tables.
+
+    Attributes:
+      nextToken: Glue's continuation token, opaque.
+    """
+
+    nextToken: str
+
+
+class GlueColumnWire(TypedDict):
+    """One column of a catalog table.
+
+    Attributes:
+      name: The column's name.
+      type: The column's type, as the catalog stores it.
+    """
+
+    name: str
+    type: str
+
+
+class GlueTableWire(TypedDict):
+    """One table in a database.
+
+    Attributes:
+      name: The table's name.
+      columns: Its columns, empty when the catalog stores none.
+      tableType: EXTERNAL_TABLE, VIRTUAL_VIEW and the like, or None.
+      location: The S3 location backing it, or None.
+    """
+
+    name: str
+    columns: list[GlueColumnWire]
+    tableType: str | None
+    location: str | None
+
+
+class TablesResponse(TypedDict):
+    """One page of a database's tables.
+
+    Attributes:
+      items: The tables on this page — a bare homogeneous collection, so it is named ``items``.
+      nextToken: The continuation token, or None on the last page.
+    """
+
+    items: list[GlueTableWire]
+    nextToken: str | None
+
+
 @dataclass(frozen=True)
 class Route:
     """One route, declared whole.
@@ -625,6 +817,66 @@ ROUTES: Final[tuple[Route, ...]] = (
         request=FreeNameRequest,
         query=None,
         response=FreeNameResponse,
+    ),
+    Route(
+        id="athena.start",
+        method="POST",
+        path="/v1/queries",
+        idempotent=False,
+        plane="user",
+        request=StartQueryRequest,
+        query=None,
+        response=StartQueryResponse,
+    ),
+    Route(
+        id="athena.status",
+        method="GET",
+        path="/v1/queries/{queryExecutionId}",
+        idempotent=True,
+        plane="user",
+        request=None,
+        query=None,
+        response=QueryStatusResponse,
+    ),
+    Route(
+        id="athena.results",
+        method="GET",
+        path="/v1/queries/{queryExecutionId}/results",
+        idempotent=True,
+        plane="user",
+        request=None,
+        query=QueryResultsQuery,
+        response=QueryResultsResponse,
+    ),
+    Route(
+        id="athena.stop",
+        method="POST",
+        path="/v1/queries/{queryExecutionId}/stop",
+        idempotent=True,
+        plane="user",
+        request=None,
+        query=None,
+        response=StopQueryResponse,
+    ),
+    Route(
+        id="catalog.database.get",
+        method="GET",
+        path="/v1/catalog/databases/{database}",
+        idempotent=True,
+        plane="user",
+        request=None,
+        query=None,
+        response=DatabaseResponse,
+    ),
+    Route(
+        id="catalog.tables.list",
+        method="GET",
+        path="/v1/catalog/databases/{database}/tables",
+        idempotent=True,
+        plane="user",
+        request=None,
+        query=TablesQuery,
+        response=TablesResponse,
     ),
 )
 
@@ -872,7 +1124,8 @@ def check_routes() -> None:
       None.
 
     Raises:
-      UnsupportedTypeError: If a route's response, or a declared request, is not an object type.
+      UnsupportedTypeError: If a route's response, or a declared request, is not an object type,
+        or if a path template is malformed or ambiguous against another route's.
     """
     for route in ROUTES:
         if not _is_typed_dict(route.response):
@@ -885,6 +1138,100 @@ def check_routes() -> None:
             )
         if route.query is not None:
             _check_query(route)
+        _check_path(route)
+    _check_paths_are_unambiguous()
+
+
+def _check_path(route: "Route") -> None:
+    """Refuses a path template that would silently match nothing.
+
+    **A malformed placeholder has no symptom.** ``{query-execution-id}`` does not name a
+    parameter, so it can only be read as a literal segment — and a literal segment wearing
+    braces matches no request anybody sends. The route then answers 404 to every caller while
+    the table, the generated TypeScript and every type-level check stay perfectly green. That is
+    why this is refused where a declaration is judged rather than repaired where a request is
+    matched.
+
+    A name repeated within one path is refused for the neighbouring reason: the later segment
+    would overwrite the earlier one and the route would act on one value believing it had two.
+
+    **Every segment carrying a brace is judged, not only the balanced ones.** ``{database`` and
+    ``db-{database}`` are placeholders somebody meant and the matcher cannot see: unbalanced or
+    embedded, they read as literals, the route matches nothing, and — measured — the only thing
+    that reddens is the regeneration gate, which an author clears by regenerating. The route then
+    publishes no parameters at all, so the browser's own compile-time check is off for it too.
+
+    Args:
+      route: The route whose path to check.
+
+    Returns:
+      None.
+
+    Raises:
+      UnsupportedTypeError: If a placeholder is malformed, or a name appears twice.
+    """
+    for segment in route.path.split("/"):
+        if _is_placeholder(segment) and PARAMETER_NAME_RE.match(segment[1:-1]):
+            continue
+        if "{" in segment or "}" in segment:
+            raise UnsupportedTypeError(
+                f"{route.id} declares the malformed path placeholder {segment!r}; it would be "
+                f"read as a literal and the route would match nothing"
+            )
+    names = path_parameters(route.path)
+    if len(set(names)) != len(names):
+        raise UnsupportedTypeError(
+            f"{route.id} declares a path parameter twice: {route.path!r}"
+        )
+
+
+def _check_paths_are_unambiguous() -> None:
+    """Refuses two routes whose templates can both match one concrete path.
+
+    Resolution takes the first row that matches, so an ambiguous pair resolves by DECLARATION
+    ORDER — which is to say by an accident of where somebody inserted a row. There is no
+    precedence rule here and deliberately none: a rule saying literals win would be a second
+    thing to reason about, and refusing the collision outright means it can never arise.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      UnsupportedTypeError: If two routes sharing a method have overlapping templates.
+    """
+    for index, route in enumerate(ROUTES):
+        for other in ROUTES[index + 1 :]:
+            if route.method == other.method and _templates_overlap(route.path, other.path):
+                raise UnsupportedTypeError(
+                    f"{route.id} and {other.id} both match {route.path!r}; resolution would "
+                    f"depend on which row was declared first"
+                )
+
+
+def _templates_overlap(one: str, other: str) -> bool:
+    """Whether one concrete path could satisfy both templates.
+
+    Args:
+      one: A declared path.
+      other: Another declared path.
+
+    Returns:
+      True if some request path matches both.
+
+    Raises:
+      None.
+    """
+    left = one.split("/")
+    right = other.split("/")
+    if len(left) != len(right):
+        return False
+    return all(
+        _is_placeholder(expected) or _is_placeholder(given) or expected == given
+        for expected, given in zip(left, right, strict=True)
+    )
 
 
 _QUERY_KINDS: Final[frozenset[str]] = frozenset({"str", "literal"})
@@ -948,22 +1295,119 @@ def route_by_id(route_id: str) -> Route | None:
     return None
 
 
-def route_for(method: str, path: str) -> Route | None:
-    """Resolves a request line to the route serving it.
+def path_parameters(path: str) -> tuple[str, ...]:
+    """The placeholder names in one path template, in the order they appear.
+
+    Read by the emitter as well as by the matcher, so the TypeScript a caller is typed against
+    and the segments the server extracts come from one reading of one string.
+
+    Args:
+      path: The route's declared path.
+
+    Returns:
+      The placeholder names, empty for a fixed path.
+
+    Raises:
+      None. A malformed placeholder is not this function's business — it is refused by
+        ``check_routes``, which is the one place a declaration is judged.
+    """
+    return tuple(
+        segment[1:-1] for segment in path.split("/") if _is_placeholder(segment)
+    )
+
+
+def _is_placeholder(segment: str) -> bool:
+    """Whether one declared segment is a placeholder rather than a literal.
+
+    Judged by the braces alone, NOT by the name inside them. A segment wearing braces whose name
+    is malformed must reach ``check_routes`` to be refused; classifying it as a literal here
+    would hide it, and the route would then match nothing while looking perfectly ordinary.
+
+    Args:
+      segment: One segment of a declared path.
+
+    Returns:
+      True if the segment is written as a placeholder.
+
+    Raises:
+      None.
+    """
+    return len(segment) >= 2 and segment.startswith("{") and segment.endswith("}")
+
+
+def _match_path(template: str, path: str) -> Mapping[str, str] | None:
+    """Matches one concrete path against one declared template.
+
+    A placeholder matches exactly one NON-EMPTY segment, so a doubled slash resolves to no route
+    rather than to a route holding an empty identifier.
+
+    **The path arrives percent-DECODED.** Measured against the deployed API rather than assumed:
+    ``GET /health%7A`` answers 200, having matched ``/healthz``, and ``GET /healthz%20`` answers
+    401, having matched nothing. So the client encodes each segment and this is the one decode
+    point — nothing here unquotes, because a second decode would turn a caller's literal ``%2F``
+    into a separator.
+
+    **A value carrying a slash therefore never reaches the route that named it, and this side
+    cannot tell.** By the time the path is matched, a decoded ``%2F`` is indistinguishable from a
+    separator the caller typed, so such a request resolves to whichever template has the longer
+    segment count — ``/v1/queries/{queryExecutionId}`` asked for ``abc/results`` arrives here as
+    ``athena.results`` for execution ``abc`` — or, with no such sibling, to nothing at all. The
+    CLIENT refuses such a value before sending it, and the outcomes here are what make that worth
+    doing rather than accepting a 404 nobody would mind.
+
+    That refusal is about where the check can WORK, not about safety: both templates sit on the
+    user plane under the same assumed identity, so nothing is reachable that a direct request
+    would not also reach. Whether ``rawPath`` preserves the encoding and would allow the same
+    check on this side is **not measured** — this function is handed
+    ``requestContext.http.path``, for the reason ``handler`` gives, and that is the field the
+    statement above is about.
+
+    Args:
+      template: The route's declared path.
+      path: The request's path.
+
+    Returns:
+      The extracted parameters, empty for a fixed path that matched; None when the template does
+      not match at all.
+
+    Raises:
+      None.
+    """
+    declared = template.split("/")
+    actual = path.split("/")
+    if len(declared) != len(actual):
+        return None
+
+    found: dict[str, str] = {}
+    for expected, given in zip(declared, actual, strict=True):
+        if _is_placeholder(expected):
+            if not given:
+                return None
+            found[expected[1:-1]] = given
+        elif expected != given:
+            return None
+    return found
+
+
+def route_for(method: str, path: str) -> tuple[Route, Mapping[str, str]] | None:
+    """Resolves a request line to the route serving it and the parameters it carried.
 
     Args:
       method: The request's HTTP method.
       path: The request's path.
 
     Returns:
-      The route, or None when no route serves that pair.
+      The route and its extracted path parameters, or None when no route serves that pair.
 
     Raises:
       None.
     """
     for route in ROUTES:
-        if route.method == method and route.path == path:
-            return route
+        if route.method != method:
+            continue
+        found = _match_path(route.path, path)
+        if found is not None:
+            return route, found
     return None
 
 

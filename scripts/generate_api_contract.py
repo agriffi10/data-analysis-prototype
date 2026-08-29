@@ -60,14 +60,39 @@ def render(node: TypeNode) -> str:
         return f"{render(node.of[0])} | null"
     if node.kind == "list":
         inner = render(node.of[0])
-        return f"({inner})[]" if " " in inner else f"{inner}[]"
+        return f"({inner})[]" if _renders_a_union(node.of[0]) else f"{inner}[]"
     if node.kind == "object":
         return node.name
     raise ValueError(f"no TypeScript rendering for node kind {node.kind!r}")
 
 
+def _renders_a_union(node: TypeNode) -> bool:
+    """Whether a node renders as a union at the TOP level, so a list of it needs parentheses.
+
+    Decided by KIND rather than by looking for a space in the rendered string. The string test
+    reads a nested list's own parentheses as a union — ``list[list[str | None]]`` came out as
+    ``((string | null)[])[]``, which is the same type and not the same bytes, and this file's
+    whole gate is a byte comparison.
+
+    Args:
+      node: The contained node.
+
+    Returns:
+      True if it renders as ``A | B``.
+
+    Raises:
+      None.
+    """
+    return node.kind == "optional" or (node.kind == "literal" and len(node.literals) > 1)
+
+
 def render_declaration(node: TypeNode) -> str:
     """Renders one object node as an exported TypeScript type declaration.
+
+    A type with NO fields renders as ``Record<string, never>`` rather than ``{}``, because ``{}``
+    in TypeScript agrees with every non-null value — so a route answering an empty body would be
+    typed by something that checks nothing, which is the fallback this emitter exists to refuse.
+    The empty case arrives with the first route whose 200 carries no payload.
 
     Args:
       node: The object node.
@@ -80,6 +105,8 @@ def render_declaration(node: TypeNode) -> str:
     """
     if node.kind != "object":
         raise ValueError(f"only an object node is a declaration, not {node.kind!r}")
+    if not node.fields:
+        return f"export type {node.name} = Record<string, never>;"
     members = "; ".join(
         f"{name}{'' if required else '?'}: {render(child)}" for name, child, required in node.fields
     )
@@ -126,13 +153,19 @@ def generate() -> str:
 
     lines.append("export const API_ROUTES = {")
     for route in contract.ROUTES:
+        params = ", ".join(f"'{name}'" for name in contract.path_parameters(route.path))
         lines.append(
             f"  '{route.id}': {{method: '{route.method}', path: '{route.path}', "
-            f"idempotent: {'true' if route.idempotent else 'false'}}},"
+            f"idempotent: {'true' if route.idempotent else 'false'}, params: [{params}]}},"
         )
     lines.append("} as const;")
     lines.append("")
     lines.append("export type ApiRouteId = keyof typeof API_ROUTES;")
+    lines.append("")
+    lines.append(
+        "export type PathParamsOf<R extends ApiRouteId> = "
+        "{[K in (typeof API_ROUTES)[R]['params'][number]]: string};"
+    )
     lines.append("")
 
     lines.append("type RouteBodies = {")

@@ -3,6 +3,7 @@ import type {
   ApiErrorCode,
   ApiRouteId,
   ErrorParams,
+  PathParamsOf,
   QueryOf,
   RequestOf,
   ResponseOf
@@ -11,13 +12,19 @@ import {configValue} from './runtimeConfig';
 import type {ServiceResult} from '../types/service.types';
 
 /**
- * The two codes this module mints. The server can produce neither, deliberately: a timeout and
- * an unreachable network are facts about this browser, not answers from an API.
+ * The codes this module mints. The server can produce none of them, deliberately: a timeout, an
+ * unreachable network and a value that cannot be put in a URL are facts about this browser, not
+ * answers from an API.
+ *
+ * `UnsendableParameter` is the third and it is minted for a request that was never sent — see
+ * `substitute`. It is deliberately NOT the server's `InvalidRequest`: reusing that would make a
+ * refusal of ours indistinguishable from the API's own, in the one case where the difference is
+ * the whole diagnosis.
  *
  * They are NOT in the generated enum, and a guard asserts all three sets stay disjoint — the
  * generated codes, these, and `errorMessages`' passthrough codes.
  */
-export type ApiClientCode = 'RequestTimeout' | 'NetworkUnavailable';
+export type ApiClientCode = 'RequestTimeout' | 'NetworkUnavailable' | 'UnsendableParameter';
 
 /**
  * The API function's own timeout. Mirrored from `cpcommon.jwks`, and pinned to it by a test that
@@ -109,8 +116,30 @@ export type ApiRequestOptions<R extends ApiRouteId> = {
   // failure at the call site. The declaration is all-strings by construction — the contract
   // refuses a query field that is not one, because a query string cannot carry anything else.
   query?: QueryOf<R> extends null ? never : QueryOf<R>;
+  // Same reasoning as `query`, one step stronger: a route with a fixed path declares no
+  // parameters, so `PathParamsOf` is `{}` — which accepts any object — and passing one has to be
+  // refused by the type rather than ignored at runtime.
+  params?: keyof PathParamsOf<R> extends never ? never : PathParamsOf<R>;
   signal?: AbortSignal;
 };
+
+/**
+ * What `apiRequest` takes after the route id.
+ *
+ * A rest tuple rather than an optional parameter, and the shape is load-bearing: a templated
+ * route makes the options object REQUIRED and its `params` required within it, so forgetting the
+ * parameter is `TS2554` at the call site. Written as `options?: ApiRequestOptions<R>` with an
+ * optional `params`, the omission compiles — and at runtime the literal `/v1/queries/{id}` goes
+ * on the wire, the gateway decodes the braces, the server's matcher MATCHES, and the service
+ * receives a 400 about an execution id nobody typed. That path looked unreachable and was not.
+ *
+ * A generic wrapper over `apiRequest` must forward `...args: ApiRequestArgs<R>` rather than take
+ * an options object: with `R` still a type variable, TypeScript cannot pick an arm of the
+ * conditional, so a wrapper that passes nothing does not compile.
+ */
+type ApiRequestArgs<R extends ApiRouteId> = keyof PathParamsOf<R> extends never
+  ? [options?: ApiRequestOptions<R>]
+  : [options: ApiRequestOptions<R> & {params: PathParamsOf<R>}];
 
 /**
  * The browser's one door to the API.
@@ -123,20 +152,26 @@ export type ApiRequestOptions<R extends ApiRouteId> = {
  * dev console alone.
  *
  * @param route - The route id.
- * @param options - An optional body, query parameters and caller abort signal.
+ * @param args - The body, path parameters, query parameters and caller abort signal. Required for
+ *   a templated route, optional for a fixed one — see `ApiRequestArgs`.
  * @returns The parsed payload, or the machine code a surface maps to wording.
  */
 export async function apiRequest<R extends ApiRouteId>(
   route: R,
-  options: ApiRequestOptions<R> = {}
+  ...args: ApiRequestArgs<R>
 ): Promise<ServiceResult<ResponseOf<R>>> {
+  const options: ApiRequestOptions<R> = args[0] ?? {};
   const origin = apiOrigin();
   // Legitimately absent on a laptop and in the test suite; in production the app refuses to boot
   // without it, so this arm cannot reach a user.
   if (origin === undefined) return failure('ApiUnavailable');
 
   const {method, path} = API_ROUTES[route];
-  const url = `${origin}${path}${queryString(options.query as Record<string, string> | undefined)}`;
+  const filled = substitute(path, options.params as Record<string, string> | undefined);
+  // A value the path cannot carry never goes on the wire — see `substitute`. Refused rather than
+  // sent, because what it would reach is a different route answering 200.
+  if (filled === undefined) return failure('UnsendableParameter');
+  const url = `${origin}${filled}${queryString(options.query as Record<string, string> | undefined)}`;
 
   for (let attempt = 0; attempt <= MAX_AUTH_RETRIES; attempt += 1) {
     if (!tokenProvider) return failure('SessionExpired');
@@ -171,6 +206,44 @@ function apiOrigin(): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Fill a path template's placeholders, encoding each value — or refuse a value that is not ONE
+ * path segment.
+ *
+ * The property is "this is a single segment", not "this has no slash", and the difference is
+ * load-bearing because **two unrelated mechanisms turn a value into extra structure, at two
+ * different layers**:
+ *
+ * - `a/b` survives `encodeURIComponent` as `%2F`, reaches the wire intact, and is decoded by API
+ *   Gateway (measured: `/health%7A` matched `/healthz` against the deployed API).
+ * - `.` and `..` are not encoded at all — `encodeURIComponent('.') === '.'` — and never reach the
+ *   wire in the first place: the URL parser collapses dot segments when `fetch` reads the string.
+ *
+ * Either way the request addresses a template it did not name. `athena.status` asked for
+ * `abc/results` — or for `.` — arrives as `athena.results`; `catalog.database.get` for
+ * `alice/tables` arrives as `catalog.tables.list`. Both answer 200, with a body of the wrong
+ * shape, typed as the right one. A 404 would have been survivable; this is not.
+ *
+ * It is refused here because the server cannot tell such a path from one a caller legitimately
+ * typed — by the time it matches, the separator is a separator. That is about where the check can
+ * work, not about safety: both routes sit on the same plane under the same assumed identity, so a
+ * caller reaches nothing they could not have requested directly.
+ *
+ * Every value this app passes is a catalog identifier, so this refuses nothing today. It is here
+ * because the next caller is the one that would find it.
+ */
+function substitute(path: string, params: Record<string, string> | undefined): string | undefined {
+  if (!params) return path;
+  // `typeof` first, and not only for the empty case: a `string` that is `undefined` at runtime
+  // arrives through any cast, and this module's contract is that it never throws.
+  const unsendable = (value: string) =>
+    typeof value !== 'string' || value === '' || value === '.' || value === '..' || value.includes('/');
+  if (Object.values(params).some(unsendable)) return undefined;
+  return path.replace(/\{([^}]+)\}/g, (whole, name: string) =>
+    Object.hasOwn(params, name) ? encodeURIComponent(params[name]) : whole
+  );
 }
 
 /** URL-encoded, always. S3 continuation tokens carry `+`, `/` and `=`, and `+` decodes to a space. */

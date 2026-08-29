@@ -3,7 +3,7 @@ import {API_ERROR_CODES} from '../types/apiContract.generated';
 import {PASSTHROUGH_CODES, toUserText} from './errorMessages';
 
 /** The two the client mints. Declared here as data so the guards below can reach them. */
-const CLIENT_MINTED = ['RequestTimeout', 'NetworkUnavailable'] as const;
+const CLIENT_MINTED = ['RequestTimeout', 'NetworkUnavailable', 'UnsendableParameter'] as const;
 
 /** Read as source, so the assertions are about what the modules DECLARE, not what they do. */
 const sources = import.meta.glob('./{apiClient,errorMessages}.ts', {

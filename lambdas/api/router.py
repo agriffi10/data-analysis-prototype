@@ -296,7 +296,8 @@ def route(
         )
         return _answered(errors.server_fault(request_id), errors.SERVER_FAULT_CODE)
 
-    declared = contract.route_for(method, path)
+    resolved = contract.route_for(method, path)
+    declared, path_params = resolved if resolved is not None else (None, {})
     handler = HANDLERS.get(declared.id) if declared is not None else None
     if declared is None or handler is None:
         observability.warning(
@@ -326,7 +327,13 @@ def route(
             envelope.success(
                 handler(
                     RequestContext(
-                        caller, acting_as, asked_for, request_id, body, MappingProxyType(dict(query or {}))
+                        caller,
+                        acting_as,
+                        asked_for,
+                        request_id,
+                        body,
+                        MappingProxyType(dict(query or {})),
+                        MappingProxyType(dict(path_params)),
                     )
                 )
             )

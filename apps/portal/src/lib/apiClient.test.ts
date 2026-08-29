@@ -268,3 +268,82 @@ describe('the timeout', () => {
     await expect(pending).resolves.toMatchObject({success: false, error: {code: 'RequestTimeout'}});
   });
 });
+
+describe('apiRequest — path parameters', () => {
+  it('fills the template from the route id, so no caller assembles a URL', async () => {
+    fetchMock.mockResolvedValue(json(200, {}));
+
+    await apiRequest('athena.stop', {params: {queryExecutionId: 'abc-123'}});
+
+    expect(fetchMock.mock.calls[0][0]).toBe(`${ORIGIN}/v1/queries/abc-123/stop`);
+  });
+
+  it('encodes each segment, because the gateway hands the server a DECODED path', async () => {
+    // Measured against the deployed API, not assumed: `GET /health%7A` answered 200 having
+    // matched `/healthz`, and `/healthz%20` answered 401. So this is the one encode point and
+    // the server never unquotes.
+    fetchMock.mockResolvedValue(json(200, {}));
+
+    await apiRequest('athena.stop', {params: {queryExecutionId: 'a b%c'}});
+
+    expect(fetchMock.mock.calls[0][0]).toBe(`${ORIGIN}/v1/queries/a%20b%25c/stop`);
+  });
+
+  it.each([
+    ['a slash the gateway decodes back into a separator', 'abc/results'],
+    ['a dot segment the URL parser collapses before the wire', '.'],
+    ['a parent segment the URL parser collapses before the wire', '..'],
+    ['an empty value, which would make an empty segment', '']
+  ])('refuses %s rather than sending it', async (_why, value) => {
+    // All four address a template the caller did not name, by two different mechanisms at two
+    // different layers: `a/b` survives encoding and is decoded by API Gateway, while `.` is not
+    // encoded at all and never reaches the wire — `fetch`'s URL parser collapses it. So the rule
+    // is "one path segment", not "no slash"; a slash-only check passes `.` and lands the caller
+    // on `athena.results` with a 200 and a body of the wrong shape.
+    const result = await apiRequest('athena.status', {params: {queryExecutionId: value}});
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({success: false, error: {code: 'UnsendableParameter'}});
+  });
+
+  it('returns a failure rather than throwing when a value is not a string at runtime', async () => {
+    // The types forbid it and a cast reinstates it — `options.params` is read through one. This
+    // module's contract is that it never throws, and `value.includes` on `undefined` does.
+    const params = {queryExecutionId: undefined} as unknown as {queryExecutionId: string};
+
+    const result = await apiRequest('athena.status', {params});
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({success: false, error: {code: 'UnsendableParameter'}});
+  });
+
+  it('will not compile a templated route with no parameters', async () => {
+    fetchMock.mockResolvedValue(json(200, {}));
+
+    // @ts-expect-error a templated route makes the options object and its `params` REQUIRED. As
+    // an optional field this compiled, and the literal `/v1/queries/{queryExecutionId}/stop` went
+    // on the wire — where the gateway decodes the braces and the server's matcher MATCHES, so
+    // Athena would receive `{queryExecutionId}` as an execution id and answer a 400 about a value
+    // nobody typed. The assertion IS the `@ts-expect-error`: weaken the type and `tsc -b` fails
+    // here for having nothing to suppress.
+    await apiRequest('athena.stop');
+  });
+
+  it('round-trips a continuation token through the query string byte for byte', async () => {
+    // The browser half of a round trip whose server half was already asserted — and whose test
+    // said in its own docstring that this half existed. It did not. Athena's and S3's tokens are
+    // base64 and routinely carry all three of these; unencoded, `+` decodes to a space and the
+    // next page silently restarts from the beginning rather than erroring.
+    fetchMock.mockResolvedValue(json(200, {columns: [], rows: [], nextToken: null}));
+    const awkward = 'a+b/c==';
+
+    await apiRequest('athena.results', {
+      params: {queryExecutionId: 'abc-123'},
+      query: {nextToken: awkward}
+    });
+
+    const url = new URL(fetchMock.mock.calls[0][0]);
+    expect(url.searchParams.get('nextToken')).toBe(awkward);
+    expect(url.search).toContain('a%2Bb%2Fc%3D%3D');
+  });
+});
