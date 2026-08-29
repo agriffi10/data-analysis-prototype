@@ -25,13 +25,11 @@ vi.mock('./fileBrowser.service', async (importActual) => {
     ...actual,
     listFiles: vi.fn(),
     getObjectMetadata: vi.fn(),
-    deleteObjects: vi.fn(),
-    deleteFolder: vi.fn(),
+    deleteObject: vi.fn(),
     moveObject: vi.fn(),
-    moveFolder: vi.fn(),
     copyObject: vi.fn(),
-    copyFolder: vi.fn(),
     objectExists: vi.fn(),
+    firstFreeName: vi.fn(),
     getDownloadUrl: vi.fn(),
     uploadFile: vi.fn(),
     createFolder: vi.fn()
@@ -131,13 +129,11 @@ beforeEach(() => {
     })
   );
   mock.getDownloadUrl.mockResolvedValue(ok({url: 'https://signed/report.csv', expiresAt: '2026-03-04T01:00:00Z'}));
-  mock.deleteObjects.mockResolvedValue(ok({deleted: ['alice/report.csv'], errors: []}));
-  mock.deleteFolder.mockResolvedValue(ok({deleted: ['alice/docs/x'], errors: []}));
+  mock.deleteObject.mockResolvedValue(ok({key: 'alice/report.csv'}));
   mock.moveObject.mockResolvedValue(ok({destKey: 'alice/docs/notes.txt'}));
-  mock.moveFolder.mockResolvedValue(ok({moved: ['alice/docs/x'], errors: []}));
   mock.copyObject.mockResolvedValue(ok({destKey: 'alice/docs/notes.txt'}));
-  mock.copyFolder.mockResolvedValue(ok({copied: ['alice/docs/x'], errors: []}));
   mock.objectExists.mockResolvedValue(ok(false));
+  mock.firstFreeName.mockResolvedValue(ok('report (1).csv'));
   mock.createFolder.mockResolvedValue(ok({prefix: 'alice/new/'}));
   mock.uploadFile.mockResolvedValue(ok({key: 'alice/up.txt'}));
   mockQualityCheck.mockResolvedValue(ok({requestId: 'req-1'}));
@@ -285,10 +281,10 @@ describe('FileBrowser — selection + delete', () => {
     await user.click(await screen.findByRole('checkbox', {name: 'Select report.csv'}));
     await user.click(screen.getByRole('button', {name: 'Delete selected items'}));
     // Nothing deleted until the confirm dialog is accepted.
-    expect(mock.deleteObjects).not.toHaveBeenCalled();
+    expect(mock.deleteObject).not.toHaveBeenCalled();
     await user.click(await screen.findByRole('button', {name: 'Delete'}));
     await waitFor(() =>
-      expect(mock.deleteObjects).toHaveBeenCalledWith(expect.objectContaining({keys: ['alice/report.csv']}))
+      expect(mock.deleteObject).toHaveBeenCalledWith(expect.objectContaining({key: 'alice/report.csv'}))
     );
     expect(await screen.findByText(/Deleted 1/)).toBeInTheDocument();
   });
@@ -304,9 +300,10 @@ describe('FileBrowser — selection + delete', () => {
   });
 
   it('reports a partial delete failure with friendly, mapped text (SPEC-106)', async () => {
-    mock.deleteObjects.mockResolvedValue(
-      ok({deleted: [], errors: [{key: 'alice/report.csv', message: 'Access Denied', code: 'AccessDenied'}]})
-    );
+    mock.deleteObject.mockResolvedValue({
+      success: false,
+      error: {message: 'Access Denied', code: 'AccessDenied'}
+    });
     const {user} = renderBrowser();
     await user.click(await screen.findByRole('checkbox', {name: 'Select report.csv'}));
     await user.click(screen.getByRole('button', {name: 'Delete selected items'}));
@@ -346,7 +343,7 @@ describe('FileBrowser — selection + delete', () => {
       // `dialog` would pass whatever happened, which is the whole point of this assertion.
       expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-      expect(mock.deleteFolder).not.toHaveBeenCalled();
+      expect(mock.deleteObject).not.toHaveBeenCalled();
     });
 
     it('states the MOVE reason on Move, which is worded for a rename too', async () => {
@@ -358,7 +355,7 @@ describe('FileBrowser — selection + delete', () => {
       expect(move).toHaveAttribute('title', 'Saved queries live in this folder, so it can’t be moved or renamed.');
       await user.click(move);
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-      expect(mock.moveFolder).not.toHaveBeenCalled();
+      expect(mock.moveObject).not.toHaveBeenCalled();
     });
 
     it('refuses when EVERY selected folder is protected, and names one of them', async () => {
@@ -429,7 +426,7 @@ describe('FileBrowser — move / copy / rename', () => {
     await user.type(input, 'archive');
     await user.click(within(dialog).getByRole('button', {name: /rename|save/i}));
     await waitFor(() => expect(mockSubmitFileOp).toHaveBeenCalled());
-    expect(mock.moveFolder).not.toHaveBeenCalled();
+    expect(mock.moveObject).not.toHaveBeenCalled();
     expect(mockSubmitFileOp.mock.calls[0][0]).toMatchObject({
       operation: 'move',
       source: {items: [{kind: 'folder', key: 'alice/docs/', targetName: 'archive'}]},

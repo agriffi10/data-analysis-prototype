@@ -8,7 +8,6 @@ import {
   SAVED_QUERIES_MARKER_BODY,
   deleteObject,
   isMarkerName,
-  objectExists,
   validateLeafName
 } from '../file-browser';
 import type {ServiceResult} from '../../types/service.types';
@@ -116,8 +115,12 @@ const ensuredFolders = new Set<string>();
  * mechanism every space root already uses. Best effort: a failure is not fatal to
  * anything the user is doing, because writing a saved query creates the prefix anyway.
  *
+ * **One call.** The existence check the browser used to make first lives inside the write route:
+ * `overwrite: false` answers `Conflict` when the marker is already there, which is this function's
+ * success case. Asking separately paid two round trips to learn one thing.
+ *
  * @param space - The space whose folder to guarantee.
- * @returns Success (whether or not it had to write); a failed head or put as a failure.
+ * @returns Success (whether or not it had to write); a failed write as a failure.
  */
 export async function ensureSavedQueriesFolder(space: QuerySpace): Promise<ServiceResult<void>> {
   const key = `${savedQueriesPrefix(space.rootPrefix)}${PREFIX_MARKER_FILENAME}`;
@@ -128,21 +131,17 @@ export async function ensureSavedQueriesFolder(space: QuerySpace): Promise<Servi
   if (ensuredFolders.has(cacheKey)) return ok(undefined);
   ensuredFolders.add(cacheKey);
 
-  const exists = await objectExists({bucket: space.bucket, key});
-  if (!exists.success) return exists;
-  if (exists.data) return ok(undefined);
-
   const written = await apiRequest('objects.writeContent', {
     body: {
       space: spaceFor(space.bucket, key),
       key,
       body: SAVED_QUERIES_MARKER_BODY,
       contentType: 'text/plain',
-      overwrite: true
+      overwrite: false
     }
   });
-  if (!written.success) return fromApiFailure(written.error, 'Failed to create the saved queries folder');
-  return ok(undefined);
+  if (written.success || written.error.code === 'Conflict') return ok(undefined);
+  return fromApiFailure(written.error, 'Failed to create the saved queries folder');
 }
 
 /**
@@ -245,10 +244,11 @@ export async function readSavedQuery(params: {bucket: string; key: string}): Pro
 /**
  * Writes a saved query, refusing to clobber an existing one unless asked.
  *
- * The collision check is a HEAD on the exact KEY, not a scan of a loaded list: the list
- * is paginated and the target space may not be the one on screen, so an in-memory scan
- * stopped being sound. One visible consequence is accepted — S3 keys are
- * case-sensitive, so `Report` and `report` are two saved queries.
+ * The collision check is on the exact KEY, not a scan of a loaded list: the list is paginated and
+ * the target space may not be the one on screen, so an in-memory scan stopped being sound. It is
+ * the write route's own, so a save costs one call and the check cannot disagree with the write it
+ * guards. One visible consequence is accepted — S3 keys are case-sensitive, so `Report` and
+ * `report` are two saved queries.
  *
  * @param params.space - The space to write into.
  * @param params.name - The user-supplied name; validated before any request.
@@ -269,27 +269,24 @@ export async function writeSavedQuery(params: {
 
   const key = savedQueryKey(space.rootPrefix, name);
 
-  if (!overwrite) {
-    const exists = await objectExists({bucket: space.bucket, key});
-    if (!exists.success) return exists;
-    if (exists.data) {
-      return {
-        success: false,
-        error: {message: `“${savedQueryName(key)}” already exists.`, code: 'Collision'}
-      };
-    }
-  }
-
   const written = await apiRequest('objects.writeContent', {
     body: {
       space: spaceFor(space.bucket, key),
       key,
       body: sql,
       contentType: 'text/plain; charset=utf-8',
-      overwrite: true
+      overwrite
     }
   });
-  if (!written.success) return fromApiFailure(written.error, 'Failed to save query');
+  if (!written.success) {
+    if (written.error.code === 'Conflict') {
+      return {
+        success: false,
+        error: {message: `“${savedQueryName(key)}” already exists.`, code: 'Collision'}
+      };
+    }
+    return fromApiFailure(written.error, 'Failed to save query');
+  }
 
   return ok({
     spaceId: space.id,

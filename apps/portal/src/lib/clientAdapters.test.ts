@@ -85,11 +85,10 @@ describe('s3Json', () => {
   const body = (text: string) => ({success: true as const, data: {body: text, etag: 'e'}});
 
   /** A failure arrives as a machine code now, not as a thrown AWS error. */
-  const awsError = (name: string) =>
-    ({
-      success: false as const,
-      error: {message: '', code: name === 'NoSuchKey' ? 'NotFound' : name}
-    });
+  const awsError = (name: string) => ({
+    success: false as const,
+    error: {message: '', code: name === 'NoSuchKey' ? 'NotFound' : name}
+  });
 
   const ok = <T>(data: T): ServiceResult<T> => ({success: true, data});
 
@@ -125,7 +124,12 @@ describe('s3Json', () => {
       send.mockResolvedValue(body(''));
       const parse = vi.fn(() => ok('empty'));
 
-      await readJsonDocument({bucket: 'b', key: 'alice/user_settings/k.json', parse, fallbackMessage: 'Failed to load'});
+      await readJsonDocument({
+        bucket: 'b',
+        key: 'alice/user_settings/k.json',
+        parse,
+        fallbackMessage: 'Failed to load'
+      });
 
       expect(parse).toHaveBeenCalledWith(undefined);
     });
@@ -148,24 +152,21 @@ describe('s3Json', () => {
       });
     });
 
-    it.each([['NoSuchKey'], ['NotFound']])(
-      'routes a not-found (%s) to onMissing, never to parse',
-      async (name) => {
-        send.mockResolvedValue(awsError(name));
-        const parse = vi.fn(() => ok('parsed'));
+    it.each([['NoSuchKey'], ['NotFound']])('routes a not-found (%s) to onMissing, never to parse', async (name) => {
+      send.mockResolvedValue(awsError(name));
+      const parse = vi.fn(() => ok('parsed'));
 
-        const result = await readJsonDocument({
-          bucket: 'b',
-          key: 'alice/user_settings/k.json',
-          parse,
-          onMissing: () => ok('the empty state'),
-          fallbackMessage: 'Failed to load'
-        });
+      const result = await readJsonDocument({
+        bucket: 'b',
+        key: 'alice/user_settings/k.json',
+        parse,
+        onMissing: () => ok('the empty state'),
+        fallbackMessage: 'Failed to load'
+      });
 
-        expect(result).toEqual({success: true, data: 'the empty state'});
-        expect(parse).not.toHaveBeenCalled();
-      }
-    );
+      expect(result).toEqual({success: true, data: 'the empty state'});
+      expect(parse).not.toHaveBeenCalled();
+    });
 
     it('lets onMissing return a failure — absence is the caller`s decision, not always empty', async () => {
       send.mockResolvedValue(awsError('NoSuchKey'));
@@ -281,7 +282,12 @@ describe('s3Json', () => {
     it('never issues a delete — the worst race on a user`s own file is last-writer-wins', async () => {
       send.mockResolvedValue({success: true, data: {key: 'k', etag: 'e'}});
 
-      await writeJsonDocument({bucket: 'b', key: 'alice/user_settings/k.json', value: {}, fallbackMessage: 'Failed to save'});
+      await writeJsonDocument({
+        bucket: 'b',
+        key: 'alice/user_settings/k.json',
+        value: {},
+        fallbackMessage: 'Failed to save'
+      });
 
       expect(send).toHaveBeenCalledTimes(1);
       expect(send.mock.calls[0][0]).toBe('objects.writeContent');

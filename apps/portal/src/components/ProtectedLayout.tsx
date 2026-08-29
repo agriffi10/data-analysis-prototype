@@ -33,12 +33,6 @@ function AppShell({children}: {children: ReactNode}) {
   );
 }
 
-// Dev-only escape hatch: when browsing a static/public test bucket without auth
-// for local work, let protected routes through. Guarded by import.meta.env.DEV
-// (and the same flag the service/page use), so it is stripped from production
-// builds and can never weaken the real gate.
-const devBypass = import.meta.env.DEV && import.meta.env.VITE_S3_DEV_UNAUTH === 'true';
-
 /**
  * Auth gate for protected routes. Nested inside RootLayout, so the shared
  * Header is already rendered — this sub-layout only decides whether the
@@ -90,13 +84,6 @@ export function ProtectedLayout() {
   // deploy. It hides nothing and cannot fail the shell — an unusable document resolves
   // to the compiled-in all-on defaults.
   useFeatureSet();
-
-  if (devBypass)
-    return (
-      <AppShell>
-        <Outlet />
-      </AppShell>
-    );
 
   // While auth resolves, render a loading indicator instead of the Outlet, so
   // the file browser never flashes and fires no S3 requests.

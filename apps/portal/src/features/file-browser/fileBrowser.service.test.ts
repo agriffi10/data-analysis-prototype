@@ -1,26 +1,14 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest';
 import {
-  HeadObjectCommand,
-  PutObjectCommand,
-  DeleteObjectCommand,
-  DeleteObjectsCommand,
-  CopyObjectCommand,
-  ListObjectsV2Command,
-  GetObjectCommand
-} from '@aws-sdk/client-s3';
-import {getSignedUrl} from '@aws-sdk/s3-request-presigner';
-import {
   listFiles,
   ensurePrefixMarker,
   deleteObject,
-  deleteObjects,
-  deleteFolder,
   copyObject,
-  copyFolder,
   moveObject,
-  moveFolder,
   getDownloadUrl,
   objectExists,
+  folderExists,
+  firstFreeName,
   uploadFile,
   createFolder,
   validateFolderName,
@@ -28,1078 +16,551 @@ import {
   getObjectMetadata,
   __resetPrefixMarkerCache
 } from './fileBrowser.service';
-import {LISTING_PAGE_SIZE} from './fileBrowser.constants';
-import {PREFIX_MARKER_BODY} from './fileBrowser.constants';
-import {maxUploadBytes} from './uploadLimits';
+import {maxUploadBytes, S3_SINGLE_PUT_MAX_BYTES} from './uploadLimits';
+import {mockApi, apiFailure} from '../../test/apiMock';
+import {toUserText} from '../../lib/errorMessages';
 
-vi.mock('@aws-sdk/s3-request-presigner', () => ({getSignedUrl: vi.fn()}));
-const mockGetSignedUrl = vi.mocked(getSignedUrl);
+const {mockRequest} = vi.hoisted(() => ({mockRequest: vi.fn()}));
+vi.mock('../../lib/apiClient', () => ({apiRequest: mockRequest}));
 
-// Mock the managed lib-storage Upload. `uploadState` captures the constructor
-// args + the httpUploadProgress callback so tests can fire progress and control
-// how done() resolves/rejects.
-const uploadState = vi.hoisted(() => ({
-  ctorArgs: null as unknown,
-  progressCb: null as null | ((p: {loaded?: number; total?: number}) => void),
-  doneImpl: null as null | (() => Promise<unknown>),
-  aborted: false
+vi.mock('../../lib/userSpace', () => ({
+  userSpaceBucket: () => 'user-space',
+  sharedSpaceBucket: () => 'shared-space'
 }));
 
-vi.mock('@aws-sdk/lib-storage', () => ({
-  Upload: class {
-    constructor(args: unknown) {
-      uploadState.ctorArgs = args;
-    }
-    on(_event: string, cb: (p: {loaded?: number; total?: number}) => void) {
-      uploadState.progressCb = cb;
-    }
-    async done() {
-      return uploadState.doneImpl ? uploadState.doneImpl() : {};
-    }
-    async abort() {
-      uploadState.aborted = true;
-    }
-  }
-}));
-
-// The service obtains an authenticated client via getS3Client(). Mock that +
-// the client's send; vi.hoisted lets the mock factory reference these.
-const {mockSend, mockGetS3Client, mockStaticSend} = vi.hoisted(() => ({
-  mockSend: vi.fn(),
-  mockGetS3Client: vi.fn(),
-  mockStaticSend: vi.fn()
-}));
-
-vi.mock('../../lib/s3Client', () => ({
-  s3Client: {send: mockStaticSend}, // dev-only fallback; unused on the auth path
-  getS3Client: mockGetS3Client
-}));
+let api: ReturnType<typeof mockApi>;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockGetS3Client.mockResolvedValue({success: true, data: {send: mockSend}});
-  // Reset the once-per-session marker guard so each case starts clean.
+  api = mockApi(mockRequest);
   __resetPrefixMarkerCache();
-  uploadState.ctorArgs = null;
-  uploadState.progressCb = null;
-  uploadState.doneImpl = null;
-  uploadState.aborted = false;
 });
 
-// A NotFound error as the v3 SDK surfaces it for HeadObject on a missing key.
-function notFoundError() {
-  return Object.assign(new Error('Not Found'), {
-    name: 'NotFound',
-    $metadata: {httpStatusCode: 404}
-  });
+/** One listing page, in the shape the route returns: folders and files in ONE array. */
+function page(
+  items: {kind: 'folder' | 'file'; key: string; size?: number | null; lastModified?: string | null}[],
+  nextToken: string | null = null
+) {
+  return {
+    success: true as const,
+    data: {
+      items: items.map((item) => ({
+        kind: item.kind,
+        key: item.key,
+        size: item.size ?? (item.kind === 'folder' ? null : 0),
+        lastModified: item.lastModified ?? (item.kind === 'folder' ? null : '2024-01-01T00:00:00.000Z')
+      })),
+      nextToken
+    }
+  };
 }
 
 describe('listFiles', () => {
-  it('returns files and folders from a successful S3 response', async () => {
-    mockSend.mockResolvedValueOnce({
-      Contents: [
-        {
-          Key: 'documents/report.pdf',
-          Size: 1024,
-          LastModified: new Date('2024-01-15T10:00:00Z')
-        },
-        {
-          Key: 'documents/notes.txt',
-          Size: 512,
-          LastModified: new Date('2024-01-10T08:00:00Z')
-        }
-      ],
-      CommonPrefixes: [{Prefix: 'documents/archive/'}]
-    });
+  it('maps one array of rows back onto files and folders', async () => {
+    api.on(
+      'objects.list',
+      page([
+        {kind: 'folder', key: 'alice/documents/archive/'},
+        {kind: 'file', key: 'alice/documents/report.pdf', size: 1024, lastModified: '2024-01-15T10:00:00.000Z'}
+      ])
+    );
 
-    const result = await listFiles('my-bucket', 'documents/');
+    const result = await listFiles('user-space', 'alice/documents/');
 
     expect(result.success).toBe(true);
     if (!result.success) return;
-
-    expect(result.data.folders).toHaveLength(1);
-    expect(result.data.folders[0]).toEqual({
-      type: 'folder',
-      prefix: 'documents/archive/',
-      name: 'archive'
-    });
-
-    expect(result.data.files).toHaveLength(2);
-    expect(result.data.files[0]).toEqual({
-      type: 'file',
-      key: 'documents/notes.txt',
-      name: 'notes.txt',
-      size: 512,
-      lastModified: new Date('2024-01-10T08:00:00Z')
-    });
-    expect(result.data.files[1]).toEqual({
-      type: 'file',
-      key: 'documents/report.pdf',
-      name: 'report.pdf',
-      size: 1024,
-      lastModified: new Date('2024-01-15T10:00:00Z')
-    });
+    expect(result.data.folders).toEqual([{type: 'folder', prefix: 'alice/documents/archive/', name: 'archive'}]);
+    expect(result.data.files).toEqual([
+      {
+        type: 'file',
+        key: 'alice/documents/report.pdf',
+        name: 'report.pdf',
+        size: 1024,
+        lastModified: new Date('2024-01-15T10:00:00.000Z')
+      }
+    ]);
   });
 
-  it('sorts folders before files, both alphabetically', async () => {
-    mockSend.mockResolvedValueOnce({
-      Contents: [
-        {Key: 'zebra.txt', Size: 10, LastModified: new Date()},
-        {Key: 'apple.txt', Size: 10, LastModified: new Date()}
-      ],
-      CommonPrefixes: [{Prefix: 'monkeys/'}, {Prefix: 'ants/'}]
-    });
+  it('sorts folders and files alphabetically within their own group', async () => {
+    api.on(
+      'objects.list',
+      page([
+        {kind: 'file', key: 'alice/zebra.txt'},
+        {kind: 'folder', key: 'alice/zoo/'},
+        {kind: 'file', key: 'alice/apple.txt'},
+        {kind: 'folder', key: 'alice/apps/'}
+      ])
+    );
 
-    const result = await listFiles('my-bucket');
+    const result = await listFiles('user-space', 'alice/');
 
     expect(result.success).toBe(true);
     if (!result.success) return;
-
-    expect(result.data.folders.map((f) => f.name)).toEqual(['ants', 'monkeys']);
+    expect(result.data.folders.map((f) => f.name)).toEqual(['apps', 'zoo']);
     expect(result.data.files.map((f) => f.name)).toEqual(['apple.txt', 'zebra.txt']);
   });
 
-  it('excludes the prefix key itself from files (S3 folder placeholder)', async () => {
-    mockSend.mockResolvedValueOnce({
-      Contents: [
-        {Key: 'documents/', Size: 0, LastModified: new Date()},
-        {Key: 'documents/file.txt', Size: 100, LastModified: new Date()}
-      ],
-      CommonPrefixes: []
+  it('names the space from the prefix and passes the prefix through', async () => {
+    api.on('objects.list', page([]));
+
+    await listFiles('user-space', 'alice/documents/');
+
+    expect(api.queryFor('objects.list')).toEqual({
+      spaceKind: 'personal',
+      spaceName: 'alice',
+      prefix: 'alice/documents/'
     });
-
-    const result = await listFiles('my-bucket', 'documents/');
-
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-
-    expect(result.data.files).toHaveLength(1);
-    expect(result.data.files[0].name).toBe('file.txt');
   });
 
-  it('returns success: false on SDK error without throwing', async () => {
-    const sdkError = Object.assign(new Error('Access Denied'), {
-      name: 'AccessDenied'
-    });
-    mockSend.mockRejectedValueOnce(sdkError);
+  it('resolves the SHARED bucket to a shared space', async () => {
+    api.on('objects.list', page([]));
 
-    const result = await listFiles('my-bucket');
+    await listFiles('shared-space', 'project_alpha/reports/');
 
-    expect(result.success).toBe(false);
-    if (result.success) return;
-
-    expect(result.error.message).toBe('Access Denied');
-    expect(result.error.code).toBe('AccessDenied');
-    // A non-expiry error must NOT trigger a credential refresh/retry.
-    expect(mockGetS3Client).toHaveBeenCalledTimes(1);
+    expect(api.queryFor('objects.list')).toMatchObject({spaceKind: 'shared', spaceName: 'project_alpha'});
   });
 
-  it('sends a ListObjectsV2Command with the correct bucket and prefix', async () => {
-    mockSend.mockResolvedValueOnce({Contents: [], CommonPrefixes: []});
+  it('round-trips the continuation token and reports truncation from it', async () => {
+    api.on('objects.list', page([], 'tok+en/with=padding'));
 
-    await listFiles('test-bucket', 'some/prefix/');
+    const result = await listFiles('user-space', 'alice/', 'previous+token');
 
-    expect(mockSend).toHaveBeenCalledOnce();
-    // The second argument is the SDK's per-call options, now carrying the caller's
-    // AbortSignal (SPEC-155 FR-006) — undefined here because no signal was passed.
-    expect(mockSend).toHaveBeenCalledWith(
-      expect.objectContaining({
-        input: {
-          Bucket: 'test-bucket',
-          Prefix: 'some/prefix/',
-          Delimiter: '/',
-          MaxKeys: LISTING_PAGE_SIZE,
-          ContinuationToken: undefined
-        }
-      }),
-      {abortSignal: undefined}
-    );
-  });
-
-  it('threads the continuation token and surfaces pagination fields', async () => {
-    mockSend.mockResolvedValueOnce({
-      Contents: [],
-      CommonPrefixes: [],
-      IsTruncated: true,
-      NextContinuationToken: 'TOKEN-2'
-    });
-
-    const result = await listFiles('my-bucket', 'alice/', 'TOKEN-1');
-
+    expect(api.queryFor('objects.list')).toMatchObject({nextToken: 'previous+token'});
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data.isTruncated).toBe(true);
-    expect(result.data.nextContinuationToken).toBe('TOKEN-2');
-    expect(mockSend).toHaveBeenCalledWith(
-      expect.objectContaining({
-        input: expect.objectContaining({
-          ContinuationToken: 'TOKEN-1',
-          MaxKeys: LISTING_PAGE_SIZE
-        })
-      }),
-      {abortSignal: undefined}
-    );
+    expect(result.data.nextContinuationToken).toBe('tok+en/with=padding');
   });
 
-  it('retries once with refreshed credentials on an expired-token error', async () => {
-    mockSend
-      .mockRejectedValueOnce(Object.assign(new Error('token expired'), {name: 'ExpiredToken'}))
-      .mockResolvedValueOnce({Contents: [], CommonPrefixes: []});
+  it('reports the last page as not truncated', async () => {
+    api.on('objects.list', page([], null));
 
-    const result = await listFiles('my-bucket', 'alice/');
+    const result = await listFiles('user-space', 'alice/');
 
     expect(result.success).toBe(true);
-    // Two client acquisitions: the normal one, then a forced refresh.
-    expect(mockGetS3Client).toHaveBeenCalledTimes(2);
-    expect(mockGetS3Client).toHaveBeenNthCalledWith(1);
-    expect(mockGetS3Client).toHaveBeenNthCalledWith(2, true);
-    expect(mockSend).toHaveBeenCalledTimes(2);
+    if (!result.success) return;
+    expect(result.data.isTruncated).toBe(false);
+    expect(result.data.nextContinuationToken).toBeUndefined();
   });
 
-  it('surfaces the credential error when getS3Client fails (not signed in)', async () => {
-    mockGetS3Client.mockResolvedValueOnce({
+  it('threads the abort signal into the request', async () => {
+    api.on('objects.list', page([]));
+    const controller = new AbortController();
+
+    await listFiles('user-space', 'alice/', undefined, controller.signal);
+
+    expect(mockRequest).toHaveBeenCalledWith('objects.list', expect.objectContaining({signal: controller.signal}));
+  });
+
+  it('returns a failure without throwing, keeping the code', async () => {
+    api.on('objects.list', apiFailure('AccessDenied'));
+
+    const result = await listFiles('user-space', 'bob/');
+
+    expect(result).toEqual({
       success: false,
-      error: {message: 'No AWS credentials — sign in required'}
+      error: {message: 'Unknown error listing files', code: 'AccessDenied'}
     });
+  });
 
-    const result = await listFiles('my-bucket', 'alice/');
+  it('makes exactly ONE call — no retry of its own', async () => {
+    // The expired-credential refresh-and-retry that used to wrap every S3 call is gone: an expired
+    // session is re-assumed server-side now, and an expired ID token is the transport's single 401
+    // retry. A retry added back here would be a second one nobody declared.
+    api.on('objects.list', apiFailure('InternalError'));
 
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.message).toBe('No AWS credentials — sign in required');
-    expect(mockSend).not.toHaveBeenCalled();
+    await listFiles('user-space', 'alice/');
+
+    expect(api.countOf('objects.list')).toBe(1);
   });
 });
 
 describe('ensurePrefixMarker', () => {
-  it('creates the marker with HEAD-then-PUT when it does not exist', async () => {
-    mockSend
-      .mockRejectedValueOnce(notFoundError()) // HEAD → 404
-      .mockResolvedValueOnce({}); // PUT → ok
+  it('writes the marker in ONE call, refusing to overwrite', async () => {
+    api.on('objects.writeContent', {success: true, data: {key: 'alice/DO_NOT_DELETE.txt', etag: 'e'}});
 
-    const result = await ensurePrefixMarker({bucket: 'us', username: 'alice'});
+    const result = await ensurePrefixMarker({bucket: 'user-space', username: 'alice'});
 
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    expect(result.data.created).toBe(true);
-
-    expect(mockSend).toHaveBeenCalledTimes(2);
-    expect(mockSend.mock.calls[0][0]).toBeInstanceOf(HeadObjectCommand);
-    const put = mockSend.mock.calls[1][0];
-    expect(put).toBeInstanceOf(PutObjectCommand);
-    expect(put.input).toEqual({
-      Bucket: 'us',
-      Key: 'alice/DO_NOT_DELETE.txt',
-      Body: PREFIX_MARKER_BODY,
-      ContentType: 'text/plain'
+    expect(result).toEqual({success: true, data: {created: true}});
+    expect(api.countOf('objects.writeContent')).toBe(1);
+    expect(api.bodyFor('objects.writeContent')).toMatchObject({
+      key: 'alice/DO_NOT_DELETE.txt',
+      contentType: 'text/plain',
+      overwrite: false
     });
   });
 
-  it('does not overwrite an existing marker (HEAD succeeds → no PUT)', async () => {
-    mockSend.mockResolvedValueOnce({}); // HEAD → exists
+  it('reads a Conflict as "it is already there", not as a failure', async () => {
+    api.on('objects.writeContent', apiFailure('Conflict'));
 
-    const result = await ensurePrefixMarker({bucket: 'us', username: 'alice'});
+    const result = await ensurePrefixMarker({bucket: 'user-space', username: 'alice'});
 
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    expect(result.data.created).toBe(false);
-    expect(mockSend).toHaveBeenCalledTimes(1);
-    expect(mockSend.mock.calls[0][0]).toBeInstanceOf(HeadObjectCommand);
+    expect(result).toEqual({success: true, data: {created: false}});
   });
 
-  it('returns failure (never throws) when PUT fails', async () => {
-    mockSend
-      .mockRejectedValueOnce(notFoundError()) // HEAD → 404
-      .mockRejectedValueOnce(Object.assign(new Error('Access Denied'), {name: 'AccessDenied'})); // PUT → fail
+  it('surfaces any other failure without throwing', async () => {
+    api.on('objects.writeContent', apiFailure('AccessDenied'));
 
-    const result = await ensurePrefixMarker({bucket: 'us', username: 'alice'});
+    const result = await ensurePrefixMarker({bucket: 'user-space', username: 'alice'});
 
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.code).toBe('AccessDenied');
+    expect(result).toEqual({
+      success: false,
+      error: {message: 'Failed to create prefix marker', code: 'AccessDenied'}
+    });
+  });
+
+  it('asks once per session however many times it is called', async () => {
+    api.on('objects.writeContent', {success: true, data: {key: 'alice/DO_NOT_DELETE.txt', etag: 'e'}});
+
+    await ensurePrefixMarker({bucket: 'user-space', username: 'alice'});
+    await ensurePrefixMarker({bucket: 'user-space', username: 'alice'});
+
+    expect(api.countOf('objects.writeContent')).toBe(1);
   });
 });
 
 describe('deleteObject', () => {
-  // UI-layer defense in depth only — the authoritative protection is the IAM
-  // deny on */DO_NOT_DELETE.txt in the role policy.
-  it('rejects deletion of the prefix marker without calling S3', async () => {
+  it('refuses the prefix marker with NO request at all', async () => {
     const result = await deleteObject({
-      bucket: 'us',
+      bucket: 'user-space',
       key: 'alice/DO_NOT_DELETE.txt',
       username: 'alice'
     });
 
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.code).toBe('ProtectedObject');
-    expect(mockSend).not.toHaveBeenCalled();
-  });
-
-  it('deletes a normal object', async () => {
-    mockSend.mockResolvedValueOnce({});
-
-    const result = await deleteObject({
-      bucket: 'us',
-      key: 'alice/report.pdf',
-      username: 'alice'
-    });
-
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    expect(result.data.key).toBe('alice/report.pdf');
-    expect(mockSend).toHaveBeenCalledOnce();
-    expect(mockSend.mock.calls[0][0]).toBeInstanceOf(DeleteObjectCommand);
-  });
-});
-
-describe('deleteObjects', () => {
-  // Echo each batch's keys back as Deleted, so chunking can be asserted by the
-  // number of requests and the per-request object counts.
-  function echoDeleted() {
-    mockSend.mockImplementation((cmd: DeleteObjectsCommand) =>
-      Promise.resolve({
-        Deleted: (cmd.input.Delete?.Objects ?? []).map((o) => ({Key: o.Key})),
-        Errors: []
-      })
-    );
-  }
-
-  it('deletes a single key via DeleteObjects and returns it', async () => {
-    mockSend.mockResolvedValueOnce({Deleted: [{Key: 'alice/a.txt'}], Errors: []});
-
-    const result = await deleteObjects({
-      bucket: 'us',
-      keys: ['alice/a.txt'],
-      username: 'alice'
-    });
-
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    expect(result.data.deleted).toEqual(['alice/a.txt']);
-    expect(result.data.errors).toEqual([]);
-
-    const cmd = mockSend.mock.calls[0][0];
-    expect(cmd).toBeInstanceOf(DeleteObjectsCommand);
-    expect(cmd.input).toEqual({
-      Bucket: 'us',
-      Delete: {Objects: [{Key: 'alice/a.txt'}], Quiet: false}
-    });
-  });
-
-  it('chunks more than 1000 keys into separate DeleteObjects requests', async () => {
-    echoDeleted();
-    const keys = Array.from({length: 1500}, (_, i) => `alice/f${i}.txt`);
-
-    const result = await deleteObjects({bucket: 'us', keys, username: 'alice'});
-
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    expect(result.data.deleted).toHaveLength(1500);
-    expect(mockSend).toHaveBeenCalledTimes(2);
-    expect(mockSend.mock.calls[0][0].input.Delete.Objects).toHaveLength(1000);
-    expect(mockSend.mock.calls[1][0].input.Delete.Objects).toHaveLength(500);
-  });
-
-  it('refuses the prefix marker without sending it, but deletes the rest', async () => {
-    mockSend.mockResolvedValueOnce({Deleted: [{Key: 'alice/a.txt'}], Errors: []});
-
-    const result = await deleteObjects({
-      bucket: 'us',
-      keys: ['alice/DO_NOT_DELETE.txt', 'alice/a.txt'],
-      username: 'alice'
-    });
-
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    expect(result.data.deleted).toEqual(['alice/a.txt']);
-    expect(result.data.errors).toEqual([
-      {
-        key: 'alice/DO_NOT_DELETE.txt',
-        message: expect.stringMatching(/cannot be deleted/i)
+    expect(result).toEqual({
+      success: false,
+      error: {
+        message: 'This file keeps your storage space active and cannot be deleted.',
+        code: 'ProtectedObject'
       }
-    ]);
-    // The marker was never part of the DeleteObjects request.
-    expect(mockSend.mock.calls[0][0].input.Delete.Objects).toEqual([{Key: 'alice/a.txt'}]);
+    });
+    expect(api.calls).toEqual([]);
   });
 
-  it('aggregates per-key S3 errors without throwing (partial failure)', async () => {
-    mockSend.mockResolvedValueOnce({
-      Deleted: [{Key: 'alice/a.txt'}],
-      Errors: [{Key: 'alice/locked.txt', Code: 'AccessDenied', Message: 'Access Denied'}]
-    });
+  it('deletes an ordinary object', async () => {
+    api.on('objects.delete', {success: true, data: {key: 'alice/report.csv'}});
 
-    const result = await deleteObjects({
-      bucket: 'us',
-      keys: ['alice/a.txt', 'alice/locked.txt'],
-      username: 'alice'
-    });
+    const result = await deleteObject({bucket: 'user-space', key: 'alice/report.csv', username: 'alice'});
 
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    expect(result.data.deleted).toEqual(['alice/a.txt']);
-    expect(result.data.errors).toEqual([{key: 'alice/locked.txt', message: 'Access Denied', code: 'AccessDenied'}]);
-  });
-
-  it('records a non-expiry whole-batch failure as per-key errors, no retry', async () => {
-    mockSend.mockRejectedValueOnce(Object.assign(new Error('Service Unavailable'), {name: 'ServiceUnavailable'}));
-
-    const result = await deleteObjects({
-      bucket: 'us',
-      keys: ['alice/a.txt', 'alice/b.txt'],
-      username: 'alice'
-    });
-
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    expect(result.data.deleted).toEqual([]);
-    expect(result.data.errors).toEqual([
-      {key: 'alice/a.txt', message: 'Service Unavailable', code: 'ServiceUnavailable'},
-      {key: 'alice/b.txt', message: 'Service Unavailable', code: 'ServiceUnavailable'}
-    ]);
-    expect(mockGetS3Client).toHaveBeenCalledTimes(1); // no credential refresh
-  });
-});
-
-describe('deleteFolder', () => {
-  it('lists all keys recursively across pages, then batch-deletes them', async () => {
-    mockSend
-      // page 1 of the recursive listing (truncated)
-      .mockResolvedValueOnce({
-        Contents: [{Key: 'alice/photos/'}, {Key: 'alice/photos/a.jpg'}],
-        IsTruncated: true,
-        NextContinuationToken: 'TOKEN-2'
-      })
-      // page 2 (final)
-      .mockResolvedValueOnce({
-        Contents: [{Key: 'alice/photos/b.jpg'}],
-        IsTruncated: false
-      })
-      // the DeleteObjects batch
-      .mockResolvedValueOnce({
-        Deleted: [{Key: 'alice/photos/'}, {Key: 'alice/photos/a.jpg'}, {Key: 'alice/photos/b.jpg'}],
-        Errors: []
-      });
-
-    const result = await deleteFolder({
-      bucket: 'us',
-      prefix: 'alice/photos/',
-      username: 'alice',
-      rootPrefix: 'alice/'
-    });
-
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    expect(result.data.deleted).toEqual(['alice/photos/', 'alice/photos/a.jpg', 'alice/photos/b.jpg']);
-
-    const listCmds = mockSend.mock.calls.filter((c) => c[0] instanceof ListObjectsV2Command);
-    expect(listCmds).toHaveLength(2);
-    expect(listCmds[0][0].input).toMatchObject({
-      Bucket: 'us',
-      Prefix: 'alice/photos/',
-      MaxKeys: 1000
-    });
-    // Recursive: no Delimiter, so nested keys are returned, not collapsed.
-    expect(listCmds[0][0].input.Delimiter).toBeUndefined();
-    expect(listCmds[1][0].input.ContinuationToken).toBe('TOKEN-2');
-
-    const delCmd = mockSend.mock.calls.find((c) => c[0] instanceof DeleteObjectsCommand);
-    expect(delCmd?.[0].input.Delete.Objects).toHaveLength(3);
-  });
-
-  it('deletes the lone folder marker when the folder is otherwise empty', async () => {
-    mockSend
-      .mockResolvedValueOnce({Contents: [{Key: 'alice/empty/'}], IsTruncated: false})
-      .mockResolvedValueOnce({Deleted: [{Key: 'alice/empty/'}], Errors: []});
-
-    const result = await deleteFolder({
-      bucket: 'us',
-      prefix: 'alice/empty/',
-      username: 'alice',
-      rootPrefix: 'alice/'
-    });
-
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    expect(result.data.deleted).toEqual(['alice/empty/']);
-  });
-
-  it('returns an empty result and issues no delete when the prefix has no objects', async () => {
-    mockSend.mockResolvedValueOnce({Contents: [], IsTruncated: false});
-
-    const result = await deleteFolder({
-      bucket: 'us',
-      prefix: 'alice/ghost/',
-      username: 'alice',
-      rootPrefix: 'alice/'
-    });
-
-    expect(result).toEqual({success: true, data: {deleted: [], errors: []}});
-    const delCmds = mockSend.mock.calls.filter((c) => c[0] instanceof DeleteObjectsCommand);
-    expect(delCmds).toHaveLength(0);
-  });
-
-  it('surfaces a listing failure without attempting a delete', async () => {
-    mockSend.mockRejectedValueOnce(Object.assign(new Error('Access Denied'), {name: 'AccessDenied'}));
-
-    const result = await deleteFolder({
-      bucket: 'us',
-      prefix: 'alice/photos/',
-      username: 'alice',
-      rootPrefix: 'alice/'
-    });
-
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.code).toBe('AccessDenied');
-    const delCmds = mockSend.mock.calls.filter((c) => c[0] instanceof DeleteObjectsCommand);
-    expect(delCmds).toHaveLength(0);
-  });
-
-  // SPEC-150 FR-007 / SPEC-057:97-98. `portal-role-analytics.json.tftpl`'s
-  // `ResultsNoDelete` Sid denies s3:DeleteObject under athenaresults/*, so without
-  // this the UI offered Delete and answered with "You don't have permission to do
-  // that" for a rule the app itself wrote.
-  describe('the athenaresults/ refusal', () => {
-    it('refuses the space root results folder before any S3 request', async () => {
-      const result = await deleteFolder({
-        bucket: 'us',
-        prefix: 'alice/athenaresults/',
-        username: 'alice',
-        rootPrefix: 'alice/'
-      });
-
-      expect(result.success).toBe(false);
-      if (result.success) return;
-      expect(result.error.code).toBe('ProtectedObject');
-      expect(result.error.message).toBe('Query results are managed for you and can’t be deleted.');
-      // The refusal is client-side: nothing was listed and nothing was deleted.
-      expect(mockSend).not.toHaveBeenCalled();
-    });
-
-    // SPEC-173 FR-002/FR-008. The folder is ORDINARY in every other respect — visible,
-    // pasteable, its contents uploadable and deletable — and this one refusal is
-    // UNCONDITIONAL: the `query` feature flag hides the folder, and "you cannot see it"
-    // and "you cannot destroy it" are different guarantees. The service takes no flag,
-    // which is what makes that structural rather than a promise.
-    it('refuses the saved-queries folder, naming saved queries, before any S3 request', async () => {
-      const result = await deleteFolder({
-        bucket: 'us',
-        prefix: 'alice/saved_queries/',
-        username: 'alice',
-        rootPrefix: 'alice/'
-      });
-
-      expect(result.success).toBe(false);
-      if (result.success) return;
-      expect(result.error.code).toBe('ProtectedObject');
-      expect(result.error.message).toMatch(/saved queries/i);
-      expect(mockSend).not.toHaveBeenCalled();
-    });
-
-    it('leaves a NESTED folder of the same name deletable — it is an ordinary user folder', async () => {
-      mockSend
-        .mockResolvedValueOnce({Contents: [{Key: 'alice/reports/athenaresults/x.csv'}], IsTruncated: false})
-        .mockResolvedValueOnce({Deleted: [{Key: 'alice/reports/athenaresults/x.csv'}], Errors: []});
-
-      const result = await deleteFolder({
-        bucket: 'us',
-        prefix: 'alice/reports/athenaresults/',
-        username: 'alice',
-        rootPrefix: 'alice/'
-      });
-
-      expect(result.success).toBe(true);
-      if (!result.success) return;
-      expect(result.data.deleted).toEqual(['alice/reports/athenaresults/x.csv']);
+    expect(result).toEqual({success: true, data: {key: 'alice/report.csv'}});
+    expect(api.bodyFor('objects.delete')).toEqual({
+      space: {kind: 'personal', name: 'alice'},
+      key: 'alice/report.csv'
     });
   });
 });
 
 describe('copyObject', () => {
-  it('copies with a URL-encoded CopySource (overwrite skips the HEAD)', async () => {
-    mockSend.mockResolvedValueOnce({}); // CopyObject
+  it('sends both ends of the copy and the overwrite flag', async () => {
+    api.on('objects.copy', {success: true, data: {key: 'alice/copy.csv', etag: 'e'}});
 
     const result = await copyObject({
-      bucket: 'us',
-      sourceKey: 'alice/a.txt',
-      destKey: 'alice/b.txt',
+      bucket: 'user-space',
+      sourceKey: 'alice/report.csv',
+      destKey: 'alice/copy.csv',
       username: 'alice',
       overwrite: true
     });
 
-    expect(result).toEqual({success: true, data: {destKey: 'alice/b.txt'}});
-    const cmd = mockSend.mock.calls[0][0];
-    expect(cmd).toBeInstanceOf(CopyObjectCommand);
-    expect(cmd.input).toMatchObject({
-      Bucket: 'us',
-      Key: 'alice/b.txt',
-      CopySource: 'us/alice/a.txt'
-    });
-  });
-
-  it('cross-bucket copy: CopySource from the source bucket, write to destBucket (SPEC-055 FR-004)', async () => {
-    mockSend.mockResolvedValueOnce({}); // CopyObject (overwrite skips HEAD)
-
-    const result = await copyObject({
-      bucket: 'shared-bkt',
-      destBucket: 'user-bkt',
-      sourceKey: 'salesdata/athenaresults/alice/q.csv',
-      destKey: 'alice/reports/out.csv',
-      username: 'alice',
+    expect(result).toEqual({success: true, data: {destKey: 'alice/copy.csv'}});
+    expect(api.bodyFor('objects.copy')).toEqual({
+      source: {kind: 'personal', name: 'alice'},
+      sourceKey: 'alice/report.csv',
+      destination: {kind: 'personal', name: 'alice'},
+      destinationKey: 'alice/copy.csv',
       overwrite: true
     });
-
-    expect(result).toEqual({success: true, data: {destKey: 'alice/reports/out.csv'}});
-    const cmd = mockSend.mock.calls[0][0];
-    expect(cmd).toBeInstanceOf(CopyObjectCommand);
-    expect(cmd.input).toMatchObject({
-      Bucket: 'user-bkt',
-      Key: 'alice/reports/out.csv',
-      CopySource: 'shared-bkt/salesdata/athenaresults/alice/q.csv'
-    });
   });
 
-  it('cross-bucket collision check HEADs the DESTINATION bucket (SPEC-055 FR-004)', async () => {
-    mockSend.mockResolvedValueOnce({}); // HEAD → exists in the dest bucket
+  it('resolves each END to its own space on a cross-bucket copy', async () => {
+    api.on('objects.copy', {success: true, data: {key: 'project_alpha/report.csv', etag: 'e'}});
 
-    const result = await copyObject({
-      bucket: 'shared-bkt',
-      destBucket: 'user-bkt',
-      sourceKey: 'salesdata/athenaresults/alice/q.csv',
-      destKey: 'alice/reports/out.csv',
+    await copyObject({
+      bucket: 'user-space',
+      sourceKey: 'alice/report.csv',
+      destKey: 'project_alpha/report.csv',
+      destBucket: 'shared-space',
       username: 'alice'
     });
 
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.code).toBe('Collision');
-    const head = mockSend.mock.calls[0][0];
-    expect(head).toBeInstanceOf(HeadObjectCommand);
-    expect(head.input).toMatchObject({Bucket: 'user-bkt', Key: 'alice/reports/out.csv'});
+    expect(api.bodyFor('objects.copy')).toMatchObject({
+      source: {kind: 'personal', name: 'alice'},
+      destination: {kind: 'shared', name: 'project_alpha'}
+    });
   });
 
-  it('refuses to overwrite when the destination exists and overwrite is false', async () => {
-    mockSend.mockResolvedValueOnce({}); // HEAD → exists
+  it('turns a Conflict into the Collision sentence the app already shipped', async () => {
+    // `Collision` is a passthrough code: it may never travel on the wire, so the wording is minted
+    // here from the destination key this caller already holds.
+    api.on('objects.copy', apiFailure('Conflict'));
 
     const result = await copyObject({
-      bucket: 'us',
-      sourceKey: 'alice/a.txt',
-      destKey: 'alice/b.txt',
+      bucket: 'user-space',
+      sourceKey: 'alice/report.csv',
+      destKey: 'alice/taken.csv',
       username: 'alice'
     });
 
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.code).toBe('Collision');
-    expect(mockSend).toHaveBeenCalledTimes(1); // only the HEAD
-    expect(mockSend.mock.calls[0][0]).toBeInstanceOf(HeadObjectCommand);
+    expect(result).toEqual({
+      success: false,
+      error: {message: '"alice/taken.csv" already exists.', code: 'Collision'}
+    });
   });
 
-  it('proceeds when the destination is free (HEAD 404 → copy)', async () => {
-    mockSend
-      .mockRejectedValueOnce(notFoundError()) // HEAD → 404
-      .mockResolvedValueOnce({}); // CopyObject
+  it('costs ONE call, not a check and then a copy', async () => {
+    api.on('objects.copy', apiFailure('Conflict'));
 
-    const result = await copyObject({
-      bucket: 'us',
-      sourceKey: 'alice/a.txt',
-      destKey: 'alice/b.txt',
+    await copyObject({
+      bucket: 'user-space',
+      sourceKey: 'alice/a.csv',
+      destKey: 'alice/b.csv',
       username: 'alice'
     });
 
-    expect(result.success).toBe(true);
-    expect(mockSend.mock.calls[1][0]).toBeInstanceOf(CopyObjectCommand);
+    expect(api.calls).toHaveLength(1);
+  });
+
+  it('refuses the prefix marker at either end, with no request', async () => {
+    const asSource = await copyObject({
+      bucket: 'user-space',
+      sourceKey: 'alice/DO_NOT_DELETE.txt',
+      destKey: 'alice/x.txt',
+      username: 'alice'
+    });
+    const asDestination = await copyObject({
+      bucket: 'user-space',
+      sourceKey: 'alice/x.txt',
+      destKey: 'alice/DO_NOT_DELETE.txt',
+      username: 'alice'
+    });
+
+    expect(asSource.success).toBe(false);
+    expect(asDestination.success).toBe(false);
+    if (asSource.success || asDestination.success) return;
+    expect(asSource.error.code).toBe('ProtectedObject');
+    expect(asDestination.error.code).toBe('ProtectedObject');
+    expect(api.calls).toEqual([]);
+  });
+
+  it('passes a non-collision failure through with its code', async () => {
+    api.on('objects.copy', apiFailure('NotFound'));
+
+    const result = await copyObject({
+      bucket: 'user-space',
+      sourceKey: 'alice/gone.csv',
+      destKey: 'alice/b.csv',
+      username: 'alice'
+    });
+
+    expect(result).toEqual({success: false, error: {message: 'Failed to copy object', code: 'NotFound'}});
   });
 });
 
 describe('moveObject', () => {
-  it('copies then deletes the source', async () => {
-    mockSend
-      .mockResolvedValueOnce({}) // CopyObject
-      .mockResolvedValueOnce({}); // DeleteObject
+  it('is ONE route, not a copy call followed by a delete call', async () => {
+    // Two calls put a closed tab between them, and versioning is off: that is a lost file rather
+    // than a failed move.
+    api.on('objects.move', {success: true, data: {key: 'alice/b.csv', etag: 'e'}});
 
     const result = await moveObject({
-      bucket: 'us',
-      sourceKey: 'alice/a.txt',
-      destKey: 'alice/b.txt',
-      username: 'alice',
-      overwrite: true
-    });
-
-    expect(result).toEqual({success: true, data: {destKey: 'alice/b.txt'}});
-    expect(mockSend.mock.calls[0][0]).toBeInstanceOf(CopyObjectCommand);
-    expect(mockSend.mock.calls[1][0]).toBeInstanceOf(DeleteObjectCommand);
-    expect(mockSend.mock.calls[1][0].input).toEqual({
-      Bucket: 'us',
-      Key: 'alice/a.txt'
-    });
-  });
-
-  it('is a no-op success when source and destination are equal', async () => {
-    const result = await moveObject({
-      bucket: 'us',
-      sourceKey: 'alice/a.txt',
-      destKey: 'alice/a.txt',
-      username: 'alice'
-    });
-    expect(result).toEqual({success: true, data: {destKey: 'alice/a.txt'}});
-    expect(mockSend).not.toHaveBeenCalled();
-  });
-
-  it('cross-connection move: copies into destBucket then deletes from the source bucket', async () => {
-    mockSend
-      .mockResolvedValueOnce({}) // CopyObject (into destBucket)
-      .mockResolvedValueOnce({}); // DeleteObject (from source bucket)
-
-    const result = await moveObject({
-      bucket: 'us',
-      sourceKey: 'alice/a.txt',
-      destKey: 'team/a.txt',
-      username: 'alice',
-      destBucket: 'shared',
-      overwrite: true
-    });
-
-    expect(result).toEqual({success: true, data: {destKey: 'team/a.txt'}});
-    // Copy writes to the destination bucket, reading from the source bucket.
-    expect(mockSend.mock.calls[0][0]).toBeInstanceOf(CopyObjectCommand);
-    expect(mockSend.mock.calls[0][0].input).toMatchObject({
-      Bucket: 'shared',
-      Key: 'team/a.txt',
-      CopySource: expect.stringContaining('us/')
-    });
-    // Delete removes the original from the SOURCE bucket.
-    expect(mockSend.mock.calls[1][0]).toBeInstanceOf(DeleteObjectCommand);
-    expect(mockSend.mock.calls[1][0].input).toEqual({Bucket: 'us', Key: 'alice/a.txt'});
-  });
-
-  it('leaves the source intact when the copy fails (no delete)', async () => {
-    mockSend.mockRejectedValueOnce(Object.assign(new Error('Access Denied'), {name: 'AccessDenied'})); // CopyObject fails
-
-    const result = await moveObject({
-      bucket: 'us',
-      sourceKey: 'alice/a.txt',
-      destKey: 'alice/b.txt',
-      username: 'alice',
-      overwrite: true
-    });
-
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.code).toBe('AccessDenied');
-    const deletes = mockSend.mock.calls.map((c) => c[0]).filter((c) => c instanceof DeleteObjectCommand);
-    expect(deletes).toHaveLength(0);
-  });
-});
-
-describe('moveFolder', () => {
-  // Route mocked sends by command type + prefix so source/dest listings and the
-  // per-key copy/delete can all be served from one implementation.
-  function routeSends(opts: {
-    sourcePages: {Contents: {Key: string}[]; IsTruncated?: boolean; NextContinuationToken?: string}[];
-    destContents?: {Key: string}[];
-    failCopyForDestKey?: string;
-  }) {
-    let sourcePage = 0;
-    mockSend.mockImplementation((cmd) => {
-      if (cmd instanceof ListObjectsV2Command) {
-        if (cmd.input.Prefix === 'alice/photos/') {
-          return Promise.resolve(opts.sourcePages[sourcePage++]);
-        }
-        return Promise.resolve({Contents: opts.destContents ?? [], IsTruncated: false});
-      }
-      if (cmd instanceof CopyObjectCommand) {
-        if (cmd.input.Key === opts.failCopyForDestKey) {
-          return Promise.reject(Object.assign(new Error('Access Denied'), {name: 'AccessDenied'}));
-        }
-        return Promise.resolve({});
-      }
-      return Promise.resolve({}); // DeleteObject
-    });
-  }
-
-  it('recursively moves every key across pages, leaving no source behind', async () => {
-    routeSends({
-      sourcePages: [
-        {
-          Contents: [{Key: 'alice/photos/'}, {Key: 'alice/photos/a.jpg'}],
-          IsTruncated: true,
-          NextContinuationToken: 'T2'
-        },
-        {Contents: [{Key: 'alice/photos/b.jpg'}], IsTruncated: false}
-      ]
-    });
-    const onProgress = vi.fn();
-
-    const result = await moveFolder({
-      bucket: 'us',
-      sourcePrefix: 'alice/photos/',
-      destPrefix: 'alice/archive/photos/',
-      username: 'alice',
-      rootPrefix: 'alice/',
-      onProgress
-    });
-
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    expect(result.data.moved).toEqual(['alice/photos/', 'alice/photos/a.jpg', 'alice/photos/b.jpg']);
-    expect(result.data.errors).toEqual([]);
-
-    const copies = mockSend.mock.calls.map((c) => c[0]).filter((c) => c instanceof CopyObjectCommand);
-    expect(copies.map((c) => c.input.Key)).toEqual([
-      'alice/archive/photos/',
-      'alice/archive/photos/a.jpg',
-      'alice/archive/photos/b.jpg'
-    ]);
-    expect(copies[1].input.CopySource).toBe('us/alice/photos/a.jpg');
-
-    const deletes = mockSend.mock.calls.map((c) => c[0]).filter((c) => c instanceof DeleteObjectCommand);
-    expect(deletes.map((c) => c.input.Key)).toEqual(['alice/photos/', 'alice/photos/a.jpg', 'alice/photos/b.jpg']);
-
-    expect(onProgress).toHaveBeenLastCalledWith(3, 3);
-  });
-
-  it('records a per-key copy failure, leaves that source, and continues', async () => {
-    routeSends({
-      sourcePages: [
-        {
-          Contents: [{Key: 'alice/photos/'}, {Key: 'alice/photos/a.jpg'}, {Key: 'alice/photos/b.jpg'}],
-          IsTruncated: false
-        }
-      ],
-      failCopyForDestKey: 'alice/archive/photos/a.jpg'
-    });
-
-    const result = await moveFolder({
-      bucket: 'us',
-      sourcePrefix: 'alice/photos/',
-      destPrefix: 'alice/archive/photos/',
-      username: 'alice',
-      rootPrefix: 'alice/'
-    });
-
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    expect(result.data.moved).toEqual(['alice/photos/', 'alice/photos/b.jpg']);
-    expect(result.data.errors).toEqual([{key: 'alice/photos/a.jpg', message: 'Access Denied', code: 'AccessDenied'}]);
-
-    // The failed key's source must not be deleted.
-    const deletes = mockSend.mock.calls.map((c) => c[0]).filter((c) => c instanceof DeleteObjectCommand);
-    expect(deletes.map((c) => c.input.Key)).toEqual(['alice/photos/', 'alice/photos/b.jpg']);
-  });
-
-  it('refuses up front when destinations already exist (Collision, no copies)', async () => {
-    routeSends({
-      sourcePages: [{Contents: [{Key: 'alice/photos/x.jpg'}], IsTruncated: false}],
-      destContents: [{Key: 'alice/archive/photos/x.jpg'}]
-    });
-
-    const result = await moveFolder({
-      bucket: 'us',
-      sourcePrefix: 'alice/photos/',
-      destPrefix: 'alice/archive/photos/',
-      username: 'alice',
-      rootPrefix: 'alice/'
-    });
-
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.code).toBe('Collision');
-    expect(result.error.message).toMatch(/1 item/);
-
-    const copies = mockSend.mock.calls.map((c) => c[0]).filter((c) => c instanceof CopyObjectCommand);
-    expect(copies).toHaveLength(0);
-  });
-
-  it('rejects moving a folder into its own subtree (no S3 call)', async () => {
-    const result = await moveFolder({
-      bucket: 'us',
-      sourcePrefix: 'alice/photos/',
-      destPrefix: 'alice/photos/sub/',
-      username: 'alice',
-      rootPrefix: 'alice/'
-    });
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.code).toBe('InvalidDestination');
-    expect(mockSend).not.toHaveBeenCalled();
-  });
-
-  // SPEC-150 FR-007. A move is a copy plus a DELETE of the source, so the results
-  // folder is refused as a SOURCE for the same reason deleteFolder refuses it. It
-  // was already locked out as a DESTINATION by PICKER_LOCKED_FOLDERS.
-  it('refuses the space root results folder as a move source', async () => {
-    const result = await moveFolder({
-      bucket: 'us',
-      sourcePrefix: 'alice/athenaresults/',
-      destPrefix: 'alice/archive/athenaresults/',
-      username: 'alice',
-      rootPrefix: 'alice/'
-    });
-
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.code).toBe('ProtectedObject');
-    expect(result.error.message).toBe('Query results are managed for you and can’t be moved.');
-    expect(mockSend).not.toHaveBeenCalled();
-  });
-});
-
-describe('copyFolder', () => {
-  // Route mocked sends by command type + prefix so source/dest listings and the
-  // per-key copy can all be served from one implementation. Mirrors moveFolder's
-  // router, minus any delete handling (copy never deletes).
-  function routeSends(opts: {
-    sourcePages: {
-      Contents: {Key: string}[];
-      IsTruncated?: boolean;
-      NextContinuationToken?: string;
-    }[];
-    destContents?: {Key: string}[];
-    failCopyForDestKey?: string;
-  }) {
-    let sourcePage = 0;
-    mockSend.mockImplementation((cmd) => {
-      if (cmd instanceof ListObjectsV2Command) {
-        if (cmd.input.Prefix === 'alice/photos/') {
-          return Promise.resolve(opts.sourcePages[sourcePage++]);
-        }
-        return Promise.resolve({Contents: opts.destContents ?? [], IsTruncated: false});
-      }
-      if (cmd instanceof CopyObjectCommand) {
-        if (cmd.input.Key === opts.failCopyForDestKey) {
-          return Promise.reject(Object.assign(new Error('Access Denied'), {name: 'AccessDenied'}));
-        }
-        return Promise.resolve({});
-      }
-      return Promise.resolve({});
-    });
-  }
-
-  it('recursively copies every key across pages, leaving the source intact (no delete)', async () => {
-    routeSends({
-      sourcePages: [
-        {
-          Contents: [{Key: 'alice/photos/'}, {Key: 'alice/photos/a.jpg'}],
-          IsTruncated: true,
-          NextContinuationToken: 'T2'
-        },
-        {Contents: [{Key: 'alice/photos/b.jpg'}], IsTruncated: false}
-      ]
-    });
-    const onProgress = vi.fn();
-
-    const result = await copyFolder({
-      bucket: 'us',
-      sourcePrefix: 'alice/photos/',
-      destPrefix: 'alice/archive/photos/',
-      username: 'alice',
-      onProgress
-    });
-
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    expect(result.data.copied).toEqual(['alice/photos/', 'alice/photos/a.jpg', 'alice/photos/b.jpg']);
-    expect(result.data.errors).toEqual([]);
-
-    const copies = mockSend.mock.calls.map((c) => c[0]).filter((c) => c instanceof CopyObjectCommand);
-    expect(copies.map((c) => c.input.Key)).toEqual([
-      'alice/archive/photos/',
-      'alice/archive/photos/a.jpg',
-      'alice/archive/photos/b.jpg'
-    ]);
-    expect(copies[1].input.CopySource).toBe('us/alice/photos/a.jpg');
-
-    // The defining invariant: copy never deletes anything.
-    const deletes = mockSend.mock.calls
-      .map((c) => c[0])
-      .filter((c) => c instanceof DeleteObjectCommand || c instanceof DeleteObjectsCommand);
-    expect(deletes).toHaveLength(0);
-
-    expect(onProgress).toHaveBeenLastCalledWith(3, 3);
-  });
-
-  it('refuses up front when destinations already exist (Collision, no copies)', async () => {
-    routeSends({
-      sourcePages: [{Contents: [{Key: 'alice/photos/x.jpg'}], IsTruncated: false}],
-      destContents: [{Key: 'alice/archive/photos/x.jpg'}]
-    });
-
-    const result = await copyFolder({
-      bucket: 'us',
-      sourcePrefix: 'alice/photos/',
-      destPrefix: 'alice/archive/photos/',
+      bucket: 'user-space',
+      sourceKey: 'alice/a.csv',
+      destKey: 'alice/b.csv',
       username: 'alice'
     });
 
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.code).toBe('Collision');
-    expect(result.error.message).toMatch(/1 item/);
+    expect(result).toEqual({success: true, data: {destKey: 'alice/b.csv'}});
+    expect(api.routes()).toEqual(['objects.move']);
+  });
 
-    const copies = mockSend.mock.calls.map((c) => c[0]).filter((c) => c instanceof CopyObjectCommand);
-    expect(copies).toHaveLength(0);
+  it('is a no-op success when source and destination are the same object', async () => {
+    const result = await moveObject({
+      bucket: 'user-space',
+      sourceKey: 'alice/a.csv',
+      destKey: 'alice/a.csv',
+      username: 'alice'
+    });
+
+    expect(result).toEqual({success: true, data: {destKey: 'alice/a.csv'}});
+    expect(api.calls).toEqual([]);
+  });
+
+  it('still moves when the same key names a different object in another bucket', async () => {
+    api.on('objects.move', {success: true, data: {key: 'project_alpha/a.csv', etag: 'e'}});
+
+    await moveObject({
+      bucket: 'user-space',
+      sourceKey: 'alice/a.csv',
+      destKey: 'alice/a.csv',
+      destBucket: 'shared-space',
+      username: 'alice'
+    });
+
+    expect(api.countOf('objects.move')).toBe(1);
+  });
+
+  it('turns a Conflict into the Collision sentence', async () => {
+    api.on('objects.move', apiFailure('Conflict'));
+
+    const result = await moveObject({
+      bucket: 'user-space',
+      sourceKey: 'alice/a.csv',
+      destKey: 'alice/taken.csv',
+      username: 'alice'
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: {message: '"alice/taken.csv" already exists.', code: 'Collision'}
+    });
   });
 });
 
 describe('getDownloadUrl', () => {
-  // A mock client exposing a credentials provider with the given remaining TTL.
-  function clientWithExpiry(secondsFromNow: number) {
-    return {
-      send: mockSend,
-      config: {
-        credentials: vi.fn().mockResolvedValue({
-          accessKeyId: 'AKIA',
-          secretAccessKey: 'secret',
-          expiration: new Date(Date.now() + secondsFromNow * 1000)
-        })
-      }
-    };
-  }
-
-  it('builds a presigned GetObject URL with attachment disposition + default expiry', async () => {
-    mockGetS3Client.mockResolvedValue({
+  it('asks for a URL and returns it with its expiry', async () => {
+    api.on('objects.downloadUrl', {
       success: true,
-      data: clientWithExpiry(3600)
+      data: {url: 'https://signed/report.csv', expiresAt: '2026-01-01T00:15:00Z'}
     });
-    mockGetSignedUrl.mockResolvedValue('https://signed.example/report.pdf');
 
-    const result = await getDownloadUrl({bucket: 'us', key: 'alice/report.pdf'});
+    const result = await getDownloadUrl({bucket: 'user-space', key: 'alice/report.csv'});
 
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    expect(result.data.url).toBe('https://signed.example/report.pdf');
-
-    const [, command, options] = mockGetSignedUrl.mock.calls[0];
-    expect(command).toBeInstanceOf(GetObjectCommand);
-    expect((command as GetObjectCommand).input).toMatchObject({
-      Bucket: 'us',
-      Key: 'alice/report.pdf',
-      ResponseContentDisposition: 'attachment; filename="report.pdf"'
+    expect(result).toEqual({
+      success: true,
+      data: {url: 'https://signed/report.csv', expiresAt: '2026-01-01T00:15:00Z'}
     });
-    // Far-future credentials → uncapped default of 900s.
-    expect(options).toEqual({expiresIn: 900});
   });
 
-  it('caps the expiry to the remaining credential lifetime', async () => {
-    mockGetS3Client.mockResolvedValue({success: true, data: clientWithExpiry(120)});
-    mockGetSignedUrl.mockResolvedValue('https://signed');
+  it('defaults the download name to the key’s last segment', async () => {
+    api.on('objects.downloadUrl', {success: true, data: {url: 'https://signed/x', expiresAt: 'later'}});
 
-    await getDownloadUrl({bucket: 'us', key: 'alice/f.txt', expiresInSeconds: 900});
+    await getDownloadUrl({bucket: 'user-space', key: 'alice/reports/q1 "final".csv'});
 
-    const options = mockGetSignedUrl.mock.calls[0][2];
-    expect(options?.expiresIn).toBeGreaterThan(0);
-    expect(options?.expiresIn).toBeLessThan(900); // capped below the requested 900
+    expect(api.bodyFor('objects.downloadUrl')).toEqual({
+      space: {kind: 'personal', name: 'alice'},
+      key: 'alice/reports/q1 "final".csv',
+      // The RFC 6266 escaping moved to the route: the header is built where the URL is signed, so
+      // a quote in a key cannot be escaped by one side and not the other.
+      fileName: 'q1 "final".csv'
+    });
+  });
+
+  it('surfaces a failure without throwing', async () => {
+    api.on('objects.downloadUrl', apiFailure('AccessDenied'));
+
+    const result = await getDownloadUrl({bucket: 'user-space', key: 'alice/x'});
+
+    expect(result).toEqual({
+      success: false,
+      error: {message: 'Failed to generate download URL', code: 'AccessDenied'}
+    });
   });
 });
 
 describe('objectExists', () => {
-  it('returns true when HeadObject succeeds', async () => {
-    mockSend.mockResolvedValueOnce({});
-    const result = await objectExists({bucket: 'us', key: 'alice/f.txt'});
+  it('reports an absent key as false, not as a failure', async () => {
+    api.on('objects.exists', {success: true, data: {exists: false}});
+
+    const result = await objectExists({bucket: 'user-space', key: 'alice/gone.csv'});
+
+    expect(result).toEqual({success: true, data: false});
+  });
+
+  it('asks about the exact key', async () => {
+    api.on('objects.exists', {success: true, data: {exists: true}});
+
+    const result = await objectExists({bucket: 'user-space', key: 'alice/here.csv'});
+
     expect(result).toEqual({success: true, data: true});
-    expect(mockSend.mock.calls[0][0]).toBeInstanceOf(HeadObjectCommand);
+    expect(api.queryFor('objects.exists')).toEqual({
+      spaceKind: 'personal',
+      spaceName: 'alice',
+      key: 'alice/here.csv'
+    });
+  });
+});
+
+describe('folderExists', () => {
+  it('asks the PREFIX question, not the object one', async () => {
+    // The listing cannot answer this: it hides a folder's own marker object, so an empty folder
+    // would report itself deleted. The `target` flag is what makes the answer raw.
+    api.on('objects.exists', {success: true, data: {exists: true}});
+
+    const result = await folderExists({bucket: 'user-space', prefix: 'alice/reports/'});
+
+    expect(result).toEqual({success: true, data: true});
+    expect(api.queryFor('objects.exists')).toEqual({
+      spaceKind: 'personal',
+      spaceName: 'alice',
+      key: 'alice/reports/',
+      target: 'prefix'
+    });
+  });
+
+  it('reports an empty prefix as false', async () => {
+    api.on('objects.exists', {success: true, data: {exists: false}});
+
+    const result = await folderExists({bucket: 'user-space', prefix: 'alice/gone/'});
+
+    expect(result).toEqual({success: true, data: false});
+  });
+});
+
+describe('firstFreeName', () => {
+  it('resolves the whole search in ONE call', async () => {
+    // The browser used to walk (1)…(999) with a HeadObject each. Behind the API every probe would
+    // be a browser → API → S3 round trip, which is strictly worse than what it replaced.
+    api.on('objects.freeName', {success: true, data: {name: 'report (1).csv'}});
+
+    const result = await firstFreeName({
+      bucket: 'user-space',
+      prefix: 'alice/',
+      baseName: 'report.csv',
+      kind: 'file'
+    });
+
+    expect(result).toEqual({success: true, data: 'report (1).csv'});
+    expect(api.calls).toHaveLength(1);
+    expect(api.bodyFor('objects.freeName')).toEqual({
+      space: {kind: 'personal', name: 'alice'},
+      prefix: 'alice/',
+      baseName: 'report.csv',
+      kind: 'file'
+    });
+  });
+
+  it('separates EXHAUSTION from failure, which the old loop could not', async () => {
+    // `firstFreeName` returned null both when 999 names were taken and when a probe errored, and
+    // the caller rendered one sentence for either.
+    api.on('objects.freeName', apiFailure('Conflict'));
+
+    const result = await firstFreeName({
+      bucket: 'user-space',
+      prefix: 'alice/',
+      baseName: 'report.csv',
+      kind: 'file'
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: {message: 'Could not find an available name for the copy.', code: 'NoFreeName'}
+    });
+  });
+
+  it('keeps a real failure’s own code', async () => {
+    api.on('objects.freeName', apiFailure('AccessDenied'));
+
+    const result = await firstFreeName({
+      bucket: 'user-space',
+      prefix: 'alice/',
+      baseName: 'report.csv',
+      kind: 'file'
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: {message: 'Could not find an available name for the copy.', code: 'AccessDenied'}
+    });
   });
 });
 
@@ -1108,186 +569,475 @@ describe('uploadPercent', () => {
     expect(uploadPercent(0, 100)).toBe(0);
     expect(uploadPercent(50, 100)).toBe(50);
     expect(uploadPercent(100, 100)).toBe(100);
-    expect(uploadPercent(1, 3)).toBe(33);
-    expect(uploadPercent(150, 100)).toBe(100); // clamp
+    expect(uploadPercent(5, 0)).toBe(100);
+    expect(uploadPercent(200, 100)).toBe(100);
   });
 });
 
 describe('validateFolderName', () => {
   it('accepts a normal name', () => {
-    expect(validateFolderName('documents')).toBeNull();
+    expect(validateFolderName('reports')).toBeNull();
   });
 });
 
-describe('uploadFile', () => {
-  function blob(size: number): Blob {
-    return new Blob([new Uint8Array(size)]);
-  }
-
-  it('uploads via lib-storage and returns the key (overwrite skips the HEAD)', async () => {
-    uploadState.doneImpl = async () => ({});
-    const result = await uploadFile({
-      bucket: 'us',
-      key: 'alice/report.pdf',
-      body: blob(10),
-      contentType: 'application/pdf',
-      overwrite: true
-    });
-
-    expect(result).toEqual({success: true, data: {key: 'alice/report.pdf'}});
-    // overwrite:true → no HEAD collision check.
-    expect(mockSend).not.toHaveBeenCalled();
-    expect(uploadState.ctorArgs).toMatchObject({
-      params: {
-        Bucket: 'us',
-        Key: 'alice/report.pdf',
-        ContentType: 'application/pdf'
-      },
-      partSize: 5 * 1024 * 1024,
-      queueSize: 4
-    });
+describe('maxUploadBytes', () => {
+  it('never exceeds what one PutObject can carry', () => {
+    // The single-PUT limit is where the ceiling actually is now. An operator who raised the
+    // configured maximum above it used to get multipart; without this clamp they would get an
+    // EntityTooLarge from S3 at the END of a long transfer, with nothing failing earlier.
+    expect(maxUploadBytes()).toBeLessThanOrEqual(S3_SINGLE_PUT_MAX_BYTES);
   });
 
-  it('refuses to overwrite when the key exists and overwrite is false (Collision)', async () => {
-    mockSend.mockResolvedValueOnce({}); // HEAD → exists
-    const result = await uploadFile({
-      bucket: 'us',
-      key: 'alice/report.pdf',
-      body: blob(10),
-      contentType: 'application/pdf'
-    });
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.code).toBe('Collision');
-    expect(uploadState.ctorArgs).toBeNull(); // no upload attempted
-  });
-
-  it('rejects a file over the maximum size before any request', async () => {
-    const result = await uploadFile({
-      bucket: 'us',
-      key: 'alice/huge.bin',
-      body: {size: maxUploadBytes() + 1} as Blob,
-      contentType: 'application/octet-stream',
-      overwrite: true
-    });
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.code).toBe('TooLarge');
-    expect(uploadState.ctorArgs).toBeNull();
-  });
-
-  it('aborts the upload and returns Cancelled when the signal fires mid-flight', async () => {
-    const controller = new AbortController();
-    uploadState.doneImpl = async () => {
-      controller.abort();
-      throw new Error('aborted');
-    };
-    const result = await uploadFile({
-      bucket: 'us',
-      key: 'alice/f.bin',
-      body: blob(10),
-      contentType: 'application/octet-stream',
-      overwrite: true,
-      signal: controller.signal
-    });
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.code).toBe('Cancelled');
-    expect(uploadState.aborted).toBe(true); // upload.abort() was called
-  });
-});
-
-describe('getObjectMetadata', () => {
-  it('maps a HeadObject response onto ObjectMetadata', async () => {
-    mockSend.mockResolvedValueOnce({
-      ContentLength: 2048,
-      ContentType: 'application/pdf',
-      LastModified: new Date('2024-03-01T12:00:00Z'),
-      ETag: '"abc123"',
-      StorageClass: 'STANDARD_IA',
-      Metadata: {author: 'alice', project: 'q1'}
-    });
-
-    const result = await getObjectMetadata({bucket: 'us', key: 'alice/report.pdf'});
-
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    expect(result.data).toEqual({
-      key: 'alice/report.pdf',
-      size: 2048,
-      contentType: 'application/pdf',
-      lastModified: new Date('2024-03-01T12:00:00Z'),
-      etag: '"abc123"',
-      storageClass: 'STANDARD_IA',
-      userMetadata: {author: 'alice', project: 'q1'}
-    });
-    expect(mockSend.mock.calls[0][0]).toBeInstanceOf(HeadObjectCommand);
-    expect(mockSend.mock.calls[0][0].input).toEqual({
-      Bucket: 'us',
-      Key: 'alice/report.pdf'
-    });
-  });
-
-  it('returns a NotFound error (not a throw) when the object is missing', async () => {
-    mockSend.mockRejectedValueOnce(notFoundError());
-
-    const result = await getObjectMetadata({bucket: 'us', key: 'alice/gone.txt'});
-
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.code).toBe('NotFound');
-    expect(result.error.message).toMatch(/no longer exists/i);
+  it('measures the clamp against the published PutObject limit', () => {
+    expect(S3_SINGLE_PUT_MAX_BYTES).toBe(5 * 1024 * 1024 * 1024);
   });
 });
 
 describe('createFolder', () => {
-  it('creates a zero-byte marker at {prefix}{name}/ with directory content type', async () => {
-    mockSend
-      .mockRejectedValueOnce(notFoundError()) // HEAD → not found
-      .mockResolvedValueOnce({}); // PUT → ok
-    const result = await createFolder({bucket: 'us', prefix: 'alice/', name: 'photos'});
+  it('writes a zero-byte directory marker in one call', async () => {
+    api.on('objects.writeContent', {success: true, data: {key: 'alice/reports/', etag: 'e'}});
 
-    expect(result).toEqual({success: true, data: {prefix: 'alice/photos/'}});
-    const put = mockSend.mock.calls[1][0];
-    expect(put).toBeInstanceOf(PutObjectCommand);
-    expect(put.input).toMatchObject({
-      Bucket: 'us',
-      Key: 'alice/photos/',
-      Body: '',
-      ContentType: 'application/x-directory'
+    const result = await createFolder({bucket: 'user-space', prefix: 'alice/', name: 'reports'});
+
+    expect(result).toEqual({success: true, data: {prefix: 'alice/reports/'}});
+    expect(api.calls).toHaveLength(1);
+    expect(api.bodyFor('objects.writeContent')).toEqual({
+      space: {kind: 'personal', name: 'alice'},
+      key: 'alice/reports/',
+      body: '',
+      contentType: 'application/x-directory',
+      overwrite: false
     });
   });
 
-  it('prompts collision when the folder already exists (no PUT)', async () => {
-    mockSend.mockResolvedValueOnce({}); // HEAD → exists
-    const result = await createFolder({bucket: 'us', prefix: 'alice/', name: 'photos'});
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.code).toBe('Collision');
-    expect(mockSend).toHaveBeenCalledTimes(1); // only the HEAD
+  it('turns a Conflict into the collision sentence, naming the folder', async () => {
+    api.on('objects.writeContent', apiFailure('Conflict'));
+
+    const result = await createFolder({bucket: 'user-space', prefix: 'alice/', name: 'reports'});
+
+    expect(result).toEqual({
+      success: false,
+      error: {message: 'A folder named "reports" already exists.', code: 'Collision'}
+    });
+  });
+
+  it('refuses an invalid name before any request', async () => {
+    const result = await createFolder({bucket: 'user-space', prefix: 'alice/', name: 'a/b'});
+
+    expect(result).toEqual({
+      success: false,
+      error: {message: "Folder name cannot contain '/'.", code: 'InvalidName'}
+    });
+    expect(api.calls).toEqual([]);
   });
 });
 
-describe('getDownloadUrl escapes the Content-Disposition filename (SPEC-155 FR-007)', () => {
-  /** The `ResponseContentDisposition` the presigner was handed. */
-  function disposition(): string {
-    const command = mockGetSignedUrl.mock.calls[0][1] as {input: {ResponseContentDisposition?: string}};
-    return command.input.ResponseContentDisposition ?? '';
-  }
+describe('getObjectMetadata', () => {
+  it('maps the route’s answer onto ObjectMetadata, storage class and pairs included', async () => {
+    api.on('objects.metadata', {
+      success: true,
+      data: {
+        key: 'alice/report.pdf',
+        size: 2048,
+        lastModified: '2024-02-01T09:30:00.000Z',
+        contentType: 'application/pdf',
+        etag: 'abc123',
+        storageClass: 'INTELLIGENT_TIERING',
+        userMetadata: [
+          {name: 'owner', value: 'alice'},
+          {name: 'batch', value: '7'}
+        ]
+      }
+    });
 
-  it('escapes a double quote, which S3 allows in a key and which would end the header value early', async () => {
-    mockGetSignedUrl.mockResolvedValue('https://signed.example/x');
+    const result = await getObjectMetadata({bucket: 'user-space', key: 'alice/report.pdf'});
 
-    await getDownloadUrl({bucket: 'us', key: 'alice/we"rd.csv', fileName: 'we"rd.csv'});
-
-    expect(disposition()).toBe('attachment; filename="we\\"rd.csv"');
+    expect(result).toEqual({
+      success: true,
+      data: {
+        key: 'alice/report.pdf',
+        size: 2048,
+        lastModified: new Date('2024-02-01T09:30:00.000Z'),
+        contentType: 'application/pdf',
+        etag: 'abc123',
+        storageClass: 'INTELLIGENT_TIERING',
+        userMetadata: {owner: 'alice', batch: '7'}
+      }
+    });
   });
 
-  it('escapes backslashes BEFORE quotes, so an escape is never itself re-escaped', async () => {
-    mockGetSignedUrl.mockResolvedValue('https://signed.example/x');
+  it('returns a NotFound error, not a throw, when the object is gone', async () => {
+    api.on('objects.metadata', apiFailure('NotFound'));
 
-    await getDownloadUrl({bucket: 'us', key: 'alice/a\\b.csv', fileName: 'a\\b.csv'});
+    const result = await getObjectMetadata({bucket: 'user-space', key: 'alice/gone.pdf'});
 
-    expect(disposition()).toBe('attachment; filename="a\\\\b.csv"');
+    expect(result).toEqual({
+      success: false,
+      error: {message: 'This file no longer exists.', code: 'NotFound'}
+    });
+  });
+});
+
+/**
+ * The transport under `uploadFile`, driven by hand.
+ *
+ * A stub rather than a real request because the assertions are about WHAT the upload does with the
+ * events — chiefly that an intermediate progress value reaches the caller, which is the one thing
+ * a `fetch` implementation cannot produce and every "the upload succeeded" test passes over.
+ */
+class FakeXhr {
+  static last: FakeXhr | undefined;
+  status = 200;
+  opened: [string, string] | undefined;
+  headers: Record<string, string> = {};
+  sent: unknown;
+  aborted = false;
+  private listeners = new Map<string, ((event: unknown) => void)[]>();
+  upload = {
+    addEventListener: (event: string, handler: (e: unknown) => void) => {
+      this.on(`upload:${event}`, handler);
+    }
+  };
+
+  constructor() {
+    FakeXhr.last = this;
+  }
+
+  private on(event: string, handler: (e: unknown) => void) {
+    this.listeners.set(event, [...(this.listeners.get(event) ?? []), handler]);
+  }
+
+  addEventListener(event: string, handler: (e: unknown) => void) {
+    this.on(event, handler);
+  }
+
+  open(method: string, url: string) {
+    this.opened = [method, url];
+  }
+
+  setRequestHeader(name: string, value: string) {
+    this.headers[name] = value;
+  }
+
+  send(body: unknown) {
+    this.sent = body;
+  }
+
+  abort() {
+    this.aborted = true;
+    this.fire('abort');
+  }
+
+  fire(event: string, payload: unknown = {}) {
+    for (const handler of this.listeners.get(event) ?? []) handler(payload);
+  }
+
+  progress(loaded: number, total: number) {
+    this.fire('upload:progress', {loaded, total, lengthComputable: true});
+  }
+}
+
+describe('uploadFile', () => {
+  beforeEach(() => {
+    FakeXhr.last = undefined;
+    vi.stubGlobal('XMLHttpRequest', FakeXhr);
+  });
+
+  /** A body with a size, without allocating one. */
+  function blob(size: number): Blob {
+    return {size, type: 'text/csv'} as Blob;
+  }
+
+  function mintedUrl(url = 'https://signed.example/put') {
+    api.on('objects.uploadUrl', {success: true, data: {url, expiresAt: '2026-01-01T00:15:00Z'}});
+  }
+
+  it('mints a URL and PUTs the bytes to it', async () => {
+    mintedUrl();
+    const pending = uploadFile({
+      bucket: 'user-space',
+      key: 'alice/report.csv',
+      body: blob(10),
+      contentType: 'text/csv'
+    });
+    await vi.waitFor(() => expect(FakeXhr.last).toBeDefined());
+
+    FakeXhr.last!.fire('load');
+
+    expect(await pending).toEqual({success: true, data: {key: 'alice/report.csv'}});
+    expect(FakeXhr.last!.opened).toEqual(['PUT', 'https://signed.example/put']);
+    expect(api.bodyFor('objects.uploadUrl')).toEqual({
+      space: {kind: 'personal', name: 'alice'},
+      key: 'alice/report.csv',
+      contentType: 'text/csv',
+      overwrite: false
+    });
+  });
+
+  it('sends the SIGNED content type, byte for byte', async () => {
+    // A different one here fails the signature check at S3 and returns a 403 that reads as a
+    // permissions problem rather than as a mismatched header.
+    mintedUrl();
+    const pending = uploadFile({
+      bucket: 'user-space',
+      key: 'alice/report.csv',
+      body: blob(10),
+      contentType: 'text/csv'
+    });
+    await vi.waitFor(() => expect(FakeXhr.last).toBeDefined());
+    FakeXhr.last!.fire('load');
+    await pending;
+
+    expect(FakeXhr.last!.headers['Content-Type']).toBe('text/csv');
+  });
+
+  it('reports an INTERMEDIATE progress value, not just 0 and 100', async () => {
+    // THE assertion this transport exists for. `fetch` fires no upload-progress event, so a
+    // `fetch` implementation uploads correctly and leaves the bar at 0% until it jumps to 100% —
+    // "the upload succeeded" passes straight over the defect.
+    mintedUrl();
+    const seen: [number, number][] = [];
+    const pending = uploadFile({
+      bucket: 'user-space',
+      key: 'alice/big.bin',
+      body: blob(1000),
+      contentType: 'application/octet-stream',
+      onProgress: (loaded, total) => seen.push([loaded, total])
+    });
+    await vi.waitFor(() => expect(FakeXhr.last).toBeDefined());
+
+    FakeXhr.last!.progress(400, 1000);
+    FakeXhr.last!.fire('load');
+    await pending;
+
+    expect(seen.some(([loaded, total]) => loaded > 0 && loaded < total)).toBe(true);
+  });
+
+  it('refuses a file over the maximum size before asking for a URL', async () => {
+    // A refusal that first asks the API for a URL has already paid for the thing it is refusing.
+    const result = await uploadFile({
+      bucket: 'user-space',
+      key: 'alice/huge.bin',
+      body: blob(maxUploadBytes() + 1),
+      contentType: 'application/octet-stream'
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: {message: `File exceeds the maximum upload size of ${maxUploadBytes()} bytes.`, code: 'TooLarge'}
+    });
+    expect(api.calls).toEqual([]);
+  });
+
+  it('turns the mint’s Conflict into a Collision and never opens a request', async () => {
+    // The route mints NO url on a refused overwrite: a route that minted first and checked after
+    // would already have handed out the capability.
+    api.on('objects.uploadUrl', apiFailure('Conflict'));
+
+    const result = await uploadFile({
+      bucket: 'user-space',
+      key: 'alice/taken.csv',
+      body: blob(10),
+      contentType: 'text/csv'
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: {message: '"alice/taken.csv" already exists.', code: 'Collision'}
+    });
+    expect(FakeXhr.last).toBeUndefined();
+  });
+
+  it('resolves Cancelled and aborts the transfer when the signal fires mid-flight', async () => {
+    mintedUrl();
+    const controller = new AbortController();
+    const pending = uploadFile({
+      bucket: 'user-space',
+      key: 'alice/report.csv',
+      body: blob(10),
+      contentType: 'text/csv',
+      signal: controller.signal
+    });
+    await vi.waitFor(() => expect(FakeXhr.last).toBeDefined());
+
+    controller.abort();
+
+    expect(await pending).toEqual({
+      success: false,
+      error: {message: 'Upload cancelled.', code: 'Cancelled'}
+    });
+    expect(FakeXhr.last!.aborted).toBe(true);
+  });
+
+  it('refuses an already-aborted signal without asking for a URL', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await uploadFile({
+      bucket: 'user-space',
+      key: 'alice/report.csv',
+      body: blob(10),
+      contentType: 'text/csv',
+      signal: controller.signal
+    });
+
+    expect(result).toEqual({success: false, error: {message: 'Upload cancelled.', code: 'Cancelled'}});
+    expect(api.calls).toEqual([]);
+  });
+
+  it('detaches the abort listener when the upload finishes normally', async () => {
+    // `{once: true}` fires a listener at most once but does NOT detach it, so a long-lived queue
+    // signal accumulated one closure per completed file. Aborting AFTER a settled upload must
+    // reach nothing.
+    mintedUrl();
+    const controller = new AbortController();
+    const pending = uploadFile({
+      bucket: 'user-space',
+      key: 'alice/report.csv',
+      body: blob(10),
+      contentType: 'text/csv',
+      signal: controller.signal
+    });
+    await vi.waitFor(() => expect(FakeXhr.last).toBeDefined());
+    FakeXhr.last!.fire('load');
+    await pending;
+
+    controller.abort();
+
+    expect(FakeXhr.last!.aborted).toBe(false);
+  });
+
+  it('reports a non-2xx from S3 as a failure carrying its status', async () => {
+    mintedUrl();
+    const pending = uploadFile({
+      bucket: 'user-space',
+      key: 'alice/report.csv',
+      body: blob(10),
+      contentType: 'text/csv'
+    });
+    await vi.waitFor(() => expect(FakeXhr.last).toBeDefined());
+
+    FakeXhr.last!.status = 403;
+    FakeXhr.last!.fire('load');
+
+    expect(await pending).toEqual({
+      success: false,
+      error: {message: 'Failed to upload file.', code: 'Http403'}
+    });
+  });
+
+  it('reports a dead connection as a network failure', async () => {
+    mintedUrl();
+    const pending = uploadFile({
+      bucket: 'user-space',
+      key: 'alice/report.csv',
+      body: blob(10),
+      contentType: 'text/csv'
+    });
+    await vi.waitFor(() => expect(FakeXhr.last).toBeDefined());
+
+    FakeXhr.last!.fire('error');
+
+    expect(await pending).toEqual({
+      success: false,
+      error: {message: 'Failed to upload file.', code: 'NetworkUnavailable'}
+    });
+  });
+});
+
+describe('the passthrough codes this surface owns are minted CLIENT-SIDE (FR-010)', () => {
+  /**
+   * A failure as the API really answers one: a machine code, and operator prose in `detail` that
+   * no surface renders. The marker is what proves the second half — a service that passed the
+   * server's text through would put it in front of a user, and the sentence would look fine in
+   * every screenshot.
+   */
+  const MARKER = 'OPERATOR-ONLY-9f3c';
+
+  function serverFailure(code: string) {
+    return {success: false as const, error: {message: '', code, detail: `${MARKER} ${code} at handler`}};
+  }
+
+  it('Collision — from a copy, naming the destination the caller already holds', async () => {
+    api.on('objects.copy', serverFailure('Conflict'));
+
+    const result = await copyObject({
+      bucket: 'user-space',
+      sourceKey: 'alice/a.csv',
+      destKey: 'alice/taken.csv',
+      username: 'alice'
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error).toEqual({message: '"alice/taken.csv" already exists.', code: 'Collision'});
+    expect(JSON.stringify(result)).not.toContain(MARKER);
+  });
+
+  it('Collision — from an upload, before any byte is sent', async () => {
+    api.on('objects.uploadUrl', serverFailure('Conflict'));
+
+    const result = await uploadFile({
+      bucket: 'user-space',
+      key: 'alice/taken.csv',
+      body: {size: 10, type: 'text/csv'} as Blob,
+      contentType: 'text/csv'
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error).toEqual({message: '"alice/taken.csv" already exists.', code: 'Collision'});
+    expect(JSON.stringify(result)).not.toContain(MARKER);
+  });
+
+  it('ProtectedObject — minted before any request is made at all', async () => {
+    const result = await deleteObject({
+      bucket: 'user-space',
+      key: 'alice/DO_NOT_DELETE.txt',
+      username: 'alice'
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error).toEqual({
+      message: 'This file keeps your storage space active and cannot be deleted.',
+      code: 'ProtectedObject'
+    });
+    expect(api.calls).toEqual([]);
+  });
+
+  it('InvalidName — the validator stays in the browser, so the refusal costs nothing', async () => {
+    const result = await createFolder({bucket: 'user-space', prefix: 'alice/', name: ' x'});
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error).toEqual({
+      message: 'Folder name cannot start or end with spaces.',
+      code: 'InvalidName'
+    });
+    expect(api.calls).toEqual([]);
+  });
+
+  it('TooLarge — the cap is enforced before a URL is asked for', async () => {
+    const result = await uploadFile({
+      bucket: 'user-space',
+      key: 'alice/huge.bin',
+      body: {size: maxUploadBytes() + 1, type: 'application/octet-stream'} as Blob,
+      contentType: 'application/octet-stream'
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('TooLarge');
+    expect(result.error.message).toBe(`File exceeds the maximum upload size of ${maxUploadBytes()} bytes.`);
+    expect(api.calls).toEqual([]);
+  });
+
+  it('renders each of them as its own sentence, never as the generic one', () => {
+    // The other end of the same rule: a passthrough code returns the service's message unchanged,
+    // so these four are the only wording a user ever sees for these conditions.
+    for (const code of ['Collision', 'ProtectedObject', 'InvalidName', 'TooLarge']) {
+      expect(toUserText({code, message: 'the service’s own sentence.'})).toBe('the service’s own sentence.');
+    }
   });
 });

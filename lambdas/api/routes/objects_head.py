@@ -4,12 +4,19 @@
 absence onto the error arm would turn every free-name probe and every collision pre-check into a
 failure the caller has to re-interpret, and the browser's ``objectExists`` resolves a missing key
 to ``data: false`` today.
+
+It answers about a **prefix** as well as an object, and the listing route cannot stand in for that
+half: ``objects_list`` hides the prefix's own marker and every ``DO_NOT_DELETE.txt``, so an empty
+folder and a ``saved_queries/`` holding only its marker both list as nothing while being perfectly
+present. A panel that read "nothing listed" as "deleted" would tell a user their folder was gone.
 """
 
 from typing import Any
 
+from apicommon import protected
 from apicommon.context import RequestContext
 from apicommon.envelope import ApiError
+from apicommon.spaces import ResolvedSpace
 
 from . import _objects
 
@@ -44,14 +51,20 @@ def metadata(context: RequestContext) -> dict[str, Any]:
         "lastModified": modified.isoformat() if modified is not None else "",
         "contentType": head.get("ContentType", "application/octet-stream"),
         "etag": str(head.get("ETag", "")).strip('"'),
+        "storageClass": str(head.get("StorageClass") or "STANDARD"),
+        "userMetadata": [
+            {"name": str(name), "value": str(value)}
+            for name, value in sorted((head.get("Metadata") or {}).items())
+        ],
     }
 
 
 def exists(context: RequestContext) -> dict[str, Any]:
-    """Reports whether an object is there, as a 200 either way.
+    """Reports whether an object — or anything at all under a prefix — is there, as a 200 either way.
 
     Args:
-      context: The authenticated request.
+      context: The authenticated request. ``target=prefix`` asks about a whole folder; anything
+        else, absence included, asks about the one key.
 
     Returns:
       ``{"exists": bool}``.
@@ -63,6 +76,9 @@ def exists(context: RequestContext) -> dict[str, Any]:
         ``exists: false`` would let a free-name search march past a name that is taken.
     """
     space = _objects.space_from_query(context)
+    if context.query.get("target") == "prefix":
+        return _prefix_exists(context, space)
+
     key = _objects.contained(space, context.query.get("key", ""))
     try:
         _objects.client(context).head_object(Bucket=space.bucket, Key=key)
@@ -71,3 +87,33 @@ def exists(context: RequestContext) -> dict[str, Any]:
             return {"exists": False}
         raise
     return {"exists": True}
+
+
+def _prefix_exists(context: RequestContext, space: ResolvedSpace) -> dict[str, Any]:
+    """Whether any key at all lives under a prefix.
+
+    Raw and unfiltered, which is the whole point — the marker object a "New folder" leaves behind
+    IS the folder, and the listing route drops it.
+
+    One page of one row, delimited like every other listing in this package: with ``Delimiter``
+    set, a folder holding only a nested subfolder still answers through ``CommonPrefixes``, so the
+    delimiter costs the answer nothing and keeps the thinness rule whole. The verdict reads the
+    two arrays rather than ``KeyCount``, because reading the count means trusting a documented
+    relationship this package has no way to fail loudly on.
+
+    Args:
+      context: The authenticated request.
+      space: The already-resolved space.
+
+    Returns:
+      ``{"exists": bool}``.
+
+    Raises:
+      ApiError: ``AccessDenied`` when the prefix escapes the space root.
+      IdentityUnavailableError: If the caller's role cannot be assumed.
+    """
+    prefix = protected.contained_prefix(space, context.query.get("key", ""))
+    page = _objects.client(context).list_objects_v2(
+        Bucket=space.bucket, Prefix=prefix, Delimiter="/", MaxKeys=1
+    )
+    return {"exists": bool(page.get("Contents") or page.get("CommonPrefixes"))}

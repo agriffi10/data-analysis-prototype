@@ -1,46 +1,19 @@
 // Feature-scoped types for the file browser.
 
 export type DownloadUrl = {
-  /** Presigned GetObject URL. */
+  /** Presigned GetObject URL. A bearer token: whoever holds it can read the object. */
   url: string;
+  /**
+   * When it dies, ISO-8601 UTC — never later than the signing session's own expiry.
+   *
+   * Returned so a caller can tell an expired link from a denial: both present as a 403 from S3,
+   * and only one of them is worth retrying.
+   */
+  expiresAt: string;
 };
 
 export type UploadResult = {key: string};
 export type CreateFolderResult = {prefix: string};
-
-/**
- * Outcome of a (possibly batched/recursive) delete. Partial failure is
- * reported, never thrown: `errors` includes the marker-guard refusal.
- */
-export type DeleteResult = {
-  /** Keys S3 confirmed removed. */
-  deleted: string[];
-  /** Per-key failures. `message` is technical (logged); the surface maps `code`. */
-  errors: {key: string; message: string; code?: string}[];
-};
-
-/**
- * Outcome of a (possibly recursive) move. Move is non-atomic: a key whose copy
- * failed is left in place and reported in `errors`, never thrown.
- */
-export type MoveResult = {
-  /** Source keys copied to the destination and then deleted. */
-  moved: string[];
-  /** Per-key failures. `message` is technical (logged); the surface maps `code`. */
-  errors: {key: string; message: string; code?: string}[];
-};
-
-/**
- * Outcome of a (possibly recursive) copy. Copy is additive (no source delete)
- * and best-effort: a failed key is recorded, never thrown, with no rollback — a
- * partial folder copy leaves a partial duplicate the user can delete.
- */
-export type CopyResult = {
-  /** Source keys duplicated to the destination. */
-  copied: string[];
-  /** Per-key failures. `message` is technical (logged); the surface maps `code`. */
-  errors: {key: string; message: string; code?: string}[];
-};
 
 /** The fields a single HeadObject call exposes for the read-only metadata panel. */
 export type ObjectMetadata = {
@@ -55,12 +28,6 @@ export type ObjectMetadata = {
   /** The object's x-amz-meta-* pairs (empty when none were set). */
   userMetadata: Record<string, string>;
 };
-
-// Managed-upload tuning. lib-storage uploads a body at/below partSize in a single
-// request and switches to automatic multipart above it — so MULTIPART_PART_SIZE
-// is also the "multipart threshold". PART_CONCURRENCY is parts in flight per file.
-export const MULTIPART_PART_SIZE = 5 * 1024 * 1024; // 5 MiB
-export const PART_CONCURRENCY = 4;
 
 /**
  * One failed item in a bulk operation. `key` is the S3 key or prefix that failed —

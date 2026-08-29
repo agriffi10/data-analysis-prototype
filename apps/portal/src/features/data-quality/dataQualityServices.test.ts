@@ -204,11 +204,10 @@ describe('dataQualityReport.service', () => {
   const body = (text: string) => ({success: true as const, data: {body: text, etag: 'e'}});
 
   /** A failure now arrives as a machine code rather than as a thrown AWS error. */
-  const awsError = (code: string) =>
-    ({
-      success: false as const,
-      error: {message: '', code: code === 'NoSuchKey' ? 'NotFound' : code}
-    });
+  const awsError = (code: string) => ({
+    success: false as const,
+    error: {message: '', code: code === 'NoSuchKey' ? 'NotFound' : code}
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -262,17 +261,15 @@ describe('dataQualityRuns.service', () => {
   const send = vi.mocked(apiRequest);
 
   /** A failure arrives as a machine code now, not as a thrown AWS error. */
-  const awsError = (name: string) =>
-    ({
-      success: false as const,
-      error: {message: '', code: name === 'NoSuchKey' ? 'NotFound' : name}
-    });
+  const awsError = (name: string) => ({
+    success: false as const,
+    error: {message: '', code: name === 'NoSuchKey' ? 'NotFound' : name}
+  });
 
-  const body = (value: unknown) =>
-    ({
-      success: true as const,
-      data: {body: typeof value === 'string' ? value : JSON.stringify(value), etag: 'e'}
-    });
+  const body = (value: unknown) => ({
+    success: true as const,
+    data: {body: typeof value === 'string' ? value : JSON.stringify(value), etag: 'e'}
+  });
 
   const entry = (over = {}) => ({
     requestId: 'r-1',

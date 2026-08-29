@@ -114,6 +114,40 @@ describe('the one door', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('names XMLHttpRequest in exactly one module, the upload path', () => {
+    // Widening the fetch sweep, and it has to be widened together with it: a rule that forbids
+    // `fetch` and says nothing about `XMLHttpRequest` permits the same escape hatch under another
+    // name. One module may use it, and only because `fetch` fires no upload-progress event — a
+    // `fetch` upload works perfectly and leaves the progress bar at 0% until it jumps to 100%.
+    const offenders = Object.entries(appSources)
+      .filter(([, source]) => code(source).includes('XMLHttpRequest'))
+      .map(([path]) => path)
+      .filter((path) => !path.endsWith('/fileBrowser.service.ts'));
+
+    expect(offenders).toEqual([]);
+  });
+
+  it('still has that one module — the exemption is not a dead entry', () => {
+    // The half a sweep cannot state on its own: an exemption for a module that stopped using the
+    // thing reads exactly like an exemption for a module that still does. If the upload path ever
+    // moves back to `fetch`, the progress bar dies silently and this is what says so.
+    const uploader = Object.entries(appSources).find(([path]) => path.endsWith('/fileBrowser.service.ts'));
+
+    expect(uploader?.[1]).toContain('XMLHttpRequest');
+  });
+
+  it('has no module importing the three S3 packages this surface retired', () => {
+    // NAMED, not "any @aws-sdk import": Athena, Glue and SQS are still called from the browser
+    // and their packages stay. A sweep phrased as the dependency CLASS would go red on work this
+    // spec does not do, and would be loosened rather than heeded.
+    const RETIRED = ['@aws-sdk/client-s3', '@aws-sdk/lib-storage', '@aws-sdk/s3-request-presigner'];
+    const offenders = Object.entries(appSources)
+      .filter(([, source]) => RETIRED.some((pkg) => code(source).includes(pkg)))
+      .map(([path]) => path);
+
+    expect(offenders).toEqual([]);
+  });
+
   it('has no module outside apiClient building a URL from the API origin', () => {
     const offenders = Object.entries(appSources)
       .filter(([path]) => !path.endsWith('/apiClient.ts') && path !== './apiClient.ts')

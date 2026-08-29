@@ -2,13 +2,13 @@ import {useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
 import {invalidateListing} from './invalidateListing';
 import {toUserText} from '../../lib/errorMessages';
-import {moveObject, moveFolder, uploadPercent} from './fileBrowser.service';
-import {leafName, fileParent, folderParts} from './fileBrowser.paths';
+import {moveObject} from './fileBrowser.service';
+import {leafName, fileParent} from './fileBrowser.paths';
 import type {SelectableItem} from './selectionContext';
 import type {BulkOperationState} from './fileBrowser.types';
 
-// Aggregated outcome of a rename or (possibly multi-item, recursive) move:
-// how many objects S3 relocated, and any per-item/per-key failures.
+// Aggregated outcome of a rename or (possibly multi-item) move: how many objects S3 relocated,
+// and any per-item failures.
 export type MoveSummary = NonNullable<BulkOperationState['summary']>;
 
 // A rename hit an existing destination. The user picks Overwrite or a
@@ -42,23 +42,24 @@ export type UseMoveResult = BulkOperationState & {
 
 type Acc = {moved: number; errors: MoveSummary['errors']};
 
-// Orchestrates rename + move (single + multi-select) on top of
-// the moveObject/moveFolder service primitives. Mirrors useFileUpload's collision
-// warn-and-confirm and useDelete's aggregation. `sourcePrefix` is the current view
-// (the items' common parent); both it and any destination prefix are invalidated
-// on completion so the moved items appear/disappear. Never throws.
-// `rootPrefix` is the SOURCE space's root, which `moveFolder` needs to recognise a
-// protected root folder. Required for the same reason as useDelete's: a fallback to
-// the browsed folder would falsely protect a nested folder of the same name.
-export function useMove(
-  bucket: string,
-  sourcePrefix: string,
-  username: string | undefined,
-  rootPrefix: string
-): UseMoveResult {
+/**
+ * Orchestrates rename + move (single + multi-select) on top of `moveObject`.
+ *
+ * **Files move; folders are refused.** A folder rename is one `CopyObject` per contained object,
+ * so its cost cannot be bounded without listing the folder first — which is exactly the work the
+ * file-operations plane exists to take off the browser. With the plane on, no folder reaches here.
+ * With it off, a folder move is unavailable rather than synchronous.
+ *
+ * A move is ONE route now, not a copy call followed by a delete call: two calls put a closed tab
+ * between them, and versioning is off.
+ *
+ * Mirrors useFileUpload's collision warn-and-confirm and useDelete's aggregation. `sourcePrefix`
+ * is the current view (the items' common parent); both it and any destination prefix are
+ * invalidated on completion so the moved items appear/disappear. Never throws.
+ */
+export function useMove(bucket: string, sourcePrefix: string, username: string | undefined): UseMoveResult {
   const queryClient = useQueryClient();
   const [isBusy, setIsBusy] = useState(false);
-  const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<MoveSummary | null>(null);
   const [renameCollision, setRenameCollision] = useState<RenameCollision | null>(null);
@@ -105,22 +106,8 @@ export function useMove(
         ? {ok: true, moved: 1, errors: []}
         : {ok: false, code: r.error.code, message: r.error.message};
     } else {
-      const {parent} = folderParts(item.prefix);
-      const r = await moveFolder({
-        bucket,
-        sourcePrefix: item.prefix,
-        destPrefix: `${parent}${newName}/`,
-        username,
-        rootPrefix,
-        overwrite,
-        onProgress: (p, t) => setProgress(uploadPercent(p, t))
-      });
-      outcome = r.success
-        ? {ok: true, moved: r.data.moved.length, errors: r.data.errors}
-        : {ok: false, code: r.error.code, message: r.error.message};
+      outcome = {ok: false, code: 'PlaneRequired', message: 'Folders are renamed by the file operations service.'};
     }
-
-    setProgress(null);
 
     if (!outcome.ok) {
       if (outcome.code === 'Collision') {
@@ -187,29 +174,13 @@ export function useMove(
         else if (r.error.code === 'Collision') collided.push(item);
         else acc.errors.push({key: item.key, message: r.error.message, code: r.error.code});
       } else {
-        const {leaf} = folderParts(item.prefix);
-        const r = await moveFolder({
-          bucket,
-          sourcePrefix: item.prefix,
-          destPrefix: `${destPrefix}${leaf}/`,
-          username,
-          rootPrefix,
-          destBucket,
-          overwrite,
-          onProgress: (p, t) => setProgress(uploadPercent(p, t))
+        acc.errors.push({
+          key: item.prefix,
+          message: 'Folders are moved by the file operations service.',
+          code: 'PlaneRequired'
         });
-        if (r.success) {
-          acc.moved += r.data.moved.length;
-          acc.errors.push(...r.data.errors);
-        } else if (r.error.code === 'Collision') {
-          collided.push(item);
-        } else {
-          acc.errors.push({key: item.prefix, message: r.error.message, code: r.error.code});
-        }
       }
     }
-
-    setProgress(null);
 
     if (collided.length > 0 && !overwrite) {
       setIsBusy(false);
@@ -238,7 +209,7 @@ export function useMove(
 
   return {
     isBusy,
-    progress,
+    progress: null,
     error,
     summary,
     renameCollision,

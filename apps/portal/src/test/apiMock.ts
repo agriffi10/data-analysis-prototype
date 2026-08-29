@@ -51,17 +51,19 @@ export function mockApi(apiRequest: ReturnType<typeof vi.fn>): ApiMock {
   const answers = new Map<string, ServiceResult<unknown>[]>();
   const calls: ApiCall[] = [];
 
-  apiRequest.mockImplementation(async (route: ApiRouteId, options?: {body?: unknown; query?: Record<string, string>}) => {
-    calls.push({route, body: options?.body, query: options?.query});
-    const queued = answers.get(route);
-    if (!queued || queued.length === 0) {
-      throw new Error(
-        `apiRequest('${route}') was called but no answer was programmed. ` +
-          `Programmed: ${[...answers.keys()].join(', ') || 'none'}.`
-      );
+  apiRequest.mockImplementation(
+    async (route: ApiRouteId, options?: {body?: unknown; query?: Record<string, string>}) => {
+      calls.push({route, body: options?.body, query: options?.query});
+      const queued = answers.get(route);
+      if (!queued || queued.length === 0) {
+        throw new Error(
+          `apiRequest('${route}') was called but no answer was programmed. ` +
+            `Programmed: ${[...answers.keys()].join(', ') || 'none'}.`
+        );
+      }
+      return queued.length === 1 ? queued[0] : queued.shift();
     }
-    return queued.length === 1 ? queued[0] : queued.shift();
-  });
+  );
 
   return {
     on: (route, result) => answers.set(route, [result]),

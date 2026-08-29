@@ -15,27 +15,10 @@ import {Banner} from '../components/Banner';
 import {useAuth} from '../features/auth';
 import {useConnections} from '../features/connections/useConnections';
 import {useAcknowledgeMembership} from '../features/shared-spaces';
-import type {Connection} from '../features/connections/connection.types';
 import {usePageTitle} from '../hooks/usePageTitle';
 import {spaceBuckets} from '../lib/userSpace';
 import {logBackgroundFailure, toUserMessage} from '../lib/errorMessages';
 import {SECTION_CAPTION} from '../components/fieldStyles';
-
-// Dev-only fallback: browse a static/public test bucket without auth for local
-// work without AWS. Honoured ONLY in a dev build (matches the service +
-// ProtectedLayout guards), so production always uses the authenticated path.
-const devUnauthenticated = import.meta.env.DEV && import.meta.env.VITE_S3_DEV_UNAUTH === 'true';
-const devBucket = import.meta.env.VITE_S3_BUCKET_NAME as string | undefined;
-const rawDevPrefix = (import.meta.env.VITE_S3_ROOT_PREFIX as string | undefined) ?? '';
-const devPrefix = rawDevPrefix && !rawDevPrefix.endsWith('/') ? `${rawDevPrefix}/` : rawDevPrefix;
-
-// A single synthetic space for the dev-unauth path — the spaces concept doesn't
-// apply without auth, but the Sidebar still renders one entry for layout parity.
-const devConnections: Connection[] = [{id: 'personal', label: 'Files', database: '', kind: 'personal'}];
-
-// Stable no-op for the dev-unauth space selector, so the memoized mobile nav rail
-// (useProvideNavRail) keeps a stable identity and doesn't churn the drawer content.
-const noopSelect = () => {};
 
 /** The file browser page (`/files`) — browses the active space (personal by default, or a shared space picked in the Sidebar / `?space=`). */
 export default function FilesPage() {
@@ -43,7 +26,6 @@ export default function FilesPage() {
   usePageTitle('Files');
   const {user: userSpaceBucket, shared: sharedSpaceBucket} = spaceBuckets();
 
-  // Hooks run unconditionally; the dev-unauth path below overrides the targets.
   const {connections, isLoading: connectionsLoading} = useConnections(user?.username ?? null);
   // The spaces rail and the `?space=` parameter are shared-workspace
   // surfaces. With the flag off the page shows no rail and resolves to the personal space
@@ -72,7 +54,7 @@ export default function FilesPage() {
   // by the control plane, not the browser. A failure only logs; the service
   // guards against repeat HEADs within a session.
   useEffect(() => {
-    if (devUnauthenticated || !user || !userSpaceBucket) return;
+    if (!user || !userSpaceBucket) return;
     void (async () => {
       const result = await ensurePrefixMarker({bucket: userSpaceBucket, username: user.username});
       if (!result.success) {
@@ -91,13 +73,11 @@ export default function FilesPage() {
   // opens resolves it against the user's OWN inbox, which is the only gate that means anything.
   const requestIdParam = searchParams.get('requestId') || undefined;
 
-  // Authenticated flow: the file-browser target comes from the active space. A
-  // null space means the user-space (or shared) bucket env is missing.
-  // Sidebar/rail values as `const` (not branch-reassigned `let`) so the memoized
-  // mobile nav rail below keeps a stable identity the React Compiler can preserve.
-  const sidebarConnections = devUnauthenticated ? devConnections : connections;
-  const sidebarActiveId = devUnauthenticated ? 'personal' : activeSpaceId;
-  const onSelectSpace = devUnauthenticated ? noopSelect : selectSpace;
+  // The file-browser target comes from the active space. A null space means the user-space (or
+  // shared) bucket is missing from the runtime configuration.
+  const sidebarConnections = connections;
+  const sidebarActiveId = activeSpaceId;
+  const onSelectSpace = selectSpace;
 
   const target: {
     bucket: string | undefined;
@@ -105,31 +85,29 @@ export default function FilesPage() {
     rootLabel: string | undefined;
     markerOwner: string | undefined;
     writable: boolean;
-  } = devUnauthenticated
-    ? {bucket: devBucket, rootPrefix: devPrefix, rootLabel: undefined, markerOwner: undefined, writable: false}
-    : {
-        bucket: space?.bucket,
-        rootPrefix: space?.rootPrefix ?? '',
-        // The space name (incl. the username for the personal space) is the root
-        // breadcrumb crumb.
-        rootLabel: space?.label,
-        // The marker owner = the space's root segment, so the delete/move/copy
-        // marker guard protects `{root}/DO_NOT_DELETE.txt`.
-        markerOwner: space?.label,
-        writable: !!user
-      };
-  // Spaces move/copy can target: personal + active shared spaces. Undefined in
-  // dev-unauth (read-only — the dialogs never open).
+  } = {
+    bucket: space?.bucket,
+    rootPrefix: space?.rootPrefix ?? '',
+    // The space name (incl. the username for the personal space) is the root
+    // breadcrumb crumb.
+    rootLabel: space?.label,
+    // The marker owner = the space's root segment, so the delete/move/copy
+    // marker guard protects `{root}/DO_NOT_DELETE.txt`.
+    markerOwner: space?.label,
+    writable: !!user
+  };
+  // Spaces move/copy can target: personal + active shared spaces.
   // The move/copy DESTINATION list is a shared-workspace surface too, and hiding only the rail
   // would leave the write path open: the picker renders a space selector whenever it has more
   // than one option, so a user could still browse into `marketing_data` and paste a file there
   // with the feature switched off. Filtered here, at the view — `useConnections` still resolves
   // every space, and the IAM grants are untouched.
-  const destinations: FileSpaceTarget[] | undefined = devUnauthenticated
-    ? undefined
-    : usableSpaceTargets(connections, user?.username ?? null, userSpaceBucket, sharedSpaceBucket).filter(
-        (target) => sharedSpacesEnabled || target.kind === 'personal'
-      );
+  const destinations: FileSpaceTarget[] = usableSpaceTargets(
+    connections,
+    user?.username ?? null,
+    userSpaceBucket,
+    sharedSpaceBucket
+  ).filter((target) => sharedSpacesEnabled || target.kind === 'personal');
 
   // Below `tablet` the on-page Spaces rail is hidden; feed the same list into the
   // mobile AppNavDrawer's contextual slot so it stays reachable — and take
@@ -153,7 +131,7 @@ export default function FilesPage() {
   useProvideNavRail(sharedSpacesEnabled ? spacesRail : null);
 
   const initialPrefix = prefixParam && prefixParam.startsWith(target.rootPrefix) ? prefixParam : target.rootPrefix;
-  const ready = !!target.bucket && (devUnauthenticated || !!user);
+  const ready = !!target.bucket && !!user;
   // Resolved inside the component, not at module scope: `toUserMessage` logs the original
   // in a dev build, so a module-level call warns about an error that has not happened on
   // every page load and in every test that imports this route.
@@ -194,9 +172,9 @@ export default function FilesPage() {
             rootPrefix={target.rootPrefix}
             rootLabel={target.rootLabel}
             writable={target.writable}
-            username={devUnauthenticated ? undefined : target.markerOwner}
+            username={target.markerOwner}
             destinations={destinations}
-            spaceKind={devUnauthenticated ? undefined : space?.kind}
+            spaceKind={space?.kind}
             requestId={requestIdParam}
           />
         ) : (

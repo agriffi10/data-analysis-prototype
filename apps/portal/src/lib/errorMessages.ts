@@ -63,8 +63,19 @@ const CODE_RULES: readonly ErrorRule[] = [
   {code: 'Collision', userFixable: true, passthrough: true}, // dest name already exists (carries the name)
   {code: 'ProtectedObject', userFixable: false, passthrough: true}, // storage marker can't be deleted/moved
   {code: 'InvalidName', userFixable: true, passthrough: true}, // folder-name validation reason
-  {code: 'InvalidDestination', userFixable: true, passthrough: true}, // e.g. folder into itself
   {code: 'TooLarge', userFixable: true, passthrough: true}, // upload exceeds the max size (carries the limit)
+  {code: 'NoFreeName', userFixable: false, passthrough: true}, // 999 numbered names are taken at the destination
+
+  // Trigger: a folder copy, move or delete reached the browser — the file-operations flag is off,
+  // or the chosen destination resolved to no known space. The browser has no recursive primitive
+  // any more: an operation whose cost grows with object count belongs on the plane and nowhere
+  // else, so the flag switches the capability off rather than falling back to a slow copy of it.
+  // NOT passthrough: the services raise it per item and the sentence is the same one every time.
+  {
+    code: 'PlaneRequired',
+    message: 'Folders are handled by the file operations service, which is unavailable right now. Try again later.',
+    userFixable: false
+  },
 
   // Trigger: a control plane's queue URL is unset in the runtime configuration, so
   // `enqueueFifo` refused before reaching SQS. Passthrough for exactly the reason the `ErrorRule` doc states —

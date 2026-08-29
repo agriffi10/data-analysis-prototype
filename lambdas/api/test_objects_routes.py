@@ -447,6 +447,136 @@ class TestExistsAnswers200EitherWay:
         assert json.loads(answer["body"])["exists"] is False
 
 
+    def test_a_prefix_holding_only_its_own_marker_still_EXISTS(self, s3) -> None:
+        """The listing route cannot answer this, which is why the question came here.
+
+        ``objects_list`` drops the prefix's own key and every ``DO_NOT_DELETE.txt`` — right for a
+        listing, and fatal for "is this folder still there": a folder made with New folder holds
+        exactly the key the listing hides. Answered through the raw page instead.
+        """
+        fake = s3(RecordingS3(listing={"Contents": [{"Key": "alice/reports/DO_NOT_DELETE.txt"}]}))
+        answer = router.route(
+            "GET",
+            "/v1/objects/exists",
+            bearer(),
+            "rq",
+            None,
+            {
+                "spaceKind": "personal",
+                "spaceName": "alice",
+                "key": "alice/reports/",
+                "target": "prefix",
+            },
+        )
+        assert json.loads(answer["body"])["exists"] is True
+        assert [call[0] for call in fake.calls] == ["list_objects_v2"]
+        assert fake.calls[0][1]["MaxKeys"] == 1
+        assert fake.calls[0][1]["Delimiter"] == "/"
+
+    def test_a_prefix_whose_only_child_is_a_SUBFOLDER_still_exists(self, s3) -> None:
+        """The delimiter costs the answer nothing: a nested-only folder answers through CommonPrefixes."""
+        s3(RecordingS3(listing={"CommonPrefixes": [{"Prefix": "alice/reports/q1/"}]}))
+        answer = router.route(
+            "GET",
+            "/v1/objects/exists",
+            bearer(),
+            "rq",
+            None,
+            {
+                "spaceKind": "personal",
+                "spaceName": "alice",
+                "key": "alice/reports/",
+                "target": "prefix",
+            },
+        )
+        assert json.loads(answer["body"])["exists"] is True
+
+    def test_an_empty_prefix_page_is_FALSE(self, s3) -> None:
+        """The negative, and the one the panel renders a message from."""
+        s3(RecordingS3(listing={}))
+        answer = router.route(
+            "GET",
+            "/v1/objects/exists",
+            bearer(),
+            "rq",
+            None,
+            {
+                "spaceKind": "personal",
+                "spaceName": "alice",
+                "key": "alice/gone/",
+                "target": "prefix",
+            },
+        )
+        assert json.loads(answer["body"])["exists"] is False
+
+    def test_a_prefix_question_about_a_FOREIGN_space_refuses_with_no_aws_call(self, s3) -> None:
+        """The refusal is the space resolution's, and it happens before the client is built."""
+        fake = s3(RecordingS3(listing={"Contents": [{"Key": "bob/x"}]}))
+        answer = router.route(
+            "GET",
+            "/v1/objects/exists",
+            bearer(),
+            "rq",
+            None,
+            {"spaceKind": "personal", "spaceName": "bob", "key": "bob/", "target": "prefix"},
+        )
+        assert answer["statusCode"] == 403
+        assert json.loads(answer["body"])["error"]["code"] == "AccessDenied"
+        assert fake.calls == []
+        assert fake.assumes == 0
+
+
+class TestMetadataCarriesEverythingThePanelRenders:
+    """FR-009 — the details panel shows storage class and the object's own metadata.
+
+    A port that returned only size and content type would have emptied two fields silently, which
+    is the erosion FR-009 exists to catch.
+    """
+
+    def test_storage_class_and_user_metadata_travel(self, s3) -> None:
+        """Both fields, and the pairs as rows because the vocabulary has no map."""
+        s3(
+            RecordingS3(
+                head={
+                    "ContentLength": 12,
+                    "ContentType": "text/csv",
+                    "ETag": '"e"',
+                    "StorageClass": "INTELLIGENT_TIERING",
+                    "Metadata": {"owner": "alice", "batch": "7"},
+                }
+            )
+        )
+        answer = router.route(
+            "GET",
+            "/v1/objects/metadata",
+            bearer(),
+            "rq",
+            None,
+            {"spaceKind": "personal", "spaceName": "alice", "key": "alice/x.csv"},
+        )
+        body = json.loads(answer["body"])
+        assert body["storageClass"] == "INTELLIGENT_TIERING"
+        assert body["userMetadata"] == [
+            {"name": "batch", "value": "7"},
+            {"name": "owner", "value": "alice"},
+        ]
+
+    def test_an_omitted_storage_class_reads_STANDARD_and_no_metadata_is_an_empty_list(self, s3) -> None:
+        """S3 omits StorageClass for every ordinary object, which is the common case."""
+        s3(RecordingS3(head={"ContentLength": 1, "ETag": '"e"'}))
+        answer = router.route(
+            "GET",
+            "/v1/objects/metadata",
+            bearer(),
+            "rq",
+            None,
+            {"spaceKind": "personal", "spaceName": "alice", "key": "alice/x"},
+        )
+        body = json.loads(answer["body"])
+        assert body["storageClass"] == "STANDARD"
+        assert body["userMetadata"] == []
+
+
 class TestDocumentsAreBytes:
     """FR-003 — never parsed on the way out, never re-serialised on the way in."""
 

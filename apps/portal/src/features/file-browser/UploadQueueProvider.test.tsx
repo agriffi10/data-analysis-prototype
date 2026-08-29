@@ -6,12 +6,17 @@ import {createTestQueryClient} from '../../test/renderWithProviders';
 import {UploadQueueProvider} from './UploadQueueProvider';
 import {useUploadQueue} from './uploadQueueContext';
 import {uploadQueueReducer, initialUploadQueueState, type UploadQueueState} from './uploadQueueContext';
-import type {UploadItem} from './upload.types';
+import {UPLOAD_CONCURRENCY, type UploadItem} from './upload.types';
 import {uploadFile} from './fileBrowser.service';
+import {apiRequest} from '../../lib/apiClient';
 import {invalidateListing} from './invalidateListing';
 import {maxUploadBytes} from './uploadLimits';
 
-vi.mock('./fileBrowser.service', () => ({uploadFile: vi.fn()}));
+vi.mock('./fileBrowser.service', async (importActual) => ({
+  ...(await importActual<typeof import('./fileBrowser.service')>()),
+  uploadFile: vi.fn()
+}));
+vi.mock('../../lib/apiClient', () => ({apiRequest: vi.fn()}));
 vi.mock('./invalidateListing', () => ({
   invalidateListing: vi.fn().mockResolvedValue(undefined)
 }));
@@ -290,5 +295,105 @@ describe('UploadQueueProvider cancel (FR-002)', () => {
 
     act(() => result.current.clearFinished());
     await waitFor(() => expect(result.current.items).toHaveLength(0));
+  });
+});
+
+describe('a presigned URL is minted PER FILE, when that file starts (FR-008 AC2)', () => {
+  /**
+   * The transport, stubbed so the real `uploadFile` can run inside the real queue.
+   *
+   * Every request completes on the next microtask, which is what lets the concurrency gate free
+   * a slot and start the next item without the test holding resolvers.
+   */
+  class ImmediateXhr {
+    static opened: string[] = [];
+    upload = {addEventListener: () => {}};
+    private handlers = new Map<string, () => void>();
+    status = 200;
+    addEventListener(event: string, handler: () => void) {
+      this.handlers.set(event, handler);
+    }
+    open(_method: string, url: string) {
+      ImmediateXhr.opened.push(url);
+    }
+    setRequestHeader() {}
+    send() {
+      queueMicrotask(() => this.handlers.get('load')?.());
+    }
+    abort() {}
+  }
+
+  it('mints one URL per file, never one for the batch', async () => {
+    // A BATCH mint ages while the queue drains: with three files in flight and a 15-minute
+    // window, the fiftieth file's URL would be signed long before it was redeemed, fail
+    // preflight-clean and 403 after its bytes were sent. So the mint has to sit inside the
+    // upload, which is what this asserts through the real one.
+    ImmediateXhr.opened = [];
+    vi.stubGlobal('XMLHttpRequest', ImmediateXhr);
+    const minted: string[] = [];
+    vi.mocked(apiRequest).mockImplementation((async (route: string, options?: {body?: {key?: string}}) => {
+      minted.push(`${route}:${options?.body?.key}`);
+      return {success: true, data: {url: `https://signed/${options?.body?.key}`, expiresAt: 'later'}};
+    }) as typeof apiRequest);
+    // The REAL uploader, so the mint this asserts is the one production performs. Reached through
+    // `importActual` because this file mocks the module it lives in — `service.uploadFile` would
+    // be the stub calling itself.
+    const {uploadFile: realUpload} =
+      await vi.importActual<typeof import('./fileBrowser.service')>('./fileBrowser.service');
+    mockUpload.mockImplementation(realUpload);
+
+    const {result} = render();
+    act(() => result.current.enqueue(files(5), DEST));
+
+    await waitFor(() => expect(countBy(result.current.items, 'done')).toBe(5));
+    expect(minted).toEqual([
+      'objects.uploadUrl:alice/f0.txt',
+      'objects.uploadUrl:alice/f1.txt',
+      'objects.uploadUrl:alice/f2.txt',
+      'objects.uploadUrl:alice/f3.txt',
+      'objects.uploadUrl:alice/f4.txt'
+    ]);
+    // And each mint was redeemed by the file it was signed for.
+    expect(ImmediateXhr.opened).toEqual(minted.map((entry) => `https://signed/${entry.split(':')[1]}`));
+
+    vi.unstubAllGlobals();
+  });
+
+  it('starts at most UPLOAD_CONCURRENCY mints at a time, so no URL ages in a queue', async () => {
+    // The other half of "per file": three in flight means three minted, not five.
+    ImmediateXhr.opened = [];
+    vi.stubGlobal('XMLHttpRequest', ImmediateXhr);
+    let mints = 0;
+    const held: (() => void)[] = [];
+    vi.mocked(apiRequest).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          mints += 1;
+          held.push(() => resolve({success: true, data: {url: 'https://signed/x', expiresAt: 'later'}}));
+        })
+    );
+    // The REAL uploader, so the mint this asserts is the one production performs. Reached through
+    // `importActual` because this file mocks the module it lives in — `service.uploadFile` would
+    // be the stub calling itself.
+    const {uploadFile: realUpload} =
+      await vi.importActual<typeof import('./fileBrowser.service')>('./fileBrowser.service');
+    mockUpload.mockImplementation(realUpload);
+
+    const {result} = render();
+    act(() => result.current.enqueue(files(5), DEST));
+
+    await waitFor(() => expect(mints).toBe(UPLOAD_CONCURRENCY));
+    expect(countBy(result.current.items, 'queued')).toBe(5 - UPLOAD_CONCURRENCY);
+
+    // Drained one at a time: each release frees a slot, which starts the next item and appends
+    // ITS mint — so a single sweep of the array releases three and stops.
+    for (let i = 0; i < 5; i += 1) {
+      await waitFor(() => expect(held.length).toBeGreaterThan(i));
+      await act(async () => held[i]());
+    }
+    await waitFor(() => expect(countBy(result.current.items, 'done')).toBe(5));
+    expect(mints).toBe(5);
+
+    vi.unstubAllGlobals();
   });
 });

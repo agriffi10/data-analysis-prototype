@@ -35,15 +35,12 @@ export {UPLOAD_CONCURRENCY} from './upload.types';
 export {
   ensurePrefixMarker,
   deleteObject,
-  deleteObjects,
-  deleteFolder,
   copyObject,
-  copyFolder,
   moveObject,
-  moveFolder,
   isPrefixMarkerKey,
   getDownloadUrl,
   objectExists,
+  folderExists,
   uploadFile,
   createFolder,
   validateFolderName,
@@ -51,17 +48,8 @@ export {
   uploadPercent,
   getObjectMetadata
 } from './fileBrowser.service';
-export type {
-  DownloadUrl,
-  UploadResult,
-  CreateFolderResult,
-  ObjectMetadata,
-  DeleteResult,
-  MoveResult,
-  CopyResult
-} from './fileBrowser.types';
-export {MULTIPART_PART_SIZE} from './fileBrowser.types';
-export {maxUploadBytes} from './uploadLimits';
+export type {DownloadUrl, UploadResult, CreateFolderResult, ObjectMetadata} from './fileBrowser.types';
+export {maxUploadBytes, S3_SINGLE_PUT_MAX_BYTES} from './uploadLimits';
 export {
   LISTING_PAGE_SIZE,
   PREFIX_MARKER_FILENAME,

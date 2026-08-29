@@ -64,6 +64,7 @@ from cpcommon import observability
 from cpcommon.auth import AuthError, VerifierUnavailable
 from cpcommon.observability import build_version
 from routes import (
+    feature_flags,
     objects_content,
     objects_free_name,
     objects_head,
@@ -85,6 +86,7 @@ PUBLIC_ROUTES = frozenset({("GET", HEALTH_PATH)})
 
 HANDLERS: dict[str, Callable[[RequestContext], dict[str, Any]]] = {
     "userDirectory.get": user_directory,
+    "featureFlags.get": feature_flags.feature_flags,
     "objects.list": objects_list.list_objects,
     "objects.metadata": objects_head.metadata,
     "objects.exists": objects_head.exists,

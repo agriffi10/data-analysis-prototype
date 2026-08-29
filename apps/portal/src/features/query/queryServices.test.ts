@@ -23,7 +23,10 @@ describe('queryHistory.service', () => {
     const copies: {key: string; source: string}[] = [];
 
     const send = vi.mocked(apiRequest);
-    send.mockImplementation((async (route: string, options?: {body?: Record<string, unknown>; query?: Record<string, string>}) => {
+    send.mockImplementation((async (
+      route: string,
+      options?: {body?: Record<string, unknown>; query?: Record<string, string>}
+    ) => {
       commands.push(route);
       if (route === 'objects.copy') {
         if (opts.copyFails) return {success: false, error: {message: '', code: 'AccessDenied'}};

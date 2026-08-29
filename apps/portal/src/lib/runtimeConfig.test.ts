@@ -3,7 +3,6 @@ import {describe, it, expect, vi, afterEach} from 'vitest';
 import {configValue, isPortalConfigured, loadRuntimeConfig} from './runtimeConfig';
 import {VITE_NAME} from './env';
 import {isAmplifyConfigured} from './amplify';
-import {devS3Client} from './s3Client';
 import {maxUploadBytes} from '../features/file-browser/uploadLimits';
 import {clearRuntimeConfig, seedRuntimeConfig} from '../test/seedRuntimeConfig';
 import {OPTIONAL_CONFIG, REQUIRED_CONFIG} from '../types/runtimeConfig.types';
@@ -195,23 +194,16 @@ describe('runtimeConfig — the accessor is the only door', () => {
   }) as Record<string, string>;
 
   /**
-   * The only modules that may still name a `VITE_*` variable.
+   * The only module that may still name a `VITE_*` variable: `lib/env.ts`, which IS the dev
+   * fallback.
    *
-   * `lib/env.ts` IS the dev fallback. The other four read the dev-unauth variables
-   * behind their own `import.meta.env.DEV` guards, which the bypass guard in
-   * `support.test.ts` asserts separately — a DIFFERENT set from this one, and both are
-   * needed: that guard pins three modules against one flag, this pins five against every
-   * variable.
+   * It used to be five. The other four read the dev-unauth variables behind their own
+   * `import.meta.env.DEV` guards, and that path is gone — the browser makes no unsigned AWS call
+   * to be unsigned, so the escape hatch had nothing left to open.
    */
-  const ALLOWED = [
-    './env.ts',
-    './s3Client.ts',
-    '../components/ProtectedLayout.tsx',
-    '../routes/FilesPage.tsx',
-    '../features/file-browser/fileBrowser.service.ts'
-  ];
+  const ALLOWED = ['./env.ts'];
 
-  it('leaves no production module reading import.meta.env.VITE_ outside those five', () => {
+  it('leaves no production module reading import.meta.env.VITE_ outside that one', () => {
     // Fails if the set GROWS. A read added anywhere else works perfectly in dev — the
     // fallback answers — and is baked into the artifact in production, which is the whole
     // property this spec exists to establish.
@@ -224,29 +216,16 @@ describe('runtimeConfig — the accessor is the only door', () => {
     expect(readers.sort()).toEqual([...ALLOWED].sort());
   });
 
-  it('exports the three converted reads as functions, not captured values', () => {
+  it('exports the converted reads as functions, not captured values', () => {
     // Each was a module-scope const. As a const the value is captured before the document
     // is in hand — a throw in production, and in a test the deployed name rather than the
     // stubbed one. A later re-collapse is a failing test here rather than a boot failure.
     expect(typeof isAmplifyConfigured).toBe('function');
-    expect(typeof devS3Client).toBe('function');
     expect(typeof maxUploadBytes).toBe('function');
   });
 });
 
 describe('runtimeConfig — every key has a source in every environment', () => {
-  /**
-   * Read behind an `import.meta.env.DEV` guard at their own call sites, so they are
-   * deliberately absent from the classification.
-   */
-  const DEV_ONLY = new Set([
-    'VITE_S3_DEV_UNAUTH',
-    'VITE_S3_BUCKET_NAME',
-    'VITE_S3_ROOT_PREFIX',
-    'VITE_AWS_ACCESS_KEY_ID',
-    'VITE_AWS_SECRET_ACCESS_KEY'
-  ]);
-
   /**
    * `.env.example` through `node:fs`, where every other source here comes in through
    * Vite's own `?raw`.
@@ -316,7 +295,7 @@ describe('runtimeConfig — every key has a source in every environment', () => 
     const assigned = new Set([...ENV_EXAMPLE.matchAll(/^(VITE_[A-Z0-9_]+)=/gm)].map(([, name]) => name));
     const classified = new Set<string>(ALL_KEYS.map((key) => VITE_NAME[key]).filter((name) => name !== null));
 
-    expect([...assigned].filter((name) => !classified.has(name) && !DEV_ONLY.has(name))).toEqual([]);
+    expect([...assigned].filter((name) => !classified.has(name))).toEqual([]);
     expect([...classified].filter((name) => !assigned.has(name))).toEqual([]);
   });
 
