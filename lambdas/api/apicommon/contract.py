@@ -386,6 +386,32 @@ class DownloadUrlRequest(TypedDict):
     fileName: NotRequired[str]
 
 
+class FreeNameRequest(TypedDict):
+    """A request for the first unused numbered name under a prefix.
+
+    Attributes:
+      space: The space.
+      prefix: The folder to search, relative to the space root.
+      baseName: The original leaf name a copy is being made of.
+      kind: Whether the name is for a file or a folder — a folder has no extension to preserve.
+    """
+
+    space: SpaceRef
+    prefix: str
+    baseName: str
+    kind: Literal["file", "folder"]
+
+
+class FreeNameResponse(TypedDict):
+    """The name the route found.
+
+    Attributes:
+      name: The free leaf name, without its prefix.
+    """
+
+    name: str
+
+
 @dataclass(frozen=True)
 class Route:
     """One route, declared whole.
@@ -531,6 +557,19 @@ ROUTES: Final[tuple[Route, ...]] = (
         request=DownloadUrlRequest,
         query=None,
         response=PresignedUrlResponse,
+    ),
+    Route(
+        # DECLARED idempotent, and it is a POST. Idempotency belongs to the route and is never
+        # derived from the method: this one resolves a free name and changes nothing, so a caller
+        # above the transport may safely retry it.
+        id="objects.freeName",
+        method="POST",
+        path="/v1/objects/free-name",
+        idempotent=True,
+        plane="user",
+        request=FreeNameRequest,
+        query=None,
+        response=FreeNameResponse,
     ),
 )
 

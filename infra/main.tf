@@ -545,6 +545,7 @@ module "data" {
 
   project_name           = var.project_name
   app_url                = var.app_url
+  spa_origin             = local.spa_origin
   user_space_bucket_name = local.user_space_bucket_name
   portal_role_name       = local.portal_role_name
   deploy_role_arn        = local.deploy_role_arn
@@ -733,6 +734,7 @@ module "shared_spaces" {
   shared_space_bucket_name = local.shared_space_bucket_name
   athena_admin_bucket_name = local.athena_admin_bucket_name
   app_url                  = var.app_url
+  spa_origin               = local.spa_origin
 
   # Not used by any shared-space verb — required by the cpcommon layer's config.
   # That config resolves on FIRST READ, not at import, so a missing one is no

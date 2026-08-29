@@ -65,6 +65,7 @@ from cpcommon.auth import AuthError, VerifierUnavailable
 from cpcommon.observability import build_version
 from routes import (
     objects_content,
+    objects_free_name,
     objects_head,
     objects_list,
     objects_mutate,
@@ -94,6 +95,7 @@ HANDLERS: dict[str, Callable[[RequestContext], dict[str, Any]]] = {
     "objects.delete": objects_mutate.delete_object,
     "objects.uploadUrl": objects_presign.upload_url,
     "objects.downloadUrl": objects_presign.download_url,
+    "objects.freeName": objects_free_name.free_name,
 }
 
 

@@ -17,6 +17,8 @@ export type ObjectDeletedResponse = {key: string};
 export type UploadUrlRequest = {space: SpaceRef; key: string; contentType: string; overwrite: boolean};
 export type PresignedUrlResponse = {url: string; expiresAt: string};
 export type DownloadUrlRequest = {space: SpaceRef; key: string; fileName?: string};
+export type FreeNameRequest = {space: SpaceRef; prefix: string; baseName: string; kind: 'file' | 'folder'};
+export type FreeNameResponse = {name: string};
 export type ErrorParams = {name?: string; attempts?: number; limit?: number};
 export type ApiErrorDetail = {code: 'InvalidRequest' | 'SessionExpired' | 'AccessDenied' | 'NotFound' | 'Conflict' | 'PayloadTooLarge' | 'UnsupportedMediaType' | 'RateLimited' | 'IdentityUnavailable' | 'InternalError' | 'ApiUnavailable'; requestId: string; detail?: string; params?: ErrorParams};
 export type ApiErrorBody = {error: ApiErrorDetail};
@@ -36,6 +38,7 @@ export const API_ROUTES = {
   'objects.delete': {method: 'DELETE', path: '/v1/objects', idempotent: false},
   'objects.uploadUrl': {method: 'POST', path: '/v1/objects/upload-url', idempotent: false},
   'objects.downloadUrl': {method: 'POST', path: '/v1/objects/download-url', idempotent: true},
+  'objects.freeName': {method: 'POST', path: '/v1/objects/free-name', idempotent: true},
 } as const;
 
 export type ApiRouteId = keyof typeof API_ROUTES;
@@ -52,6 +55,7 @@ type RouteBodies = {
   'objects.delete': {request: DeleteRequest; query: null; response: ObjectDeletedResponse};
   'objects.uploadUrl': {request: UploadUrlRequest; query: null; response: PresignedUrlResponse};
   'objects.downloadUrl': {request: DownloadUrlRequest; query: null; response: PresignedUrlResponse};
+  'objects.freeName': {request: FreeNameRequest; query: null; response: FreeNameResponse};
 };
 
 export type RequestOf<R extends ApiRouteId> = RouteBodies[R]['request'];

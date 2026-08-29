@@ -114,3 +114,9 @@ variable "control_plane_execution_role_arns" {
   type        = list(string)
   default     = []
 }
+
+variable "spa_origin" {
+  description = "Origin serving the container SPA (https://host), allowlisted for CORS so a presigned URL minted by the API can be redeemed from it. Empty contributes no entry, matching app_url's idiom."
+  type        = string
+  default     = ""
+}
