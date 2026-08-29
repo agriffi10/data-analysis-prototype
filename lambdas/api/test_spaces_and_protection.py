@@ -11,7 +11,7 @@ a test that restates the number it is checking cannot fail for the reason the nu
 import pathlib
 
 import pytest
-from apicommon import protected, s3_config, spaces
+from apicommon import config, protected, s3_config, spaces
 from apicommon.envelope import ApiError
 from apicommon.identity import UserIdentity
 
@@ -197,6 +197,38 @@ class TestTheCapsAreSizedAgainstABudget:
             f"={s3_config.S3_SINGLE_PUT_MAX_BYTES}" in compact
             or "=5*1024*1024*1024" in compact
         ), "the browser's cap and the API's disagree; reconcile the two"
+
+    def test_every_presigned_window_FITS_INSIDE_the_session_that_can_be_assumed(self) -> None:
+        """The relation that turns the covering guard from a fix into a per-request STS call.
+
+        ``signing_client(covering=…)`` forces a fresh session when the cached one cannot span the
+        window. A window LONGER than a whole session can never be spanned — so the force fires on
+        every request, for ever, and the cache the credential layer exists to have is defeated. It
+        does not loop and it does not error; it just costs an `AssumeRole` per mint with no signal.
+
+        Safe today at 900 against 3600, and the trigger is anticipated rather than hypothetical:
+        the successor environment signs from Access-Grants-vended credentials whose maximum is a
+        different number, and role chaining already caps this one at an hour.
+
+        Args:
+          None.
+
+        Returns:
+          None.
+
+        Raises:
+          AssertionError: If a window cannot fit inside an assumable session.
+        """
+        windows = {
+            "upload": s3_config.UPLOAD_URL_EXPIRY_SECONDS,
+            "download": s3_config.DOWNLOAD_URL_EXPIRY_SECONDS,
+        }
+        too_long = {
+            name: seconds
+            for name, seconds in windows.items()
+            if seconds >= config.ASSUME_ROLE_DURATION_SECONDS
+        }
+        assert too_long == {}, "a window no session can span forces an AssumeRole per request"
 
     def test_the_carried_constants_are_the_shipped_values(self) -> None:
         """900s and 999 are carried across, explicitly NOT re-derived."""

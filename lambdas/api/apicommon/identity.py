@@ -566,6 +566,14 @@ def signing_client(
     ``AssumeRole`` — tens of milliseconds — and it makes the window a property of the route instead
     of a property of when the request arrived.
 
+    **The cost is bounded and it is worth stating as a rate, not just a latency.** The forced assume
+    writes through to the cache, so it refreshes the container's session for every caller: a
+    container under continuous presign traffic now consumes a session from 3600 s down to the
+    window rather than down to the margin, which raises its assume rate by about a third. At worst
+    one extra call per mint, and the cache is emphatically not defeated — see the test that a
+    session already covering the window is reused. **A window longer than a whole session WOULD
+    defeat it**, permanently and silently; that relation has a test of its own.
+
     Args:
       service: The AWS service name.
       caller: The verified identity to act as.
