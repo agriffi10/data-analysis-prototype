@@ -81,7 +81,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Rename, move, copy, or delete',
         subtitle: 'Reorganize files and folders after uploading.',
         intro:
-          'Plans change, and so does how you want your files arranged. Tick items for a bulk toolbar, or open a single item’s details to rename it. These actions work on whole folders too — and because a folder can hold thousands of files, anything bigger than a single file now runs in the background while you carry on.',
+          'Plans change, and so does how you want your files arranged. Tick items for a bulk toolbar, or open a single item’s details to rename it. A single file is done straight away. Whole folders work too, and because a folder can hold thousands of files the portal does those in the background while you carry on.',
         steps: [
           'Tick the checkbox on one or more items — a toolbar with <b>Copy</b>, <b>Move</b>, and <b>Delete</b> appears.',
           'For <b>Move</b> or <b>Copy</b>, pick a destination folder, then confirm with <b>Move here</b> or <b>Copy here</b>.',

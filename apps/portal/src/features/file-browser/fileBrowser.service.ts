@@ -1,6 +1,6 @@
 import {apiRequest} from '../../lib/apiClient';
 import {spaceFor} from '../../lib/objectSpace';
-import {fromApiFailure, ok} from '../../lib/serviceResult';
+import {fromApiFailure, ok, toServiceError} from '../../lib/serviceResult';
 import type {FileListPage} from '../../types/s3.types';
 import type {ServiceResult} from '../../types/service.types';
 import type {SpaceRef} from '../../types/apiContract.generated';
@@ -489,19 +489,38 @@ function cancelled(): ServiceResult<never> {
   return {success: false, error: {message: 'Upload cancelled.', code: 'Cancelled'}};
 }
 
-// The transfer itself. Separate from `uploadFile` so the promise wrapper — which cannot `await`
-// anything — has nothing in it but the request and its four outcomes.
-function sendBytes(params: {
+/** What `sendBytes` and `sendOverXhr` both take. */
+type TransferParams = {
   url: string;
   key: string;
   body: Blob | File;
   contentType: string;
   onProgress?: (loaded: number, total: number) => void;
   signal?: AbortSignal;
-}): Promise<ServiceResult<UploadResult>> {
-  const {url, key, body, contentType, onProgress, signal} = params;
+};
 
+// The transfer itself. Separate from `uploadFile` so the promise wrapper — which cannot `await`
+// anything — has nothing in it but the request and its outcomes.
+function sendBytes(params: TransferParams): Promise<ServiceResult<UploadResult>> {
   return new Promise((resolve) => {
+    // EVERYTHING below is inside the try, and that is the point. A service in this app never
+    // throws, and a promise executor that throws REJECTS rather than resolving — which the upload
+    // queue awaits with no catch, so the item would sit in `uploading` forever, its concurrency
+    // slot never freed and nothing said to the user. `xhr.open` throws on a malformed URL and
+    // `setRequestHeader` on an invalid header value, both reachable from a route answer.
+    try {
+      sendOverXhr(params, resolve);
+    } catch (err) {
+      resolve(toServiceError(err, 'Failed to upload file'));
+    }
+  });
+}
+
+// The request itself. Separated only so the executor above is nothing but its own guard — a `try`
+// wrapping thirty lines is a `try` whose scope nobody re-reads.
+function sendOverXhr(params: TransferParams, resolve: (result: ServiceResult<UploadResult>) => void): void {
+  const {url, key, body, contentType, onProgress, signal} = params;
+  {
     const xhr = new XMLHttpRequest();
     // Listening on `xhr.upload`, not on `xhr`: the request's own progress events describe the
     // RESPONSE download, which for a `PUT` is empty and fires once at the end.
@@ -537,7 +556,7 @@ function sendBytes(params: {
     // and returns a 403 that reads as a permissions problem.
     xhr.setRequestHeader('Content-Type', contentType);
     xhr.send(body);
-  });
+  }
 }
 
 /**

@@ -198,8 +198,10 @@ prefix, with a `Deny` on the `DO_NOT_DELETE.txt` prefix marker. A session withou
 nothing, so the default is an implicit deny. One statement scopes every user.
 
 Every file operation maps onto the object actions plus the multipart pair
-(`AbortMultipartUpload`, `ListMultipartUploadParts`). `ListBucketMultipartUploads` is deliberately
-**not** granted: it cannot be scoped per prefix, so it would leak other users' in-progress uploads.
+(`AbortMultipartUpload`, `ListMultipartUploadParts`) — kept although the browser no longer
+multiparts, because the same role signs every presigned URL and a later multipart route would need
+them back. `ListBucketMultipartUploads` is deliberately **not** granted: it cannot be scoped per
+prefix, so it would leak other users' in-progress uploads.
 
 **Shared space — bounded membership slots.** Access is gated by membership principal tags on the same
 role. The hard AWS constraint is that the Identity Pool maps each claim to exactly **one
@@ -349,8 +351,9 @@ something.
   pre-production; revisit before real user data lands.
 - **`ListObjectsV2` returns at most 1,000 keys per call.** The browser paginates with
   `useInfiniteQuery` and a "Load more" control — never assume one page is a whole folder.
-- **Uploads are managed `lib-storage`** with auto-multipart above 5 MiB and a configurable ceiling
-  (default 5 GiB), enforced client-side.
+- **An upload is ONE presigned `PUT`**, which caps at 5 GiB — exactly the ceiling the managed
+  multipart upload it replaced already had, so the limit moved nowhere. What did move: there is no
+  part-level retry, so a dropped connection restarts the file.
 - **Lake Formation is in hybrid mode**, and leaving hybrid mode breaks direct-IAM S3 access.
 - **Usernames are constrained at signup** because the same string is a prefix, a tag and a database
   name. The pool is case-insensitive.

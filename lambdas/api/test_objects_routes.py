@@ -365,6 +365,37 @@ class TestListing:
         assert [item["kind"] for item in items] == ["folder", "file"]
         assert items[0]["size"] is None
 
+    def test_the_listed_prefixs_OWN_key_is_not_a_row(self, s3) -> None:
+        """The sibling of the marker filter, and the one that had no test.
+
+        A folder's own zero-byte key is what makes the folder exist. Listed as a file it is an
+        untitled zero-byte row in every folder this app has ever created with New folder — and it
+        would be selectable, downloadable and deletable, which deletes the folder.
+        """
+        fake = s3(
+            RecordingS3(
+                listing={
+                    "Contents": [
+                        {"Key": "alice/documents/", "Size": 0},
+                        {"Key": "alice/documents/report.pdf", "Size": 10},
+                    ]
+                }
+            )
+        )
+        answer = router.route(
+            "GET",
+            "/v1/objects",
+            bearer(),
+            "rq",
+            None,
+            {"spaceKind": "personal", "spaceName": "alice", "prefix": "alice/documents/"},
+        )
+
+        assert [row["key"] for row in json.loads(answer["body"])["items"]] == [
+            "alice/documents/report.pdf"
+        ]
+        assert fake.calls[0][1]["Prefix"] == "alice/documents/"
+
     def test_the_folder_marker_is_not_a_row(self, s3) -> None:
         """It is an implementation detail of a folder, not a file anybody put there."""
         s3(

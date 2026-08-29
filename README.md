@@ -73,7 +73,7 @@ This is an **npm workspaces monorepo**.
 | Routing | `react-router-dom` v7 (library mode) |
 | Server state | TanStack Query (`@tanstack/react-query`) |
 | UI state | React Context + `useReducer` (no Redux) |
-| AWS SDK | `@aws-sdk/client-s3` v3, `@aws-sdk/s3-request-presigner`, `@aws-sdk/lib-storage` |
+| AWS SDK | `@aws-sdk/client-athena`, `@aws-sdk/client-glue`, `@aws-sdk/client-sqs` — **no S3 client**: objects go through the API and file bytes through presigned URLs |
 | Auth | AWS Cognito + Amplify v6 (`aws-amplify`) |
 | Testing | Vitest + React Testing Library |
 | Linting | ESLint + Prettier |

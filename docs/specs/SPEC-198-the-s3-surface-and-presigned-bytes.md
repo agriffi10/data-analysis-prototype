@@ -288,6 +288,17 @@ plus the two marker writes and `createFolder`'s placeholder.
       **`userDirectory` is not among them** — SPEC-197 ported it to `apiRequest`, and
       `userDirectory.test.ts` asserts its source contains no `s3Json`. Asserted in the diff. This is the cheapest available proof of
       SPEC-197 FR-009's claim that `ServiceResult<T>` is unchanged at the service boundary.
+
+      > **AMENDED 2026-08-29 during the build: it is SIX, and `featureFlags` is the one that moved.**
+      > Its document is `_config/feature-flags.json`, which belongs to no user and to no shared
+      > space — so `spaces.resolve` refuses it, correctly, and every flag read would have answered
+      > 403 and fallen back to the compiled-in all-on defaults, which is **indistinguishable from a
+      > healthy environment**. `userDirectory` hit exactly this in SPEC-197 and was given its own
+      > route; `GET /v1/feature-flags` is that precedent applied, returning the bytes unparsed so the
+      > browser's three-way reader still works. The browser's key constant is pinned against the
+      > Python route's own by a test that reads the Python source, because two copies of one
+      > object's address — one of them no longer exercised by any browser test — is exactly the pair
+      > that drifts in silence. The remaining six are unedited, and that claim is unchanged.
 - [ ] `readSavedQuery` reads a `.sql` **text** file through `readJsonDocument<string>` and keeps doing
       so; the route returning a raw string is what makes that continue to work. **`s3Json.ts`'s docblock is left alone.** An
       earlier draft told the builder to correct its "seven services" to eight. Measured: there are
@@ -535,6 +546,15 @@ The behaviours a port erodes silently, each with the assertion that catches it.
 `API_ERROR_CODES ∩ PASSTHROUGH_CODES = ∅`, so none of them may ever come back on the wire — which
 means this spec is the first to need SPEC-197 Premise 4's typed `params`.
 
+> **AMENDED 2026-08-29 during the build: FOUR ship, and `InvalidDestination` is deleted.** Its only
+> two producers were `moveFolder`'s and `copyFolder`'s "a folder cannot be moved into itself"
+> refusals, which FR-002 removes — verified by grep across `apps/portal/src` and `lambdas/`, where
+> the string now appears in documentation alone. The destination picker already refuses that
+> gesture at the affordance, with its own wording. A rule that can never fire is worse than absent:
+> it reads as evidence that something still produces the code. Every "five" below is four, and one
+> code was **added** — `NoFreeName`, for the free-name search's own exhaustion, which FR-004 made
+> distinguishable from a failure for the first time.
+
 #### Acceptance Criteria:
 
 - [ ] The API's new codes are drawn from SPEC-197's closed enum and **no new code is added to it**. A
@@ -656,6 +676,14 @@ supersedes a CLAUDE.md Key Decision.
       leave here; this spec's sweep names those three and claims nothing about the other three.
 - [ ] `lib/awsCredentials.ts` and `lib/credentialRetry.ts` are **kept**: `getIdToken` is the bearer's
       source (SPEC-195) and `withCredentialRetry` still serves Athena, Glue and SQS.
+
+      > **AMENDED 2026-08-29: this landed in PR 2, not in a PR of its own.** The plan put the
+      > retirement after the port so a revert of the port would not have to un-delete a client. The
+      > port made that impossible: it removes the last production S3 importer *and* one of the three
+      > dev-unauth read sites, and `support.test.ts`'s guard asserts **set equality** between the
+      > modules naming the flag and its three-site registry — so the moment the port lands, that
+      > guard is red. Splitting them would have meant shipping a PR with a red guard or a
+      > temporarily weakened one. A revert is one revert either way.
 - [ ] Local development points the SPA at a locally-run or deployed API. `.env.example` and the README
       say how, and the dev story is written down rather than implied by the absence of the old one.
 - [ ] A `decisions/` entry records the supersession, and a **superseded marker** lands at every site

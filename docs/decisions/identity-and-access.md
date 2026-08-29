@@ -74,6 +74,10 @@ SPEC-053's member-privacy stance is **reversed** — every member sees a **read-
 
 `VITE_S3_DEV_UNAUTH=true` browses a test bucket read-only without auth (local only); production `/files` always uses the authenticated user-space bucket (SPEC-013).
 
+> **SUPERSEDED 2026-08-29 by SPEC-198 FR-012.** The path is gone. It worked by calling S3 unsigned
+> from the browser, and after the object surface moved behind the API there is no unsigned call left
+> to make. Full entry below: *The dev-unauth path is retired*.
+
 ## The username directory is built from S3, not Cognito (SPEC-146)
 
 The daily builder enumerates the user-space bucket's **top-level common prefixes**. It makes **no

@@ -85,7 +85,12 @@ const stored: Record<string, unknown>[] = [];
  */
 function storeReady({occupied = false}: {occupied?: boolean} = {}) {
   mockSend.mockImplementation(async (route: string, options?: {body?: Record<string, unknown>}) => {
-    if (route !== 'objects.writeContent') return {success: true, data: {}};
+    // Anything but the write is unexpected here, and it THROWS rather than answering an empty
+    // success: a save that started calling a different route would otherwise still satisfy this
+    // fake, which is the shape of a port that silently drops a request.
+    if (route !== 'objects.writeContent') {
+      throw new Error(`saveExploration: unexpected route ${route}`);
+    }
     const key = String(options?.body?.key ?? '');
     // The marker is already there, which the write route reports as a Conflict.
     if (key.endsWith('DO_NOT_DELETE.txt')) return {success: false, error: {message: '', code: 'Conflict'}};

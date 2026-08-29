@@ -132,6 +132,20 @@ describe('listFiles', () => {
     expect(result.data.nextContinuationToken).toBe('tok+en/with=padding');
   });
 
+  it('drops the folder’s OWN placeholder from the files it reports', async () => {
+    // A prefix's own zero-byte key is what makes the folder exist; listed as a file it is an
+    // untitled zero-byte row in every folder the app created. The route drops it, and this is the
+    // browser-side statement of that — the assertion that says which rows a caller may see.
+    api.on('objects.list', page([{kind: 'file', key: 'alice/documents/report.pdf', size: 1024}]));
+
+    const result = await listFiles('user-space', 'alice/documents/');
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.files.map((f) => f.name)).toEqual(['report.pdf']);
+    expect(result.data.files.some((f) => f.name === '')).toBe(false);
+  });
+
   it('reports the last page as not truncated', async () => {
     api.on('objects.list', page([], null));
 
@@ -907,6 +921,32 @@ describe('uploadFile', () => {
     expect(FakeXhr.last!.aborted).toBe(false);
   });
 
+  it('RESOLVES rather than rejecting when the transport itself throws', async () => {
+    // A service in this app never throws, and a promise executor that throws REJECTS. The upload
+    // queue awaits this with no catch, so a rejection leaves the item in `uploading` for ever with
+    // its concurrency slot never freed and nothing said to the user. `xhr.open` throws on a
+    // malformed URL and `setRequestHeader` on an invalid header value, both reachable from a route
+    // answer this browser did not compose.
+    class ThrowingXhr extends FakeXhr {
+      open() {
+        throw new SyntaxError("Failed to execute 'open' on 'XMLHttpRequest'");
+      }
+    }
+    vi.stubGlobal('XMLHttpRequest', ThrowingXhr);
+    mintedUrl('not a url at all');
+
+    const result = await uploadFile({
+      bucket: 'user-space',
+      key: 'alice/report.csv',
+      body: blob(10),
+      contentType: 'text/csv'
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.message).toContain('open');
+  });
+
   it('reports a non-2xx from S3 as a failure carrying its status', async () => {
     mintedUrl();
     const pending = uploadFile({
@@ -947,15 +987,18 @@ describe('uploadFile', () => {
 
 describe('the passthrough codes this surface owns are minted CLIENT-SIDE (FR-010)', () => {
   /**
-   * A failure as the API really answers one: a machine code, and operator prose in `detail` that
-   * no surface renders. The marker is what proves the second half — a service that passed the
-   * server's text through would put it in front of a user, and the sentence would look fine in
-   * every screenshot.
+   * A failure as the API really answers one: a machine code, and an EMPTY message.
+   *
+   * The empty message is the whole test. `apiRequest` puts the server's `detail` in the dev console
+   * and nowhere else, so `error.message` arrives as `''` — and `??` does not fall back on the empty
+   * string, which is why these services go through `fromApiFailure` and not `toServiceError`. What
+   * each case asserts is the exact sentence the app shipped BEFORE the port, minted here from a
+   * value this caller already held. There is no "and the server's prose did not leak" assertion
+   * beside them: `apiRequest` never surfaces `detail` at all, so such an assertion could not fail
+   * and would read as a guard where there is none. The guard is in `apiClient`'s own tests.
    */
-  const MARKER = 'OPERATOR-ONLY-9f3c';
-
   function serverFailure(code: string) {
-    return {success: false as const, error: {message: '', code, detail: `${MARKER} ${code} at handler`}};
+    return {success: false as const, error: {message: '', code}};
   }
 
   it('Collision — from a copy, naming the destination the caller already holds', async () => {
@@ -971,7 +1014,6 @@ describe('the passthrough codes this surface owns are minted CLIENT-SIDE (FR-010
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.error).toEqual({message: '"alice/taken.csv" already exists.', code: 'Collision'});
-    expect(JSON.stringify(result)).not.toContain(MARKER);
   });
 
   it('Collision — from an upload, before any byte is sent', async () => {
@@ -987,7 +1029,6 @@ describe('the passthrough codes this surface owns are minted CLIENT-SIDE (FR-010
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.error).toEqual({message: '"alice/taken.csv" already exists.', code: 'Collision'});
-    expect(JSON.stringify(result)).not.toContain(MARKER);
   });
 
   it('ProtectedObject — minted before any request is made at all', async () => {

@@ -101,6 +101,12 @@ def _prefix_exists(context: RequestContext, space: ResolvedSpace) -> dict[str, A
     two arrays rather than ``KeyCount``, because reading the count means trusting a documented
     relationship this package has no way to fail loudly on.
 
+    **``IsTruncated`` is in the verdict as a belt.** A bounded, delimited page can in principle come
+    back with neither array populated and more to follow, which the browser's old undelimited
+    ``MaxKeys=1`` call could not — and a false answer here tells a user their folder is gone, which
+    is the one thing this question exists to avoid. Whether S3 actually produces that page is
+    unverified; the residual costs one boolean to close and is not worth leaving open.
+
     Args:
       context: The authenticated request.
       space: The already-resolved space.
@@ -116,4 +122,8 @@ def _prefix_exists(context: RequestContext, space: ResolvedSpace) -> dict[str, A
     page = _objects.client(context).list_objects_v2(
         Bucket=space.bucket, Prefix=prefix, Delimiter="/", MaxKeys=1
     )
-    return {"exists": bool(page.get("Contents") or page.get("CommonPrefixes"))}
+    return {
+        "exists": bool(
+            page.get("Contents") or page.get("CommonPrefixes") or page.get("IsTruncated")
+        )
+    }

@@ -214,11 +214,13 @@ export async function readJsonDocument<T>(opts: {
   });
   if (read.success) {
     try {
-      // An EMPTY object reads as `undefined`, not as `''`. The SDK path handed `undefined` to
-      // `parse` whenever there was no body, and every caller's parser treats that as the empty
-      // document — `raw ?? 'null'` is the common shape. Passing `''` through instead would make
-      // `JSON.parse('')` throw and turn an empty file into a failure, which is a behaviour change
-      // nobody asked for and which only shows up on an object nobody has written to yet.
+      // An EMPTY object reads as `undefined`, not as `''`. The SDK path handed `''` here — a
+      // zero-byte object still has a body, and `transformToString()` returns the empty string — so
+      // this is a small deliberate IMPROVEMENT rather than a preservation: `undefined` is what
+      // every parser here already means by "no document yet", and it is what each of them guards
+      // for. Behaviourally identical today, because all six are `!body`-guarded; stated because a
+      // parser added later that reaches for `JSON.parse(body)` would throw on `''` and not on
+      // `undefined`, and only an object nobody has written to would ever show it.
       return parse(read.data.body === '' ? undefined : read.data.body);
     } catch (err) {
       // `parse` is documented as total, and this is the net under it — the SAME net, through the
