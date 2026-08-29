@@ -1,9 +1,13 @@
 """The object and document routes, driven through the router.
 
-**The load-bearing assertion in this file is a zero.** A route that resolved the prefix from the
-request and let IAM refuse would return the same 403 with the same body as one that refused from
-claims — nothing outside the process separates them. So the refusal is asserted by *call count*,
-against a client that records every call: zero botocore calls, and no assume.
+**The load-bearing assertion in this file is a zero, and it counts TWO things.** A route that
+resolved the prefix from the request and let IAM refuse would return the same 403 with the same
+body as one that refused from claims — nothing outside the process separates them. So a refusal is
+asserted by call count against a client that records every call **and** against a spy on the
+identity door itself. Counting S3 operations alone is not enough: an `AssumeRole` is an AWS call
+and a refusal issued after one has already reached the identity plane. A first draft of this file
+stubbed `user_client` with a lambda, which recorded nothing — planting a client build before every
+refusal left the whole suite green.
 
 The document assertions are about **bytes**, not about JSON. A route that parses works for every
 healthy document and turns an unparseable one into a 500, which puts SPEC-159's quarantine path
@@ -49,6 +53,8 @@ class RecordingS3:
 
     Attributes:
       calls: ``(operation, kwargs)`` for every call, in order.
+      assumes: How many times the identity door was opened. An `AssumeRole` is an AWS call, so a
+        refusal that costs one is not a zero-cost refusal — and it is invisible to ``calls``.
     """
 
     def __init__(self, listing=None, head=None, body=None, missing=()):
@@ -71,6 +77,7 @@ class RecordingS3:
         self._body = body
         self._missing = set(missing)
         self.calls = []
+        self.assumes = 0
 
     def _record(self, operation, kwargs):
         """Records one call and raises when the operation is configured absent.
@@ -251,7 +258,11 @@ def s3(monkeypatch):
     """
 
     def _install(fake):
-        monkeypatch.setattr("apicommon.identity.user_client", lambda service, caller: fake)
+        def _door(service, caller):
+            fake.assumes += 1
+            return fake
+
+        monkeypatch.setattr("apicommon.identity.user_client", _door)
         return fake
 
     return _install
@@ -284,6 +295,7 @@ class TestTheRefusalCostsNothing:
         assert answer["statusCode"] == 403
         assert json.loads(answer["body"])["error"]["code"] == "AccessDenied"
         assert fake.calls == [], "the refusal reached AWS"
+        assert fake.assumes == 0, "the refusal cost an AssumeRole"
 
     def test_a_shared_space_with_no_membership_claim_refuses_with_no_aws_call(self, s3) -> None:
         """The other half of the isolation refusal."""
@@ -293,6 +305,7 @@ class TestTheRefusalCostsNothing:
         )
         assert answer["statusCode"] == 403
         assert fake.calls == []
+        assert fake.assumes == 0
 
     def test_a_key_escaping_the_root_refuses_with_no_aws_call(self, s3) -> None:
         """The key is the caller's even when the space is theirs."""
@@ -308,6 +321,7 @@ class TestTheRefusalCostsNothing:
         assert answer["statusCode"] == 403
         assert json.loads(answer["body"])["error"]["code"] == "AccessDenied"
         assert fake.calls == []
+        assert fake.assumes == 0
 
     def test_the_control_a_permitted_request_DOES_reach_aws(self, s3) -> None:
         """Without this, every assertion above passes against a broken route."""
@@ -322,6 +336,7 @@ class TestTheRefusalCostsNothing:
         )
         assert answer["statusCode"] == 200
         assert [call[0] for call in fake.calls] == ["list_objects_v2"]
+        assert fake.assumes == 1, "the control must open the door the refusals must not"
 
 
 class TestListing:
@@ -368,11 +383,13 @@ class TestListing:
         keys = [item["key"] for item in json.loads(answer["body"])["items"]]
         assert keys == ["alice/real.csv"]
 
-    def test_the_continuation_token_survives_the_query_string_UNMODIFIED(self, s3) -> None:
-        """FR-001 AC2's round trip, over the three characters that break a re-encoder.
+    def test_the_route_neither_re_encodes_nor_rewrites_the_continuation_token(self, s3) -> None:
+        """Over the three characters that break a re-encoder.
 
         A token carrying `+`, `/` or `=` that anything re-encodes stops resolving to the page it
-        named — and the next page silently repeats the first.
+        named, and the next page silently repeats the first. This proves the ROUTE is transparent;
+        the browser half of the round trip — `URLSearchParams`, which percent-encodes all three —
+        is asserted in the client's own suite.
         """
         awkward = "a+b/c=="
         fake = s3(RecordingS3(listing={"Contents": [], "NextContinuationToken": awkward}))
@@ -614,6 +631,7 @@ class TestMutations:
         )
         assert answer["statusCode"] == 403
         assert fake.calls == []
+        assert fake.assumes == 0
 
 
 class TestEveryObjectRouteIsOnTheUserPlane:

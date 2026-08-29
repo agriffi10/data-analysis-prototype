@@ -183,7 +183,13 @@ class TestAQueryDeclarationIsRefusedForWhatAQueryStringCannotCarry:
         assert contract.validate_query(route, {"username": "a", "spaceName": "b"}) is None
 
     def test_an_undeclared_query_is_refused(self) -> None:
-        """A route declaring no query refuses one, rather than ignoring it."""
+        """A route declaring no query refuses one, rather than ignoring it.
+
+        This makes `GET /v1/user-directory?x=1` a 400 where it was previously ignored — a
+        deliberate tightening, recorded rather than slipped in. It matches the body's own rule,
+        where an unknown key is refused as firmly as a missing one: a caller and a server that
+        disagree about the shape should find out at once.
+        """
         assert contract.validate_query(_echo_route(query=None), {"x": "1"}) == "InvalidRequest"
 
     def test_an_unknown_query_key_is_refused(self) -> None:
@@ -193,7 +199,12 @@ class TestAQueryDeclarationIsRefusedForWhatAQueryStringCannotCarry:
 
 
 class TestNoRouteReachesPastTheFramework:
-    """FR-014 AC5 — a route reads what it was handed, and nothing else."""
+    """A route reads what it was handed, and nothing else."""
+
+    def test_the_sweep_reaches_the_modules_it_claims_to(self) -> None:
+        """Guard the guard: over an empty file list, `offenders == []` passes vacuously."""
+        modules = sorted(ROUTES_DIR.glob("*.py"))
+        assert len(modules) >= 6, f"the sweep resolved onto {len(modules)} route modules"
 
     def test_no_route_module_names_the_raw_event_or_headers(self) -> None:
         """Parsed, not grepped: a comment mentioning `event` is not a read of one."""

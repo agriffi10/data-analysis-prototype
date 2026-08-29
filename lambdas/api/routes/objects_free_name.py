@@ -25,6 +25,9 @@ from . import _objects
 def free_name(context: RequestContext) -> dict[str, Any]:
     """Returns the first unused `{base} (N)` under a prefix.
 
+    A denial or a throttle raises rather than counting as a free name: marching past one proposes a
+    name that is taken, and the copy that follows overwrites somebody's object with versioning off.
+
     Args:
       context: The authenticated request.
 
@@ -32,8 +35,9 @@ def free_name(context: RequestContext) -> dict[str, Any]:
       The free name, without its prefix.
 
     Raises:
-      ApiError: ``AccessDenied`` on an unauthorized space or an escaping prefix; ``Conflict``
-        carrying ``attempts`` when every candidate is taken.
+      ApiError: ``AccessDenied`` on an unauthorized space, an escaping prefix, or a base name that
+        would compose a key outside the space; ``Conflict`` carrying ``attempts`` when every
+        candidate is taken.
       IdentityUnavailableError: If the caller's role cannot be assumed.
     """
     body = context.body if isinstance(context.body, dict) else {}
@@ -45,14 +49,12 @@ def free_name(context: RequestContext) -> dict[str, Any]:
     client = _objects.client(context)
     for attempt in range(1, s3_config.FREE_NAME_MAX_ATTEMPTS + 1):
         candidate = numbered_name(base, attempt, is_folder)
-        key = f"{prefix}{candidate}" + ("/" if is_folder else "")
+        key = _objects.contained(space, f"{prefix}{candidate}") + ("/" if is_folder else "")
         try:
             client.head_object(Bucket=space.bucket, Key=key)
         except Exception as exc:
             if _objects.is_missing(exc):
                 return {"name": candidate}
-            # A denial or a throttle is NOT a free name. Marching past it would propose a name
-            # that is taken, and the copy would then overwrite somebody's object.
             raise
 
     raise ApiError(
@@ -66,7 +68,11 @@ def numbered_name(base: str, attempt: int, is_folder: bool) -> str:
     """Builds the nth candidate for a base name.
 
     Lives here alone: the TypeScript copy is deleted, because two implementations of a naming rule
-    look identical until one of them changes.
+    look identical until one of them changes — and this port drifted on the way over before a
+    review caught it. A LEADING dot is not an extension: ``.gitignore`` becomes
+    ``.gitignore (1)``, not ``" (1).gitignore"``, which the app's own leaf validator would refuse
+    for its leading space. The rule is ``rfind`` and ``<= 0``, matching the browser's
+    ``lastIndexOf`` and ``<= 0`` exactly.
 
     Args:
       base: The original leaf name.
@@ -79,7 +85,7 @@ def numbered_name(base: str, attempt: int, is_folder: bool) -> str:
     Raises:
       None.
     """
-    if is_folder or "." not in base:
+    dot = base.rfind(".")
+    if is_folder or dot <= 0:
         return f"{base} ({attempt})"
-    stem, _, extension = base.rpartition(".")
-    return f"{stem} ({attempt}).{extension}"
+    return f"{base[:dot]} ({attempt}){base[dot:]}"

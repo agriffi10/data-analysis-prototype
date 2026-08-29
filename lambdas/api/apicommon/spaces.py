@@ -13,6 +13,10 @@ That file is the obvious thing to reach for; this docstring is here to say don't
 
 **A refusal costs no AWS call, and that is asserted by call count** — because a refusal issued
 *after* a successful `AssumeRole` and `ListObjectsV2` looks identical from outside the process.
+
+The only personal space a caller may name is their own, compared against the verified username and
+never against anything in the request; a shared one is compared against the claim set's *values*,
+because checking a slot number would let a caller choose which of their own memberships is tested.
 """
 
 from dataclasses import dataclass
@@ -59,16 +63,11 @@ def resolve(identity: UserIdentity, kind: str, name: str) -> ResolvedSpace:
       ConfigError: If the bucket variables are unset.
     """
     if kind == "personal":
-        # The ONLY personal space a caller may name is their own, and the comparison is against
-        # the verified username rather than against anything in the request. A request naming
-        # another user's personal space is the case the isolation proof turns on.
         if name != identity.username:
             raise ApiError("AccessDenied", "personal space is not the caller's")
         return ResolvedSpace("personal", name, config.user_space_bucket(), f"{name}/")
 
     if kind == "shared":
-        # Membership is the claim set, whole. Checking a slot number instead of the values would
-        # let a caller pick which of their own memberships to be checked against.
         if name not in set(identity.memberships.values()):
             raise ApiError("AccessDenied", "no membership claim for that space")
         return ResolvedSpace("shared", name, config.shared_space_bucket(), f"{name}/")

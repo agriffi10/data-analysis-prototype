@@ -559,9 +559,6 @@ ROUTES: Final[tuple[Route, ...]] = (
         response=PresignedUrlResponse,
     ),
     Route(
-        # DECLARED idempotent, and it is a POST. Idempotency belongs to the route and is never
-        # derived from the method: this one resolves a free name and changes nothing, so a caller
-        # above the transport may safely retry it.
         id="objects.freeName",
         method="POST",
         path="/v1/objects/free-name",

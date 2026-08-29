@@ -153,7 +153,7 @@ class TestItStopsAtTheFirstFreeName:
         """
         fake = _env(Probing(error_on="alice/report (1).csv"))
         answer = _ask()
-        assert answer["statusCode"] >= 400
+        assert json.loads(answer["body"])["error"]["code"] == "AccessDenied"
         assert len(fake.heads) == 1
 
 
@@ -184,6 +184,8 @@ class TestTheNamingRule:
         ("base", "attempt", "is_folder", "expected"),
         [
             ("report.csv", 1, False, "report (1).csv"),
+            (".gitignore", 1, False, ".gitignore (1)"),
+            (".env.local", 1, False, ".env (1).local"),
             ("report.csv", 12, False, "report (12).csv"),
             ("archive.tar.gz", 1, False, "archive.tar (1).gz"),
             ("noextension", 1, False, "noextension (1)"),
@@ -194,7 +196,14 @@ class TestTheNamingRule:
     def test_the_extension_is_preserved_for_files_and_ignored_for_folders(
         self, base, attempt, is_folder, expected
     ) -> None:
-        """A folder has no extension, so a dotted folder name keeps all of itself."""
+        """A folder has no extension, and a LEADING dot is not one either.
+
+        `.gitignore` is a dotfile, not a file with a `gitignore` extension. Getting that wrong
+        produces `" (1).gitignore"` — which `validateLeafName` refuses for its leading space, so
+        the route would propose a name the app's own validator rejects. The browser's rule is
+        `lastIndexOf('.') <= 0`; this is the same rule, and these two rows are what pin them
+        together now that only one implementation is left.
+        """
         assert numbered_name(base, attempt, is_folder) == expected
 
 

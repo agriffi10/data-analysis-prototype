@@ -7,6 +7,10 @@ would work, for small folders, in every test anyone writes.
 
 Folders and files travel in one array with a ``kind`` on each row, which is what lets the browser's
 existing ``FileListPage`` mapping stay exactly as it is.
+
+``nextToken`` leaves UNMODIFIED. The browser round-trips it through a query string, and a token
+carrying ``+``, ``/`` or ``=`` that anything re-encodes stops resolving to the page it named — the
+next page then silently repeats the first.
 """
 
 from typing import Any
@@ -51,8 +55,6 @@ def list_objects(context: RequestContext) -> dict[str, Any]:
     items = _rows(page, prefix)
     observability.stamp(item_count=len(items))
     return {
-        # UNMODIFIED. The browser round-trips this through a query string, and a token carrying
-        # `+`, `/` or `=` that anything re-encodes stops resolving to the page it named.
         "items": items,
         "nextToken": page.get("NextContinuationToken") or None,
     }

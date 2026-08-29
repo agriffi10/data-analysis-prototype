@@ -61,8 +61,6 @@ def test_every_listing_call_is_bounded_and_delimited() -> None:
             attribute = getattr(node.func, "attr", None)
             if attribute != "list_objects_v2":
                 continue
-            # The route builds its request as a dict, so the keywords may be splatted. Either
-            # spelling has to be checked, or the sweep passes on the one that is used.
             keywords = {kw.arg for kw in node.keywords if kw.arg}
             splatted = any(kw.arg is None for kw in node.keywords)
             if not splatted and not {"Delimiter", "MaxKeys"} <= keywords:
@@ -70,13 +68,28 @@ def test_every_listing_call_is_bounded_and_delimited() -> None:
     assert offenders == []
 
 
-def test_a_splatted_listing_request_still_declares_both() -> None:
-    """The dict a route splats must carry both keys, checked where it is built.
+def test_only_the_known_route_splats_its_listing_request() -> None:
+    """A splat is an escape hatch, so the set of modules using one is pinned.
 
-    The call-site check above cannot see inside a `**request` splat, so the one route that builds
-    its request as a dict is checked by its literal keys. Without this the sweep is satisfied by
-    the splat and proves nothing about the route that actually lists.
+    The call-site check cannot see inside `**request`, so a NEW route that splatted would satisfy
+    it while proving nothing. Set equality rather than a hard-coded skip: a second splatting module
+    has to be added here deliberately, with its own literal-key check, instead of inheriting a hole.
     """
+    splatting = set()
+    for module in _modules():
+        tree = ast.parse(module.read_text())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if getattr(node.func, "attr", None) != "list_objects_v2":
+                continue
+            if any(kw.arg is None for kw in node.keywords):
+                splatting.add(module.name)
+    assert splatting == {"objects_list.py"}
+
+
+def test_a_splatted_listing_request_still_declares_both() -> None:
+    """The dict the one splatting route builds must carry both keys, checked where it is built."""
     source = (API_DIR / "routes" / "objects_list.py").read_text()
     tree = ast.parse(source)
     literals = [

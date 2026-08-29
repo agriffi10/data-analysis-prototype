@@ -25,6 +25,8 @@ class FakeSigner:
     Attributes:
       signed: ``(operation, params, expires_in)`` per mint.
       calls: Operation names, so a mint-before-check can be spotted by ORDER.
+      assumes: How many times the signing door was opened — an `AssumeRole` is an AWS call, and a
+        refusal that costs one is not free. Invisible to ``calls``, which is why it is separate.
     """
 
     def __init__(self, occupied=False):
@@ -41,6 +43,7 @@ class FakeSigner:
         """
         self.signed = []
         self.calls = []
+        self.assumes = 0
         self._occupied = occupied
 
     def head_object(self, **kwargs):
@@ -154,7 +157,11 @@ def _install(monkeypatch, fake, credentials):
     Raises:
       None.
     """
-    monkeypatch.setattr(identity, "signing_client", lambda service, caller: (fake, credentials))
+    def _door(service, caller):
+        fake.assumes += 1
+        return fake, credentials
+
+    monkeypatch.setattr(identity, "signing_client", _door)
     monkeypatch.setattr(identity, "assume_user_role", lambda caller, force=False: _credentials(3600))
     monkeypatch.setattr(identity, "user_client", lambda service, caller: fake)
 
@@ -192,6 +199,68 @@ class TestTheUrlNeverOutlivesTheSessionThatSignedIt:
         expires_at = datetime.datetime.fromisoformat(json.loads(answer["body"])["expiresAt"])
         assert expires_at <= datetime.datetime.now(datetime.UTC) + datetime.timedelta(seconds=31)
 
+    @pytest.mark.parametrize(
+        ("path", "body"),
+        [
+            (
+                "/v1/objects/download-url",
+                {"space": {"kind": "personal", "name": "alice"}, "key": "alice/big.csv"},
+            ),
+            (
+                "/v1/objects/upload-url",
+                {
+                    "space": {"kind": "personal", "name": "alice"},
+                    "key": "alice/big.csv",
+                    "contentType": "text/csv",
+                    "overwrite": True,
+                },
+            ),
+        ],
+        ids=["download", "upload"],
+    )
+    def test_BOTH_routes_clamp(self, monkeypatch, path, body) -> None:
+        """The upload half was asserted nowhere, and it is the half that matters more.
+
+        A download URL that dies early costs a retry. An upload URL that dies early 403s at the
+        TAIL of a long transfer, after the bytes were sent — and with three uploads in flight it
+        lands on the files the user waited longest for. Ignoring the clamped value at the signing
+        call left the whole suite green.
+        """
+        fake = FakeSigner()
+        _install(monkeypatch, fake, _credentials(20))
+        answer = router.route("POST", path, bearer(), "rq", body, None)
+        assert answer["statusCode"] == 200
+        assert fake.signed[0][2] <= 20
+
+    def test_the_upload_route_mints_and_signs_the_content_type(self, monkeypatch) -> None:
+        """The happy path, which the upload route did not have at all.
+
+        Without it the route appeared only in two refusal tests, so nothing asserted it mints, or
+        that the content type the browser will send is the one signed into the URL.
+        """
+        fake = FakeSigner()
+        _install(monkeypatch, fake, _credentials(3600))
+        answer = router.route(
+            "POST",
+            "/v1/objects/upload-url",
+            bearer(),
+            "rq",
+            {
+                "space": {"kind": "personal", "name": "alice"},
+                "key": "alice/new.csv",
+                "contentType": "text/csv",
+                "overwrite": True,
+            },
+            None,
+        )
+        assert answer["statusCode"] == 200
+        body = json.loads(answer["body"])
+        assert body["url"].startswith("https://s3.example/alice/new.csv")
+        assert body["expiresAt"]
+        operation, params, _ = fake.signed[0]
+        assert operation == "put_object"
+        assert params["ContentType"] == "text/csv"
+
     def test_a_healthy_credential_gets_the_full_window(self, monkeypatch) -> None:
         """The control: the clamp must not shorten every URL to nothing."""
         fake = FakeSigner()
@@ -206,13 +275,23 @@ class TestTheUrlNeverOutlivesTheSessionThatSignedIt:
         )
         assert fake.signed[0][2] == 900
 
-    def test_both_routes_read_the_same_clamp(self) -> None:
-        """Two copies of one arithmetic is how one of them stops being clamped."""
-        source = (
-            __import__("pathlib").Path(objects_presign.__file__ or "").read_text()
-        )
-        assert source.count("def _clamped") == 1
-        assert source.count("_clamped(") == 3, "one definition, one call per route"
+    def test_there_is_exactly_one_clamp_definition(self) -> None:
+        """Two copies of one arithmetic is how one of them stops being clamped.
+
+        Counted on the parsed module rather than on raw source: a string count treats a docstring
+        mention as a call site and reddens for a comment, which is a guard that cries wolf. What
+        proves the clamp is USED is the parametrized test above, which drives both routes.
+        """
+        import ast
+        import pathlib
+
+        tree = ast.parse(pathlib.Path(objects_presign.__file__ or "").read_text())
+        definitions = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "_clamped"
+        ]
+        assert len(definitions) == 1
 
 
 class TestAUrlIsABearerToken:
@@ -279,6 +358,7 @@ class TestAUrlIsABearerToken:
         )
         assert answer["statusCode"] == 403
         assert fake.calls == []
+        assert fake.assumes == 0, "the refusal opened the signing door"
 
     def test_a_foreign_space_mints_no_url(self, monkeypatch) -> None:
         """The isolation refusal reaches the presign routes too."""
@@ -294,6 +374,7 @@ class TestAUrlIsABearerToken:
         )
         assert answer["statusCode"] == 403
         assert fake.calls == []
+        assert fake.assumes == 0, "the refusal opened the signing door"
 
 
 class TestTheDispositionHeaderIsEscapedInTheRightOrder:

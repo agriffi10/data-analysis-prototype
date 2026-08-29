@@ -17,6 +17,7 @@ a test asserting "no AWS call happened" passes over it — the assertions here a
 code.
 """
 
+from cpcommon.errors import TerminalError
 from cpcommon.paths import assert_inside_root, has_dot_segment, normalize_root
 from cpcommon.s3_listing import MARKER_BASENAME
 
@@ -45,7 +46,7 @@ def contained_key(space: ResolvedSpace, key: str) -> str:
     """
     try:
         return assert_inside_root(space.root, key)
-    except Exception as exc:  # the layer raises TerminalError, which is not ours to catch by name
+    except TerminalError as exc:
         raise ApiError("AccessDenied", "key is not inside the space root") from exc
 
 
@@ -102,6 +103,11 @@ def is_write_locked(space: ResolvedSpace, key: str) -> bool:
     Mirrors ``isWriteLockedPrefix`` in the browser, including its asymmetry — see the module
     docstring for why the two buckets differ.
 
+    The comparison is against ``{root}archive/`` **with its slash**, which is what the rendered Deny
+    says. Matching the slashless form too would refuse a *file* literally named ``archive`` at a
+    space root, which IAM permits and the browser's predicate allows — a bare 403 for an upload
+    that would have worked.
+
     Args:
       space: The resolved space.
       key: The object key or prefix being written.
@@ -113,7 +119,7 @@ def is_write_locked(space: ResolvedSpace, key: str) -> bool:
       None.
     """
     locked_root = f"{space.root}{ARCHIVE_FOLDER}/"
-    if key == locked_root.rstrip("/") or key.startswith(locked_root):
+    if key.startswith(locked_root):
         return True
     if space.kind != "shared":
         return False

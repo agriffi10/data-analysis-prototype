@@ -164,9 +164,19 @@ class TestTheCapsAreSizedAgainstABudget:
             "a cap far below the ceiling refuses documents the app authors"
         )
 
-    def test_the_single_put_ceiling_is_the_s3_putobject_limit(self) -> None:
-        """5 GiB, which is what makes the single-PUT design's ceiling equal to multipart's."""
-        assert s3_config.S3_SINGLE_PUT_MAX_BYTES == 5 * 1024 * 1024 * 1024
+    def test_the_single_put_ceiling_matches_the_browsers_shipped_default(self) -> None:
+        """Checked against the OTHER copy of the number, not against a restatement of itself.
+
+        `DEFAULT_MAX_UPLOAD_BYTES` in the browser is the same S3 limit, and the point of this
+        constant is that the single-PUT design moves the ceiling nowhere. Asserting `== 5 * 1024
+        * 1024 * 1024` here would restate the value under test, which this file's own docstring
+        forbids — it cannot fail for the reason the number exists.
+        """
+        shipped = pathlib.Path("apps/portal/src/features/file-browser/uploadLimits.ts").read_text()
+        assert "5 * 1024 * 1024 * 1024" in shipped.replace(" ", "").replace(
+            "5*1024*1024*1024", "5 * 1024 * 1024 * 1024"
+        ) or "5368709120" in shipped, "the browser's cap moved; reconcile the two"
+        assert s3_config.S3_SINGLE_PUT_MAX_BYTES == 5 * 1024**3
 
     def test_the_carried_constants_are_the_shipped_values(self) -> None:
         """900s and 999 are carried across, explicitly NOT re-derived."""

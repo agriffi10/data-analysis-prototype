@@ -38,7 +38,7 @@ def copy_object(context: RequestContext) -> dict[str, Any]:
       IdentityUnavailableError: If the caller's role cannot be assumed.
     """
     plan = _plan(context)
-    return _perform_copy(context, plan)
+    return _perform_copy(plan, _objects.client(context))
 
 
 def move_object(context: RequestContext) -> dict[str, Any]:
@@ -52,18 +52,17 @@ def move_object(context: RequestContext) -> dict[str, Any]:
 
     Raises:
       ApiError: As ``copy_object``, plus ``AccessDenied`` when the SOURCE is not writable — a move
-        deletes it, so a source the caller may not delete is not a source they may move.
+        deletes it, so a source the caller may not delete is not a source they may move. Checked
+        BEFORE the copy: a move that copies and only then discovers it may not delete has already
+        duplicated the object, and the user asked for one of it.
       IdentityUnavailableError: If the caller's role cannot be assumed.
     """
     plan = _plan(context)
-    # Checked before the copy, not after: a move that copies and then discovers it may not delete
-    # has already duplicated the object, and the user asked for one of it.
     protected.assert_writable(plan["source_space"], plan["source_key"])
 
-    written = _perform_copy(context, plan)
-    _objects.client(context).delete_object(
-        Bucket=plan["source_space"].bucket, Key=plan["source_key"]
-    )
+    client = _objects.client(context)
+    written = _perform_copy(plan, client)
+    client.delete_object(Bucket=plan["source_space"].bucket, Key=plan["source_key"])
     return written
 
 
@@ -118,12 +117,13 @@ def _plan(context: RequestContext) -> dict[str, Any]:
     }
 
 
-def _perform_copy(context: RequestContext, plan: dict[str, Any]) -> dict[str, Any]:
+def _perform_copy(plan: dict[str, Any], client: Any) -> dict[str, Any]:
     """Runs the copy half, refusing an occupied destination first.
 
     Args:
-      context: The authenticated request.
       plan: The resolved plan.
+      client: The S3 client, passed in so a move's copy and delete share one assumed session
+        rather than opening two.
 
     Returns:
       The destination key and its new ETag.
@@ -132,7 +132,6 @@ def _perform_copy(context: RequestContext, plan: dict[str, Any]) -> dict[str, An
       ApiError: ``Conflict`` when occupied and ``overwrite`` is false; ``NotFound`` when the
         source is absent.
     """
-    client = _objects.client(context)
     destination: ResolvedSpace = plan["destination_space"]
 
     if not plan["overwrite"]:
@@ -152,7 +151,6 @@ def _perform_copy(context: RequestContext, plan: dict[str, Any]) -> dict[str, An
         written = client.copy_object(
             Bucket=destination.bucket,
             Key=plan["destination_key"],
-            # A DICT. boto3 encodes it; a hand-built string does not.
             CopySource={"Bucket": plan["source_space"].bucket, "Key": plan["source_key"]},
         )
     except Exception as exc:
