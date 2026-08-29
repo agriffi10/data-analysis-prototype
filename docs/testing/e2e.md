@@ -253,8 +253,10 @@ and its confirm **does** open. Without it a generic failure reads as the guard w
 
 **The async switchover — the boundary is "exactly one file", never "is it a folder".** Two rows
 above are the whole of it, and getting the boundary wrong is invisible from the UI, so check the
-Network tab (instrument 2): a single-file gesture issues `CopyObject`/`DeleteObject` from the
-browser, and everything else issues **one** `SendMessage` to the file-ops queue and nothing more.
+Network tab (instrument 2): a single-file gesture issues **one call to the API** —
+`POST /v1/objects/copy`, `POST /v1/objects/move` or `DELETE /v1/objects` — and everything else
+issues **one** `SendMessage` to the file-ops queue and nothing more. **Zero direct AWS calls appear
+for either**, other than presigned S3 bytes on an upload or a download.
 
 | Do | Expect |
 |---|---|
@@ -272,10 +274,37 @@ notification and use **Review conflicts** — including from a tab that did not 
 *Overwrite* saying in words that it cannot be recovered. A rename offers **Use a different name**
 instead, which re-submits safely. Confirm only the conflicted items are re-sent.
 
-**The kill switch.** Run the async-off half of §4.14 (`{"asyncFileOperations": false}`, publish,
-hard-reload) and every row above reverts: a folder move runs in the browser — visible as
-`CopyObject`/`DeleteObject` traffic rather than one `SendMessage` — no card appears, and the listing
-updates on completion. Restore it in the same sitting.
+**The kill switch, which now switches a capability OFF rather than to a slower route.** Run the
+async-off half of §4.14 (`{"asyncFileOperations": false}`, publish, hard-reload). A single-file
+copy, move, rename, delete and download are unaffected. A **folder** copy, move or delete is now
+**refused**, per item: the operation summary names each folder with *Folders are handled by the file
+operations service, which is unavailable right now*, and any files selected alongside it still go
+through. No card appears, and no `SendMessage` is issued. Restore the flag in the same sitting.
+
+**The API surface, and the isolation proof (SPEC-198).** Start **signed out** — a signed-in pass
+never tests the token path.
+
+| Do | Expect |
+|---|---|
+| Browse, page a folder past 25 entries, open Details, rename, copy a file, delete a file, create a folder | **One** API call per gesture in the Network panel, and **zero** direct AWS calls other than presigned S3 bytes. |
+| Upload a small file and watch the bar | An **intermediate** percentage — not 0 then 100. A `fetch` implementation completes correctly and never moves the bar, so completion is not the assertion. |
+| Upload a **multi-GiB** file | Completes past the 900 s window. FR-005 AC8's premise — the URL's expiry is evaluated when S3 *receives* the request, not when the transfer finishes — and the only way to settle it. |
+| Cancel an in-flight upload | `Cancelled`, and S3 holds **no partial object** (check the listing and `aws s3api head-object`). |
+| Download a file whose name contains `"` and a space | The saved filename is exact. The RFC 6266 escaping is the route's now. |
+| Copy a file into the folder it is already in | **One** `POST /v1/objects/free-name`, and the proposed name is `{name} (1)`. |
+| Corrupt `{root}user_settings/query-history.json` by hand, then load the Query workspace | The quarantine object appears with its random 8-character token and the app recovers. Three API calls in order: read, copy-aside, write. |
+| `curl` a `DELETE /v1/objects` for `{root}saved_queries/DO_NOT_DELETE.txt` | Refused. This discharges `owed.md` §2.1, owed since SPEC-186 — the API now holds the portal-role credentials the check needed. |
+| As user A, `GET /v1/objects` naming user B's personal space | **403 `AccessDenied`**, envelope-shaped, `detail` carrying no AWS text, and **no re-login**. |
+| As user A, `GET /v1/objects` naming a shared space A is not a member of | The same 403. |
+| `curl` a `PUT /v1/objects/content` under `{root}archive/` | Refused — and record it as the **route-layer** refusal it is. It is byte-identical to an IAM denial and is issued before IAM sees anything; the credential-layer half is SPEC-196 Phase 5 item 6's dated `_identity/self` result, **cited, never re-run here**. |
+| `curl -X OPTIONS` the presign path from a foreign `Origin`, from the SPA origin, and from the CloudFront origin | No `access-control-allow-origin` for the foreign one; allowed for **both** of the others — the CloudFront one is the rollback FR-011 preserves. `DELETE` and `HEAD` are still in `access-control-allow-methods`; SPEC-202 is where that changes. |
+| Read one record in `logs/service=api/` | Present: `env`, a real build sha, `route_id`, `actor`. **Absent:** any `X-Amz-Signature`, any bearer substring, any email, any object body. |
+
+**The zero-call half of the isolation proof is taken OFFLINE, by call count**, in
+`lambdas/api/test_objects_routes.py`. A route that resolved the prefix from the request and let IAM
+refuse would return the same 403 with the same body, and nothing observable from outside the process
+separates the two — so claiming the live 403 proves *where* the refusal happened is the error to
+avoid.
 
 **The rest of the plane is still hand-crafted envelopes** — the lock, the give-up, the cross-space
 two-lock path and the pagination boundary are not reachable from the UI. They live in

@@ -169,6 +169,22 @@ why they are not in the section below.
 | **The isolation proof against a PER-USER route** (SPEC-197 FR-014) | `GET /v1/user-directory` cannot carry it and does not claim to: the `ReadTheUsernameDirectory` grant is unconditioned and the document is byte-identical for every caller, so the route returns the same bytes with the principal tag dropped. **Passed to SPEC-198's first per-user route.** |
 | **The browser's refresh-once path** (SPEC-195 FR-008) | Now runnable: `GET /v1/user-directory` is issued by three dialogs, so a 401 has a request to count. **Owed to SPEC-197's live pass** — exactly two requests on a 401, the user not signed out, and then with the refresh broken a retry that 401s with **no third request**. A refresh loop against a dead refresh token is invisible in a passing offline test and obvious in a network panel. |
 
+### SPEC-198's live verification — written and runnable, not yet run
+
+**Every item in the SPEC-198 block of [`e2e.md`](e2e.md) §4.2 is owed**, and §4.2 says how to run
+each one. Unrun rather than unobservable, which is why they are not in the section below.
+
+| Owed | Why it is not settled offline |
+|---|---|
+| **The presigned URL's expiry is evaluated at request RECEIPT, not at completion** (FR-005 AC8) | The premise the whole single-`PUT` design rests on. Needs a real multi-GiB upload running past the 900 s window. If it were false, every large upload would fail at the tail with an opaque 403 **after the user waited** — and with `UPLOAD_CONCURRENCY` 3 a deep queue would put that failure on the files they waited longest for. |
+| **A presigned URL signed INSIDE a Lambda by an assumed session is honoured by S3** | Signing is a local SigV4 operation, so offline it always "works"; whether S3 accepts the resulting signature at redemption is a fact about the account. |
+| **A browser preflight against the deployed bucket CORS succeeds from the container origin** (FR-011) | A CORS failure is an opaque `TypeError` and presents as "the API is down". `curl` cannot see it — only a browser enforces CORS. The three-origin `curl` check in §4.2 settles the *headers*; it does not settle the browser's acceptance. |
+| **The live 403 on a foreign prefix** (FR-013) | The **zero-call** half is taken offline, by call count, in `test_objects_routes.py` — a route that resolved the prefix from the request and let IAM refuse would return an identical 403, so the live half proves the deployed route refuses and nothing more. The credential-layer half is **SPEC-196 Phase 5 item 6's dated `_identity/self` result, cited rather than re-run**. |
+| **`owed.md` §2.1's bucket-policy Deny on a marker key** | Owed since SPEC-186 and now runnable for the first time: the check needs portal-role credentials, which the API holds. §4.2 has the `curl`. |
+| **An intermediate upload percentage, in a real browser** | Asserted offline against a stubbed `XMLHttpRequest`. What is not observed is that a real `xhr.upload` fires progress events for this transfer — the one thing a `fetch` implementation would silently lack. |
+| **The SPEC-159 quarantine sequence end to end** | Needs a deliberately corrupted `query-history.json` in a real prefix. |
+| **Recorded as OWED with no check to write:** part-level retry behaviour — there is none, by design (FR-005 AC6) — and an end-to-end "user A read user B's bytes and was refused by IAM", which **is not reachable from this API** because no route accepts a foreign prefix. A temporary foreign-prefix probe route was **declined**: a route that grants a foreign-prefix read in order to test that foreign-prefix reads are refused is the shape of the defect it tests for. |
+
 ### Not observable at all
 
 | Check | Why |

@@ -28,9 +28,9 @@ register.
                         │  read at runtime from /config.json           │
                         └───┬─────────────┬──────────────┬─────────────┘
                             │             │              │
-                    scoped AWS      bearer token    sqs:SendMessage
-                    credentials           │              │
-                            │             ▼              ▼
+                  scoped AWS creds   bearer token   sqs:SendMessage
+                 (Athena, Glue) +          │              │
+                  presigned bytes          ▼              ▼
                             │       API Gateway    FIFO request queue
                             │        HTTP API             │
                             │             │               ▼
@@ -128,9 +128,17 @@ contract** rather than a URL, attaches a bearer token, and returns the same `Ser
 every other service. **The wire is declared in Python and the TypeScript is generated from it**, so a
 contract change fails the build at every call site rather than at runtime.
 
-Today it serves `/healthz` and `GET /v1/user-directory`. Moving the remaining browser-side AWS calls
-behind it is the ongoing arc; the rule that keeps the two from drifting is **no new browser-side AWS
-SDK call on a path an API route already serves**, and **no second API**.
+Today it serves `/healthz`, the username directory, the feature-flag document and the whole **object
+surface** — listing, head, exists, content read and write, copy, move, delete, free-name, and the two
+presign routes. File **bytes** do not travel through it: an upload is a presigned `PUT` and a download
+a presigned `GET`, both signed server-side by the caller's own assumed session, so the transfer is
+between the browser and S3 and compute never touches it. What is left on the browser's own AWS
+clients is Athena, Glue and SQS. The rule that keeps the two from drifting is **no new browser-side
+AWS SDK call on a path an API route already serves**, and **no second API**.
+
+A document that belongs to no user — `_directory/usernames.json`, `_config/feature-flags.json` — gets
+a route of its own rather than riding the object surface, because the space resolver refuses a prefix
+no caller's claims authorize, and correctly so.
 
 The function is deliberately **not in the VPC**, and authorization is a verifier **the router calls**
 — not an API Gateway authorizer, which would be a second reader of the same token. Detail:
@@ -152,9 +160,10 @@ Amplify checks the session
   → 1-hour temporary credentials, cached and refreshed by Amplify
 ```
 
-The app reads them with `fetchAuthSession()` and hands them to the S3, Athena, Glue and SQS clients;
-on a credential-expiry error it retries once with a forced refresh. Tokens are held **per tab**, not
-for the whole browser.
+The app reads them with `fetchAuthSession()` and hands them to the Athena, Glue and SQS clients; on a
+credential-expiry error it retries once with a forced refresh. **There is no browser-side S3 client
+any more** — the object surface is the API's, and the expired-credential retry that used to wrap
+every S3 call is a server-side re-assume. Tokens are held **per tab**, not for the whole browser.
 
 The tag mapping is `aws_cognito_identity_pool_provider_principal_tag` in
 `infra/modules/auth/identity-pool.tf`, and the tag **value** must be the `cognito:username` claim —
@@ -417,6 +426,8 @@ superseded decision keeps its row and gains a note saying which row replaced it.
 | 21 | [Per-user catalog isolation by principal tag, not LF-Tags](decisions/analytics.md#analytics-spec-032036) | Glue database isolation is the same problem as S3 prefix isolation, and one mechanism is one thing to reason about. | Lake Formation grants the shared role broadly; IAM is the gate. Both buckets stay in LF **hybrid** mode or the file browser loses direct S3 access. |
 | 22 | [Control-plane table creation is TBAC](decisions/analytics.md#control-plane-table-creation--tbac-spec-070111-correction) | LF **admin** status does not grant `CREATE_TABLE` on a database the admin did not create — which is not what the console's admin screen suggests. | A `portal-managed` LF-Tag plus one tag-policy grant per execution role, and a static per-bucket data-location grant. |
 | 23 | [Every DDL literal goes through an escaper, and there are two axes of them](decisions/analytics.md#every-ddl-literal-goes-through-literal-spec-151) | Hive/DDL and Trino/DML escape differently, and so do values and identifiers; a shared space's name is format-checked nowhere server-side. | **The wrong escaper fails silently, as a predicate that never matches.** A quoting fix is not done until every statement built from the same value is swept. |
+| 39 | [Bytes go to S3 presigned; small text goes through the API](decisions/storage.md#bytes-go-to-s3-presigned-small-text-goes-through-the-api-spec-198) | Routing file bytes through the API would put a 6 MB response ceiling and a 29-second integration ceiling in front of every upload and download, and would pay compute for a transfer S3 can do itself. Routing *documents* through S3 instead would need a second credential path in the browser for objects a few kilobytes long. | The document route's **byte cap is what holds the split** — without it it is a second upload path that works perfectly to 6 MB. The upload is `XMLHttpRequest`, not `fetch`, or the progress bar silently dies. **No part-level retry** any more. |
+| 40 | [A presigned URL is a bearer token](decisions/identity-and-access.md#a-presigned-url-is-a-bearer-token-spec-198) | Handing the browser a capability instead of a credential keeps every credential server-side, and S3 evaluates the signer's own scope at redemption — which is what makes the design survive the target environment's move to Access Grants. | Signed by the **caller's** assumed session, never the execution role. Clamped to the credential that signed, read in the **same** call. In no emitted record. |
 
 ### The control planes
 

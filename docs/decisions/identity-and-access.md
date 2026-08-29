@@ -31,6 +31,8 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [The contract is declared in Python and the TypeScript is generated (SPEC-197)](#the-contract-is-declared-in-python-and-the-typescript-is-generated-spec-197)
 - [`apiRequest` retries nothing, and idempotency is declared per route (SPEC-197)](#apirequest-retries-nothing-and-idempotency-is-declared-per-route-spec-197)
 - [Cognito tokens are held per TAB, not per browser (2026-08-27)](#cognito-tokens-are-held-per-tab-not-per-browser-2026-08-27)
+- [A presigned URL is a bearer token (SPEC-198)](#a-presigned-url-is-a-bearer-token-spec-198)
+- [The dev-unauth path is retired (SPEC-198, supersedes SPEC-002)](#the-dev-unauth-path-is-retired-spec-198-supersedes-spec-002)
 
 ## Auth
 
@@ -624,3 +626,62 @@ check this **re-invalidates**.
 
 Requested by Andrew alongside SPEC-197 and shipped as its own commit, so it can be reverted without
 the port.
+
+## A presigned URL is a bearer token (SPEC-198)
+
+AWS's own words: presigned URLs "are bearer tokens that grant access to those who possess them". The
+capability **is** the URL, so everything true of a credential is true of it.
+
+**Minted only after exactly the authorization the direct call would have had** — the same space
+resolution from claims, the same membership check, the same protected-location rules — and signed
+with the **caller's own assumed session**, never the API's execution role. A test asserts the
+signing credentials come from `user_client`; the wrong one mints a working URL against the wrong
+identity, which is the isolation question turned inside out.
+
+**It appears in no emitted record.** The span carries `route_id`, the space kind and the key's
+**length** — never the URL and never the query string. The obvious wrong implementation is a debug
+field stamping the response body, and it would look like good telemetry. The `error.stack` scrub
+covers these routes, and the assertion is a sentinel in an exception **message** or a log **field**,
+not a URL-shaped local: `traceback.format_exception` renders each frame's source line and never its
+locals, so a test that binds a URL to a local and raises can never fail whatever the code does. The
+live exposure is this repo's own code interpolating a signed URL into a message.
+
+**The lifetime is clamped to the SIGNING SESSION's remaining life, read from the credential that
+signed.** Not from `DurationSeconds`: the two agree today and will not later — `transition_plan.md`
+§3.9 signs from Access-Grants-vended credentials in the target environment, whose maximum differs,
+and a clamp computed as `min(900, DURATION_SECONDS)` passes every test here and mints URLs that
+outlive their own signature there. The trap that cost this an implementation: `user_client()` assumes
+internally, so a clamp that assumes *again* is a **second read**, and the cache refuses a session
+with under ~30s left — read 2 returns a fresh hour-long session while read 1's near-dead one signed
+the URL. Measured: signed by a credential with 20 seconds left, `expiresAt` came back 15 minutes
+out. `identity.py` therefore exposes **one accessor returning the client and the credentials backing
+it**.
+
+**The expiry is evaluated when S3 RECEIVES the request, not when the transfer completes.** That is
+the premise the whole single-`PUT` design rests on, it is read from AWS's documentation rather than
+measured, and it is recorded as **owed** — if it were false, every large upload would fail at the
+tail with an opaque 403 after the user had waited.
+
+## The dev-unauth path is retired (SPEC-198, supersedes SPEC-002)
+
+`VITE_S3_DEV_UNAUTH=true` browsed a read-only public test bucket with **unsigned** S3 requests, so a
+developer needed no AWS account. It worked by having the browser call S3 directly, which is the
+thing this arc removes: after the port there is no unsigned call left for it to make.
+
+Gone with it: `lib/s3Client.ts` (and `devS3Client`, `getS3Client`, `CHECKSUM_OPTS`,
+`REQUEST_HANDLER`), `lib/s3Errors.ts` (its last caller went with them), `ProtectedLayout`'s auth-gate
+bypass, `FilesPage`'s read-only target, and five variables — `VITE_S3_DEV_UNAUTH`,
+`VITE_S3_BUCKET_NAME`, `VITE_S3_ROOT_PREFIX`, `VITE_AWS_ACCESS_KEY_ID`,
+`VITE_AWS_SECRET_ACCESS_KEY`.
+
+**The guard that protected it was deleted only once the grep was clean**, and in that order for a
+reason: `support.test.ts`'s block was two layers, and the load-bearing one globbed every non-test
+module and asserted **set equality** between the modules naming the flag and its three-site registry.
+Removing two sites and leaving one turns that red. It was deleted because its **subject** is gone,
+not because it was weak — and the `runtimeConfig` allowlist that named five modules permitted to read
+`import.meta.env.VITE_` is now one, `lib/env.ts`, which is the remaining fallback table.
+
+**Local development is now: point the SPA at an API.** `.env.example` and the README say so, rather
+than leaving the story implied by the absence of the old one. Presigned uploads and downloads redeem
+from `http://localhost:5173`, which both buckets' CORS allowlists still name — and that entry stays
+for exactly this reason, not because of the path this entry retires.

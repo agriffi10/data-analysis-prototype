@@ -1,8 +1,8 @@
 # Spec: The S3 Surface & Presigned Bytes
 
 **ID:** SPEC-198
-**Status:** Draft
-**Last Updated:** 2026-08-28
+**Status:** Completed
+**Last Updated:** 2026-08-29
 **Depends On:** SPEC-197 (the transport contract this spec is the first bulk consumer of — the route table, the error envelope, `lib/apiClient.ts`, the generated TS↔Python contract, the declared-per-route retry rule, and the `409`/`413` codes it reserved for exactly this spec), SPEC-196 (the user credential plane — the assumed role that signs both the direct calls and the presigned URLs, and its `DurationSeconds` 3600 which bounds every URL minted), SPEC-195 (the verified bearer and the `error.stack` scrub a route handling presigned URLs inherits), SPEC-192 (`configValue`, and the five dev-unauth `import.meta.env` reads it deliberately left for this spec), SPEC-193 (`spa_origin`, the module output the bucket CORS allowlist gains), SPEC-187/190 (the file-ops plane — folder copy/move/delete belong there and may not reappear here; the single-file synchronous paths this spec ports), SPEC-020 (the upload queue, which stays in the browser), SPEC-106 (`toUserMessage` — and the five `passthrough` codes this surface owns), SPEC-113 (no existence oracle), SPEC-155 (the `abortSignal` guarantee this spec must restate honestly), SPEC-159 (the user-settings quarantine, which stays client-side), SPEC-172 (`isWriteLockedPrefix`, the archive write gate and the IAM Deny behind it), SPEC-173/174/175 (the saved-queries store, its top-level `.sql` filter and `Delimiter: '/'`), SPEC-185 (save-results, a single-object copy)
 
 ## Overview

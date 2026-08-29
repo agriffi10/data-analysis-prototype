@@ -92,14 +92,14 @@ recorded nowhere else** — when a spec closes, prune here rather than appending
 
 ### Current work
 
-- **API layer & containerisation (192 → 202, 192–197 done)** — "Arc B". CloudFront is still
-  production and the rollback. Next: the S3 surface (198), which inherits the **isolation proof**
-  (197's route grant is unconditioned, so it cannot carry one), a live 403, the slot-tag proof and
-  the presigned-URL margin; 199 the Lake Formation one. Bucket CORS admits the CloudFront origin
-  only, so the container's direct S3 calls fail preflight until 198 — expected. **§F of
-  `docs/testing/arc-b-api-container-e2e.md` is owed**, and §D/§E were **partly run on 2026-08-27**
-  (`sessions.md`) because 197 deletes the probes they are driven through. Read the `ARCS.md` arc
-  entry first.
+- **API layer & containerisation (192 → 202, 192–198 done)** — "Arc B". CloudFront is still
+  production and the rollback. Next: the catalog surface (199 — Athena, Glue and Lake Formation are
+  the last browser-side AWS calls on a read path), then the queues (200). **The browser now makes no
+  AWS call but presigned S3 bytes**, and 202 removes the remaining SDK class.
+  **Owed and unrun:** `arc-b-api-container-e2e.md` §F, and the SPEC-198 block of `e2e.md` §4.2 —
+  chiefly the multi-GiB upload that settles whether a presigned URL's expiry is evaluated at request
+  receipt (the premise the single-`PUT` design rests on) and the live foreign-prefix 403. §D/§E were
+  **partly run on 2026-08-27** (`sessions.md`). Read the `ARCS.md` arc entry first.
 
 ### Live checks
 
@@ -185,7 +185,18 @@ emails.
   per-component opt-in, and one test walks every gated surface in **both** states.
 - **No shared-space directory is published** — the share dialog suggests only spaces you belong to.
   A full list would be more useful and is declined as a disclosure with no equivalent.
-- `VITE_S3_DEV_UNAUTH=true` is a read-only test bucket, local only.
+- **A presigned URL is a BEARER TOKEN** — minted only after exactly the authorization the direct call
+  would have had, signed by the **caller's own assumed session**, and in **no emitted record** (the
+  span carries the key's *length*). Its lifetime is clamped to the **credential that signed**, read
+  in the same call — never to `DurationSeconds`, which agrees today and will not under Access
+  Grants, and never by assuming a second time (the cache refuses a near-dead session and hands back
+  a fresh hour while the near-dead one signed the URL).
+- **The dev-unauth path is RETIRED** — it worked by calling S3 unsigned from the browser, and no
+  unsigned call is left. `s3Client.ts`, `s3Errors.ts` and five `VITE_*` variables went with it; the
+  `VITE_` allowlist is now `lib/env.ts` alone. Local dev points the SPA at an API.
+- **A document that belongs to no user has no space, so it gets its OWN route** — `_config/` and
+  `_directory/` are not prefixes any caller's claims authorize, and leaving one on the object
+  surface makes every read a 403 that falls back to defaults, which looks exactly like health.
 
 ### Storage, and the fact S3 is not a filesystem
 
@@ -204,6 +215,20 @@ unrecoverable — revisit before real user data lands.
   folder itself is undeletable. Every `DO_NOT_DELETE.txt` is hidden by **basename**.
 - **An unreadable settings document is quarantined, never deleted and never overwritten**, and a
   **newer** schema is refused untouched — the parse is three-way, version checked before shape.
+- **Bytes go to S3 presigned; small text goes through the API**, and the document route's **byte cap
+  is what holds the line** — without it it is a second upload path that works perfectly to 6 MB. The
+  routes never parse and never re-serialise. An upload is one `PUT` over **`XMLHttpRequest`**, which
+  is a requirement, not a preference: `fetch` fires no upload-progress event, so it uploads
+  correctly and leaves the bar at 0% — assert an **intermediate** value. The 5 GiB ceiling does not
+  move (it is the single-`PUT` cap, and `maxUploadBytes()` clamps to it); **part-level retry is
+  gone**; the URL is minted **per file**, inside `uploadFile`, never per batch.
+- **The four folder-recursive browser functions are DELETED, not ported** — that loop belongs on the
+  plane. So `asyncFileOperations` off means folder operations are **unavailable**, refused **per
+  item** while the files beside them go through; and the refusal is also reachable with the flag ON,
+  when a destination resolves to no known space.
+- **The free-name probe moved to the API, not to the plane** — 999 round trips would be strictly
+  worse than the loop it replaced. `numberedName` lives in Python only, and **exhaustion is now
+  distinguishable from failure** (409 + `attempts`), which it was not.
 
 ### Control planes — one pattern, seven planes, and the traps are shared
 
