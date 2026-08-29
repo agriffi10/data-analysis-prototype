@@ -144,6 +144,201 @@ class UserDirectoryResponse(TypedDict):
     generatedAt: str | None
 
 
+class SpaceRef(TypedDict):
+    """A space, as a request body names it.
+
+    Body-only. A query string carries strings alone, so a GET route flattens this into
+    ``spaceKind``/``spaceName`` rather than sharing the shape — see ``_check_query``.
+
+    Attributes:
+      kind: Which sort of space.
+      name: The space's name. Checked against the caller's verified claims, never trusted.
+    """
+
+    kind: Literal["personal", "shared"]
+    name: str
+
+
+class ObjectEntry(TypedDict):
+    """One row of a listing — a folder or a file, travelling in the same array.
+
+    Attributes:
+      kind: Whether this row is a folder or a file.
+      key: The full object key, or the common prefix for a folder.
+      size: The object's size in bytes, or None for a folder.
+      lastModified: ISO-8601 UTC, or None for a folder.
+    """
+
+    kind: Literal["folder", "file"]
+    key: str
+    size: int | None
+    lastModified: str | None
+
+
+class ListObjectsResponse(TypedDict):
+    """One page of a listing.
+
+    ``nextToken`` is the universal half of the paged contract and ``items`` is not: a page that is
+    a bare homogeneous collection names it ``items``, and a tabular one carries ``columns``/``rows``
+    beside the same ``nextToken``. Both are conformant.
+
+    Attributes:
+      items: The rows, folders and files together.
+      nextToken: S3's ``NextContinuationToken``, opaque and UNMODIFIED, or None on the last page.
+    """
+
+    items: list[ObjectEntry]
+    nextToken: str | None
+
+
+class ObjectMetadataResponse(TypedDict):
+    """What a head reports about one object.
+
+    Attributes:
+      key: The object key.
+      size: Size in bytes.
+      lastModified: ISO-8601 UTC.
+      contentType: The stored content type.
+      etag: The object's ETag.
+    """
+
+    key: str
+    size: int
+    lastModified: str
+    contentType: str
+    etag: str
+
+
+class ObjectExistsResponse(TypedDict):
+    """Whether an object is there.
+
+    **200 for both answers.** Mapping absence onto the error arm would turn every free-name and
+    collision check into a failure the caller has to re-interpret.
+
+    Attributes:
+      exists: Whether the key resolves to an object.
+    """
+
+    exists: bool
+
+
+class ObjectContentResponse(TypedDict):
+    """An object's bytes, decoded as UTF-8 and NEVER parsed.
+
+    Parsing here works for every healthy document and makes an unparseable one a 500 — which puts
+    the browser's whole quarantine path out of reach, because the classifier never sees the body it
+    must classify as unreadable.
+
+    Attributes:
+      body: The object's bytes, decoded as UTF-8.
+      etag: The object's ETag.
+    """
+
+    body: str
+    etag: str
+
+
+class ObjectWrittenResponse(TypedDict):
+    """What a write reports back.
+
+    Attributes:
+      key: The key written.
+      etag: The new ETag.
+    """
+
+    key: str
+    etag: str
+
+
+class ObjectDeletedResponse(TypedDict):
+    """What a delete reports back.
+
+    Attributes:
+      key: The key deleted.
+    """
+
+    key: str
+
+
+
+class ListObjectsQuery(TypedDict):
+    """The listing query. All strings — a query string carries nothing else.
+
+    Attributes:
+      spaceKind: Which sort of space.
+      spaceName: The space's name.
+      prefix: The folder to list, relative to the space root. Absent means the root.
+      nextToken: A continuation token from a previous page.
+    """
+
+    spaceKind: Literal["personal", "shared"]
+    spaceName: str
+    prefix: NotRequired[str]
+    nextToken: NotRequired[str]
+
+
+class ObjectKeyQuery(TypedDict):
+    """A single object, named in a query string.
+
+    Attributes:
+      spaceKind: Which sort of space.
+      spaceName: The space's name.
+      key: The object key.
+    """
+
+    spaceKind: Literal["personal", "shared"]
+    spaceName: str
+    key: str
+
+
+class WriteContentRequest(TypedDict):
+    """A document write.
+
+    Attributes:
+      space: The space.
+      key: The object key.
+      body: The bytes to store, as UTF-8 text. Written BYTE FOR BYTE — never re-serialised.
+      contentType: The content type to store.
+      overwrite: Whether an existing object may be replaced.
+    """
+
+    space: SpaceRef
+    key: str
+    body: str
+    contentType: str
+    overwrite: bool
+
+
+class CopyRequest(TypedDict):
+    """A single-object copy or move.
+
+    Attributes:
+      source: Where to read from.
+      sourceKey: The source object key.
+      destination: Where to write to.
+      destinationKey: The destination object key.
+      overwrite: Whether an occupied destination may be replaced.
+    """
+
+    source: SpaceRef
+    sourceKey: str
+    destination: SpaceRef
+    destinationKey: str
+    overwrite: bool
+
+
+class DeleteRequest(TypedDict):
+    """A single-object delete.
+
+    Attributes:
+      space: The space.
+      key: The object key.
+    """
+
+    space: SpaceRef
+    key: str
+
+
 @dataclass(frozen=True)
 class Route:
     """One route, declared whole.
@@ -189,6 +384,86 @@ ROUTES: Final[tuple[Route, ...]] = (
         request=None,
         query=None,
         response=UserDirectoryResponse,
+    ),
+    Route(
+        id="objects.list",
+        method="GET",
+        path="/v1/objects",
+        idempotent=True,
+        plane="user",
+        request=None,
+        query=ListObjectsQuery,
+        response=ListObjectsResponse,
+    ),
+    Route(
+        id="objects.metadata",
+        method="GET",
+        path="/v1/objects/metadata",
+        idempotent=True,
+        plane="user",
+        request=None,
+        query=ObjectKeyQuery,
+        response=ObjectMetadataResponse,
+    ),
+    Route(
+        id="objects.exists",
+        method="GET",
+        path="/v1/objects/exists",
+        idempotent=True,
+        plane="user",
+        request=None,
+        query=ObjectKeyQuery,
+        response=ObjectExistsResponse,
+    ),
+    Route(
+        id="objects.readContent",
+        method="GET",
+        path="/v1/objects/content",
+        idempotent=True,
+        plane="user",
+        request=None,
+        query=ObjectKeyQuery,
+        response=ObjectContentResponse,
+    ),
+    Route(
+        id="objects.writeContent",
+        method="PUT",
+        path="/v1/objects/content",
+        idempotent=False,
+        plane="user",
+        request=WriteContentRequest,
+        query=None,
+        response=ObjectWrittenResponse,
+    ),
+    Route(
+        id="objects.copy",
+        method="POST",
+        path="/v1/objects/copy",
+        idempotent=False,
+        plane="user",
+        request=CopyRequest,
+        query=None,
+        response=ObjectWrittenResponse,
+    ),
+    Route(
+        id="objects.move",
+        method="POST",
+        path="/v1/objects/move",
+        idempotent=False,
+        plane="user",
+        request=CopyRequest,
+        query=None,
+        response=ObjectWrittenResponse,
+    ),
+    Route(
+        id="objects.delete",
+        method="DELETE",
+        path="/v1/objects",
+        idempotent=False,
+        plane="user",
+        request=DeleteRequest,
+        query=None,
+        response=ObjectDeletedResponse,
     ),
 )
 

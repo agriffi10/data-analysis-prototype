@@ -63,6 +63,7 @@ from apicommon.context import RequestContext
 from cpcommon import observability
 from cpcommon.auth import AuthError, VerifierUnavailable
 from cpcommon.observability import build_version
+from routes import objects_content, objects_head, objects_list, objects_mutate
 from routes.user_directory import user_directory
 
 UUID_RE = re.compile(
@@ -77,6 +78,14 @@ PUBLIC_ROUTES = frozenset({("GET", HEALTH_PATH)})
 
 HANDLERS: dict[str, Callable[[RequestContext], dict[str, Any]]] = {
     "userDirectory.get": user_directory,
+    "objects.list": objects_list.list_objects,
+    "objects.metadata": objects_head.metadata,
+    "objects.exists": objects_head.exists,
+    "objects.readContent": objects_content.read_content,
+    "objects.writeContent": objects_content.write_content,
+    "objects.copy": objects_mutate.copy_object,
+    "objects.move": objects_mutate.move_object,
+    "objects.delete": objects_mutate.delete_object,
 }
 
 

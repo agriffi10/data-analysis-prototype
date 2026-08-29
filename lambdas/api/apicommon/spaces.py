@@ -6,9 +6,9 @@ module is about what it *refuses*.
 
 **It reads claims and nothing else.** `focommon.authz` solves the same problem by loading the
 shared-space registry and asking whether the caller is an active member, and copying that here
-would be wrong twice: it costs an S3 read on a path SPEC-198 FR-001 requires to make **zero** AWS
-calls before refusing, and it sources membership from somewhere other than the claims SPEC-196's
-"the API assumes the same role with the same tags from the same claims" equivalence rests on.
+would be wrong twice: it costs an S3 read on a path that must make **zero** AWS calls before
+refusing, and it sources membership from somewhere other than the claims the identity layer's
+"the same role with the same tags from the same claims" equivalence rests on.
 That file is the obvious thing to reach for; this docstring is here to say don't.
 
 **A refusal costs no AWS call, and that is asserted by call count** — because a refusal issued
@@ -61,7 +61,7 @@ def resolve(identity: UserIdentity, kind: str, name: str) -> ResolvedSpace:
     if kind == "personal":
         # The ONLY personal space a caller may name is their own, and the comparison is against
         # the verified username rather than against anything in the request. A request naming
-        # another user's personal space is the case FR-013's route-layer proof turns on.
+        # another user's personal space is the case the isolation proof turns on.
         if name != identity.username:
             raise ApiError("AccessDenied", "personal space is not the caller's")
         return ResolvedSpace("personal", name, config.user_space_bucket(), f"{name}/")
