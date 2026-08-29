@@ -339,6 +339,53 @@ class DeleteRequest(TypedDict):
     key: str
 
 
+class PresignedUrlResponse(TypedDict):
+    """A minted URL and when it dies.
+
+    ``url`` is a BEARER TOKEN. It is never logged, never cached, and never returned for a key the
+    caller may not reach.
+
+    Attributes:
+      url: The signed URL.
+      expiresAt: ISO-8601 UTC, never later than the signing session's own expiry — which is what
+        stops a URL 403ing at redemption after a long upload has already sent its bytes.
+    """
+
+    url: str
+    expiresAt: str
+
+
+class UploadUrlRequest(TypedDict):
+    """A request for a presigned PUT.
+
+    Attributes:
+      space: The space.
+      key: The object key.
+      contentType: The content type the upload will carry, which is signed into the URL.
+      overwrite: Whether an occupied key may be replaced. With false and the key occupied the
+        route mints NO url.
+    """
+
+    space: SpaceRef
+    key: str
+    contentType: str
+    overwrite: bool
+
+
+class DownloadUrlRequest(TypedDict):
+    """A request for a presigned GET.
+
+    Attributes:
+      space: The space.
+      key: The object key.
+      fileName: An optional filename to offer the browser, escaped into the disposition header.
+    """
+
+    space: SpaceRef
+    key: str
+    fileName: NotRequired[str]
+
+
 @dataclass(frozen=True)
 class Route:
     """One route, declared whole.
@@ -464,6 +511,26 @@ ROUTES: Final[tuple[Route, ...]] = (
         request=DeleteRequest,
         query=None,
         response=ObjectDeletedResponse,
+    ),
+    Route(
+        id="objects.uploadUrl",
+        method="POST",
+        path="/v1/objects/upload-url",
+        idempotent=False,
+        plane="user",
+        request=UploadUrlRequest,
+        query=None,
+        response=PresignedUrlResponse,
+    ),
+    Route(
+        id="objects.downloadUrl",
+        method="POST",
+        path="/v1/objects/download-url",
+        idempotent=True,
+        plane="user",
+        request=DownloadUrlRequest,
+        query=None,
+        response=PresignedUrlResponse,
     ),
 )
 

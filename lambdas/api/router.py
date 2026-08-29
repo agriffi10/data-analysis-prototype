@@ -63,7 +63,13 @@ from apicommon.context import RequestContext
 from cpcommon import observability
 from cpcommon.auth import AuthError, VerifierUnavailable
 from cpcommon.observability import build_version
-from routes import objects_content, objects_head, objects_list, objects_mutate
+from routes import (
+    objects_content,
+    objects_head,
+    objects_list,
+    objects_mutate,
+    objects_presign,
+)
 from routes.user_directory import user_directory
 
 UUID_RE = re.compile(
@@ -86,6 +92,8 @@ HANDLERS: dict[str, Callable[[RequestContext], dict[str, Any]]] = {
     "objects.copy": objects_mutate.copy_object,
     "objects.move": objects_mutate.move_object,
     "objects.delete": objects_mutate.delete_object,
+    "objects.uploadUrl": objects_presign.upload_url,
+    "objects.downloadUrl": objects_presign.download_url,
 }
 
 
