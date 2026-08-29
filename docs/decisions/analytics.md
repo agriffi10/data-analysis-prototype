@@ -25,6 +25,7 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [Calc computes what only the browser has, grouping computes what only Athena can, and the percentage says which page it is of (SPEC-182)](#calc-computes-what-only-the-browser-has-grouping-computes-what-only-athena-can-and-the-percentage-says-which-page-it-is-of-spec-182)
 - [A saved exploration follows the flag that owns the STORE, not the one that owns the screen (SPEC-183)](#a-saved-exploration-follows-the-flag-that-owns-the-store-not-the-one-that-owns-the-screen-spec-183)
 - [Results are read only at SUCCEEDED, and `isPending` is not a substitute (2026-08-16)](#results-are-read-only-at-succeeded-and-ispending-is-not-a-substitute-2026-08-16)
+- [`stateChangeReason` rides a 200 and the wording is chosen in the browser (SPEC-199)](#statechangereason-rides-a-200-and-the-wording-is-chosen-in-the-browser-spec-199)
 - [A stale result must not be served at all, so the eviction reaches the tab in front of you (2026-08-19)](#a-stale-result-must-not-be-served-at-all-so-the-eviction-reaches-the-tab-in-front-of-you-2026-08-19)
 - [A column name is user data, and the renderer must be safe without it being validated (2026-08-19)](#a-column-name-is-user-data-and-the-renderer-must-be-safe-without-it-being-validated-2026-08-19)
 - [Athena's two dialects need two escapers in the browser, and the second was missing (2026-08-19)](#athenas-two-dialects-need-two-escapers-in-the-browser-and-the-second-was-missing-2026-08-19)
@@ -703,6 +704,62 @@ where it said "Loading rows…" — the old text was wrong, and wrong *because* 
 fetching rows then. And a query outliving `MAX_POLL_DURATION_MS` (5 min) now shows an indefinite
 "Running…" rather than a permanent wrong error banner; neither self-heals, and the behaviour is
 unspecified.
+
+**EXTENDED by SPEC-199, when the API landed in this path.** The ambiguity that forced a message rule
+in the browser is now resolved at the one layer holding the message: the route classifies Athena's
+`InvalidRequestException` **by its text** and answers **409 `QueryNotFinished`** for a too-early read
+and **400 `QuerySyntaxError`** for a statement refused at submit. Three things follow, and each is a
+place a careful implementation goes wrong.
+
+- **The client rule becomes a `code` rule** — the first time this one could be. A code rule outranks
+  every message rule, which is what made the name-keyed version unsafe before and makes this version
+  stronger. The old `invalid_query_execution_state|query has not yet finished` match rule is deleted,
+  and the sentence is asserted byte-identical so no wording moved.
+- **The caller-side gate is KEPT, and its test asserts on the CALL rather than the screen.** With the
+  409 mapping in place, removing the gate produces a *correct-looking* "still running" message
+  instead of the old alarming one — so a rendering assertion cannot fail any more. The assertion is
+  **zero** results requests while the state is `QUEUED` or `RUNNING`. `useResultRowCount` is gated by
+  a different mechanism and deliberately so: it reads no state, and its walk is stopped by
+  `hasResultSet` — columns having arrived — which is a consequence of a succeeded execution rather
+  than a reading of one.
+- **Mapping by exception name still passes any test that exercises one case at a time**, which is
+  exactly how the original defect survived; the malformed-query counter-case sits in the same file
+  for that reason.
+
+## `stateChangeReason` rides a 200 and the wording is chosen in the browser (SPEC-199)
+
+A query Athena refuses is not an error anywhere in the plumbing: `GetQueryExecution` **succeeds** and
+the reason arrives as a field. So a FAILED or CANCELLED execution is a **200** with the engine's
+string byte-identical on the body — never truncated, never mapped to a code, never merged into
+`detail` — and `lib/errorMessages.ts` chooses the sentence.
+
+**This is not in tension with the API answering machine codes** (SPEC-197), and the distinction is
+the whole entry: a code describes what happened to the **request**, and `stateChangeReason` is data
+about a **query** that the request retrieved successfully. Mapping a failed execution onto an error
+envelope is the change that looks most correct, and it retires six authored sentences — unqualified
+table, table not found, column not found, Lake Formation permission, still-running, syntax error — the
+`FAILED`/`CANCELLED` codes `useExploration` mints, and the last-good-rows fallback, in one move. Every
+failed query then says *"Something went wrong. Contact the Administrator."* and nothing looks broken.
+**No later spec may move that mapping server-side**; that is SPEC-106 reversed by a route that looked
+like it was being helpful.
+
+**Lake Formation denies in two different shapes and both must survive.** A Glue read the caller has
+no `DESCRIBE` on raises `AccessDeniedException` → **403**, envelope-shaped, no AWS text in `detail`.
+An Athena query the caller has no `SELECT` on does not fail the call at all — the execution reaches
+FAILED and the reason names Lake Formation, on a **200**. An implementation that maps every LF denial
+to a 403 handles the first perfectly and silently converts the second into an error envelope. A 403
+from either is **never** a re-login: collapsing 401 and 403 makes the isolation model present as a
+broken session.
+
+**Two related fields are load-bearing and easy to lose.** `dataScannedBytes` and
+`engineExecutionTimeMillis` are `null` while an execution is non-terminal, as Athena reports them — a
+poll that reports a confident `0` freezes the tab's cost figure at zero. And `outputLocation` must
+survive, because the export copies that object and Save results parses it.
+
+**The generic sentence is reserved for what a user cannot act on.** That rule is why
+`QuerySyntaxError` exists rather than folding into `InvalidRequest`, and it is held by
+`USER_FIXABLE_CODES`, computed from the rules: a code marked user-fixable that resolves to
+"contact the administrator" is a contradiction the guard can see.
 
 ## A stale result must not be served at all, so the eviction reaches the tab in front of you (2026-08-19)
 

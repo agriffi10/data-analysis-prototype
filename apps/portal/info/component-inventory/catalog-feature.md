@@ -14,14 +14,14 @@ throw.
 
 | Symbol | File | Purpose |
 |---|---|---|
-| `runQuery({ sql, database?, username, outputLocation? })` | `athena.service.ts` | `StartQueryExecution` against the shared workgroup. `outputLocation` omitted → the caller's own `{username}/athenaresults/`; pass a shared path for a shared-DB query (SPEC-055). Type-agnostic (SELECT + DDL). `ServiceResult<{ queryExecutionId }>`. |
-| `getQueryStatus(id)` | `athena.service.ts` | `GetQueryExecution` → `QueryStatus` (state/reason/stats/outputLocation). |
-| `getQueryResults({ queryExecutionId, nextToken?, maxRows? })` | `athena.service.ts` | `GetQueryResults` → typed `QueryResultPage` (first-page header row stripped after a `+1` overfetch; paginates via `nextToken`). DDL → empty page. A cell is **`null` for SQL NULL and `''` for an empty string** since SPEC-180 — the two used to be collapsed here, and no consumer could reconstruct the difference. |
-| `stopQuery(id)` | `athena.service.ts` | `StopQueryExecution` → CANCELLED. |
+| `runQuery({ sql, database?, username })` | `athena.service.ts` | `POST /v1/queries`. The workgroup, the results location (`{username}/athenaresults/`) and the caller's identity are derived SERVER-SIDE from the verified claim — the wire has nowhere to name any of them, which is why `outputLocation` is gone and `username` stays on the signature only so no call site changed. Type-agnostic (SELECT + DDL). `ServiceResult<{ queryExecutionId }>`. |
+| `getQueryStatus(id)` | `athena.service.ts` | `GET /v1/queries/{id}` → `QueryStatus`. A FAILED or CANCELLED execution is a **200**, and `stateChangeReason` arrives byte-identical: it is data about the query, and six authored sentences in `errorMessages.ts` are chosen by reading it. Statistics are `null` while non-terminal, never `0`. |
+| `getQueryResults({ queryExecutionId, nextToken?, maxRows? })` | `athena.service.ts` | `GET /v1/queries/{id}/results` → typed `QueryResultPage`. The `+1` overfetch, the 1000 clamp and the first-page header-row drop now happen server-side; the pager still walks `nextToken` here. Reading before SUCCEEDED is **409 `QueryNotFinished`**, and the caller's own gate is still what stops it. A cell is **`null` for SQL NULL and `''` for an empty string** — the two used to be collapsed here, and no consumer could reconstruct the difference. |
+| `stopQuery(id)` | `athena.service.ts` | `POST /v1/queries/{id}/stop` → CANCELLED. Idempotent **despite being a POST** (the id is in the path), and stopping an already-terminal execution is a success. No ownership check, because Athena authorizes by workgroup and there is none to preserve. |
 | `isTerminalState(state)` | `athena.service.ts` | Is a `QueryState` terminal (SUCCEEDED/FAILED/CANCELLED)? |
 | `runStatementToCompletion({ sql, database, username, signal? })` / `isAbandoned(result)` / `ABANDONED_CODE` | `athena.service.ts` | Run-and-poll-to-terminal helper for background statements (View DDL, Drop, Create view). An abandoned poll is its OWN code, so a caller says nothing rather than borrowing the upload feature's "Upload cancelled." (SPEC-044/048). |
 | `getTableDdl({ database, table, username, isView? })` | `athena.service.ts` | `SHOW CREATE TABLE` (or `SHOW CREATE VIEW`) → the assembled DDL (SPEC-044/048). |
-| `getDatabase(name)` / `listTables(name)` | `glue.service.ts` | A Glue DB + its tables/columns (paginated). Missing DB → `NotFound` / empty list, never thrown. |
+| `getDatabase(name)` / `listTables(name)` | `glue.service.ts` | `GET /v1/catalog/databases/{db}` and `…/tables`. Missing DB → `NotFound` / empty list, never thrown — deliberately different answers, because a not-yet-created database is an empty schema browser rather than a banner. `listTables` keeps returning the whole list and walks the API's `nextToken` internally, so its callers never learned the API pages. |
 
 ### Hooks, keys, types, constants
 

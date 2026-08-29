@@ -178,3 +178,19 @@ if __name__ == "__main__":
     import pytest
 
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_the_identity_block_rides_along_and_the_verb_reaches_its_normal_outcome():
+    """The allowlist refuses unknown top-level fields, so an addition is a refusal until widened.
+
+    Without ``"identity"`` in ``_ALLOWED_FIELDS`` this raises ``malformed_event`` — which is what
+    makes the widening load-bearing rather than cosmetic.
+    """
+    _setup(spaces={})
+
+    result = v.handler(
+        _event(extra={"identity": {"actor": "alice", "delegated_by": None, "assurance": "interactive"}}), None
+    )
+
+    assert result["requestId"] == "req-1"
+    assert result["actor"] == {"username": "alice"}

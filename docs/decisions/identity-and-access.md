@@ -33,6 +33,8 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [Cognito tokens are held per TAB, not per browser (2026-08-27)](#cognito-tokens-are-held-per-tab-not-per-browser-2026-08-27)
 - [A presigned URL is a bearer token (SPEC-198)](#a-presigned-url-is-a-bearer-token-spec-198)
 - [The dev-unauth path is retired (SPEC-198, supersedes SPEC-002)](#the-dev-unauth-path-is-retired-spec-198-supersedes-spec-002)
+- [The API makes exactly ONE AWS call per request, and every loop stays in the browser (SPEC-199)](#the-api-makes-exactly-one-aws-call-per-request-and-every-loop-stays-in-the-browser-spec-199)
+- [A route may carry PATH parameters, and a value that is not one segment is refused in the browser (SPEC-199)](#a-route-may-carry-path-parameters-and-a-value-that-is-not-one-segment-is-refused-in-the-browser-spec-199)
 
 ## Auth
 
@@ -48,9 +50,11 @@ Browser → AWS direct. Cognito **trigger Lambdas** are allowed (service config,
 
 > **Superseded (2026-08-28).** This premise no longer describes the system. Privileged work moved onto
 > seven **control planes** (SPEC-051 onward), and SPEC-192→197 added an **HTTP API** that verifies a
-> bearer and serves routes. What survives is the boundary, not the absence: the browser still calls S3,
-> Athena and Glue **directly** with scoped credentials for most reads, and the two live rules are **no
-> second API** and **no new browser-side AWS SDK call on a path an API route already serves**. Full
+> bearer and serves routes. What survives is the boundary, not the absence, and the two live rules are
+> **no second API** and **no new browser-side AWS SDK call on a path an API route already serves**.
+> (Updated 2026-08-29: this marker used to say the browser still called S3, Athena and Glue directly
+> for most reads. SPEC-198 and SPEC-199 ported both surfaces; what the browser reaches without the API
+> is presigned S3 bytes, Cognito, and the control-plane `sqs:SendMessage` enqueues.) Full
 > entries: [`control-planes.md`](control-planes.md) and the API entries below. Shape:
 > `docs/architecture.md` → *The control planes* and *The API layer*.
 
@@ -711,3 +715,75 @@ not because it was weak — and the `runtimeConfig` allowlist that named five mo
 than leaving the story implied by the absence of the old one. Presigned uploads and downloads redeem
 from `http://localhost:5173`, which both buckets' CORS allowlists still name — and that entry stays
 for exactly this reason, not because of the path this entry retires.
+
+## The API makes exactly ONE AWS call per request, and every loop stays in the browser (SPEC-199)
+
+The shape a reader reaches for is *"the API waits for the query"*, and it is wrong twice over. **The
+ceiling is computed, not asserted:** an HTTP API's integration timeout is 30,000 ms and is **not
+raisable**, so a five-minute query is 10× the budget — the rejected design does not fail at the
+margin, it fails always — and it would hold a Lambda open for the duration of a user's query while
+doing so. The slowest route on this surface is `athena.results` at a 1000-row page, sub-second.
+
+So the four loops the catalog rides on stayed exactly where they were, unchanged apart from what they
+call: `useQueryExecution`'s poll (1.5 s, 5-minute ceiling), `runStatementToCompletion`'s (400 ms × 90),
+`useQueryResults`' `NextToken` paging, and `useResultRowCount`'s background walk. `listTables` walks
+the API's `nextToken` inside the service, so `useSchema` still gets every table from one call.
+
+**The counting rule is the part that is easy to get wrong.** "One botocore call per request" is
+unsatisfiable on a cold invocation and satisfiable on the next, because the per-container session
+cache makes `sts:AssumeRole` fire on some invocations and not others. The assertion is therefore on
+**the service client the route holds** — the one returned by `user_client('athena'|'glue', …)` — and
+says nothing about STS. The distinguishing case is `catalog.tables.list`: a server-side `NextToken`
+walk would satisfy every behavioural test and quietly make the API a loop over a user-controlled
+collection.
+
+**The accepted consequence is stated rather than mitigated.** A five-minute query is ~200 status
+requests and a million-row walk ~1000 results requests — the same counts as before, one extra hop
+each. They now meet API Gateway account throttling, `apiRequest` never retries a 429, and the walk
+already swallows a failed page into `total: null`. No new mechanism was added.
+
+**The one exception in this arc is SPEC-198's free-name route**, and its justification — 999
+sequential probes for one gesture — does not generalise to a 1.5-second poll. The sweep that holds
+this reads code, not prose: no `time.sleep`, no botocore waiter, no paginator, no `while` over a
+continuation token, plant-verified in both directions.
+
+## A route may carry PATH parameters, and a value that is not one segment is refused in the browser (SPEC-199)
+
+Four of the six catalog routes name a resource in the path, and the transport could not address one —
+`route_for` was a string comparison and `apiRequest` used the generated path verbatim. SPEC-198
+sidestepped it by flattening identifiers into the query string; this declares templates, and
+SPEC-200/201 inherit the mechanism.
+
+**API Gateway hands the function a percent-decoded path**, measured against the deployed API rather
+than assumed (`GET /health%7A` answers 200 — it matched `/healthz`; `GET /healthz%20` answers 401). So
+the browser encodes each segment and the server never unquotes.
+
+**A parameter must be ONE segment, and two unrelated mechanisms at two different layers turn a value
+into extra structure:** `a/b` survives `encodeURIComponent` as `%2F`, reaches the wire intact and is
+decoded by the gateway; `.` and `..` are not encoded at all and never reach the wire, because the URL
+parser collapses dot segments when `fetch` reads the string. Either one addresses a template the
+caller did not name — `athena.status` asked for `abc/results`, or for `.`, arrives as
+`athena.results`. Both answer **200, with a body of the wrong shape, typed as the right one**; a 404
+would have been survivable. A first version of the guard refused only the slash, which is the same
+defect it was written to prevent.
+
+**The refusal is client-side, and that is about where the check can work rather than about safety.**
+The server cannot tell such a path from one a caller legitimately typed — by the time it matches, the
+separator is a separator. Both siblings sit on the user plane under the same assumed identity, so a
+caller reaches nothing a direct request would not give them. Whether `rawPath` preserves the encoding
+and would allow the same check server-side is **not measured**, and the comment says so rather than
+implying it was ruled out. It mints its own `UnsendableParameter` code, deliberately not the server's
+`InvalidRequest`: reusing that would make a refusal of ours indistinguishable from the API's own, in
+the one case where the difference is the whole diagnosis.
+
+**A missing parameter is a COMPILE error, through a conditional rest tuple** rather than an optional
+field. As an optional field the omission compiles and the literal `/v1/queries/{queryExecutionId}/stop`
+goes on the wire — where the gateway decodes the braces, the matcher **matches**, and Athena is handed
+`{queryExecutionId}` as an execution id. A generic wrapper must forward `...args` rather than take an
+options object: with the route id still a type variable, TypeScript cannot pick an arm of the
+conditional. **Both silent failures of a templated matcher are refused at declaration time** — a
+segment carrying a brace that is not a well-formed placeholder (which would 404 every caller while
+every type check stayed green, and silently publish no parameters) and two overlapping templates
+(which would resolve by declaration order). There is deliberately no literal-beats-template precedence
+rule: it would be a second thing to reason about at every future declaration and only ever fires in
+the case the refusal makes unreachable.

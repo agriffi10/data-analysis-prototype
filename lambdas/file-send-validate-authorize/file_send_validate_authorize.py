@@ -48,7 +48,7 @@ logger.setLevel(logging.INFO)
 
 observability.init(service="file-send")
 
-_ALLOWED_FIELDS = frozenset({"requestId", "actor", "source", "recipients"})
+_ALLOWED_FIELDS = frozenset({"requestId", "actor", "source", "recipients", "identity"})
 
 _ITEM_KINDS = frozenset({"file", "folder"})
 

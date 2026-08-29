@@ -25,6 +25,7 @@ from collections.abc import Mapping
 from cpcommon.auth import AuthError, Principal, verify_token
 
 from . import config
+from .context import Redacted
 
 AUTHORIZATION = "authorization"
 BEARER = "bearer"
@@ -52,6 +53,25 @@ def _bearer_token(headers: Mapping[str, str]) -> str:
     if len(parts) != 2 or parts[0].lower() != BEARER or not parts[1]:
         raise AuthError(REASON_NO_CREDENTIAL)
     return parts[1]
+
+
+def bearer(headers: Mapping[str, str]) -> Redacted:
+    """Returns the caller's raw credential, wrapped so it cannot be rendered.
+
+    Transitional. The control planes still verify a token out of the message body, so the enqueue
+    routes have to forward one — and the wrapper is what keeps the premise this module was written
+    under true in the meantime: the token reaches no handler, and exactly one module unwraps it.
+
+    Args:
+      headers: The request's headers.
+
+    Returns:
+      The wrapped token.
+
+    Raises:
+      AuthError: If the header is absent, or is not exactly a bearer credential.
+    """
+    return Redacted(_bearer_token(headers))
 
 
 def resolve(headers: Mapping[str, str]) -> Principal:

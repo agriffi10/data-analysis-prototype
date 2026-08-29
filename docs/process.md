@@ -541,7 +541,8 @@ These pass locally and fail later — check them as part of the work, not as an 
 - **There IS a backend now, and it is two shapes.** "No backend" was true through the first
   hundred-odd specs and is not any more: an **HTTP API** verifies bearer tokens and serves routes,
   and **seven control planes** run privileged async work. What survives of the old rule is the
-  boundary — the browser still calls S3, Athena and Glue **directly** with scoped credentials for
-  most reads, and a feature does not get its own service. The two live rules are **no second API**
-  and **no new browser-side AWS SDK call on a path an API route already serves**.
+  boundary — a feature does not get its own service. The browser's direct AWS surface is now
+  presigned S3 bytes, Cognito, and the control-plane `sqs:SendMessage` enqueues; the object surface
+  and the catalog went behind the API. The two live rules are **no second API** and **no new
+  browser-side AWS SDK call on a path an API route already serves**.
 - **Don't add dependencies** without first noting them in CLAUDE.md's Tech Stack.

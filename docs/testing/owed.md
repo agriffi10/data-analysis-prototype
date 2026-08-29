@@ -185,6 +185,24 @@ each one. Unrun rather than unobservable, which is why they are not in the secti
 | **The SPEC-159 quarantine sequence end to end** | Needs a deliberately corrupted `query-history.json` in a real prefix. |
 | **Recorded as OWED with no check to write:** part-level retry behaviour — there is none, by design (FR-005 AC6) — and an end-to-end "user A read user B's bytes and was refused by IAM", which **is not reachable from this API** because no route accepts a foreign prefix. A temporary foreign-prefix probe route was **declined**: a route that grants a foreign-prefix read in order to test that foreign-prefix reads are refused is the shape of the defect it tests for. |
 
+### SPEC-199's live verification — written and runnable, not yet run
+
+**Every item in the SPEC-199 block of [`e2e.md`](e2e.md) §4.3 is owed**, along with §4.5's rows 11,
+14 and 15. Unrun rather than unobservable, which is why they are not in the section below.
+
+| Owed | Why it is not settled offline |
+|---|---|
+| **Lake Formation authorizes the ASSUMED-ROLE session** (FR-008 AC7) — a real `SELECT` against the caller's own database returns rows | The arc's central claim, and **it also discharges SPEC-196 Phase 5 item 4**, which that spec recorded as owed and re-homed here. LF is modelled by no IAM policy simulator, and every offline test supplies its own botocore fixture, so nothing offline can say whether LF still enforces against a principal the API assumes rather than the browser holds. Running it from a laptop proves nothing either: the local CLI identity is an IAM **user**, a different principal, and LF filters its catalog to empty. |
+| **Both Lake Formation denial shapes, in one sitting** (FR-008 AC4) | A Glue read with no `DESCRIBE` is a **403**; an Athena query with no `SELECT` is a **200** whose execution reaches FAILED. Recording only the 403 proves nothing about the shape that matters more — the one six authored sentences are chosen from. Needs a database and a table the acting user is genuinely not granted on, so a second account or an ungranted fixture. |
+| **A foreign database and an absent one, compared** (FR-008 AC9) | Whether they are distinguishable is **Lake Formation's** property, not this API's, and the route adds no existence check of its own. Record what each returns; if they differ it is a finding for SPEC-202's sweep, not a failure of this spec. |
+| **A real engine message still matches the wording rules after a JSON round trip** (FR-003) | Every offline fixture is a string this repo wrote. What is unproven is that Athena's *current* text still matches the six `MATCH_RULES` once it has crossed the wire verbatim. If it stops matching, every failed query says "Contact the Administrator" and nothing looks broken. |
+| **`null` ≠ `''` on the raw body, against real data** (FR-004 AC2) | The rendered grid shows the Value panel's rendering of both, so it cannot tell them apart; the assertion is on the response body text. |
+| **The disclosed SQL is byte-identical to the `QueryString` Athena received** (FR-009) | Needs `aws athena get-query-execution` on the execution the disclosure named. A statement mangled by a `strip()` still runs, still returns rows and still looks right in the disclosure. |
+| **The 409/400 pair, from `curl`** (FR-005 AC2) | A results read against a still-running execution and a malformed statement at submit raise the **same** Athena exception name. The browser cannot stage the first — the caller-side gate is what prevents it — so the negative needs a direct request. |
+| **The browser has stopped talking to Athena and Glue** (FR-013 AC5) | The packages are gone and a guard asserts they do not resolve, but "no request leaves the tab for `athena.*.amazonaws.com`" is a network-panel observation. |
+| **Cold start** | A layer imported and not attached deploys clean and fails at import; the first invocation after a deploy is the only place it shows. |
+
+
 ### Not observable at all
 
 | Check | Why |
@@ -198,12 +216,14 @@ each one. Unrun rather than unobservable, which is why they are not in the secti
 | **The unknown-`kid` refetch bound under real load** (SPEC-195) | The counter is asserted offline against a fake transport. What is not observed is the fetch rate a real burst produces against the real JWKS endpoint. |
 | **A live 403 on the user plane** (SPEC-197) | Cannot be staged against a bucket-wide grant. **Passed to SPEC-198.** |
 | **What `setUnauthenticatedHandler` should DO** (SPEC-197 FR-007) | The hook ships with **no handler registered**, deliberately: `apiRequest` never navigates, and what a genuinely-dead session should do to the UI is a product decision this spec's scope excludes. Until one is registered, a surviving 401 resolves to "Your session expired. Sign in again." and nothing else happens. |
+| **A 429 mid-walk, observed live** (SPEC-199 FR-007) | API Gateway account throttling cannot be staged. The degradation is unit-tested — a failed page leaves `total: null` and raises no banner — and the live half is the one that would show whether a real burst produces it at all. |
 | **Stale root-level static assets** (SPEC-141) | An accepted orphan class, not a check. Removals are by hand, and **not verifiable by status code** — the distribution maps `403/404 → /index.html` with a **200**, so check `content-type` and `x-cache: Error from cloudfront`. |
 
 ### Accepted exposure, with an owner
 
 | Exposure | Owner | Note |
 |---|---|---|
+| **A browser holding another user's execution id can read that execution** | unowned — **owed a spec** | Athena authorizes `GetQueryExecution` / `GetQueryResults` / `StopQueryExecution` by **workgroup**, and this deployment has one shared workgroup. SPEC-199's port **preserved this exactly** — the API adds no ownership check and removes none — because a real fix needs an execution→owner record that does not exist. The whole mitigation shipped is `actor` and `execution_id` on every catalog span, so a cross-user read is at least attributable in `logs/service=api/`. |
 | **The API is internet-facing and unthrottled** | SPEC-196 | `api.dataquarry.app` answers `GET /healthz` without a credential and **401s everything else**, identified or not — it now verifies a bearer token (SPEC-195), so "unauthenticated" is stale, but it still makes no AWS call and holds no data. One new exposure comes with the verification: an unknown `kid` makes a JWKS refetch, so a stream of random `kid`s is an amplification vector against the provider **from unauthenticated requests** — bounded by a per-container cooldown, and the bound is asserted offline only (see *Not observable at all*). A rate limit is **deliberately deferred by the arc**, so the account default (10,000 rps / 5,000 burst) applies and every request is a billed invocation. CORS restrains browsers, not `curl`. Reviewed and accepted 2026-08-26; the exposure is billing, not disclosure. Revisit if the placeholder is still there when a route with a body lands. |
 
 ### Dated, and nothing in CI will raise it

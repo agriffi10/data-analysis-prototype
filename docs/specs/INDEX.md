@@ -204,8 +204,8 @@ Add a row when a spec is created; update its status on completion (status only �
 | 196 — The AWS Identity Layer | Completed |
 | 197 — The Transport Contract & the First Ported Feature | Completed |
 | 198 — The S3 Surface & Presigned Bytes | Completed |
-| 199 — The Catalog Surface: Athena & Glue | In Progress |
-| 200 — The Enqueue Paths & the Delegated Actor Contract | Draft |
+| 199 — The Catalog Surface: Athena & Glue | Completed |
+| 200 — The Enqueue Paths & the Delegated Actor Contract | In Progress |
 | 201 — The Lambda Trust Boundary | Draft |
 | 202 — Retiring CloudFront & the Identity Pool, and the Arc's Live Checks | Draft |
 | 203 — The Membership Index | Draft |

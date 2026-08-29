@@ -74,6 +74,9 @@ from routes import (
     objects_mutate,
     objects_presign,
 )
+from routes import (
+    enqueue as enqueue_routes,
+)
 from routes.user_directory import user_directory
 
 UUID_RE = re.compile(
@@ -87,6 +90,16 @@ MAX_ECHOED_CHARS = 128
 PUBLIC_ROUTES = frozenset({("GET", HEALTH_PATH)})
 
 HANDLERS: dict[str, Callable[[RequestContext], dict[str, Any]]] = {
+    "sharedSpace.enqueue": enqueue_routes.shared_space,
+    "notifications.enqueue": enqueue_routes.notifications,
+    "tableBuild.create": enqueue_routes.table_build,
+    "tableBuild.refresh": enqueue_routes.table_refresh,
+    "tableShare.enqueue": enqueue_routes.table_share,
+    "dataQuality.enqueue": enqueue_routes.data_quality,
+    "fileSend.enqueue": enqueue_routes.file_send,
+    "archive.archive": enqueue_routes.archive,
+    "archive.restore": enqueue_routes.restore,
+    "fileOps.enqueue": enqueue_routes.file_ops,
     "userDirectory.get": user_directory,
     "featureFlags.get": feature_flags.feature_flags,
     "objects.list": objects_list.list_objects,
@@ -342,6 +355,7 @@ def route(
                         body,
                         MappingProxyType(dict(query or {})),
                         MappingProxyType(dict(path_params)),
+                        principal.bearer(headers or {}),
                     )
                 )
             )

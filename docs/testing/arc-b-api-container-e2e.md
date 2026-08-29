@@ -1365,6 +1365,12 @@ Owed since SPEC-195, when `apiFetch` had no caller. It has one now.
   first per-user route.**
 - **A live 403 on this plane**, which cannot be staged against a bucket-wide grant. **→ SPEC-198.**
 
+**The ported FEATURES are checked in [`e2e.md`](e2e.md), not here.** SPEC-198's object surface is
+§4.2, SPEC-199's catalog surface is §4.3 with three rows in §4.5, and their owed rows are in
+[`owed.md`](owed.md). This script proves the arc's *platform* — the container, the boundary, the
+transport — and a check on a feature a user drives belongs in the guide beside every other check on
+that feature, which is where it will still be after this script is folded in and deleted.
+
 ## 14. Cleanup
 
 **Restore the app client's ID-token validity if D.3 was run.** It is shortened to five minutes to
