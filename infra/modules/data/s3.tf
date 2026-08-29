@@ -83,7 +83,14 @@ resource "aws_s3_bucket_cors_configuration" "user_space" {
 
   cors_rule {
     allowed_methods = ["GET", "PUT", "POST", "DELETE", "HEAD"]
-    allowed_origins = var.app_url != "" ? ["http://localhost:5173", var.app_url] : ["http://localhost:5173"]
+    # `localhost` stays, and NOT because of the dev-unauth path: a developer running `npm run dev`
+    # against a deployed API still redeems presigned URLs from it. `app_url` stays for the whole
+    # arc — CloudFront is the rollback until it is retired, and removing it here would break the
+    # rollback in exactly the way that is only discovered when it is needed. `allowed_methods` is
+    # left alone for the same reason: the rollback is to the CURRENT bundle, which issues HEAD,
+    # DELETE and multipart POST, so narrowing to GET/PUT would keep the origin allowlisted while
+    # breaking every method it uses.
+    allowed_origins = compact(["http://localhost:5173", var.app_url, var.spa_origin])
     allowed_headers = ["*"]
     expose_headers  = ["ETag", "x-amz-server-side-encryption", "x-amz-request-id", "x-amz-id-2"]
     max_age_seconds = 3000

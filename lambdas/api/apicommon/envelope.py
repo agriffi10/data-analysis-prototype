@@ -22,6 +22,7 @@ Attributes:
 """
 
 import json
+from collections.abc import Mapping
 from typing import Any
 
 from .contract import ERROR_STATUS
@@ -40,14 +41,18 @@ class ApiError(Exception):
     Attributes:
       code: The machine code, which decides the status.
       detail: Optional operator text, authored here rather than derived from an exception.
+      params: Optional typed values the client composes its own wording from.
     """
 
-    def __init__(self, code: str, detail: str | None = None) -> None:
+    def __init__(
+        self, code: str, detail: str | None = None, params: Mapping[str, Any] | None = None
+    ) -> None:
         """Builds the failure.
 
         Args:
           code: The machine code. Must be one the contract declares.
           detail: Optional operator text. Never a stringified exception.
+          params: Optional typed values for the client's own wording. Never a sentence.
 
         Returns:
           None.
@@ -60,6 +65,7 @@ class ApiError(Exception):
         self.status = ERROR_STATUS[code]
         self.code = code
         self.detail = detail
+        self.params = params
 
 
 def _headers() -> dict[str, str]:
@@ -98,7 +104,12 @@ def success(body: dict[str, Any]) -> dict[str, Any]:
     return {"statusCode": 200, "headers": _headers(), "body": json.dumps(body)}
 
 
-def failure(code: str, request_id: str, detail: str | None = None) -> dict[str, Any]:
+def failure(
+    code: str,
+    request_id: str,
+    detail: str | None = None,
+    params: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """Serialises a failure into the one wrapped shape.
 
     Args:
@@ -107,6 +118,7 @@ def failure(code: str, request_id: str, detail: str | None = None) -> dict[str, 
       detail: Optional operator text. Omitted from the body entirely when absent, rather than
         carried as null — an absent key and a null one are the same fact, and one of them is
         a field a client can start reading.
+      params: Optional typed values, omitted on the same rule.
 
     Returns:
       The payload-format-2.0 response.
@@ -117,6 +129,8 @@ def failure(code: str, request_id: str, detail: str | None = None) -> dict[str, 
     error: dict[str, Any] = {"code": code, "requestId": request_id}
     if detail is not None:
         error["detail"] = detail
+    if params:
+        error["params"] = dict(params)
     return {
         "statusCode": ERROR_STATUS[code],
         "headers": _headers(),

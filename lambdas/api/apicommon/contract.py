@@ -28,6 +28,7 @@ Attributes:
     in one of those places and not the others.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import (
     Any,
@@ -73,6 +74,29 @@ ROUTE_STATUSES: Final[frozenset[int]] = frozenset(
 )
 
 
+class ErrorParams(TypedDict, total=False):
+    """The typed values a client needs to compose its own sentence for a failure.
+
+    **Never free text, and never the sentence itself.** ``detail`` is operator prose the browser
+    renders nowhere; this is the structured half — the colliding name, the bound that was hit —
+    from which the SPA mints the wording it already ships. Five of ``errorMessages.ts``'s
+    ``passthrough`` codes belong to the object surface and none of them may travel on the wire
+    (the disjointness guard forbids it), so the values behind them travel here instead.
+
+    Every key is optional, which is legal by DECLARATION rather than by exception: ``total=False``
+    is inside the closed vocabulary and emits ``key?: X``.
+
+    Attributes:
+      name: The colliding leaf name, for a Conflict.
+      attempts: The bound a free-name search exhausted, for a Conflict.
+      limit: The byte cap that refused a payload, for a PayloadTooLarge.
+    """
+
+    name: str
+    attempts: int
+    limit: int
+
+
 class ApiErrorDetail(TypedDict):
     """The inner object of every failure body.
 
@@ -85,11 +109,14 @@ class ApiErrorDetail(TypedDict):
       code: The machine code, drawn from the closed set.
       requestId: The gateway's id for the request, so a user-reported failure is findable.
       detail: Optional operator text. Never a stringified exception.
+      params: Optional typed values the client composes its own wording from. Absent unless the
+        raise site has something structured to hand over.
     """
 
     code: ErrorCode
     requestId: str
     detail: NotRequired[str]
+    params: NotRequired[ErrorParams]
 
 
 class ApiErrorBody(TypedDict):
@@ -117,6 +144,274 @@ class UserDirectoryResponse(TypedDict):
     generatedAt: str | None
 
 
+class SpaceRef(TypedDict):
+    """A space, as a request body names it.
+
+    Body-only. A query string carries strings alone, so a GET route flattens this into
+    ``spaceKind``/``spaceName`` rather than sharing the shape — see ``_check_query``.
+
+    Attributes:
+      kind: Which sort of space.
+      name: The space's name. Checked against the caller's verified claims, never trusted.
+    """
+
+    kind: Literal["personal", "shared"]
+    name: str
+
+
+class ObjectEntry(TypedDict):
+    """One row of a listing — a folder or a file, travelling in the same array.
+
+    Attributes:
+      kind: Whether this row is a folder or a file.
+      key: The full object key, or the common prefix for a folder.
+      size: The object's size in bytes, or None for a folder.
+      lastModified: ISO-8601 UTC, or None for a folder.
+    """
+
+    kind: Literal["folder", "file"]
+    key: str
+    size: int | None
+    lastModified: str | None
+
+
+class ListObjectsResponse(TypedDict):
+    """One page of a listing.
+
+    ``nextToken`` is the universal half of the paged contract and ``items`` is not: a page that is
+    a bare homogeneous collection names it ``items``, and a tabular one carries ``columns``/``rows``
+    beside the same ``nextToken``. Both are conformant.
+
+    Attributes:
+      items: The rows, folders and files together.
+      nextToken: S3's ``NextContinuationToken``, opaque and UNMODIFIED, or None on the last page.
+    """
+
+    items: list[ObjectEntry]
+    nextToken: str | None
+
+
+class ObjectMetadataResponse(TypedDict):
+    """What a head reports about one object.
+
+    Attributes:
+      key: The object key.
+      size: Size in bytes.
+      lastModified: ISO-8601 UTC.
+      contentType: The stored content type.
+      etag: The object's ETag.
+    """
+
+    key: str
+    size: int
+    lastModified: str
+    contentType: str
+    etag: str
+
+
+class ObjectExistsResponse(TypedDict):
+    """Whether an object is there.
+
+    **200 for both answers.** Mapping absence onto the error arm would turn every free-name and
+    collision check into a failure the caller has to re-interpret.
+
+    Attributes:
+      exists: Whether the key resolves to an object.
+    """
+
+    exists: bool
+
+
+class ObjectContentResponse(TypedDict):
+    """An object's bytes, decoded as UTF-8 and NEVER parsed.
+
+    Parsing here works for every healthy document and makes an unparseable one a 500 — which puts
+    the browser's whole quarantine path out of reach, because the classifier never sees the body it
+    must classify as unreadable.
+
+    Attributes:
+      body: The object's bytes, decoded as UTF-8.
+      etag: The object's ETag.
+    """
+
+    body: str
+    etag: str
+
+
+class ObjectWrittenResponse(TypedDict):
+    """What a write reports back.
+
+    Attributes:
+      key: The key written.
+      etag: The new ETag.
+    """
+
+    key: str
+    etag: str
+
+
+class ObjectDeletedResponse(TypedDict):
+    """What a delete reports back.
+
+    Attributes:
+      key: The key deleted.
+    """
+
+    key: str
+
+
+
+class ListObjectsQuery(TypedDict):
+    """The listing query. All strings — a query string carries nothing else.
+
+    Attributes:
+      spaceKind: Which sort of space.
+      spaceName: The space's name.
+      prefix: The folder to list, relative to the space root. Absent means the root.
+      nextToken: A continuation token from a previous page.
+    """
+
+    spaceKind: Literal["personal", "shared"]
+    spaceName: str
+    prefix: NotRequired[str]
+    nextToken: NotRequired[str]
+
+
+class ObjectKeyQuery(TypedDict):
+    """A single object, named in a query string.
+
+    Attributes:
+      spaceKind: Which sort of space.
+      spaceName: The space's name.
+      key: The object key.
+    """
+
+    spaceKind: Literal["personal", "shared"]
+    spaceName: str
+    key: str
+
+
+class WriteContentRequest(TypedDict):
+    """A document write.
+
+    Attributes:
+      space: The space.
+      key: The object key.
+      body: The bytes to store, as UTF-8 text. Written BYTE FOR BYTE — never re-serialised.
+      contentType: The content type to store.
+      overwrite: Whether an existing object may be replaced.
+    """
+
+    space: SpaceRef
+    key: str
+    body: str
+    contentType: str
+    overwrite: bool
+
+
+class CopyRequest(TypedDict):
+    """A single-object copy or move.
+
+    Attributes:
+      source: Where to read from.
+      sourceKey: The source object key.
+      destination: Where to write to.
+      destinationKey: The destination object key.
+      overwrite: Whether an occupied destination may be replaced.
+    """
+
+    source: SpaceRef
+    sourceKey: str
+    destination: SpaceRef
+    destinationKey: str
+    overwrite: bool
+
+
+class DeleteRequest(TypedDict):
+    """A single-object delete.
+
+    Attributes:
+      space: The space.
+      key: The object key.
+    """
+
+    space: SpaceRef
+    key: str
+
+
+class PresignedUrlResponse(TypedDict):
+    """A minted URL and when it dies.
+
+    ``url`` is a BEARER TOKEN. It is never logged, never cached, and never returned for a key the
+    caller may not reach.
+
+    Attributes:
+      url: The signed URL.
+      expiresAt: ISO-8601 UTC, never later than the signing session's own expiry — which is what
+        stops a URL 403ing at redemption after a long upload has already sent its bytes.
+    """
+
+    url: str
+    expiresAt: str
+
+
+class UploadUrlRequest(TypedDict):
+    """A request for a presigned PUT.
+
+    Attributes:
+      space: The space.
+      key: The object key.
+      contentType: The content type the upload will carry, which is signed into the URL.
+      overwrite: Whether an occupied key may be replaced. With false and the key occupied the
+        route mints NO url.
+    """
+
+    space: SpaceRef
+    key: str
+    contentType: str
+    overwrite: bool
+
+
+class DownloadUrlRequest(TypedDict):
+    """A request for a presigned GET.
+
+    Attributes:
+      space: The space.
+      key: The object key.
+      fileName: An optional filename to offer the browser, escaped into the disposition header.
+    """
+
+    space: SpaceRef
+    key: str
+    fileName: NotRequired[str]
+
+
+class FreeNameRequest(TypedDict):
+    """A request for the first unused numbered name under a prefix.
+
+    Attributes:
+      space: The space.
+      prefix: The folder to search, relative to the space root.
+      baseName: The original leaf name a copy is being made of.
+      kind: Whether the name is for a file or a folder — a folder has no extension to preserve.
+    """
+
+    space: SpaceRef
+    prefix: str
+    baseName: str
+    kind: Literal["file", "folder"]
+
+
+class FreeNameResponse(TypedDict):
+    """The name the route found.
+
+    Attributes:
+      name: The free leaf name, without its prefix.
+    """
+
+    name: str
+
+
 @dataclass(frozen=True)
 class Route:
     """One route, declared whole.
@@ -134,6 +429,10 @@ class Route:
       plane: Which credentials the route may reach for. The user plane is the caller's own
         assumed session; the API plane is the function's execution role.
       request: The declared request body type, or None for a route that takes no body.
+      query: The declared query-string type, or None for a route that takes no query. Its fields
+        are STRINGS ONLY — see ``check_routes``. Required like every other field: a defaulted one
+        would let a route be added without deciding, which is the mistake ``plane`` exists not to
+        repeat.
       response: The declared 200 body type. Always an object type, so an additive field always
         has somewhere to go.
     """
@@ -144,6 +443,7 @@ class Route:
     idempotent: bool
     plane: Literal["user", "api"]
     request: Any | None
+    query: Any | None
     response: Any
 
 
@@ -155,7 +455,118 @@ ROUTES: Final[tuple[Route, ...]] = (
         idempotent=True,
         plane="user",
         request=None,
+        query=None,
         response=UserDirectoryResponse,
+    ),
+    Route(
+        id="objects.list",
+        method="GET",
+        path="/v1/objects",
+        idempotent=True,
+        plane="user",
+        request=None,
+        query=ListObjectsQuery,
+        response=ListObjectsResponse,
+    ),
+    Route(
+        id="objects.metadata",
+        method="GET",
+        path="/v1/objects/metadata",
+        idempotent=True,
+        plane="user",
+        request=None,
+        query=ObjectKeyQuery,
+        response=ObjectMetadataResponse,
+    ),
+    Route(
+        id="objects.exists",
+        method="GET",
+        path="/v1/objects/exists",
+        idempotent=True,
+        plane="user",
+        request=None,
+        query=ObjectKeyQuery,
+        response=ObjectExistsResponse,
+    ),
+    Route(
+        id="objects.readContent",
+        method="GET",
+        path="/v1/objects/content",
+        idempotent=True,
+        plane="user",
+        request=None,
+        query=ObjectKeyQuery,
+        response=ObjectContentResponse,
+    ),
+    Route(
+        id="objects.writeContent",
+        method="PUT",
+        path="/v1/objects/content",
+        idempotent=False,
+        plane="user",
+        request=WriteContentRequest,
+        query=None,
+        response=ObjectWrittenResponse,
+    ),
+    Route(
+        id="objects.copy",
+        method="POST",
+        path="/v1/objects/copy",
+        idempotent=False,
+        plane="user",
+        request=CopyRequest,
+        query=None,
+        response=ObjectWrittenResponse,
+    ),
+    Route(
+        id="objects.move",
+        method="POST",
+        path="/v1/objects/move",
+        idempotent=False,
+        plane="user",
+        request=CopyRequest,
+        query=None,
+        response=ObjectWrittenResponse,
+    ),
+    Route(
+        id="objects.delete",
+        method="DELETE",
+        path="/v1/objects",
+        idempotent=False,
+        plane="user",
+        request=DeleteRequest,
+        query=None,
+        response=ObjectDeletedResponse,
+    ),
+    Route(
+        id="objects.uploadUrl",
+        method="POST",
+        path="/v1/objects/upload-url",
+        idempotent=False,
+        plane="user",
+        request=UploadUrlRequest,
+        query=None,
+        response=PresignedUrlResponse,
+    ),
+    Route(
+        id="objects.downloadUrl",
+        method="POST",
+        path="/v1/objects/download-url",
+        idempotent=True,
+        plane="user",
+        request=DownloadUrlRequest,
+        query=None,
+        response=PresignedUrlResponse,
+    ),
+    Route(
+        id="objects.freeName",
+        method="POST",
+        path="/v1/objects/free-name",
+        idempotent=True,
+        plane="user",
+        request=FreeNameRequest,
+        query=None,
+        response=FreeNameResponse,
     ),
 )
 
@@ -311,8 +722,8 @@ def _object_node(annotation: Any) -> TypeNode:
 def declared_types() -> tuple[Any, ...]:
     """Every TypedDict the generated TypeScript must carry, in a deterministic order.
 
-    Walks the routes in declaration order and each route's request before its response, so the
-    emitted file's order is a function of this module alone.
+    Walks the routes in declaration order and each route's request, then its query, then its
+    response, so the emitted file's order is a function of this module alone.
 
     Args:
       None.
@@ -325,7 +736,7 @@ def declared_types() -> tuple[Any, ...]:
     """
     seen: list[Any] = []
     for route in ROUTES:
-        for annotation in (route.request, route.response):
+        for annotation in (route.request, route.query, route.response):
             for found in _referenced(annotation):
                 if found not in seen:
                     seen.append(found)
@@ -414,6 +825,47 @@ def check_routes() -> None:
             raise UnsupportedTypeError(
                 f"{route.id} accepts {route.request!r}; every request body is an object"
             )
+        if route.query is not None:
+            _check_query(route)
+
+
+_QUERY_KINDS: Final[frozenset[str]] = frozenset({"str", "literal"})
+
+
+def _check_query(route: "Route") -> None:
+    """Refuses a query declaration a query string cannot carry.
+
+    **A query string is all strings.** API Gateway hands ``queryStringParameters`` over as
+    ``dict[str, str]``, so a declaration naming an int, a bool or a nested object type-checks in
+    the browser, generates clean TypeScript, and then refuses every real request with a 400 the
+    handler never sees. Measured, not predicted: a declaration carrying ``space: SpaceRef`` and
+    ``maxKeys: int`` emitted correct TypeScript and 400'd on the exact payload the gateway sends.
+
+    So the vocabulary NARROWS here rather than widening. A route wanting a structured value in a
+    query flattens it — ``spaceKind`` and ``spaceName`` rather than a ``SpaceRef`` — and the
+    divergence from the body's own shape is deliberate. Refused at declaration time, which is a
+    build-time failure, rather than per request, which is an outage.
+
+    Args:
+      route: The route whose query declaration to check.
+
+    Returns:
+      None.
+
+    Raises:
+      UnsupportedTypeError: If the query is not an object, or carries a non-string field.
+    """
+    if not _is_typed_dict(route.query):
+        raise UnsupportedTypeError(
+            f"{route.id} accepts {route.query!r}; every query is an object"
+        )
+    for name, node, _required in walk(route.query).fields:
+        inner = node.of[0] if node.kind == "optional" else node
+        if inner.kind not in _QUERY_KINDS:
+            raise UnsupportedTypeError(
+                f"{route.id}'s query field {name!r} is {inner.kind}; a query string carries "
+                f"only strings, so declare it str or a Literal of strs and flatten what is not"
+            )
 
 
 def route_by_id(route_id: str) -> Route | None:
@@ -477,6 +929,31 @@ def validate_request(route: Route, body: object) -> str | None:
     if route.request is None:
         return None if body in (None, {}) else "InvalidRequest"
     if not _matches(walk(route.request), body):
+        return "InvalidRequest"
+    return None
+
+
+def validate_query(route: Route, query: Mapping[str, str] | None) -> str | None:
+    """Checks a request's query string against the route's declared type.
+
+    The same walk of the same annotation the generator emits from, exactly as ``validate_request``
+    uses for the body — so a query the browser was typed against and a query this refuses cannot
+    disagree.
+
+    Args:
+      route: The route the query was sent to.
+      query: The gateway's parsed query string, or None when none was sent.
+
+    Returns:
+      None when the query is acceptable, otherwise the machine code refusing it.
+
+    Raises:
+      UnsupportedTypeError: If the route's declared query type is outside the vocabulary, which
+        is a defect in the declaration rather than in the request.
+    """
+    if route.query is None:
+        return None if not query else "InvalidRequest"
+    if not _matches(walk(route.query), dict(query or {})):
         return "InvalidRequest"
     return None
 

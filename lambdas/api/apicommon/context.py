@@ -1,12 +1,25 @@
 """What a handler receives. Not the event, and not the Authorization header.
 
-A handler is given the caller's verified identity and the two facts it needs to log, and has no
-way to reach anything the caller said about themselves. That is the whole point of the type: a
-handler holding the raw event can read a username from a query string or a body, and a handler
-that does so passes every test that supplies a matching token.
+A handler is given the caller's verified identity, the two facts it needs to log, and — since the
+object routes need it — the request's own **validated** body and query.
+
+**That last part costs a structural guarantee, and pretending otherwise would be worse than
+losing it.** This type used to carry no request data at all, which made "a handler cannot read a
+username the caller asserted" true by shape: there was nothing to read. Routes taking
+``{space, key}`` cannot work that way. So the guarantee is now upheld by two things that are not
+the shape — the identity a handler is *given* is still the only one it can act on, since
+``acting_as`` is built here from verified claims and no handler may assemble one; and a test
+asserts the resolved identity is unchanged against a body and a query each naming a different
+user. A handler reading ``context.body["username"]`` is possible, and it is the test and the
+sweep over ``routes/`` that stop it, not the type.
+
+Body and query are the VALIDATED values — ``router`` has already checked them against the route's
+declaration. A handler that re-parses is a second validator, and the second one is what rots.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 
 from cpcommon.auth import Principal
 
@@ -24,9 +37,13 @@ class RequestContext:
         has an opportunity to assemble one from something the caller said about themselves.
       route: The method and path this request matched, for the log record.
       request_id: The gateway's id for this request, for correlating a refusal with a report.
+      body: The validated request body, or None for a route declaring none. Never the raw event.
+      query: The validated query string, or an empty mapping for a route declaring none.
     """
 
     principal: Principal
     acting_as: UserIdentity
     route: str
     request_id: str
+    body: object = None
+    query: Mapping[str, str] = MappingProxyType({})

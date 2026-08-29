@@ -2,7 +2,7 @@
 
 **ID:** SPEC-198
 **Status:** Draft
-**Last Updated:** 2026-08-18
+**Last Updated:** 2026-08-28
 **Depends On:** SPEC-197 (the transport contract this spec is the first bulk consumer of — the route table, the error envelope, `lib/apiClient.ts`, the generated TS↔Python contract, the declared-per-route retry rule, and the `409`/`413` codes it reserved for exactly this spec), SPEC-196 (the user credential plane — the assumed role that signs both the direct calls and the presigned URLs, and its `DurationSeconds` 3600 which bounds every URL minted), SPEC-195 (the verified bearer and the `error.stack` scrub a route handling presigned URLs inherits), SPEC-192 (`configValue`, and the five dev-unauth `import.meta.env` reads it deliberately left for this spec), SPEC-193 (`spa_origin`, the module output the bucket CORS allowlist gains), SPEC-187/190 (the file-ops plane — folder copy/move/delete belong there and may not reappear here; the single-file synchronous paths this spec ports), SPEC-020 (the upload queue, which stays in the browser), SPEC-106 (`toUserMessage` — and the five `passthrough` codes this surface owns), SPEC-113 (no existence oracle), SPEC-155 (the `abortSignal` guarantee this spec must restate honestly), SPEC-159 (the user-settings quarantine, which stays client-side), SPEC-172 (`isWriteLockedPrefix`, the archive write gate and the IAM Deny behind it), SPEC-173/174/175 (the saved-queries store, its top-level `.sql` filter and `Delimiter: '/'`), SPEC-185 (save-results, a single-object copy)
 
 ## Overview
@@ -111,8 +111,10 @@ The cheapest defence against a five-spec port silently losing a behaviour. Every
    and is never logged, never cached and never returned for a key the caller may not reach (FR-007).
 4. **A route's prefix is resolved from the verified username and the caller's own membership claims,
    never from a request field naming a user.** SPEC-196 Premise 3 at the route layer.
-5. **`lib/s3Json.ts` keeps its four exports and its eight consumers.** A later spec that wants
-   per-document routes is proposing to re-decide eight key layouts and must say so.
+5. **`lib/s3Json.ts` keeps its four exports and its seven consumers.** (Measured 2026-08-28. An
+   earlier draft said eight and listed `userDirectory` among them; SPEC-197 ported that one to
+   `apiRequest`, and `userDirectory.test.ts` asserts its source contains no `s3Json`.) A later spec
+   that wants per-document routes is proposing to re-decide seven key layouts and must say so.
 
 **AMENDED 2026-08-18 — the presigning design survives the target environment, on one unproven
 condition, and the alternative was considered rather than missed.** `transition_plan.md` §3.9 moves
@@ -186,6 +188,16 @@ role's tags are what authorize every call.
       with zero AWS calls** — asserted by call count, because a refusal issued after a successful
       `AssumeRole` and `ListObjectsV2` looks identical from outside (SPEC-113, and SPEC-197 FR-014's
       own negative control).
+- [ ] **The space comes from claims; the KEY is still the caller's.** Every route resolves the key
+      against the space root and refuses one that escapes it. `cpcommon.paths.assert_inside_root` is
+      the rule, and it is wrapped rather than called bare: it raises `TerminalError`, which
+      `errors.for_exception` does not recognise, so an unwrapped call answers **500 `InternalError`**
+      where FR-001 AC7 requires **403 `AccessDenied`**. Measured through the real handler. It fails
+      *safely*, so a test asserting "no AWS call happened" passes green — **the assertion is on the
+      reason code**, never on the absence of a call alone.
+- [ ] **A prefix is not a key.** `assert_inside_root(root, "")` raises, and an empty prefix is the file
+      browser's very first listing request. The containment rule for a listing prefix admits empty;
+      the rule for an object key does not.
 - [ ] `abortSignal` is threaded from `listFiles` and `listSavedQueries` into `apiRequest`'s `signal`
       (SPEC-197 FR-007), **and SPEC-155 FR-006's guarantee is restated in place**: aborting now stops
       the browser waiting, it does not stop the request on the wire — a Lambda invocation cannot be
@@ -214,15 +226,25 @@ and it would work, for small folders, in every test anyone writes.
       no module in the package imports `get_paginator` or contains a pagination loop. Verified by
       committing a deliberate paginating handler and confirming red — a sweep that resolves onto the
       right files and matches nothing is SPEC-176's recorded failure.
-- [ ] If SPEC-190 has already made these functions unreachable, deleting them is still this spec's
-      work: unreachable code is what a mechanical port ports.
+- [ ] **They are NOT unreachable, and the deletion is a behaviour change the user has accepted
+      (decision 2026-08-28).** `useDelete.ts`, `useMove.ts` and `useCopy.ts` call all four today, and
+      `useFileBrowserDialogs.ts`'s `routesToPlane` reaches them on two paths: the
+      `asyncFileOperations` flag being off, and a destination resolving to no known space. So after
+      this spec, **flag-off means folder operations are unavailable, not synchronous** — the flag stops
+      being a fallback and becomes an on/off switch for the capability.
+- [ ] That consequence is written where a reader meets it: the `GATED_SURFACES` row for
+      `asyncFileOperations`, and the Help guide covering rename/move/copy/delete, which currently
+      describes a flag-off path that will no longer exist.
+- [ ] The three hooks and their tests are updated in the same phase as the deletion. An earlier draft
+      of this criterion assumed SPEC-190 had already made them dead; it had not, and a plan built on
+      that assumption would have discovered three hooks mid-deletion.
 
 ### FR-003: The document routes — raw bytes, never parsed
 
 #### Description:
 
 One read route and one write route carry every JSON document and every `.sql` file: nine
-`readJsonDocument` call sites across eight modules, one `writeJsonDocument`, one `quarantineDocument`,
+`readJsonDocument` call sites across **seven** modules, one `writeJsonDocument`, one `quarantineDocument`,
 plus the two marker writes and `createFolder`'s placeholder.
 
 #### Acceptance Criteria:
@@ -261,13 +283,17 @@ plus the two marker writes and `createFolder`'s placeholder.
       **`POST /v1/objects/copy`**, not through the content routes, to the same
       `${key}.unreadable-{basicUtcTimestamp}-{8 hex}.json` key — so the bytes still never enter the
       browser, and the random token stays load-bearing against the two-tab race.
-- [ ] **None of the eight consumer modules is edited** — `queryHistory`, `notifications`,
-      `sharedSpaces`, `featureFlags`, `dataQualityReport`, `dataQualityRuns`, `savedQueries` and (from
-      SPEC-197) `userDirectory`. Asserted in the diff. This is the cheapest available proof of
+- [ ] **None of the consumer modules is edited** — seven import `s3Json` today (measured 2026-08-28) — `queryHistory`, `notifications`,
+      `sharedSpaces`, `featureFlags`, `dataQualityReport`, `dataQualityRuns` and `savedQueries`.
+      **`userDirectory` is not among them** — SPEC-197 ported it to `apiRequest`, and
+      `userDirectory.test.ts` asserts its source contains no `s3Json`. Asserted in the diff. This is the cheapest available proof of
       SPEC-197 FR-009's claim that `ServiceResult<T>` is unchanged at the service boundary.
 - [ ] `readSavedQuery` reads a `.sql` **text** file through `readJsonDocument<string>` and keeps doing
-      so; the route returning a raw string is what makes that continue to work. `s3Json.ts`'s docblock,
-      which still says "seven services", is corrected to the measured eight.
+      so; the route returning a raw string is what makes that continue to work. **`s3Json.ts`'s docblock is left alone.** An
+      earlier draft told the builder to correct its "seven services" to eight. Measured: there are
+      **seven** importing modules, and the docblock's sentence is about the skeleton those seven
+      services had written out — a statement of origin, not a live count. The "correction" would have
+      written a new error into a file this spec is otherwise not editing.
 - [ ] `createFolder`, `ensurePrefixMarker` and `ensureSavedQueriesFolder` use `PUT
       /v1/objects/content` with `overwrite: false` and their existing bodies and content types
       (`''` + `application/x-directory`; the two marker bodies + `text/plain`). Their module-level
@@ -380,7 +406,14 @@ sends the bytes to S3 itself.
       3600 — and a URL minted for longer than its signing session lives returns **403 at redemption**,
       which reads as a permissions bug and not as an expiry. A test asserts the returned `expiresAt` is
       never later than the credentials' own expiry, and **drives it with a credential whose remaining
-      lifetime is below the configured duration** — the clamp must read the credential, never
+      lifetime is below the configured duration**. **It must be the credential that SIGNED, obtained in
+      the same read** — `user_client()` assumes internally, so a clamp that calls `assume_user_role`
+      a second time is a second read, and `_usable()` refuses a cached session with under ~30s left:
+      read 2 returns a fresh hour-long session while read 1's near-dead one signed the URL. Measured:
+      signed by a credential with 20 seconds left, `expiresAt` came back 15 minutes out — exactly the
+      403-at-redemption this criterion exists to prevent, reintroduced by the obvious implementation.
+      `identity.py` gains **one public accessor returning the client and the credentials backing it**;
+      `_client` is private and `test_credential_planes.py` flags direct use — the clamp must read the credential, never
       `DurationSeconds`. The two agree today and will not later: `transition_plan.md` §3.9 signs from
       Access-Grants-vended credentials in the target, whose maximum differs, and a clamp computed as
       `min(900, DURATION_SECONDS)` passes every test here and mints URLs that outlive their own
@@ -690,6 +723,72 @@ whose only infra item is bucket CORS, and if it is ever wanted it is a spec of i
       owns and which no assertion here restates. `ARCS.md` records all three, and records that a
       temporary foreign-prefix probe route was **declined** — a route that grants a foreign-prefix read
       in order to test that foreign-prefix reads are refused is the shape of the defect it tests for.
+
+### FR-014: The request reaches the handler — and the invariant that stops it carrying an identity
+
+#### Description:
+
+**Added 2026-08-28, when the implementation plan's review found that this spec's nine endpoints cannot
+be built at all.** `router.py` validates a request body against the declared type and then **discards
+it**: a handler is called as `handler(RequestContext(caller, acting_as, asked_for, request_id))`, and
+`RequestContext` carries `principal`, `acting_as`, `route` and `request_id` — no body, no query.
+`handler.py` states the omission deliberately: *"the query string and the body never leave this
+function."* There is also no contract vocabulary for query parameters, so `Route.request` describes a
+body only and a `GET` route has nowhere to declare its inputs.
+
+That omission is not an oversight to be undone. **It is SPEC-196 Premise 3 enforced by shape**: a
+handler that cannot read a request field naming a user cannot be talked into trusting one. This FR
+opens the channel without losing the property, and the property — not the plumbing — is what the
+acceptance criteria are about.
+
+**This FR is built FIRST, before FR-001.** It carries a high number only because renumbering thirteen
+FRs would break every cross-reference in this spec and in SPEC-199 through SPEC-202.
+
+#### Acceptance Criteria:
+
+- [ ] A route handler receives the **validated** request body. It never receives the raw event, and
+      `validate_request`'s result is what reaches it — a handler that re-parses is a second validator
+      and the one nobody regenerates.
+- [ ] Query parameters are **declared in the contract** and generated into TypeScript like every other
+      shape, so a `GET` route's inputs are typed on both sides. `apiRequest`'s existing untyped
+      `query?: Record<string, string>` is narrowed to the declared shape; a route whose query does not
+      match its declaration fails at `tsc -b`, not at runtime.
+- [ ] The closed type vocabulary is **not widened** to admit this, and — the direction that actually
+      bites — **it is NARROWED in query position.** `walk()` today happily accepts `space: SpaceRef`
+      and `maxKeys: int` in a query type and the generator emits clean TypeScript for both; API
+      Gateway then delivers `queryStringParameters` as **all strings**, the runtime validator refuses
+      the payload, and the route returns `400 InvalidRequest` on *every* request with the handler
+      never reached. Measured, not predicted. So a query declaration admits `str`,
+      `Literal[str]` and `NotRequired` of those and nothing else, checked at declaration time on the
+      precedent of `check_routes()`'s "every 200 body is an object" — a build-time refusal, never a
+      per-request 400.
+- [ ] **A `GET` route therefore flattens its space to `spaceKind` + `spaceName`**, diverging from the
+      `SpaceRef` every `POST` body carries. Stated because the divergence looks like sloppiness and is
+      the constraint above; a shared `SpaceRef` in a query string cannot work.
+- [ ] **The invariant is asserted, not preserved by intention.** A test submits a request body and a
+      query string each carrying a field that names a *different* user (`username`, `actor`,
+      `acting_as`, and a **flat** `spaceName` naming a foreign personal space — not `space.name`, which
+      the previous criterion makes undeclarable in a query) and asserts the resolved identity is
+      unchanged and the request is refused where FR-001 AC7 says it is refused.
+- [ ] The test drives a route **declared for it**, not a shipped one: against a route that does not
+      declare the identity-shaped fields, the contract's unknown-key refusal returns 400 before
+      dispatch and the handler never runs, so the assertion would pass without exercising anything.
+      A dead `_ClaimingBody` / `_TEST_ROUTE` pair already sits unused in
+      `test_credential_cache_apicommon.py` — built for this and referenced nowhere, which is the
+      previous author meeting the same wall. The assertion is on
+      the **resolved identity**, never on the absence of a field name, because the next field is called
+      something else.
+- [ ] **The structural guarantee does not survive, and the replacement is named rather than implied.**
+      Once a validated body reaches a handler, nothing stops that handler reading a `username` field
+      out of it — the shape no longer forbids what discipline must. What replaces it is the identity
+      test above plus this sweep, and `handler.py`'s comment says exactly that instead of repeating a
+      claim that has stopped being true.
+- [ ] A sweep asserts no module under `lambdas/api/routes/` reads `event`, `headers`, or any request
+      value other than the one the framework hands it. `handler.py`'s comment is rewritten to say what
+      is now true — that the body reaches a handler **validated**, and that identity never does.
+- [ ] The existing `/healthz` and `GET /v1/user-directory` routes are unchanged in behaviour, and
+      their tests are unmodified. A framework change that quietly alters the two shipped routes is the
+      failure this criterion exists to catch.
 
 ---
 

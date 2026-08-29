@@ -138,10 +138,15 @@ def generate() -> str:
     lines.append("type RouteBodies = {")
     for route in contract.ROUTES:
         request = "null" if route.request is None else route.request.__name__
-        lines.append(f"  '{route.id}': {{request: {request}; response: {route.response.__name__}}};")
+        query = "null" if route.query is None else route.query.__name__
+        lines.append(
+            f"  '{route.id}': {{request: {request}; query: {query}; "
+            f"response: {route.response.__name__}}};"
+        )
     lines.append("};")
     lines.append("")
     lines.append("export type RequestOf<R extends ApiRouteId> = RouteBodies[R]['request'];")
+    lines.append("export type QueryOf<R extends ApiRouteId> = RouteBodies[R]['query'];")
     lines.append("export type ResponseOf<R extends ApiRouteId> = RouteBodies[R]['response'];")
 
     return "\n".join(lines) + "\n"

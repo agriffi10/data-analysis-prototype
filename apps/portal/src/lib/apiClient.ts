@@ -1,5 +1,12 @@
 import {API_ROUTES} from '../types/apiContract.generated';
-import type {ApiErrorCode, ApiRouteId, RequestOf, ResponseOf} from '../types/apiContract.generated';
+import type {
+  ApiErrorCode,
+  ApiRouteId,
+  ErrorParams,
+  QueryOf,
+  RequestOf,
+  ResponseOf
+} from '../types/apiContract.generated';
 import {configValue} from './runtimeConfig';
 import type {ServiceResult} from '../types/service.types';
 
@@ -97,7 +104,11 @@ export function apiRetryPolicy(route: ApiRouteId): false | number {
 /** What a caller may pass. A route id, never a URL — see the module's one-door rule. */
 export type ApiRequestOptions<R extends ApiRouteId> = {
   body?: RequestOf<R>;
-  query?: Record<string, string>;
+  // Generated from the route's own declaration, not `Record<string, string>`. Untyped, a
+  // misspelled or missing key is a runtime 400 the handler never sees; typed, it is a `tsc -b`
+  // failure at the call site. The declaration is all-strings by construction — the contract
+  // refuses a query field that is not one, because a query string cannot carry anything else.
+  query?: QueryOf<R> extends null ? never : QueryOf<R>;
   signal?: AbortSignal;
 };
 
@@ -125,7 +136,7 @@ export async function apiRequest<R extends ApiRouteId>(
   if (origin === undefined) return failure('ApiUnavailable');
 
   const {method, path} = API_ROUTES[route];
-  const url = `${origin}${path}${queryString(options.query)}`;
+  const url = `${origin}${path}${queryString(options.query as Record<string, string> | undefined)}`;
 
   for (let attempt = 0; attempt <= MAX_AUTH_RETRIES; attempt += 1) {
     if (!tokenProvider) return failure('SessionExpired');
@@ -228,10 +239,13 @@ async function interpret<R extends ApiRouteId>(response: Response): Promise<Serv
     return {success: true, data: body as ResponseOf<R>};
   }
 
-  const envelope = (body as {error?: {code?: unknown; detail?: unknown}} | undefined)?.error;
+  const envelope = (body as {error?: {code?: unknown; detail?: unknown; params?: unknown}} | undefined)?.error;
   if (envelope && typeof envelope.code === 'string') {
     logDetail(envelope.code, envelope.detail);
-    return failure(envelope.code as ApiErrorCode);
+    // `params` is carried; `detail` is not. The detail is operator prose and the browser renders
+    // no server sentence — the params are the structured half a service needs to mint the wording
+    // it already owns.
+    return failure(envelope.code as ApiErrorCode, envelope.params as ErrorParams | undefined);
   }
 
   // NOT envelope-shaped, and never parsed for text. API Gateway's own errors — its 413 at the
@@ -271,8 +285,8 @@ function logDetail(code: string, detail: unknown): void {
  * `message` is deliberately empty: the wording is chosen client-side from the code, by
  * `lib/errorMessages.ts`. A message authored here would be a second source of user-facing text.
  */
-function failure<T>(code: ApiErrorCode | ApiClientCode): ServiceResult<T> {
-  return {success: false, error: {message: '', code}};
+function failure<T>(code: ApiErrorCode | ApiClientCode, params?: ErrorParams): ServiceResult<T> {
+  return {success: false, error: {message: '', code, ...(params ? {params} : {})}};
 }
 
 function requestId(): string {

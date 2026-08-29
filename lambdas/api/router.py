@@ -54,6 +54,7 @@ Attributes:
 import json
 import re
 from collections.abc import Callable, Mapping
+from types import MappingProxyType
 from typing import Any
 
 from apicommon import contract, envelope, errors, identity, planes, principal
@@ -62,6 +63,14 @@ from apicommon.context import RequestContext
 from cpcommon import observability
 from cpcommon.auth import AuthError, VerifierUnavailable
 from cpcommon.observability import build_version
+from routes import (
+    objects_content,
+    objects_free_name,
+    objects_head,
+    objects_list,
+    objects_mutate,
+    objects_presign,
+)
 from routes.user_directory import user_directory
 
 UUID_RE = re.compile(
@@ -76,6 +85,17 @@ PUBLIC_ROUTES = frozenset({("GET", HEALTH_PATH)})
 
 HANDLERS: dict[str, Callable[[RequestContext], dict[str, Any]]] = {
     "userDirectory.get": user_directory,
+    "objects.list": objects_list.list_objects,
+    "objects.metadata": objects_head.metadata,
+    "objects.exists": objects_head.exists,
+    "objects.readContent": objects_content.read_content,
+    "objects.writeContent": objects_content.write_content,
+    "objects.copy": objects_mutate.copy_object,
+    "objects.move": objects_mutate.move_object,
+    "objects.delete": objects_mutate.delete_object,
+    "objects.uploadUrl": objects_presign.upload_url,
+    "objects.downloadUrl": objects_presign.download_url,
+    "objects.freeName": objects_free_name.free_name,
 }
 
 
@@ -202,6 +222,7 @@ def route(
     headers: Mapping[str, str] | None = None,
     request_id: str = "",
     body: object = None,
+    query: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Identifies the caller, then dispatches.
 
@@ -290,16 +311,31 @@ def route(
         )
         return _answered(envelope.failure(refusal, request_id), refusal)
 
+    refusal = contract.validate_query(declared, query)
+    if refusal is not None:
+        observability.warning(
+            "request query refused", reason=refusal, route=asked_for, request_id=request_id
+        )
+        return _answered(envelope.failure(refusal, request_id), refusal)
+
     planes.begin_dispatch(declared.id)
     try:
         return _answered(
-            envelope.success(handler(RequestContext(caller, acting_as, asked_for, request_id)))
+            envelope.success(
+                handler(
+                    RequestContext(
+                        caller, acting_as, asked_for, request_id, body, MappingProxyType(dict(query or {}))
+                    )
+                )
+            )
         )
     except envelope.ApiError as exc:
         observability.warning(
             "request refused", reason=exc.code, route=asked_for, request_id=request_id
         )
-        return _answered(envelope.failure(exc.code, request_id, exc.detail), exc.code)
+        return _answered(
+            envelope.failure(exc.code, request_id, exc.detail, exc.params), exc.code
+        )
     except Exception as exc:
         classified = errors.for_exception(exc, request_id)
         if classified is None:

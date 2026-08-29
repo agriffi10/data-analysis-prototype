@@ -543,6 +543,34 @@ def user_client(service: str, caller: UserIdentity) -> Any:
     return _RetryingClient(service, caller, _client(service, assume_user_role(caller)))
 
 
+def signing_client(service: str, caller: UserIdentity) -> tuple[Any, AssumedCredentials]:
+    """A client AND the credentials backing it, from ONE assume.
+
+    For presigning, and only for presigning. A presigned URL must not outlive the session that
+    signed it — S3 rejects it at redemption, which reads as a permissions bug and not as an expiry,
+    and on an upload it rejects *after* the bytes were sent.
+
+    **The point is that this is one read.** Calling ``user_client`` and then ``assume_user_role``
+    to learn the expiry is TWO reads, and they can disagree: a cached session with under half a
+    minute left is refused as unusable, so the second read re-assumes and hands back a fresh hour
+    while the first one's near-dead credential did the signing. The URL then carries an expiry a
+    quarter of an hour out and dies in seconds. Measured, and it passes every offline test.
+
+    Args:
+      service: The AWS service name.
+      caller: The verified identity to act as.
+
+    Returns:
+      The client, and the credentials it is signing with.
+
+    Raises:
+      IdentityUnavailableError: If the role cannot be assumed.
+      ConfigError: If the layer's configuration is unusable.
+    """
+    credentials = assume_user_role(caller)
+    return _RetryingClient(service, caller, _client(service, credentials)), credentials
+
+
 def api_client(service: str) -> Any:
     """A client on the execution role, for a route that declared the API plane.
 

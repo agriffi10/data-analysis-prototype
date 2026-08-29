@@ -1,0 +1,147 @@
+"""The server-side half of the rules the browser also enforces as an affordance.
+
+`isWriteLockedPrefix` and the marker check live in the browser so a control can be disabled with
+an explanation. They live here too because a disabled button is not a permission, and a request
+this API would otherwise perform reaches S3 whether or not a browser would have sent it.
+
+**The two buckets deny different things, and this module mirrors each rather than averaging
+them.** The user-space bucket's Deny is root-anchored — `{root}archive/` and below. The
+shared-space bucket's wildcard segment matches `/` too, so *any* `archive` folder below the space
+root is covered. Averaging them either leaves a hole on one bucket or refuses work the other
+permits, and both failures are invisible until someone hits them.
+
+**Key containment wraps `cpcommon.paths` rather than calling it bare.** `assert_inside_root`
+raises `TerminalError`, which `errors.for_exception` does not recognise, so an unwrapped call
+answers **500 InternalError** where the requirement is **403 AccessDenied**. It fails *safely*, so
+a test asserting "no AWS call happened" passes over it — the assertions here are on the reason
+code.
+"""
+
+from cpcommon.errors import TerminalError
+from cpcommon.paths import assert_inside_root, has_dot_segment, normalize_root
+from cpcommon.s3_listing import MARKER_BASENAME
+
+from .envelope import ApiError
+from .spaces import ResolvedSpace
+
+ARCHIVE_FOLDER = "archive"
+
+
+def contained_key(space: ResolvedSpace, key: str) -> str:
+    """Returns the key, having refused one that escapes the space root.
+
+    The space comes from verified claims; the KEY is still the caller's, and nothing upstream
+    checks it. A key carrying ``..`` resolves outside the prefix the claims authorize.
+
+    Args:
+      space: The resolved space.
+      key: The caller-supplied object key.
+
+    Returns:
+      The key, unchanged, when it is inside the root.
+
+    Raises:
+      ApiError: ``AccessDenied`` when the key is empty, carries a dot segment, or resolves
+        outside the root. Never ``TerminalError`` — see the module docstring.
+    """
+    try:
+        return assert_inside_root(space.root, key)
+    except TerminalError as exc:
+        raise ApiError("AccessDenied", "key is not inside the space root") from exc
+
+
+def contained_prefix(space: ResolvedSpace, prefix: str) -> str:
+    """Returns a listing prefix, having refused one that escapes the space root.
+
+    **A prefix is not a key, and the difference is load-bearing.**
+    ``assert_inside_root(root, "")`` raises — an empty key is meaningless — but an empty prefix is
+    the file browser's very first listing request. So the empty case is admitted here and the
+    containment rule is otherwise identical.
+
+    Args:
+      space: The resolved space.
+      prefix: The caller-supplied listing prefix, possibly empty.
+
+    Returns:
+      The absolute prefix to list, always inside the root.
+
+    Raises:
+      ApiError: ``AccessDenied`` when the prefix carries a dot segment or escapes the root.
+    """
+    if not prefix:
+        return space.root
+    if has_dot_segment(prefix):
+        raise ApiError("AccessDenied", "prefix contains a path segment that is not allowed")
+    absolute = prefix if prefix.startswith(space.root) else f"{normalize_root(space.root)}{prefix}"
+    if not absolute.startswith(space.root):
+        raise ApiError("AccessDenied", "prefix is not inside the space root")
+    return absolute
+
+
+def is_marker(key: str) -> bool:
+    """Whether a key is a folder marker, by BASENAME.
+
+    Takes ``cpcommon``'s constant rather than its ``is_ignored`` predicate: that one also folds in
+    ``athenaresults/`` and ``user_settings/``, which are listing conveniences the API must not
+    inherit as write rules.
+
+    Args:
+      key: The object key.
+
+    Returns:
+      True if the key's basename is the marker.
+
+    Raises:
+      None.
+    """
+    return key.rsplit("/", 1)[-1] == MARKER_BASENAME
+
+
+def is_write_locked(space: ResolvedSpace, key: str) -> bool:
+    """Whether writing at this key is denied by the bucket's own archive rule.
+
+    Mirrors ``isWriteLockedPrefix`` in the browser, including its asymmetry — see the module
+    docstring for why the two buckets differ.
+
+    The comparison is against ``{root}archive/`` **with its slash**, which is what the rendered Deny
+    says. Matching the slashless form too would refuse a *file* literally named ``archive`` at a
+    space root, which IAM permits and the browser's predicate allows — a bare 403 for an upload
+    that would have worked.
+
+    Args:
+      space: The resolved space.
+      key: The object key or prefix being written.
+
+    Returns:
+      True if the location is write-locked.
+
+    Raises:
+      None.
+    """
+    locked_root = f"{space.root}{ARCHIVE_FOLDER}/"
+    if key.startswith(locked_root):
+        return True
+    if space.kind != "shared":
+        return False
+    if not key.startswith(space.root):
+        return False
+    return ARCHIVE_FOLDER in key[len(space.root) :].split("/")
+
+
+def assert_writable(space: ResolvedSpace, key: str) -> None:
+    """Refuses a write the bucket policy would refuse, before the request is made.
+
+    Args:
+      space: The resolved space.
+      key: The object key being written or deleted.
+
+    Returns:
+      None.
+
+    Raises:
+      ApiError: ``AccessDenied`` for a marker key or a write-locked location.
+    """
+    if is_marker(key):
+        raise ApiError("AccessDenied", "folder markers are not writable")
+    if is_write_locked(space, key):
+        raise ApiError("AccessDenied", "archived locations are not writable")

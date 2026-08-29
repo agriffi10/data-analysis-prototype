@@ -17,6 +17,7 @@ _FAULT_ROUTE = contract.Route(
     idempotent=True,
     plane="user",
     request=None,
+    query=None,
     response=contract.UserDirectoryResponse,
 )
 
