@@ -200,6 +200,15 @@ several of them years old.
   because each sampled a population of hundreds. The mechanical sweep that answered it completely —
   reason codes raised vs reason codes asserted — ran in seconds. **Before reviewing a change whose
   risk is what it removed, write the sweep that lists the whole population.**
+- **Spot-check a negative claim before acting on it, and again before writing it down.** "Only
+  documented on page X", "no test covers this", "nothing imports this file", "there is no scrubber"
+  — each is a claim about an absence, and an absence is what a search proves badly. Verify it
+  yourself whether a reviewer said it or you did. The asymmetry that makes this worth a rule: a
+  wrong claim entering **code** has tests to catch it later, while one entering a spec, a register
+  entry, a docstring or a commit message has nothing, and the next session reads it as settled. Two
+  in this repo shipped as source comments and were believed for weeks — a "registry guard" the
+  router advertised and did not have, and a credential "scrub" a config module named as the thing
+  keeping tokens out of logs. Both were found by writing the test that assumed them.
 - **A mechanical sweep REPORTS before it applies.** Print what it would change, read the list, then
   re-run with `--apply`, and check the result by diffing **test names** rather than a pass count. A
   classifier that looks right is routinely wrong at its edges: a sweep for unused module-level
