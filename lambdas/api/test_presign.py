@@ -13,7 +13,7 @@ import json
 
 import pytest
 import router
-from apicommon import identity
+from apicommon import identity, s3_config
 from apicommon.identity import AssumedCredentials
 from conftest import bearer
 from routes import objects_presign
@@ -146,6 +146,15 @@ def _install(monkeypatch, fake, credentials):
     session with under half a minute left, so a second ask re-assumes. A clamp that asks twice
     reads the fresh one and signs with the stale one.
 
+    The stub hands back whatever it was built with, ignoring ``covering`` — deliberately, because
+    these tests are about what the ROUTES do with the credentials they are given. It RECORDS the
+    argument, though, and one test reads it: that the layer honours ``covering`` is
+    `test_credential_cache_apicommon.py`'s subject, but that the routes ask for the right window is
+    only checkable here, and a wrong argument is invisible to every other assertion in this file.
+
+    The clamp stays the last line of defence for the case the force cannot fix: an AWS ceiling
+    shorter than the ask, which role chaining makes real at one hour.
+
     Args:
       monkeypatch: The pytest fixture.
       fake: The signing client.
@@ -157,8 +166,9 @@ def _install(monkeypatch, fake, credentials):
     Raises:
       None.
     """
-    def _door(service, caller):
+    def _door(service, caller, *, covering):
         fake.assumes += 1
+        fake.covering = covering
         return fake, credentials
 
     monkeypatch.setattr(identity, "signing_client", _door)
@@ -198,6 +208,59 @@ class TestTheUrlNeverOutlivesTheSessionThatSignedIt:
         )
         expires_at = datetime.datetime.fromisoformat(json.loads(answer["body"])["expiresAt"])
         assert expires_at <= datetime.datetime.now(datetime.UTC) + datetime.timedelta(seconds=31)
+
+    @pytest.mark.parametrize(
+        ("path", "body", "window"),
+        [
+            (
+                "/v1/objects/download-url",
+                {"space": {"kind": "personal", "name": "alice"}, "key": "alice/big.csv"},
+                s3_config.DOWNLOAD_URL_EXPIRY_SECONDS,
+            ),
+            (
+                "/v1/objects/upload-url",
+                {
+                    "space": {"kind": "personal", "name": "alice"},
+                    "key": "alice/big.csv",
+                    "contentType": "text/csv",
+                    "overwrite": True,
+                },
+                s3_config.UPLOAD_URL_EXPIRY_SECONDS,
+            ),
+        ],
+        ids=["download", "upload"],
+    )
+    def test_BOTH_routes_ASK_FOR_the_window_they_sign_for(self, monkeypatch, path, body, window) -> None:
+        """The argument, not the clamp — and without it the fix is decorative.
+
+        ``signing_client(covering=…)`` forces a fresh session when the cached one cannot span the
+        window. Pass a `covering` of 1 and the guard is satisfied by every session that is not
+        already dead, no force ever fires, and the route is back to signing for whatever happens to
+        remain — **which is the production behaviour this whole change exists to remove, and it
+        passes every other test in this file.** Measured: with `covering=1` at both call sites the
+        entire suite was green.
+
+        Args:
+          monkeypatch: The pytest fixture.
+          path: The route under test.
+          body: Its request.
+          window: The constant that route's URL is signed for.
+
+        Returns:
+          None.
+
+        Raises:
+          AssertionError: If the route asks for a window other than the one it signs.
+        """
+        fake = FakeSigner()
+        # A session that comfortably covers either window, so the only thing this can fail on is
+        # the argument the route passed.
+        _install(monkeypatch, fake, _credentials(s3_config.DOWNLOAD_URL_EXPIRY_SECONDS * 10))
+
+        answer = router.route("POST", path, bearer(), "rq", body, None)
+
+        assert answer["statusCode"] == 200
+        assert fake.covering == window
 
     @pytest.mark.parametrize(
         ("path", "body"),

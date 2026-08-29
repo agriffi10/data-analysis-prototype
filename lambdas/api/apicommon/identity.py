@@ -543,8 +543,10 @@ def user_client(service: str, caller: UserIdentity) -> Any:
     return _RetryingClient(service, caller, _client(service, assume_user_role(caller)))
 
 
-def signing_client(service: str, caller: UserIdentity) -> tuple[Any, AssumedCredentials]:
-    """A client AND the credentials backing it, from ONE assume.
+def signing_client(
+    service: str, caller: UserIdentity, *, covering: int
+) -> tuple[Any, AssumedCredentials]:
+    """A client AND the credentials backing it, from ONE assume, with a window it can cover.
 
     For presigning, and only for presigning. A presigned URL must not outlive the session that
     signed it — S3 rejects it at redemption, which reads as a permissions bug and not as an expiry,
@@ -556,19 +558,55 @@ def signing_client(service: str, caller: UserIdentity) -> tuple[Any, AssumedCred
     while the first one's near-dead credential did the signing. The URL then carries an expiry a
     quarter of an hour out and dies in seconds. Measured, and it passes every offline test.
 
+    **``covering`` is why this is not simply ``assume_user_role``.** The cache hands back any
+    session with more than one request's life left, which is right for a request and wrong for a
+    URL that outlives it: the clamp then signs for whatever happens to remain, so a window is a
+    draw from roughly the whole hour rather than the number the route asked for. About a quarter of
+    mints land under 900 s and about one in a hundred under a minute. A fresh session is one
+    ``AssumeRole`` — tens of milliseconds — and it makes the window a property of the route instead
+    of a property of when the request arrived.
+
+    **The cost is bounded and it is worth stating as a rate, not just a latency.** The forced assume
+    writes through to the cache, so it refreshes the container's session for every caller: a
+    container under continuous presign traffic now consumes a session from 3600 s down to the
+    window rather than down to the margin, which raises its assume rate by about a third. At worst
+    one extra call per mint, and the cache is emphatically not defeated — see the test that a
+    session already covering the window is reused. **A window longer than a whole session WOULD
+    defeat it**, permanently and silently; that relation has a test of its own.
+
     Args:
       service: The AWS service name.
       caller: The verified identity to act as.
+      covering: The window the URL needs, in seconds. A cached session with less than this left is
+        replaced rather than clamped against.
 
     Returns:
-      The client, and the credentials it is signing with.
+      The client, and the credentials it is signing with — which have at least ``covering`` seconds
+      left unless the ceiling itself is shorter, and the ceiling is an AWS one.
 
     Raises:
       IdentityUnavailableError: If the role cannot be assumed.
       ConfigError: If the layer's configuration is unusable.
     """
     credentials = assume_user_role(caller)
+    if _remaining(credentials) < covering:
+        credentials = assume_user_role(caller, force=True)
     return _RetryingClient(service, caller, _client(service, credentials)), credentials
+
+
+def _remaining(credentials: AssumedCredentials) -> float:
+    """How long a session has left, in seconds.
+
+    Args:
+      credentials: The session.
+
+    Returns:
+      Seconds remaining; negative once it has expired.
+
+    Raises:
+      TypeError: If the expiry is naive — see ``_usable``.
+    """
+    return (credentials.expires_at - datetime.datetime.now(datetime.UTC)).total_seconds()
 
 
 def api_client(service: str) -> Any:

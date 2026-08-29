@@ -527,6 +527,28 @@ Detail: `spec-delivery/SPEC-193`.
 
 **The expiry margin is the life of one REQUEST, derived from the function's own timeout** — the schedulable unit — with the longest downstream call subsumed by the same bound rather than omitted from it. No clock-skew literal is invented on top: the single forced re-assume **is** that allowance. The retry runs on a **new** client, because boto3 binds credentials at construction, so a proxy that re-assumes and re-calls the object it already holds fails again — fail-closed, but decorative, and green.
 
+**And a PRESIGNED URL is not a request, so it does not take that margin.** The schedulable unit for
+a URL is the window it is signed for, which outlives the invocation that minted it — so `_usable`'s
+one-request margin, applied to presigning, hands back any session with half a minute left and the
+clamp signs for whatever remains. The window a user gets is then a draw from roughly the whole hour
+rather than the number the route asked for: on a uniform model, **about a quarter of mints land
+under 900 s and about one in a hundred under a minute.** `signing_client` therefore takes
+`covering=` and forces a fresh session when the cached one cannot span it. One `AssumeRole`, tens of
+milliseconds, on the minority of mints that draw short.
+
+**It is not visible in a passing test, which is why it needed one of its own.** Every offline
+assertion about the clamp is satisfied by a short window, because a short window *is* correctly
+clamped — the clamp and the draw are different questions and only the clamp had a test. The clamp
+stays as the last line of defence for the case the force cannot fix: an AWS ceiling shorter than the
+ask, which role chaining makes real at one hour.
+
+**What this does NOT fix.** An upload slower than the configured window still depends on S3
+evaluating a presigned expiry when it **receives** the request rather than when the transfer
+completes — SPEC-198 FR-005 AC8, read from AWS's documentation and unmeasured. This change makes
+that check *interpretable*: a failed multi-GiB upload can now only mean the premise is false, where
+before it could equally have meant a short draw. The real answer to a transfer longer than any
+window is multipart, which is SPEC-216.
+
 ## The error shape: a machine code, and operator text nobody renders (SPEC-197)
 
 A failure body is `{"error": {code, requestId, detail?}}` — the only wrapped shape in the API, since

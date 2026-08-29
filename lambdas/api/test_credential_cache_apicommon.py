@@ -351,3 +351,97 @@ def test_an_assume_failure_is_a_FAULT_even_though_sts_calls_it_access_denied(aws
     assert json.loads(response["body"])["error"]["code"] == errors.IDENTITY_UNAVAILABLE_CODE
 
 
+
+
+class TestASigningSessionCoversTheWindowItSigns:
+    """The cache's margin is one REQUEST; a presigned URL outlives the request.
+
+    ``_usable`` hands back any session with more than one function timeout left, which is right for
+    a call that finishes inside the invocation and wrong for a URL the browser redeems afterwards.
+    The clamp then signs for whatever happens to remain, so the window a user gets is a draw from
+    roughly the whole hour rather than the number the route asked for — about a quarter of mints
+    under 900 s and about one in a hundred under a minute.
+
+    **It is not a rare edge and it is not visible in a passing test**, which is why it needs its
+    own: every offline assertion about the clamp is satisfied by a short window, because a short
+    window IS correctly clamped.
+    """
+
+    def test_a_session_too_short_for_the_window_is_replaced_not_clamped_against(self, aws) -> None:
+        """The fix, stated as the thing a user would notice.
+
+        Args:
+          aws: The stubbed AWS boundary.
+
+        Returns:
+          None.
+
+        Raises:
+          AssertionError: If the near-dead session is the one handed to the signer.
+        """
+        identity.reset_credential_cache()
+        # The cached session is OLD, not short-lived: STS always issues the same duration, and what
+        # varies is how long ago it was issued. The stub cannot age an entry, so the lifetime is
+        # set per call — 120 s for the one already in the cache, a full session for the re-assume.
+        aws.lifetime_seconds = 120
+        caller = _caller("alice")
+        identity.assume_user_role(caller)
+        aws.lifetime_seconds = FAR_FUTURE_SECONDS
+
+        _, credentials = identity.signing_client("s3", caller, covering=900)
+
+        assert len(aws.assume_calls) == 2, "a session too short for the window was signed with"
+        remaining = (
+            credentials.expires_at - datetime.datetime.now(datetime.UTC)
+        ).total_seconds()
+        assert remaining > 900
+
+    def test_a_session_that_ALREADY_covers_the_window_is_reused(self, aws) -> None:
+        """The other half, and the one that keeps the fix from being "always re-assume".
+
+        An unconditional force would make every presign an `AssumeRole` — and would defeat the
+        cache the credential layer exists to have.
+
+        Args:
+          aws: The stubbed AWS boundary.
+
+        Returns:
+          None.
+
+        Raises:
+          AssertionError: If a perfectly good session is thrown away.
+        """
+        identity.reset_credential_cache()
+        caller = _caller("alice")
+        identity.assume_user_role(caller)
+
+        identity.signing_client("s3", caller, covering=900)
+
+        assert len(aws.assume_calls) == 1
+
+    def test_the_client_signs_with_the_session_that_was_returned(self, aws) -> None:
+        """The property the whole accessor exists for, re-asserted across the new branch.
+
+        A forced re-assume that returned the FRESH credentials while building the client from the
+        stale ones would be the original defect with an extra step — and every expiry assertion
+        would still pass, because the returned expiry would be honest about a session that did not
+        sign.
+
+        Args:
+          aws: The stubbed AWS boundary.
+
+        Returns:
+          None.
+
+        Raises:
+          AssertionError: If the client and the returned credentials disagree.
+        """
+        identity.reset_credential_cache()
+        aws.lifetime_seconds = 120
+        caller = _caller("alice")
+        identity.assume_user_role(caller)
+        aws.lifetime_seconds = FAR_FUTURE_SECONDS
+
+        _, credentials = identity.signing_client("s3", caller, covering=900)
+
+        assert aws.built[-1].session["aws_access_key_id"] == credentials.access_key_id

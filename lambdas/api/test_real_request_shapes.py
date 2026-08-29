@@ -262,7 +262,9 @@ def s3_and_signer(monkeypatch):
         """
         monkeypatch.setattr(identity, "user_client", lambda service, acting_as: client)
         monkeypatch.setattr(
-            identity, "signing_client", lambda service, acting_as: (client, _Credentials())
+            identity,
+            "signing_client",
+            lambda service, acting_as, *, covering: (client, _Credentials()),
         )
         return client
 
