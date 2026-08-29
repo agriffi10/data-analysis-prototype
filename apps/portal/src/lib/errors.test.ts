@@ -1,6 +1,5 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {logBackgroundFailure, toUserMessage, toUserText} from './errorMessages';
-import {isNotFound} from './s3Errors';
 import {toServiceError, unwrap} from './serviceResult';
 
 // ─── from errorMessages.test.ts ───
@@ -211,18 +210,6 @@ describe('errorMessages', () => {
       expect(warn).not.toHaveBeenCalled();
       warn.mockRestore();
       vi.unstubAllEnvs();
-    });
-  });
-});
-
-// ─── from s3Errors.test.ts ───
-describe('s3Errors', () => {
-  describe('isNotFound', () => {
-    it.each([
-      {label: 'a denial', err: {name: 'AccessDenied', $metadata: {httpStatusCode: 403}}},
-      {label: 'an ordinary Error', err: new Error('network down')}
-    ])('is false for $label', ({err}) => {
-      expect(isNotFound(err)).toBe(false);
     });
   });
 });

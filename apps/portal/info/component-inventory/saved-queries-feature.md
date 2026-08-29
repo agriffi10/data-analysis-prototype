@@ -18,7 +18,7 @@ throw.
 
 | Symbol | File | Purpose |
 |---|---|---|
-| `savedQueriesPrefix` / `savedQueryKey` / `savedQueryName` / `validateSavedQueryName` / `isLinkedSavedQuery` / `ensureSavedQueriesFolder` / `listSavedQueries` / `readSavedQuery` / `writeSavedQuery` / `deleteSavedQuery` | `savedQueries.service.ts` | The space-scoped saved-queries store over `.sql` OBJECTS in `{root}saved_queries/` (SPEC-173, replacing SPEC-043's JSON store). The key is the identity and the filename is the name; the listing is one level (`Delimiter: '/'`), top-level `.sql` only, in S3's own order; the write HEADs the exact key and returns `Collision`; the delete delegates to `deleteObject`. `isLinkedSavedQuery(link, space, name)` answers "does saving this land on the file the buffer is linked to?" by KEY — the one rule behind the dialog's sentence and the host's `overwrite` (SPEC-175 FR-004). |
+| `savedQueriesPrefix` / `savedQueryKey` / `savedQueryName` / `validateSavedQueryName` / `isLinkedSavedQuery` / `ensureSavedQueriesFolder` / `listSavedQueries` / `readSavedQuery` / `writeSavedQuery` / `deleteSavedQuery` | `savedQueries.service.ts` | The space-scoped saved-queries store over `.sql` OBJECTS in `{root}saved_queries/` (SPEC-173, replacing SPEC-043's JSON store). The key is the identity and the filename is the name; the listing is one level, top-level `.sql` only (the filter stays in TypeScript), in S3's own order; the write is ONE call whose `Conflict` becomes `Collision` naming the query; the delete delegates to `deleteObject`. `isLinkedSavedQuery(link, space, name)` answers "does saving this land on the file the buffer is linked to?" by KEY — the one rule behind the dialog's sentence and the host's `overwrite` (SPEC-175 FR-004). |
 
 ### Hooks
 

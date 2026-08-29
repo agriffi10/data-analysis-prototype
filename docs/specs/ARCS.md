@@ -1574,6 +1574,12 @@ S3), and `firstFreeName`'s **up to 999 sequential `HeadObject` probes** to name 
 which FR-002 keeps synchronous because it operates on a single file. The API arc should inherit those
 knowingly rather than discover them.
 
+> **Superseded 2026-08-29 by SPEC-198 FR-004, for the probe only.** It left the browser for the
+> **API**, not for the plane: behind the API each probe would have been a browser → API → S3 round
+> trip, which is strictly worse than the loop it replaced, so it is one route. A same-folder copy
+> stays synchronous. The upload queue's residual stands — the bytes still go straight to S3, now
+> under a presigned URL. Full entry: `decisions/storage.md` → *The free-name probe moved to the API*.
+
 **And the lock protects less than its name suggests.** SPEC-187's per-space lock serialises *this
 plane's* executions. It does not cover the single-file operations FR-002 deliberately leaves in the
 browser, nor upload, nor create-folder, nor `useSaveResults`, nor `savedQueries.service`, nor the
@@ -2230,8 +2236,32 @@ that can observe the isolation model before it was ever observed. What ran and w
 `/files` auth-gate bypass) in **SPEC-198**, with the browser's S3 client — it works by calling S3 from
 the browser, which is the thing this arc removes, and keeping it would mean the SPA still ships
 `@aws-sdk/client-s3` for one dev-only branch nobody tests against the real one. Local work points the
-SPA at a locally-run or deployed API. This supersedes a CLAUDE.md Key Decision and needs a
-`decisions/` entry plus a superseded marker at every site still stating the old claim.
+SPA at a locally-run or deployed API. **Done 2026-08-29**: the entry is
+`decisions/identity-and-access.md` → *The dev-unauth path is retired*, and the markers are in
+`CLAUDE.md`, `architecture.md` and `.env.example`.
+
+### What SPEC-198 found that the arc did not forecast
+
+**The isolation obligation splits in two, and only one half is this API's to prove.** A correctly
+built route refuses a foreign prefix *before* reaching AWS, and from outside that refusal is
+indistinguishable from an IAM denial — so the **route layer** is proved offline, by call count
+(zero botocore calls and no `AssumeRole` on the refusing path), and the live 403 records only that
+the deployed route refuses. The **credential layer** has no observation surface here: the account's
+only CloudTrail trail selects S3 data events on the **archive** bucket alone and records no
+management events, so any criterion phrased as "CloudTrail shows the call was issued and denied"
+**cannot fail** — it returns nothing whether the call happened or not. The citation for that half is
+SPEC-196 Phase 5 item 6's dated `_identity/self` result. This arc adds no trail selector: that is
+unbudgeted infra, and if it is ever wanted it is a spec of its own.
+
+**A temporary foreign-prefix probe route was DECLINED.** A route that grants a foreign-prefix read in
+order to test that foreign-prefix reads are refused is the shape of the defect it tests for.
+
+**A document that belongs to no user needs its own route, and that is now twice.**
+`_directory/usernames.json` was the first (SPEC-197) and `_config/feature-flags.json` the second —
+found during SPEC-198's build, because the space resolver refuses a prefix no caller's claims
+authorize and the flag read would have 403'd into the compiled-in all-on defaults, which is
+indistinguishable from a healthy environment. SPEC-199 and SPEC-200 should expect a third rather than
+discover one.
 
 ### Was open, now answered — and it was never a spec decision
 
@@ -2350,6 +2380,13 @@ move rather than after.
 holds work that grows with object count: the SPEC-020 upload queue, and `firstFreeName`'s up to 999
 sequential `HeadObject` probes. Those are deliberate residuals, recorded so this arc inherits them
 knowingly.
+
+> **The probe half is discharged, 2026-08-29 (SPEC-198 FR-004): one route, not 999 round trips.** The
+> upload queue's residual stands and is now sharper — the queue is client state and does not move,
+> and its bytes go straight to S3 under a presigned URL minted per file. **Premise 1 is what keeps
+> the rest thin and is now mechanical:** every `list_objects_v2` in `lambdas/api/` passes
+> `Delimiter='/'` and a bounded `MaxKeys`, no module imports `get_paginator`, and a test enforces
+> both. SPEC-199 and SPEC-200 inherit it.
 
 ## Transition identity arc (SPEC-203 → 205)
 

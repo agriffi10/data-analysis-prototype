@@ -1,3 +1,4 @@
+import type {ErrorParams} from '../types/apiContract.generated';
 import type {ServiceResult} from '../types/service.types';
 
 /**
@@ -64,4 +65,27 @@ export function toServiceError(
   // unguarded would raise a TypeError from the one place that must not.
   const e = (typeof err === 'object' && err !== null ? err : {}) as {message?: string; name?: string};
   return {success: false, error: {message: e.message ?? fallback, code: e.name}};
+}
+
+/**
+ * Turns an `apiRequest` failure into a service failure, keeping the machine code.
+ *
+ * **Not `toServiceError`.** That one is for a caught AWS exception and reads `e.message ?? fallback`
+ * — and `??` does not fall back on the empty string, which is exactly what `apiRequest` returns for
+ * `message`. Passing an API failure through it yields a blank message and a lost code, so every
+ * caller downstream renders nothing and `toUserMessage` has nothing to map. The repo has paid for
+ * that operator before: `cx()` returning `''` cost nine dialogs their width.
+ *
+ * @param error - The failure `apiRequest` returned.
+ * @param fallback - The caller's user-safe wording, used when nothing better is known.
+ * @returns The service failure, carrying the code and any typed params.
+ */
+export function fromApiFailure(
+  error: {message: string; code?: string; params?: ErrorParams},
+  fallback: string
+): {success: false; error: {message: string; code?: string; params?: ErrorParams}} {
+  return {
+    success: false,
+    error: {message: error.message || fallback, code: error.code, ...(error.params ? {params: error.params} : {})}
+  };
 }

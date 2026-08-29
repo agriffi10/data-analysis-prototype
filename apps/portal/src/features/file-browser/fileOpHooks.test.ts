@@ -2,17 +2,7 @@ import {act, waitFor} from '@testing-library/react';
 import {renderHookWithProviders} from '../../test/renderWithProviders';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {useCopy} from './useCopy';
-import {
-  copyFolder,
-  copyObject,
-  createFolder,
-  deleteFolder,
-  deleteObjects,
-  moveFolder,
-  moveObject,
-  objectExists,
-  uploadFile
-} from './fileBrowser.service';
+import {copyObject, createFolder, deleteObject, firstFreeName, moveObject, uploadFile} from './fileBrowser.service';
 import {invalidateListing} from './invalidateListing';
 import {useDelete} from './useDelete';
 import type {DeleteSummary} from './useDelete';
@@ -26,14 +16,11 @@ import type {SelectableItem} from './selectionContext';
 vi.mock('./fileBrowser.service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./fileBrowser.service')>()),
   copyObject: vi.fn(),
-  copyFolder: vi.fn(),
-  objectExists: vi.fn(),
-  deleteObjects: vi.fn(),
-  deleteFolder: vi.fn(),
+  firstFreeName: vi.fn(),
+  deleteObject: vi.fn(),
   uploadFile: vi.fn(),
   createFolder: vi.fn(),
-  moveObject: vi.fn(),
-  moveFolder: vi.fn()
+  moveObject: vi.fn()
 }));
 
 vi.mock('./invalidateListing', () => ({
@@ -50,8 +37,7 @@ describe('useCopy', () => {
    */
 
   const mockCopyObject = vi.mocked(copyObject);
-  const mockCopyFolder = vi.mocked(copyFolder);
-  const mockObjectExists = vi.mocked(objectExists);
+  const mockFreeName = vi.mocked(firstFreeName);
   const mockInvalidate = vi.mocked(invalidateListing);
 
   function render(username: string | undefined = 'alice') {
@@ -63,15 +49,33 @@ describe('useCopy', () => {
   });
 
   describe('useCopy — copy to a different folder', () => {
-    it('copies files (per object) and folders (recursive), invalidating ONLY the destination', async () => {
+    it('copies files per object, invalidating ONLY the destination', async () => {
       mockCopyObject.mockResolvedValue({
         success: true,
         data: {destKey: 'alice/dest/f.txt'}
       });
-      mockCopyFolder.mockResolvedValue({
-        success: true,
-        data: {copied: ['alice/dest/x/', 'alice/dest/x/a'], errors: []}
-      });
+
+      const {result} = render();
+      act(() => result.current.copyItems([{type: 'file', key: 'alice/docs/f.txt'}], 'alice/dest/'));
+
+      await waitFor(() => expect(result.current.summary).toEqual({count: 1, errors: []}));
+      expect(mockCopyObject).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceKey: 'alice/docs/f.txt',
+          destKey: 'alice/dest/f.txt',
+          overwrite: false
+        })
+      );
+      // Dest-only invalidation: the destination is invalidated, the source is NOT.
+      expect(mockInvalidate).toHaveBeenCalledWith(expect.anything(), 'us', 'alice/dest/');
+      expect(mockInvalidate).not.toHaveBeenCalledWith(expect.anything(), 'us', 'alice/docs/');
+    });
+
+    it('refuses a FOLDER per item, and still copies the files beside it', async () => {
+      // The recursive primitive is gone: an operation whose cost grows with object count belongs
+      // on the file-operations plane. With the plane on, no folder reaches this hook at all; with
+      // it off, the refusal is per item so a mixed selection is not lost with it.
+      mockCopyObject.mockResolvedValue({success: true, data: {destKey: 'alice/dest/f.txt'}});
 
       const {result} = render();
       act(() =>
@@ -84,24 +88,18 @@ describe('useCopy', () => {
         )
       );
 
-      await waitFor(() => expect(result.current.summary).toEqual({count: 3, errors: []}));
-      expect(mockCopyObject).toHaveBeenCalledWith(
-        expect.objectContaining({
-          sourceKey: 'alice/docs/f.txt',
-          destKey: 'alice/dest/f.txt',
-          overwrite: false
+      await waitFor(() =>
+        expect(result.current.summary).toEqual({
+          count: 1,
+          errors: [
+            {
+              key: 'alice/docs/x/',
+              message: 'Folders are copied by the file operations service.',
+              code: 'PlaneRequired'
+            }
+          ]
         })
       );
-      expect(mockCopyFolder).toHaveBeenCalledWith(
-        expect.objectContaining({
-          sourcePrefix: 'alice/docs/x/',
-          destPrefix: 'alice/dest/x/',
-          overwrite: false
-        })
-      );
-      // Dest-only invalidation: the destination is invalidated, the source is NOT.
-      expect(mockInvalidate).toHaveBeenCalledWith(expect.anything(), 'us', 'alice/dest/');
-      expect(mockInvalidate).not.toHaveBeenCalledWith(expect.anything(), 'us', 'alice/docs/');
     });
 
     it('prompts on a copy collision and overwrites just the collided items on confirm', async () => {
@@ -136,24 +134,27 @@ describe('useCopy', () => {
   });
 
   describe('useCopy — same-folder copy (auto-number, FR-003)', () => {
-    it('increments to "{name} (2)" when "{name} (1)" already exists', async () => {
-      mockObjectExists
-        .mockResolvedValueOnce({success: true, data: true}) // (1) taken
-        .mockResolvedValueOnce({success: true, data: false}); // (2) free
+    it('asks ONCE for the free name and prefills the prompt with it', async () => {
+      // The 999-probe loop moved to the route: behind the API each probe would have been a
+      // browser → API → S3 round trip, which is strictly worse than what it replaced.
+      mockFreeName.mockResolvedValue({success: true, data: 'report (2).pdf'});
 
       const {result} = render();
       act(() => result.current.startSameFolderCopy({type: 'file', key: 'alice/docs/report.pdf'}, 'alice/docs/'));
 
       await waitFor(() => expect(result.current.sameFolderPrompt).not.toBeNull());
       expect(result.current.sameFolderPrompt?.proposedName).toBe('report (2).pdf');
+      expect(mockFreeName).toHaveBeenCalledTimes(1);
+      expect(mockFreeName).toHaveBeenCalledWith({
+        bucket: 'us',
+        prefix: 'alice/docs/',
+        baseName: 'report.pdf',
+        kind: 'file'
+      });
     });
 
-    it('proposes "{leaf} (1)" for a folder and copies recursively on confirm', async () => {
-      mockObjectExists.mockResolvedValue({success: true, data: false});
-      mockCopyFolder.mockResolvedValue({
-        success: true,
-        data: {copied: ['alice/docs/notes (1)/'], errors: []}
-      });
+    it('asks about a FOLDER by its leaf, so the route knows there is no extension to keep', async () => {
+      mockFreeName.mockResolvedValue({success: true, data: 'notes (1)'});
 
       const {result} = render();
       act(() => result.current.startSameFolderCopy({type: 'folder', prefix: 'alice/docs/notes/'}, 'alice/docs/'));
@@ -161,22 +162,35 @@ describe('useCopy', () => {
       await waitFor(() => expect(result.current.sameFolderPrompt).not.toBeNull());
       expect(result.current.sameFolderPrompt?.kind).toBe('folder');
       expect(result.current.sameFolderPrompt?.proposedName).toBe('notes (1)');
+      expect(mockFreeName).toHaveBeenCalledWith(expect.objectContaining({baseName: 'notes', kind: 'folder'}));
+    });
 
+    it('refuses a same-folder FOLDER copy rather than recursing', async () => {
+      const {result} = render();
       act(() =>
         result.current.runSameFolderCopy({type: 'folder', prefix: 'alice/docs/notes/'}, 'alice/docs/', 'notes (1)')
       );
-      await waitFor(() => expect(result.current.summary).toEqual({count: 1, errors: []}));
-      expect(mockCopyFolder).toHaveBeenCalledWith(
-        expect.objectContaining({
-          sourcePrefix: 'alice/docs/notes/',
-          destPrefix: 'alice/docs/notes (1)/'
-        })
-      );
-      expect(mockInvalidate).toHaveBeenCalledWith(expect.anything(), 'us', 'alice/docs/');
+
+      await waitFor(() => expect(result.current.error).toMatch(/file operations service/i));
+      expect(mockCopyObject).not.toHaveBeenCalled();
+    });
+
+    it('says the search was exhausted rather than that something went wrong', async () => {
+      // Exhaustion and failure used to be one `null`, and one sentence covered both.
+      mockFreeName.mockResolvedValue({
+        success: false,
+        error: {message: 'Could not find an available name for the copy.', code: 'NoFreeName'}
+      });
+
+      const {result} = render();
+      act(() => result.current.startSameFolderCopy({type: 'file', key: 'alice/docs/report.pdf'}, 'alice/docs/'));
+
+      await waitFor(() => expect(result.current.error).toBe('Could not find an available name for the copy.'));
+      expect(result.current.sameFolderPrompt).toBeNull();
     });
 
     it('the same-folder prompt validate fn rejects names with a slash', async () => {
-      mockObjectExists.mockResolvedValue({success: true, data: false});
+      mockFreeName.mockResolvedValue({success: true, data: 'report (1).pdf'});
       const {result} = render();
       act(() => result.current.startSameFolderCopy({type: 'file', key: 'alice/docs/report.pdf'}, 'alice/docs/'));
       await waitFor(() => expect(result.current.sameFolderPrompt).not.toBeNull());
@@ -189,12 +203,11 @@ describe('useCopy', () => {
 // ─── from useDelete.test.ts ───
 
 describe('useDelete', () => {
-  const mockDeleteObjects = vi.mocked(deleteObjects);
-  const mockDeleteFolder = vi.mocked(deleteFolder);
+  const mockDeleteObject = vi.mocked(deleteObject);
   const mockInvalidate = vi.mocked(invalidateListing);
 
   function render(username: string | undefined = 'alice') {
-    return renderHookWithProviders(() => useDelete('us', 'alice/', username, 'alice/'));
+    return renderHookWithProviders(() => useDelete('us', 'alice/', username));
   }
 
   const file = (key: string): SelectableItem => ({type: 'file', key});
@@ -205,37 +218,43 @@ describe('useDelete', () => {
   });
 
   describe('useDelete', () => {
-    it('batches loose files and recursively deletes folders, aggregating counts', async () => {
-      mockDeleteObjects.mockResolvedValue({
-        success: true,
-        data: {deleted: ['alice/a.txt', 'alice/b.txt'], errors: []}
-      });
-      mockDeleteFolder.mockResolvedValue({
-        success: true,
-        data: {deleted: ['alice/p/', 'alice/p/x.jpg'], errors: []}
-      });
+    it('deletes each file in turn and aggregates the count', async () => {
+      mockDeleteObject
+        .mockResolvedValueOnce({success: true, data: {key: 'alice/a.txt'}})
+        .mockResolvedValueOnce({success: true, data: {key: 'alice/b.txt'}});
 
       const {result} = render();
       let summary: DeleteSummary | null = null;
       await act(async () => {
-        summary = await result.current.runDelete([file('alice/a.txt'), file('alice/b.txt'), folder('alice/p/')]);
+        summary = await result.current.runDelete([file('alice/a.txt'), file('alice/b.txt')]);
       });
 
-      expect(mockDeleteObjects).toHaveBeenCalledWith({
-        bucket: 'us',
-        keys: ['alice/a.txt', 'alice/b.txt'],
-        username: 'alice'
-      });
-      expect(mockDeleteFolder).toHaveBeenCalledWith({
-        bucket: 'us',
-        prefix: 'alice/p/',
-        username: 'alice',
-        // The space root, which is what lets deleteFolder tell the space's own
-        // athenaresults/ from a like-named user folder (SPEC-150 FR-007).
-        rootPrefix: 'alice/'
-      });
-      expect(summary).toEqual({count: 4, errors: []});
+      expect(mockDeleteObject.mock.calls.map(([params]) => params.key)).toEqual(['alice/a.txt', 'alice/b.txt']);
+      expect(summary).toEqual({count: 2, errors: []});
       expect(mockInvalidate).toHaveBeenCalledWith(expect.anything(), 'us', 'alice/');
+    });
+
+    it('refuses a FOLDER per item, and still deletes the files beside it', async () => {
+      // The recursive primitive is gone. With the plane on, a folder never reaches this hook;
+      // with it off, the refusal is per item so the rest of the selection is not lost with it.
+      mockDeleteObject.mockResolvedValue({success: true, data: {key: 'alice/a.txt'}});
+
+      const {result} = render();
+      let summary: DeleteSummary | null = null;
+      await act(async () => {
+        summary = await result.current.runDelete([file('alice/a.txt'), folder('alice/p/')]);
+      });
+
+      expect(summary).toEqual({
+        count: 1,
+        errors: [
+          {
+            key: 'alice/p/',
+            message: 'Folders are deleted by the file operations service.',
+            code: 'PlaneRequired'
+          }
+        ]
+      });
     });
 
     it('returns null and makes no calls for an empty selection', async () => {
@@ -246,36 +265,31 @@ describe('useDelete', () => {
       });
 
       expect(summary).toBeNull();
-      expect(mockDeleteObjects).not.toHaveBeenCalled();
-      expect(mockDeleteFolder).not.toHaveBeenCalled();
+      expect(mockDeleteObject).not.toHaveBeenCalled();
     });
 
-    it('aborts on a systemic files failure — no folder deletes, no invalidation', async () => {
-      mockDeleteObjects.mockResolvedValue({
-        success: false,
-        error: {message: 'No AWS credentials — sign in required', code: 'NotAuthenticated'}
-      });
+    it('records a per-file failure as its own row rather than aborting the rest', async () => {
+      mockDeleteObject
+        .mockResolvedValueOnce({success: false, error: {message: 'denied', code: 'AccessDenied'}})
+        .mockResolvedValueOnce({success: true, data: {key: 'alice/b.txt'}});
 
       const {result} = render();
       let summary: DeleteSummary | null = null;
       await act(async () => {
-        summary = await result.current.runDelete([file('alice/a.txt'), folder('alice/p/')]);
+        summary = await result.current.runDelete([file('alice/a.txt'), file('alice/b.txt')]);
       });
 
-      expect(summary).toBeNull();
-      expect(mockDeleteFolder).not.toHaveBeenCalled();
-      expect(mockInvalidate).not.toHaveBeenCalled();
-      // Mapped to friendly text (SPEC-106), not the raw credential message.
-      expect(result.current.error).toBe('Sign in to continue.');
+      expect(summary).toEqual({
+        count: 1,
+        errors: [{key: 'alice/a.txt', message: 'denied', code: 'AccessDenied'}]
+      });
+      expect(mockInvalidate).toHaveBeenCalled();
     });
 
-    it('aggregates partial per-key errors (e.g. the marker refusal) into the summary', async () => {
-      mockDeleteObjects.mockResolvedValue({
-        success: true,
-        data: {
-          deleted: ['alice/a.txt'],
-          errors: [{key: 'alice/DO_NOT_DELETE.txt', message: 'cannot be deleted'}]
-        }
+    it('aggregates the marker refusal into the summary rather than failing the run', async () => {
+      mockDeleteObject.mockResolvedValueOnce({success: true, data: {key: 'alice/a.txt'}}).mockResolvedValueOnce({
+        success: false,
+        error: {message: 'cannot be deleted', code: 'ProtectedObject'}
       });
 
       const {result} = render();
@@ -286,7 +300,7 @@ describe('useDelete', () => {
 
       expect(summary).toEqual({
         count: 1,
-        errors: [{key: 'alice/DO_NOT_DELETE.txt', message: 'cannot be deleted'}]
+        errors: [{key: 'alice/DO_NOT_DELETE.txt', message: 'cannot be deleted', code: 'ProtectedObject'}]
       });
     });
   });
@@ -382,11 +396,10 @@ describe('useFileUpload', () => {
 
 describe('useMove', () => {
   const mockMoveObject = vi.mocked(moveObject);
-  const mockMoveFolder = vi.mocked(moveFolder);
   const mockInvalidate = vi.mocked(invalidateListing);
 
   function render(username: string | undefined = 'alice') {
-    return renderHookWithProviders(() => useMove('us', 'alice/docs/', username, 'alice/'));
+    return renderHookWithProviders(() => useMove('us', 'alice/docs/', username));
   }
 
   beforeEach(() => {
@@ -414,29 +427,18 @@ describe('useMove', () => {
       expect(mockInvalidate).toHaveBeenCalledWith(expect.anything(), 'us', 'alice/docs/');
     });
 
-    it('renames a folder recursively to a new leaf prefix', async () => {
-      mockMoveFolder.mockResolvedValue({
-        success: true,
-        data: {moved: ['alice/docs/old/', 'alice/docs/old/a.txt'], errors: []}
-      });
-
+    it('refuses a FOLDER rename rather than recursing', async () => {
+      // A folder rename is one CopyObject per contained object, so its cost cannot be bounded
+      // without listing the folder first — which is the work the plane exists to take.
       const {result} = render();
       act(() => result.current.renameItem({type: 'folder', prefix: 'alice/docs/old/'}, 'new'));
 
-      await waitFor(() => expect(result.current.summary).toEqual({count: 2, errors: []}));
-      expect(mockMoveFolder).toHaveBeenCalledWith(
-        expect.objectContaining({
-          bucket: 'us',
-          sourcePrefix: 'alice/docs/old/',
-          destPrefix: 'alice/docs/new/',
-          username: 'alice',
-          overwrite: false
-        })
-      );
+      await waitFor(() => expect(result.current.error).toMatch(/file operations service/i));
+      expect(mockMoveObject).not.toHaveBeenCalled();
     });
 
     it('errors and does nothing when there is no username', async () => {
-      const {result} = renderHookWithProviders(() => useMove('us', 'alice/docs/', undefined, 'alice/'));
+      const {result} = renderHookWithProviders(() => useMove('us', 'alice/docs/', undefined));
       act(() => result.current.renameItem({type: 'file', key: 'alice/docs/a.txt'}, 'b.txt'));
 
       await waitFor(() => expect(result.current.error).toMatch(/signed in/i));
@@ -445,15 +447,29 @@ describe('useMove', () => {
   });
 
   describe('useMove — move', () => {
-    it('moves files (per object) and folders (recursive), invalidating both prefixes', async () => {
+    it('moves files per object, invalidating both prefixes', async () => {
       mockMoveObject.mockResolvedValue({
         success: true,
         data: {destKey: 'alice/dest/f.txt'}
       });
-      mockMoveFolder.mockResolvedValue({
-        success: true,
-        data: {moved: ['alice/dest/x/', 'alice/dest/x/a'], errors: []}
-      });
+
+      const {result} = render();
+      act(() => result.current.moveItems([{type: 'file', key: 'alice/docs/f.txt'}], 'alice/dest/'));
+
+      await waitFor(() => expect(result.current.summary).toEqual({count: 1, errors: []}));
+      expect(mockMoveObject).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceKey: 'alice/docs/f.txt',
+          destKey: 'alice/dest/f.txt',
+          overwrite: false
+        })
+      );
+      expect(mockInvalidate).toHaveBeenCalledWith(expect.anything(), 'us', 'alice/docs/');
+      expect(mockInvalidate).toHaveBeenCalledWith(expect.anything(), 'us', 'alice/dest/');
+    });
+
+    it('refuses a FOLDER per item, and still moves the files beside it', async () => {
+      mockMoveObject.mockResolvedValue({success: true, data: {destKey: 'alice/dest/f.txt'}});
 
       const {result} = render();
       act(() =>
@@ -466,23 +482,18 @@ describe('useMove', () => {
         )
       );
 
-      await waitFor(() => expect(result.current.summary).toEqual({count: 3, errors: []}));
-      expect(mockMoveObject).toHaveBeenCalledWith(
-        expect.objectContaining({
-          sourceKey: 'alice/docs/f.txt',
-          destKey: 'alice/dest/f.txt',
-          overwrite: false
+      await waitFor(() =>
+        expect(result.current.summary).toEqual({
+          count: 1,
+          errors: [
+            {
+              key: 'alice/docs/x/',
+              message: 'Folders are moved by the file operations service.',
+              code: 'PlaneRequired'
+            }
+          ]
         })
       );
-      expect(mockMoveFolder).toHaveBeenCalledWith(
-        expect.objectContaining({
-          sourcePrefix: 'alice/docs/x/',
-          destPrefix: 'alice/dest/x/',
-          overwrite: false
-        })
-      );
-      expect(mockInvalidate).toHaveBeenCalledWith(expect.anything(), 'us', 'alice/docs/');
-      expect(mockInvalidate).toHaveBeenCalledWith(expect.anything(), 'us', 'alice/dest/');
     });
 
     it('prompts on a move collision and overwrites just the collided items on confirm', async () => {

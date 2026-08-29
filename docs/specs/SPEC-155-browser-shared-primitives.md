@@ -137,6 +137,15 @@ Arrows point the wrong way: `components/ToastProvider.tsx:2` and `components/Sid
 - [ ] **`lib/format.ts`** holds `formatRelativeTime`, `formatCount`, `formatDurationMs` and one absolute-date formatter; the three date formatters with two identical option sets collapse. Domain-specific helpers stay where they are.
 - [ ] **`useEscapeKey` maintains a listener stack** and dispatches only to the innermost enabled handler, so nested dialogs are correct by construction. The two `closeOnEscape` opt-outs may then be removed, and a test covers a nested dialog closing only its top layer — the case `Modal`'s `dismissible` currently cannot express without also disabling backdrop dismiss.
 - [ ] **`AbortSignal` is threaded** into the listing and polling paths via `send({abortSignal})`, and `runStatementToCompletion` checks it each loop — it currently polls ~36 s after navigation. `uploadFile:875`'s `abort` listener is removed on completion.
+
+  > **Superseded 2026-08-29 by SPEC-198 FR-001 AC8, for the LISTING half only.** `send({abortSignal})`
+  > aborted the request on the wire: navigating out of a folder mid-listing stopped the S3 call. The
+  > listing now goes through the API, and a Lambda invocation cannot be cancelled — so the signal
+  > stops the browser waiting, the listing completes server-side, and the answer is discarded. The
+  > behaviour change is accepted; silently keeping the old claim was the defect. The polling half
+  > (`runStatementToCompletion`) is unaffected and still checks the signal each loop, and
+  > `uploadFile`'s abort listener is still removed on completion — over `XMLHttpRequest` now, where
+  > `xhr.abort()` genuinely does stop the transfer.
 - [ ] **The presigned-URL `expiresAt` field is either consumed or removed.** `fileBrowser.service.ts:758` returns it in `DownloadUrl` and no caller reads it (`FileBrowser.tsx:601`, `MetadataPanel.tsx:83` use only `.url`). Separately, `:707-717` clamps `expiresIn` to the remaining credential TTL and floors it at `0` — documented and specified (SPEC-034), and reaching `0` requires Amplify to return already-expired credentials, so this is a hardening nit rather than a live defect: if a floor is added, force `getS3Client(true)` and re-measure below it rather than signing a dead URL.
 - [ ] **`lib/env.ts`** validates the required `VITE_*` set once and exposes typed getters plus a configured flag, following `lib/amplify.ts:20`'s pattern, so a missing var fails loudly rather than as a generic SDK error.
 - [ ] **`NO_KEY`** replaces the `'__none__'` string literal at all 8 sites.

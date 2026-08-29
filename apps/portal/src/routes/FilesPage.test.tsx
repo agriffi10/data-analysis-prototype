@@ -23,13 +23,11 @@ vi.mock('../features/file-browser/fileBrowser.service', async (importActual) => 
     listFiles: vi.fn(),
     getObjectMetadata: vi.fn(),
     getDownloadUrl: vi.fn(),
-    deleteObjects: vi.fn(),
-    deleteFolder: vi.fn(),
+    deleteObject: vi.fn(),
     moveObject: vi.fn(),
-    moveFolder: vi.fn(),
     copyObject: vi.fn(),
-    copyFolder: vi.fn(),
     objectExists: vi.fn(),
+    firstFreeName: vi.fn(),
     uploadFile: vi.fn(),
     createFolder: vi.fn()
   };
@@ -68,10 +66,10 @@ const cache: SharedConnectionsCache = {
   ]
 };
 
-// The BUCKET vars are read at call time now (SPEC-155 FR-006, via `spaceBuckets()`),
-// but the dev-unauth trio — `devUnauthenticated`, `devBucket`, `devPrefix` — is still
-// evaluated at import, so the env must be stubbed BEFORE the module loads. Hence the
-// dynamic import.
+// The bucket variables are read at call time through `spaceBuckets()`, so the stubs below could in
+// principle be set later — the dynamic import is kept because it is what makes the ORDER explicit
+// at a glance, and because a module-scope read reintroduced here would otherwise pass locally and
+// fail on a machine whose environment differs.
 vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-bucket');
 vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-bucket');
 const {default: FilesPage} = await import('./FilesPage');

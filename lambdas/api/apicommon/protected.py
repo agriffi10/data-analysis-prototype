@@ -129,11 +129,43 @@ def is_write_locked(space: ResolvedSpace, key: str) -> bool:
 
 
 def assert_writable(space: ResolvedSpace, key: str) -> None:
-    """Refuses a write the bucket policy would refuse, before the request is made.
+    """Refuses a write into a location the bucket policy write-locks.
+
+    **The marker rule is deliberately NOT here, and the split is the whole point.** Both bucket
+    policies Deny ``s3:DeleteObject`` on ``*/DO_NOT_DELETE.txt`` and nothing else — creating one is
+    permitted, and it is how a space's prefix is held open in the first place. Folding the marker
+    into this check made a route stricter than the policy it claims to mirror and refused
+    ``ensurePrefixMarker`` and ``ensureSavedQueriesFolder``: a brand-new user's prefix would never
+    be created and a saved-queries folder would vanish once emptied, both failing as a *best-effort*
+    background write that logs and carries on.
 
     Args:
       space: The resolved space.
-      key: The object key being written or deleted.
+      key: The object key being created.
+
+    Returns:
+      None.
+
+    Raises:
+      ApiError: ``AccessDenied`` for a write-locked location.
+    """
+    if is_write_locked(space, key):
+        raise ApiError("AccessDenied", "archived locations are not writable")
+
+
+def assert_replaceable(space: ResolvedSpace, key: str) -> None:
+    """Refuses removing or replacing what is already at a key.
+
+    Everything ``assert_writable`` refuses, plus the marker — because the marker's protection is
+    about **removal**, not about existence. This is the rule for a delete, for a move's SOURCE
+    (a move deletes it), for a copy or move DESTINATION, and for a write that has asked to
+    overwrite. Replacing a marker's bytes with another object is permitted by IAM and refused
+    everywhere in this app: the prefix would stay open while the file sat at a key the listing
+    hides by basename and the bucket policy will not let anyone delete.
+
+    Args:
+      space: The resolved space.
+      key: The object key whose existing content would go.
 
     Returns:
       None.
@@ -142,6 +174,5 @@ def assert_writable(space: ResolvedSpace, key: str) -> None:
       ApiError: ``AccessDenied`` for a marker key or a write-locked location.
     """
     if is_marker(key):
-        raise ApiError("AccessDenied", "folder markers are not writable")
-    if is_write_locked(space, key):
-        raise ApiError("AccessDenied", "archived locations are not writable")
+        raise ApiError("AccessDenied", "folder markers may not be removed or replaced")
+    assert_writable(space, key)

@@ -85,7 +85,7 @@ The cheapest defence against a five-spec arc silently losing a behaviour.
 | **Nested** marker excluded from the plan, never failing the folder | SPEC-188 |
 | Client-side protected-folder refusals | Retained as the affordance; FR-006 adds enforcement |
 | Folder **rename** (`useMove` passes the full new prefix, not the parent) | FR-005 via `item.targetName` |
-| Same-folder copy auto-number `{name} (N)` | FR-005 via `item.targetName`; the probe stays in the browser |
+| Same-folder copy auto-number `{name} (N)` | FR-005 via `item.targetName`; ~~the probe stays in the browser~~ — **superseded 2026-08-29 by SPEC-198 FR-004**: the probe moved to the **API**, as one `POST /v1/objects/free-name`, not to the plane. Behind the API its 999 sequential `HeadObject` calls would each have been a browser → API → S3 round trip. The copy itself is unchanged |
 | Zero-byte placeholders: an empty subfolder survives a move; an "empty" folder still deletes | Premise 4 below → SPEC-188 |
 | Listing invalidation after every operation (`invalidateListing`) | SPEC-190 — it becomes reconciliation, not invalidation |
 | Copy is **not** gated by `writeLockReason` — copying *out of* `archive/` works | FR-006 AC3's rule extended: write-lock is a delete/move-source rule, never a copy-source one |

@@ -1,7 +1,6 @@
 import {beforeEach, afterEach, describe, expect, it, vi} from 'vitest';
 import {screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import {HeadObjectCommand, PutObjectCommand} from '@aws-sdk/client-s3';
 import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
@@ -21,13 +20,10 @@ import {chooseExplorationOption, explorationOption} from './explorationOptions.t
 // which is the point, because this spec's whole claim is that the Data Explorer reuses
 // SPEC-175's save path rather than reimplementing it.
 //
-// `lib/s3Client` is the seam the STORE lands on, so the assertions below can count the
-// commands the save actually issues.
-const {mockSend, mockGetS3Client} = vi.hoisted(() => ({mockSend: vi.fn(), mockGetS3Client: vi.fn()}));
-vi.mock('../../lib/s3Client', () => ({
-  s3Client: {send: vi.fn()},
-  getS3Client: mockGetS3Client
-}));
+// `lib/apiClient` is the seam the STORE lands on now, so the assertions below can count the
+// requests the save actually issues.
+const {mockSend} = vi.hoisted(() => ({mockSend: vi.fn()}));
+vi.mock('../../lib/apiClient', () => ({apiRequest: mockSend}));
 vi.mock('../catalog/glue.service', () => ({
   getDatabase: vi.fn(),
   listTables: vi.fn()
@@ -64,31 +60,45 @@ function render() {
   return {user};
 }
 
-const commandsOfType = (type: unknown) => mockSend.mock.calls.filter((c) => c[0] instanceof (type as never));
-const putBodies = () => commandsOfType(PutObjectCommand).map((c) => (c[0] as PutObjectCommand).input);
+type ApiCall = [string, {body?: Record<string, unknown>; query?: Record<string, string>}];
 
-function notFoundError() {
-  return Object.assign(new Error('Not Found'), {name: 'NotFound', $metadata: {httpStatusCode: 404}});
-}
+const callsTo = (route: string) => (mockSend.mock.calls as ApiCall[]).filter(([id]) => id === route);
+
+/** Every write that is a saved query rather than the folder's own marker. */
+/**
+ * The writes the store ACCEPTED, which is not the same list as the writes attempted.
+ *
+ * The collision check moved inside the write route, so a save onto an occupied name IS a write
+ * request — one the store refuses. Counting attempts would report a stored object while the
+ * Replace question is still on screen.
+ */
+const stored: Record<string, unknown>[] = [];
 
 /**
  * The store's answers for a space whose `saved_queries/` folder ALREADY EXISTS and holds
  * nothing under the name being saved.
  *
- * The existing marker is what makes FR-004's "exactly one PutObject" a statement about
- * sidecars rather than about folder creation: `ensureSavedQueriesFolder` writes a marker
- * when there is none, and a fixture without one would make the count two for a reason that
- * has nothing to do with what this spec forbids.
+ * The existing marker is what makes FR-004's "exactly one write" a statement about sidecars
+ * rather than about folder creation: `ensureSavedQueriesFolder` answers its own `Conflict` when
+ * the marker is there, and a fixture without one would make the count two for a reason that has
+ * nothing to do with what this spec forbids.
  */
 function storeReady({occupied = false}: {occupied?: boolean} = {}) {
-  mockSend.mockImplementation(async (command: unknown) => {
-    if (command instanceof HeadObjectCommand) {
-      const key = command.input.Key ?? '';
-      if (key.endsWith('DO_NOT_DELETE.txt')) return {}; // the folder marker is already there
-      if (occupied) return {};
-      throw notFoundError();
+  mockSend.mockImplementation(async (route: string, options?: {body?: Record<string, unknown>}) => {
+    // Anything but the write is unexpected here, and it THROWS rather than answering an empty
+    // success: a save that started calling a different route would otherwise still satisfy this
+    // fake, which is the shape of a port that silently drops a request.
+    if (route !== 'objects.writeContent') {
+      throw new Error(`saveExploration: unexpected route ${route}`);
     }
-    return {};
+    const key = String(options?.body?.key ?? '');
+    // The marker is already there, which the write route reports as a Conflict.
+    if (key.endsWith('DO_NOT_DELETE.txt')) return {success: false, error: {message: '', code: 'Conflict'}};
+    if (occupied && options?.body?.overwrite !== true) {
+      return {success: false, error: {message: '', code: 'Conflict'}};
+    }
+    stored.push(options?.body ?? {});
+    return {success: true, data: {key, etag: 'e'}};
   });
 }
 
@@ -115,10 +125,10 @@ async function saveAs(user: ReturnType<typeof render>['user'], name: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  stored.length = 0;
   sessionStorage.clear();
   vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-space');
   vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-space');
-  mockGetS3Client.mockResolvedValue(ok({send: mockSend}));
   storeReady();
   vi.mocked(readSharedConnectionsCache).mockResolvedValue(
     ok({version: 1, connections: [{name: 'teamspace', role: 'member', status: 'active'}]}) as never
@@ -161,13 +171,13 @@ describe('what a save writes (FR-001)', () => {
 
     await saveAs(user, 'Open orders');
 
-    await waitFor(() => expect(putBodies()).toHaveLength(1));
-    const put = putBodies()[0];
-    expect(put.Body).toBe(executed);
+    await waitFor(() => expect(stored).toHaveLength(1));
+    const put = stored[0];
+    expect(put.body).toBe(executed);
     // Not merely equal to the execution's string — it carries the description, which is what
     // makes "saving the bare source would save something the user did not see" a real risk.
-    expect(put.Body).toContain('WHERE "status" = \'open\'');
-    expect(put.Body).toContain('ORDER BY "id" DESC');
+    expect(put.body).toContain('WHERE "status" = \'open\'');
+    expect(put.body).toContain('ORDER BY "id" DESC');
   });
 
   it('writes exactly one object, at the store’s own key, and starts no execution (FR-004)', async () => {
@@ -177,15 +187,17 @@ describe('what a save writes (FR-001)', () => {
 
     await saveAs(user, 'Monthly revenue');
 
-    await waitFor(() => expect(putBodies()).toHaveLength(1));
-    expect(putBodies()[0]).toMatchObject({
-      Bucket: 'user-space',
-      Key: 'alice/saved_queries/Monthly revenue.sql',
-      ContentType: 'text/plain; charset=utf-8'
+    await waitFor(() => expect(stored).toHaveLength(1));
+    // The bucket no longer travels: the API resolves the space from the caller's verified claims,
+    // so what the browser still says is WHICH space and which key.
+    expect(stored[0]).toMatchObject({
+      space: {kind: 'personal', name: 'alice'},
+      key: 'alice/saved_queries/Monthly revenue.sql',
+      contentType: 'text/plain; charset=utf-8'
     });
     // AC3: no sidecar, no manifest, no metadata object — the count IS the assertion, and it
     // is taken over a space whose folder marker already exists.
-    expect(commandsOfType(PutObjectCommand)).toHaveLength(1);
+    expect(stored).toHaveLength(1);
     // FR-001 AC6: saving is not a query. The one call is the tab's own first execution.
     expect(runQuery).toHaveBeenCalledTimes(1);
   });
@@ -199,8 +211,8 @@ describe('what a save writes (FR-001)', () => {
 
     await saveAs(user, 'Report.SQL');
 
-    await waitFor(() => expect(putBodies()).toHaveLength(1));
-    expect(putBodies()[0].Key).toBe('alice/saved_queries/Report.sql');
+    await waitFor(() => expect(stored).toHaveLength(1));
+    expect(stored[0].key).toBe('alice/saved_queries/Report.sql');
   });
 
   it('offers the spaces the workspace is showing, and writes into the chosen one', async () => {
@@ -222,10 +234,10 @@ describe('what a save writes (FR-001)', () => {
     await user.type(within(dialog).getByLabelText('Name'), 'Shared report');
     await user.click(within(dialog).getByRole('button', {name: 'Save'}));
 
-    await waitFor(() => expect(putBodies()).toHaveLength(1));
-    expect(putBodies()[0]).toMatchObject({
-      Bucket: 'shared-space',
-      Key: 'teamspace/saved_queries/Shared report.sql'
+    await waitFor(() => expect(stored).toHaveLength(1));
+    expect(stored[0]).toMatchObject({
+      space: {kind: 'shared', name: 'teamspace'},
+      key: 'teamspace/saved_queries/Shared report.sql'
     });
   });
 });
@@ -243,11 +255,13 @@ describe('SPEC-175’s rules hold here too (FR-001 AC3)', () => {
 
     const confirm = await screen.findByRole('alertdialog', {name: 'Confirm replace saved query'});
     expect(within(confirm).getByText(/already exists in My files/)).toBeInTheDocument();
-    // Nothing has been written while the question is open.
-    expect(commandsOfType(PutObjectCommand)).toHaveLength(0);
+    // Nothing has been STORED while the question is open. Counted on what the store accepted, not
+    // on what was attempted: the collision check lives inside the write route now, so the refused
+    // save is itself a request.
+    expect(stored).toHaveLength(0);
 
     await user.click(within(confirm).getByRole('button', {name: 'Replace'}));
-    await waitFor(() => expect(putBodies()).toHaveLength(1));
+    await waitFor(() => expect(stored).toHaveLength(1));
   });
 
   it('refuses an invalid name on submit, with no request at all', async () => {
@@ -260,7 +274,7 @@ describe('SPEC-175’s rules hold here too (FR-001 AC3)', () => {
     await user.click(within(dialog).getByRole('button', {name: 'Save'}));
 
     expect(await within(dialog).findByText(/cannot contain/i)).toBeInTheDocument();
-    expect(commandsOfType(PutObjectCommand)).toHaveLength(0);
+    expect(callsTo('objects.writeContent')).toHaveLength(0);
   });
 });
 
@@ -273,7 +287,7 @@ describe('the tab remembers what it was saved as (FR-003)', () => {
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
 
     await saveAs(user, 'Monthly revenue');
-    await waitFor(() => expect(putBodies()).toHaveLength(1));
+    await waitFor(() => expect(stored).toHaveLength(1));
 
     await waitFor(() =>
       expect(readExplorationTabsState('alice')?.tabs[0].savedQuery).toEqual({
@@ -296,7 +310,7 @@ describe('the tab remembers what it was saved as (FR-003)', () => {
     expect(within(dialog).getByText(/replacing the file this tab was opened from/)).toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', {name: 'Save'}));
 
-    await waitFor(() => expect(putBodies()).toHaveLength(2));
+    await waitFor(() => expect(stored).toHaveLength(2));
     expect(screen.queryByRole('alertdialog', {name: 'Confirm replace saved query'})).not.toBeInTheDocument();
   });
 
@@ -397,7 +411,7 @@ describe('nothing to save (FR-002)', () => {
     // move off the toolbar.
     await user.click(button);
     expect(screen.queryByRole('dialog', {name: 'Save query'})).not.toBeInTheDocument();
-    expect(commandsOfType(PutObjectCommand)).toHaveLength(0);
+    expect(stored).toHaveLength(0);
   });
 });
 

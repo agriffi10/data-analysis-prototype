@@ -209,10 +209,18 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
   ],
   // A kill switch rather than an area, so it hides two things and not a tab: the record of what
   // this session handed to the plane, and the guide describing a round trip that only exists
-  // while the routing does. Everything else the switchover touches is a CHANGE to a control, not
-  // a control — Copy still copies with the flag off, synchronously, exactly as it always did,
-  // which is why there is no row for it. The assertion that it does is a test of its own; a
-  // registry row can only say a surface is there or is not.
+  // while the routing does.
+  //
+  // WHAT THE FLAG NOW SWITCHES OFF IS A CAPABILITY, not a route to it. It used to be a fallback:
+  // with it off, a folder copy, move or delete ran in the browser instead, slowly. The browser
+  // has no recursive primitive any more — an operation whose cost grows with object count belongs
+  // on the plane and building it twice is the loop the plane exists to remove — so with the flag
+  // off a folder operation is REFUSED, per item, and the files beside it still go through. A
+  // single-file copy, move, delete, rename and download are unaffected either way.
+  //
+  // That refusal is not a surface and gets no row: a registry row can only say a control is there
+  // or is not, and every control here is still there. The tests that say what it does instead are
+  // the per-item `PlaneRequired` assertions in `fileOpHooks.test.ts`.
   asyncFileOperations: [
     {name: 'File operations in progress', kind: 'control', path: '/files'},
     {

@@ -45,7 +45,8 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Open the <b>Files</b> tab and browse to the folder you want to upload into.',
           'Click <b>Upload</b> to open the upload panel.',
           'Drag files onto the drop zone, or click it to pick files from your computer.',
-          'Each file uploads into the current folder, and the panel tracks its progress until it’s done.'
+          'Each file uploads into the current folder, and the panel tracks its progress until it’s done.',
+          'An upload is one continuous transfer. If your connection drops partway, the panel marks that file <b>Failed</b> — nothing partial is left behind, and dropping it in again starts it from the beginning.'
         ],
         callout: {
           kind: 'tip',
@@ -80,13 +81,14 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Rename, move, copy, or delete',
         subtitle: 'Reorganize files and folders after uploading.',
         intro:
-          'Plans change, and so does how you want your files arranged. Tick items for a bulk toolbar, or open a single item’s details to rename it. These actions work on whole folders too — and because a folder can hold thousands of files, anything bigger than a single file now runs in the background while you carry on.',
+          'Plans change, and so does how you want your files arranged. Tick items for a bulk toolbar, or open a single item’s details to rename it. A single file is done straight away. Whole folders work too, and because a folder can hold thousands of files the portal does those in the background while you carry on.',
         steps: [
           'Tick the checkbox on one or more items — a toolbar with <b>Copy</b>, <b>Move</b>, and <b>Delete</b> appears.',
           'For <b>Move</b> or <b>Copy</b>, pick a destination folder, then confirm with <b>Move here</b> or <b>Copy here</b>.',
           'To <b>Rename</b> a single item, click <b>Details</b> on its row and choose <b>Rename</b>, then type a <b>New name</b> — a file keeps its original extension automatically.',
           'A single file is done straight away. <b>Anything else — a folder, or more than one item — is handed to the portal to do in the background.</b> You get a note that it has been requested, an entry in the in-progress list, and a notification when it finishes.',
           'While one of those is running, anything else in that space that would also run in the background — another folder or multi-item <b>Copy</b>, <b>Move</b> or <b>Delete</b>, and <b>Archive</b> — is unavailable and says so. Nothing is queued, so start it again once the first has finished. Single files are unaffected, and the file list does not update by itself either: press <b>Refresh</b>, or leave the tab and come back.',
+          'If the portal’s background service is unavailable, a folder Copy, Move or Delete is refused and says so — the files you picked alongside it still go through, and the message names the folders that did not. Try those again later.',
           'One folder is managed for you: <b>athenaresults</b>, where your query results are kept. You can browse it, but it can’t be deleted or moved.'
         ],
         callout: {

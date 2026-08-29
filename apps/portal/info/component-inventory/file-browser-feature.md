@@ -10,20 +10,17 @@ Public barrel: `features/file-browser/index.ts`.
 
 | Symbol | Purpose |
 |---|---|
-| `listFiles(bucket, prefix?, continuationToken?)` | Paginated `ListObjectsV2` (folders + files), 1000/page. |
-| `getDownloadUrl({ bucket, key, fileName?, expiresInSeconds? })` | Short-lived presigned `GetObject` URL (attachment disposition), capped to credential TTL. |
-| `uploadFile({ bucket, key, body, contentType, overwrite?, onProgress?, signal? })` | Managed `lib-storage` upload — single request ≤5 MiB, auto-multipart above; progress + cancel + collision guard. |
-| `createFolder({ bucket, prefix, name, overwrite? })` | Zero-byte `{prefix}{name}/` marker (`application/x-directory`). |
-| `deleteObject({ bucket, key, username })` | Single-object delete; refuses the prefix marker. |
-| `deleteObjects({ bucket, keys, username })` | Batch delete via `DeleteObjects`, chunked ≤1000/req; refuses the marker, aggregates per-key failures (never throws). `ServiceResult<DeleteResult>`. |
-| `deleteFolder({ bucket, prefix, username, rootPrefix })` | Recursive folder delete: paginated delimiter-less listing → `deleteObjects`. `ServiceResult<DeleteResult>`. `rootPrefix` is the SPACE root — refuses the space's own `athenaresults/` with `ProtectedObject` before any S3 call (SPEC-150). |
-| `copyObject({ bucket, sourceKey, destKey, username, destBucket?, overwrite? })` | `CopyObject` (URL-encoded CopySource); marker + collision guards. `destBucket` defaults to `bucket` (same-bucket); pass it for a cross-bucket copy, e.g. saving a shared-space result into the user space (SPEC-055). `ServiceResult<{ destKey }>`. |
-| `moveObject({ bucket, sourceKey, destKey, username, overwrite? })` | Copy-then-delete-source; same-key no-op; copy-failure leaves source. `ServiceResult<{ destKey }>`. |
-| `moveFolder({ bucket, sourcePrefix, destPrefix, username, rootPrefix, overwrite?, onProgress? })` | Recursive folder move (per-key copy+delete); partial-failure + into-itself guards + collision pre-check. `ServiceResult<MoveResult>`. `rootPrefix` refuses the space's own `athenaresults/` as a SOURCE (SPEC-150). |
-| `copyFolder({ bucket, sourcePrefix, destPrefix, username, overwrite?, onProgress? })` | Recursive folder copy — `moveFolder` minus the deletes (additive, best-effort, no rollback); into-itself guard + collision pre-check. `ServiceResult<CopyResult>` (SPEC-039). |
-| `objectExists({ bucket, key })` | `HeadObject` → bool (404 → `false`, not an error). Collision pre-check. |
-| `getObjectMetadata({ bucket, key })` | `HeadObject` → `ObjectMetadata` (size/type/mtime/etag/storage class/custom). 404 → error. |
-| `ensurePrefixMarker({ bucket, username })` | Idempotently create the user's `DO_NOT_DELETE.txt` root marker (once/session). |
+| `listFiles(bucket, prefix?, continuationToken?, abortSignal?)` | One page of folders + files, through `objects.list`. The route delimits and bounds the page; the signal stops the browser **waiting**, not the request on the wire (a Lambda invocation cannot be cancelled). |
+| `getDownloadUrl({ bucket, key, fileName? })` | Presigned `GetObject` minted by `objects.downloadUrl`, signed by the caller's own assumed session and clamped to it. Returns `{url, expiresAt}` — the expiry is what tells an expired link from a denial. |
+| `uploadFile({ bucket, key, body, contentType, overwrite?, onProgress?, signal? })` | One presigned `PUT`, sent over **`XMLHttpRequest`** — `fetch` fires no upload-progress event, so it is the transport that keeps the progress bar alive. The mint is INSIDE this call, which is what makes "one URL per file" structural. |
+| `createFolder({ bucket, prefix, name, overwrite? })` | Zero-byte `{prefix}{name}/` marker (`application/x-directory`), in ONE call — the collision check is the write route's own `Conflict`. |
+| `deleteObject({ bucket, key, username })` | Single-object delete; refuses the prefix marker with no request at all. |
+| `copyObject({ bucket, sourceKey, destKey, username, destBucket?, overwrite? })` | `objects.copy`; the collision `HeadObject` moved inside the route, so a copy costs one call. `destBucket` defaults to `bucket`; each end resolves to its own space. `ServiceResult<{ destKey }>`. |
+| `moveObject({ bucket, sourceKey, destKey, username, destBucket?, overwrite? })` | `objects.move` — **ONE route** performing copy-then-delete. Two calls would put a closed tab between them, and versioning is off. Same-key no-op. |
+| `firstFreeName({ bucket, prefix, baseName, kind })` | The first free `{name} (N)`, resolved server-side in one call where the browser walked up to 999 `HeadObject`s. Exhaustion is `NoFreeName`; anything else keeps its own code. |
+| `objectExists({ bucket, key })` | Existence of an exact key → bool. The route answers 200 either way. |
+| `getObjectMetadata({ bucket, key })` | `objects.metadata` → `ObjectMetadata` (size/type/mtime/etag/storage class/custom). The pairs travel as rows and are folded back into a record here. 404 → error. |
+| `ensurePrefixMarker({ bucket, username })` | Idempotently create the user's `DO_NOT_DELETE.txt` root marker, in ONE call (a `Conflict` is the "already there" answer), once per session. |
 | `isPrefixMarkerKey(key, username)` | Is this exact key the user's root marker? |
 | `validateLeafName(name, label)` / `validateFolderName(name)` | One path-LEAF rule (non-empty, no surrounding spaces, no `/`, no control chars) with the caller's own noun; `validateFolderName` is it with `Folder name` (SPEC-173). |
 | `uploadPercent(loaded, total)` | Clamp loaded/total to a 0–100 whole percent (zero-byte → 100). |
@@ -36,8 +33,8 @@ Public barrel: `features/file-browser/index.ts`.
 | `useFileSpace({username, connections, isLoading, userSpaceBucket, sharedSpaceBucket})` | `useFileSpace.ts` | Active file-browser **space** from `useConnections` + the `?space=` route param → `FileSpaceTarget {id,bucket,rootPrefix,kind,label}`; `selectSpace`/`fellBack`/`dismissFellBack`. Gone/revoked/not-yet-active space reconciles to personal (file-side analogue of `useActiveDatabase`) (SPEC-057). |
 | `useFileUpload(bucket, prefix)` | `useFileUpload.ts` | Upload + create-folder orchestration: progress, collision warn-and-confirm, listing invalidation. |
 | `useObjectMetadata(bucket, key \| null)` | `useObjectMetadata.ts` | Per-object `HeadObject` metadata via `useQuery`, keyed per object; disabled when key is null. |
-| `useDelete(bucket, prefix, username?, rootPrefix?)` | `useDelete.ts` | Deletes a mixed file/folder selection (files batched, folders recursive); aggregates a `DeleteSummary`, invalidates the listing. Never throws. |
-| `useMove(bucket, sourcePrefix, username?, rootPrefix?)` | `useMove.ts` | Rename (single) + move (multi-select) orchestration; collision warn-and-confirm, folder progress, source/dest invalidation. Aggregates a `MoveSummary`. |
+| `useDelete(bucket, prefix, username?)` | `useDelete.ts` | Deletes a selection file by file; a FOLDER is refused per item with `PlaneRequired` while the files beside it still go through. Aggregates a `DeleteSummary`, invalidates the listing. Never throws. |
+| `useMove(bucket, sourcePrefix, username?)` | `useMove.ts` | Rename (single) + move (multi-select) orchestration; collision warn-and-confirm, source/dest invalidation. A FOLDER is refused per item. Aggregates a `MoveSummary`. |
 | `useCopy(bucket, sourcePrefix, username?)` | `useCopy.ts` | Copy (multi-select) orchestration; **destination-only** invalidation (additive), collision warn-and-confirm, folder progress, and the same-folder auto-number `{name} (N)` flow (HEAD-checked, editable). Aggregates a `CopySummary` (SPEC-039). |
 | `useSelection()` | `selectionContext.ts` | Read/mutate the current view's multi-select set (`toggle`/`selectAll`/`clear`, `count`, `isSelected`). Must be under a `SelectionProvider`. |
 | `useUploadQueue()` | `uploadQueueContext.ts` | Read/drive the multi-file upload queue (`items`, `enqueue`, `cancel`, `dismiss`, `resolveOverwrite`, `resolveRename`, `clearFinished`). Must be under an `UploadQueueProvider` (SPEC-020). |
@@ -100,6 +97,6 @@ Public barrel: `features/file-browser/index.ts`.
 | `useFileOpConflicts(requestId)` + `FileOpConflictsDialog` | `useFileOpConflicts.ts`, `FileOpConflictsDialog.tsx` | The conflict round trip at `/files?requestId=…`, resolved against the reader's own inbox. Overwrite (with the unrecoverable wording) or, for a rename, a different name re-submitted as a `refuse`. |
 | `OperationOutcomeBanner` | `OperationSummaryBanner.tsx` | The banner over per-item `FileOpItemResult[]`, grouped by outcome, neutral by default and success only when every item landed. Its sibling `OperationSummaryBanner` (`{count, errors}`) is unchanged. |
 | `itemResultsFromPayload` / `outcomeHeading` / `allLanded` | `fileOps.outcomes.ts` | The plane's 13-member outcome vocabulary as a surface renders it. The adapter produces `conflict` only — that is what the payload carries. |
-| `folderExists({bucket, prefix})` | `fileBrowser.service.ts` | Does ANY key live under this prefix? A raw unfiltered `ListObjectsV2` with `MaxKeys: 1` — deliberately not the browser's own listing, which hides a folder's marker object and would read an empty folder as a deleted one. Keyed by `fileBrowserKeys.exists`. |
+| `folderExists({bucket, prefix})` | `fileBrowser.service.ts` | Does ANY key live under this prefix? `objects.exists` with `target: 'prefix'`, which answers from a RAW page — deliberately not `objects.list`, which drops the prefix's own marker and every `DO_NOT_DELETE.txt` and would read an empty folder as a deleted one. Keyed by `fileBrowserKeys.exists`. |
 | `FILE_OPS_MACHINE_TIMEOUT_SECONDS` | `fileOps.constants.ts` | The state machine's ceiling, mirrored as the in-flight expiry bound and pinned to `infra/modules/file-ops/locals.tf` by `lambdas/test_file_ops_browser_mirrors.py`. |
 | `maxUploadBytes()` | `uploadLimits.ts` | The per-file upload ceiling, read at call time from the runtime document, defaulting to 5 GiB. Was `MAX_UPLOAD_BYTES` in `fileBrowser.types.ts`, which is type-only by convention and excluded from coverage (SPEC-192). |

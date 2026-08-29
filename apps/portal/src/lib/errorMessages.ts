@@ -63,8 +63,19 @@ const CODE_RULES: readonly ErrorRule[] = [
   {code: 'Collision', userFixable: true, passthrough: true}, // dest name already exists (carries the name)
   {code: 'ProtectedObject', userFixable: false, passthrough: true}, // storage marker can't be deleted/moved
   {code: 'InvalidName', userFixable: true, passthrough: true}, // folder-name validation reason
-  {code: 'InvalidDestination', userFixable: true, passthrough: true}, // e.g. folder into itself
   {code: 'TooLarge', userFixable: true, passthrough: true}, // upload exceeds the max size (carries the limit)
+  {code: 'NoFreeName', userFixable: false, passthrough: true}, // 999 numbered names are taken at the destination
+
+  // Trigger: a folder copy, move or delete reached the browser — the file-operations flag is off,
+  // or the chosen destination resolved to no known space. The browser has no recursive primitive
+  // any more: an operation whose cost grows with object count belongs on the plane and nowhere
+  // else, so the flag switches the capability off rather than falling back to a slow copy of it.
+  // NOT passthrough: the services raise it per item and the sentence is the same one every time.
+  {
+    code: 'PlaneRequired',
+    message: 'Folders are handled by the file operations service, which is unavailable right now. Try again later.',
+    userFixable: false
+  },
 
   // Trigger: a control plane's queue URL is unset in the runtime configuration, so
   // `enqueueFifo` refused before reaching SQS. Passthrough for exactly the reason the `ErrorRule` doc states —
@@ -176,6 +187,26 @@ const CODE_RULES: readonly ErrorRule[] = [
   // ── AWS / Cognito error names (services default `code` to the AWS `name`). ──
   // Trigger: scoped credentials denied the S3/Athena/Glue call. Almost always a
   // config/permission issue the user can't fix. ──
+  // Trigger: S3 refused a presigned PUT whose window had already closed. Routine rather than
+  // exceptional — the window is clamped to the signing session's remaining life, there is no
+  // part-level retry, and a large file can simply outlast it. It is user-fixable and the fix is one
+  // sentence; the generic "contact the Administrator" would be wrong twice, because nothing is
+  // misconfigured and the thing that helps goes unsaid.
+  {
+    code: 'UploadLinkExpired',
+    message: 'That upload ran out of time before it finished. Upload the file again.',
+    userFixable: true
+  },
+
+  // Trigger: S3 refused the bytes for a reason that is not an expiry and not a permission — a
+  // throttle, a checksum mismatch, an outage. Distinct from the generic sentence because the user
+  // CAN act: nothing was written, so retrying is safe and is what they should do.
+  {
+    code: 'UploadFailed',
+    message: 'That file could not be uploaded. Nothing was saved — try again.',
+    userFixable: true
+  },
+
   {code: 'AccessDenied', message: `You don't have permission to do that. ${CONTACT_ADMIN}`, userFixable: false},
   {
     code: 'AccessDeniedException',

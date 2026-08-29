@@ -98,10 +98,11 @@ export function UploadQueueProvider({children}: {children: ReactNode}) {
     }
   }, [state.items, launch]);
 
-  // Abort everything in flight when the provider unmounts. Mounted at the app
-  // shell, that happens only when the session ends (sign-out) — so in-flight
-  // uploads survive navigation and run for the whole session, and lib-storage
-  // aborts the multipart uploads on sign-out rather than leaking orphaned parts.
+  // Abort everything in flight when the provider unmounts. Mounted at the app shell, that happens
+  // only when the session ends (sign-out) — so in-flight uploads survive navigation and run for the
+  // whole session. An upload is one `PUT` now, so aborting it leaves nothing behind at all: S3
+  // materialises an object only on a complete request, where the multipart upload this replaced
+  // could leave orphaned parts if it was not aborted properly.
   useEffect(() => {
     const map = controllers.current;
     return () => {

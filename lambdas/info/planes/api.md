@@ -3,8 +3,13 @@
 One HTTP API, one `$default` route, one Lambda. It is **not** a control plane: no queue, no Step
 Function, no verb fan-out. It verifies a bearer token and serves routes directly.
 
-Arc B is porting the browser's direct AWS calls behind it. Today it serves `/healthz` and
-`GET /v1/user-directory`; CloudFront is still production and the rollback.
+Arc B is porting the browser's direct AWS calls behind it. Today it serves `/healthz`, the username
+directory, the feature-flag document and the whole **object surface**: list, metadata, exists,
+content read and write, copy, move, delete, free-name, and the two presign routes. CloudFront is
+still production and the rollback.
+
+**File bytes do not pass through it.** An upload is a presigned `PUT` and a download a presigned
+`GET`, minted here and redeemed by the browser directly against S3.
 
 ## The shape
 
@@ -49,6 +54,31 @@ Arc B is porting the browser's direct AWS calls behind it. Today it serves `/hea
 - **`@traced` is outermost everywhere EXCEPT here**: one decorator sits outside it, to turn an
   unpredicted fault into a declared code. A catch *inside* the span ends every failed request
   successfully and records the fault nowhere.
+- **A space is resolved from CLAIMS, and the key is still the caller's.** `spaces.resolve` refuses a
+  personal space that is not the verified username and a shared one with no membership claim —
+  **before any AWS call**, asserted by call count against both the S3 client and the identity door,
+  because a refusal issued after a successful `AssumeRole` is indistinguishable from an IAM denial.
+  `protected.contained_key` then contains the key, and it **wraps** `cpcommon.paths.assert_inside_root`
+  rather than calling it bare: that raises `TerminalError`, which the classifier does not recognise,
+  so an unwrapped call answers 500 where the requirement is 403. It fails *safely*, so a test
+  asserting "no AWS call happened" passes over it — **assert the reason code**.
+- **A prefix is not a key.** `assert_inside_root(root, "")` raises, and an empty prefix is the file
+  browser's very first listing request — so a listing prefix and an object key have different
+  containment rules.
+- **No route lists more than ONE page.** Every `list_objects_v2` passes `Delimiter='/'` and a bounded
+  `MaxKeys`, and no module imports `get_paginator`. A route that walks a subtree recreates the loop
+  Arc A moved off the browser, one layer down, under a 29-second ceiling — and it works, for small
+  folders, in every test anyone writes. Enforced by `test_api_thinness.py`.
+- **The document routes never PARSE and never re-serialise.** Parsing works for every healthy
+  document and turns an unparseable one into a 500, which puts the browser's quarantine path out of
+  reach. `MAX_DOCUMENT_BYTES` is what keeps the content route from being a second upload path.
+- **A presigned URL is a BEARER TOKEN**, signed by the caller's own assumed session and clamped to
+  **that credential's** remaining life, read in the same call — `user_client()` assumes internally,
+  so clamping from a second read returns a fresh hour while a near-dead session signed the URL. It
+  appears in no emitted record: the span carries the key's **length**.
+- **A document belonging to no user gets its OWN route.** `_directory/usernames.json` and
+  `_config/feature-flags.json` are prefixes no caller's claims authorize, so the space resolver
+  refuses them — correctly. Teaching it about them would hand every object route the exemption.
 
 ## Adding a route
 

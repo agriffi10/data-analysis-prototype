@@ -33,13 +33,10 @@ vi.mock('./fileBrowser.service', async (importActual) => {
     listFiles: vi.fn(),
     getObjectMetadata: vi.fn(),
     folderExists: vi.fn(),
-    deleteObjects: vi.fn(),
-    deleteFolder: vi.fn(),
+    deleteObject: vi.fn(),
     moveObject: vi.fn(),
-    moveFolder: vi.fn(),
     copyObject: vi.fn(),
-    copyFolder: vi.fn(),
-    objectExists: vi.fn(),
+    firstFreeName: vi.fn(),
     getDownloadUrl: vi.fn(),
     uploadFile: vi.fn(),
     createFolder: vi.fn()
@@ -152,13 +149,13 @@ beforeEach(() => {
   vi.mocked(getNotifications).mockResolvedValue(ok([]));
   mock.listFiles.mockResolvedValue(ok(page()));
   mock.folderExists.mockResolvedValue(ok(true));
-  mock.objectExists.mockResolvedValue(ok(false));
-  mock.deleteObjects.mockResolvedValue(ok({deleted: ['alice/report.csv'], errors: []}));
-  mock.deleteFolder.mockResolvedValue(ok({deleted: [], errors: []}));
+  mock.deleteObject.mockResolvedValue(ok({key: 'alice/report.csv'}));
   mock.moveObject.mockResolvedValue(ok({destKey: 'alice/docs/report.csv'}));
-  mock.moveFolder.mockResolvedValue(ok({moved: [], errors: []}));
   mock.copyObject.mockResolvedValue(ok({destKey: 'alice/docs/report.csv'}));
-  mock.copyFolder.mockResolvedValue(ok({copied: [], errors: []}));
+  mock.firstFreeName.mockImplementation(async ({baseName, kind}) => {
+    const dot = kind === 'folder' ? -1 : baseName.lastIndexOf('.');
+    return ok(dot <= 0 ? `${baseName} (1)` : `${baseName.slice(0, dot)} (1)${baseName.slice(dot)}`);
+  });
   mockSubmit.mockResolvedValue({success: true, data: undefined});
 });
 
@@ -173,7 +170,7 @@ describe('exactly one FILE stays in the browser, byte for byte (FR-001 AC8)', ()
     const {user} = render();
     await selectAnd(user, 'report.csv', 'Delete selected items');
     await user.click(await screen.findByRole('button', {name: 'Delete'}));
-    await waitFor(() => expect(mock.deleteObjects).toHaveBeenCalled());
+    await waitFor(() => expect(mock.deleteObject).toHaveBeenCalled());
     expect(mockSubmit).not.toHaveBeenCalled();
   });
 
@@ -194,7 +191,7 @@ describe('everything else is enqueued (FR-001 AC9)', () => {
     await selectAnd(user, 'folder docs', 'Delete selected items');
     await user.click(await screen.findByRole('button', {name: 'Delete'}));
     await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
-    expect(mock.deleteFolder).not.toHaveBeenCalled();
+    expect(mock.deleteObject).not.toHaveBeenCalled();
     expect(Object.keys(mockSubmit.mock.calls[0][0]).sort()).toEqual(['operation', 'requestId', 'source']);
   });
 
@@ -233,13 +230,13 @@ describe('the same-folder copy probes FIRST, then forks on the item kind (FR-001
     const dialog = await screen.findByRole('dialog');
     await user.click(within(dialog).getByRole('button', {name: 'Copy here'}));
     expect(await screen.findByText(/Copying into the same folder/)).toBeInTheDocument();
-    // One probe sequence: `(1)` was free, so exactly one HeadObject. A second same-folder branch
-    // downstream would probe again and could propose a different name from the confirmed one.
-    expect(mock.objectExists).toHaveBeenCalledTimes(1);
+    // ONE request, where it used to be up to 999 sequential HeadObjects. A second same-folder
+    // branch downstream would ask again and could propose a different name from the confirmed one.
+    expect(mock.firstFreeName).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole('button', {name: 'Copy'}));
     await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
-    expect(mock.objectExists).toHaveBeenCalledTimes(1);
-    expect(mock.copyFolder).not.toHaveBeenCalled();
+    expect(mock.firstFreeName).toHaveBeenCalledTimes(1);
+    expect(mock.copyObject).not.toHaveBeenCalled();
     expect(mockSubmit.mock.calls[0][0].source.items).toEqual([
       {kind: 'folder', key: 'alice/docs/', targetName: 'docs (1)'}
     ]);
@@ -361,7 +358,7 @@ describe('in-flight state', () => {
     expect(screen.getByRole('button', {name: 'Move selected items'})).not.toHaveAttribute('aria-disabled');
     await user.click(screen.getByRole('button', {name: 'Delete selected items'}));
     await user.click(await screen.findByRole('button', {name: 'Delete'}));
-    await waitFor(() => expect(mock.deleteObjects).toHaveBeenCalled());
+    await waitFor(() => expect(mock.deleteObject).toHaveBeenCalled());
   });
 
   it('puts the selection BACK when the enqueue is refused', async () => {
@@ -540,5 +537,43 @@ describe('the conflict round trip', () => {
     await user.click(within(dialog).getByRole('button', {name: 'Use a different name…'}));
     const form = await screen.findByRole('dialog', {name: 'Rename to avoid the conflict'});
     await expectContainerHasNoA11yViolations(form, COMPONENT_AXE_OPTIONS);
+  });
+});
+
+describe('with the plane switched off, a shape it alone can perform is REFUSED AT THE CONTROL', () => {
+  /**
+   * The affordance half of a refusal the services also make, and the half that matters most.
+   *
+   * The services refuse per item, after the fact, because a mixed selection must still move its
+   * files. But a folder delete that reaches the confirm asks *"Delete the folder and everything
+   * inside it? This can't be undone."* and then deletes nothing — the app's most alarming sentence,
+   * spent on an action that cannot happen. The repo already had `disabledReason` for exactly this.
+   */
+  it('disables Delete for a folder, with a reason that does not promise "later"', async () => {
+    withFlags({asyncFileOperations: false});
+    const {user} = render();
+
+    await user.click(await screen.findByRole('checkbox', {name: 'Select folder docs'}));
+    const del = screen.getByRole('button', {name: 'Delete selected items'});
+
+    await waitFor(() => expect(del).toHaveAttribute('aria-disabled', 'true'));
+    // Not "try again later": while the service is off, later is the same.
+    expect(del).toHaveAccessibleDescription(/not available/i);
+    expect(del).not.toHaveAccessibleDescription(/later/i);
+  });
+
+  it('leaves a SINGLE FILE alone, which is the whole point of the gate', async () => {
+    // A gate that blocked a single-file delete the plane never sees would take away something the
+    // user could do before, which is the one thing this switchover may not do.
+    withFlags({asyncFileOperations: false});
+    const {user} = render();
+
+    await user.click(await screen.findByRole('checkbox', {name: 'Select report.csv'}));
+    const del = screen.getByRole('button', {name: 'Delete selected items'});
+
+    expect(del).not.toHaveAttribute('aria-disabled', 'true');
+    await user.click(del);
+    await user.click(await screen.findByRole('button', {name: 'Delete'}));
+    await waitFor(() => expect(mock.deleteObject).toHaveBeenCalled());
   });
 });

@@ -1,16 +1,15 @@
 import {describe, it, expect, vi, beforeEach, afterEach, type MockedFunction} from 'vitest';
 
 vi.mock('../../lib/sqsClient', () => ({getSqsClient: vi.fn()}));
-vi.mock('../../lib/s3Client', () => ({getS3Client: vi.fn()}));
+vi.mock('../../lib/apiClient', () => ({apiRequest: vi.fn()}));
 vi.mock('../../lib/awsCredentials', () => ({getIdToken: vi.fn()}));
 
 import {getSqsClient} from '../../lib/sqsClient';
-import {getS3Client} from '../../lib/s3Client';
+import {apiRequest} from '../../lib/apiClient';
 import {getIdToken} from '../../lib/awsCredentials';
 import {enqueueSharedSpaceRequest, readSharedConnectionsCache} from './sharedSpaces.service';
 
 const mockGetClient = getSqsClient as unknown as MockedFunction<() => Promise<unknown>>;
-const mockGetS3 = getS3Client as unknown as MockedFunction<() => Promise<unknown>>;
 const mockGetIdToken = getIdToken as unknown as MockedFunction<() => Promise<unknown>>;
 
 const QUEUE = 'https://sqs.us-east-1.amazonaws.com/123/dat-prod-shared-space-requests.fifo';
@@ -26,18 +25,16 @@ function fakeQueue() {
 
 const USER_BUCKET = 'dat-prod-user-space';
 
-// Fake an S3 client whose GetObject returns the given body (or rejects with the
-// given error). `body === null` simulates a missing object.
-function fakeS3(opts: {body?: string | null; rejectWith?: unknown}) {
-  const send = vi.fn();
-  if (opts.rejectWith !== undefined) {
-    send.mockRejectedValue(opts.rejectWith);
-  } else {
-    send.mockResolvedValue({
-      Body: opts.body == null ? undefined : {transformToString: async () => opts.body}
-    });
-  }
-  mockGetS3.mockResolvedValue({success: true, data: {send}});
+// Fake the document route. `body === null` is an absent object, which the route reports as
+// NotFound; `failWith` is a machine code, since a failure now arrives as a code rather than as a
+// thrown AWS error.
+function fakeS3(opts: {body?: string | null; failWith?: string}) {
+  const send = vi.mocked(apiRequest);
+  send.mockImplementation(async () => {
+    if (opts.failWith !== undefined) return {success: false, error: {message: '', code: opts.failWith}};
+    if (opts.body == null) return {success: false, error: {message: '', code: 'NotFound'}};
+    return {success: true, data: {body: opts.body, etag: 'e'}};
+  });
   return {send};
 }
 
@@ -147,13 +144,16 @@ describe('readSharedConnectionsCache (SPEC-052)', () => {
     const result = await readSharedConnectionsCache('alice');
 
     expect(result).toEqual({success: true, data: cache});
-    const input = send.mock.calls[0][0].input;
-    expect(input.Bucket).toBe(USER_BUCKET);
-    expect(input.Key).toBe('alice/user_settings/shared-connections.json');
+    // The bucket no longer travels: the API resolves the space from the caller's verified claims,
+    // so what remains observable is the key and the space derived from it.
+    expect(send.mock.calls[0][0]).toBe('objects.readContent');
+    expect(send.mock.calls[0][1]).toMatchObject({
+      query: {spaceKind: 'personal', spaceName: 'alice', key: 'alice/user_settings/shared-connections.json'}
+    });
   });
 
   it('returns the empty cache (personal-only) when the file is missing', async () => {
-    fakeS3({rejectWith: Object.assign(new Error('nope'), {name: 'NoSuchKey'})});
+    fakeS3({failWith: 'NotFound'});
     const result = await readSharedConnectionsCache('alice');
     expect(result).toEqual({success: true, data: {version: 1, connections: []}});
   });
@@ -230,12 +230,12 @@ describe('readSharedConnectionsCache (SPEC-052)', () => {
 
   it('returns a ServiceResult error (never throws) on a non-404 read failure', async () => {
     fakeS3({
-      rejectWith: Object.assign(new Error('boom'), {name: 'AccessDenied'})
+      failWith: 'AccessDenied'
     });
     const result = await readSharedConnectionsCache('alice');
-    expect(result).toEqual({
-      success: false,
-      error: {message: 'boom', code: 'AccessDenied'}
-    });
+    // The message is the SERVICE's own wording now, not the AWS exception's: the API returns a
+    // machine code and no prose, and `toUserMessage` picks the sentence from the code.
+    expect(result).toMatchObject({success: false, error: {code: 'AccessDenied'}});
+    expect(result.success === false && result.error.message).toBeTruthy();
   });
 });

@@ -1,21 +1,19 @@
 import {useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
 import {invalidateListing} from './invalidateListing';
-import {toUserText} from '../../lib/errorMessages';
-import {deleteObjects, deleteFolder} from './fileBrowser.service';
+import {deleteObject} from './fileBrowser.service';
 import type {SelectableItem} from './selectionContext';
 import type {BulkOperationState} from './fileBrowser.types';
 
 /**
- * The outcome surfaced to the UI after a (possibly mixed file + folder) delete:
- * how many objects S3 removed, and any per-item failures to report.
+ * The outcome surfaced to the UI after a delete: how many objects S3 removed, and any per-item
+ * failures to report.
  */
 export type DeleteSummary = NonNullable<BulkOperationState['summary']>;
 
 /**
  * Delete's `BulkOperationState` plus the one action only it has. `progress` and
- * `collision` are always `null`: a delete reports no percentage (it is one batched
- * call plus a recursive walk, not a per-object stream) and has no overwrite
+ * `collision` are always `null`: a delete reports no percentage and has no overwrite
  * confirmation to make — the warn-and-confirm happens before it starts.
  */
 export type UseDeleteResult = BulkOperationState & {
@@ -23,24 +21,22 @@ export type UseDeleteResult = BulkOperationState & {
 };
 
 /**
- * Orchestrates deleting a selection of files and folders. Loose files go in one
- * batched deleteObjects call; each folder is deleted recursively. Results
- * aggregate across all operations — a failure on one folder never aborts the
- * rest. On completion the current prefix listing is invalidated so removed
- * items disappear; the caller clears the selection. Never throws.
+ * Orchestrates deleting a selection of files.
+ *
+ * **Files loop; folders are refused.** The recursive primitive this hook used to call is gone: an
+ * operation whose cost grows with object count belongs on the file-operations plane, and building
+ * it a second time in the browser is the loop that plane exists to remove. With the plane taking
+ * work — the shipped default — a folder never reaches here at all. With it switched off, a folder
+ * delete is **unavailable rather than synchronous**, reported per item so a mixed selection still
+ * deletes its files and says which folders it did not touch.
+ *
+ * Results aggregate across all items — one failure never aborts the rest. On completion the
+ * current prefix listing is invalidated so removed items disappear; the caller clears the
+ * selection. Never throws.
  *
  * @param prefix - the folder currently being viewed (what gets invalidated).
- * @param rootPrefix - the SPACE root, which `deleteFolder` needs to recognise a
- *   protected root folder. REQUIRED, not defaulted to `prefix`: a caller that fell
- *   back to the browsed folder while sitting in `alice/reports/` would make
- *   `alice/reports/athenaresults/` falsely undeletable.
  */
-export function useDelete(
-  bucket: string,
-  prefix: string,
-  username: string | undefined,
-  rootPrefix: string
-): UseDeleteResult {
+export function useDelete(bucket: string, prefix: string, username: string | undefined): UseDeleteResult {
   const queryClient = useQueryClient();
   const [isBusy, setIsBusy] = useState(false);
   const [summary, setSummary] = useState<DeleteSummary | null>(null);
@@ -57,50 +53,29 @@ export function useDelete(
     setError(null);
     setSummary(null);
 
-    const fileKeys = items
-      .filter((i): i is Extract<SelectableItem, {type: 'file'}> => i.type === 'file')
-      .map((i) => i.key);
-    const folders = items.filter((i): i is Extract<SelectableItem, {type: 'folder'}> => i.type === 'folder');
-
     const deleted: string[] = [];
     const errors: DeleteSummary['errors'] = [];
 
-    // Loose files: one batched (chunked) DeleteObjects call. A systemic failure
-    // here (e.g. credentials gone) affects everything, so abort and surface it.
-    if (fileKeys.length > 0) {
-      const result = await deleteObjects({bucket, keys: fileKeys, username});
-      if (!result.success) {
-        setError(toUserText(result.error));
-        setIsBusy(false);
-        return null;
-      }
-      deleted.push(...result.data.deleted);
-      errors.push(...result.data.errors);
-    }
-
-    // Folders: recursive delete each. A whole-folder failure (e.g. listing that
-    // folder was denied) is recorded against the folder and the rest continue.
-    for (const folder of folders) {
-      const result = await deleteFolder({
-        bucket,
-        prefix: folder.prefix,
-        username,
-        rootPrefix
-      });
-      if (!result.success) {
-        errors.push({key: folder.prefix, message: result.error.message, code: result.error.code});
+    for (const item of items) {
+      if (item.type === 'folder') {
+        errors.push({
+          key: item.prefix,
+          message: 'Folders are deleted by the file operations service.',
+          code: 'PlaneRequired'
+        });
         continue;
       }
-      deleted.push(...result.data.deleted);
-      errors.push(...result.data.errors);
+      const result = await deleteObject({bucket, key: item.key, username});
+      if (result.success) deleted.push(result.data.key);
+      else errors.push({key: item.key, message: result.error.message, code: result.error.code});
     }
 
     await invalidateListing(queryClient, bucket, prefix);
 
-    const result: DeleteSummary = {count: deleted.length, errors};
-    setSummary(result);
+    const outcome: DeleteSummary = {count: deleted.length, errors};
+    setSummary(outcome);
     setIsBusy(false);
-    return result;
+    return outcome;
   }
 
   return {

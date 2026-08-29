@@ -25,7 +25,10 @@ beforeEach(() => {
 
 describe('useFileDownload', () => {
   it('presigns the file and hands the URL to the browser', async () => {
-    mockGetUrl.mockResolvedValue({success: true, data: {url: 'https://signed/report.csv'}});
+    mockGetUrl.mockResolvedValue({
+      success: true,
+      data: {url: 'https://signed/report.csv', expiresAt: '2026-01-01T00:15:00Z'}
+    });
     const {result} = renderHook(() => useFileDownload('my-bucket'));
 
     await act(async () => {
@@ -42,7 +45,8 @@ describe('useFileDownload', () => {
     let release!: () => void;
     mockGetUrl.mockReturnValue(
       new Promise((resolve) => {
-        release = () => resolve({success: true, data: {url: 'https://signed/report.csv'}});
+        release = () =>
+          resolve({success: true, data: {url: 'https://signed/report.csv', expiresAt: '2026-01-01T00:15:00Z'}});
       })
     );
     const {result} = renderHook(() => useFileDownload('my-bucket'));
@@ -61,7 +65,8 @@ describe('useFileDownload', () => {
     let release!: () => void;
     mockGetUrl.mockReturnValue(
       new Promise((resolve) => {
-        release = () => resolve({success: true, data: {url: 'https://signed/report.csv'}});
+        release = () =>
+          resolve({success: true, data: {url: 'https://signed/report.csv', expiresAt: '2026-01-01T00:15:00Z'}});
       })
     );
     const {result} = renderHook(() => useFileDownload('my-bucket'));
@@ -107,7 +112,10 @@ describe('useFileDownload', () => {
     });
     expect(result.current.error).not.toBeNull();
 
-    mockGetUrl.mockResolvedValueOnce({success: true, data: {url: 'https://signed/other.csv'}});
+    mockGetUrl.mockResolvedValueOnce({
+      success: true,
+      data: {url: 'https://signed/other.csv', expiresAt: '2026-01-01T00:15:00Z'}
+    });
     await act(async () => {
       await result.current.download(file('other.csv'));
     });

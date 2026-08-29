@@ -170,11 +170,8 @@ function FileBrowserContent({
   const send = useFileSend(space, (t) => toast.push(t));
   const archive = useArchive(space, (t) => toast.push(t));
   const restore = useRestoreArchive(space, (t) => toast.push(t));
-  // `rootPrefix` is the space root, not the browsed folder: it is what tells the
-  // delete/move services that a folder is the space's own `athenaresults/` rather
-  // than a user folder that happens to share the name.
-  const del = useDelete(bucket, currentPrefix, username, rootPrefix);
-  const move = useMove(bucket, currentPrefix, username, rootPrefix);
+  const del = useDelete(bucket, currentPrefix, username);
+  const move = useMove(bucket, currentPrefix, username);
   const copy = useCopy(bucket, username);
   const canModify = writable && !!username;
   // The first prefix-based write gate. IAM denies writes beneath `archive/`, so
@@ -442,8 +439,7 @@ function FileBrowserContent({
       <OperationFeedback
         op={move}
         pastVerb="Moved"
-        failVerb="move"
-        progressVerb="Moving">
+        failVerb="move">
         {/* Rename collision — Overwrite or pick a new name. Not part
             of the shared state: it is single-item, so a new name is offered too. */}
         {move.renameCollision && (
@@ -461,7 +457,6 @@ function FileBrowserContent({
         op={copy}
         pastVerb="Copied"
         failVerb="copy"
-        progressVerb="Copying"
       />
 
       {/* Mounted here rather than in FileBrowserDialogs because its state is this

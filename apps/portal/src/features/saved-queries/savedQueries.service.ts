@@ -1,16 +1,13 @@
-import {ListObjectsV2Command, PutObjectCommand} from '@aws-sdk/client-s3';
-import {getS3Client} from '../../lib/s3Client';
-import {withCredentialRetry} from '../../lib/credentialRetry';
-import {ok, toServiceError} from '../../lib/serviceResult';
+import {apiRequest} from '../../lib/apiClient';
+import {spaceFor} from '../../lib/objectSpace';
+import {fromApiFailure, ok} from '../../lib/serviceResult';
 import {readJsonDocument} from '../../lib/s3Json';
 import {
-  LISTING_PAGE_SIZE,
   PREFIX_MARKER_FILENAME,
   SAVED_QUERIES_FOLDER,
   SAVED_QUERIES_MARKER_BODY,
   deleteObject,
   isMarkerName,
-  objectExists,
   validateLeafName
 } from '../file-browser';
 import type {ServiceResult} from '../../types/service.types';
@@ -118,8 +115,12 @@ const ensuredFolders = new Set<string>();
  * mechanism every space root already uses. Best effort: a failure is not fatal to
  * anything the user is doing, because writing a saved query creates the prefix anyway.
  *
+ * **One call.** The existence check the browser used to make first lives inside the write route:
+ * `overwrite: false` answers `Conflict` when the marker is already there, which is this function's
+ * success case. Asking separately paid two round trips to learn one thing.
+ *
  * @param space - The space whose folder to guarantee.
- * @returns Success (whether or not it had to write); a failed head or put as a failure.
+ * @returns Success (whether or not it had to write); a failed write as a failure.
  */
 export async function ensureSavedQueriesFolder(space: QuerySpace): Promise<ServiceResult<void>> {
   const key = `${savedQueriesPrefix(space.rootPrefix)}${PREFIX_MARKER_FILENAME}`;
@@ -130,25 +131,17 @@ export async function ensureSavedQueriesFolder(space: QuerySpace): Promise<Servi
   if (ensuredFolders.has(cacheKey)) return ok(undefined);
   ensuredFolders.add(cacheKey);
 
-  const exists = await objectExists({bucket: space.bucket, key});
-  if (!exists.success) return exists;
-  if (exists.data) return ok(undefined);
-
-  return withCredentialRetry(getS3Client, async (client) => {
-    try {
-      await client.send(
-        new PutObjectCommand({
-          Bucket: space.bucket,
-          Key: key,
-          Body: SAVED_QUERIES_MARKER_BODY,
-          ContentType: 'text/plain'
-        })
-      );
-      return ok(undefined);
-    } catch (err) {
-      return toServiceError(err, 'Failed to create the saved queries folder');
+  const written = await apiRequest('objects.writeContent', {
+    body: {
+      space: spaceFor(space.bucket, key),
+      key,
+      body: SAVED_QUERIES_MARKER_BODY,
+      contentType: 'text/plain',
+      overwrite: false
     }
   });
+  if (written.success || written.error.code === 'Conflict') return ok(undefined);
+  return fromApiFailure(written.error, 'Failed to create the saved queries folder');
 }
 
 /**
@@ -176,39 +169,38 @@ export async function listSavedQueries(params: {
   const {space, continuationToken, signal} = params;
   const prefix = savedQueriesPrefix(space.rootPrefix);
 
-  return withCredentialRetry(getS3Client, async (client) => {
-    try {
-      const response = await client.send(
-        new ListObjectsV2Command({
-          Bucket: space.bucket,
-          Prefix: prefix,
-          Delimiter: '/',
-          MaxKeys: LISTING_PAGE_SIZE,
-          ContinuationToken: continuationToken
-        }),
-        {abortSignal: signal}
-      );
+  const space_ = spaceFor(space.bucket, space.rootPrefix);
+  const listed = await apiRequest('objects.list', {
+    query: {
+      spaceKind: space_.kind,
+      spaceName: space_.name,
+      prefix,
+      ...(continuationToken ? {nextToken: continuationToken} : {})
+    },
+    signal
+  });
+  if (!listed.success) return fromApiFailure(listed.error, 'Failed to load saved queries');
 
-      const queries = (response.Contents ?? [])
-        .filter((obj): obj is typeof obj & {Key: string} => typeof obj.Key === 'string')
-        .filter((obj) => isSavedQueryKey(obj.Key, prefix))
-        .map((obj) => ({
-          spaceId: space.id,
-          bucket: space.bucket,
-          key: obj.Key,
-          name: savedQueryName(obj.Key),
-          updatedAt: (obj.LastModified ?? new Date(0)).toISOString(),
-          size: obj.Size ?? 0
-        }));
+  // THE FILTER STAYS IN TYPESCRIPT. The route lists one delimited level, and the top-level `.sql`
+  // check is the other half of what makes a saved query a saved query. A server-side
+  // "filter for me" convenience would quietly change which keys qualify, and this is the only
+  // place that rule is written down.
+  const queries = listed.data.items
+    .filter((item) => item.kind === 'file')
+    .filter((item) => isSavedQueryKey(item.key, prefix))
+    .map((item) => ({
+      spaceId: space.id,
+      bucket: space.bucket,
+      key: item.key,
+      name: savedQueryName(item.key),
+      updatedAt: item.lastModified ?? new Date(0).toISOString(),
+      size: item.size ?? 0
+    }));
 
-      return ok({
-        queries,
-        isTruncated: response.IsTruncated ?? false,
-        nextContinuationToken: response.NextContinuationToken
-      });
-    } catch (err) {
-      return toServiceError(err, 'Failed to load saved queries');
-    }
+  return ok({
+    queries,
+    isTruncated: listed.data.nextToken !== null,
+    nextContinuationToken: listed.data.nextToken ?? undefined
   });
 }
 
@@ -252,10 +244,11 @@ export async function readSavedQuery(params: {bucket: string; key: string}): Pro
 /**
  * Writes a saved query, refusing to clobber an existing one unless asked.
  *
- * The collision check is a HEAD on the exact KEY, not a scan of a loaded list: the list
- * is paginated and the target space may not be the one on screen, so an in-memory scan
- * stopped being sound. One visible consequence is accepted — S3 keys are
- * case-sensitive, so `Report` and `report` are two saved queries.
+ * The collision check is on the exact KEY, not a scan of a loaded list: the list is paginated and
+ * the target space may not be the one on screen, so an in-memory scan stopped being sound. It is
+ * the write route's own, so a save costs one call and the check cannot disagree with the write it
+ * guards. One visible consequence is accepted — S3 keys are case-sensitive, so `Report` and
+ * `report` are two saved queries.
  *
  * @param params.space - The space to write into.
  * @param params.name - The user-supplied name; validated before any request.
@@ -276,38 +269,32 @@ export async function writeSavedQuery(params: {
 
   const key = savedQueryKey(space.rootPrefix, name);
 
-  if (!overwrite) {
-    const exists = await objectExists({bucket: space.bucket, key});
-    if (!exists.success) return exists;
-    if (exists.data) {
+  const written = await apiRequest('objects.writeContent', {
+    body: {
+      space: spaceFor(space.bucket, key),
+      key,
+      body: sql,
+      contentType: 'text/plain; charset=utf-8',
+      overwrite
+    }
+  });
+  if (!written.success) {
+    if (written.error.code === 'Conflict') {
       return {
         success: false,
         error: {message: `“${savedQueryName(key)}” already exists.`, code: 'Collision'}
       };
     }
+    return fromApiFailure(written.error, 'Failed to save query');
   }
 
-  return withCredentialRetry(getS3Client, async (client) => {
-    try {
-      await client.send(
-        new PutObjectCommand({
-          Bucket: space.bucket,
-          Key: key,
-          Body: sql,
-          ContentType: 'text/plain; charset=utf-8'
-        })
-      );
-      return ok({
-        spaceId: space.id,
-        bucket: space.bucket,
-        key,
-        name: savedQueryName(key),
-        updatedAt: new Date().toISOString(),
-        size: new TextEncoder().encode(sql).length
-      });
-    } catch (err) {
-      return toServiceError(err, 'Failed to save query');
-    }
+  return ok({
+    spaceId: space.id,
+    bucket: space.bucket,
+    key,
+    name: savedQueryName(key),
+    updatedAt: new Date().toISOString(),
+    size: new TextEncoder().encode(sql).length
   });
 }
 

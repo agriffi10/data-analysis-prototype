@@ -73,7 +73,7 @@ This is an **npm workspaces monorepo**.
 | Routing | `react-router-dom` v7 (library mode) |
 | Server state | TanStack Query (`@tanstack/react-query`) |
 | UI state | React Context + `useReducer` (no Redux) |
-| AWS SDK | `@aws-sdk/client-s3` v3, `@aws-sdk/s3-request-presigner`, `@aws-sdk/lib-storage` |
+| AWS SDK | `@aws-sdk/client-athena`, `@aws-sdk/client-glue`, `@aws-sdk/client-sqs` — **no S3 client**: objects go through the API and file bytes through presigned URLs |
 | Auth | AWS Cognito + Amplify v6 (`aws-amplify`) |
 | Testing | Vitest + React Testing Library |
 | Linting | ESLint + Prettier |
@@ -114,16 +114,17 @@ npm run lint       # ESLint
 npm run format     # Prettier
 ```
 
-### Two dev modes
+### Running it locally
 
-`apps/portal/.env.example` documents every variable. Copy it to `apps/portal/.env.local` and
-choose one:
+`apps/portal/.env.example` documents every variable. Copy it to `apps/portal/.env.local` and point
+the `VITE_COGNITO_*`, `VITE_API_BASE_URL` and `VITE_S3_USER_SPACE_BUCKET` variables at a deployed
+environment's `tofu output` values, then sign in normally. Uploads and downloads redeem presigned
+URLs from `http://localhost:5173`, which both buckets' CORS allowlists name.
 
-1. **Unauthenticated dev** (no AWS account needed) — browse a public/test bucket with
-   anonymous S3 requests. Set `VITE_S3_DEV_UNAUTH=true` and `VITE_S3_BUCKET_NAME=…`. This path
-   is **dev‑only** and stripped from production builds.
-2. **Full authenticated flow** — point the `VITE_COGNITO_*` and `VITE_S3_USER_SPACE_BUCKET`
-   vars at a deployed environment's `tofu output` values and leave `VITE_S3_DEV_UNAUTH` unset.
+There used to be a second mode — an unauthenticated one that browsed a public test bucket with
+anonymous S3 requests, needing no AWS account. It worked by having the browser call S3 directly,
+and the browser no longer does: every read and write goes through the API, which verifies a bearer.
+There is no unsigned call left for that mode to make, so it is gone along with its five variables.
 
 ---
 

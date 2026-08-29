@@ -1,6 +1,5 @@
-import {readJsonDocument} from '../../lib/s3Json';
-import {ok} from '../../lib/serviceResult';
-import {userSpaceBucket} from '../../lib/userSpace';
+import {apiRequest} from '../../lib/apiClient';
+import {fromApiFailure, ok} from '../../lib/serviceResult';
 import {FEATURE_FLAG_DEFAULTS, FEATURE_FLAG_KEYS} from './featureFlagDefaults';
 import type {FeatureFlagKey, FeatureFlags} from './featureFlags.types';
 import type {ServiceResult} from '../../types/service.types';
@@ -9,6 +8,10 @@ import type {ServiceResult} from '../../types/service.types';
  * Where `.github/workflows/deploy-config.yml` publishes. The portal role holds `GetObject`
  * here and nothing else — no write, and no `ListBucket` widening, so the document is
  * invisible to the file browser.
+ *
+ * Kept as a declaration although the browser no longer builds a request from it: the key is a
+ * contract with the publishing workflow, and it is asserted against the API's own copy so the two
+ * cannot drift into naming different objects.
  */
 export const FEATURE_FLAGS_KEY = '_config/feature-flags.json';
 
@@ -36,8 +39,10 @@ const SUPPORTED_VERSION = 1;
  * A MISSING object is a failure here for the same reason: it means the publish workflow has
  * never run against this bucket, which is a deploy defect rather than a starting state.
  *
- * The bucket name is read at CALL time, never at module load: the runtime document is
- * not in hand until the bootstrap resolves it.
+ * **It has a route of its own, and does not ride the document route the other settings documents
+ * do.** `_config/` belongs to no user and to no shared space, so the API's space resolver — whose
+ * whole job is to refuse a prefix the caller's claims do not authorize — correctly refuses it. The
+ * username directory hit the same wall and was solved the same way.
  *
  * @param environment - The runtime document's `environment`. `undefined` (an unwired variable)
  *   and a name the document does not carry both resolve to the document's own `defaults`,
@@ -45,12 +50,11 @@ const SUPPORTED_VERSION = 1;
  * @returns Always a `ServiceResult`; never throws.
  */
 export async function getFeatureFlags(environment: string | undefined): Promise<ServiceResult<FeatureFlags>> {
-  return readJsonDocument({
-    bucket: userSpaceBucket(),
-    key: FEATURE_FLAGS_KEY,
-    parse: (body) => parseFlags(body, environment),
-    fallbackMessage: 'Failed to load the feature flags'
-  });
+  const read = await apiRequest('featureFlags.get');
+  if (!read.success) return fromApiFailure(read.error, 'Failed to load the feature flags');
+  // An empty object reads as no document at all, which is what the parser's own "unusable" arm
+  // already says about a body it cannot use.
+  return parseFlags(read.data.body === '' ? undefined : read.data.body, environment);
 }
 
 /** TOTAL: a body that isn't JSON is as unusable as one that is JSON of the wrong shape. */

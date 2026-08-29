@@ -28,6 +28,9 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [A conflict is one item's outcome, and the list is created once and carried forward (SPEC-188)](#a-conflict-is-one-items-outcome-and-the-list-is-created-once-and-carried-forward-spec-188)
 - [The commit gate is per ITEM, so the graph proves less than SPEC-169's did (SPEC-189)](#the-commit-gate-is-per-item-so-the-graph-proves-less-than-spec-169s-did-spec-189)
 - [The source deletion: what it removes, and what it is conditional on (SPEC-189)](#the-source-deletion-what-it-removes-and-what-it-is-conditional-on-spec-189)
+- [Bytes go to S3 presigned; small text goes through the API (SPEC-198)](#bytes-go-to-s3-presigned-small-text-goes-through-the-api-spec-198)
+- [The folder-recursive functions are deleted, not ported, and the flag stops being a fallback (SPEC-198)](#the-folder-recursive-functions-are-deleted-not-ported-and-the-flag-stops-being-a-fallback-spec-198)
+- [The free-name probe moved to the API, not to the plane (SPEC-198, amends SPEC-187)](#the-free-name-probe-moved-to-the-api-not-to-the-plane-spec-198-amends-spec-187)
 
 ## File ops = filesystem UX
 
@@ -901,3 +904,92 @@ cannot resolve through this plane at all.
 `Resource` wildcard matches `/`, and this role carries no principal tag to pin one segment the way
 the portal role's `${aws:PrincipalTag/username}` does. The strict side is taken — any-depth on both
 buckets — and the divergence is handled per item rather than hidden.
+
+## Bytes go to S3 presigned; small text goes through the API (SPEC-198)
+
+Every S3 call the browser made is a route now, with one split running through the middle of it: a
+**document** — a JSON settings file, a `.sql` saved query, a folder marker — travels **in the
+response body**, and a **file** travels **directly between the browser and S3** under a presigned
+URL. Compute never touches a file's bytes.
+
+**The document route's byte cap is what holds that line.** Without it the content route is a second
+upload path that bypasses presigning entirely and works perfectly up to Lambda's 6 MB synchronous
+response ceiling — which is to say, for every document the app actually authors, and for a good
+number of files too. `MAX_DOCUMENT_BYTES` is computed against that ceiling divided by the worst-case
+JSON escape expansion, because `json.dumps` at its default `ensure_ascii=True` renders a non-ASCII
+BMP character as a six-byte `\uXXXX` escape where UTF-8 stored three: a 4.5 MB CJK document that
+fits the cap by its stored size doubles on the way out and fails as a **fault** rather than as a
+refusal.
+
+**The document routes never parse.** Parsing server-side is the wrong implementation that looks
+identical: it works for every healthy document and turns an unparseable one into a 500 — which puts
+SPEC-159's whole quarantine path out of reach, because the classifier never sees the body it must
+classify as unreadable. Re-serialising on write is the same defect from the other side: it changes
+key order and whitespace, which breaks nothing visible and breaks byte-identity.
+
+**An upload is one `PUT` over `XMLHttpRequest`, and the transport is a requirement.** `fetch` fires
+no upload-progress event, so a `fetch` implementation uploads correctly and leaves the progress bar
+at 0% until it jumps to 100% — a shipped feature deleted by a transport choice, with every "the
+upload succeeded" test still green. The assertion is on an **intermediate** value, and
+`XMLHttpRequest` is confined to one module by a sweep that widens the existing `fetch` one: a rule
+forbidding `fetch` and silent about `XMLHttpRequest` permits the same escape hatch under another
+name.
+
+**Three consequences of one `PUT` where `lib-storage` auto-multiparted, stated rather than
+discovered.** (1) The 5 GiB ceiling **does not move** — it is exactly the single-`PUT` cap and
+exactly what the configured maximum already clamped to, and `maxUploadBytes()` now clamps to it so
+an operator who raises the configured value gets a refusal rather than an `EntityTooLarge` from S3
+at the end of a long transfer. (2) There is **no part-level retry** any more: a dropped connection
+restarts the whole file. Accepted; the route trio a later spec would add is
+`create-multipart` / `sign-part` / `complete-multipart`, named here so it is added rather than
+rediscovered. (3) `MULTIPART_PART_SIZE` and `PART_CONCURRENCY` are gone.
+
+**The URL is minted per FILE, at the moment that file starts.** A batch mint ages while the queue
+drains: with three files in flight and a 15-minute window, the fiftieth file's URL would be signed
+long before it was redeemed, pass preflight cleanly and 403 at the end. The mint therefore lives
+*inside* `uploadFile`, which is what makes "per file" structural rather than a convention.
+
+## The folder-recursive functions are deleted, not ported, and the flag stops being a fallback (SPEC-198)
+
+`deleteObjects`, `deleteFolder`, `moveFolder` and `copyFolder` are **gone from the browser**, along
+with `listAllKeysUnderPrefix`, `deleteInBatches` and their `onProgress(processed, total)` shape.
+Arc A moved every operation whose cost grows with object count onto a control plane; porting these
+would have recreated that loop inside a Lambda under a 29-second integration ceiling, and it would
+have worked — for small folders, in every test anyone writes.
+
+**`asyncFileOperations` therefore switches a capability off rather than to a slower route.** It used
+to be a fallback: with it off, a folder copy, move or delete ran in the browser instead. With the
+browser's recursive primitives gone there is nothing to fall back to, so a folder operation is now
+**refused per item**, with the files selected alongside it still going through. `deleteObjects` went
+with them, so a multi-file delete is a loop of single deletes — which is what copy and move already
+were.
+
+**The refusal is per item, not per request, and that is the whole design of it.** A whole-selection
+refusal would lose the files a user picked beside the folder. The message names the folders that did
+not move; the code is `PlaneRequired`, which is authored wording rather than passthrough, because
+every occurrence says the same thing.
+
+**Two paths reach it, and the second is easy to miss.** `useFileBrowserDialogs`'s `routesToPlane`
+returns false when the flag is off *and* when a chosen destination resolves to no known space — so
+the refusal is reachable with the flag ON. Recorded because a reader checking only the flag would
+conclude the path is dead in production.
+
+## The free-name probe moved to the API, not to the plane (SPEC-198, amends SPEC-187)
+
+`firstFreeName` walked `(1)` … `(999)` with a `HeadObject` per candidate, inside the browser. Behind
+the API each probe becomes a browser → API → S3 round trip, which is **strictly worse than what it
+replaced** — so the walk is one route, `POST /v1/objects/free-name`, declared `idempotent: true`
+(the route SPEC-197 FR-008 names as the reason idempotency is declared rather than derived from the
+method: a POST that resolves a free name is a read).
+
+**`numberedName` moved to Python and the TypeScript copy is deleted.** Two implementations of a
+naming rule look identical until one of them changes.
+
+**Exhaustion and failure are now distinguishable, and they were not.** The old loop returned `null`
+both when 999 names were taken and when a probe errored, and the caller rendered one sentence for
+either. The route answers **409 `Conflict`** with `params: {attempts}` on exhaustion; anything else
+carries its own code.
+
+> **This amends two written records in place.** `ARCS.md`'s residual note and SPEC-187's table row
+> both say *the probe stays in the browser*. It left the browser for the **API**, not for the plane —
+> the distinction matters, because the plane would have made a same-folder copy asynchronous.

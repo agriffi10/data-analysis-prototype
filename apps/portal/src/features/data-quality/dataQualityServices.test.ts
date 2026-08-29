@@ -5,7 +5,7 @@ import {getSqsClient} from '../../lib/sqsClient';
 import {getIdToken} from '../../lib/awsCredentials';
 import {enqueueQualityCheck} from './dataQuality.service';
 import {getQualityReport, reportKey} from './dataQualityReport.service';
-import {getS3Client} from '../../lib/s3Client';
+import {apiRequest} from '../../lib/apiClient';
 import {getRunsIndex} from './dataQualityRuns.service';
 import type {DataQualityRequest} from './dataQuality.types';
 
@@ -15,7 +15,7 @@ vi.mock('../../lib/awsCredentials', () => ({
   getIdToken: vi.fn(),
   getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}})
 }));
-vi.mock('../../lib/s3Client', () => ({getS3Client: vi.fn()}));
+vi.mock('../../lib/apiClient', () => ({apiRequest: vi.fn()}));
 
 describe('dataQuality.format', () => {
   describe('locationLabel', () => {
@@ -198,19 +198,19 @@ describe('dataQuality.service', () => {
 // ─── from dataQualityReport.service.test.ts ───
 
 describe('dataQualityReport.service', () => {
-  const send = vi.fn();
-  const mockGetS3Client = vi.mocked(getS3Client);
+  const send = vi.mocked(apiRequest);
 
-  /** An S3 GetObject response body, as the SDK hands it to the service. */
-  const body = (text: string) => ({Body: {transformToString: async () => text}});
+  /** The document route's answer: the object's bytes as text, never parsed. */
+  const body = (text: string) => ({success: true as const, data: {body: text, etag: 'e'}});
 
-  const awsError = (name: string, status?: number) =>
-    Object.assign(new Error(name), {name, $metadata: status ? {httpStatusCode: status} : {}});
+  /** A failure now arrives as a machine code rather than as a thrown AWS error. */
+  const awsError = (code: string) => ({
+    success: false as const,
+    error: {message: '', code: code === 'NoSuchKey' ? 'NotFound' : code}
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();
-    send.mockReset();
-    mockGetS3Client.mockResolvedValue({success: true, data: {send} as never});
   });
 
   describe('reportKey', () => {
@@ -226,7 +226,7 @@ describe('dataQualityReport.service', () => {
       // Unlike the notifications inbox, absence is not a legitimate empty state here:
       // the user followed a link to a specific report. Rendering "no issues" over a
       // report that was never written would be the worst possible lie this page tells.
-      send.mockRejectedValue(awsError('NoSuchKey', 404));
+      send.mockResolvedValue(awsError('NoSuchKey'));
 
       const result = await getQualityReport('user-space', 'alice', 'gone');
 
@@ -247,7 +247,7 @@ describe('dataQualityReport.service', () => {
     });
 
     it('surfaces a denied read as a typed failure carrying the AWS name', async () => {
-      send.mockRejectedValue(awsError('AccessDenied', 403));
+      send.mockResolvedValue(awsError('AccessDenied'));
       const result = await getQualityReport('shared-bucket', 'team-data', 'req-1');
       expect(result.success).toBe(false);
       expect(result.success === false && result.error.code).toBe('AccessDenied');
@@ -258,14 +258,17 @@ describe('dataQualityReport.service', () => {
 // ─── from dataQualityRuns.service.test.ts ───
 
 describe('dataQualityRuns.service', () => {
-  const send = vi.fn();
+  const send = vi.mocked(apiRequest);
 
-  /** `getS3Client` hands back a ServiceResult, not a bare client (the sibling service test). */
-  const awsError = (name: string, status?: number) =>
-    Object.assign(new Error(name), {name, $metadata: status ? {httpStatusCode: status} : {}});
+  /** A failure arrives as a machine code now, not as a thrown AWS error. */
+  const awsError = (name: string) => ({
+    success: false as const,
+    error: {message: '', code: name === 'NoSuchKey' ? 'NotFound' : name}
+  });
 
   const body = (value: unknown) => ({
-    Body: {transformToString: async () => (typeof value === 'string' ? value : JSON.stringify(value))}
+    success: true as const,
+    data: {body: typeof value === 'string' ? value : JSON.stringify(value), etag: 'e'}
   });
 
   const entry = (over = {}) => ({
@@ -281,8 +284,6 @@ describe('dataQualityRuns.service', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    send.mockReset();
-    vi.mocked(getS3Client).mockResolvedValue({success: true, data: {send} as never});
   });
 
   describe('getRunsIndex', () => {
@@ -301,7 +302,7 @@ describe('dataQualityRuns.service', () => {
     it('treats a missing index as an empty success, not an error', async () => {
       // Every space is in this state until its first check completes; a red banner would be
       // the wrong answer to "you have not run one yet".
-      send.mockRejectedValue(awsError('NoSuchKey', 404));
+      send.mockResolvedValue(awsError('NoSuchKey'));
 
       const result = await getRunsIndex('user-space', 'alice');
 

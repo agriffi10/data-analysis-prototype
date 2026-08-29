@@ -144,10 +144,12 @@ export function undeletableRootFolderRefusal(
 /**
  * The refusal for a selection in which NOTHING can be destroyed, or null when any of it can.
  *
- * The service already refuses (`fileBrowser.service.ts` calls
- * `undeletableRootFolderRefusal` before issuing anything), but it refuses AFTER the user has
- * read *"Delete the folder … and everything inside it? This can't be undone."* and pressed
- * Delete — the most alarming confirm in the app, shown for an action that was never possible.
+ * Something downstream refuses either way — the file-operations plane for a folder it may not
+ * touch, and the object routes for a marker key — but every one of those refuses AFTER the user
+ * has read *"Delete the folder … and everything inside it? This can't be undone."* and pressed
+ * Delete: the most alarming confirm in the app, shown for an action that was never possible. The
+ * browser's own `undeletableRootFolderRefusal` call inside the delete service went with the
+ * recursive functions; this predicate is what remains, and it is the one that runs first.
  * Feeding this to `Button.disabledReason` states the refusal before the confirm instead, and
  * swallows the click that would have opened it.
  *

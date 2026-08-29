@@ -58,7 +58,7 @@ def move_object(context: RequestContext) -> dict[str, Any]:
       IdentityUnavailableError: If the caller's role cannot be assumed.
     """
     plan = _plan(context)
-    protected.assert_writable(plan["source_space"], plan["source_key"])
+    protected.assert_replaceable(plan["source_space"], plan["source_key"])
 
     client = _objects.client(context)
     written = _perform_copy(plan, client)
@@ -83,7 +83,7 @@ def delete_object(context: RequestContext) -> dict[str, Any]:
     body = context.body if isinstance(context.body, dict) else {}
     space = _objects.space_from_body(context)
     key = _objects.contained(space, str(body.get("key", "")))
-    protected.assert_writable(space, key)
+    protected.assert_replaceable(space, key)
 
     _objects.client(context).delete_object(Bucket=space.bucket, Key=key)
     return {"key": key}
@@ -107,7 +107,7 @@ def _plan(context: RequestContext) -> dict[str, Any]:
     destination_space = _objects.space_from_body(context, "destination")
     source_key = _objects.contained(source_space, str(body.get("sourceKey", "")))
     destination_key = _objects.contained(destination_space, str(body.get("destinationKey", "")))
-    protected.assert_writable(destination_space, destination_key)
+    protected.assert_replaceable(destination_space, destination_key)
     return {
         "source_space": source_space,
         "source_key": source_key,

@@ -365,6 +365,37 @@ class TestListing:
         assert [item["kind"] for item in items] == ["folder", "file"]
         assert items[0]["size"] is None
 
+    def test_the_listed_prefixs_OWN_key_is_not_a_row(self, s3) -> None:
+        """The sibling of the marker filter, and the one that had no test.
+
+        A folder's own zero-byte key is what makes the folder exist. Listed as a file it is an
+        untitled zero-byte row in every folder this app has ever created with New folder — and it
+        would be selectable, downloadable and deletable, which deletes the folder.
+        """
+        fake = s3(
+            RecordingS3(
+                listing={
+                    "Contents": [
+                        {"Key": "alice/documents/", "Size": 0},
+                        {"Key": "alice/documents/report.pdf", "Size": 10},
+                    ]
+                }
+            )
+        )
+        answer = router.route(
+            "GET",
+            "/v1/objects",
+            bearer(),
+            "rq",
+            None,
+            {"spaceKind": "personal", "spaceName": "alice", "prefix": "alice/documents/"},
+        )
+
+        assert [row["key"] for row in json.loads(answer["body"])["items"]] == [
+            "alice/documents/report.pdf"
+        ]
+        assert fake.calls[0][1]["Prefix"] == "alice/documents/"
+
     def test_the_folder_marker_is_not_a_row(self, s3) -> None:
         """It is an implementation detail of a folder, not a file anybody put there."""
         s3(
@@ -445,6 +476,136 @@ class TestExistsAnswers200EitherWay:
         )
         assert answer["statusCode"] == 200
         assert json.loads(answer["body"])["exists"] is False
+
+
+    def test_a_prefix_holding_only_its_own_marker_still_EXISTS(self, s3) -> None:
+        """The listing route cannot answer this, which is why the question came here.
+
+        ``objects_list`` drops the prefix's own key and every ``DO_NOT_DELETE.txt`` — right for a
+        listing, and fatal for "is this folder still there": a folder made with New folder holds
+        exactly the key the listing hides. Answered through the raw page instead.
+        """
+        fake = s3(RecordingS3(listing={"Contents": [{"Key": "alice/reports/DO_NOT_DELETE.txt"}]}))
+        answer = router.route(
+            "GET",
+            "/v1/objects/exists",
+            bearer(),
+            "rq",
+            None,
+            {
+                "spaceKind": "personal",
+                "spaceName": "alice",
+                "key": "alice/reports/",
+                "target": "prefix",
+            },
+        )
+        assert json.loads(answer["body"])["exists"] is True
+        assert [call[0] for call in fake.calls] == ["list_objects_v2"]
+        assert fake.calls[0][1]["MaxKeys"] == 1
+        assert fake.calls[0][1]["Delimiter"] == "/"
+
+    def test_a_prefix_whose_only_child_is_a_SUBFOLDER_still_exists(self, s3) -> None:
+        """The delimiter costs the answer nothing: a nested-only folder answers through CommonPrefixes."""
+        s3(RecordingS3(listing={"CommonPrefixes": [{"Prefix": "alice/reports/q1/"}]}))
+        answer = router.route(
+            "GET",
+            "/v1/objects/exists",
+            bearer(),
+            "rq",
+            None,
+            {
+                "spaceKind": "personal",
+                "spaceName": "alice",
+                "key": "alice/reports/",
+                "target": "prefix",
+            },
+        )
+        assert json.loads(answer["body"])["exists"] is True
+
+    def test_an_empty_prefix_page_is_FALSE(self, s3) -> None:
+        """The negative, and the one the panel renders a message from."""
+        s3(RecordingS3(listing={}))
+        answer = router.route(
+            "GET",
+            "/v1/objects/exists",
+            bearer(),
+            "rq",
+            None,
+            {
+                "spaceKind": "personal",
+                "spaceName": "alice",
+                "key": "alice/gone/",
+                "target": "prefix",
+            },
+        )
+        assert json.loads(answer["body"])["exists"] is False
+
+    def test_a_prefix_question_about_a_FOREIGN_space_refuses_with_no_aws_call(self, s3) -> None:
+        """The refusal is the space resolution's, and it happens before the client is built."""
+        fake = s3(RecordingS3(listing={"Contents": [{"Key": "bob/x"}]}))
+        answer = router.route(
+            "GET",
+            "/v1/objects/exists",
+            bearer(),
+            "rq",
+            None,
+            {"spaceKind": "personal", "spaceName": "bob", "key": "bob/", "target": "prefix"},
+        )
+        assert answer["statusCode"] == 403
+        assert json.loads(answer["body"])["error"]["code"] == "AccessDenied"
+        assert fake.calls == []
+        assert fake.assumes == 0
+
+
+class TestMetadataCarriesEverythingThePanelRenders:
+    """FR-009 — the details panel shows storage class and the object's own metadata.
+
+    A port that returned only size and content type would have emptied two fields silently, which
+    is the erosion FR-009 exists to catch.
+    """
+
+    def test_storage_class_and_user_metadata_travel(self, s3) -> None:
+        """Both fields, and the pairs as rows because the vocabulary has no map."""
+        s3(
+            RecordingS3(
+                head={
+                    "ContentLength": 12,
+                    "ContentType": "text/csv",
+                    "ETag": '"e"',
+                    "StorageClass": "INTELLIGENT_TIERING",
+                    "Metadata": {"owner": "alice", "batch": "7"},
+                }
+            )
+        )
+        answer = router.route(
+            "GET",
+            "/v1/objects/metadata",
+            bearer(),
+            "rq",
+            None,
+            {"spaceKind": "personal", "spaceName": "alice", "key": "alice/x.csv"},
+        )
+        body = json.loads(answer["body"])
+        assert body["storageClass"] == "INTELLIGENT_TIERING"
+        assert body["userMetadata"] == [
+            {"name": "batch", "value": "7"},
+            {"name": "owner", "value": "alice"},
+        ]
+
+    def test_an_omitted_storage_class_reads_STANDARD_and_no_metadata_is_an_empty_list(self, s3) -> None:
+        """S3 omits StorageClass for every ordinary object, which is the common case."""
+        s3(RecordingS3(head={"ContentLength": 1, "ETag": '"e"'}))
+        answer = router.route(
+            "GET",
+            "/v1/objects/metadata",
+            bearer(),
+            "rq",
+            None,
+            {"spaceKind": "personal", "spaceName": "alice", "key": "alice/x"},
+        )
+        body = json.loads(answer["body"])
+        assert body["storageClass"] == "STANDARD"
+        assert body["userMetadata"] == []
 
 
 class TestDocumentsAreBytes:
@@ -614,6 +775,95 @@ class TestMutations:
             None,
         )
         assert answer["statusCode"] == 403
+        assert fake.calls == []
+
+
+class TestTheMarkerRuleIsAboutREMOVAL:
+    """FR-009 AC3 — and the half of it that shipped broken.
+
+    Both bucket policies Deny ``s3:DeleteObject`` on ``*/DO_NOT_DELETE.txt`` and **nothing else**.
+    A guard that folded the marker into the write rule was stricter than the policy it claims to
+    mirror, and it refused the two shipped paths that CREATE one. Driven through the routes rather
+    than through ``protected``: the unit rule was right, and the route called the wrong half of it.
+    """
+
+    def test_CREATING_a_marker_is_permitted_because_that_is_how_a_prefix_is_held_open(self, s3) -> None:
+        """Driven through the ROUTE, not through `protected` — the unit rule was right and the
+        route called the wrong half of it.
+
+        Both bucket policies Deny ``s3:DeleteObject`` on ``*/DO_NOT_DELETE.txt`` and nothing else.
+        A write guard that also refused creation made `ensurePrefixMarker` and
+        `ensureSavedQueriesFolder` answer 403: a brand-new user's prefix would never be created, and
+        a saved-queries folder would vanish once emptied. Both are best-effort background writes
+        that log and carry on, so the failure is silent — the browser sees a `ServiceResult` it was
+        already written to ignore.
+        """
+        fake = s3(RecordingS3(head=None))
+
+        answer = router.route(
+            "PUT",
+            "/v1/objects/content",
+            bearer(),
+            "rq",
+            {
+                "space": {"kind": "personal", "name": "alice"},
+                "key": "alice/DO_NOT_DELETE.txt",
+                "body": "This file keeps your storage space active.",
+                "contentType": "text/plain",
+                "overwrite": False,
+            },
+        )
+
+        assert answer["statusCode"] == 200
+        assert [call[0] for call in fake.calls] == ["head_object", "put_object"]
+
+    def test_REPLACING_a_marker_is_refused_which_is_the_half_that_stays(self, s3) -> None:
+        """Overwriting a marker leaves the prefix open with a file at a key the listing hides by
+        basename and the bucket policy will not let anyone delete.
+
+        IAM permits it; every surface in this app refuses it, and so does the route.
+        """
+        fake = s3(RecordingS3(head={"ContentLength": 1}))
+
+        answer = router.route(
+            "PUT",
+            "/v1/objects/content",
+            bearer(),
+            "rq",
+            {
+                "space": {"kind": "personal", "name": "alice"},
+                "key": "alice/DO_NOT_DELETE.txt",
+                "body": "something else",
+                "contentType": "text/plain",
+                "overwrite": True,
+            },
+        )
+
+        assert answer["statusCode"] == 403
+        assert json.loads(answer["body"])["error"]["code"] == "AccessDenied"
+        assert fake.calls == []
+
+    def test_an_upload_url_is_never_minted_for_a_marker_key(self, s3) -> None:
+        """No surface uploads a marker, so the presign route takes the stricter rule at both
+        settings — and mints nothing, because a route that mints first has already handed out the
+        capability."""
+        fake = s3(RecordingS3(head=None))
+
+        answer = router.route(
+            "POST",
+            "/v1/objects/upload-url",
+            bearer(),
+            "rq",
+            {
+                "space": {"kind": "personal", "name": "alice"},
+                "key": "alice/reports/DO_NOT_DELETE.txt",
+                "contentType": "text/plain",
+                "overwrite": False,
+            },
+        )
+
+        assert answer["statusCode"] == 403
+        assert "url" not in json.loads(answer["body"])
         assert fake.calls == []
 
     def test_deleting_a_marker_is_refused_server_side(self, s3) -> None:

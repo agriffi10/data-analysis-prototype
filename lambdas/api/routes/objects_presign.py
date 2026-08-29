@@ -41,8 +41,8 @@ def upload_url(context: RequestContext) -> dict[str, Any]:
       The URL and when it expires.
 
     Raises:
-      ApiError: ``AccessDenied`` on an unauthorized space, an escaping key or a protected
-        location; ``Conflict`` when the key is occupied and ``overwrite`` is false — and NO url is
+      ApiError: ``AccessDenied`` on an unauthorized space, an escaping key, a marker key or a
+        write-locked location; ``Conflict`` when the key is occupied and ``overwrite`` is false — and NO url is
         minted in that case, because a route that mints first has already handed out the
         capability.
       IdentityUnavailableError: If the caller's role cannot be assumed.
@@ -50,11 +50,18 @@ def upload_url(context: RequestContext) -> dict[str, Any]:
     body = context.body if isinstance(context.body, dict) else {}
     space = _objects.space_from_body(context)
     key = _objects.contained(space, str(body.get("key", "")))
-    protected.assert_writable(space, key)
+    overwrite = bool(body.get("overwrite", False))
+    # The stricter rule at BOTH settings, where the document route has to admit a create. A user
+    # genuinely can pick a file called DO_NOT_DELETE.txt in the dropzone, and before this arc that
+    # upload succeeded — the bucket policies deny only the delete. It is refused now, deliberately:
+    # the object would sit at a key the listing hides by basename and nobody can ever remove, and
+    # the folder it lands in stays open around it. The only marker this app writes is the one the
+    # document route creates, with a body it chose.
+    protected.assert_replaceable(space, key)
 
     client, credentials = identity.signing_client("s3", context.acting_as)
 
-    if not body.get("overwrite", False):
+    if not overwrite:
         try:
             client.head_object(Bucket=space.bucket, Key=key)
         except Exception as exc:

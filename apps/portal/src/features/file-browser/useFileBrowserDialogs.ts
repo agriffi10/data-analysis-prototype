@@ -86,11 +86,22 @@ export type UseFileBrowserDialogsResult = {
   /** True while an enqueue is resolving — what the four dialogs' busy states read on this path. */
   submitting: boolean;
   /**
-   * Why this SELECTION cannot be submitted right now, if it cannot — an operation of this
-   * session's is still with the plane in one of the spaces it would touch.
+   * Why this SELECTION cannot be acted on right now, if it cannot.
    *
-   * Answers `undefined` for a selection that would stay in the browser: refusing a single-file
-   * delete the plane never sees would take away something the user could do before.
+   * Two reasons, and they are different in kind. Either an operation of this session's is still
+   * with the plane in one of the spaces this one would touch — temporary, and "try again when it
+   * finishes" is true. Or the plane is not taking work at all, and the browser has no recursive
+   * primitive to fall back to, so a folder or multi-item gesture cannot be performed by anyone:
+   * that one is not temporary, and saying "try again later" would be a lie.
+   *
+   * Answers `undefined` for a selection that stays in the browser — exactly one file. Refusing a
+   * single-file delete the plane never sees would take away something the user could do before,
+   * which is the one thing this switchover may not do.
+   *
+   * **This is the affordance half of a refusal the services also make.** The services refuse per
+   * item, after the fact, because a mixed selection must still move its files; this stops the
+   * doomed gesture reaching the delete confirm at all — which otherwise asks "delete the folder and
+   * everything inside it? This can't be undone", and then deletes nothing.
    */
   spaceBusyReasonFor: (items: SelectableItem[]) => string | undefined;
   /**
@@ -140,6 +151,16 @@ type Params = {
  * does the fork happen — a single FILE takes the synchronous same-folder copy, a single FOLDER is
  * enqueued with the probed name.
  */
+/**
+ * What a user is told when the file-operations service is not taking work and the browser has no
+ * way to perform the shape they picked.
+ *
+ * It does not say "try again later": while the service is switched off, later is the same. Saying
+ * so would be the one false sentence on this surface.
+ */
+const PLANE_UNAVAILABLE =
+  'Folders and multi-item actions are handled by the file operations service, which is not available.';
+
 export function useFileBrowserDialogs({
   bucket,
   currentPrefix,
@@ -185,25 +206,54 @@ export function useFileBrowserDialogs({
   }
 
   /**
-   * Would this selection's SHAPE go to the plane?
+   * Does this selection's SHAPE need the plane, and can the plane take it?
    *
-   * THE ONE PLACE the routing predicate is consulted, and the per-space gate's wording asks through
-   * it so that a shape the browser keeps is never refused — a gate that blocked a single-file
-   * delete the plane never sees takes away something the user could do before, which is the one
-   * thing this switchover may not do.
+   * **THE ONE PLACE the routing predicate is consulted**, and it answers both questions from that
+   * single call because they have different answers and one of them is new. A shape the browser
+   * can perform is never refused — a gate that blocked a single-file delete the plane never sees
+   * takes away something the user could do before, which is the one thing this switchover may not
+   * do. But a shape the browser CANNOT perform is now unavailable when the plane is off, where it
+   * used to run slowly in the browser instead; those are different sentences to a user, and asking
+   * the predicate twice to tell them apart would make the routing rule two rules that happen to
+   * agree today.
    *
-   * It answers about the shape and nothing else. `dispatch` also runs a gesture here when the
-   * chosen destination resolves to no known space, and that is not knowable until the picker has
-   * closed — so the gate can be stricter than the dispatch in exactly that case, and refuse a
-   * gesture that would in fact have run in the browser. Accepted: the alternative is a picker whose
-   * refusals change as the user browses it.
+   * `dispatch` also runs a gesture here when the chosen destination resolves to no known space, and
+   * that is not knowable until the picker has closed — so a gate can be stricter than the dispatch
+   * in exactly that case. Accepted: the alternative is a picker whose refusals change as the user
+   * browses it.
+   *
+   * @param items - The current selection. Empty answers `needsPlane: false`.
+   * @param targetName - The proposed leaf name, where a gesture has one.
+   * @returns Whether the shape needs the plane, and whether the plane is in a position to take it.
+   */
+  function planeRouting(items: SelectableItem[], targetName?: string): {needsPlane: boolean; reachable: boolean} {
+    // The predicate throws on an empty selection rather than answering for one, because the plane
+    // refuses an empty source minutes later by notification — so the emptiness guard comes first.
+    if (items.length === 0) return {needsPlane: false, reachable: false};
+    return {needsPlane: requiresControlPlane(toFileOpItems(items, targetName)), reachable: !!asyncFileOps && !!space};
+  }
+
+  /**
+   * Would this selection go to the plane, right now?
+   *
+   * The dispatch question: shape AND availability. `planeRouting` is where both come from.
    */
   function routesToPlane(items: SelectableItem[], targetName?: string): boolean {
-    if (!asyncFileOps || !space || items.length === 0) return false;
-    // AFTER the emptiness guard, never before it: the predicate throws on an empty selection
-    // rather than answering for one, because the plane refuses an empty source minutes later by
-    // notification.
-    return requiresControlPlane(toFileOpItems(items, targetName));
+    const {needsPlane, reachable} = planeRouting(items, targetName);
+    return needsPlane && reachable;
+  }
+
+  /**
+   * Why a selection cannot be acted on, or `undefined` when it can.
+   *
+   * Asked through `routesToPlane` so a shape the browser keeps is never refused — and asked in the
+   * order the two reasons actually apply: a shape the plane alone can perform is unavailable
+   * outright when the plane is off, which is not the same as a plane that is merely busy.
+   */
+  function planeReasonFor(items: SelectableItem[]): string | undefined {
+    const {needsPlane, reachable} = planeRouting(items);
+    if (!needsPlane) return undefined;
+    return reachable ? submit.busyReason(space ?? undefined) : PLANE_UNAVAILABLE;
   }
 
   /** What a gesture did, which is not the same question as whether it succeeded. */
@@ -429,7 +479,7 @@ export function useFileBrowserDialogs({
       );
     },
     submitting: submit.pending,
-    spaceBusyReasonFor: (items) => (routesToPlane(items) ? submit.busyReason(space ?? undefined) : undefined),
+    spaceBusyReasonFor: (items) => planeReasonFor(items),
     spaceBusyReason: submit.busyReason(space ?? undefined)
   };
 }
