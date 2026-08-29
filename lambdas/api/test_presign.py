@@ -146,6 +146,11 @@ def _install(monkeypatch, fake, credentials):
     session with under half a minute left, so a second ask re-assumes. A clamp that asks twice
     reads the fresh one and signs with the stale one.
 
+    The stub hands back whatever it was built with, ignoring ``covering`` — deliberately, because
+    these tests are about what the ROUTES do with the credentials they are given. That the layer
+    now returns a session covering the window is `test_identity_apicommon.py`'s subject, and the
+    clamp stays the last line of defence for the case it cannot: a ceiling shorter than the ask.
+
     Args:
       monkeypatch: The pytest fixture.
       fake: The signing client.
@@ -157,8 +162,9 @@ def _install(monkeypatch, fake, credentials):
     Raises:
       None.
     """
-    def _door(service, caller):
+    def _door(service, caller, *, covering):
         fake.assumes += 1
+        fake.covering = covering
         return fake, credentials
 
     monkeypatch.setattr(identity, "signing_client", _door)

@@ -145,7 +145,10 @@ post-signup redirect. Browser → AWS direct today; Arc B is porting that behind
   membership until the next cold start) and never nothing (which serves B the session of A). Its
   margin is the life of **one request**, derived from the function timeout; the forced re-assume is
   the skew allowance, and it retries on a **new** client because boto3 binds credentials at
-  construction.
+  construction. **A presigned URL is not a request** and takes `signing_client(covering=…)`, which
+  forces a fresh session rather than clamping against a near-dead one — otherwise the window is a
+  draw from the hour (about a quarter of mints under 900 s), and a short window is *correctly
+  clamped*, so no clamp test can see it.
 
 - **The API's error shape is a machine CODE plus operator text nobody renders** — a success body is
   the payload itself, the error envelope is the only wrapped shape, and wording is chosen

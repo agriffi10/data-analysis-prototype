@@ -59,7 +59,9 @@ def upload_url(context: RequestContext) -> dict[str, Any]:
     # document route creates, with a body it chose.
     protected.assert_replaceable(space, key)
 
-    client, credentials = identity.signing_client("s3", context.acting_as)
+    client, credentials = identity.signing_client(
+        "s3", context.acting_as, covering=s3_config.UPLOAD_URL_EXPIRY_SECONDS
+    )
 
     if not overwrite:
         try:
@@ -102,7 +104,9 @@ def download_url(context: RequestContext) -> dict[str, Any]:
     space = _objects.space_from_body(context)
     key = _objects.contained(space, str(body.get("key", "")))
 
-    client, credentials = identity.signing_client("s3", context.acting_as)
+    client, credentials = identity.signing_client(
+        "s3", context.acting_as, covering=s3_config.DOWNLOAD_URL_EXPIRY_SECONDS
+    )
     seconds = _clamped(s3_config.DOWNLOAD_URL_EXPIRY_SECONDS, credentials)
 
     params: dict[str, Any] = {"Bucket": space.bucket, "Key": key}

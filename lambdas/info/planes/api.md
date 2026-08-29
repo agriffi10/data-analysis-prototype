@@ -43,7 +43,10 @@ still production and the rollback.
 - **The credential cache is keyed on the WHOLE tag set** — never the username alone, which freezes
   membership until the next cold start, and never nothing, which serves B the session of A. Its
   margin is the life of one request, and it retries on a **new** client because boto3 binds
-  credentials at construction.
+  credentials at construction. **Presigning does not take that margin** — a URL outlives the
+  invocation, so `signing_client` takes `covering=` and forces a fresh session when the cached one
+  cannot span the window. Clamping against a near-dead session is *correct* and therefore invisible
+  to every clamp test.
 - **The error shape is a machine CODE plus operator text nobody renders.** Wording is chosen
   client-side from the code; an unrecognised code resolves to the generic sentence.
 - **The wire is declared in Python and the TypeScript is GENERATED.** CI refuses a regeneration
