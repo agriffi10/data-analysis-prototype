@@ -1,8 +1,11 @@
 # Security Scanning — Baseline
 
 **Taken:** 2026-08-02, on the SPEC-138 branch, at `4a6fee8`.
-**Status:** snapshot. This is the input to the spec that turns the gates on; that spec
-supersedes this file rather than editing it forever.
+**Status:** the 2026-08-02 snapshot, plus every disposition taken since. It was written as the
+input to the spec that turns the gates on, and that spec landed *inside* it as the addenda below —
+so this is now the standing disposition register for the scanner suite, not a frozen document.
+`docs/process.md` already calls it one. Counts in Coverage carry their own dates; the npm table is
+append-only.
 
 Every scanner in `.github/workflows/security.yml` ships as `gate: report` — it runs, publishes,
 and concludes green. This document is the reason that is a step rather than an omission: it records
@@ -20,8 +23,8 @@ CI run reproduces them.
 | SPA + Lambdas | Semgrep `p/owasp-top-ten` + language rulesets | 1 finding, 5 partial parses |
 | SPA | `eslint-plugin-security`, `no-unsanitized` (**blocking**) | clean — 10 pre-existing violations resolved in SPEC-138 |
 | Lambdas | ruff `S` (bandit) — pre-existing, **blocking** | clean |
-| SPA deps | `npm audit --omit=dev` (runtime) | 4 |
-| SPA deps | `npm audit` (full) | 6 → **4** (2026-08-03, `postcss` + `brace-expansion` cleared; see below) |
+| SPA deps | `npm audit --omit=dev` (runtime) | 4 → **2** (2026-08-05, `react-router` pair cleared) |
+| SPA deps | `npm audit` (full) | 6 → **4** (2026-08-03, `postcss` + `brace-expansion` cleared) → **2** (2026-08-05, `react-router`; see below) |
 | Lambda deps | `pip-audit`, 13 packages | 0 |
 | Repo | `gitleaks`, 357 commits / 9.5 MB | **0** |
 | `infra/` | `checkov`, 224 resources | 305 failed / 439 passed / 0 parse errors |
@@ -47,9 +50,17 @@ CI run reproduces them.
 
 ## Findings
 
-### Dependencies — npm (6 advisories, 4 reaching the browser)
+### Dependencies — npm (6 vulnerable packages at the snapshot, 4 reaching the browser; **2 and 2 today**)
 
 The runtime/build split is the whole point of auditing at two scopes.
+
+**Two numbers are in play here and they are easy to read as one.** Every count outside the table —
+the heading, the Coverage rows, and the number `apply-gate.sh` is fed — is
+`.metadata.vulnerabilities.total`, which counts vulnerable **packages**. The table is one row per
+**advisory**, so it has always been the longer of the two. The `undici` note below is the clearest
+check on this: five advisories arrived and moved the audit by exactly one, because they landed on
+one package. A date in the Disposition column is when an advisory was **dealt with**, never when it
+was published.
 
 | Sev | Package | Scope | Advisory | Disposition |
 |---|---|---|---|---|
@@ -58,9 +69,12 @@ The runtime/build split is the whole point of auditing at two scopes.
 | medium | `react-router` | runtime | GHSA-337j-9hxr-rhxg — SSR hydration constructor injection | **FIXED** (7.18.2) |
 | medium | `react-router` | runtime | GHSA-h8fp-f39c-q6mh — RSCErrorHandler XSS | **FIXED** (7.18.2) |
 | medium | `react-router` | **runtime** | GHSA-wrjc-x8rr-h8h6 — open redirect via backslash in `<Link>`/`useNavigate` | **FIXED** (7.18.2) |
-| medium | `dompurify` | runtime (via monaco) | GHSA-cmwh-pvxp-8882 — `ALLOWED_ATTR` pollution | **defer** |
-| low | `dompurify` | runtime (via monaco) | GHSA-c2j3-45gr-mqc4, GHSA-vxr8-fq34-vvx9 | **defer** |
+| medium | `dompurify` | runtime (via monaco) | GHSA-cmwh-pvxp-8882 — `ALLOWED_ATTR` pollution via `setConfig()` | **defer** |
+| medium | `dompurify` | runtime (via monaco) | GHSA-55q2-fjhq-7xh7 — `IN_PLACE` hook removal leaves a detached subtree executable | **defer** |
+| low | `dompurify` | runtime (via monaco) | GHSA-c2j3-45gr-mqc4 — `CUSTOM_ELEMENT_HANDLING` bypasses `afterSanitizeElements` | **defer** |
+| low | `dompurify` | runtime (via monaco) | GHSA-vxr8-fq34-vvx9 — Trusted Types policy survives `clearConfig()` | **defer** |
 | high | `postcss` | build | GHSA-r28c-9q8g-f849 — path traversal via `sourceMappingURL` | ~~fix~~ **DONE 2026-08-03** — 8.5.15 → 8.5.25 |
+| high | `nanoid` | build | GHSA-2v37-7h3g-55p8 — custom generators loop indefinitely when `size` is zero | ~~fix~~ **DONE 2026-08-30** — 3.3.17 → 3.3.18 |
 | high | `brace-expansion` | build | GHSA-mh99-v99m-4gvg — OOM via unbounded expansion | ~~fix~~ **DONE 2026-08-03** — 5.0.7 → 5.0.9 |
 
 Notes that change the priority order:
@@ -86,25 +100,63 @@ Notes that change the priority order:
   `^19.2.6`, which permitted an install that violated the new peer), Vite 7+ (on 8). **The
   `accept` disposition was correct when written and became obsolete, not wrong — worth
   re-testing an accepted advisory whenever its "needs a major" premise changes.**
-- **`dompurify` is transitive through `monaco-editor`**, and npm's proposed fix is
-  `monaco-editor@0.53.0` — a **downgrade**, flagged breaking. Deferred: the advisories concern
-  `setConfig`/`clearConfig` poisoning APIs the portal never calls, and monaco is lazy-loaded on the
-  Query route only (SPEC-035). Revisit when monaco ships a forward fix.
+- **`dompurify` is transitive through `monaco-editor`, and the npm package the alerts name is not
+  the code that ships.** Monaco *vendors* DOMPurify: `esm/vs/base/browser/domSanitize.js` imports
+  `./dompurify/dompurify.js`, a checked-in copy reporting `version = '3.4.8'`. Nothing in monaco's
+  ESM tree imports the bare `dompurify` specifier, our own source never imports it, and the lockfile
+  shows monaco as its only dependent — so npm installs the package, Dependabot alerts on it, and no
+  bundle ever loads it. The vulnerable version does reach the browser; it reaches it through the
+  vendored copy.
+
+  **Reading the bundle cannot settle this, which is worth knowing before you try.** The vendored
+  file is byte-identical to the npm package's `dist/purify.es.mjs` but for a trailing
+  `sourceMappingURL` comment, so the two minify to the same output and no version or content string
+  distinguishes them. What settles it is planting a marker: change the vendored file's `version`,
+  rebuild, and the marker appears in `dist/`; do the same to all four npm entry points and nothing
+  appears.
+
+  **That is what makes the `overrides` route worse than blocked — it is a false fix.** Forcing the
+  npm package to 3.4.13 would clear all four alerts and change nothing that ships, because the
+  import is a relative path. Anyone tempted to take the mass dependency refresh described below as a
+  security measure would get a green audit and byte-identical output — verified by resolving with the
+  override applied and rebuilding.
+
+  Monaco moving is the only thing that fixes this *through dependency resolution*. There is one
+  alternative: overwrite the vendored file in a `postinstall` patch, which works precisely because
+  3.4.13's ESM build is interface-identical to the copy it replaces. That forks a vendored
+  dependency and has to be re-verified on every monaco bump, so it is not the recommendation — but
+  it exists, and a reader weighing the risk should know the choice is not binary.
+
+  Deferred, and the reachability holds for all four: three concern the `setConfig`/`clearConfig`
+  and `CUSTOM_ELEMENT_HANDLING` configuration APIs, which the portal never calls; the fourth
+  (`GHSA-55q2`, `IN_PLACE`) needs `IN_PLACE: true`, and no monaco caller can set it: `doSanitizeHtml`
+  builds its config by spreading monaco's own defaults and then assigns only `ALLOWED_TAGS` and
+  `ALLOWED_ATTR`, while the caller's config is monaco's typed shape and is never spread into the
+  DOMPurify options. That structure is the argument, not the fact that the token is absent — a call
+  site spreading a caller-supplied config would set `IN_PLACE` without the word ever appearing.
+  Monaco is also lazy-loaded on the Query route only (SPEC-035). Revisit when monaco ships a forward
+  fix.
+
+  **npm's own proposed fix is worse than a downgrade.** `monaco-editor@0.53.0` declares no
+  `dompurify` dependency at all (`{"@types/trusted-types": "^1.0.6"}` is the whole list) and vendors
+  DOMPurify **3.1.7**. That is precisely why npm offers it: the copy is invisible to the audit.
+  Taking it would ship an older DOMPurify to the browser and read clean.
 
   **Re-examined 2026-08-05, still deferred — and now with the reason the `overrides` route is
   closed.** `monaco-editor@0.56.0` (still the latest release; everything published after it is a
   `-dev-` prerelease) pins `dompurify: '3.4.8'` **exactly**, so Dependabot has no in-range update to
-  open a PR with — which is why three alerts sit open with no PR rather than being ignored.
-  `dompurify` 3.4.13 clears all three, but **npm will not apply a newly-added `overrides` entry
+  open a PR with — which is why four alerts sit open with no PR rather than being ignored.
+  `dompurify` 3.4.13 clears all four **alerts** — not the shipped code, per above — but **npm will
+  not apply a newly-added `overrides` entry
   against an existing lockfile**: `npm install`, `npm install --package-lock-only`, `npm update`
   and a clean-room re-resolve seeded with the committed lock were all verified to leave 3.4.8 in
   place. Only a **from-scratch** resolution (no lockfile) honours the override — and that
   re-resolves every caret range at once, measured at **134 package version changes**, the whole AWS
   SDK and Amplify surface included. That is an unrelated mass dependency bump riding along with
-  three advisories in code paths the app never calls, so it is not worth taking as a security fix.
+  four advisories in code paths the app never calls, so it is not worth taking as a security fix.
   It also explains this file's earlier note that an `overrides` block "silently did nothing" —
-  npm's behaviour, not a malformed entry. **Take it when monaco moves, or as a deliberate
-  dependency-refresh of its own.**
+  npm's behaviour, not a malformed entry. **Do the refresh on its own merits if ever; it is not a
+  security fix, and monaco moving is the only thing that is.**
 - **`postcss` and `brace-expansion` are build-time.** Both exploits need untrusted input — a
   hostile stylesheet, a hostile glob — and both inputs are this repo's own source. Real supply-chain
   hygiene, no runtime exposure. Both have non-breaking fixes, so they are cheap to clear.
@@ -123,8 +175,28 @@ Notes that change the priority order:
   mediums, published after the snapshot above and taking full audit 4 → 5 for part of one day.
   Dev-only and transitive: `jsdom` (the vitest DOM environment) is the sole consumer, and a build
   of `apps/portal/dist/` contains no `undici`. Dependabot's 7.28.0 → 7.29.0 bump cleared it.
-  **Full and runtime now read the same 4** — every remaining advisory is in a runtime dependency,
-  so `--omit=dev` no longer subtracts anything.
+  **Full and runtime read the same number** — every remaining advisory is in a runtime dependency,
+  so `--omit=dev` no longer subtracts anything. (That was 4 when written; the Coverage rows carry
+  the current values.)
+
+- **`nanoid` — build-time, and the recorded mechanism worked unchanged (2026-08-30).**
+  GHSA-2v37-7h3g-55p8 is HIGH, and the severity is doing no work here. The advisory is specific:
+  `customAlphabet` and `customRandom` spin forever when handed `size: 0`. `nanoid` resolves
+  `dev: true` through vite's postcss, whose sole call site is
+  `input.js:80` — `nanoid(6)` from `nanoid/non-secure`, a hard-coded literal into the plain
+  generator. **It calls neither affected function**, so no version of this advisory was reachable;
+  the bump is hygiene, not remediation.
+  `postcss@8.5.25` declares `nanoid ^3.3.16`, so the patched 3.3.18 was already in range and
+  `npm update nanoid` was the whole fix — a three-line, lockfile-only diff with no manifest edit,
+  exactly as for `postcss` and `brace-expansion` above.
+
+  **A grep afterwards looks like the fix did not land, twice over, so record why it did.** 3.3.18's
+  only functional change is a `size <= 0` guard in `async/index.native.js`; `non-secure/index.js` is
+  **byte-identical** across the bump and `index.js`'s `customRandom` already carried its guard in
+  3.3.17, so the file postcss imports was never the vulnerable one. And `customAlphabet` survives in
+  the tree regardless, inlined in the postcss that `prettier@3.8.5` vendors into both
+  `plugins/postcss.js` and `plugins/postcss.mjs` — dev-only, no lockfile entry pointing at either,
+  never alerted on, and the `size` never ours to pass.
 
 ### Dependencies — Python
 
@@ -382,7 +454,7 @@ What the follow-up spec should implement, per scanner.
 | `gitleaks` | ~~`block` immediately~~ **DONE 2026-08-02** | Was at zero across 357 commits; flipped to `block`. No remediation was needed. |
 | `pip-audit` | ~~`block` immediately~~ **DONE 2026-08-02** | Was at zero across 13 packages; flipped to `block`. |
 | Semgrep | ~~`block` after excluding the Flask rule~~ **DONE 2026-08-09** | The one false positive is excluded by rule ID (`--exclude-rule`) on the Lambdas scan, and `GATE_SEMGREP` is `block`. The ruleset is otherwise unnarrowed — dropping `p/owasp-top-ten` to silence one rule would have dropped everything else it brings. A test asserts there is exactly **one** exclusion, so a second needs its own disposition here. |
-| `npm audit` (runtime) | stay `report` — **and it cannot be `block` today** | **The earlier note in this row was wrong twice over and is corrected here.** There is no `GATE_NPM_AUDIT_RUNTIME` variable — the gate is `GATE_NPM_AUDIT`, fed the runtime **total** — and `apply-gate.sh` has **no severity threshold**: it fails on `findings > 0`. So "block at `high` would pass today" was not available; flipping it would go red immediately on the two accepted `dompurify` rows. It becomes available when dompurify clears, which needs monaco to move (it pins the version exactly). Adding a severity threshold to `apply-gate.sh` is the alternative, and is a change to every scanner's gate rather than this row's. |
+| `npm audit` (runtime) | stay `report` — **and it cannot be `block` today** | **The earlier note in this row was wrong twice over and is corrected here.** There is no `GATE_NPM_AUDIT_RUNTIME` variable — the gate is `GATE_NPM_AUDIT`, fed the runtime **total** — and `apply-gate.sh` has **no severity threshold**: it fails on `findings > 0`. So "block at `high` would pass today" was not available; flipping it would go red immediately on the accepted `dompurify` advisories — four of them as of 2026-08-30, which `.metadata.vulnerabilities.total` (the number the gate is actually fed) collapses to **2**. The two counts are easy to conflate; the gate reads the collapsed one. It becomes available when dompurify clears, which needs **monaco** to move: monaco vendors its own copy, so no override of the npm package clears the shipped code even though it would clear the gate. Adding a severity threshold to `apply-gate.sh` is the alternative, and is a change to every scanner's gate rather than this row's. |
 | `npm audit` (full) | stay `report` | Build-time advisories should be visible, not blocking; they would gate PRs on unrelated toolchain churn. |
 | Checkov | ~~`block` only on an explicit allow-list of check IDs~~ **DONE 2026-08-09** | Implemented as an **enforce list**, `.github/checkov-enforced.txt` — 52 check IDs, every one measured at **zero failures** (checkov 3.3.9, 508 passed / 373 failed overall). `GATE_CHECKOV` is `block` and reads that narrowed count; the other 373 are still published and still do not block. The criterion is deliberately "passes today", not "matters most": picking the five that matter is an argument to re-litigate on every infra change, and holding everything already clean costs nothing to turn on. An enforced ID that gets evaluated against **nothing** is a hard error — a typo or a renamed check must not read as enforcement. |
 | ZAP | stay `report` | Unauthenticated surface only; findings are header hygiene, better fixed via CKV2_AWS_32 than gated on. **Measured 2026-08-03:** 0 fail, 2 Medium, 8 Low. After SPEC-140 two Lows survive by decision, so a total-count gate is wrong here — gate by **risk level** (`riskcode >= 2`) if at all. |
@@ -677,7 +749,7 @@ wrong, since the failure mode it named is the one it did not cover.
 ## What still does not block, and why it is not an oversight
 
 - **`npm audit`** — the gate has no severity threshold (`apply-gate.sh` fails on `> 0`), and the
-  runtime scope carries two accepted `dompurify` advisories. Needs monaco to move, or a threshold in
+  runtime scope still carries accepted `dompurify` advisories. Needs monaco to move, or a threshold in
   the shared script.
 - **ZAP** — a count gate is wrong here; two Lows survive by decision. Gate by `riskcode >= 2` if at
   all.
