@@ -2,10 +2,19 @@
 reuse (FR-004). Runs under pytest *or* as a plain script (`python3
 test_post_confirmation.py`).
 
-boto3 is provided by the Lambda runtime, not installed in CI, so before importing the
-handler we inject a tiny fake `boto3` into sys.modules that records Glue/Lake Formation
-calls and lets us simulate "already exists". PORTAL_ROLE_ARN is likewise set first
-because the handler reads it at import time.
+Before importing the handler we inject a tiny fake `boto3` into sys.modules that records
+Glue/Lake Formation calls and lets us simulate "already exists" — the handler builds both
+clients at import time. PORTAL_ROLE_ARN is likewise set first, for the same reason.
+
+**The injection is UNDONE the moment the import is over, and that matters to every other suite.**
+The fake answers exactly two service names and raises KeyError for every other. Left in place it
+was not merely the `boto3` for the files collected after this one: pytest collects every module
+before it runs any test, so the injection landed before the first test body anywhere ran, and a
+probe on the pre-change tree confirmed a test under `lambdas/api/` saw a `boto3` with no
+`__file__` at execution time. Collection order was never the protection it looks like.
+
+`post_confirmation` binds its own reference at import, so restoring sys.modules changes nothing
+in this file and gives the API suites the real client they assert real SDK behaviour with.
 """
 
 import os
@@ -59,9 +68,15 @@ _fake_boto3.client = lambda name, *a, **k: {
     "glue": _fake_glue,
     "lakeformation": _fake_lf,
 }[name]
+_displaced_boto3 = sys.modules.get("boto3")
 sys.modules["boto3"] = _fake_boto3
 
 import post_confirmation
+
+if _displaced_boto3 is None:
+    del sys.modules["boto3"]
+else:
+    sys.modules["boto3"] = _displaced_boto3
 
 
 def _reset():

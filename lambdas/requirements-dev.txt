@@ -21,3 +21,24 @@ pytest-cov>=5
 # REPORT-ONLY over the shared layers today (SPEC-153 FR-009); the rule set is selected
 # explicitly in pyproject.toml rather than inherited, and the ratchet path is recorded there.
 mypy>=2.3,<2.4
+
+# boto3 is DELIBERATELY UNPINNED, and it is the one dependency here that should be.
+#
+# ruff and mypy are bounded above because a widened default rule set reddens every open PR at
+# once and says nothing about this code. boto3 is the opposite case: it is the SUBJECT of an
+# assertion, not the instrument. `test_api_module.py` presigns a URL with a real client and
+# compares the host against the SPA's `connect-src`, because botocore presigns against the legacy
+# global S3 host by default and a URL naming it is blocked by the browser before it is sent —
+# every upload failing as a generic network error while downloads, which are navigations, keep
+# working. The Lambda runtime supplies boto3 and moves it on its own schedule, so pinning here
+# would freeze the guard against a version production has left behind. A release that changes the
+# endpoint default SHOULD redden this job; that is the alarm, not the noise.
+#
+# The cost, stated rather than discovered later: security.yml finds audit targets with
+# `find lambdas -name 'requirements*.txt'` and pip-audit BLOCKS, so an advisory against any boto3
+# release reddens every open PR — the failure mode the bounds above exist to prevent. Accepted
+# because the alternative freezes the assertion, and because a boto3 advisory is worth reading.
+#
+# Nothing ships it: no requirements file on a DEPLOY PATH declares boto3, because every Lambda
+# runtime already provides it. This file has one consumer, ci.yml's lambdas job.
+boto3

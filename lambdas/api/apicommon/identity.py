@@ -41,6 +41,24 @@ Attributes:
     expires too. One retry is the whole allowance.
   EXPIRED_CREDENTIAL_CODES: The service codes meaning "these credentials are past their expiry",
     which is the one downstream failure worth a forced re-assume.
+  S3_SERVICE: The one service whose endpoint style is pinned rather than left to the default.
+  S3_ENDPOINT_CONFIG: Forces the regional S3 endpoint. A presigned URL is redeemed by the SPA,
+    whose ``connect-src`` names ``<bucket>.s3.<region>.amazonaws.com``; botocore presigns against
+    the legacy global ``<bucket>.s3.amazonaws.com`` in EVERY region by default, so without this
+    the browser blocks the transfer before it is sent. The upload then fails as a generic network
+    error while every server-side call, and every download, keeps working — a download is a
+    navigation, which ``connect-src`` does not govern, which is what makes the break look like a
+    network fault.
+
+    **Two keys, because one region takes a different route to the same host.** Measured across
+    botocore 1.35 and 1.43: ``addressing_style`` alone fixes every region except ``us-east-1``,
+    and ``us_east_1_regional_endpoint`` alone fixes only ``us-east-1``. Either on its own reads
+    like a complete fix and leaves the transition environment broken.
+
+    Read-only, and copied at the call site rather than handed over: botocore stores this mapping
+    BY REFERENCE on every client built from it and writes into it when dualstack is enabled, so a
+    shared plain dict is process-wide mutable state and a shared frozen one is a ``TypeError`` at
+    client construction.
   _CREDENTIAL_CACHE: Per-container credentials, keyed on the WHOLE tag set. A warm container
     serves many callers in sequence, so this survives the invocation deliberately and is keyed
     rather than cleared — the opposite of trace baggage, and for the opposite reason.
@@ -49,6 +67,7 @@ Attributes:
 import dataclasses
 import datetime
 import re
+import types
 from collections.abc import Mapping
 from typing import Any
 
@@ -69,6 +88,11 @@ REASON_ASSUME_FAILED = "assume_role_failed"
 REASON_CREDENTIALS_EXPIRED = "credentials_expired"
 
 EXPIRED_CREDENTIAL_CODES = frozenset({"ExpiredToken", "ExpiredTokenException"})
+
+S3_SERVICE = "s3"
+S3_ENDPOINT_CONFIG = types.MappingProxyType(
+    {"us_east_1_regional_endpoint": "regional", "addressing_style": "virtual"}
+)
 
 _CREDENTIAL_CACHE: dict[tuple[object, ...], "AssumedCredentials"] = {}
 
@@ -250,6 +274,13 @@ def _client(service: str, credentials: AssumedCredentials | None = None) -> Any:
     module scope, matching the layer's own factories: a request needing no client should not pay
     for the import.
 
+    **S3's endpoint style is pinned, and the reason is the browser rather than this process.** A
+    presigned URL is redeemed by the SPA, whose ``connect-src`` names the regional host; botocore
+    presigns against the legacy global one, which that policy does not allow. The setting is
+    applied to every S3 client rather than only to the signing one, because a second construction
+    path is exactly what this door exists to prevent. It is passed as a fresh ``dict`` because
+    botocore keeps the mapping and writes into it under a dualstack endpoint.
+
     Args:
       service: The AWS service name.
       credentials: The caller's assumed session, or None for the execution role.
@@ -261,14 +292,17 @@ def _client(service: str, credentials: AssumedCredentials | None = None) -> Any:
       None.
     """
     import boto3
+    from botocore.config import Config
 
-    session: dict[str, str] = {}
+    session: dict[str, Any] = {}
     if credentials is not None:
         session = {
             "aws_access_key_id": credentials.access_key_id,
             "aws_secret_access_key": credentials.secret_access_key,
             "aws_session_token": credentials.session_token,
         }
+    if service == S3_SERVICE:
+        session["config"] = Config(s3=dict(S3_ENDPOINT_CONFIG))
     return boto3.client(service, **session)
 
 

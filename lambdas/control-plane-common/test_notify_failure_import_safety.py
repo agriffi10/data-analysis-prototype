@@ -103,10 +103,10 @@ def _matrix_row(function: str) -> dict:
 #: is on every deployed function — eagerly builds an SQSSink through `clients.sqs()`. So a
 #: faithful cold start really does touch boto3, and in Lambda it is always there.
 #:
-#: CI's `lambdas` job installs only ruff/pytest, so the real import fails there and passed
-#: locally purely because a developer machine happens to have boto3 — the probe would have
-#: been asserting a property of the laptop. Stubbing keeps the scope honest: what is under
-#: test is whether the LAYERS the matrix row grants satisfy the module's imports.
+#: The probe stubs it anyway, and still does now that the test job installs a real boto3.
+#: Stubbing keeps the scope honest: what is under test is whether the LAYERS the matrix row
+#: grants satisfy the module's imports — not whether the runner has credentials, a region, or
+#: any particular SDK release.
 _PROBE = """
 import importlib, sys, types
 
