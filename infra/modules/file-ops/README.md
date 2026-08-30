@@ -189,3 +189,39 @@ implicit deny in `Deploy Lambdas`, not as a plan error**.
 **There is no `execution_role_arn` local here** — root constructs its own twin for the bucket-policy
 allowlist, and a second construction would be one more place to drift, **with the failure appearing as
 a runtime `AccessDenied`, not a plan error**.
+
+## Absence is asked with a LIST, because a denied read and a missing object look the same
+
+`ListPlanPrefixForHonestAbsence` lets this role run `s3:ListBucket` on the admin bucket, confined
+by an `s3:prefix` condition to the plan prefix. The condition is why `focommon.plan` carries a
+probe rather than relying on the read alone.
+
+The plan guard reads `file-ops/{requestId}/plan.json` and treats absence as "nobody has planned
+this id". S3 only answers `NoSuchKey` for a missing object when the caller can list the bucket;
+without that permission a missing object is `AccessDenied`, which the guard classified as
+`plan_unreadable`. The plan never exists on a first submission, so **every** operation this plane
+handles failed — which is every folder copy, move and delete, and every multi-item one too: the
+routing predicate sends it anything that is not exactly one file — reported to the user as *"the working list for that could not be read back."* Not
+hypothetical: the plane's first live execution failed at `InspectSource` on exactly this, and
+nothing caught it earlier because the offline suites faked absence as `NoSuchKey`, which is the one
+shape production never produces.
+
+**A conditioned grant does not fix the read, and that is deliberate rather than an oversight.** A
+`GetObject` request carries no prefix, so the condition sits on an unpopulated key and fails closed
+— simulated against the deployed shared-space role, `s3:ListBucket` on this bucket is
+`implicitDeny` with no `s3:prefix` supplied and `allowed` with one. The unconditioned form *would*
+fix the read directly, and it was rejected: this role already holds `GetObject` on
+`${admin_bucket_arn}/shared-spaces/*`, so a bucket-wide list would hand it every shared space's
+name and then every roster — the disclosure the project declines by publishing no shared-space
+directory at all. The space name was the only thing gating that read.
+
+So the grant stays inside the plan prefix and `plan._absent` asks the question with a list, which
+does carry the prefix. The remaining rule is what keeps it from failing open: **a denial is never
+absence on its own.** Only a list that comes back without the key is. A real denial on an object
+that exists still raises, rather than planning over a run already copying, and a denied *list*
+raises too — the caller cannot tell, so it does not guess. The third alternative, reading
+`AccessDenied` as absence in code, is that fail-open and is refused everywhere else on this fleet.
+
+`test_file_ops_admin_list_grant.py` pins the grant, its condition, and the fact that the condition
+names the same template variable the object statements do — a rename that moved one and not the
+other would restore the original failure with both halves individually well-formed.

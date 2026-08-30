@@ -32,6 +32,17 @@
       "Resource": "${admin_bucket_arn}/${plan_prefix}/*"
     },
     {
+      "Sid": "ListPlanPrefixForHonestAbsence",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "${admin_bucket_arn}",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "${plan_prefix}/*"
+        }
+      }
+    },
+    {
       "Sid": "ListSpaces",
       "Effect": "Allow",
       "Action": [
