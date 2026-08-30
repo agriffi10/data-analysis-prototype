@@ -1,8 +1,9 @@
 """data-quality validate-authorize — the control plane's security boundary.
 
-The first verb, and the only place the actor is established: the request's ID token is verified
-offline against the user pool JWKS and the actor comes from the verified username claim, never
-from a body field, since the envelope carries no username at all.
+The first verb, and the only place the actor is established: it comes from the ``identity`` block
+the API stamped after verifying the caller's bearer, never from a body field — the envelope
+carries no username at all, and the flat field beside the block holds a raw token until the API
+stops sending one.
 
 It then authorizes read access to the requested location and validates the report destination. A
 personal space must be the user-space bucket with the location under the actor's own prefix. A
@@ -27,7 +28,8 @@ Attributes:
 import logging
 import posixpath
 
-from cpcommon import auth, config, events, observability
+from cpcommon import actor as cpactor
+from cpcommon import config, events, observability
 from cpcommon import registry as reg
 from cpcommon.errors import TerminalError
 from dqcommon import messages, notify
@@ -180,16 +182,16 @@ def _check_source_not_reserved(normalized: str, space_root: str) -> None:
 
 
 def _validate_and_authorize(event) -> dict:
-    """Verifies the token, authorizes the location, and emits the threaded request object.
+    """Reads the trusted actor, authorizes the location, and emits the threaded request object.
 
     The actor is bound first, before the shape checks, and the order is deliberate. It used to run
     after them, which meant a malformed envelope raised with no actor bound — and this verb is the
     one place a failure cannot fall back to the notify state, because the failure seed supplies a
     null actor for exactly that case, so every shape terminal would have notified nobody.
-    Verifying the token first costs nothing, since it is offline against the cached JWKS, and
-    gives every failure below a recipient. An unauthorized failure from the verification itself
-    still has none — a caller who cannot prove who they are has no inbox we may write to — which
-    is why that line stays outside the guard.
+    Reading the block first costs nothing — it is a field read, not a network call — and gives
+    every failure below a recipient. An unauthorized failure from the read itself still has none:
+    a message that names no trustworthy actor has no inbox we may write to, which is why that
+    line stays outside the guard.
 
     Shape checks come before authorization so a malformed envelope is a typed terminal rather than
     a bare error the state machine records as opaque.
@@ -222,7 +224,11 @@ def _validate_and_authorize(event) -> dict:
     """
     req = events.parse_sqs_request(event, reason=messages.UNAUTHORIZED)
 
-    actor = auth.verified_username(req.get("idToken"))
+    who = cpactor.trusted_actor(req)
+    observability.stamp(
+        actor=who.username, assurance=who.assurance, delegated_by=who.delegated_by
+    )
+    actor = who.username
 
     try:
         request_id = events.require(req, "requestId", reason=messages.INVALID_REQUEST)

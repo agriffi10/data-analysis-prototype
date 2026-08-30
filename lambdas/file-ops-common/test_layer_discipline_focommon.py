@@ -26,7 +26,7 @@ _PACKAGE = pathlib.Path(__file__).parent / "focommon"
 _FORBIDDEN_CALLS = {
     "cas_mutate": "the CAS retry loop belongs to cpcommon.cas",
     "parse_sqs_request": "the SQS envelope parse belongs to cpcommon.events",
-    "verified_username": "token verification belongs to cpcommon.auth",
+    "trusted_actor": "reading the trusted actor belongs to cpcommon.actor",
     "copy_batch": "the transfer engine belongs to cpcommon.transfer",
     "write_manifest": "the transfer engine belongs to cpcommon.transfer",
 }

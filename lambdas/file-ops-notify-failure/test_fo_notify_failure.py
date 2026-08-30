@@ -12,13 +12,13 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "file-ops-common"))
 
 os.environ.setdefault("COGNITO_USER_POOL_ID", "us-east-1_testpool")
-os.environ.setdefault("COGNITO_APP_CLIENT_ID", "test-app-client")
 os.environ.setdefault("ADMIN_BUCKET", "admin-bkt")
 os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 
 import fo_notify_failure as n
 import pytest
+from token_shapes import JWT_SHAPED
 
 
 def _capture():
@@ -38,9 +38,34 @@ def _request(error, actor="alice", raw=None):
     }
 
 
-def _raw(token="tok"):
-    """The Pipe's forwarded batch, as the failure seed reads it from $$.Execution.Input."""
-    return [{"body": json.dumps({"requestId": "req-1", "actor": token})}]
+_JWT = JWT_SHAPED
+
+
+def _raw(actor="alice", identity=True):
+    """The Pipe's forwarded batch, as the failure seed reads it from $$.Execution.Input.
+
+    The flat ``actor`` still carries the raw token until the API stops sending it, and is kept
+    here for that reason: the recovery must come from the block beside it, and dropping the
+    field would stop this fixture proving so.
+
+    Args:
+      actor: The verified username the identity block names.
+      identity: Whether to carry the block at all — False is the pre-cutover envelope.
+
+    Returns:
+      The forwarded SQS batch.
+
+    Raises:
+      None.
+    """
+    body = {"requestId": "req-1", "actor": _JWT}
+    if identity:
+        body["identity"] = {
+            "actor": actor,
+            "delegated_by": None,
+            "assurance": "interactive",
+        }
+    return [{"body": json.dumps(body)}]
 
 
 def test_an_engine_failure_notifies_the_actor():
@@ -59,11 +84,24 @@ def test_the_actor_is_recovered_from_the_request_when_no_verb_produced_one():
     in the captured request is the difference between the spec's guarantee holding here and
     reading as satisfied while telling nobody anything."""
     sent = _capture()
-    n.auth.verified_username_ignoring_expiry = lambda token, **kw: "alice"
 
     n.handler(_request({"Error": "RuntimeError", "Cause": "ModuleNotFoundError"}, actor=None, raw=_raw()), None)
 
     assert [user for user, _ in sent] == ["alice"]
+
+
+def test_the_door_degrades_when_the_request_carries_no_identity_block():
+    """The pre-cutover envelope, and the one shape this door must NOT raise on.
+
+    A raise here is an async Lambda failure EventBridge retries, so one unattributable event
+    becomes three. The honest outcome is a logged no-op and no notification: there is no
+    trustworthy recipient, and the flat ``actor`` beside the missing block is a raw token.
+    """
+    sent = _capture()
+
+    n.handler(_request({"Error": "RuntimeError", "Cause": None}, actor=None, raw=_raw(identity=False)), None)
+
+    assert sent == []
 
 
 if __name__ == "__main__":
@@ -93,7 +131,6 @@ def test_a_timed_out_execution_notifies_the_actor():
     terminated outright: no state runs, no Catch fires, and without this door the actor is told
     nothing at all — the exact silence the spec exists to close."""
     sent = _capture()
-    n.auth.verified_username_ignoring_expiry = lambda token, **kw: "alice"
 
     n.handler(_timed_out(json.dumps(_raw())), None)
 

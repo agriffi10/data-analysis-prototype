@@ -9,7 +9,7 @@ variable "environment" {
 }
 
 variable "aws_region" {
-  description = "AWS region — used to build the SQS / Lambda / log-group ARNs and the Cognito JWKS issuer in the writer policy + env."
+  description = "AWS region — used to build the SQS / Lambda / log-group ARNs and the writer policy."
   type        = string
 }
 
@@ -34,18 +34,6 @@ variable "portal_role_unique_id" {
     condition     = can(regex("^AROA[A-Z0-9]+$", var.portal_role_unique_id))
     error_message = "portal_role_unique_id must be an IAM role unique ID (AROA…) — not the role's name and not its ARN, neither of which SenderId carries."
   }
-}
-
-variable "user_pool_id" {
-  description = "Cognito User Pool ID — passed to the writer Lambda (env COGNITO_USER_POOL_ID) so it can verify caller ID tokens against the pool JWKS for user-originated actions (actor binding)."
-  type        = string
-  default     = ""
-}
-
-variable "app_client_id" {
-  description = "Cognito SPA app client ID — the ID-token audience the writer Lambda checks when verifying the caller's token (env COGNITO_APP_CLIENT_ID)."
-  type        = string
-  default     = ""
 }
 
 variable "notifications_max" {

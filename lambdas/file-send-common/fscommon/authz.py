@@ -40,7 +40,7 @@ def authorize_source(username: str, space) -> dict:
     refused — for files they can already browse, download and share as a table.
 
     Args:
-      username: The verified username, from the ID token claim and nowhere else.
+      username: The trusted username, from the API's identity block and nowhere else.
       space: The request's source space, naming a kind and a name.
 
     Returns:

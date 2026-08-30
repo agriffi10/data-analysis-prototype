@@ -1,6 +1,6 @@
 """Unit tests for the file-send validate-authorize Lambda (SPEC-164).
 
-Pure logic, AWS stubbed: ``auth.verified_username``, ``registry.load`` and
+Pure logic, AWS stubbed: ``registry.load`` and
 ``cognito.user_exists`` are patched per case. Asserts the validated payload shape, the
 containment rules, recipient annotation and every terminal reason.
 
@@ -21,35 +21,51 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 # Direct-run baseline (pytest gets these from lambdas/conftest.py): the config module
 # fail-fasts at import when the required vars are unset.
 os.environ.setdefault("COGNITO_USER_POOL_ID", "us-east-1_testpool")
-os.environ.setdefault("COGNITO_APP_CLIENT_ID", "test-app-client")
 os.environ.setdefault("ADMIN_BUCKET", "admin-bkt")
 os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 
 import file_send_validate_authorize as v
+import pytest
 from cpcommon.errors import TerminalError
 from fscommon.config import SEND_MAX_RECIPIENTS
+from token_shapes import JWT_SHAPED
 
 
-def _setup(actor="alice", spaces=None, users=None):
+def _setup(spaces=None, users=None):
     """Stub the boundary helpers: known registry spaces + known Cognito users."""
     spaces = spaces or {}
     users = users if users is not None else {"alice", "bob"}
-    v.auth.verified_username = lambda token, **kw: actor
     v.reg.load = lambda name: spaces.get(name)
     v.cognito.user_exists = lambda name: name in users
 
 
-def _event(space=None, items=None, recipients=None, token="tok", extra=None, request_id="req-1"):
+_JWT = JWT_SHAPED
+
+
+def _event(
+    space=None,
+    items=None,
+    recipients=None,
+    actor="alice",
+    identity=True,
+    extra=None,
+    request_id="req-1",
+):
     body = {
         "requestId": request_id,
-        "actor": token,
         "source": {
             "space": space if space is not None else {"kind": "personal", "name": "alice"},
             "items": items if items is not None else [{"kind": "file", "key": "alice/q1.csv"}],
         },
         "recipients": recipients if recipients is not None else [{"kind": "user", "name": "bob"}],
     }
+    if identity:
+        body["identity"] = {
+            "actor": actor,
+            "delegated_by": None,
+            "assurance": "interactive",
+        }
     body.update(extra or {})
     return [{"body": json.dumps(body)}]
 
@@ -91,7 +107,7 @@ def test_a_valid_personal_send_is_validated():
 
 
 def test_a_personal_source_that_is_not_the_senders_own_is_refused():
-    _setup(actor="alice")
+    _setup()
 
     _expect_reason(
         _event(space={"kind": "personal", "name": "bob"}, items=[{"kind": "file", "key": "bob/x.csv"}]),
@@ -100,7 +116,7 @@ def test_a_personal_source_that_is_not_the_senders_own_is_refused():
 
 
 def test_a_shared_source_is_authorized_for_an_active_member():
-    _setup(actor="alice", spaces={"sales": _active_space(["alice"])})
+    _setup(spaces={"sales": _active_space(["alice"])})
 
     out = v.handler(
         _event(
@@ -126,7 +142,7 @@ def test_a_parent_dot_segment_is_refused_even_though_it_starts_with_the_root():
     this is not an exploitable read today — it is refused because the same string becomes the
     item name in the destination key, where a dot segment produces a legal-but-nonsense
     destination in somebody's inbox."""
-    _setup(actor="alice")
+    _setup()
 
     _expect_reason(_event(items=[{"kind": "file", "key": "alice/../bob/secrets.csv"}]), "forbidden")
 
@@ -135,7 +151,7 @@ def test_a_parent_dot_segment_is_refused_even_though_it_starts_with_the_root():
 
 
 def test_the_spaces_own_results_folder_is_not_sendable():
-    _setup(actor="alice")
+    _setup()
 
     _expect_reason(
         _event(items=[{"kind": "folder", "key": "alice/athenaresults/"}]), "results_not_sendable"
@@ -180,17 +196,27 @@ if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
 
 
-def test_the_identity_block_rides_along_and_the_verb_reaches_its_normal_outcome():
-    """The allowlist refuses unknown top-level fields, so an addition is a refusal until widened.
+def test_the_block_decides_the_actor_and_the_flat_field_beside_it_does_not():
+    """The block wins, and the flat field must not — it holds a raw token until the cutover.
 
-    Without ``"identity"`` in ``_ALLOWED_FIELDS`` this raises ``malformed_event`` — which is what
-    makes the widening load-bearing rather than cosmetic.
+    This was SPEC-200's "the block rides along and is ignored". Inverted rather than deleted:
+    the property worth asserting is the opposite one now, and the flat field is still admitted
+    by ``_ALLOWED_FIELDS``, so a reader preferring it would pass every other test in this file.
     """
     _setup(spaces={})
 
-    result = v.handler(
-        _event(extra={"identity": {"actor": "alice", "delegated_by": None, "assurance": "interactive"}}), None
-    )
+    result = v.handler(_event(extra={"actor": _JWT}), None)
 
     assert result["requestId"] == "req-1"
     assert result["actor"] == {"username": "alice"}
+
+
+def test_the_verb_refuses_a_message_with_no_identity_block():
+    """Fail closed on the pre-cutover envelope: a flat token, and no block at all."""
+    _setup(spaces={})
+
+    with pytest.raises(TerminalError) as raised:
+        v.handler(_event(identity=False, extra={"actor": _JWT}), None)
+
+    assert raised.value.reason == "unauthorized"
+    assert "identity block" in raised.value.detail

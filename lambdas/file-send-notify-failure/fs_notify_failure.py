@@ -14,7 +14,7 @@ not JSON, killing the execution on precisely the failures a user most needs to h
 **THE SENDER USUALLY COMES FROM THE REQUEST BODY, NOT FROM THE RECORDED FAILURE.** Every
 failure this state exists for happens before a verb produced an actor, so the recorded object
 carries ``actor: null``; the machine's failure seed reads the Pipe's original body back from
-``$$.Execution.Input`` so the sender can be recovered from the verified token. Without that this
+``$$.Execution.Input`` so the sender can be recovered from the verified identity block. Without that this
 function would take its no-recipient branch on every single failure — satisfied on paper, silent
 in practice.
 
@@ -31,11 +31,11 @@ timeout never fires; the EventBridge door matches ``TIMED_OUT`` only, never ``FA
 execution that reached ``Fail`` normally does not appear on it.
 
 The timeout door has to recover the sender the hard way. The execution input is what the Pipe
-forwarded — the raw SQS batch — so the actor is the **verified claim from the ID token in that
-body**, never the body's own assertion. Expiry is deliberately not enforced: the timeout fires
-hours after the token was minted, and by construction it is always expired. That relaxation is
-the DLQ drain's, taken through the same separately-named entry point, and it is safe for the
-same reason — this path grants nothing, it only addresses a message.
+forwarded — the raw SQS batch — so the actor is the **identity block the API stamped into that
+body**, never the body's own assertion. There is no token here to expire: the API verifies the
+bearer at the edge and writes what it verified, and the queue is writable by no one else, so a
+timeout firing hours later reads a value that was never time-limited in the first place. The
+expiry relaxation this door used to need is gone with the thing it relaxed.
 
 Attributes:
   _TIMEOUT_DETAIL_TYPE: The EventBridge detail-type the timeout door matches on.
@@ -45,7 +45,8 @@ Attributes:
 import json
 import logging
 
-from cpcommon import auth, events, observability
+from cpcommon import actor as cpactor
+from cpcommon import events, observability
 from cpcommon.errors import TerminalError, failure_reason
 from fscommon import messages, notify
 
@@ -145,10 +146,10 @@ def _sender_from_raw_request(raw) -> str:
     anything. The ASL's failure seed reads ``$$.Execution.Input`` — the execution's own input,
     which survives whatever the Catch did to the state — to make this possible.
 
-    The token is the ONLY acceptable source of the username; the body asserts nothing about who
-    sent it. Expiry is deliberately not enforced, through the separately-named entry point the
-    DLQ drain uses: a failure can surface long after the token was minted, and this path grants
-    nothing — it only addresses a message.
+    The identity block is the ONLY acceptable source of the username; the flat field beside it
+    asserts nothing about who sent it, and on this plane it held the raw token until the
+    cutover. Nothing here expires, so a failure surfacing hours later is attributable on exactly
+    the same terms as one surfacing at once.
 
     Args:
       raw: The Pipe's forwarded SQS batch, as captured at the top of the machine.
@@ -164,10 +165,7 @@ def _sender_from_raw_request(raw) -> str:
         return ""
     try:
         body = events.parse_sqs_request(raw, reason="unauthorized")
-        return auth.verified_username_ignoring_expiry(
-            body.get("actor") if isinstance(body, dict) else None,
-            missing_token_detail="missing actor token",
-        )
+        return cpactor.trusted_actor(body).username
     except Exception as exc:  # noqa: BLE001
         logger.info("could not recover a verified sender from the request: %s", exc)
         return ""

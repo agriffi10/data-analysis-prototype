@@ -18,8 +18,8 @@ for _p in ("control-plane-common", "archive-common"):
 
 import archive_validate_authorize as verb
 from arcommon import authz, notify
-from cpcommon import auth
 from cpcommon.errors import TerminalError
+from token_shapes import JWT_SHAPED
 
 UUID = "9f2c1b8e-4c1a-4b2f-8d3e-1a2b3c4d5e6f"
 
@@ -30,17 +30,14 @@ ARCHIVE_UUID = "b71d0f42-9c3e-4a17-b8f5-0d1e2f3a4b5c"
 
 @pytest.fixture(autouse=True)
 def _bind(monkeypatch):
-    """The verified actor, an empty registry and a notification sink.
+    """An empty registry and a notification sink. The actor is not stubbed at all.
 
-    **The seam is stubbed BELOW ``verified_username``, not at it**, and that is the whole
-    difference between this fixture and one that cannot fail. ``verified_username`` is what
-    asserts the envelope's SHAPE — it takes a raw JWT string — so stubbing it accepts any
-    fixture at all, including the nested ``{"idToken": …}`` shape this spec was drafted with
-    and which fails ``unauthorized`` on every real request. Stubbing ``verify_id_token``
-    instead leaves the real string-vs-dict seam in the path, and
-    ``test_the_envelope_is_flat_and_a_nested_token_is_refused`` below drives it.
+    It used to be, one layer BELOW ``verified_username``, so that the string-vs-dict seam that
+    function asserted stayed in the path — a fixture stubbing the wrapper itself accepted any
+    envelope shape, including one that failed on every real request. That hazard is gone with
+    the verifier: ``trusted_actor`` is pure and reads only the identity block, so the shape
+    every test here exercises is the shape production receives.
     """
-    monkeypatch.setattr(auth, "verify_id_token", lambda token, **kw: {"cognito:username": "alice"})
     monkeypatch.setattr(authz.reg, "load", lambda name: None)
     sent = []
     monkeypatch.setattr(notify, "emit_notification", lambda user, text, **kw: sent.append((user, text)))
@@ -48,16 +45,36 @@ def _bind(monkeypatch):
     return sent
 
 
-def _event(**overrides):
+_JWT = JWT_SHAPED
+
+
+def _block(actor):
+    """The identity block the API stamps.
+
+    Args:
+      actor: The verified username it names.
+
+    Returns:
+      The block, with every field present.
+
+    Raises:
+      None.
+    """
+    return {"actor": actor, "delegated_by": None, "assurance": "interactive"}
+
+
+def _event(actor="alice", identity=True, **overrides):
     body = {
         "requestId": UUID,
         "mode": "archive",
-        "actor": "eyJ-token",
+        "actor": _JWT,
         "source": {
             "space": {"kind": "personal", "name": "alice"},
             "items": [{"kind": "file", "key": "alice/reports/q1.csv"}],
         },
     }
+    if identity:
+        body["identity"] = _block(actor)
     body.update(overrides)
     return [{"messageId": "m-1", "body": json.dumps(body)}]
 
@@ -68,15 +85,17 @@ def _refused(**overrides):
     return caught.value.reason
 
 
-def _restore_event(**overrides):
+def _restore_event(actor="alice", identity=True, **overrides):
     """A restore request, whose contract is a different set of fields from an archive's."""
     body = {
         "requestId": UUID,
         "mode": "restore",
-        "actor": "eyJ-token",
+        "actor": _JWT,
         "space": {"kind": "personal", "name": "alice"},
         "archiveId": ARCHIVE_UUID,
     }
+    if identity:
+        body["identity"] = _block(actor)
     body.update(overrides)
     return [{"messageId": "m-1", "body": json.dumps(body)}]
 
@@ -124,18 +143,49 @@ def test_a_space_the_actor_is_not_a_member_of_is_refused():
     assert _restore_refused(space={"kind": "shared", "name": "team"}) == "forbidden"
 
 
+def test_a_PERSONAL_source_that_is_not_the_actors_own_is_refused():
+    """The other half of the source check, which had no test at all.
+
+    Found by deleting the personal-source branch and watching this file stay green: every
+    authorization negative here named a SHARED space, so the branch deciding whether alice may
+    archive out of bob's prefix was asserted nowhere — on the one plane where a mistake is
+    unrecoverable, since a completed archive sweeps the source.
+
+    Every key is inside bob's root, so containment cannot refuse this first. That matters: with
+    the items left at alice's default the request is refused either way, which is exactly how the
+    gap stayed invisible.
+    """
+    refused = _refused(
+        source={
+            "space": {"kind": "personal", "name": "bob"},
+            "items": [{"kind": "file", "key": "bob/reports/q1.csv"}],
+        }
+    )
+
+    assert refused == "forbidden"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
 
 
-def test_the_identity_block_rides_along_on_both_modes():
-    """Two allowed-field sets, one per mode, and the block has to be admitted by each.
+def test_the_block_decides_the_actor_on_both_modes_and_the_flat_field_does_not():
+    """Two allowed-field sets, one per mode, and each must read the block rather than the field.
 
-    The restore set lives in the archive layer rather than in this verb, so a widening that
-    touched only the local dict would pass an archive and refuse every restore.
+    The restore set lives in the archive layer rather than in this verb, so a change that
+    touched only the local dict would pass an archive and refuse every restore. Both envelopes
+    carry the flat ``actor`` holding a raw JWT, so a verb reading it would resolve a
+    900-character string as a username instead of failing.
     """
-    archived = verb.handler(_event(identity={"actor": "alice", "delegated_by": None, "assurance": "interactive"}), None)
-    restored = verb.handler(_restore_event(identity={"actor": "alice", "delegated_by": None, "assurance": "interactive"}), None)
+    archived = verb.handler(_event(), None)
+    restored = verb.handler(_restore_event(), None)
 
     assert archived["mode"] == "archive"
     assert restored["mode"] == "restore"
+    assert archived["actor"] == {"username": "alice"}
+
+
+def test_both_modes_refuse_a_message_with_no_identity_block():
+    """Fail closed on the pre-cutover envelope, on each mode's own allowed-field set."""
+    assert _refused(identity=False) == "unauthorized"
+    assert _restore_refused(identity=False) == "unauthorized"

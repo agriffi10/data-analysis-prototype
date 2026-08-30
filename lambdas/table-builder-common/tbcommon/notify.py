@@ -146,7 +146,7 @@ def notifies_on_failure(step: str, *, notify_terminal: bool = True):
       notify_terminal: Whether a terminal error also notifies at the decorator, so worker
         verbs need no ``try/except`` of their own. False for validate-authorize, which
         notifies inside its own actor-aware orchestration because the actor is not bound
-        until the token is verified.
+        until the identity block is read.
 
     Returns:
       A decorator for the verb handler.

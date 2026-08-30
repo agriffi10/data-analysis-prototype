@@ -1,6 +1,6 @@
 """validate-authorize — the Step Function's first task, run once before any verb.
 
-Parses the SQS record, verifies the caller's Cognito ID token, derives the trusted actor rather
+Parses the SQS record, reads the trusted actor out of the API's identity block rather
 than the spoofable body actor, loads the registry, and authorizes the action. A failed check
 raises so the Catch routes to the fail state and no verb runs. For an authorized create or
 delete it also durably records the in-flight state in the actor's cache and emits a start
@@ -24,6 +24,7 @@ import logging
 import auth
 import cache
 import registry as reg
+from cpcommon import actor as cpactor
 from cpcommon import events, observability
 from notify import emit_notification
 
@@ -119,7 +120,7 @@ def handler(event, context):
       registry record and request id.
 
     Raises:
-      AuthorizationError: On a malformed envelope, an unverifiable token, or an action the actor
+      AuthorizationError: On a malformed envelope, a missing identity block, or an action the actor
         may not perform.
       ClientError: On any S3 fault loading the registry.
     """
@@ -127,7 +128,11 @@ def handler(event, context):
     action = req.get("action")
     space = req.get("space")
 
-    actor = auth.verified_username(req.get("idToken"))
+    who = cpactor.trusted_actor(req, exc=auth.AuthorizationError)
+    observability.stamp(
+        actor=who.username, assurance=who.assurance, delegated_by=who.delegated_by
+    )
+    actor = who.username
 
     registry_doc = None if action == "create" else reg.load(space)
     auth.authorize(action, space, actor, registry_doc)

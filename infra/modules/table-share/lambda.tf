@@ -39,12 +39,11 @@ resource "aws_lambda_function" "functions" {
   environment {
     variables = merge(
       {
-        ADMIN_BUCKET          = var.admin_bucket_name
-        USER_SPACE_BUCKET     = var.user_space_bucket_name
-        SHARED_SPACE_BUCKET   = var.shared_space_bucket_name
-        COGNITO_USER_POOL_ID  = var.user_pool_id
-        COGNITO_APP_CLIENT_ID = var.app_client_id
-        ATHENA_WORKGROUP      = var.athena_workgroup
+        ADMIN_BUCKET         = var.admin_bucket_name
+        USER_SPACE_BUCKET    = var.user_space_bucket_name
+        SHARED_SPACE_BUCKET  = var.shared_space_bucket_name
+        COGNITO_USER_POOL_ID = var.user_pool_id
+        ATHENA_WORKGROUP     = var.athena_workgroup
         # Optional in tscommon.config — unset ⇒ emits are logged no-ops.
         NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
         # Deliberately NOT mirrored by a config._require — see variables.tf.

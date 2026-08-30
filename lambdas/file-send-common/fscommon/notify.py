@@ -163,7 +163,7 @@ def notifies_on_failure(step: str, *, notify_terminal: bool = True):
       step: The verb name carried into the notification.
       notify_terminal: Whether a terminal error also notifies at the decorator. False for
         validate-authorize, which notifies inside its own actor-aware orchestration because
-        the sender is not bound until the token is verified.
+        the sender is not bound until the identity block is read.
 
     Returns:
       A decorator for the verb handler.

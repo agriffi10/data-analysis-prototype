@@ -645,6 +645,5 @@ def install(cognito_attrs=None, max_memberships=10):
     cpconfig.ADMIN_BUCKET = "admin-bkt"
     cpconfig.SHARED_SPACE_BUCKET = "shared-bkt"
     cpconfig.USER_SPACE_BUCKET = "user-bkt"
-    cpconfig.USER_POOL_ID = "pool"
     cpconfig.NOTIFICATIONS_QUEUE_URL = ""
     return clients._s3, clients._glue, clients._lf, clients._cognito

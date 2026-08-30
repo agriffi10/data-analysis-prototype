@@ -1,9 +1,9 @@
 """Unit tests for the table-builder validate-authorize Lambda.
 
-Pure logic, AWS stubbed: auth.verified_username is stubbed for the authorization and
-validation cases, the registry read for the shared-space cases. Asserts the validated
-payload shape and every terminal reason. Runnable under pytest or directly:
-python3 test_validate_authorize.py.
+Pure logic, AWS stubbed: the registry read is stubbed for the shared-space cases. The actor
+needs no stub — it is read out of the message's identity block, which the API stamps and this
+harness builds. Asserts the validated payload shape and every terminal reason. Runnable under
+pytest or directly: python3 test_validate_authorize.py.
 """
 
 import json
@@ -14,10 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 import validate_authorize as v
 from cpcommon.errors import TerminalError
-
-# Capture the REAL verified_username before any test patches the shared module attr.
-_REAL_VERIFIED = v.auth.verified_username
-
+from token_shapes import JWT_SHAPED
 
 USER_BUCKET = "dat-prod-user-space"
 SHARED_BUCKET = "dat-prod-shared-space"
@@ -27,15 +24,19 @@ def _setup():
     """Reset patched config + stubs to a known baseline before each case."""
     v.config.USER_SPACE_BUCKET = USER_BUCKET
     v.config.SHARED_SPACE_BUCKET = SHARED_BUCKET
-    v.auth.verified_username = lambda token: "alice"
     v.reg.load = lambda name: None
 
 
 def _event(
-    space, table_name="sales_2026", partition_keys=None, token="tok", request_id="r1", mode=None,
+    space, table_name="sales_2026", partition_keys=None, actor="alice", request_id="r1", mode=None,
     allow_removals=None,
 ):
-    body = {"idToken": token, "space": space, "tableName": table_name, "requestId": request_id}
+    body = {
+        "identity": {"actor": actor, "delegated_by": None, "assurance": "interactive"},
+        "space": space,
+        "tableName": table_name,
+        "requestId": request_id,
+    }
     if partition_keys is not None:
         body["partitionKeys"] = partition_keys
     if mode is not None:
@@ -53,11 +54,20 @@ def _shared(prefix="salesdata/2026/", database="salesdata", bucket=SHARED_BUCKET
     return {"kind": "shared", "bucket": bucket, "prefix": prefix, "database": database}
 
 
-def _expect_reason(event, reason):
+def _expect_reason(event, reason, detail=None):
+    """Asserts the refusal, and — where given — WHICH refusal.
+
+    The detail matters more than it looks. Four of this verb's authorization branches raise
+    `forbidden`, so a test asserting only the code passes when the branch it names is deleted and
+    a neighbouring one catches the same request: measured, removing the actor's-own-database
+    check reddened nothing at all, because the fixture also escaped the personal prefix.
+    """
     try:
         v.handler(event, None)
     except TerminalError as exc:
         assert exc.reason == reason, f"expected {reason!r}, got {exc.reason!r} ({exc.detail})"
+        if detail is not None:
+            assert detail in exc.detail, f"expected detail {detail!r}, got {exc.detail!r}"
         return
     raise AssertionError(f"expected TerminalError({reason!r}), but handler succeeded")
 
@@ -95,18 +105,24 @@ def test_valid_partitioned_request_carries_keys():
 
 def test_wrong_user_personal_is_forbidden():
     _setup()
-    _expect_reason(_event(_personal(database="bob", prefix="bob/x/")), "forbidden")
+    _expect_reason(
+        _event(_personal(database="bob", prefix="bob/x/")),
+        "forbidden",
+        "personal database must be the actor's own",
+    )
 
 
 def test_out_of_space_personal_prefix_is_forbidden():
     _setup()
-    _expect_reason(_event(_personal(prefix="bob/secret/")), "forbidden")
+    _expect_reason(
+        _event(_personal(prefix="bob/secret/")), "forbidden", "location escapes the personal space"
+    )
 
 
 def test_non_member_shared_is_forbidden():
     _setup()
     v.reg.load = lambda name: {"status": "active", "owner": "bob", "members": ["bob"]}
-    _expect_reason(_event(_shared()), "forbidden")
+    _expect_reason(_event(_shared()), "forbidden", "is not an active member")
 
 
 def test_bad_table_name_is_invalid_table_name():
@@ -115,6 +131,24 @@ def test_bad_table_name_is_invalid_table_name():
 
 
 # ── allowRemovals: the removal opt-in (SPEC-144 FR-003) ──────────────────────
+
+
+def test_a_message_with_no_identity_block_is_refused():
+    """Fail closed on the pre-cutover envelope: a flat token, no block, no registry read.
+
+    The refusal must land BEFORE the registry load, or the caller's non-identity has already
+    been used as an existence oracle.
+    """
+    _setup()
+    v.reg.load = lambda name: (_ for _ in ()).throw(AssertionError("AWS CALL: registry read"))
+
+    body = {
+        "idToken": JWT_SHAPED,
+        "space": "alice",
+        "tableName": "sales_2026",
+        "requestId": "r1",
+    }
+    _expect_reason([{"body": json.dumps(body)}], "unauthorized")
 
 
 if __name__ == "__main__":

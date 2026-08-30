@@ -46,8 +46,6 @@ resource "aws_lambda_function" "functions" {
         USER_SPACE_BUCKET       = var.user_space_bucket_name
         SHARED_SPACE_BUCKET     = var.shared_space_bucket_name
         ADMIN_BUCKET            = var.admin_bucket_name
-        COGNITO_USER_POOL_ID    = var.user_pool_id
-        COGNITO_APP_CLIENT_ID   = var.app_client_id
         ATHENA_WORKGROUP        = var.athena_workgroup
         NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
         # Optional by construction: a function missing it logs to stdout rather than

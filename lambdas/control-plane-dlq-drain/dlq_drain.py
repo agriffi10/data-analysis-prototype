@@ -10,9 +10,9 @@ sentence in the actor's inbox: your request couldn't be started, nothing was cre
 changed, try again.
 
 Three things shape the whole handler. The body is untrusted — by definition it is a message the
-pipeline refused, so the recipient comes from the verified token inside it, never from a
+pipeline refused, so the recipient comes from the API's identity block inside it, never from a
 username the body asserts, and nothing from the body is interpolated into the message.
-Consuming a DLQ destroys the evidence, so the body is logged, token redacted, before anything
+Consuming a DLQ destroys the evidence, so the body is logged, any legacy token redacted, before anything
 else happens. And it cannot be allowed to fail: a throw means redelivery, and a message that
 always throws is redelivered until retention expires, burning invocations on a failure nobody
 is watching — the exact invisibility this exists to end. Every per-message path is total.
@@ -30,6 +30,11 @@ somewhere nobody looks. Pinned by a test that checks it against the sweep's own 
 than against a human's reading of it.
 
 Attributes:
+  _LEGACY_TOKEN_FIELDS: The two top-level fields a PRE-CUTOVER envelope kept its raw ID token in.
+    The API stops writing either once the planes read the identity block instead, so on a current
+    message this set matches nothing — it is kept because a 14-day queue plus three failed
+    receives means a stale body can still arrive, and that body is precisely what this drain
+    exists to surface into a log group with a far wider read audience than the queue.
   _MAX_BODY_CHARS: Cap on the serialised forensic body. It is unbounded, untrusted input, and
     every event is appended into a day object the sweep rewrites in full every ten minutes — one
     pathological body would be paid for again on every sweep for the rest of that day.
@@ -61,13 +66,16 @@ import json
 import logging
 import os
 
-from cpcommon import auth, clients, messages, observability
+from cpcommon import actor as cpactor
+from cpcommon import clients, messages, observability
 from cpcommon.notify import emit_notification
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 observability.init(service="dlq-drain")
+
+_LEGACY_TOKEN_FIELDS = frozenset({"idToken", "actor"})
 
 _MAX_BODY_CHARS = 4096
 
@@ -84,34 +92,26 @@ _MESSAGES = messages.register(
 
 
 class Source:
-    """One wired DLQ: how to name its domain to the user, and where its token lives.
+    """One wired DLQ, and the domain word its notification uses.
+
+    There used to be a third column saying where this domain's envelope kept the actor's ID
+    token, because the envelopes disagreed — three said ``idToken`` and the rest said ``actor``.
+    The recipient now comes from the ``identity`` block, which every producer writes identically,
+    so the disagreement is gone and the COLUMN goes with it rather than being set to one value
+    on every row: a per-source field whose sources all agree is a fork whose operands always
+    match, which this repo has shipped before and which passes forever.
 
     Attributes:
       source: The domain segment of the queue name.
       noun: The domain word the notification uses.
-      token_field: Where this domain's envelope puts the actor's ID token. Per-domain rather
-        than a constant, which looks like an inconsistency and is really a fact about the five
-        envelopes: three use one field name and table-share and file-send use another. A single
-        hard-coded name would silently notify nobody for whichever domain it did not match, and
-        silently is precisely the failure mode this function exists to remove.
-
-        **A TOP-LEVEL KEY HOLDING THE RAW TOKEN, and that is a contract on the producers, not a
-        limitation to work around here.** Both readers are flat: ``_notify_one`` takes
-        ``body.get(token_field)`` and ``_redacted`` replaces top-level keys only. A nested token
-        would therefore fail to resolve a recipient — swallowed, so the message is deleted and
-        the user hears nothing — AND be written to CloudWatch verbatim, where the audience is far
-        wider than the queue's and an expired token is still a signed assertion about a real
-        user. The file-send envelope is flat for exactly this reason rather than
-        teach this path a second shape.
     """
 
-    def __init__(self, source: str, noun: str, token_field: str):
+    def __init__(self, source: str, noun: str):
         """Records one queue's descriptor.
 
         Args:
           source: The domain segment of the queue name.
           noun: The domain word the notification uses.
-          token_field: The envelope field carrying the actor's ID token.
 
         Returns:
           None.
@@ -121,17 +121,16 @@ class Source:
         """
         self.source = source
         self.noun = noun
-        self.token_field = token_field
 
 
 SOURCES: dict[str, Source] = {
-    "data-quality": Source("data-quality", "data quality check", "idToken"),
-    "table-builder": Source("table-builder", "table", "idToken"),
-    "table-share": Source("table-share", "share", "actor"),
-    "shared-space": Source("shared-space", "shared space", "idToken"),
-    "file-send": Source("file-send", "file send", "actor"),
-    "archive": Source("archive", "archive", "actor"),
-    "file-ops": Source("file-ops", "file operation", "actor"),
+    "data-quality": Source("data-quality", "data quality check"),
+    "table-builder": Source("table-builder", "table"),
+    "table-share": Source("table-share", "share"),
+    "shared-space": Source("shared-space", "shared space"),
+    "file-send": Source("file-send", "file send"),
+    "archive": Source("archive", "archive"),
+    "file-ops": Source("file-ops", "file operation"),
 }
 
 UNDRAINED_QUEUES = frozenset({"notifications"})
@@ -158,17 +157,23 @@ def _source_for(event_source_arn: str) -> Source | None:
     return None
 
 
-def _redacted(body: dict, token_field: str) -> dict:
-    """Returns a copy of the body with every known token field replaced by a marker.
+def _redacted(body: dict) -> dict:
+    """Returns a copy of the body with any LEGACY top-level token field replaced by a marker.
 
-    The token is a bearer credential, and CloudWatch Logs has a far wider read audience than the
-    SQS queue the body came from — an expired token is still a signed assertion about a real
-    user. Every known token field is redacted, not just this source's, because a malformed body
-    may carry the wrong one.
+    The API no longer sends a token, so on a current envelope this changes nothing. It is not
+    therefore dead: a message enqueued before the trust flip still carries one, and a 14-day
+    queue plus three failed receives means a stale body can arrive here long after the producer
+    stopped writing them. That message is exactly the one this drain exists to surface, and
+    CloudWatch Logs has a far wider read audience than the SQS queue it came from — an expired
+    token is still a signed assertion about a real user.
+
+    **It must not be pointed at ``identity`` instead.** The replacement is top-level only, so
+    that would blank the block this function's caller has just taken its recipient from, while
+    removing nothing sensitive: the block holds a username, a null and a literal, and every one
+    of them is meant to be readable in the record.
 
     Args:
       body: The parsed message body.
-      token_field: This source's token field.
 
     Returns:
       A redacted copy; the argument is not mutated.
@@ -177,7 +182,7 @@ def _redacted(body: dict, token_field: str) -> dict:
       None.
     """
     redacted = dict(body)
-    for field in {token_field, *(s.token_field for s in SOURCES.values())}:
+    for field in _LEGACY_TOKEN_FIELDS:
         if field in redacted:
             redacted[field] = "<redacted>"
     return redacted
@@ -210,7 +215,7 @@ def _request_id_field(body: dict) -> dict:
     return {"request_id": request_id} if isinstance(request_id, str) and request_id else {}
 
 
-def _forensic(body: dict, token_field: str) -> dict:
+def _forensic(body: dict) -> dict:
     """Builds the fields carrying the dead-lettered body as a permanent forensic record.
 
     Consuming a DLQ message destroys the evidence: each queue's retention was knowingly traded
@@ -226,7 +231,6 @@ def _forensic(body: dict, token_field: str) -> dict:
 
     Args:
       body: The parsed message body.
-      token_field: This source's token field.
 
     Returns:
       The body field plus its truncation flag and original length. The flag is stated rather
@@ -236,7 +240,7 @@ def _forensic(body: dict, token_field: str) -> dict:
     Raises:
       None.
     """
-    serialized = json.dumps(_redacted(body, token_field), default=str)
+    serialized = json.dumps(_redacted(body), default=str)
     truncated = len(serialized) > _MAX_BODY_CHARS
     return {
         "body": serialized[:_MAX_BODY_CHARS],
@@ -281,7 +285,6 @@ def _notify_one(record: dict) -> None:
     """
     source = _source_for(record.get("eventSourceARN", ""))
     noun = source.noun if source else _FALLBACK_NOUN
-    token_field = source.token_field if source else "idToken"
     if source is None:
         logger.error("no descriptor for eventSourceARN %r; using the generic noun", record.get("eventSourceARN"))
         observability.error(
@@ -310,21 +313,19 @@ def _notify_one(record: dict) -> None:
         "dead-lettered %s request (receives=%s): %s",
         noun,
         (record.get("attributes") or {}).get("ApproximateReceiveCount"),
-        json.dumps(_redacted(body, token_field), default=str),
+        json.dumps(_redacted(body), default=str),
     )
 
     try:
-        username = auth.verified_username_ignoring_expiry(
-            body.get(token_field) or "", missing_token_detail=f"missing {token_field}"
-        )
+        username = cpactor.trusted_actor(body).username
     except Exception:
-        logger.exception("could not derive a verified recipient for a dead-lettered %s request", noun)
+        logger.exception("could not derive a recipient for a dead-lettered %s request", noun)
         observability.error(
             "no verified recipient for a dead-lettered request",
             reason="no-verified-recipient",
             domain=noun,
             **_request_id_field(body),
-            **_forensic(body, token_field),
+            **_forensic(body),
         )
         return
 
@@ -343,7 +344,7 @@ def _notify_one(record: dict) -> None:
         receives=(record.get("attributes") or {}).get("ApproximateReceiveCount"),
         dedup=dedup_id is not None,
         **_request_id_field(body),
-        **_forensic(body, token_field),
+        **_forensic(body),
     )
 
 

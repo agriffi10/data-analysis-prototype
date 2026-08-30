@@ -1,52 +1,32 @@
 """Tests for the control-plane DLQ drain (SPEC-126).
 
-Integration-ish for a Lambda: the REAL handler over the REAL cpcommon message registry and
-the REAL token verification (against a locally-generated RSA keypair, JWKS client stubbed),
-with only the SQS send captured. That matters here more than usual — the two things most
-worth pinning are that the recipient comes from the TOKEN rather than the body, and that
-nothing from the body reaches the message. A test that stubbed `verified_username` would
-verify neither.
+Integration-ish for a Lambda: the REAL handler over the REAL cpcommon message registry and the
+REAL actor reader, with only the SQS send captured. That matters here more than usual — the two
+things most worth pinning are that the recipient comes from the IDENTITY BLOCK rather than from
+anything else in the body, and that nothing else from the body reaches the message.
+
+The recipient used to be a cryptographically verified claim, and this file used to mint real
+RS256 tokens against a locally-generated keypair to prove it. It is trusted differently now:
+the API is the only principal that may write these queues, so the block it stamped is as good
+as a signature and a great deal cheaper. What replaces the bad-signature case is the shape
+rule — a body whose actor is not a catalog-safe username notifies nobody.
 """
 
 import json
 import logging
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "control-plane-common"))
 
 import dlq_drain
-import jwt
 from cpcommon import clients, config
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+from token_shapes import JWT_SHAPED
 
-_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-_PRIVATE_PEM = _KEY.private_bytes(
-    serialization.Encoding.PEM,
-    serialization.PrivateFormat.PKCS8,
-    serialization.NoEncryption(),
-)
-_OTHER_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-_OTHER_PEM = _OTHER_KEY.private_bytes(
-    serialization.Encoding.PEM,
-    serialization.PrivateFormat.PKCS8,
-    serialization.NoEncryption(),
-)
+JWT = JWT_SHAPED
 
-ISSUER = f"https://cognito-idp.{config.REGION}.amazonaws.com/{config.USER_POOL_ID}"
 QUEUE_URL = "https://sqs.us-east-1.amazonaws.com/1/dat-prod-notifications-requests.fifo"
-
-
-class _FakeSigningKey:
-    key = _KEY.public_key()
-
-
-class _FakeJwks:
-    def get_signing_key_from_jwt(self, token):
-        return _FakeSigningKey()
 
 
 class _FakeSqs:
@@ -80,27 +60,25 @@ class _FakeSqs:
 
 
 def _install():
-    # Stub the ACCESSOR, not the cache: `_jwks` is a per-URL dict now
-    # (SPEC-151 FR-009), and what these tests actually want to fake is the client.
-    clients.jwks = lambda url: _FakeJwks()
     sqs = _FakeSqs()
     clients._sqs = sqs
     config.NOTIFICATIONS_QUEUE_URL = QUEUE_URL
     return sqs
 
 
-def _token(username="alice", *, exp_offset=3600, key=_PRIVATE_PEM):
-    return jwt.encode(
-        {
-            "cognito:username": username,
-            "token_use": "id",
-            "aud": config.APP_CLIENT_ID,
-            "iss": ISSUER,
-            "exp": int(time.time()) + exp_offset,
-        },
-        key,
-        algorithm="RS256",
-    )
+def _identity(actor="alice"):
+    """The block the API stamps, as every producer writes it.
+
+    Args:
+      actor: The verified username it names.
+
+    Returns:
+      A body fragment carrying the block.
+
+    Raises:
+      None.
+    """
+    return {"identity": {"actor": actor, "delegated_by": None, "assurance": "interactive"}}
 
 
 def _arn(segment="data-quality"):
@@ -134,8 +112,8 @@ def test_a_batch_of_n_messages_produces_n_notifications():
     sqs = _install()
     event = {
         "Records": [
-            _record({"requestId": "r-1", "idToken": _token("alice")}),
-            _record({"requestId": "r-2", "idToken": _token("bob")}),
+            _record({"requestId": "r-1", **_identity("alice")}),
+            _record({"requestId": "r-2", **_identity("bob")}),
         ]
     }
     dlq_drain.handler(event, None)
@@ -144,12 +122,28 @@ def test_a_batch_of_n_messages_produces_n_notifications():
     assert [k["MessageGroupId"] for k in sqs.sent] == ["alice", "bob"]
 
 
-# ── FR-002: the recipient is verified, never asserted ────────────────────────
+# ── FR-002: the recipient comes from the block, never from anything else ─────
 
 
-def test_a_bad_signature_notifies_nobody():
+def test_an_actor_that_is_not_a_catalog_safe_username_notifies_nobody():
+    """What replaced the bad-signature case, and it fails against a presence check.
+
+    A stale message carries a raw token in the flat field and a username nowhere. Addressing a
+    notification to a 900-character string would not fail loudly — ``emit_notification`` would
+    take it as a group id and write to a prefix nobody reads.
+    """
     sqs = _install()
-    dlq_drain.handler({"Records": [_record({"idToken": _token("mallory", key=_OTHER_PEM)})]}, None)
+
+    dlq_drain.handler({"Records": [_record({"identity": {"actor": JWT, "delegated_by": None, "assurance": "interactive"}})]}, None)
+
+    assert sqs.sent == []
+
+
+def test_a_pre_cutover_message_with_no_identity_block_notifies_nobody():
+    """The envelope a message enqueued before the flip still carries: a flat token, no block."""
+    sqs = _install()
+
+    dlq_drain.handler({"Records": [_record({"actor": JWT, "requestId": "r-1"})]}, None)
 
     assert sqs.sent == []
 
@@ -157,11 +151,18 @@ def test_a_bad_signature_notifies_nobody():
 # ── FR-004: the body survives consumption, the token does not ────────────────
 
 
-def test_the_body_is_logged_with_the_token_redacted(caplog):
+def test_the_body_is_logged_with_a_legacy_token_redacted(caplog):
+    """A stale body still carries one, and CloudWatch has a wider read audience than SQS.
+
+    The block rides beside it and must NOT be redacted: it is what the recipient was taken from,
+    and blanking it would remove the only readable attribution while leaving the token in place.
+    """
     sqs = _install()
-    token = _token()
     with caplog.at_level(logging.ERROR):
-        dlq_drain.handler({"Records": [_record({"idToken": token, "location": "alice/sales/", "requestId": "r-1"})]}, None)
+        dlq_drain.handler(
+            {"Records": [_record({"idToken": JWT, "location": "alice/sales/", "requestId": "r-1", **_identity()})]},
+            None,
+        )
 
     logged = caplog.text
     # The forensic value: the body and how many times it was received.
@@ -169,8 +170,15 @@ def test_the_body_is_logged_with_the_token_redacted(caplog):
     assert "r-1" in logged
     assert "receives=3" in logged
     # The token is a bearer credential and CloudWatch has a wider read audience than SQS.
-    assert token not in logged
+    assert JWT not in logged
     assert "<redacted>" in logged
+    # …and the block it was beside is still readable, which is the half a naive fix breaks.
+    # Asserted on the SERIALIZED FIELD, not on the username: this body also carries
+    # "alice/sales/" as its location, so `"alice" in logged` holds whether or not the block
+    # survived — and would keep holding with `identity` added to the redacted set, which is the
+    # exact mistake the redaction's own docstring warns against.
+    assert '"actor": "alice"' in logged
+    assert logged.count("<redacted>") == 1
     # …and the notification still went out.
     assert len(sqs.sent) == 1
 
@@ -183,7 +191,7 @@ def test_an_unrecognised_queue_still_notifies_with_a_generic_noun():
     # beats the silence this spec exists to remove.
     sqs = _install()
     dlq_drain.handler(
-        {"Records": [{"eventSourceARN": "arn:aws:sqs:us-east-1:1:dat-prod-mystery-requests-dlq.fifo", "body": json.dumps({"idToken": _token()})}]},
+        {"Records": [{"eventSourceARN": "arn:aws:sqs:us-east-1:1:dat-prod-mystery-requests-dlq.fifo", "body": json.dumps(_identity())}]},
         None,
     )
 
@@ -196,10 +204,11 @@ def test_an_unrecognised_queue_still_notifies_with_a_generic_noun():
 # drains, and cannot be stopped by one bad queue.
 
 
-def test_the_sweep_drains_every_configured_dlq_and_notifies_from_the_token(monkeypatch):
-    # One message on each wired DLQ, each carrying the token in ITS domain's field (table-share
-    # and file-send use `actor`, the rest `idToken`) — so this also pins that the sweep preserves
-    # the per-domain token-field resolution the event-source path had.
+def test_the_sweep_drains_every_configured_dlq_and_notifies_from_the_block(monkeypatch):
+    # One message on each wired DLQ. The envelopes used to disagree about where the token lived
+    # — table-share and file-send said `actor`, the rest `idToken` — and this loop pinned that
+    # the sweep resolved each domain's own field. They agree now: every producer writes one
+    # `identity` block, which is why the per-source column is gone rather than set to one value.
     #
     # The expectations below are DERIVED from SOURCES rather than written out, because the
     # fixture is too: a literal 4 was really asserting "nobody has added a plane", which is
@@ -210,9 +219,8 @@ def test_the_sweep_drains_every_configured_dlq_and_notifies_from_the_token(monke
     arns = [_arn(segment) for segment in dlq_drain.SOURCES]
     monkeypatch.setenv("DLQ_ARNS", json.dumps(arns))
     for i, segment in enumerate(dlq_drain.SOURCES):
-        field = dlq_drain.SOURCES[segment].token_field
         url = dlq_drain._queue_url(_arn(segment))
-        sqs.queued[url] = [_msg({field: _token(f"user{i}"), "requestId": f"r-{i}"}, receipt=f"rh-{i}")]
+        sqs.queued[url] = [_msg({**_identity(f"user{i}"), "requestId": f"r-{i}"}, receipt=f"rh-{i}")]
 
     result = dlq_drain.handler({}, None)  # a scheduled event carries no Records
 
@@ -225,7 +233,7 @@ def test_the_sweep_deletes_each_message_it_drains(monkeypatch):
     arn = _arn("data-quality")
     url = dlq_drain._queue_url(arn)
     monkeypatch.setenv("DLQ_ARNS", json.dumps([arn]))
-    sqs.queued[url] = [_msg({"idToken": _token("alice")}, receipt="rh-A"), _msg({"idToken": _token("bob")}, receipt="rh-B")]
+    sqs.queued[url] = [_msg(_identity("alice"), receipt="rh-A"), _msg(_identity("bob"), receipt="rh-B")]
 
     dlq_drain.handler({}, None)
 

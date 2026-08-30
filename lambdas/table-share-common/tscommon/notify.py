@@ -140,7 +140,7 @@ def notifies_on_failure(step: str, *, notify_terminal: bool = True):
       notify_terminal: Whether a terminal error also notifies at the decorator, so the Map and
         whole-request worker verbs need no ``try/except`` of their own. False for
         validate-authorize, which notifies inside its own actor-aware orchestration because the
-        sender is not bound until the token is verified.
+        sender is not bound until the identity block is read.
 
     Returns:
       A decorator for the verb handler.

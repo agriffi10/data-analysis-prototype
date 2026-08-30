@@ -26,16 +26,6 @@ variable "admin_bucket_arn" {
 # ── The cpcommon layer's required union ──────────────────────────────────────
 # The sweep reads none of these. That is not a reason to remove one. See README.md.
 
-variable "user_pool_id" {
-  description = "Cognito User Pool ID. Unused by the sweep. Required by the cpcommon layer's config, which resolves on first READ rather than at import — so a missing value is no longer a cold-start crash but a failure on whichever branch reads it first. STILL SET IT: the union is what any code path in the layer may demand, and 'the function does not use it' is not a reason to remove it."
-  type        = string
-}
-
-variable "app_client_id" {
-  description = "Cognito app client ID. Unused by the sweep. See user_pool_id for why it is set even though this function never reads it."
-  type        = string
-}
-
 variable "user_space_bucket_name" {
   description = "User-space bucket name. Unused by the sweep (it is granted no access to it). See user_pool_id for why it is set even though this function never reads it."
   type        = string

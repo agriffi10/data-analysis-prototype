@@ -493,10 +493,21 @@ carries both fields and every plane reads only the block, which is why that stre
       figures are recorded. They are almost always empty — SPEC-126 replaced four event-source mappings
       with a sweep for exactly that reason — so this is a cheap confirmation, not a drain procedure.
 - [ ] A deliberately-staged pre-cutover message (old envelope: a flat `actor` holding a raw JWT, no
-      `identity` block) on one plane is refused terminally with `unauthorized`, produces **no**
-      notification, and dead-letters. Its body in `logs/` is bounded and carries no JWT (FR-005). Staged on
-      purpose, because it is the one failure this cutover can produce and reasoning about it is not the
-      same as seeing it.
+      `identity` block) on one plane is refused terminally with `unauthorized` and produces **no**
+      notification. Staged on purpose, because it is the one failure this cutover can produce and
+      reasoning about it is not the same as seeing it.
+
+      **Amended during the build (2026-08-30): it does NOT dead-letter, and the original criterion
+      asked for a record that cannot exist.** Every plane's Pipe is `invocation_type =
+      "FIRE_AND_FORGET"`, so `StartExecution` succeeds and the Pipe deletes the message; the
+      refusal then happens *inside* the execution. A request DLQ only ever receives what the Pipe
+      could not **deliver** — SPEC-126's own entry says so: "no verb runs and no execution starts."
+      So there is no DLQ record, no drain invocation and no `logs/service=dlq-drain/` body for this
+      case, and a session looking for one would reasonably conclude the drain is broken. The
+      observable evidence is the execution history (`Fail`, reason `unauthorized`) and the verb's
+      own log record. The drain's own JWT-free-body check is exercised separately, by the
+      dead-letter step of Phase 5's step-two pass, which reaches the DLQ the way the DLQ is
+      actually reached.
 - [ ] **The allowed-field sets are not tightened, and the staged message is why.** SPEC-200 added
       `"identity"` to file-send's, both of archive's and file-ops'; this spec leaves the flat token field
       in place there. Removing it makes the staged message a `malformed_event` before `trusted_actor` ever
@@ -509,6 +520,16 @@ carries both fields and every plane reads only the block, which is why that stre
       reverted plane to verify, so the recovery is forward (re-deploy step one's Lambdas), not backward.
       The delivery doc says which side of that line each deploy landed on, and the step-two merge is
       identified as the one that cannot be rolled back.
+
+      **Amended during the build (2026-08-30): the step-one revert is clean only in the right
+      ORDER, and the order is the inverse of the forward one.** This change removes
+      `COGNITO_USER_POOL_ID`/`COGNITO_APP_CLIENT_ID` from the Lambda environments in the same
+      change as the code, which FR-005 AC3 requires. Redeploying the previous Lambda zips alone —
+      the fast lever, and a *different* workflow from the infra apply — restores
+      `auth.verified_username`, which reads `config.USER_POOL_ID`, which is no longer set: a
+      `RuntimeError` on the first request of every plane, a worse outage than the one being rolled
+      back. **Revert the infra FIRST** (restoring the env, which the current code ignores
+      harmlessly), **then the Lambda code.**
 
 ---
 

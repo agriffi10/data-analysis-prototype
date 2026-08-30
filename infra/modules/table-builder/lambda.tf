@@ -47,10 +47,8 @@ resource "aws_lambda_function" "functions" {
         # Deliberately NOT mirrored by a config._require — see variables.tf.
         LOGS_QUEUE_URL = var.logs_queue_url
         # Same source of truth as the feature-flag document's `environments` keys.
-        ENV_NAME              = var.environment
-        COGNITO_USER_POOL_ID  = var.user_pool_id
-        COGNITO_APP_CLIENT_ID = var.app_client_id
-        ATHENA_WORKGROUP      = var.athena_workgroup
+        ENV_NAME         = var.environment
+        ATHENA_WORKGROUP = var.athena_workgroup
       },
       lookup(local.table_builder_verb_env, each.key, {}),
     )

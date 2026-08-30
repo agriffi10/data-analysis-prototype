@@ -34,7 +34,6 @@ sys.path.insert(0, str(_HERE.parent / "file-send-check-target-absent"))
 sys.path.insert(0, str(_HERE.parent / "file-send-collect-transfer-results"))
 
 os.environ.setdefault("COGNITO_USER_POOL_ID", "us-east-1_testpool")
-os.environ.setdefault("COGNITO_APP_CLIENT_ID", "test-app-client")
 os.environ.setdefault("ADMIN_BUCKET", "admin-bkt")
 os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
@@ -63,12 +62,11 @@ def _validated_output() -> dict:
     Raises:
       None.
     """
-    v.auth.verified_username = lambda token, **kw: "alice"
     v.reg.load = lambda name: None
     v.cognito.user_exists = lambda name: True
     body = {
         "requestId": "req-1",
-        "actor": "tok",
+        "identity": {"actor": "alice", "delegated_by": None, "assurance": "interactive"},
         "source": {
             "space": {"kind": "personal", "name": "alice"},
             "items": [{"kind": "file", "key": "alice/q1.csv"}],

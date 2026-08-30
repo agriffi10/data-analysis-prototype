@@ -5,7 +5,7 @@
   "States": {
     "ValidateAuthorize": {
       "Type": "Task",
-      "Comment": "First step: verifies the ID token into the actor, authorizes source access, validates the result name, annotates recipients. The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator (it reads record[0]); OutputPath=$.Payload makes the validated request object the whole state for the next steps. A failure here runs BEFORE the request identity exists, so its Catch (no ResultPath — the input is an array, not an object) routes to ValidateFailureSeed, which seeds null identity fields so the shared recorded-failure state can reference them uniformly. TransientError (a throttled Cognito/S3 read) is retried, never terminalized.",
+      "Comment": "First step: reads the trusted actor out of the API's identity block, authorizes source access, validates the result name, annotates recipients. The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator (it reads record[0]); OutputPath=$.Payload makes the validated request object the whole state for the next steps. A failure here runs BEFORE the request identity exists, so its Catch (no ResultPath — the input is an array, not an object) routes to ValidateFailureSeed, which seeds null identity fields so the shared recorded-failure state can reference them uniformly. TransientError (a throttled Cognito/S3 read) is retried, never terminalized.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${validate_authorize_function_arn}",

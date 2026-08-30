@@ -32,13 +32,7 @@ variable "dlq_max_receive_count" {
 }
 
 variable "user_pool_id" {
-  description = "Cognito User Pool ID — passed to validate-authorize (env COGNITO_USER_POOL_ID) for offline ID-token verification, and used to build the pool ARN scoping the execution role's recipient-existence check (AdminGetUser/ListUsers)."
-  type        = string
-  default     = ""
-}
-
-variable "app_client_id" {
-  description = "Cognito SPA app client ID — the ID-token audience validate-authorize checks (env COGNITO_APP_CLIENT_ID)."
+  description = "Cognito User Pool ID — carried as env COGNITO_USER_POOL_ID for the recipient-existence check (AdminGetUser/ListUsers), and used to build the pool ARN scoping that grant. It is NOT a cpcommon required variable: the planes stopped verifying tokens, so cpcommon reads it lazily through config.require and only the three planes that resolve a user set it."
   type        = string
   default     = ""
 }

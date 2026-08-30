@@ -130,6 +130,15 @@ dead-lettered send, silently, since the drain swallows and returns, and (2) writ
 CloudWatch, whose audience is far wider than the queue's. One envelope shape across five planes
 beat teaching a shared security path a second one.
 
+> **Still true, and no longer about a token (SPEC-201, 2026-08-30).** The reasoning holds and its
+> conclusion was right twice over: the flat field is what the drain redacts, and the *reason* it
+> had to be flat is exactly why the API's `identity` block is **nested** — a flat verified `actor`
+> would have overwritten the very field four planes were verifying. The flat field itself is now
+> a legacy carrier: no plane reads it, the drain blanks it as a stale-message token, and it is
+> removed from the wire when the API stops writing one. It stays in each plane's allowed-field set
+> until then, deliberately — tightening it turns a pre-cutover message into `malformed_event`
+> instead of the `unauthorized` refusal that path is meant to produce.
+
 **Source authorization is about the space's status, never the member's join chip.** A `personal`
 source must equal the verified username; a `shared` source needs `cpcommon.registry
 .is_active_member`. The spec's original wording ("`pending`, `leaving`, absent") named a status

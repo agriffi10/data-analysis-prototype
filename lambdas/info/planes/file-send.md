@@ -40,12 +40,20 @@ because EventBridge drops an input this plane's own cap allows to approach 200 K
 
 ## The request envelope
 
-Flat — `{requestId, actor (raw ID token, top level), source: {space, items}, recipients[]}` — and
-unknown top-level fields are **rejected, not ignored**.
+`{requestId, identity: {actor, delegated_by, assurance}, source: {space, items}, recipients[]}`,
+plus a **legacy top-level `actor`** still carrying the raw ID token until the API stops sending
+one. Unknown top-level fields are **rejected, not ignored**.
 
-The flatness is a contract with the DLQ drain, not a style choice: `_notify_one` reads
-`body.get("actor")` and `_redacted` replaces top-level keys only, so a nested token would notify
-nobody on a dead-lettered send *and* write the raw JWT to CloudWatch.
+**The verb reads the block and never the flat field**, which matters because both are non-empty
+strings: a fallback would build a notification recipient out of a 900-character token on the first
+message enqueued before the cutover. The flat field stays in the allowed set deliberately —
+removing it makes such a message a `malformed_event` instead of the `unauthorized` refusal that
+path is meant to produce — and the DLQ drain redacts it as a stale token.
+
+The original reason for the flatness still holds and now explains the block's shape rather than
+the field's: the drain's redaction replaces **top-level keys only**, which is why the identity
+block is nested (nothing in it is secret and all of it must stay readable in a dead-letter
+record) and why a nested *token* would have been the wrong shape.
 
 `MessageGroupId` is the SHA-256 of `{bucket}/{spaceRoot}` — a hash, because SQS caps it at 128
 characters and an S3 key reaches 1024. `MessageDeduplicationId` is the `requestId`, which is the only

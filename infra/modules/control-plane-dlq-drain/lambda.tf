@@ -34,8 +34,6 @@ resource "aws_lambda_function" "drain" {
     variables = {
       # The Cognito pair, the notifications URL and DLQ_ARNS are genuinely used; the buckets
       # and workgroup are the cpcommon layer's union. Do not prune one — README.md.
-      COGNITO_USER_POOL_ID    = var.user_pool_id
-      COGNITO_APP_CLIENT_ID   = var.app_client_id
       NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
       DLQ_ARNS                = jsonencode(var.dlq_arns)
       USER_SPACE_BUCKET       = var.user_space_bucket_name

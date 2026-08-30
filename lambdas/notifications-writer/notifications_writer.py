@@ -32,21 +32,26 @@ queue is deliberately left undrained: draining it would ask the queue that just 
 deliver to deliver the news about itself. A message that dies here dies silently by design, so
 these events are the only account of it that exists.
 
-Verification is ``cpcommon.auth``'s, not this module's. It used to be a second copy of the
-issuer and JWKS URLs, the cached client and the claim checks, because the layer's config
-required six environment variables at import and this function sets three — that read
-made that config resolve lazily, which removed the reason for the copy. The exception type is
-the one thing that does not come from the layer: this handler's SQS retry-into-DLQ contract is
-expressed in ``AuthorizationError``, so the seam maps ``AuthError`` onto it.
+**Nothing here verifies anything any more, and the two branches were never symmetric.** A user
+action carries the API's verified identity block, which ``cpcommon.actor`` reads; the exception
+type is the one thing that does not come from the layer, because this handler's SQS
+retry-into-DLQ contract is expressed in ``AuthorizationError``.
 
-That import costs about 46 ms of cold start (PyJWT pulls cryptography), and it is paid on the
-``create`` path too — the trusted-producer path that carries every failure notification in the
-system and verifies no token. Accepted: delivery is asynchronous, nothing user-facing waits on
-it, and a deferred import would trade the duplication back for the saving.
+The ``create`` branch is the trusted-producer path and has never had an actor to establish. It
+is written by the control-plane execution roles, never by a browser and never through the API,
+and it carries its target ``username`` in the body with no actor and no token — which is why the
+reader is called INSIDE the user-action arm and not above the branch. Hoisted, it would refuse
+every notification the fleet produces, and it would do it silently: the producers notify
+best-effort, so archives and shares would complete and users would simply never be told. Whether
+that producer is entitled to be one is a separate question, answered before this by the sender
+check in ``process``.
+
+The 46 ms of cold start PyJWT used to cost on both paths is gone with the verifier.
 
 Attributes:
   VALID_ACTIONS: The three actions an envelope may carry.
-  USER_ACTIONS: The subset that requires a verified token.
+  USER_ACTIONS: The subset carrying a verified actor. Their complement is ``create``, the
+    trusted-producer path, which carries a body username instead.
   USER_SPACE_BUCKET: Set by Terraform.
   NOTIFICATIONS_MAX: Inbox cap, set by Terraform.
   MAX_PAYLOAD_BYTES: Ceiling on one create's serialised ``payload``, enforced here because this
@@ -73,8 +78,8 @@ import uuid
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-from cpcommon import auth, clients, observability
-from cpcommon.errors import AuthError
+from cpcommon import actor as cpactor
+from cpcommon import clients, observability
 
 observability.init(service="notifications")
 
@@ -99,33 +104,6 @@ class ValidationError(Exception):
 
 class AuthorizationError(Exception):
     """A missing or invalid token on a user-originated action. Raising retries into the DLQ."""
-
-
-def verified_username(id_token):
-    """Verifies a Cognito ID token and returns the trusted username claim.
-
-    The fleet's one offline JWKS verification of issuer, audience, expiry and signature — the
-    server-side, unspoofable username decision — wrapped only to carry this handler's
-    exception type. Every rejection message is the layer's, unchanged.
-
-    Args:
-      id_token: The raw JWT.
-
-    Returns:
-      The verified ``cognito:username``.
-
-    Raises:
-      AuthorizationError: When the token is absent, fails any verification step, is not an ID
-        token, or carries no username claim.
-      RuntimeError: When ``COGNITO_USER_POOL_ID`` or ``COGNITO_APP_CLIENT_ID`` is unset. The
-        local verifier read these with a default and degraded into a verification failure;
-        the layer requires them and says which is missing, which is the better signal for a
-        misconfigured function. Either way the invocation fails and the record dead-letters.
-    """
-    try:
-        return auth.verify_id_token(id_token)["cognito:username"]
-    except AuthError as exc:
-        raise AuthorizationError(str(exc)) from exc
 
 
 def _now_iso():
@@ -397,7 +375,7 @@ def _create_sender_refusal(sender):
 def _resolve_username(req):
     """Derives the target username for a request.
 
-    User-originated actions require a verified token and ignore any body username; creation is
+    User-originated actions require the API's identity block and ignore any body username; creation is
     a trusted producer and uses the body username.
 
     Whether that producer IS trusted is decided before this function, by the sender check in
@@ -418,7 +396,7 @@ def _resolve_username(req):
     """
     action = req["action"]
     if action in USER_ACTIONS:
-        return verified_username(req.get("idToken"))
+        return cpactor.trusted_actor(req, exc=AuthorizationError).username
     username = req.get("username")
     if not username or not isinstance(username, str):
         raise ValidationError("create requires a username")

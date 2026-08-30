@@ -1,7 +1,7 @@
 """The singleton Lambdas must import with NO environment set (SPEC-137 FR-001, SPEC-156 FR-004).
 
 This is the premise ``pre-signup``, ``post-confirmation`` and ``notifications-writer`` rest on.
-They attach the ``cpcommon`` layer without setting the six variables its ``config.py`` governs —
+They attach the ``cpcommon`` layer without setting the four variables its ``config.py`` governs —
 the shape of PR #196, where one missing variable crashed a whole control plane at cold start.
 
 **SPEC-156 added a second mechanism; it did not replace the first, and the reason is that
@@ -11,7 +11,7 @@ The original guard is an AST scan: no singleton may name anything but ``observab
 ``cpcommon``. It reads the WHOLE FILE, so it sees a ``from cpcommon import config`` inside a
 function body — a read that runs on some later branch, long after the import succeeded.
 
-The second is a subprocess that imports each singleton whole with ``cpcommon``'s six variables
+The second is a subprocess that imports each singleton whole with ``cpcommon``'s four variables
 withheld. It sees what the module actually TOUCHES, including a chain that reaches a required
 variable through a module it never names — which a name check cannot do.
 
@@ -23,7 +23,7 @@ keeps a per-function allowlist rather than one global list, because SPEC-156 FR-
 of the JWKS path existed BECAUSE the shared one was unimportable, and an allowlist that still
 forbade it would be preserving the duplication it caused.
 
-**In a subprocess, and it has to be.** ``lambdas/conftest.py`` stamps all six variables before
+**In a subprocess, and it has to be.** ``lambdas/conftest.py`` stamps all four variables before
 collection so the verb suites can import at all, which means an in-process assertion would pass
 no matter what the module reached. The only honest test is a fresh interpreter that was never
 given them.
@@ -120,13 +120,19 @@ print("IMPORT_OK", file=sys.stderr)
 
 
 #: What each singleton may name from ``cpcommon``, ANYWHERE in the file — module scope or a
-#: function body. ``observability`` for all three; ``notifications-writer`` also carries the
-#: fleet's one JWKS verification path since SPEC-156 FR-004, which is a widening that had to be
-#: decided rather than arrived at, so it is written here per function rather than globally.
+#: function body. ``observability`` for all three; ``notifications-writer`` also reads the
+#: trusted actor out of the message, which is a widening that had to be decided rather than
+#: arrived at, so it is written here per function rather than globally.
+#:
+#: ``actor`` replaced ``auth`` when the planes stopped verifying tokens. It is a SAFER member of
+#: this list than the one it replaced, and for the reason this list exists: it touches
+#: ``cpcommon.config`` only for ``CATALOG_IDENTIFIER_RE``, a module-level constant, and never
+#: for one of the four variables these functions do not set — so there is no branch on which it
+#: can raise the way a verifier reading ``USER_POOL_ID`` could.
 SINGLETON_CPCOMMON_ALLOWLIST = {
     "pre-signup": {"observability"},
     "post-confirmation": {"observability"},
-    "notifications-writer": {"observability", "auth", "clients", "errors"},
+    "notifications-writer": {"observability", "actor", "clients", "errors"},
 }
 
 
@@ -183,7 +189,7 @@ def test_a_singleton_names_only_what_its_allowlist_grants(path):
     extra = _cpcommon_imports(path) - SINGLETON_CPCOMMON_ALLOWLIST[function]
     assert not extra, (
         f"{function}/{path.name} imports {sorted(extra)} from cpcommon, which its allowlist does "
-        f"not grant. These functions set none of cpcommon.config's six variables, so a module "
+        f"not grant. These functions set none of cpcommon.config's four variables, so a module "
         f"that reads one — at import OR on any later branch — fails there."
     )
 
@@ -212,7 +218,7 @@ def test_a_singleton_imports_with_none_of_cpcommon_s_required_variables_set(path
         check=False,
     )
     assert result.returncode == 0, (
-        f"{function}/{path.name} cannot import without cpcommon's six variables, none of which "
+        f"{function}/{path.name} cannot import without cpcommon's four variables, none of which "
         f"its Terraform sets. This is PR #196 / PR #317's failure mode, and on `pre-signup` it "
         f"is every user's sign-up:\n{result.stderr}"
     )

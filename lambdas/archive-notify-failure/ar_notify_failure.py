@@ -14,7 +14,7 @@ not JSON, killing the execution on precisely the failures a user most needs to h
 **THE ACTOR USUALLY COMES FROM THE REQUEST BODY, NOT FROM THE RECORDED FAILURE.** Every failure
 this state exists for happens before a verb produced an actor, so the recorded object carries
 ``actor: null``; the machine's failure seed reads the Pipe's original body back from
-``$$.Execution.Input`` so the actor can be recovered from the verified token. Without that this
+``$$.Execution.Input`` so the actor can be recovered from the verified identity block. Without that this
 function would take its no-recipient branch on every single failure — satisfied on paper, silent
 in practice.
 
@@ -56,7 +56,8 @@ import logging
 
 from arcommon import messages, notify
 from arcommon.config import ARCHIVE_MODES
-from cpcommon import auth, events, observability
+from cpcommon import actor as cpactor
+from cpcommon import events, observability
 from cpcommon.errors import TerminalError, failure_reason
 
 logger = logging.getLogger()
@@ -114,10 +115,10 @@ def _actor_from_raw_request(raw) -> str:
     Without this the notifier would take its no-recipient branch on every single failure, and
     The guarantee would read as satisfied while telling nobody anything.
 
-    The token is the ONLY acceptable source of the username; the body asserts nothing about who
-    sent it. Expiry is deliberately not enforced, through the separately-named entry point the
-    DLQ drain uses: a failure can surface long after the token was minted, and this path grants
-    nothing — it only addresses a message.
+    The identity block is the ONLY acceptable source of the username; the flat field beside it
+    asserts nothing about who sent it, and on this plane it held the raw token until the
+    cutover. Nothing here expires, so a failure surfacing hours later is attributable on exactly
+    the same terms as one surfacing at once.
 
     Args:
       raw: The Pipe's forwarded SQS batch, as captured at the top of the machine.
@@ -133,10 +134,7 @@ def _actor_from_raw_request(raw) -> str:
         return ""
     try:
         body = events.parse_sqs_request(raw, reason="unauthorized")
-        return auth.verified_username_ignoring_expiry(
-            body.get("actor") if isinstance(body, dict) else None,
-            missing_token_detail="missing actor token",
-        )
+        return cpactor.trusted_actor(body).username
     except Exception as exc:  # noqa: BLE001
         logger.info("could not recover a verified actor from the request: %s", exc)
         return ""

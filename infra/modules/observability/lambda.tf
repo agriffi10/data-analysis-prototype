@@ -35,12 +35,10 @@ resource "aws_lambda_function" "sweep" {
 
       # ADMIN_BUCKET is genuinely used; the rest are the cpcommon layer's required union.
       # Do not remove one because the sweep does not read it — README.md.
-      ADMIN_BUCKET          = var.admin_bucket_name
-      COGNITO_USER_POOL_ID  = var.user_pool_id
-      COGNITO_APP_CLIENT_ID = var.app_client_id
-      USER_SPACE_BUCKET     = var.user_space_bucket_name
-      SHARED_SPACE_BUCKET   = var.shared_space_bucket_name
-      ATHENA_WORKGROUP      = var.athena_workgroup
+      ADMIN_BUCKET        = var.admin_bucket_name
+      USER_SPACE_BUCKET   = var.user_space_bucket_name
+      SHARED_SPACE_BUCKET = var.shared_space_bucket_name
+      ATHENA_WORKGROUP    = var.athena_workgroup
     }
   }
 

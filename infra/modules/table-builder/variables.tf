@@ -51,18 +51,6 @@ variable "dlq_max_receive_count" {
 
 # ── Request contract + validate-authorize ──────────────────────────
 
-variable "user_pool_id" {
-  description = "Cognito User Pool ID — passed to validate-authorize (env COGNITO_USER_POOL_ID) so it can verify caller ID tokens against the pool JWKS (offline trusted-actor binding)."
-  type        = string
-  default     = ""
-}
-
-variable "app_client_id" {
-  description = "Cognito SPA app client ID — the ID-token audience validate-authorize checks (env COGNITO_APP_CLIENT_ID)."
-  type        = string
-  default     = ""
-}
-
 # ── Outcome notifications (trusted producer of the inbox) ─────────────
 
 variable "logs_queue_arn" {

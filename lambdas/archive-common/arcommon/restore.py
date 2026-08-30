@@ -61,7 +61,7 @@ def validate(req: dict, request_id: str, actor: str) -> dict:
       req: The parsed request body, already known to be an object carrying a request id, a mode
         and an actor token.
       request_id: The validated request id for THIS run.
-      actor: The verified username, from the ID token claim and nowhere else.
+      actor: The trusted username, from the API's identity block and nowhere else.
 
     Returns:
       The validated restore request: the request id, the mode, the actor, the authorized space

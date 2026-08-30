@@ -81,6 +81,11 @@ genuine token passes both — an API that skips verification entirely works perf
    CORS is still required.
 3. **`verify_id_token_ignoring_expiry` is for the DLQ drain and nothing else.** A synchronous API request is
    never late by construction; a route reaching for it has misread SPEC-126.
+
+   > **Superseded by SPEC-201.** It is for nothing: the drain takes its recipient from the message's
+   > `identity` block, and both `*_ignoring_expiry` entry points are deleted along with the whole
+   > Cognito arm of `cpcommon.auth`. Expiry is now unconditional and there is no flag, private or
+   > public, that turns it off. Full entry: `docs/decisions/identity-and-access.md`.
 4. **The 401 body is deliberately uninformative, and the API's exception paths are scrubbed rather than
    exempted** (FR-004, FR-007). SPEC-197's envelope may add fields to other statuses; the unauthenticated body
    stays identical across every failure. Any later handler added to `lambdas/api/` inherits the interpolation

@@ -1,6 +1,6 @@
 """validate-authorize — the table-share Step Function's first task.
 
-Parses the SQS record, verifies the caller's Cognito ID token into the trusted actor,
+Parses the SQS record, reads the trusted actor out of the API's identity block,
 authorizes the actor's read access to the source table, validates the catalog-safe result name,
 and validates each recipient exists. Read-only, with no copy or create side effects.
 
@@ -15,7 +15,8 @@ fan-out stay one queryable set. The per-verb identity rides as the ``verb`` fiel
 
 import logging
 
-from cpcommon import auth, config, events, observability
+from cpcommon import actor as cpactor
+from cpcommon import config, events, observability
 from cpcommon import registry as reg
 from cpcommon.errors import TerminalError
 from tscommon import cognito as cog
@@ -161,7 +162,7 @@ def _annotate_recipients(recipients) -> list:
 @observability.traced("validate-authorize")
 @notify.notifies_on_failure("validate", notify_terminal=False)
 def handler(event, context) -> dict:
-    """Step Functions entry point: parses, verifies, authorizes and annotates the request.
+    """Step Functions entry point: parses, attributes, authorizes and annotates the request.
 
     A thin shim; the orchestration lives below so it is testable without a Lambda context. An
     unexpected failure here happens against the raw SQS array with no trusted actor yet, so the
@@ -185,11 +186,12 @@ def handler(event, context) -> dict:
 
 
 def _validate_and_authorize(event) -> dict:
-    """Verifies the token, authorizes the source, validates the request and annotates recipients.
+    """Reads the trusted actor, authorizes the source, validates the request, annotates recipients.
 
-    The actor comes from the verified token in the envelope, never from a body username. From
-    the point the sender is known, a whole-request rejection notifies them before the Catch
-    records it; pre-verification failures have no trusted recipient and stay notification-free.
+    The actor comes from the ``identity`` block the API stamped, never from a body username and
+    never from the flat field beside it. From the point the sender is known, a whole-request
+    rejection notifies them before the Catch records it; a failure before it has no trusted
+    recipient and stays notification-free.
     The source table named in that message is display-only body input — shown back to the sender
     who wrote it, never used for addressing.
 
@@ -205,13 +207,18 @@ def _validate_and_authorize(event) -> dict:
       The validated request: actor, source, result table name and annotated recipients.
 
     Raises:
-      TerminalError: ``unauthorized`` for a bad token, ``forbidden`` for an unreadable source,
+      TerminalError: ``unauthorized`` for an unusable identity block, ``forbidden`` for an
+        unreadable source,
         ``invalid_table_name``, or any recipient-list reason.
       TransientError: On a retryable Cognito or S3 fault.
     """
     req = events.parse_sqs_request(event, reason="unauthorized")
 
-    actor = auth.verified_username(req.get("actor"), missing_token_detail="missing actor token")
+    who = cpactor.trusted_actor(req)
+    observability.stamp(
+        actor=who.username, assurance=who.assurance, delegated_by=who.delegated_by
+    )
+    actor = who.username
 
     try:
         source = _authorize_source(req.get("source"), actor)

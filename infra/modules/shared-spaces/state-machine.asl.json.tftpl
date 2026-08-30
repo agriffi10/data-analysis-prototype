@@ -1,5 +1,5 @@
 {
-  "Comment": "Shared-space provisioning orchestrator. The Step Function — not in-Lambda code — routes by action: Validate (verify the caller's Cognito ID token, derive the trusted actor, authorize against the registry) -> Choice(action) -> the single-task verb Lambda (create / add-members / remove-members / leave / delete / forget / acknowledge-membership) -> Succeed. A forged/unauthorized request raises AuthorizationError in Validate -> Catch -> Fail with no side effects. Only Lambda SERVICE errors are retried (not deterministic Authorization/Provisioning errors). An unknown action routes to Fail.",
+  "Comment": "Shared-space provisioning orchestrator. The Step Function — not in-Lambda code — routes by action: Validate (read the trusted actor out of the API's identity block, authorize against the registry) -> Choice(action) -> the single-task verb Lambda (create / add-members / remove-members / leave / delete / forget / acknowledge-membership) -> Succeed. A forged/unauthorized request raises AuthorizationError in Validate -> Catch -> Fail with no side effects. Only Lambda SERVICE errors are retried (not deterministic Authorization/Provisioning errors). An unknown action routes to Fail.",
   "StartAt": "Validate",
   "States": {
     "Validate": {

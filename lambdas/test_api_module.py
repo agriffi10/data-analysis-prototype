@@ -96,8 +96,6 @@ API_ROLE_FORBIDDEN_SERVICES = (
 )
 
 REQUIRED_ENVIRONMENT_KEYS = (
-    "COGNITO_USER_POOL_ID",
-    "COGNITO_APP_CLIENT_ID",
     "ADMIN_BUCKET",
     "USER_SPACE_BUCKET",
     "SHARED_SPACE_BUCKET",
@@ -588,19 +586,23 @@ def test_the_provider_block_is_complete_and_cannot_be_silently_disabled() -> Non
         "these five are server-side; a copy in the SPA's dev fallback is a second, unchecked home"
     )
 
+    # This used to cross-check Terraform's issuer against one the verifier built for itself, so a
+    # trailing slash on either side could not silently fail every `iss` check. There is no second
+    # construction left to disagree with: the control planes stopped verifying, and the Cognito
+    # arm that built an issuer from `USER_POOL_ID` went with them. What replaces it is the reason
+    # the cross-check was needed at all — exactly one place decides the issuer, and it is the root.
     terraform_issuer = re.search(r'cognito_issuer\s*=\s*"([^"]+)"', ROOT_MAIN.read_text())
-    python_issuer = re.search(
-        r'issuer = f"([^"]+)"',
-        (
-            pathlib.Path(__file__).resolve().parent
-            / "control-plane-common" / "cpcommon" / "auth.py"
-        ).read_text(),
+    assert terraform_issuer, "root no longer builds a Cognito issuer"
+    assert "cognito-idp" not in (
+        pathlib.Path(__file__).resolve().parent
+        / "control-plane-common" / "cpcommon" / "auth.py"
+    ).read_text(), (
+        "the verifier names a provider again — the issuer is configuration, and a second "
+        "construction here is what the cross-check this replaced existed to catch"
     )
-    assert terraform_issuer and python_issuer, "one side no longer builds a Cognito issuer"
-    normalise = lambda text: re.sub(r"\$?\{[^}]+\}", "{}", text)  # noqa: E731
-    assert normalise(terraform_issuer.group(1)) == normalise(python_issuer.group(1)), (
-        f"Terraform sends {terraform_issuer.group(1)!r} and the verifier builds "
-        f"{python_issuer.group(1)!r} — a trailing slash on either makes every token fail `iss`"
+    issuer_sites = re.findall(r'cognito_issuer\s*=\s*"', ROOT_MAIN.read_text())
+    assert len(issuer_sites) == 1, (
+        f"the issuer is built at {len(issuer_sites)} sites in root — a provider swap must have one"
     )
 
     refused_empty = _plan_provider_variables(dict.fromkeys(OIDC_KEYS, ""))

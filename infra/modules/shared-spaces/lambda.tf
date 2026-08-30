@@ -35,7 +35,7 @@ resource "aws_lambda_function" "functions" {
   timeout       = 60
 
   # Full env on every function. The validate Lambda verifies the caller's token against the
-  # pool JWKS; the verbs trust the validated actor.
+  # pool for member lookups; the verbs trust the validated actor.
   #
   # NOTE: these verbs set a timeout and NEVER a memory_size, leaving the AWS default of 128 MB.
   # An unset memory tier is invisible in the plan and only shows up as an OOM in production;
@@ -43,7 +43,6 @@ resource "aws_lambda_function" "functions" {
   environment {
     variables = {
       COGNITO_USER_POOL_ID   = var.user_pool_id
-      COGNITO_APP_CLIENT_ID  = var.app_client_id
       ADMIN_BUCKET           = var.athena_admin_bucket_name
       SHARED_SPACE_BUCKET    = var.shared_space_bucket_name
       USER_SPACE_BUCKET      = var.user_space_bucket_name

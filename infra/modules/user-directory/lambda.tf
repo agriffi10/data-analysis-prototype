@@ -34,12 +34,10 @@ resource "aws_lambda_function" "build" {
       # USER_SPACE_BUCKET is the only one this function reads; the rest are the cpcommon
       # layer's union. Do not remove one because the builder does not use it — README.md.
       # test_build_directory.py asserts this block against config.py's own declaration.
-      USER_SPACE_BUCKET     = var.user_space_bucket_name
-      COGNITO_USER_POOL_ID  = var.user_pool_id
-      COGNITO_APP_CLIENT_ID = var.app_client_id
-      SHARED_SPACE_BUCKET   = var.shared_space_bucket_name
-      ADMIN_BUCKET          = var.admin_bucket_name
-      ATHENA_WORKGROUP      = var.athena_workgroup
+      USER_SPACE_BUCKET   = var.user_space_bucket_name
+      SHARED_SPACE_BUCKET = var.shared_space_bucket_name
+      ADMIN_BUCKET        = var.admin_bucket_name
+      ATHENA_WORKGROUP    = var.athena_workgroup
       # Deliberately NOT mirrored by a config._require: observability reads it with
       # os.environ.get, so losing it logs to stdout rather than crashing at cold start.
       LOGS_QUEUE_URL = var.logs_queue_url

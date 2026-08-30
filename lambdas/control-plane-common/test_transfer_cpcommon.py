@@ -18,7 +18,6 @@ sys.path.insert(0, _HERE)
 
 os.environ.setdefault("ADMIN_BUCKET", "admin-bkt")
 os.environ.setdefault("COGNITO_USER_POOL_ID", "us-east-1_testpool")
-os.environ.setdefault("COGNITO_APP_CLIENT_ID", "test-app-client")
 os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")

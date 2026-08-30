@@ -41,18 +41,6 @@ variable "dlq_max_receive_count" {
   default     = 3
 }
 
-variable "user_pool_id" {
-  description = "Cognito User Pool ID — passed to the verbs (env COGNITO_USER_POOL_ID) for offline ID-token verification against the pool's public JWKS. No IAM grant on the pool is issued: this plane verifies a token, it never looks a user up."
-  type        = string
-  default     = ""
-}
-
-variable "app_client_id" {
-  description = "Cognito SPA app client ID — the ID-token audience validate-authorize checks (env COGNITO_APP_CLIENT_ID)."
-  type        = string
-  default     = ""
-}
-
 variable "admin_bucket_name" {
   description = "Name of the existing analytics admin bucket. Holds the shared-spaces registry (read, to authorize a shared space) and this plane's per-space locks. No bucket is created by this module."
   type        = string
