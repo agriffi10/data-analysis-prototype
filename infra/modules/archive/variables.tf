@@ -67,18 +67,6 @@ variable "dlq_max_receive_count" {
   default     = 3
 }
 
-variable "user_pool_id" {
-  description = "Cognito User Pool ID — passed to validate-authorize (env COGNITO_USER_POOL_ID) for offline ID-token verification."
-  type        = string
-  default     = ""
-}
-
-variable "app_client_id" {
-  description = "Cognito SPA app client ID — the ID-token audience validate-authorize checks (env COGNITO_APP_CLIENT_ID)."
-  type        = string
-  default     = ""
-}
-
 variable "admin_bucket_name" {
   description = "Name of the existing analytics admin bucket. The shared-spaces registry read for source authorization lives here, read-only. No bucket of this name is created by this module."
   type        = string

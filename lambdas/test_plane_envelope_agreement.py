@@ -276,17 +276,21 @@ def test_the_notifications_verb_is_exempt_from_the_subset_by_NAME_and_here_is_wh
     assert "create" not in action.literals
 
 
-def test_the_token_field_agrees_with_the_drain_and_notifications_is_not_a_row():
+def test_every_drained_queue_has_a_writer_and_notifications_is_not_a_row():
     """Three assertions, and deliberately not set equality.
 
     Plain set equality between the routes and the drain's table fails on notifications, and the
     repair a build session reaches for — adding the row — silently re-opens the circularity the
     drain's only delivery channel creates.
+
+    This used to also cross-check each domain's TOKEN FIELD against the drain's per-source
+    column. That column is gone: the recipient comes from the one ``identity`` block every
+    producer writes, so there is no per-domain disagreement left to keep the two tables honest
+    about. What remains is the pairing that still has teeth — a drained queue nobody writes, a
+    written queue nobody drains, and the deliberate exclusion.
     """
-    for key, source in dlq_drain.SOURCES.items():
-        routes = _routes_for(key)
-        assert routes, f"{key} is drained but no route writes it"
-        assert {r.token_field for r in routes} == {source.token_field}, key
+    for key in dlq_drain.SOURCES:
+        assert _routes_for(key), f"{key} is drained but no route writes it"
 
     for route in contract.ENQUEUE_ROUTES:
         assert (
@@ -326,20 +330,3 @@ def test_the_token_is_still_being_sent_on_every_route():
         message = sender.build_message(route, _Ctx(), {})
         assert isinstance(message.get(route.token_field), str), route.id
         assert message[route.token_field], f"{route.id} sends an empty token"
-
-
-def test_no_verb_outside_the_api_reads_the_identity_block_yet():
-    """ "Nothing on the plane side breaks" is only checkable while nothing depends on it."""
-    readers = []
-    for path in sorted(_ROOT.rglob("*.py")):
-        if (
-            "/api/" in str(path)
-            or path.name.startswith("test_")
-            or path.name == "conftest.py"
-        ):
-            continue
-        if "identity" not in _keys_read_by(path.relative_to(_ROOT)):
-            continue
-        readers.append(str(path.relative_to(_ROOT)))
-
-    assert readers == []

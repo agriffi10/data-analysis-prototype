@@ -1,6 +1,6 @@
 """validate-authorize — the file-operations Step Function's first task.
 
-Parses the SQS record, verifies the caller's Cognito ID token into the trusted actor, authorizes
+Parses the SQS record, reads the trusted actor out of the API's identity block, authorizes
 BOTH the source and the destination, confirms every selected item sits inside its root, refuses
 the portal's own folders per (side x operation), and emits the per-item outcome list every later
 verb carries forward. Read-only: nothing is listed, planned, copied or deleted here.
@@ -41,7 +41,8 @@ import json
 import logging
 from datetime import UTC, datetime
 
-from cpcommon import auth, events, observability
+from cpcommon import actor as cpactor
+from cpcommon import events, observability
 from cpcommon.errors import TerminalError
 from cpcommon.paths import assert_inside_root, normalize_root
 from focommon import authz, notify, outcomes, paths, protected
@@ -400,13 +401,13 @@ def handler(event, context) -> dict:
 
 
 def _validate_and_authorize(event) -> dict:
-    """Verifies the token, authorizes both sides, validates the request and decides outcomes.
+    """Reads the trusted actor, authorizes both sides, validates the request and decides outcomes.
 
-    The actor comes from the verified token in the envelope, never from a body username — the
-    token is the top-level ``actor`` field, the same flat shape every plane's envelope uses and
-    the one the shared DLQ drain and its redaction both depend on. From the point the actor is
-    known, a whole-request rejection notifies them before the Catch records it; pre-verification
-    failures have no trusted recipient and stay notification-free.
+    The actor comes from the ``identity`` block the API stamped, never from a body username and
+    never from the flat ``actor`` field beside it — that field still carries the raw token until
+    the API stops sending one, and a JWT and a username are both non-empty strings. From the point
+    the actor is known, a whole-request rejection notifies them before the Catch records it; a
+    failure before it has no trusted recipient and stays notification-free.
 
     Args:
       event: The EventBridge Pipe envelope.
@@ -416,15 +417,17 @@ def _validate_and_authorize(event) -> dict:
       conflict answer, the submission time and the per-item outcome list.
 
     Raises:
-      TerminalError: ``unauthorized`` for a bad token, ``forbidden`` for an unreachable space or
+      TerminalError: ``unauthorized`` for an unusable identity block, ``forbidden`` for an
+        unreachable space or
         an out-of-root key, or any request-shape reason.
     """
     req = events.parse_sqs_request(event, reason="unauthorized")
 
-    actor = auth.verified_username(
-        req.get("actor") if isinstance(req, dict) else None,
-        missing_token_detail="missing actor token",
+    who = cpactor.trusted_actor(req)
+    observability.stamp(
+        actor=who.username, assurance=who.assurance, delegated_by=who.delegated_by
     )
+    actor = who.username
 
     try:
         operation = _check_contract(req)

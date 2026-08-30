@@ -44,16 +44,6 @@ variable "logs_queue_url" {
   type        = string
 }
 
-variable "user_pool_id" {
-  description = "NOT used by the builder — the directory's source is S3 common prefixes, never Cognito. Required by the cpcommon layer's config, which resolves on first READ rather than at import — so a missing value is no longer a cold-start crash but a failure on whichever branch reads it first. STILL SET IT: the union is what any code path in the layer may demand, and 'the function does not use it' is not a reason to remove it."
-  type        = string
-}
-
-variable "app_client_id" {
-  description = "The builder makes no Cognito call. See user_pool_id for why it is set anyway."
-  type        = string
-}
-
 variable "shared_space_bucket_name" {
   description = "The builder never touches Bucket 2 — shared-space prefixes are spaces, not users. See user_pool_id for why it is set anyway."
   type        = string

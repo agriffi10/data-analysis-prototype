@@ -1,6 +1,6 @@
 """validate-authorize — the file-send Step Function's first task.
 
-Parses the SQS record, verifies the caller's Cognito ID token into the trusted actor,
+Parses the SQS record, reads the trusted actor out of the API's identity block,
 authorizes the actor's read access to the SOURCE space, confirms every selected item sits
 inside that source, enforces the request-shape caps, and annotates each recipient. Read-only:
 nothing is listed, planned or copied here.
@@ -32,7 +32,8 @@ Attributes:
 import json
 import logging
 
-from cpcommon import auth, cognito, events, observability
+from cpcommon import actor as cpactor
+from cpcommon import cognito, events, observability
 from cpcommon import registry as reg
 from cpcommon.errors import TerminalError
 from fscommon import authz, notify, paths
@@ -239,7 +240,7 @@ def _annotate_recipients(recipients) -> list:
 @observability.traced("validate-authorize")
 @notify.notifies_on_failure("validate", notify_terminal=False)
 def handler(event, context) -> dict:
-    """Step Functions entry point: parses, verifies, authorizes and annotates the request.
+    """Step Functions entry point: parses, attributes, authorizes and annotates the request.
 
     A thin shim; the orchestration lives below so it is testable without a Lambda context. An
     unexpected failure here happens against the raw SQS array with no trusted actor yet, so
@@ -263,13 +264,12 @@ def handler(event, context) -> dict:
 
 
 def _validate_and_authorize(event) -> dict:
-    """Verifies the token, authorizes the source, validates the request and annotates recipients.
+    """Reads the trusted actor, authorizes the source, validates the request, annotates recipients.
 
-    The actor comes from the verified token in the envelope, never from a body username — the
-    token is the top-level ``actor`` field, the same flat shape every plane's envelope uses and
-    the one the drain and its redaction both depend on. From the point the sender is
-    known, a whole-request rejection notifies them before the Catch records it; pre-verification
-    failures have no trusted recipient and stay notification-free.
+    The actor comes from the ``identity`` block the API stamped, never from a body username and
+    never from the flat field beside it. From the point the sender is known, a whole-request
+    rejection notifies them before the Catch records it; a failure before it has no trusted
+    recipient and stays notification-free.
 
     Requested and reachable recipient counts are both recorded, because they diverge silently:
     a send to five recipients where two resolve to nothing is neither a failure nor a clean
@@ -288,10 +288,11 @@ def _validate_and_authorize(event) -> dict:
     """
     req = events.parse_sqs_request(event, reason="unauthorized")
 
-    actor = auth.verified_username(
-        req.get("actor") if isinstance(req, dict) else None,
-        missing_token_detail="missing actor token",
+    who = cpactor.trusted_actor(req)
+    observability.stamp(
+        actor=who.username, assurance=who.assurance, delegated_by=who.delegated_by
     )
+    actor = who.username
 
     try:
         _check_contract(req)

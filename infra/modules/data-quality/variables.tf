@@ -42,19 +42,6 @@ variable "admin_bucket_name" {
   type        = string
 }
 
-# ── Cognito (env for every verb; used by cpcommon.auth) ─────────────────────
-
-variable "user_pool_id" {
-  description = "Cognito User Pool ID — env COGNITO_USER_POOL_ID (required by cpcommon.config). validate-authorize verifies caller ID tokens against the pool JWKS."
-  type        = string
-  default     = ""
-}
-
-variable "app_client_id" {
-  description = "Cognito SPA app client ID — env COGNITO_APP_CLIENT_ID (required by cpcommon.config); the ID-token audience validate-authorize checks."
-  type        = string
-  default     = ""
-}
 
 # ── Notifications ─────────────────────
 

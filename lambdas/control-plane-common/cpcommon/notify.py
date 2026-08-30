@@ -66,7 +66,7 @@ def actor_of(event) -> str:
 
     Returns an empty actor rather than raising for anything that is not a request object with a
     username on it. That window is real and is not an error: validate-authorize's event is the
-    raw SQS array until the token is verified, and an emit with no addressee is a logged no-op —
+    raw SQS array until the identity block is read, and an emit with no addressee is a logged no-op —
     never a message sent to whoever the untrusted body named.
 
     Args:

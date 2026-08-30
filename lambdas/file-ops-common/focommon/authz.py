@@ -52,7 +52,7 @@ def _resolve(username: str, space: object, side: str) -> dict:
     both through this function.
 
     Args:
-      username: The verified username, from the ID token claim and nowhere else.
+      username: The trusted username, from the API's identity block and nowhere else.
       space: The request's space for this side, naming a kind and a name.
       side: ``source`` or ``destination``, for the operator detail only.
 

@@ -754,11 +754,10 @@ module "shared_spaces" {
     local.data_quality_execution_role_arn,
   ]
 
-  # Trusted-actor binding: the provisioner Lambda verifies caller ID tokens
-  # against the pool JWKS (env vars). Module.auth outputs (one-directional dep: auth
-  # applies before data, which this module already depends on).
-  user_pool_id  = module.auth.user_pool_id
-  app_client_id = module.auth.user_pool_client_id
+  # The orchestrator looks members up (AdminGetUser), which is the only reason this plane
+  # still carries the pool id — it verifies nothing. Module.auth output (one-directional dep:
+  # auth applies before data, which this module already depends on).
+  user_pool_id = module.auth.user_pool_id
 
   # The first trusted notifications producer. The verb Lambdas emit a
   # `create` notification at each lifecycle terminal outcome — the ARN scopes the
@@ -808,12 +807,6 @@ module "notifications" {
   # A resource attribute rather than a name: SenderId carries the unique ID and nothing else.
   portal_role_unique_id = module.data.portal_role_unique_id
 
-  # Actor binding: the writer verifies caller ID tokens against the pool JWKS
-  # for user-originated actions. Module.auth outputs (one-directional dep: auth applies
-  # before data, which this module already depends on).
-  user_pool_id  = module.auth.user_pool_id
-  app_client_id = module.auth.user_pool_client_id
-
   # The writer attaches the cpcommon layer for `observability` and emits
   # under service="notifications". A real reference is safe here (unlike module.auth's —
   # module.observability does not consume anything from this module), so it also orders
@@ -854,8 +847,6 @@ module "table_builder" {
   # The analytics workgroup the execute-ddl verb runs its CREATE in.
   athena_workgroup = local.athena_workgroup_name
 
-  user_pool_id  = module.auth.user_pool_id
-  app_client_id = module.auth.user_pool_client_id
 
   # The notifications queue every verb emits its outcome to (the ARN
   # scopes each verb role's sqs:SendMessage; the URL is their NOTIFICATIONS_QUEUE_URL).
@@ -902,7 +893,6 @@ module "table_share" {
   account_id   = data.aws_caller_identity.current.account_id
 
   user_pool_id      = module.auth.user_pool_id
-  app_client_id     = module.auth.user_pool_client_id
   admin_bucket_name = local.athena_admin_bucket_name
 
   # Source LOCATIONs must resolve inside one of the two data buckets;
@@ -957,7 +947,6 @@ module "file_send" {
   account_id   = data.aws_caller_identity.current.account_id
 
   user_pool_id      = module.auth.user_pool_id
-  app_client_id     = module.auth.user_pool_client_id
   admin_bucket_name = local.athena_admin_bucket_name
 
   # The two data buckets a send moves between. Set as env on every verb; the S3 grants on
@@ -1010,8 +999,6 @@ module "file_ops" {
   aws_region   = var.aws_region
   account_id   = data.aws_caller_identity.current.account_id
 
-  user_pool_id      = module.auth.user_pool_id
-  app_client_id     = module.auth.user_pool_client_id
   admin_bucket_name = local.athena_admin_bucket_name
 
   # The two data buckets a file operation moves between. Set as env on every verb so the
@@ -1065,8 +1052,6 @@ module "archive" {
   deploy_role_arn     = local.deploy_role_arn
   execution_role_arn  = local.archive_execution_role_arn
 
-  user_pool_id      = module.auth.user_pool_id
-  app_client_id     = module.auth.user_pool_client_id
   admin_bucket_name = local.athena_admin_bucket_name
 
   # The two space buckets an archive moves OUT of. Set as env on every verb; the S3 grants
@@ -1139,8 +1124,6 @@ module "data_quality" {
   shared_space_bucket_name = local.shared_space_bucket_name
   admin_bucket_name        = local.athena_admin_bucket_name
 
-  user_pool_id  = module.auth.user_pool_id
-  app_client_id = module.auth.user_pool_client_id
 
   # Run every verb's Athena queries in the SHARED portal workgroup (the same
   # one table-builder/table-share use) — Athena ties Lake Formation to the workgroup, so a
@@ -1189,8 +1172,6 @@ module "control_plane_dlq_drain" {
   logs_queue_arn = module.observability.logs_queue_arn
   logs_queue_url = module.observability.logs_queue_url
 
-  user_pool_id  = module.auth.user_pool_id
-  app_client_id = module.auth.user_pool_client_id
 
   # Required by the cpcommon layer's config, not used by the drain.
   # (that config resolves on FIRST READ, not at import, so a missing one is
@@ -1217,8 +1198,6 @@ module "observability" {
   admin_bucket_name = local.athena_admin_bucket_name
   admin_bucket_arn  = "arn:aws:s3:::${local.athena_admin_bucket_name}"
 
-  user_pool_id  = module.auth.user_pool_id
-  app_client_id = module.auth.user_pool_client_id
 
   # Required by the cpcommon layer's config, not used by the sweep.
   # (that config resolves on FIRST READ, not at import, so a missing one is
@@ -1259,10 +1238,9 @@ module "user_directory" {
   # (that config resolves on FIRST READ, not at import, so a missing one is
   # no longer a cold-start crash, but a failure on whichever branch reads it
   # first. The union is still what must be set; do not prune one as "unused".)
-  # user_pool_id and app_client_id in particular: the builder makes NO Cognito call, and a
-  # test asserts it never will.
-  user_pool_id             = module.auth.user_pool_id
-  app_client_id            = module.auth.user_pool_client_id
+  # The two Cognito variables left this list when the planes stopped verifying tokens: the
+  # pool id is now lazily required by the three planes that look a recipient up, and this
+  # builder is not one of them.
   shared_space_bucket_name = local.shared_space_bucket_name
   admin_bucket_name        = local.athena_admin_bucket_name
   athena_workgroup         = local.athena_workgroup_name
@@ -1374,8 +1352,6 @@ module "api" {
   logs_queue_url = module.observability.logs_queue_url
   logs_queue_arn = module.observability.logs_queue_arn
 
-  user_pool_id        = module.auth.user_pool_id
-  app_client_id       = module.auth.user_pool_client_id
   admin_bucket        = local.athena_admin_bucket_name
   user_space_bucket   = local.user_space_bucket_name
   shared_space_bucket = local.shared_space_bucket_name

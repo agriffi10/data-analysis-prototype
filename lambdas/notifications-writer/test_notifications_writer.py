@@ -58,16 +58,25 @@ def _setup(monkey_store=None):
     clients._s3 = s3
     w.USER_SPACE_BUCKET = "user-bucket"
     w.NOTIFICATIONS_MAX = 200
-    # Fake token verification: idToken == username.
-    w.verified_username = lambda token: token or _auth_fail()
     w.UNTRUSTED_SENDER_ID = "AROAPORTAL"
     _ERRORS.clear()
     observability.error = lambda message, **fields: _ERRORS.append((message, fields))
     return s3
 
 
-def _auth_fail():
-    raise w.AuthorizationError("missing idToken")
+def _identity(actor="alice"):
+    """The block the API stamps onto a user action. The create path carries none.
+
+    Args:
+      actor: The verified username it names.
+
+    Returns:
+      A body fragment carrying the block.
+
+    Raises:
+      None.
+    """
+    return {"identity": {"actor": actor, "delegated_by": None, "assurance": "interactive"}}
 
 
 def _inbox(s3, username):
@@ -170,7 +179,7 @@ def test_mark_read_flips_matching_id():
         {"id": "b", "message": "b", "read": False, "timestamp": "2026-01-01T00:00:00.000Z"},
     ]
     s3 = _setup({("user-bucket", "alice/user_settings/notifications.json"): inbox})
-    result = w.handler(_msg({"action": "markRead", "id": "a", "idToken": "alice"}, PORTAL_SENDER), None)
+    result = w.handler(_msg({"action": "markRead", "id": "a", **_identity()}, PORTAL_SENDER), None)
     by_id = {n["id"]: n for n in _inbox(s3, "alice")}
     assert by_id["a"]["read"] is True and by_id["b"]["read"] is False
     assert result["matched"] == 1
@@ -182,17 +191,95 @@ def test_mark_all_read():
         {"id": "b", "message": "b", "read": False, "timestamp": "2026-01-01T00:00:00.000Z"},
     ]
     s3 = _setup({("user-bucket", "alice/user_settings/notifications.json"): inbox})
-    w.handler(_msg({"action": "markAllRead", "idToken": "alice"}, PORTAL_SENDER), None)
+    w.handler(_msg({"action": "markAllRead", **_identity()}, PORTAL_SENDER), None)
     assert all(n["read"] for n in _inbox(s3, "alice"))
 
 
-def test_user_action_without_token_rejected():
+def test_a_user_action_with_no_identity_block_is_rejected():
+    """Fail closed on the pre-cutover envelope, in this handler's own exception type.
+
+    The old test named the missing ``idToken``; there is no token to miss now, and the message
+    a user action arrives without is the block. The exception TYPE is what the SQS
+    retry-into-DLQ contract is expressed in, so it is asserted rather than the wording alone.
+    """
     _setup()
     _raises(
         lambda: w.handler(_msg({"action": "markAllRead"}, PORTAL_SENDER), None),
         w.AuthorizationError,
-        "idToken",
+        "identity block",
     )
+
+
+def test_a_create_with_no_identity_block_still_writes_the_inbox():
+    """The trusted-producer path has never had an actor, and this spec does not give it one.
+
+    Every failure notification in the system comes through here, written by the control-plane
+    execution roles with a body ``username`` and no block. A ``trusted_actor`` hoisted above
+    ``_resolve_username``'s branch — the obvious simplification, and the one a "one reader,
+    every call site" sweep pushes toward — refuses every one of them. It would be silent, too:
+    the producers notify best-effort, so archives and shares would complete and users would
+    simply never be told.
+    """
+    s3 = _setup()
+
+    w.handler(_msg({"action": "create", "username": "alice", "message": "hi"}, SERVICE_SENDER), None)
+
+    assert len(_inbox(s3, "alice")) == 1
+
+
+def test_a_create_carrying_a_block_still_writes_the_BODYS_username():
+    """The create arm reads the body, and an identity block riding along does not redirect it.
+
+    Not a hypothetical: the producers are execution roles, and if one ever started stamping a
+    block the inbox must not silently move to whoever it named. The branch decides, not the
+    presence of a field.
+    """
+    s3 = _setup()
+
+    w.handler(
+        _msg(
+            {"action": "create", "username": "alice", "message": "hi", **_identity("mallory")},
+            SERVICE_SENDER,
+        ),
+        None,
+    )
+
+    assert len(_inbox(s3, "alice")) == 1
+    assert _inbox(s3, "mallory") is None
+
+
+def test_a_mark_read_with_a_username_and_no_block_is_still_refused():
+    """The body username is not a fallback on the user arm, even when it is the only name there."""
+    _setup()
+    _raises(
+        lambda: w.handler(
+            _msg({"action": "markAllRead", "username": "alice"}, PORTAL_SENDER), None
+        ),
+        w.AuthorizationError,
+        "identity block",
+    )
+
+
+def test_a_user_action_ignores_a_body_username_and_writes_the_blocks_inbox():
+    """Two different users, and the trusted one wins — now beside a field that is trusted.
+
+    The body's ``username`` was always ignored on a user action. It matters more now than it
+    did: it sits next to a field this handler DOES trust, so a reader that took the wrong one
+    would write mallory's request into alice's inbox and look completely normal doing it.
+    """
+    inbox = [{"id": "a", "message": "a", "read": False, "timestamp": "2026-01-02T00:00:00.000Z"}]
+    s3 = _setup({("user-bucket", "alice/user_settings/notifications.json"): inbox})
+
+    w.handler(
+        _msg(
+            {"action": "markRead", "id": "a", "username": "mallory", **_identity("alice")},
+            PORTAL_SENDER,
+        ),
+        None,
+    )
+
+    assert _inbox(s3, "alice")[0]["read"] is True
+    assert _inbox(s3, "mallory") is None
 
 
 # ── SPEC-153 FR-010: what a redelivery does is stated, not assumed ────────────

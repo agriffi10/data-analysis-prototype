@@ -12,8 +12,9 @@ not need the rest. Where a claim is a settled project decision, the authority is
 
 | Module | Holds |
 |---|---|
+| `actor` | the trusted actor a message carries — and it may not verify one |
 | `athena` | the bounded query runner and the DDL poll |
-| `auth` | ID-token verification and the principal it yields |
+| `auth` | token verification and the principal it yields — **the API's only, now** |
 | `bounded_read` | reading a bounded head of an object without polars' cloud reader |
 | `cas` | the ETag compare-and-swap retry loop |
 | `clients` | lazy, cached boto3 and JWKS client factories |
@@ -72,6 +73,45 @@ six variables before collection.
 The package is a package (`python/cpcommon/`) rather than flat modules so its module names
 (`config`, `auth`, …) cannot collide with the domain layers' or `shared-space-common`'s
 under one pytest run.
+
+## `cpcommon/actor.py` — why the reader may not verify
+
+`trusted_actor` takes the `identity` block the API stamped onto a queue message and returns the
+actor it names. It makes no network call, reads no environment variable, and imports neither `jwt`
+nor `cpcommon.auth` — asserted by an import sweep over the module, not by a docstring asking
+nicely.
+
+**The prohibition is the interesting part, because the obvious instinct is the wrong one.** A
+reader that could fall back to verifying a token looks like defence in depth and is the opposite:
+it is a second answer to a question already answered, in a module whose whole premise is that the
+question was answered elsewhere. The fleet had five of those and they had drifted; the cost of the
+fifth was not that any one was wrong, it was that nobody could say which one a request had used.
+
+What the trust actually rests on is **who may write the queue**, not on a signature. The API's
+execution role holds `sqs:SendMessage` on the eight request queues and the browser's role does not
+— SPEC-200 FR-008, enforced by a `.tftpl` sweep derived from the modules on disk rather than from a
+list. If that grant is ever widened, no amount of verification here would help, because a principal
+that can write the queue can write the block.
+
+**Two rules earn their keep against fixtures that all look alike.**
+
+The flat top-level `actor` field is never consulted. On four planes that field held the raw ID
+token during the cutover, and a raw JWT and a username are both non-empty strings — so a reader
+shaped "take the block, fall back to the field" passes every well-formed fixture ever written and
+builds an S3 prefix, a Glue database name and a notification recipient out of a 900-character
+token on the first message from before the flip. The block goes into a local and nothing else is
+read at all.
+
+And the actor is checked against `config.CATALOG_IDENTIFIER_RE` rather than for presence, which is
+what makes the JWT case *fail* rather than merely be odd. Mutating that check to a truthiness test
+reddens the reader's own suite in seven places — and leaves every plane's suite green, which is the
+measurement that says the shape rule is the guard and the call sites cannot be.
+
+`assurance` fails closed on anything outside `ACCEPTED_ASSURANCE`, **including an absent value**.
+Nothing mints anything but `interactive` today, so the refusal is unreachable in production, and
+that is its purpose: when a later arc mints a machine principal, every plane refuses it until that
+plane is deliberately widened, rather than silently treating it as a person at a keyboard. The set
+is defined once, here, and a sweep fails if a second module declares its own.
 
 ## `cpcommon/ddl.py` — why the storage clause is injectable
 

@@ -23,6 +23,14 @@ Attributes:
   FORBIDDEN: Base reason code.
   MALFORMED_EVENT: Base reason code.
   UNEXPECTED_ERROR: Base reason code, and the fallback wording for an unknown reason.
+  UNSUPPORTED_ASSURANCE: Base reason code for a principal kind no plane accepts — an
+    ``identity.assurance`` outside ``cpcommon.actor.ACCEPTED_ASSURANCE``, or a delegated actor.
+    A base code rather than a domain one because every plane refuses it identically and eight
+    copies of one sentence is eight chances to disagree. Its wording names neither assurance,
+    tokens nor delegation: the user cannot act on any of them, and the value rides the operator
+    detail. Unreachable in production while the API mints only ``interactive``, which is the
+    point — the day something mints a machine principal, every plane refuses it until that plane
+    is deliberately widened.
   BASE_MESSAGES: The generic codes any control plane can raise, mapped to friendly clauses.
     A domain's own wording lives in its domain message module, not here.
   BASE_REASONS: The base codes as a frozen set.
@@ -42,12 +50,14 @@ UNAUTHORIZED = "unauthorized"
 FORBIDDEN = "forbidden"
 MALFORMED_EVENT = "malformed_event"
 UNEXPECTED_ERROR = "unexpected_error"
+UNSUPPORTED_ASSURANCE = "unsupported_assurance"
 
 BASE_MESSAGES: dict[str, str] = {
     UNAUTHORIZED: "you don't have access to do that.",
     FORBIDDEN: "you don't have access to do that.",
     MALFORMED_EVENT: "the request was malformed. Please try again.",
     UNEXPECTED_ERROR: "something went wrong. Please try again.",
+    UNSUPPORTED_ASSURANCE: "the request could not be started. Please try again.",
 }
 
 BASE_REASONS = frozenset(BASE_MESSAGES)

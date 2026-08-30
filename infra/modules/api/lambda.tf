@@ -64,14 +64,12 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      COGNITO_USER_POOL_ID  = var.user_pool_id
-      COGNITO_APP_CLIENT_ID = var.app_client_id
-      ADMIN_BUCKET          = var.admin_bucket
-      USER_SPACE_BUCKET     = var.user_space_bucket
-      SHARED_SPACE_BUCKET   = var.shared_space_bucket
-      ATHENA_WORKGROUP      = var.athena_workgroup
-      LOGS_QUEUE_URL        = var.logs_queue_url
-      ENV_NAME              = var.environment
+      ADMIN_BUCKET        = var.admin_bucket
+      USER_SPACE_BUCKET   = var.user_space_bucket
+      SHARED_SPACE_BUCKET = var.shared_space_bucket
+      ATHENA_WORKGROUP    = var.athena_workgroup
+      LOGS_QUEUE_URL      = var.logs_queue_url
+      ENV_NAME            = var.environment
 
       # The eight FIFO request queues. Required with no default and read at first use, so a
       # missing one is a fault this function reports rather than a send that goes nowhere — the

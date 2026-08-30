@@ -15,15 +15,13 @@ carry a second copy of the fleet's JWKS verification path.
 Laziness is not silence. A required variable that is unset raises exactly where it is read,
 naming itself, rather than being papered over with a default.
 
-The eight attributes are declared under ``TYPE_CHECKING`` and resolved by ``__getattr__``
+The six attributes are declared under ``TYPE_CHECKING`` and resolved by ``__getattr__``
 under ``else``, and the branch is what makes the declarations worth writing: a module-level
 ``__getattr__`` typed ``-> str`` makes a checker accept ANY attribute name here, so a
 misspelled ``config.ADMIN_BUKCET`` would typecheck and fail at runtime. Hiding the hook from
-the checker and naming the eight keeps that a type error.
+the checker and naming the six keeps that a type error.
 
 Attributes:
-  USER_POOL_ID: Cognito user pool, set by Terraform.
-  APP_CLIENT_ID: Cognito app client, set by Terraform.
   ADMIN_BUCKET: Admin bucket name, set by Terraform.
   USER_SPACE_BUCKET: Per-user prefix bucket name, set by Terraform.
   SHARED_SPACE_BUCKET: Shared-space bucket name, set by Terraform.
@@ -44,8 +42,6 @@ import re
 from typing import TYPE_CHECKING
 
 _REQUIRED_VARS = {
-    "USER_POOL_ID": "COGNITO_USER_POOL_ID",
-    "APP_CLIENT_ID": "COGNITO_APP_CLIENT_ID",
     "ADMIN_BUCKET": "ADMIN_BUCKET",
     "USER_SPACE_BUCKET": "USER_SPACE_BUCKET",
     "SHARED_SPACE_BUCKET": "SHARED_SPACE_BUCKET",
@@ -119,8 +115,6 @@ def require(name: str) -> str:
 
 
 if TYPE_CHECKING:
-    USER_POOL_ID: str
-    APP_CLIENT_ID: str
     ADMIN_BUCKET: str
     USER_SPACE_BUCKET: str
     SHARED_SPACE_BUCKET: str

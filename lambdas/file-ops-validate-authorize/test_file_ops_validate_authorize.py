@@ -16,28 +16,41 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "file-ops-common"))
 
 os.environ.setdefault("COGNITO_USER_POOL_ID", "us-east-1_testpool")
-os.environ.setdefault("COGNITO_APP_CLIENT_ID", "test-app-client")
 os.environ.setdefault("ADMIN_BUCKET", "admin-bkt")
 os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 
 import file_ops_validate_authorize as v
 from cpcommon.errors import TerminalError
+from token_shapes import JWT_SHAPED
 
 SUBMITTED = "2020-01-01T00:00:00Z"
 
 
-def _setup(actor="alice", spaces=None):
-    """Stubs the boundary helpers: the verified actor and the known registry spaces."""
-    v.auth.verified_username = lambda token, **kw: actor
+def _setup(spaces=None):
+    """Stubs the boundary helpers: the known registry spaces and the notification sink.
+
+    The actor needs no stub — it comes from the identity block ``_body`` builds.
+    """
     v.authz.reg.load = lambda name: (spaces or {}).get(name)
     v.notify.emit_notification = lambda *a, **kw: None
 
 
-def _body(operation="copy", space=None, items=..., destination=..., **extra):
+_JWT = JWT_SHAPED
+
+
+def _body(
+    operation="copy",
+    space=None,
+    items=...,
+    destination=...,
+    actor="alice",
+    identity=True,
+    flat_actor=None,
+    **extra,
+):
     body = {
         "requestId": "req-1",
-        "actor": "tok",
         "operation": operation,
         "source": {
             "space": space if space is not None else {"kind": "personal", "name": "alice"},
@@ -52,6 +65,14 @@ def _body(operation="copy", space=None, items=..., destination=..., **extra):
         )
         body["onConflict"] = "refuse"
         body["submittedAt"] = SUBMITTED
+    if identity:
+        body["identity"] = {
+            "actor": actor,
+            "delegated_by": None,
+            "assurance": "interactive",
+        }
+    if flat_actor is not None:
+        body["actor"] = flat_actor
     body.update(extra)
     return body
 
@@ -61,7 +82,7 @@ def _event(**kwargs):
 
 
 def _run(**kwargs):
-    _setup(**{k: kwargs.pop(k) for k in ("actor", "spaces") if k in kwargs})
+    _setup(**{k: kwargs.pop(k) for k in ("spaces",) if k in kwargs})
     return v.handler(_event(**kwargs), None)
 
 
@@ -102,7 +123,22 @@ def test_the_copy_move_fields_are_NORMALISED_TO_NULL_for_a_delete():
 
 
 def test_a_source_space_that_is_not_the_actors_is_refused():
-    assert _refused(space={"kind": "personal", "name": "bob"}) == "forbidden"
+    """Every key is INSIDE bob's root, so only the space check can refuse this.
+
+    The fixture used to leave the items at alice's default, which meant containment refused the
+    request whether or not the space check ran — measured by deleting that check and watching this
+    file stay green. Both branches raise `forbidden` with the same deliberately uninformative
+    detail (the space's existence is not disclosed), so the reason cannot discriminate them and
+    the fixture has to.
+    """
+    assert (
+        _refused(
+            space={"kind": "personal", "name": "bob"},
+            items=[{"kind": "file", "key": "bob/q1.csv"}],
+            destination={"space": {"kind": "personal", "name": "bob"}, "prefix": "bob/out/"},
+        )
+        == "forbidden"
+    )
 
 
 # ── Containment: whole-request, every time ───────────────────────────────────
@@ -211,10 +247,27 @@ def test_the_SPACE_ROOT_is_refused_as_an_item():
     assert _refused(operation="delete", items=[{"kind": "folder", "key": "alice/"}]) == "space_root_not_an_item"
 
 
-def test_the_identity_block_rides_along_and_the_verb_reaches_its_normal_outcome():
-    """The plane refuses unknown top-level fields, so the block is a refusal until admitted."""
+def test_the_block_decides_the_actor_and_the_flat_field_beside_it_does_not():
+    """The block wins, and the flat field must not — it holds a raw token until the cutover.
+
+    This was SPEC-200's "the block rides along and is ignored". Inverted rather than deleted:
+    the property worth asserting is now the opposite one, and the flat field is still admitted
+    by the allowlist, so a reader that preferred it would pass every other test in this file.
+    """
     _setup()
 
-    result = v.handler(_event(identity={"actor": "alice", "delegated_by": None, "assurance": "interactive"}), None)
+    result = v.handler(_event(actor="alice", flat_actor=_JWT), None)
 
     assert result["operation"] == "copy"
+    assert result["actor"] == {"username": "alice"}
+
+
+def test_the_verb_refuses_a_message_with_no_identity_block():
+    """Fail closed on the pre-cutover envelope: a flat token, and no block at all."""
+    _setup()
+
+    with pytest.raises(TerminalError) as raised:
+        v.handler(_event(identity=False, flat_actor=_JWT), None)
+
+    assert raised.value.reason == "unauthorized"
+    assert "identity block" in raised.value.detail

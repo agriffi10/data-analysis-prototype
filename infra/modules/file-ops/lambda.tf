@@ -40,11 +40,9 @@ resource "aws_lambda_function" "functions" {
   environment {
     variables = merge(
       {
-        ADMIN_BUCKET          = var.admin_bucket_name
-        USER_SPACE_BUCKET     = var.user_space_bucket_name
-        SHARED_SPACE_BUCKET   = var.shared_space_bucket_name
-        COGNITO_USER_POOL_ID  = var.user_pool_id
-        COGNITO_APP_CLIENT_ID = var.app_client_id
+        ADMIN_BUCKET        = var.admin_bucket_name
+        USER_SPACE_BUCKET   = var.user_space_bucket_name
+        SHARED_SPACE_BUCKET = var.shared_space_bucket_name
         # Optional — unset means every emit is a logged no-op.
         NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
         # Deliberately NOT mirrored by a required-config read, so a verb missing it logs

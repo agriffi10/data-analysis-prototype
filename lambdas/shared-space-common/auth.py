@@ -1,49 +1,24 @@
-"""Token verification and action authorization for the shared-space control plane.
+"""Action authorization for the shared-space control plane.
 
-The security boundary. The trusted actor is derived from a verified Cognito ID token, never
-from a body-asserted username, and the authorizer is a pure function gating each action against
-the registry. Both run in the validate verb; the verb Lambdas trust its decision and never
-re-verify.
+The security boundary, and after the trust flip it is the WHOLE of this module's job.
 
-The JWKS verification itself lives once, in ``cpcommon.auth`` — this module kept its own copy
-until the layers were consolidated, so a claim-validation fix had to be made twice. What stays
-here is everything domain-shaped: the exception type, since this plane's Standard Step Function
-catches its own; the exact message strings; and the whole authorizer.
+Establishing *who is asking* moved to the API, which verifies the bearer at the edge and stamps
+the result into the message; ``cpcommon.actor`` reads it. What never moved, and must not, is
+deciding *what they may do* — this authorizer, gating each action against the registry as a pure
+function. The two are easy to conflate and dropping the second would remove the product's
+isolation while every legitimate user's experience stayed identical.
+
+So this module lost its verification adapter and kept everything domain-shaped: the exception
+type, since this plane's Standard Step Function catches its own; the exact message strings; and
+the authorizer itself, whose signature never changed — it always took a plain username, and only
+where that string comes from is different.
 """
-
-from typing import cast
-
-from cpcommon import auth as cpauth
-from cpcommon.errors import AuthError
 
 import config
 
 
 class AuthorizationError(Exception):
     """An untrusted or unauthorized request. Terminal, never retried, with no side effects."""
-
-
-def verified_username(id_token: str) -> str:
-    """Verifies a Cognito ID token and returns the trusted username claim.
-
-    A thin adapter over the shared verifier: identical verification, this control plane's
-    exception type. The message strings are unchanged and pinned by test — the Catch keys off
-    the type, but an operator reads the message, and nothing pinned these before, so a silent
-    reword would have passed CI.
-
-    Args:
-      id_token: The raw JWT.
-
-    Returns:
-      The verified ``cognito:username``.
-
-    Raises:
-      AuthorizationError: On any verification failure.
-    """
-    try:
-        return cast("str", cpauth.verify_id_token(id_token)["cognito:username"])
-    except AuthError as exc:
-        raise AuthorizationError(str(exc)) from exc
 
 
 def authorize(action, space, actor, registry):

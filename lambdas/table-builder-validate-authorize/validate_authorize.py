@@ -1,6 +1,6 @@
 """validate-authorize — the table-builder Step Function's first task.
 
-Parses the SQS record, verifies the caller's Cognito ID token into the trusted actor,
+Parses the SQS record, reads the trusted actor out of the API's identity block,
 authorizes the target space and database, and validates the table name, partition keys and
 in-space location. Read-only, with no provisioning side effects. A failed check raises a
 terminal error with a stable reason, so the state machine's Catch records the failure and no
@@ -17,7 +17,8 @@ one queryable set. The per-verb identity rides as the ``verb`` field.
 
 import logging
 
-from cpcommon import auth, config, errors, events, observability
+from cpcommon import actor as cpactor
+from cpcommon import config, errors, events, observability
 from cpcommon import registry as reg
 from cpcommon.errors import TerminalError
 from tbcommon import notify
@@ -295,7 +296,7 @@ def _validate_not_space_root(prefix, root, mode):
 @observability.traced("validate-authorize")
 @notify.notifies_on_failure("validate", notify_terminal=False)
 def handler(event, context) -> dict:
-    """Step Functions entry point: parses, verifies, authorizes and assembles the build state.
+    """Step Functions entry point: parses, attributes, authorizes and assembles the build state.
 
     A thin shim; the orchestration lives below so it is testable without a Lambda context.
     ``@traced`` is outermost, above ``@notifies_on_failure``: the latter catches on its way
@@ -318,11 +319,11 @@ def handler(event, context) -> dict:
 
 
 def _validate_and_authorize(event) -> dict:
-    """Verifies the token, authorizes the space, validates the request and shapes the state.
+    """Reads the trusted actor, authorizes the space, validates the request and shapes the state.
 
-    The actor comes from the verified token, never the body, and the token verification sits
-    outside the notifying try deliberately: an unauthorized failure raises before the actor is
-    known, so there is no recipient to notify and the SFN still records it. From there on a
+    The actor comes from the ``identity`` block the API stamped, never from the body, and the
+    read sits outside the notifying try deliberately: an unauthorized failure raises before the
+    actor is known, so there is no recipient to notify and the SFN still records it. From there on a
     terminal validation failure notifies the actor best-effort before the Catch records it, and
     that notification reads its mode from the request rather than the local variable, which is
     unbound when the mode check is what raised — without it every failure this verb notifies
@@ -344,7 +345,7 @@ def _validate_and_authorize(event) -> dict:
       location and request id.
 
     Raises:
-      TerminalError: ``unauthorized`` for a bad token, ``invalid_mode``,
+      TerminalError: ``unauthorized`` for an unusable identity block, ``invalid_mode``,
         ``removals_flag_not_applicable``, ``forbidden``, ``location_is_space_root``,
         ``invalid_table_name``, ``partition_keys_not_refreshable`` or
         ``invalid_partition_keys``.
@@ -353,7 +354,11 @@ def _validate_and_authorize(event) -> dict:
     req = events.parse_sqs_request(event, reason="unauthorized")
     space = req.get("space") or {}
 
-    actor = auth.verified_username(req.get("idToken"))
+    who = cpactor.trusted_actor(req)
+    observability.stamp(
+        actor=who.username, assurance=who.assurance, delegated_by=who.delegated_by
+    )
+    actor = who.username
 
     try:
         mode = _validate_mode(req.get("mode"))

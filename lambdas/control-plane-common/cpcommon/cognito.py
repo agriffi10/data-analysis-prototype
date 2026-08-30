@@ -6,6 +6,13 @@ an algorithm — one API call and a three-way classification of the outcome — 
 third branch wrong is what makes it worth having once. ``tscommon.cognito`` re-exports this
 name; The file-send verbs call it directly rather than adding a third copy.
 
+``COGNITO_USER_POOL_ID`` is read through ``config.require`` rather than being a fleet-wide
+required variable. It stopped being one when the planes stopped verifying tokens: only the three
+that look a recipient up still need it, and a name in ``_REQUIRED_VARS`` is a contract every
+plane must satisfy, so leaving it there would fail the guard on every plane that no longer sets
+it. Read lazily, at the call, so a verb on one of those planes that never looks a user up never
+pays for the variable.
+
 ``shared-space-common.membership`` is deliberately NOT folded in here: its lookup is embedded
 in slot bookkeeping rather than being the same function under another name, and the consolidation's
 record says not to merge the domain layers wholesale.
@@ -34,7 +41,9 @@ def user_exists(username: str) -> bool:
     """
     client = clients.cognito()
     try:
-        client.admin_get_user(UserPoolId=config.USER_POOL_ID, Username=username)
+        client.admin_get_user(
+            UserPoolId=config.require("COGNITO_USER_POOL_ID"), Username=username
+        )
         return True
     except client.exceptions.UserNotFoundException:
         return False

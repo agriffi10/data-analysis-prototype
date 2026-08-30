@@ -28,10 +28,8 @@ resource "aws_lambda_function" "writer" {
 
   environment {
     variables = {
-      USER_SPACE_BUCKET     = var.user_space_bucket_name
-      COGNITO_USER_POOL_ID  = var.user_pool_id
-      COGNITO_APP_CLIENT_ID = var.app_client_id
-      NOTIFICATIONS_MAX     = tostring(var.notifications_max)
+      USER_SPACE_BUCKET = var.user_space_bucket_name
+      NOTIFICATIONS_MAX = tostring(var.notifications_max)
       # The portal role's IAM unique ID — the half of SenderId before the ':'. NEVER the
       # role name or ARN: SenderId carries neither, and a wrong value never matches, which
       # reads exactly like a control that works. Unset, the writer refuses EVERY create.

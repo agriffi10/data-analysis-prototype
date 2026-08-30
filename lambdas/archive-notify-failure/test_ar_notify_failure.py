@@ -17,7 +17,7 @@ for _p in ("control-plane-common", "archive-common"):
 
 import ar_notify_failure as verb
 from arcommon import notify
-from cpcommon import auth
+from token_shapes import JWT_SHAPED
 
 UUID = "9f2c1b8e-4c1a-4b2f-8d3e-1a2b3c4d5e6f"
 
@@ -30,11 +30,17 @@ def sent(monkeypatch):
     return out
 
 
-def _raw(actor_token="eyJ-token"):
-    return [{"messageId": "m-1", "body": json.dumps({
-        "requestId": UUID, "mode": "archive", "actor": actor_token,
+_JWT = JWT_SHAPED
+
+
+def _raw(actor="alice", identity=True):
+    body = {
+        "requestId": UUID, "mode": "archive", "actor": _JWT,
         "source": {"space": {"kind": "personal", "name": "alice"}, "items": []},
-    })}]
+    }
+    if identity:
+        body["identity"] = {"actor": actor, "delegated_by": None, "assurance": "interactive"}
+    return [{"messageId": "m-1", "body": json.dumps(body)}]
 
 
 def _failed(**overrides):
@@ -47,13 +53,11 @@ def _failed(**overrides):
 # ── The ordinary case: the actor comes from the REQUEST BODY ─────────────────
 
 
-def test_the_actor_is_recovered_from_the_verified_token_in_the_raw_request(monkeypatch, sent):
+def test_the_actor_is_recovered_from_the_identity_block_in_the_raw_request(monkeypatch, sent):
     """THE PROPERTY THAT MAKES THIS STATE MORE THAN DECORATIVE. Every failure it exists for
     happens before a verb produced an actor, so the recorded object carries actor: null every
     time. Without this the notifier takes its no-recipient branch on EVERY failure, and
     SPEC-152's guarantee reads as satisfied while telling nobody anything."""
-    monkeypatch.setattr(auth, "verified_username_ignoring_expiry", lambda actor, **kw: "alice")
-
     verb.handler(_failed(), None)
 
     assert [user for user, _ in sent] == ["alice"]
@@ -65,9 +69,19 @@ def test_the_actor_is_recovered_from_the_verified_token_in_the_raw_request(monke
 def test_a_failure_with_no_recoverable_actor_notifies_nobody(monkeypatch, sent):
     """The body's own actor field is attacker-controlled, and notifying it would let anyone
     deliver text to any inbox."""
-    monkeypatch.setattr(auth, "verified_username_ignoring_expiry", lambda actor, **kw: "")
-
     verb.handler(_failed(raw=None), None)
+
+    assert sent == []
+
+
+def test_a_request_with_no_identity_block_degrades_rather_than_raising(monkeypatch, sent):
+    """The pre-cutover envelope: a flat ``actor`` holding a raw token, and no block.
+
+    It must not raise. A raise here is an async Lambda failure EventBridge retries, so one
+    unattributable event becomes three — and it must not fall back to the flat field either,
+    which would address a notification to a 900-character string.
+    """
+    verb.handler(_failed(raw=_raw(identity=False)), None)
 
     assert sent == []
 
@@ -84,12 +98,10 @@ def _timed_out(included=True, input_body=None, arn="arn:aws:states:us-east-1:1:e
     return {"detail-type": "Step Functions Execution Status Change", "detail": detail}
 
 
-def test_a_timed_out_execution_notifies_the_actor_from_the_token_in_its_input(monkeypatch, sent):
+def test_a_timed_out_execution_notifies_the_actor_from_the_block_in_its_input(monkeypatch, sent):
     """AWS catchers cover Task, Parallel and Map states but NOT a top-level execution failure:
     the ceiling terminates the run outright, so no state runs, the ASL door is never invoked and
     the actor would be told nothing at all — after waiting three hours."""
-    monkeypatch.setattr(auth, "verified_username_ignoring_expiry", lambda token, **kw: "alice")
-
     verb.handler(_timed_out(), None)
 
     assert [user for user, _ in sent] == ["alice"]

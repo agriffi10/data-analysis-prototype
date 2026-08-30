@@ -49,16 +49,6 @@ variable "logs_queue_arn" {
   type        = string
 }
 
-variable "user_pool_id" {
-  description = "Cognito User Pool id, carried as COGNITO_USER_POOL_ID. A cpcommon required variable: the layer resolves config lazily, so an unset one fails at first read rather than at import — the environment is complete anyway, so the spec that starts verifying tokens inherits no surprise."
-  type        = string
-}
-
-variable "app_client_id" {
-  description = "Cognito app client id, carried as COGNITO_APP_CLIENT_ID."
-  type        = string
-}
-
 variable "admin_bucket" {
   description = "Admin bucket name, carried as ADMIN_BUCKET."
   type        = string

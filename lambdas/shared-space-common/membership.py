@@ -76,7 +76,7 @@ def assign_or_find_slot(username: str, name: str) -> int:
       UserNotFoundException: When the user does not exist in the pool.
     """
     cognito = clients.cognito()
-    user = cognito.admin_get_user(UserPoolId=cpconfig.USER_POOL_ID, Username=username)
+    user = cognito.admin_get_user(UserPoolId=cpconfig.require("COGNITO_USER_POOL_ID"), Username=username)
     attrs = {a["Name"]: a.get("Value", "") for a in user.get("UserAttributes", [])}
     free = None
     for k in range(1, config.MAX_SHARED_MEMBERSHIPS + 1):
@@ -106,7 +106,7 @@ def assign_or_find_slot(username: str, name: str) -> int:
         store="cognito",
     )
     cognito.admin_update_user_attributes(
-        UserPoolId=cpconfig.USER_POOL_ID,
+        UserPoolId=cpconfig.require("COGNITO_USER_POOL_ID"),
         Username=username,
         UserAttributes=[{"Name": _slot_attr(free), "Value": name}],
     )
@@ -131,14 +131,14 @@ def clear_slot(username: str, name: str) -> None:
     """
     cognito = clients.cognito()
     try:
-        user = cognito.admin_get_user(UserPoolId=cpconfig.USER_POOL_ID, Username=username)
+        user = cognito.admin_get_user(UserPoolId=cpconfig.require("COGNITO_USER_POOL_ID"), Username=username)
     except cognito.exceptions.UserNotFoundException:
         return
     attrs = {a["Name"]: a.get("Value", "") for a in user.get("UserAttributes", [])}
     for k in range(1, config.MAX_SHARED_MEMBERSHIPS + 1):
         if attrs.get(_slot_attr(k)) == name:
             cognito.admin_update_user_attributes(
-                UserPoolId=cpconfig.USER_POOL_ID,
+                UserPoolId=cpconfig.require("COGNITO_USER_POOL_ID"),
                 Username=username,
                 UserAttributes=[{"Name": _slot_attr(k), "Value": ""}],
             )

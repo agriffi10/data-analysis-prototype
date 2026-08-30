@@ -1,4 +1,9 @@
-"""Unit tests for the validate-authorize Lambda (token verification is stubbed)."""
+"""Unit tests for the validate-authorize Lambda.
+
+The actor needs no stub: it is read out of the identity block the API stamps, which this
+harness builds. Every envelope still carries the advisory flat ``actor`` the producer writes,
+set to a DIFFERENT user, so each case also asserts the block wins over the field beside it.
+"""
 
 import json
 import os
@@ -13,15 +18,20 @@ from fakes import install, raises
 _PENDING_KEY = ("user-bkt", "alice/user_settings/shared-connections.json")
 
 
-def _event(action="create", space="sales", token="tok", members=None):
+def _event(action="create", space="sales", actor="alice", members=None, identity=True):
     body = {
         "schemaVersion": 1,
         "requestId": "r1",
         "action": action,
         "actor": "spoofed",
         "space": space,
-        "idToken": token,
     }
+    if identity:
+        body["identity"] = {
+            "actor": actor,
+            "delegated_by": None,
+            "assurance": "interactive",
+        }
     if members is not None:
         body["payload"] = {"members": members}
     return [{"body": json.dumps(body)}]
@@ -33,50 +43,43 @@ def _seed_reg(s3, name="sales", owner="alice", members=("alice", "bob")):
     ).encode()
 
 
-def _stub_actor(name):
-    auth.verified_username = lambda tok: name
-
-
-def test_validate_create_emits_context_with_token_actor():
+def test_validate_create_emits_context_with_the_blocks_actor():
     install()
-    orig = auth.verified_username
-    try:
-        _stub_actor("alice")  # ignores the body "spoofed" actor
-        ctx = v.handler(_event("create", "sales"), None)
-        assert ctx == {
-            "action": "create",
-            "actor": "alice",
-            "space": "sales",
-            "payload": {},
-            "registry": None,
-            "requestId": "r1",
-        }
-    finally:
-        auth.verified_username = orig
+    ctx = v.handler(_event("create", "sales", actor="alice"), None)
+    assert ctx == {
+        "action": "create",
+        "actor": "alice",
+        "space": "sales",
+        "payload": {},
+        "registry": None,
+        "requestId": "r1",
+    }
 
 
 def test_validate_rejects_non_owner_before_context():
     s3, *_ = install()
     _seed_reg(s3, members=["alice"])
-    orig = auth.verified_username
-    try:
-        _stub_actor("mallory")  # not the owner
-        raises(lambda: v.handler(_event("delete", "sales"), None), auth.AuthorizationError, "owner-only")
-    finally:
-        auth.verified_username = orig
+    raises(
+        lambda: v.handler(_event("delete", "sales", actor="mallory"), None),
+        auth.AuthorizationError,
+        "owner-only",
+    )
 
 
-def test_validate_forged_token_rejected():
+def test_validate_refuses_a_message_with_no_identity_block():
+    """Fail closed on the pre-cutover envelope, in this plane's own exception type.
+
+    The old test here proved a forged TOKEN was refused, which cannot fail once no token is
+    read — so it is re-expressed rather than deleted. The envelope this builds is exactly the
+    one a message enqueued before the flip carries: a flat ``actor`` naming somebody, and no
+    block. It must be refused, and the refusal must not fall back to that name.
+    """
     install()
-    orig = auth.verified_username
-    try:
-        def boom(tok):
-            raise auth.AuthorizationError("token verification failed")
-
-        auth.verified_username = boom
-        raises(lambda: v.handler(_event("create"), None), auth.AuthorizationError, "verification failed")
-    finally:
-        auth.verified_username = orig
+    raises(
+        lambda: v.handler(_event("create", identity=False), None),
+        auth.AuthorizationError,
+        "identity block",
+    )
 
 
 # Intent recording: the durable pending cache entry + start notification (create/delete).

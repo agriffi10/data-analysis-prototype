@@ -2400,6 +2400,16 @@ the SPA. After this arc the BFF derives `actor` once and everything downstream r
 cannot forge. That is a large part of why the API migration should happen **before** the environment
 move rather than after.
 
+> **Discharged and corrected, 2026-08-30 (SPEC-201).** The collapse happened; two details in the
+> sentence above did not survive contact. There is **no BFF** — the arc's re-scope removed it, and
+> the **API** derives the actor from the bearer it verifies, which is the same collapse by another
+> mechanism. And `notifications_writer.py` had not had "its own verification path" since SPEC-156
+> FR-004; it was a claim *reader*, which is why the count of five still held. What is left in
+> `lambdas/` is nothing: the whole Cognito arm of `cpcommon.auth` is deleted, and a sweep fails if
+> a shipped module writes a provider's claim name as a literal again. `identity-pool.tf` retires
+> with the Identity Pool in SPEC-202; the SPA reads `getCurrentUser().username`, which is the same
+> value but never the claim string.
+
 **The API stays thin only if it is kept thin.** Arc A moves folder operations, but the browser still
 holds work that grows with object count: the SPEC-020 upload queue, and `firstFreeName`'s up to 999
 sequential `HeadObject` probes. Those are deliberate residuals, recorded so this arc inherits them

@@ -22,6 +22,7 @@ sys.path.insert(0, _HERE)
 import pytest
 import ts_notify_failure as nf
 from cpcommon import clients, config
+from token_shapes import JWT_SHAPED
 
 QUEUE = "https://sqs.test/dat-prod-notifications-requests.fifo"
 
@@ -36,6 +37,9 @@ class _FakeSqs:
 
     def messages(self):
         return [json.loads(c["MessageBody"])["message"] for c in self.calls]
+
+
+_JWT = JWT_SHAPED
 
 
 def _arm():
@@ -154,6 +158,56 @@ def test_every_malformed_error_payload_still_notifies():
 
 
 # ── the EventBridge door: a run the machine's own timeout stopped (SPEC-161) ──
+
+
+def test_a_timed_out_execution_notifies_the_actor_from_the_identity_block():
+    """The paired positive, without which the refusal below proves only that the door is broken.
+
+    This is the one plane whose timeout door had no positive at all: the other three assert a
+    recovered sender, so replacing the recovery with an empty string reddens them. Here it did
+    not, which means the door could have stopped attributing anybody and only the live pass
+    would have found it.
+    """
+    fake = _arm()
+    body = {
+        "identity": {"actor": "alice", "delegated_by": None, "assurance": "interactive"},
+        "actor": _JWT,
+        "source": {"database": "alice", "table": "sales"},
+        "tableName": "sales_copy",
+    }
+    raw = json.dumps([{"body": json.dumps(body)}])
+
+    nf.handler(
+        {
+            "detail-type": "Step Functions Execution Status Change",
+            "detail": {"status": "TIMED_OUT", "inputDetails": {"included": True}, "input": raw},
+        },
+        None,
+    )
+
+    assert [json.loads(c["MessageBody"])["username"] for c in fake.calls] == ["alice"]
+
+
+def test_a_timed_out_execution_with_no_identity_block_notifies_nobody():
+    """The pre-cutover envelope on the door that cannot raise.
+
+    A raise here is an async Lambda failure EventBridge retries, so one unattributable event
+    becomes three notifications about a failure nobody can be told about. The honest outcome is
+    a logged no-op — and it must not fall back to the flat ``actor``, which on this plane holds
+    the raw token and would address the notification to a 900-character string.
+    """
+    fake = _arm()
+    raw = json.dumps([{"body": json.dumps({"actor": _JWT, "tableName": "sales_copy"})}])
+
+    nf.handler(
+        {
+            "detail-type": "Step Functions Execution Status Change",
+            "detail": {"status": "TIMED_OUT", "inputDetails": {"included": True}, "input": raw},
+        },
+        None,
+    )
+
+    assert fake.calls == []
 
 
 if __name__ == "__main__":

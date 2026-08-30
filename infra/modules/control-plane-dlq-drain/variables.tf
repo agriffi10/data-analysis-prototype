@@ -49,16 +49,6 @@ variable "notifications_queue_url" {
   type        = string
 }
 
-variable "user_pool_id" {
-  description = "Cognito User Pool id — the JWKS issuer the drain verifies dead-lettered tokens against."
-  type        = string
-}
-
-variable "app_client_id" {
-  description = "Cognito app client id — the audience the drain verifies against."
-  type        = string
-}
-
 variable "user_space_bucket_name" {
   description = "Not used by the drain. Required by the cpcommon layer's config, which resolves on first READ rather than at import — so a missing value is no longer a cold-start crash but a failure on whichever branch reads it first. STILL SET IT: the union is what any code path in the layer may demand, and 'the function does not use it' is not a reason to remove it."
   type        = string

@@ -105,7 +105,6 @@ def _restore_shared_layer_modules():
 
 _REQUIRED_ENV = {
     "COGNITO_USER_POOL_ID": "us-east-1_testpool",
-    "COGNITO_APP_CLIENT_ID": "test-app-client",
     "ADMIN_BUCKET": "admin-bkt",
     "SHARED_SPACE_BUCKET": "shared-bkt",
     "USER_SPACE_BUCKET": "user-bkt",

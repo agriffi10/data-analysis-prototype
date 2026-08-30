@@ -63,13 +63,7 @@ variable "portal_role_name" {
 }
 
 variable "user_pool_id" {
-  description = "Cognito User Pool ID — passed to the control-plane Lambdas (env COGNITO_USER_POOL_ID) so the validate-authorize Lambda can verify caller ID tokens against the pool JWKS (trusted-actor binding)."
-  type        = string
-  default     = ""
-}
-
-variable "app_client_id" {
-  description = "Cognito SPA app client ID — the ID token audience the validate-authorize Lambda checks when verifying the caller's token (env COGNITO_APP_CLIENT_ID)."
+  description = "Cognito User Pool ID — carried as env COGNITO_USER_POOL_ID because the orchestrator looks members up (AdminGetUser). It is NOT a cpcommon required variable: the planes stopped verifying tokens, so only the three that resolve a user still set it, and cpcommon reads it lazily through config.require."
   type        = string
   default     = ""
 }

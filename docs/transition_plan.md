@@ -1516,6 +1516,19 @@ When a user signs in through a federated identity provider, Cognito does **not**
 the form `{providerName}_<subject>`. **Five** places read that claim and would silently start
 operating on the wrong identifier:
 
+> **Superseded by SPEC-201 (2026-08-30).** The count is now **two**, and neither is a control
+> plane. SPEC-201 deleted the whole Cognito arm of `cpcommon.auth` — the two `verified_username*`
+> entry points, both `*_ignoring_expiry` relaxations, and the hard-coded claim name — because the
+> API verifies the bearer once at the edge and the planes read the verified actor out of the
+> message's `identity` block. `notifications_writer.py` and `shared-space-common/auth.py` lost
+> their readers with their wrappers. What is left is **`infra/modules/auth/identity-pool.tf`**
+> (retired with the Identity Pool in SPEC-202) and the SPA's own `getCurrentUser().username`,
+> which is not the claim string at all — plus the API's own **configured** claim, `oidc_username_claim` in `infra/main.tf`, which is the site SPEC-201's own premises tell SPEC-202 to expect beside `identity-pool.tf`. A fleet sweep now fails if any shipped Lambda module
+> writes a provider's claim name as a literal, so this list cannot silently regrow. The bullets
+> below are kept as the record of what was moved and where it went — **do not re-derive work from
+> them.** Full entry: `docs/decisions/identity-and-access.md`.
+
+
 - `infra/modules/auth/identity-pool.tf` line 85 maps the `username` principal tag to
   `cognito:username`. That tag scopes `${aws:PrincipalTag/username}` in every S3 and Glue policy
   in the repo.

@@ -1,6 +1,6 @@
 """validate-authorize — the archive Step Function's first task, for BOTH of its modes.
 
-Parses the SQS record, verifies the caller's Cognito ID token into the trusted actor, authorizes
+Parses the SQS record, reads the trusted actor out of the API's identity block, authorizes
 the actor's access to the space, and resolves the archive prefix — for an ARCHIVE, checking that
 every selected item sits inside the source and is not one of the portal's own folders and
 enforcing the request-shape caps; for a RESTORE, validating the pasted archive id
@@ -52,7 +52,8 @@ from arcommon.config import (
     ARCHIVE_MODES,
     archive_bucket,
 )
-from cpcommon import auth, events, observability
+from cpcommon import actor as cpactor
+from cpcommon import events, observability
 from cpcommon.errors import TerminalError
 from cpcommon.paths import assert_inside_root
 
@@ -109,13 +110,6 @@ def _check_contract(req) -> str:
         raise TerminalError(
             events.MALFORMED, f"unknown {mode} request fields: {', '.join(unknown)}"
         )
-    # THE ENVELOPE IS FLAT: `actor` is the RAW ID token at the top level, never a nested
-    # {"idToken": …}. Type-checked here rather than left to the verifier, because the two
-    # failures read identically to a user and only one of them is a contract break — and
-    # because the drain redacts this field FLATLY, so a nested token would reach
-    # CloudWatch verbatim on a dead-lettered request.
-    if not isinstance(req.get("actor"), str) or not req["actor"].strip():
-        raise TerminalError(events.MALFORMED, "actor must be the raw ID token, as a string")
     return mode
 
 
@@ -278,20 +272,18 @@ def handler(event, context) -> dict:
 
 
 def _validate_and_authorize(event) -> dict:
-    """Verifies the token, authorizes the space, validates the request and resolves the keys.
+    """Reads the trusted actor, authorizes the space, validates the request and resolves the keys.
 
     **The mode branch happens here and cannot happen earlier.** ``ChooseMode`` in the ASL reads
     ``$.mode`` off the object this function returns; in the raw Pipe record the same field sits
-    inside an escaped JSON string. Everything up to and including the token verification is
-    common to both modes, and the two contracts diverge only once the mode is known.
+    inside an escaped JSON string. Everything up to and including the actor read is common to
+    both modes, and the two contracts diverge only once the mode is known.
 
-    The actor comes from the verified token in the envelope, never from a body username — the
-    token IS the top-level ``actor`` field, as a raw string. That flatness is the same shape
-    every plane's envelope uses and is load-bearing rather than stylistic: The drain reads
-    and redacts that field flatly, so a nested ``{"idToken": …}`` would mean a dead-lettered
-    archive notifies nobody *and* writes the JWT to CloudWatch. From the point the actor is
-    known, a whole-request rejection notifies them before the Catch records it;
-    pre-verification failures have no trusted recipient and stay notification-free.
+    The actor comes from the ``identity`` block the API stamped, never from a body username and
+    never from the flat ``actor`` field beside it — that field still carries the raw token until
+    the API stops sending one, and a JWT and a username are both non-empty strings. From the point
+    the actor is known, a whole-request rejection notifies them before the Catch records it; a
+    failure before it has no trusted recipient and stays notification-free.
 
     **The archive prefix is resolved HERE, not by the verb that copies.** It is a pure function
     of the request — kind, name and request id — so computing it once and carrying it forward
@@ -306,17 +298,19 @@ def _validate_and_authorize(event) -> dict:
       location — the same five keys in either mode.
 
     Raises:
-      TerminalError: ``unauthorized`` for a bad token, ``forbidden`` for an unreachable space or
+      TerminalError: ``unauthorized`` for an unusable identity block, ``forbidden`` for an
+        unreachable space or
         an out-of-root key, ``invalid_request`` for a malformed request or archive id, or any
         selection reason.
       TransientError: On a retryable S3 fault.
     """
     req = events.parse_sqs_request(event, reason="unauthorized")
 
-    actor = auth.verified_username(
-        req.get("actor") if isinstance(req, dict) else None,
-        missing_token_detail="missing actor token",
+    who = cpactor.trusted_actor(req)
+    observability.stamp(
+        actor=who.username, assurance=who.assurance, delegated_by=who.delegated_by
     )
+    actor = who.username
 
     # Seeded from the untrusted body so a refusal raised INSIDE _check_contract is still worded as
     # the operation the user asked for, then replaced by the validated value the branch below uses.

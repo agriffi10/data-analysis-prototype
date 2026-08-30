@@ -31,11 +31,11 @@ timeout never fires; the EventBridge door matches ``TIMED_OUT`` only, never ``FA
 execution that reached ``Fail`` normally does not appear on it.
 
 The timeout door has to recover the sender the hard way. The execution input is what the Pipe
-forwarded — the raw SQS batch — so the actor is the **verified claim from the ID token in that
-body**, never the body's own assertion. Expiry is deliberately not enforced: the timeout fires
-hours after the token was minted, and by construction it is always expired. That relaxation is
-the DLQ drain's, taken through the same separately-named entry point, and it is safe for the
-same reason — this path grants nothing, it only addresses a message.
+forwarded — the raw SQS batch — so the actor is the **identity block the API stamped into that
+body**, never the body's own assertion. There is no token here to expire: the API verifies the
+bearer at the edge and writes what it verified, and the queue is writable by no one else, so a
+timeout firing hours later reads a value that was never time-limited in the first place. The
+expiry relaxation this door used to need is gone with the thing it relaxed.
 
 Attributes:
   _TIMEOUT_DETAIL_TYPE: The EventBridge detail-type the timeout door matches on.
@@ -45,7 +45,8 @@ Attributes:
 import json
 import logging
 
-from cpcommon import auth, events, observability
+from cpcommon import actor as cpactor
+from cpcommon import events, observability
 from cpcommon.errors import TerminalError, failure_reason
 from tscommon import messages, notify
 
@@ -112,10 +113,10 @@ def _is_execution_timeout(event) -> bool:
 def _timed_out_request(detail) -> dict:
     """Recovers the sender and the source from a timed-out execution's own input.
 
-    The input is the Pipe's forwarded SQS batch, so this is the same parse every verb does,
-    then the token — and the token is the ONLY acceptable source of the username. The body's
+    The input is the Pipe's forwarded SQS batch, so this is the same parse every verb does, then
+    the identity block — the ONLY acceptable source of the username. The body's
     ``source``/``tableName`` are display-only, exactly as validate-authorize treats them: they
-    reach the message text, and the text goes to an inbox the verified claim chose.
+    reach the message text, and the text goes to an inbox the verified actor chose.
 
     Args:
       detail: The event's ``detail`` block.
@@ -142,9 +143,7 @@ def _timed_out_request(detail) -> dict:
 
     try:
         body = events.parse_sqs_request(json.loads(raw), reason=_TIMEOUT_REASON)
-        actor = auth.verified_username_ignoring_expiry(
-            body.get("actor"), missing_token_detail="missing actor token"
-        )
+        actor = cpactor.trusted_actor(body).username
     except Exception as exc:  # noqa: BLE001
         logger.info("could not attribute the timed-out execution: %s", exc)
         return {}
