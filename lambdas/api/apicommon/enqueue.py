@@ -1,24 +1,28 @@
-"""The one path to ``SendMessage``, and the one place the caller's raw bearer is read.
+"""The one path to ``SendMessage``. No credential passes through it any more.
 
 Every enqueue route hands its validated payload here. This module stamps what the caller may not —
-the identity block, the route's own literals, and, transitionally, the token the plane still
-verifies — derives the FIFO keys, checks the result against what the queue will accept, and sends.
+the identity block and the route's own literals — derives the FIFO keys, checks the result against
+what the queue will accept, and sends.
 
-A handler builds no message body. That is what keeps the router's premise true at ten routes
-rather than one: the bearer never reaches a handler, and the sweep that counts its readers counts
-exactly one, here.
+**The caller's raw bearer used to be stamped in beside the block**, because the control planes
+verified a token out of the message body. They read the identity block now, so the token has no
+reader, and forwarding a bearer credential through eight queues and into eight state-machine
+execution inputs for nobody is the exposure this whole change exists to close. The wrapper that
+kept it un-renderable, the field on the request context and the sweep counting its one reader all
+went with it: there is nothing left to contain.
+
+A handler still builds no message body, which is what keeps the router's premise true at ten
+routes rather than one.
 
 Attributes:
   SQS_MAX_MESSAGE_BYTES: What these queues accept for one message body. It is the service default
     rather than the documented maximum, because no queue module sets ``max_message_size``.
-  MAX_BEARER_BYTES: The allowance for the transitional token, measured from a real ID token with
-    the largest claim set this pool issues rather than guessed. It disappears with the token.
   MAX_IDENTITY_BLOCK_BYTES: The allowance for the identity block at its largest.
   MAX_MESSAGE_BYTES: What a caller's payload may serialize to once everything above is stamped
     onto it. Derived, never written down: a cap applied to the caller's payload alone would admit
-    a request the send cannot make. It is measured against the ALREADY-STAMPED body, so the two
-    allowances above are reserved twice and roughly 8 KB of real headroom goes unused — the safe
-    direction, and the margin covers a token larger than the one that was measured.
+    a request the send cannot make. It is measured against the ALREADY-STAMPED body, so the
+    allowance above is reserved twice — the safe direction. It grew by 8 KB when the token stopped
+    being sent, which is headroom returned to callers rather than a limit relaxed.
   MAX_LOGGED_REQUEST_ID: How much of the caller's own request id reaches a log field. It is
     caller-controlled text on baggage, so it rides every event of the invocation into a store that
     is retained forever — the reason the router bounds the id IT echoes.
@@ -32,14 +36,13 @@ from cpcommon import observability
 
 from . import fifo, identity, identity_block
 from .config import queue_url
-from .context import RequestContext, reveal
+from .context import RequestContext
 from .contract import EnqueueRoute
 from .envelope import ApiError
 
 SQS_MAX_MESSAGE_BYTES = 262_144
-MAX_BEARER_BYTES = 8_192
 MAX_IDENTITY_BLOCK_BYTES = 512
-MAX_MESSAGE_BYTES = SQS_MAX_MESSAGE_BYTES - MAX_BEARER_BYTES - MAX_IDENTITY_BLOCK_BYTES
+MAX_MESSAGE_BYTES = SQS_MAX_MESSAGE_BYTES - MAX_IDENTITY_BLOCK_BYTES
 
 MAX_LOGGED_REQUEST_ID = 128
 
@@ -82,7 +85,9 @@ def _stamped_values(route: EnqueueRoute, ctx: RequestContext) -> dict[str, Any]:
 
     Args:
       route: The route being served.
-      ctx: The request, for the verified actor the shared-space envelope carries advisorily.
+      ctx: The request. Unused now that shared-space's advisory top-level ``actor`` is gone —
+        it duplicated ``identity.actor``, nothing read it, and leaving a second place a username
+        appears on the wire is how the two eventually disagree.
 
     Returns:
       The fields to stamp, whose key set is the route's own declaration.
@@ -91,7 +96,7 @@ def _stamped_values(route: EnqueueRoute, ctx: RequestContext) -> dict[str, Any]:
       None.
     """
     values: dict[str, dict[str, Any]] = {
-        "sharedSpace.enqueue": {"schemaVersion": 1, "actor": ctx.principal.username},
+        "sharedSpace.enqueue": {"schemaVersion": 1},
         "tableBuild.refresh": {"mode": "refresh"},
         "archive.archive": {"mode": "archive"},
         "archive.restore": {"mode": "restore"},
@@ -104,13 +109,14 @@ def build_message(
 ) -> dict:
     """Assembles the message one route sends.
 
-    The identity block rides alongside the token rather than replacing it. It is nested under one
-    key because on four planes the top-level field named ``actor`` IS the raw token today, so a
-    flat verified actor would overwrite the field those planes verify.
+    The identity block stays NESTED now that the token it rode beside is gone. Moving it into the
+    flat ``actor`` field four planes used to keep a token in would be a second wire migration for
+    no gain, and would create a window in which one plane's ``actor`` is a username while another's
+    is still a token.
 
     Args:
       route: The route being served.
-      ctx: The request, carrying the verified caller and the wrapped bearer.
+      ctx: The request, carrying the verified caller.
       payload: The validated request body.
 
     Returns:
@@ -122,7 +128,6 @@ def build_message(
     return {
         **dict(payload),
         **_stamped_values(route, ctx),
-        route.token_field: reveal(ctx.bearer),
         "identity": identity_block.build(ctx.principal),
     }
 
@@ -185,7 +190,7 @@ def enqueue(
     """Sends one request onto its queue and answers the caller.
 
     Args:
-      ctx: The request, carrying the verified caller and the wrapped bearer.
+      ctx: The request, carrying the verified caller.
       route: The route being served.
       payload: The validated request body.
 

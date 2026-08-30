@@ -16,7 +16,7 @@ import pytest
 import router
 from apicommon import contract
 from apicommon import enqueue as enqueue_module
-from conftest import bearer, token
+from conftest import bearer
 
 _QUEUE_ENV = {
     queue.env_var: f"https://sqs.test/1/{queue.id}.fifo" for queue in contract.QUEUES
@@ -42,7 +42,10 @@ def _caller_body(vector):
     below rather than assumed.
 
     Returns:
-      The captured body minus the token and minus whatever the sender stamps.
+      The captured body minus whatever the sender stamps, and minus the legacy token field.
+      The vectors are RECORDED, so they still carry the field the API used to forward; the route
+      no longer declares its name, so the two legacy names are stripped by literal here rather
+      than read off the contract.
 
     Raises:
       None.
@@ -51,12 +54,17 @@ def _caller_body(vector):
         r for r in contract.ENQUEUE_ROUTES if r.id == vector["route"].split("@")[0]
     )
     body = json.loads(vector["sent"]["MessageBody"])
-    for key in {route.token_field, *route.stamped}:
+    for key in {*_LEGACY_TOKEN_FIELDS, *route.stamped}:
         body.pop(key, None)
     for key in body.get("partitionKeys", []):
         if "range" in key:
             key["range"] = [str(bound) for bound in key["range"]]
     return body
+
+
+#: The two field names the API used to forward a raw token in, per plane. The route no longer
+#: declares one, and the recorded vectors predate that, so they are stripped by literal.
+_LEGACY_TOKEN_FIELDS = frozenset({"idToken", "actor"})
 
 
 _BODIES = {
@@ -210,10 +218,15 @@ def _post(route, body=None):
 
 
 @pytest.mark.parametrize("route", contract.ENQUEUE_ROUTES, ids=lambda r: r.id)
-def test_every_route_sends_one_message_carrying_the_identity_block_and_the_token(
+def test_every_route_sends_one_message_carrying_the_identity_block_and_no_token(
     route, sqs
 ):
-    """One send, the block stamped whole, the token in the field that plane already reads."""
+    """One send, the block stamped whole, and no credential anywhere in the body.
+
+    The second half used to be SPEC-200's tripwire — it asserted the token was STILL being sent,
+    and was written to fail on exactly the edit that stops it. This is that edit, so the
+    assertion is inverted rather than dropped.
+    """
     response = _post(route)
 
     assert response["statusCode"] == 200, response["body"]
@@ -226,7 +239,9 @@ def test_every_route_sends_one_message_carrying_the_identity_block_and_the_token
         "assurance": "interactive",
     }
     assert set(body["identity"]) == {"actor", "delegated_by", "assurance"}
-    assert isinstance(body[route.token_field], str) and body[route.token_field]
+    assert "idToken" not in body and "actor" not in body, (
+        f"{route.id} still writes a top-level token field: {sorted(body)}"
+    )
     assert sent["MessageGroupId"] and sent["MessageDeduplicationId"]
     assert (
         sent["QueueUrl"]
@@ -266,14 +281,20 @@ def test_a_body_claiming_an_identity_is_refused_before_anything_is_sent(forged, 
     assert sqs.sends == []
 
 
-def test_the_stamped_actor_is_the_tokens_and_never_the_bodys(sqs):
-    """The shared-space envelope's advisory actor comes from the verified claim."""
+def test_shared_space_carries_ONE_actor_and_it_is_the_blocks(sqs):
+    """The advisory top-level actor is gone, and the verified one is the only one left.
+
+    Shared-space used to carry the caller's username twice: once in the identity block and once
+    flat, where nothing read it. Two places a username appears on the wire is two that can
+    disagree, and the flat one had no reader to notice. Asserted as an ABSENCE rather than by
+    deleting the test, because the way this regresses is somebody re-adding the convenience.
+    """
     route = next(r for r in contract.ENQUEUE_ROUTES if r.id == "sharedSpace.enqueue")
 
     _post(route)
 
     body = json.loads(sqs.sends[0]["MessageBody"])
-    assert body["actor"] == "alice"
+    assert "actor" not in body
     assert body["identity"]["actor"] == "alice"
     assert body["schemaVersion"] == 1
 
@@ -321,12 +342,18 @@ def test_a_failed_send_answers_the_caller_without_calling_it_their_fault(
 
 
 def test_the_size_cap_is_derived_from_what_the_queue_takes_and_what_is_stamped_on():
-    """A cap written as a literal hides a wrong model, and this one has three moving parts."""
+    """A cap written as a literal hides a wrong model, and this one has two moving parts.
+
+    It had three. The bearer allowance went with the token, which returned 8 KB of headroom to
+    callers rather than relaxing a limit — and its absence is asserted, because an allowance
+    reappearing is the shape of the exposure coming back.
+    """
     assert enqueue_module.SQS_MAX_MESSAGE_BYTES == 262_144
     assert enqueue_module.MAX_MESSAGE_BYTES == (
-        enqueue_module.SQS_MAX_MESSAGE_BYTES
-        - enqueue_module.MAX_BEARER_BYTES
-        - enqueue_module.MAX_IDENTITY_BLOCK_BYTES
+        enqueue_module.SQS_MAX_MESSAGE_BYTES - enqueue_module.MAX_IDENTITY_BLOCK_BYTES
+    )
+    assert not hasattr(enqueue_module, "MAX_BEARER_BYTES"), (
+        "a bearer allowance means a bearer is being sent again"
     )
     largest_block = json.dumps(
         {
@@ -353,7 +380,7 @@ def test_only_four_routes_stamp_a_field_and_the_values_match_what_they_declare()
     declared = {r.id: r.stamped for r in contract.ENQUEUE_ROUTES if r.stamped}
 
     assert declared == {
-        "sharedSpace.enqueue": frozenset({"schemaVersion", "actor"}),
+        "sharedSpace.enqueue": frozenset({"schemaVersion"}),
         "tableBuild.refresh": frozenset({"mode"}),
         "archive.archive": frozenset({"mode"}),
         "archive.restore": frozenset({"mode"}),
@@ -469,21 +496,6 @@ def test_the_content_based_dedup_flags_are_read_out_of_the_terraform_not_transcr
         "notifications",
         "table-builder",
     }
-
-
-def test_the_bearer_allowance_is_measured_against_a_real_token_not_guessed():
-    """A hard-coded allowance hides a wrong model, and this one bounds what a caller may send.
-
-    Measured against the largest ID token this pool can issue: the conftest mints a genuine RS256
-    token for the configured provider, and the allowance must cover it with room for a claim set
-    larger than the fixture's.
-    """
-    minted = token(username="a" * 63)
-
-    assert len(minted.encode("utf-8")) < enqueue_module.MAX_BEARER_BYTES
-    assert 2 * len(minted.encode("utf-8")) <= enqueue_module.MAX_BEARER_BYTES, (
-        "the allowance should leave room for a larger claim set than the fixture's"
-    )
 
 
 def test_stringifying_a_projection_bound_does_not_move_the_table_property():

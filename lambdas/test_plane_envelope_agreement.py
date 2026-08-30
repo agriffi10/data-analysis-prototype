@@ -69,6 +69,44 @@ def _routes_for(queue_id):
     return [route for route in contract.ENQUEUE_ROUTES if route.queue == queue_id]
 
 
+#: The two field names the API used to forward a raw token in. It sends neither now and no plane
+#: reads either — but a plane's allowed-field set may still ADMIT its own one, and that tolerance
+#: is the point rather than an oversight: tightening the set turns a message enqueued before the
+#: cutover into `malformed_event` instead of the `unauthorized` refusal that path is meant to
+#: produce, which is a different reason code and a different notification decision.
+#:
+#: Tolerated, never required, and never enumerated per plane. Which planes still carry which field
+#: is a fact about history that no longer lives in the contract, so asserting it would mean a
+#: hand-maintained map — and the property actually wanted is weaker and checkable: everything the
+#: API sends must be admitted, nothing else may be, and a leftover legacy name does not count as
+#: "anything else".
+LEGACY_ADMITTED = frozenset({"idToken", "actor"})
+
+
+def _agrees(allowed, expected, label):
+    """Asserts a plane admits everything the API sends and nothing but leftover legacy names.
+
+    Args:
+      allowed: The plane's own allowed-field set.
+      expected: What the API can put on the wire for it.
+      label: The plane (and mode) being checked, for the failure message.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the plane refuses a field the API sends, or admits an unrelated one.
+    """
+    assert expected <= allowed, (
+        f"{label} REFUSES {sorted(expected - allowed)}, which the API sends — every request "
+        "on this plane becomes a malformed_event"
+    )
+    assert allowed - expected <= LEGACY_ADMITTED, (
+        f"{label} admits {sorted(allowed - expected - LEGACY_ADMITTED)}, which the API never "
+        "sends — an admitted field with no producer is a contract nobody checks"
+    )
+
+
 def _declared_keys(queue_id):
     """Every top-level key a message on one queue may carry.
 
@@ -88,7 +126,7 @@ def _declared_keys(queue_id):
     for route in _routes_for(queue_id):
         node = contract.walk(route.request)
         keys |= {name for name, _node, _required in node.fields}
-        keys |= {"identity", route.token_field}
+        keys |= {"identity"}
         keys |= set(route.stamped)
     return keys
 
@@ -227,12 +265,12 @@ def test_an_allowlist_plane_admits_exactly_what_the_api_may_send(queue_id):
             route = next(r for r in _routes_for(queue_id) if r.id.endswith(mode))
             expected = (
                 {name for name, _n, _r in contract.walk(route.request).fields}
-                | {"identity", route.token_field}
+                | {"identity"}
                 | set(route.stamped)
             )
-            assert fields == expected, f"{queue_id}/{mode} disagrees with the API"
+            _agrees(fields, expected, f"{queue_id}/{mode}")
     else:
-        assert allowed == declared, f"{queue_id} disagrees with the API"
+        _agrees(allowed, declared, queue_id)
 
 
 @pytest.mark.parametrize(
@@ -301,32 +339,33 @@ def test_every_drained_queue_has_a_writer_and_notifications_is_not_a_row():
     assert dlq_drain.UNDRAINED_QUEUES == _TWO_PRODUCER_PLANES
 
 
-def test_the_token_is_still_being_sent_on_every_route():
-    """A tripwire, not a requirement.
+def test_the_legacy_tolerance_is_not_vacuous():
+    """At least one plane still admits its old token field, or FR-006's guarantee is gone.
 
-    It exists to fail if the plane-side half of the cutover is implemented here by mistake. The
-    change that stops the token being sent deletes this test in the same commit — after the planes
-    are already reading the identity block, never before.
+    ``_agrees`` TOLERATES a leftover legacy name; it cannot require one, because which plane kept
+    which is history the contract no longer carries. So the requirement is asserted once, over the
+    fleet: if every plane tightened, the tolerance would pass on an empty set and the staged
+    pre-cutover message would become a `malformed_event` on every plane — a different reason code,
+    a different notification decision, and a criterion that silently stopped testing what it names.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If no allowlist plane admits a legacy token field any more.
     """
-    from apicommon import enqueue as sender
-    from apicommon.context import Redacted
+    still_admitting = set()
+    for queue_id, (relative_path, name) in _ALLOWLIST_PLANES.items():
+        allowed = _module_constant(relative_path, name)
+        sets = allowed.values() if isinstance(allowed, dict) else [allowed]
+        for fields in sets:
+            if fields & LEGACY_ADMITTED:
+                still_admitting.add(queue_id)
 
-    class _Ctx:
-        """The two fields the message builder reads.
-
-        Attributes:
-          principal: A stand-in caller.
-          bearer: A wrapped token that is not empty.
-        """
-
-        principal = type("P", (), {"username": "alice"})()
-        bearer = Redacted("a-real-looking-token")
-
-    assert {route.token_field for route in contract.ENQUEUE_ROUTES} == {
-        "idToken",
-        "actor",
-    }
-    for route in contract.ENQUEUE_ROUTES:
-        message = sender.build_message(route, _Ctx(), {})
-        assert isinstance(message.get(route.token_field), str), route.id
-        assert message[route.token_field], f"{route.id} sends an empty token"
+    assert still_admitting, (
+        "no plane admits its legacy token field any more — a message enqueued before the cutover "
+        "is now malformed_event rather than unauthorized on every one of them"
+    )

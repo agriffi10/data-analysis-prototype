@@ -1118,16 +1118,12 @@ class EnqueueRoute(Route):
     Attributes:
       queue: Which queue, by registry id. Guarded for set equality against the registry in both
         directions, so a queue with no route and a route naming no queue both fail.
-      token_field: The field the plane already reads its token out of. Transitional, and joined
-        against the dead-letter drain's own table rather than restated: a plane whose field is
-        wrong here would be caught by a dead-letter rather than by CI.
       stamped: The top-level keys the sender writes that the caller may not. Declared rather than
         inferred, because the envelope-agreement test needs the term and an escape hatch would let
         a caller be handed a field that chooses behaviour.
     """
 
     queue: str
-    token_field: Literal["idToken", "actor"]
     stamped: frozenset[str]
 
 
@@ -1332,8 +1328,7 @@ ROUTES: Final[tuple[Route, ...]] = (
         query=None,
         response=EnqueueAccepted,
         queue="shared-space",
-        token_field="idToken",
-        stamped=frozenset({"schemaVersion", "actor"}),
+        stamped=frozenset({"schemaVersion"}),
     ),
     EnqueueRoute(
         id="notifications.enqueue",
@@ -1345,7 +1340,6 @@ ROUTES: Final[tuple[Route, ...]] = (
         query=None,
         response=EnqueueAccepted,
         queue="notifications",
-        token_field="idToken",
         stamped=frozenset(),
     ),
     EnqueueRoute(
@@ -1358,7 +1352,6 @@ ROUTES: Final[tuple[Route, ...]] = (
         query=None,
         response=EnqueueAccepted,
         queue="table-builder",
-        token_field="idToken",
         stamped=frozenset(),
     ),
     EnqueueRoute(
@@ -1371,7 +1364,6 @@ ROUTES: Final[tuple[Route, ...]] = (
         query=None,
         response=EnqueueAccepted,
         queue="table-builder",
-        token_field="idToken",
         stamped=frozenset({"mode"}),
     ),
     EnqueueRoute(
@@ -1384,7 +1376,6 @@ ROUTES: Final[tuple[Route, ...]] = (
         query=None,
         response=EnqueueAccepted,
         queue="table-share",
-        token_field="actor",
         stamped=frozenset(),
     ),
     EnqueueRoute(
@@ -1397,7 +1388,6 @@ ROUTES: Final[tuple[Route, ...]] = (
         query=None,
         response=EnqueueAccepted,
         queue="data-quality",
-        token_field="idToken",
         stamped=frozenset(),
     ),
     EnqueueRoute(
@@ -1410,7 +1400,6 @@ ROUTES: Final[tuple[Route, ...]] = (
         query=None,
         response=EnqueueAccepted,
         queue="file-send",
-        token_field="actor",
         stamped=frozenset(),
     ),
     EnqueueRoute(
@@ -1423,7 +1412,6 @@ ROUTES: Final[tuple[Route, ...]] = (
         query=None,
         response=EnqueueAccepted,
         queue="archive",
-        token_field="actor",
         stamped=frozenset({"mode"}),
     ),
     EnqueueRoute(
@@ -1436,7 +1424,6 @@ ROUTES: Final[tuple[Route, ...]] = (
         query=None,
         response=EnqueueAccepted,
         queue="archive",
-        token_field="actor",
         stamped=frozenset({"mode"}),
     ),
     EnqueueRoute(
@@ -1449,7 +1436,6 @@ ROUTES: Final[tuple[Route, ...]] = (
         query=None,
         response=EnqueueAccepted,
         queue="file-ops",
-        token_field="actor",
         stamped=frozenset(),
     ),
 )
