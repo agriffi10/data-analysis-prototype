@@ -794,3 +794,189 @@ for SPEC-125's `leave`/`delete`.
 
 ---
 
+
+## 2026-08-30 — Arc B's first real pass: the API, the catalog, the enqueue paths and an archive
+
+Run from a warm signed-in Chromium session as `agriffith` against the **container origin**
+(`portal.dataquarry.app`), deployed sha `726aa448`. Instruments 1–2 from `e2e.md` §1, extended with
+an **XMLHttpRequest** patch — without it the upload is invisible, because the transfer is an XHR and
+the shipped instrument only wraps `fetch`. Refusal probes were issued **in-page**, using the app's
+own bearer, so no token entered the transcript.
+
+### SPEC-199 — the arc's central claim, and the catalog surface
+
+**Lake Formation still authorizes the session the API assumes.** `SELECT employee_id, name FROM
+agriffith.employees` returned **2 rows, 112 B scanned, 706 ms**, rendered in the grid. LF grants
+attach to a principal, and that principal is now the portal role assumed by the API rather than one
+vended to the browser. **This also discharges SPEC-196 Phase 5 item 4**, which that spec recorded as
+owed and re-homed here.
+
+The denial half, both shapes **in one sitting**:
+
+| Shape | Probe | Result |
+|---|---|---|
+| Glue read, no `DESCRIBE` | `GET /v1/catalog/databases/adamparker` | **403** `AccessDenied`, envelope-shaped, **no `detail` at all** |
+| Athena query, no `SELECT` | `SELECT * FROM adamparker.employees LIMIT 1` | **200** on the poll, execution reaches **FAILED** |
+
+The FAILED execution's `stateChangeReason` names the principal:
+`arn:aws:sts::696000197480:assumed-role/dat-portal-user-role/agriffith`. That is independent live
+evidence of two settled claims at once — the role is **reused, not minted**, and the **session name
+is the username**. It is a stronger observation than the SPEC-196 probe route gave, and it arrives
+from a direction that spec could not reach.
+
+**The engine's current text still matches the wording rules after the JSON round trip** (FR-003):
+the browser rendered *"You don't have permission to run that query. Contact the Administrator."* and
+`main.innerText` contains **no** `arn:aws`, no `glue:GetDatabase` and no `Insufficient permissions`.
+Had the rules stopped matching, every failed query would say only the generic sentence and nothing
+would look broken.
+
+| Check | Result |
+|---|---|
+| Foreign database vs absent database (FR-008 AC9) | **Indistinguishable** — `adamparker` and `nosuchname_xyz123` both **403 `AccessDenied`**, byte-identical apart from the request id; own database 200. **No existence oracle. Not a finding for SPEC-202.** |
+| `null` ≠ `''` on the raw body (FR-004 AC2) | `{"columns": [{"name":"a","type":"unknown"},{"name":"b","type":"varchar"}], "rows": [[null, ""]], "nextToken": null}` |
+| The 409/400 pair (FR-005 AC2) | Results against a still-running execution → **409 `QueryNotFinished`** (*"the execution has not reached SUCCEEDED"*); a malformed statement at submit → **400 `QuerySyntaxError`** (*"athena rejected the statement"*). One Athena exception name, two codes. |
+| The disclosed SQL is byte-identical (FR-009, and `e2e.md` §4.5 row 11) | `aws athena get-query-execution` returned `SELECT employee_id, name FROM agriffith.employees` — byte-identical, and `DataScannedInBytes: 112` matches the cost line. Workgroup `dat-prod-portal-wg`. |
+| The browser has stopped talking to Athena and Glue (FR-013 AC5) | **Zero** requests to `athena.*` or `glue.*` across every section run. One `POST /v1/queries`, one poll, results read only after the poll reported SUCCEEDED. |
+| Cold start | The first invocation after the deploy succeeded; every record carries the real sha. |
+
+### SPEC-198 — the object surface
+
+| Check | Result |
+|---|---|
+| One API call per gesture | Folder create is **one** `PUT /v1/objects/content` (`overwrite:false`) plus the listing refetch. Empty name is refused **client-side with zero requests**. |
+| The collision path | `overwrite:false` → **409** → banner *"A folder named … already exists"* with **Rename / Cancel / Overwrite**; verified in the listing, not from the dialog. |
+| The upload | **One presign per file** — two `POST /v1/objects/upload-url` for two files, minted inside `uploadFile`, never per batch. |
+| The transfer is `XMLHttpRequest` | `XHR:PUT dat-prod-user-space.s3.us-east-1.amazonaws.com/…` — a `fetch` would have completed correctly and left the bar at 0%. |
+| The presign host | `dat-prod-user-space.s3.**us-east-1**.amazonaws.com` — the regional host, which is the one the CSP admits. Live confirmation of #553. |
+| Foreign personal prefix (FR-013 live half) | **403 `AccessDenied`**, `detail: "personal space is not the caller's"` |
+| Foreign shared space | **403 `AccessDenied`**, `detail: "no membership claim for that space"` |
+| **The paired control** | The same route against the caller's own prefix → **200** with the listing. Without it a denial cannot be told from broken credentials. |
+| `PUT` under `archive/` | **403 `AccessDenied`**, `detail: "archived locations are not writable"` — recorded as the **route-layer** refusal it is. |
+| The CORS trio on the presign path (FR-011) | SPA origin → `access-control-allow-origin: https://portal.dataquarry.app`; **CloudFront origin `d1kbh4bnvh1je8.cloudfront.net` → its own ACAO**, so the rollback is intact; `example.invalid` → **no ACAO**. `access-control-allow-headers` is exactly `authorization,content-type,x-request-id`. |
+
+**`owed.md` §2.1's marker Deny — run, and only half of it discharged.** `DELETE /v1/objects` on
+`saved_queries/DO_NOT_DELETE.txt` is **403 `AccessDenied`** in the **personal** space and in a
+**shared** one (`alexis_shared_space`), `detail: "folder markers may not be removed or replaced"`;
+the paired control — an ordinary `.sql` file written and deleted in the same folder — is **200 and
+200**. But that wording is the **API's own**, not IAM's: the route refuses before S3 is asked, so
+what is settled is *the marker cannot be deleted through the API*, **not** that the bucket policy
+denies it. The bucket-policy half is unreachable from this API and stays owed.
+
+### SPEC-197 §F — the transport contract
+
+| Item | Result |
+|---|---|
+| F.1 — suggestions **render**, by name | `SendFilesDialog` on `ad` → `adamparker`, `admin`, `tencalade27`; `AddMembersDialog` on `mi` → `mikec`; `TableShareDialog` on `mi` → `mikec`, `admin`. Real names, not a 200 with an empty array. |
+| F.1 — one request, not three | Two dialogs in one page session issued **one** `GET /v1/user-directory` between them; the hour-long `staleTime` is unchanged by the port. The third dialog was opened after a full page load, so its own request is expected and the three-in-one-session claim is **corroborated across two, not three**. |
+| F.1 — `AddMembersDialog` on `ad` returned **nothing** | Not a defect: `adamparker`, `admin` and `tencalade27` are all already members of `dwb_testing_all`. Checked against the roster before concluding. |
+| F.2 — preflight headers | `OPTIONS` → **200**, `access-control-allow-headers: authorization,content-type,x-request-id`, `access-control-max-age: 600`. Every bearer-carrying cross-origin `fetch` in this session succeeded, which is the browser half — **in Chromium. Safari is still owed.** |
+| F.3 — the refusals | No credential → **401** `{"error":{"code":"SessionExpired","requestId":"…"}}`; garbage bearer → the same, byte-identical apart from the id. |
+| F.4 — **the correlation key is the gateway's** | `POST /v1/nope` with body `{"requestId":"spoofed"}` logged `request_id: "C6-0Oj1hoAMEZig="` and `client_request_id: null`. The string `spoofed` appears in **none of the 470 records**. |
+| F.6 — cold start | The first invocation after the deploy succeeded. |
+
+### SPEC-200 §G — the enqueue paths
+
+**§G.5, the grants, simulated against the DEPLOYED roles.** `sqs:SendMessage` against all eight
+request queues:
+
+| Role | Result |
+|---|---|
+| `dat-portal-user-role` | **`implicitDeny` on all eight** |
+| — paired control | `s3:GetObject` under the caller's own prefix (with `aws:PrincipalTag/username=agriffith`) → **`allowed`** |
+| `dat-prod-api-role` | **`allowed` on all eight** |
+
+This is the only evidence the browser's grants are actually gone rather than merely absent from the
+templates. **Read the per-queue results one call at a time** — `--output text` over a multi-resource
+simulate prints the decision on the first row only and the bare ARNs after it, which reads as seven
+missing verdicts and cost a re-run to disbelieve.
+
+**§G.1 row 8, archive, end to end** — the arc's first real request through the API on this plane, and
+it is judged on the outcome rather than the 200:
+
+- `POST /v1/enqueue/archive` → **200**, one call, body
+  `{"requestId":"26c2e82f-…","source":{"space":…,"items":[{"kind":"folder","key":"agriffith/archive_live_0830/"}]}}`
+  and **no `actor` and no `identity` field** — the actor is taken from the bearer server-side, which
+  is the delegated-actor claim, observed.
+- The notification arrived with the specified wording, and the folder left the listing.
+
+**§G.1 row 9, restore** — `restore_started` arrived (below).
+
+**§G.3, one log record per plane** — for the archive plane, every required field is present and every
+forbidden one absent:
+
+```
+route_id: archive.archive   queue: archive   actor: agriffith
+message_group_id: c781a6d5…  dedup_id = body_request_id = 26c2e82f-…
+body_bytes: 1763   status: 200   env: prod   version: 726aa448…
+```
+
+### The structured log, swept mechanically rather than sampled
+
+470 records in the session's window (215 `span.start` + 215 `span.end` + 40 others; 470 distinct
+`log_id`s and **zero duplicate lines in the file** — the pairing is two spans per request, not a
+double-write, which is what it looks like until you check).
+
+**Nine absence checks, all zero:** any `eyJ`-shaped JWT substring, any email address,
+`x-amz-signature`, any `AKIA`/`ASIA` string, a `usernames` array, raw SQL (`\bselect\b\s+\w`),
+`stateChangeReason`, the string `Insufficient permissions`, and `arn:aws` anywhere in the fields.
+
+**And the substitutes are present, which is the half a leak check cannot see:** `username_count`
+(not `usernames`), `sql_bytes` (not the statement), `state` (not `stateChangeReason`), and on the
+presign route **`key_length: 38`** — the key's *length*, never the key. Every record carries
+`env: "prod"` and `version: 726aa448…`; **zero** records carry an empty or `0.0.0` version, which
+was defect #5 of the 2026-08-27 session and is now fixed in the deployed build.
+
+### The archive and restore (approval given in session)
+
+Fixture `archive_live_0830/` created this session, two CSVs uploaded through the portal.
+
+**B1 — every assertion passed.** The dialog heading named the folder **relative to the space root**
+(`archive_live_0830/`, not `agriffith/archive_live_0830/`); it said the data will be removed and that
+a restore takes several hours; it did **not** say "this can't be undone"; `role="alertdialog"`, and
+**focus was on Cancel**. **Enter cancelled the dialog and issued zero requests** — the one
+irreversible surface refusing the affordance that would fire it, observed for the first time.
+
+The outcome: *"Archived 3 files (489 B). They have been removed from your space. Archive id:
+26c2e82f-… - you'll need it to restore them."* — **3**, not 2, because the folder placeholder counts.
+The notification's link is `/files?prefix=agriffith/archive/{uuid}/`, so it lands **in the archive
+folder, not at the space root**. In that folder: `receipt.txt` (361 B) reads correctly; **Upload** and
+**New folder** are `aria-disabled="true"` with `disabled === false`, `tabIndex 0` and the read-only
+reason; **Archive is ABSENT, not disabled**. The source folder is gone from the space root.
+
+**B2 — requested 15:16:39 UTC.** A nonsense id was refused inline with *"That doesn't look like an
+archive id. Ids look like 3f8a1c2e-…"* and the submit control was **never merely disabled**
+(`disabled: false`, `aria-disabled: null`, `tabIndex 0`). Fourteen seconds after submitting, the
+receipt already read `Restore requested: 2026-08-30 15:16:39 UTC` with `Restored to: -` — **the
+marker really is written before the bill**. The `restore_started` notification arrived — *"Restoring
+3 files from long-term storage… Nothing has changed in your space yet."* — and carries **no link**,
+as specified.
+
+**Phase D is owed on this archive**, in 3–5 hours: the terminal notification and its link, the files
+back at their original paths, `archive/{id}/` still holding its rewritten receipt, and multiple
+`retrieval polled` events hours apart with `poll_count` climbing.
+
+### Findings
+
+| # | Finding |
+|---|---|
+| 1 | **The browser still calls the Identity Pool.** `fetchAuthSession` hits `cognito-identity.us-east-1.amazonaws.com`, and `/config.json` ships a **non-empty `cognitoIdentityPoolId`**. Expected — SPEC-202 is what retires it, and the CloudFront CSP allowlists the host deliberately — but **`CLAUDE.md`'s "the browser's only remaining AWS call is presigned S3 bytes" is false as deployed**, and `arc-b-api-container-e2e.md` §4's load-bearing negative would fail today if run as written. No AWS credentials are persisted (storage holds only oauth/id/access/refresh tokens), and the vended session's grants are the ones §G.5 measured. |
+| 2 | **`arc-b-api-container-e2e.md` §F.3 asserted the wrong status.** It expected **404** from two *unauthenticated* `curl`s. The router resolves a principal **before** the route and refuses an unknown path as unauthenticated — its own docstring says so, because "a 404 to an unauthenticated caller tells them which paths exist". Both are **401**. With a valid bearer both are **404 `NotFound`**, envelope-shaped. Fixed in this branch. |
+| 3 | The archive receipt's `Original path` reads `s3://dat-prod-user-space/agriffith/` — the **space root**, not the archived folder. The per-file paths live in the plan, so a restore is unaffected, but the receipt alone does not say *what* was archived. Not filed as a defect; worth a decision. |
+
+### Not run, and why
+
+- **F.5, the refresh-once path.** The stored token did age past its hour mid-session, but Amplify
+  refreshed **proactively** on the next gesture — `cognito-idp` and `cognito-identity`, then a single
+  `GET /v1/objects` **200 with no 401 first**. `apiRequest`'s 401-retry never fired, so the "exactly
+  two requests" assertion has still never been observed. It needs the refresh broken, not merely the
+  token expired.
+- **The multi-GiB upload** (FR-005 AC8) — the premise the whole single-`PUT` design rests on. The
+  fixtures here were 235 B and 254 B.
+- **An intermediate upload percentage in a real browser** — the transfer is confirmed to be an XHR,
+  which is the mechanism, but no progress event was sampled.
+- **Safari, and 400 px.** Everything above is Chromium; it corroborates and cannot discharge.
+- **§G.1's other eight rows, §G.2's double-submit guard, §G.4's refusals.** Archive and restore are
+  two of ten planes.
+- **A fresh sign-in.** The session was warm throughout. A second tab was found signed **out** —
+  tab-scoped storage working as intended — but signing it in needs a password, which is not mine to
+  enter.
