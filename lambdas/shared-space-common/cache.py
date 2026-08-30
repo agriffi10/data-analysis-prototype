@@ -42,7 +42,9 @@ def _is_absent(exc):
     caller lacks list permission. Treating the denial as absent is safe only because the create
     path is conditional: a present-but-unreadable object misread as absent makes the create-only
     write fail on its precondition rather than overwrite real data. The registry deliberately
-    does not treat a denial as absent, because its role does hold list permission.
+    does not treat a denial as absent, because its role does hold list permission for the keys it
+    reads — unconditioned on this bucket, and conditioned to ``shared-spaces/*`` on the admin one.
+    This tolerance is belt-and-braces rather than the thing making the cache work.
 
     Args:
       exc: The read fault.

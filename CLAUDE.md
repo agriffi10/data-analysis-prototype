@@ -418,6 +418,16 @@ only reads; the API enqueues on its behalf.
   refresh deadlock arriving by your own hand.
 - **A service may call an action on your behalf that appears in no action list** — ELB calls
   `ec2:GetSecurityGroupsForVpc` inside `CreateLoadBalancer`.
+- **A role that cannot LIST a bucket cannot be told an object is ABSENT** — S3 answers `NoSuchKey`
+  only to a caller holding `s3:ListBucket`, so every `except NoSuchKey: return None` needs a
+  covering grant or its absence branch fails as a fault. Found live: an unregistered space raised
+  `AccessDenied` out of `cpcommon.registry.load` instead of refusing. **A CONDITIONED grant is
+  sufficient — having no statement is what breaks**, and the simulate misleads here, returning
+  `implicitDeny` with no `s3:prefix` supplied because it answers what IAM decides given your
+  context, never what the service supplies. So scope the condition to the keys read; do **not**
+  widen to an unconditioned admin-bucket list (that discloses every space name, then every
+  roster), and do **not** read `AccessDenied` as absence, which makes a real denial look like a
+  fresh request. The population is swept from the AST, never listed.
 - **A condition on a key the caller does not populate fails CLOSED**, and the refusal names neither.
 - **The deploy role can lock itself out**: tighten or widen one of its own grants and plan, apply and
   **revert** all fail alike. `Deploy Infrastructure` takes `skip_refresh` to break it — always follow

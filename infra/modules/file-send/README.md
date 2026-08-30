@@ -159,3 +159,23 @@ with one failure mode should not have two answers to it.**
 The guard Map's fan-out (5) is **named as a local rather than written into the ASL because the
 transfer-cap test reads it** — the guard Map's makespan is one of the terms in the machine's own
 timeout budget.
+
+## The registry list grant is what makes "no such space" answerable
+
+`RegistryList` lets this role run `s3:ListBucket` on the admin bucket, conditioned to
+`shared-spaces/*` — the prefix `cpcommon.registry.load` reads and nothing wider.
+
+It is there because this plane's authorize step branches on that function returning None for "no
+such space", and S3 reports a missing object as absent only to a caller that can list the bucket.
+Without the grant the None is unreachable and a request naming an unregistered space fails as a
+fault instead of taking its refusal. Found in production on 2026-08-17, under a role that held the
+`GetObject` grant and no list statement at all.
+
+**Do not widen it to an unconditioned list.** This role reads `${admin_bucket_arn}/shared-spaces/*`,
+so a bucket-wide list would hand it every shared space's name and then every roster, and the space
+name is the only thing gating that read.
+
+Why a conditioned grant is sufficient, why the IAM simulate suggests otherwise, and the production
+evidence settling it: `docs/decisions/infrastructure.md` → *A role that cannot list a bucket cannot
+be told an object is absent*. `lambdas/test_absence_is_answerable.py` holds every registry-reading
+directory to this, and fails closed on one it cannot map to a role.

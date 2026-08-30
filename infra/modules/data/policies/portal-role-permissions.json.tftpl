@@ -40,6 +40,20 @@
       "Resource": "${bucket_arn}/_config/*"
     },
     {
+      "Sid": "ListTheSharedDocuments",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "${bucket_arn}",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [
+            "_directory/*",
+            "_config/*"
+          ]
+        }
+      }
+    },
+    {
       "Sid": "ProtectPrefixMarker",
       "Effect": "Deny",
       "Action": "s3:DeleteObject",

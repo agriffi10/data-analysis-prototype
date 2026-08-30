@@ -150,3 +150,26 @@ neither, and a comparison against the wrong one silently never matches.
 Both absorb an IAM propagation window on **initial creation only**. The bucket's covers the deploy
 role racing its own `module.base` grant; the role's covers `iam:CreateRole`/`PassRole` being granted
 in the same apply that creates the role.
+
+## The portal role can list the two documents that belong to no user
+
+`ListTheSharedDocuments` adds `_directory/*` and `_config/*` to the prefixes this role may run
+`s3:ListBucket` under. Its other list grant is conditioned on the caller's own prefix, which
+neither of those keys is beneath.
+
+Both documents are read on the **user** plane — the routes reach for the caller's own assumed
+session rather than the API's execution role, so the read is authorized by the grant the browser
+used to rely on. That works while the documents exist. It stops working the moment one does not:
+S3 reports a missing object as `NoSuchKey` only to a caller that can list the bucket, so without
+this grant an absent document answers `AccessDenied`, and both routes raise on anything that is
+not an absence code. The username directory would fail instead of answering an empty list, and the
+flag document would fail instead of answering `NotFound` — the two behaviours those routes exist
+to provide.
+
+**It discloses nothing new.** Every authenticated user already holds `s3:GetObject` on both
+prefixes; being able to list them adds the existence of two fixed, well-known keys. The grant is
+still scoped to those two prefixes rather than widened, because the neighbouring condition is what
+keeps one user out of another's prefix.
+
+Neither absence path has been exercised live. `lambdas/test_absence_is_answerable.py` pins the
+grant; the live checks are owed in `docs/testing/owed.md`.

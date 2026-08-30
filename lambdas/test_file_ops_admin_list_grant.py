@@ -6,10 +6,18 @@ and this role had no list grant at all. The plan never exists on a first submiss
 folder copy, move and delete failed with *"the working list for that could not be read back."*
 Measured live: the plane's first execution failed at ``InspectSource`` on exactly that denial.
 
-**The grant is conditioned, and the condition is why there is a probe in the code.** A ``GetObject``
-request carries no ``s3:prefix``, so a conditioned list grant does nothing for the read — measured,
-``implicitDeny`` with no prefix supplied and ``allowed`` with one. The unconditioned form would fix
-the read directly and was rejected: this role already holds ``GetObject`` on
+**Superseded on one point (2026-08-30): a conditioned grant DOES fix the read.** The paragraph
+below reasons from ``simulate-principal-policy``, which answers what IAM decides given the context
+*you* supply rather than what S3 supplies. Production settles it the other way — see
+``docs/decisions/infrastructure.md`` → *A role that cannot list a bucket cannot be told an object
+is absent*. Holding **no** statement is what breaks, which is what this role had. The grant and its
+scoping below are still right; the probe is belt-and-braces rather than load-bearing.
+
+**The grant is conditioned, and the condition was thought to be why there is a probe in the code.**
+A ``GetObject`` request carries no ``s3:prefix``, so a conditioned list grant does nothing for the
+read — measured, ``implicitDeny`` with no prefix supplied and ``allowed`` with one. The
+unconditioned form would fix the read directly and was rejected: this role already holds
+``GetObject`` on
 ``${admin_bucket_arn}/shared-spaces/*``, so a bucket-wide list would let it enumerate every shared
 space's registry entry and read every roster — the disclosure the project declines by not
 publishing a shared-space directory at all. So the grant stays inside the plan prefix, and
@@ -40,6 +48,7 @@ LIFECYCLE_RULE = ROOT / "infra" / "modules" / "analytics" / "s3.tf"
 ADMIN_BUCKET_ARN = "@{admin_bucket_arn}"
 PLAN_PREFIX_VAR = "@{plan_prefix}"
 LIST_ACTION = "s3:ListBucket"
+PLAN_LIST_SID = "ListPlanPrefixForHonestAbsence"
 
 sys.path.insert(0, str(ROOT / "lambdas" / "file-ops-common"))
 
@@ -95,6 +104,57 @@ def _list_grants() -> list[dict]:
     ]
 
 
+def _plan_list_grants() -> list[dict]:
+    """The admin-bucket list grants that exist for the PLAN, not for the registry.
+
+    This role now holds two, and they are narrow in different directions: this one admits the plan
+    prefix, and ``RegistryList`` admits ``shared-spaces/*`` so ``cpcommon.registry.load`` can be
+    told a space is not registered. Selecting by Sid keeps each test arguing about its own grant —
+    the shared property, that neither may be unconditioned, is asserted over ALL of them.
+
+    Args:
+      None.
+
+    Returns:
+      The matching statements.
+
+    Raises:
+      None.
+    """
+    return [s for s in _list_grants() if s.get("Sid") == PLAN_LIST_SID]
+
+
+def test_no_admin_bucket_list_grant_is_unconditioned() -> None:
+    """Whichever grants exist, none may list the admin bucket at large.
+
+    Asserted over **every** list grant rather than the plan's, because the disclosure does not
+    care which statement carries it: this role reads ``${admin_bucket_arn}/shared-spaces/*``, so a
+    bucket-wide list hands it every shared space's name and then every roster — and the space name
+    is the only thing gating that read. A future third grant is covered without being named here.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If any admin-bucket list grant carries no ``s3:prefix`` condition.
+    """
+    granting = _list_grants()
+    assert granting, "no admin-bucket list grant at all — the enumeration is broken"
+
+    for statement in granting:
+        prefixes = _as_list(
+            statement.get("Condition", {}).get("StringLike", {}).get("s3:prefix", [])
+        )
+        assert prefixes, (
+            f"{statement.get('Sid')!r} allows {LIST_ACTION} on the whole admin bucket. This role "
+            f"reads {ADMIN_BUCKET_ARN}/shared-spaces/*, so a bucket-wide list hands it every "
+            "shared space's name and then every roster"
+        )
+
+
 def test_the_role_can_list_the_admin_bucket_and_only_inside_the_plan_prefix() -> None:
     """The grant exists, names the bucket itself, and is confined by an ``s3:prefix`` condition.
 
@@ -114,10 +174,11 @@ def test_the_role_can_list_the_admin_bucket_and_only_inside_the_plan_prefix() ->
       AssertionError: If the grant is missing, scoped to objects rather than the bucket, or not
         confined to the plan prefix.
     """
-    granting = _list_grants()
+    granting = _plan_list_grants()
 
     assert granting, (
-        f"no statement allows {LIST_ACTION} on {ADMIN_BUCKET_ARN}. focommon.plan._absent then "
+        f"no {PLAN_LIST_SID} statement allows {LIST_ACTION} on {ADMIN_BUCKET_ARN}. "
+        "focommon.plan._absent then "
         "cannot answer, a missing plan stays indistinguishable from a denial, and every "
         "first-time folder operation fails as 'the working list for that could not be read back'"
     )
@@ -165,7 +226,7 @@ def test_the_list_condition_names_the_same_prefix_the_plan_statements_do() -> No
         "comparison below would hold vacuously against a prefix nothing else uses"
     )
 
-    for statement in _list_grants():
+    for statement in _plan_list_grants():
         for prefix in _as_list(
             statement.get("Condition", {}).get("StringLike", {}).get("s3:prefix", [])
         ):
