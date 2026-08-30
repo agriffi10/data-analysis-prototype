@@ -21,11 +21,9 @@ from apicommon import contract
 from apicommon import enqueue as enqueue_module
 from conftest import bearer
 
-_SECRET = "TOKEN-THAT-MUST-NOT-APPEAR-ANYWHERE"
-
 
 class _ExplodingSqs:
-    """A client that fails inside the send helper, after the bearer has been unwrapped.
+    """A client that fails inside the send helper, on the path that used to carry a bearer.
 
     Attributes:
       None.
@@ -89,9 +87,14 @@ def test_no_module_unwraps_a_bearer_into_a_message_body():
     """The count was one and is now ZERO, which is the stronger form of the same guard.
 
     ``reveal`` was the single deliberate door through the wrapper, and the sender was the only
-    caller. Both are gone with the field they served. The sweep stays because the regression it
-    catches is the one that matters: a later route deciding it needs to forward a credential
-    reintroduces the whole exposure, and it would look locally reasonable.
+    caller. Both are gone with the field they served.
+
+    **What this catches is narrow, and the narrowness is worth stating**: it is coupled to that
+    name, so a forwarded credential reintroduced under any other one is invisible here. The teeth
+    for that regression are in ``test_enqueue_routes``, which asserts the sent body carries neither
+    field name a plane ever kept a token in — ten routes, checked on the message itself. This
+    remains because the specific shape it names is the one somebody restoring the old design would
+    reach for first.
     """
     api = pathlib.Path(__file__).parent
     callers = []

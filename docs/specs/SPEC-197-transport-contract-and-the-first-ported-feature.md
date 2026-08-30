@@ -117,7 +117,6 @@ Everything a reader would reasonably assume travels with "we built the API contr
    third field on the error object is proposing to touch every service, hook and consumer in the app
    and must say so out loud.
 
-
 ---
 
 ## Functional Requirements

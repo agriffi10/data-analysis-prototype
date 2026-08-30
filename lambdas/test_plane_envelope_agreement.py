@@ -6,9 +6,12 @@ failure is silent offline and total in production — every request of that shap
 plane, dead-letters, and the user is told their request could not be started.
 
 Both directions are derived. The allowed-field planes publish a set, and it is compared against the
-API's own declaration plus the three things the sender adds. The planes with no allowlist have their
+API's own declaration plus the two things the sender adds. The planes with no allowlist have their
 read set extracted from their source by AST, and it must be a subset of the same. A hand-copied list
 on either side would agree with itself.
+
+The one exception is at the bottom of the file, and it is deliberate: which plane still admits its
+old token field is history the contract no longer carries, so there is nothing to derive it from.
 """
 
 import ast
@@ -110,8 +113,9 @@ def _agrees(allowed, expected, label):
 def _declared_keys(queue_id):
     """Every top-level key a message on one queue may carry.
 
-    The API's declared request fields, plus the three things the sender adds: the identity block,
-    the token the plane still verifies, and whatever that route stamps for itself.
+    The API's declared request fields, plus the two things the sender adds: the identity block, and
+    whatever that route stamps for itself. It used to be three — the token a plane verified was the
+    third, and there is no longer one.
 
     Args:
       queue_id: The queue's registry id.
@@ -339,14 +343,61 @@ def test_every_drained_queue_has_a_writer_and_notifications_is_not_a_row():
     assert dlq_drain.UNDRAINED_QUEUES == _TWO_PRODUCER_PLANES
 
 
-def test_the_legacy_tolerance_is_not_vacuous():
-    """At least one plane still admits its old token field, or FR-006's guarantee is gone.
+#: What each allowlist plane admitted the day the API stopped sending a token, per mode where a
+#: plane has two. A LITERAL, deliberately, and the only hand-maintained list in this file.
+#:
+#: The tolerance in ``_agrees`` says a leftover legacy name is permitted; FR-006 needs the stronger
+#: statement that it is still THERE. Measured rather than derived, because the fact it pins —
+#: which plane kept which field — is history the contract no longer carries, so there is nothing
+#: left to derive it from. Rotting is the usual objection to a list like this and does not apply:
+#: it is pinned to a moment that has passed, and the next spec to touch these sets is meant to
+#: read this line and decide, which is exactly what a hand-maintained list is good at.
+LEGACY_ADMITTED_TODAY = {
+    "file-send": {"actor"},
+    "file-ops": {"actor"},
+    "archive": {"actor"},
+}
 
-    ``_agrees`` TOLERATES a leftover legacy name; it cannot require one, because which plane kept
-    which is history the contract no longer carries. So the requirement is asserted once, over the
-    fleet: if every plane tightened, the tolerance would pass on an empty set and the staged
-    pre-cutover message would become a `malformed_event` on every plane — a different reason code,
-    a different notification decision, and a criterion that silently stopped testing what it names.
+
+@pytest.mark.parametrize("queue_id", sorted(_ALLOWLIST_PLANES), ids=sorted(_ALLOWLIST_PLANES))
+def test_no_plane_tightened_its_allowed_fields_when_the_token_stopped_being_sent(queue_id):
+    """The legacy field is still admitted, per plane, not merely permitted to be.
+
+    A message enqueued before the cutover carries a flat token and no identity block. It must be
+    refused as ``unauthorized`` by the actor reader — not as ``malformed_event`` by the
+    allowed-field check, which happens FIRST and would produce a different reason code, a
+    different notification decision, and a live criterion that silently stopped testing what it
+    names.
+
+    Asserted per plane because the fleet-level version of this was breakable: tightening one of
+    the three left the whole file green, since ``_agrees`` only ever tolerated the field and the
+    non-vacuity guard was satisfied by the other two.
+
+    Args:
+      queue_id: The allowlist plane being checked.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a plane stopped admitting the field its old envelope used.
+    """
+    relative_path, name = _ALLOWLIST_PLANES[queue_id]
+    allowed = _module_constant(relative_path, name)
+    sets = list(allowed.values()) if isinstance(allowed, dict) else [allowed]
+    expected = LEGACY_ADMITTED_TODAY[queue_id]
+
+    assert expected <= LEGACY_ADMITTED, f"{queue_id}: the pin names a non-legacy field"
+    for fields in sets:
+        assert expected <= fields, (
+            f"{queue_id} no longer admits {sorted(expected - fields)} — a message enqueued "
+            "before the cutover is now malformed_event rather than the unauthorized refusal "
+            "that path is meant to produce"
+        )
+
+
+def test_every_allowlist_plane_is_pinned():
+    """Guard the guard: a plane missing from the pin above is a plane nothing checks.
 
     Args:
       None.
@@ -355,17 +406,6 @@ def test_the_legacy_tolerance_is_not_vacuous():
       None.
 
     Raises:
-      AssertionError: If no allowlist plane admits a legacy token field any more.
+      AssertionError: If the pin and the plane map disagree.
     """
-    still_admitting = set()
-    for queue_id, (relative_path, name) in _ALLOWLIST_PLANES.items():
-        allowed = _module_constant(relative_path, name)
-        sets = allowed.values() if isinstance(allowed, dict) else [allowed]
-        for fields in sets:
-            if fields & LEGACY_ADMITTED:
-                still_admitting.add(queue_id)
-
-    assert still_admitting, (
-        "no plane admits its legacy token field any more — a message enqueued before the cutover "
-        "is now malformed_event rather than unauthorized on every one of them"
-    )
+    assert set(LEGACY_ADMITTED_TODAY) == set(_ALLOWLIST_PLANES)

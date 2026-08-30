@@ -76,18 +76,19 @@ def _clipped(request_id) -> str | None:
     return request_id[:MAX_LOGGED_REQUEST_ID]
 
 
-def _stamped_values(route: EnqueueRoute, ctx: RequestContext) -> dict[str, Any]:
+def _stamped_values(route: EnqueueRoute) -> dict[str, Any]:
     """The top-level fields the sender writes and the caller may not.
 
     Each is a value that chooses behaviour rather than describing a request, which is why none of
     them is a caller input: ``mode`` is the difference between archiving and restoring, and
     handing it to a body would hand the caller that branch.
 
+    It takes no request. It used to, for shared-space's advisory top-level ``actor`` — which
+    duplicated ``identity.actor``, which nothing read, and which is gone: a second place a
+    username appears on the wire is a second one that can disagree with the first.
+
     Args:
       route: The route being served.
-      ctx: The request. Unused now that shared-space's advisory top-level ``actor`` is gone —
-        it duplicated ``identity.actor``, nothing read it, and leaving a second place a username
-        appears on the wire is how the two eventually disagree.
 
     Returns:
       The fields to stamp, whose key set is the route's own declaration.
@@ -127,7 +128,7 @@ def build_message(
     """
     return {
         **dict(payload),
-        **_stamped_values(route, ctx),
+        **_stamped_values(route),
         "identity": identity_block.build(ctx.principal),
     }
 

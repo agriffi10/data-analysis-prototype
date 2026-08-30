@@ -386,25 +386,8 @@ def test_only_four_routes_stamp_a_field_and_the_values_match_what_they_declare()
         "archive.restore": frozenset({"mode"}),
     }
     for route in contract.ENQUEUE_ROUTES:
-        values = enqueue_module._stamped_values(route, _FakeContext())
+        values = enqueue_module._stamped_values(route)
         assert set(values) == set(route.stamped), route.id
-
-
-class _FakeContext:
-    """The one field ``_stamped_values`` reads, so the declaration can be checked without a request.
-
-    Attributes:
-      principal: A stand-in caller.
-    """
-
-    class principal:
-        """The verified caller.
-
-        Attributes:
-          username: The caller's name.
-        """
-
-        username = "alice"
 
 
 def test_the_record_names_the_send_and_carries_no_part_of_the_body(sqs, captured_events):
