@@ -36,13 +36,27 @@ class _S3Error(Exception):
 
 
 class _FakeS3:
-    def __init__(self, objects=None):
+    def __init__(self, objects=None, deny_missing=False, deny_list=False):
         self.objects = objects or {}
         self.puts = []
+        self.deny_missing = deny_missing
+        self.deny_list = deny_list
+        self.lists = []
+
+    def list_objects_v2(self, Bucket, Prefix, MaxKeys=None):
+        self.lists.append(Prefix)
+        if self.deny_list:
+            raise _S3Error("AccessDenied", status=403)
+        found = [{"Key": key} for key in sorted(self.objects) if key.startswith(Prefix)]
+        if not found:
+            return {}
+        return {"Contents": found[: MaxKeys or len(found)]}
 
     def get_object(self, Bucket, Key):
         if Key not in self.objects:
-            raise _S3Error("NoSuchKey")
+            raise _S3Error("AccessDenied", status=403) if self.deny_missing else _S3Error(
+                "NoSuchKey"
+            )
         body = self.objects[Key]
         if isinstance(body, Exception):
             raise body
@@ -59,8 +73,8 @@ class _FakeS3:
         return {}
 
 
-def _install(objects=None):
-    fake = _FakeS3(objects)
+def _install(objects=None, deny_missing=False, deny_list=False):
+    fake = _FakeS3(objects, deny_missing=deny_missing, deny_list=deny_list)
     clients._s3 = fake
     return fake
 
@@ -366,3 +380,67 @@ def test_a_read_fault_that_is_retryable_stays_retryable():
 
     with pytest.raises(TransientError):
         plan.load("file-ops/req-1/plan.json", _request())
+
+
+def test_a_denied_read_of_an_ABSENT_plan_is_an_absence_and_not_a_fault():
+    """Production's shape, which no fake here reproduced until now.
+
+    A caller whose list grant is conditioned on a prefix cannot satisfy that condition on a
+    ``GetObject``, so S3 refuses the read of a MISSING object rather than reporting it missing.
+    Every first submission arrives that way, and before the probe it failed the whole operation
+    with "the working list for that could not be read back".
+    """
+    fake = _install(deny_missing=True)
+
+    assert plan.assert_request_id_unused(_request(), _EXECUTION) is None
+    assert fake.lists == [plan.plan_key(_request())], (
+        "the absence was concluded without asking S3 whether the key is there"
+    )
+
+
+def test_a_denied_read_of_a_PRESENT_plan_still_refuses():
+    """The half that stops the fix failing open.
+
+    Were a denial alone read as absence, a request whose plan exists but cannot be read would be
+    planned a second time — over a run still copying from the first plan's object list.
+    """
+    key = plan.plan_key(_request())
+    fake = _install({key: _S3Error("AccessDenied", 403)}, deny_missing=True)
+
+    with pytest.raises(TerminalError) as err:
+        plan.assert_request_id_unused(_request(), _EXECUTION)
+
+    assert err.value.reason == "plan_unreadable"
+    assert fake.lists, "the read was refused without the list that separates denial from absence"
+
+
+def test_a_denied_LIST_is_a_fault_rather_than_an_absence():
+    """The probe cannot answer, so nothing may be concluded from it.
+
+    This is the grant being wrong rather than the object being missing, and guessing absence here
+    would restore the fail-open the probe exists to remove.
+    """
+    fake = _install(deny_missing=True, deny_list=True)
+
+    with pytest.raises(TerminalError) as err:
+        plan.assert_request_id_unused(_request(), _EXECUTION)
+
+    assert err.value.reason == "plan_unreadable"
+    assert fake.lists == [plan.plan_key(_request())], (
+        "the refusal came from the read alone — this test passes against code with no probe at "
+        "all unless it asserts the probe was attempted"
+    )
+
+
+def test_a_SIBLING_key_under_the_plan_key_is_not_mistaken_for_the_plan():
+    """The exact-match filter, which nothing else in the suite exercises.
+
+    ``_absent`` lists by prefix, and a prefix matches anything that extends it. Were the answer
+    taken from "the listing is non-empty", an artifact written beside a plan would make a genuinely
+    absent plan read as present and refuse a legitimate request.
+    """
+    key = plan.plan_key(_request())
+    fake = _install({f"{key}.bak": "{}"}, deny_missing=True)
+
+    assert plan.assert_request_id_unused(_request(), _EXECUTION) is None
+    assert fake.lists == [key]

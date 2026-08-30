@@ -125,6 +125,50 @@ def plan_key(request: dict) -> str:
     return f"{_request_folder(request)}{BASENAME}"
 
 
+def _absent(key: str) -> bool:
+    """Whether the plan key really is unoccupied, asked with a LIST rather than a read.
+
+    **This exists because a denial and an absence are the same answer on a `GetObject`.** S3
+    reports a missing object as ``NoSuchKey`` only to a caller that can list the bucket; to one
+    that cannot, it is ``AccessDenied``. This role's list grant is conditioned on the plan prefix,
+    and a ``GetObject`` carries no prefix for that condition to match, so the read is denied for
+    every absent plan — which is every first submission.
+
+    A list DOES carry the prefix, so it is answerable where the read is not, and it answers the
+    question the caller actually has. The denial is never itself read as absence: only a list that
+    comes back without the key is, so a genuine denial on an object that exists still raises and
+    cannot plan over a run already copying.
+
+    **One page is enough, and the reason is byte order rather than luck.** A key always sorts
+    before any key that extends it, so if the exact key exists it is the first S3 returns under
+    its own prefix and ``MaxKeys=1`` cannot miss it. Were that ever untrue — a sibling sorting
+    first — the exact match would fail against a truncated page and this would answer "absent",
+    which is the one way the probe could fail open. Widen the page before adding a sibling under a
+    plan's own key.
+
+    Args:
+      key: The plan key.
+
+    Returns:
+      True when no object is at that key.
+
+    Raises:
+      TransientError: On a retryable S3 fault.
+      TerminalError: ``plan_unreadable`` when the list itself is refused — the caller cannot tell
+        absence from denial, so it must not guess.
+    """
+    try:
+        listing = clients.s3().list_objects_v2(
+            Bucket=cpconfig.ADMIN_BUCKET, Prefix=key, MaxKeys=1
+        )
+    except Exception as err:
+        errors.raise_if_transient(err, f"list {cpconfig.ADMIN_BUCKET}/{key}")
+        raise TerminalError(
+            "plan_unreadable", f"could not check whether plan {key} exists: {err}"
+        ) from err
+    return not any(item.get("Key") == key for item in listing.get("Contents", []))
+
+
 def _read(key: str) -> dict | None:
     """Reads a plan object back, or reports that there is none.
 
@@ -136,13 +180,16 @@ def _read(key: str) -> dict | None:
 
     Raises:
       TransientError: On a retryable S3 fault.
-      TerminalError: ``plan_unreadable`` when an object is there but is not a JSON object.
+      TerminalError: ``plan_unreadable`` when an object is there but is not a JSON object, and
+        when a denied read cannot be shown to be an absence.
     """
     try:
         body = clients.s3().get_object(Bucket=cpconfig.ADMIN_BUCKET, Key=key)["Body"].read()
     except Exception as err:
         errors.raise_if_transient(err, f"get {cpconfig.ADMIN_BUCKET}/{key}")
         if errors.error_code(err) in ("NoSuchKey", "404"):
+            return None
+        if errors.error_code(err) in ("AccessDenied", "403") and _absent(key):
             return None
         raise TerminalError("plan_unreadable", f"could not read plan {key}: {err}") from err
 
