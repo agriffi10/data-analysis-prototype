@@ -178,5 +178,5 @@ ignore_missing_imports = false  # missing stubs are declared per-module below, n
 # Third-party imports with no bundled stubs. Named individually so a NEW untyped dependency
 # shows up as an error instead of being absorbed by a blanket ignore.
 [[tool.mypy.overrides]]
-module = ["boto3", "log_foundry", "log_foundry.*", "polars", "jwt", "jwt.*"]
+module = ["boto3", "botocore.config", "log_foundry", "log_foundry.*", "polars", "jwt", "jwt.*"]
 ignore_missing_imports = true

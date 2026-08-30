@@ -101,10 +101,11 @@ SINGLETON_OWN_ENV = {
     "notifications-writer": {},
 }
 
-#: boto3 IS STUBBED. ``post_confirmation`` builds its Glue and Lake Formation clients at module
-#: scope, and CI's `lambdas` job installs only ruff/pytest — so a real import would pass locally
-#: and fail in CI, testing the machine rather than the property. The Lambda runtime always
-#: provides boto3; what is under test here is the ENVIRONMENT, not the dependency.
+#: boto3 IS STUBBED, and stays stubbed now that the test job installs a real one. The Lambda
+#: runtime always provides boto3 and no layer declares it, so what is under test here is the
+#: ENVIRONMENT a matrix row grants, not the dependency. A real client inside the probe would
+#: also make the result depend on the runner's credentials and region, which is a property of
+#: the machine rather than of the layering.
 _MODULE_PROBE = """
 import importlib, sys, types
 

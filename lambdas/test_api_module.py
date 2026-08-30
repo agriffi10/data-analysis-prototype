@@ -17,8 +17,24 @@ Attributes:
   API_ROLE_FORBIDDEN_SERVICES: Services whose arrival would mean a server-side login flow.
   REQUIRED_ENVIRONMENT_KEYS: The configuration the function cannot start without.
   OIDC_KEYS: The provider block — the five values the verifier reads, and the only five.
+  PRESIGN_PROBE_REGIONS: Two regions, and BOTH are required. botocore presigns against the legacy
+    global host everywhere by default, but the setting that corrects it differs:
+    ``us_east_1_regional_endpoint`` moves only ``us-east-1`` and ``addressing_style`` moves only
+    the others. A guard probing one region passes on half a fix, and the half it cannot see is
+    the transition environment — where the same outage would return with this test still green.
+    Neither is read from the deployment: the point is to hold the config correct for a region
+    move, which a probe of today's region cannot do.
+  PRESIGN_PROBE_BUCKET: An arbitrary bucket name. It is substituted into both halves of the
+    comparison, so its value carries no meaning beyond being the same on each side.
+  REGIONAL_ENDPOINT_ENV: The environment variable that sets the same endpoint style the code
+    sets, and the reason the presign guard clears its environment. A developer who has fought
+    this default before may have it exported, and with it set the guard passes against code that
+    has no endpoint configuration at all — green locally, broken for every user. The shared
+    config file is the third source of the same value, which is why ``AWS_CONFIG_FILE`` is
+    pointed at nothing rather than merely left alone.
 """
 
+import datetime
 import json
 import os
 import pathlib
@@ -26,6 +42,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import urllib.parse
 
 from cpcommon.jwks import (
     API_FUNCTION_TIMEOUT_SECONDS,
@@ -53,6 +70,10 @@ CSP_CONNECT_SRC_TERMS = (
     "https://sqs.${var.aws_region}.amazonaws.com",
     "local.api_origin",
 )
+
+PRESIGN_PROBE_REGIONS = ("us-east-1", "eu-west-1")
+PRESIGN_PROBE_BUCKET = "probe-user-space"
+REGIONAL_ENDPOINT_ENV = "AWS_S3_US_EAST_1_REGIONAL_ENDPOINT"
 
 FORBIDDEN_IN_API_MODULE = ("vpc_config", "aws_security_group", "aws_subnet", "subnet_ids")
 
@@ -120,6 +141,33 @@ def _api_source(strip_comments: bool = True) -> str:
         return text
     return "\n".join(
         line for line in text.splitlines() if not line.lstrip().startswith("#")
+    )
+
+
+def _connect_src_terms() -> tuple[str, ...]:
+    """The connect-src source list, read out of root's Terraform as written.
+
+    Interpolations are left unresolved: a caller comparing against a literal wants them intact,
+    and a caller resolving them says which ones it resolved. Read once here rather than sliced at
+    each use, so two readers cannot disagree about where the list ends.
+
+    Args:
+      None.
+
+    Returns:
+      One entry per source, in file order, without quotes, commas or comment lines.
+
+    Raises:
+      ValueError: If the local is no longer a `join(` over a list literal, which means the shape
+        every caller slices for has changed and the silent answer would be an empty list.
+    """
+    root = ROOT_MAIN.read_text()
+    start = root.index("csp_connect_src = join(")
+    block = root[start : root.index("\n  ])", start)]
+    return tuple(
+        line.strip().rstrip(",").strip('"')
+        for line in block.splitlines()[1:]
+        if line.strip() and not line.strip().startswith("#")
     )
 
 
@@ -398,12 +446,6 @@ def test_the_browser_is_admitted_by_cors_the_csp_and_the_callback_list() -> None
     source = _api_source()
     gateway = (API / "apigateway.tf").read_text()
     client = API_CLIENT.read_text()
-    root = ROOT_MAIN.read_text()
-    connect_src_block = root[
-        root.index("csp_connect_src = join(") : root.index(
-            "\n  ])", root.index("csp_connect_src = join(")
-        )
-    ]
 
     assert re.search(
         r"allow_origins\s*=\s*compact\(\[var\.spa_origin,\s*var\.app_url\]\)", source
@@ -465,11 +507,7 @@ def test_the_browser_is_admitted_by_cors_the_csp_and_the_callback_list() -> None
         "API_GATEWAY_INTEGRATION_CEILING_SECONDS": API_GATEWAY_INTEGRATION_CEILING_SECONDS,
     }, f"the browser's copies drifted from cpcommon.jwks: {copies}"
 
-    found_terms = {
-        line.strip().rstrip(",").strip('"')
-        for line in connect_src_block.splitlines()[1:]
-        if line.strip() and not line.strip().startswith("#")
-    }
+    found_terms = set(_connect_src_terms())
     assert found_terms == set(CSP_CONNECT_SRC_TERMS), (
         f"root's connect-src is {sorted(found_terms)}; expected {sorted(CSP_CONNECT_SRC_TERMS)}. "
         "A term dropped here breaks one feature, only in a browser, and nothing offline sees it"
@@ -582,3 +620,80 @@ def test_the_provider_block_is_complete_and_cannot_be_silently_disabled() -> Non
         "a valid provider block was refused — the validations are over-tight, and the refusals "
         "asserted above would pass for the wrong reason"
     )
+
+
+def test_a_presigned_url_names_the_s3_host_the_csp_admits(monkeypatch) -> None:
+    """The minted host and the admitted host, derived from opposite sides and compared.
+
+    **This is the assertion the term list cannot make.** ``CSP_CONNECT_SRC_TERMS`` says the policy
+    names ``s3.${var.aws_region}.amazonaws.com``, and that has always been true; what it cannot say
+    is whether the presigner emits that host. botocore's default is the legacy global
+    ``s3.amazonaws.com``, so both halves read correct while disagreeing, and the browser blocked
+    every upload before sending it — reported to the user as a generic network error. Downloads
+    went on working, because a navigation is not governed by ``connect-src``, which is what let the
+    divergence look like health.
+
+    Nothing else could have caught it. The presign suites drive a fake signer, so no offline test
+    ever built a real client; the CSP suites compare Terraform against Terraform; and a review of
+    either half reads a correct sentence. Only a comparison spanning the two can fail.
+
+    **Both regions are probed because the corrections are region-split**, and a fix that moves one
+    of them looks complete. See ``PRESIGN_PROBE_REGIONS``.
+
+    Args:
+      monkeypatch: pytest's patcher, for the region botocore resolves the endpoint from.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a presigned host is not the host the policy admits for that region, or if
+        the policy no longer names the user-space bucket at all — the second would make the first
+        vacuous.
+    """
+    import sys
+
+    sys.path.insert(0, str(INFRA.parent / "lambdas" / "api"))
+    from apicommon import identity
+
+    monkeypatch.delenv(REGIONAL_ENDPOINT_ENV, raising=False)
+    monkeypatch.setenv("AWS_CONFIG_FILE", os.devnull)
+
+    admitting = [term for term in _connect_src_terms() if "user_space_bucket_name" in term]
+    assert len(admitting) == 1, (
+        f"expected exactly one connect-src term for the user-space bucket, found {admitting} — "
+        "the substitution below would compare against the wrong term or against nothing"
+    )
+
+    for region in PRESIGN_PROBE_REGIONS:
+        monkeypatch.setenv("AWS_REGION", region)
+        monkeypatch.setenv("AWS_DEFAULT_REGION", region)
+
+        minted = urllib.parse.urlparse(
+            identity._client(
+                "s3",
+                identity.AssumedCredentials(
+                    access_key_id="AKIAIOSFODNN7EXAMPLE",
+                    secret_access_key="s" * 40,
+                    session_token="token",
+                    expires_at=datetime.datetime.now(datetime.UTC),
+                ),
+            ).generate_presigned_url(
+                "put_object",
+                Params={"Bucket": PRESIGN_PROBE_BUCKET, "Key": "a/b.csv"},
+                ExpiresIn=900,
+            )
+        ).netloc
+
+        admitted = urllib.parse.urlparse(
+            admitting[0]
+            .replace("${local.user_space_bucket_name}", PRESIGN_PROBE_BUCKET)
+            .replace("${var.aws_region}", region)
+        ).netloc
+
+        assert minted == admitted, (
+            f"in {region} the API presigns against {minted!r} and the SPA's connect-src admits "
+            f"{admitted!r}. Every upload is blocked in the browser before it is sent, and reaches "
+            "the user as 'Can't reach the server' — while downloads, listings and every "
+            "server-side call keep working"
+        )
