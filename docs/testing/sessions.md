@@ -749,6 +749,37 @@ that forced 153's docs-transcribed stand-in. → SPEC-186 FR-004.
 | 6 | The members roster shows `Pending` — with *"hasn't signed in yet"* — for a member the same page shows as `Active`; Refresh does not reconcile | SPEC-186 FR-008 |
 | 7 | Recipient chips are three copied implementations, already drifted: remove target is **20×20** in Share table and Send files against **24×24** in Add members (WCAG 2.2 SC 2.5.8 minimum). Chip width is unbounded — a 63-char username extrapolates to ~610px, wider than its 448px dialog | SPEC-186 FR-009 |
 
+
+## 2026-08-30 — the registry list grant, verified against the deployed roles
+
+Run from a laptop against production IAM, read-only, immediately after #555's
+`Deploy Infrastructure` went green on `main`. This is the **paired-simulation** row that
+`owed.md` carried, now discharged; the other two rows it added remain owed.
+
+`s3:ListBucket` on `arn:aws:s3:::dat-prod-athena-admin`, per deployed execution role, each
+`allowed` paired with an `implicitDeny` control — an `allowed` alone proves the grant works and
+never that it stayed scoped:
+
+| Role | `s3:prefix=shared-spaces/demo.json` | control, `s3:prefix=logs/service=api/` |
+|---|---|---|
+| `dat-prod-archive-execution-role` | allowed | implicitDeny |
+| `dat-prod-data-quality-execution-role` | allowed | implicitDeny |
+| `dat-prod-file-ops-execution-role` | allowed | implicitDeny |
+| `dat-prod-file-send-execution-role` | allowed | implicitDeny |
+| `dat-prod-table-builder-execution-role` | allowed | implicitDeny |
+| `dat-prod-table-share-execution-role` | allowed | implicitDeny |
+
+And `dat-portal-user-role` on `arn:aws:s3:::dat-prod-user-space`, simulated with
+`aws:PrincipalTag/username=alice`: `_directory/usernames.json` allowed,
+`_config/feature-flags.json` allowed, `bob/docs/a.txt` **implicitDeny** — the isolation control,
+which is the assertion that matters, since the change added a second list grant beside the one
+carrying that isolation.
+
+**What this does NOT settle.** A simulate is not a request. It says IAM would allow the list; it
+does not show `cpcommon.registry.load` returning None, and it cannot, because the thing being
+fixed is what S3 chooses to *say* on a `GetObject`. The behavioural check — a real request naming
+an unregistered space ending at `unknown_space` rather than a failed run — is still owed.
+
 ---
 
 ### Fixtures
