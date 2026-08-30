@@ -77,6 +77,18 @@ window.fetch=async function(...a){
 };
 window.__clr=()=>{window.__ath.length=0};
 
+// 2b. THE UPLOAD IS AN XHR, NOT A FETCH — without this, an upload records ZERO calls and the
+// instrument above reads as "the browser issued nothing", which is the opposite of the truth.
+const OX=XMLHttpRequest.prototype.open, OS=XMLHttpRequest.prototype.send;
+XMLHttpRequest.prototype.open=function(m,u){this.__m=m;this.__u=String(u);return OX.apply(this,arguments)};
+XMLHttpRequest.prototype.send=function(b){
+  try{const u=new URL(this.__u,location.origin);
+    const rec={t:'XHR:'+this.__m+' '+u.hostname+u.pathname,ts:Date.now()};
+    window.__ath.push(rec);
+    this.addEventListener('load',()=>{rec.status=this.status});
+  }catch(e){}
+  return OS.apply(this,arguments)};
+
 // 3. Capture what a copy actually wrote.
 window.__clip=[];const ow=navigator.clipboard.writeText.bind(navigator.clipboard);
 navigator.clipboard.writeText=async t=>{window.__clip.push(t);return ow(t)};
@@ -112,6 +124,9 @@ JSON.stringify({lines:t.trim().split('\n').length, head:t.split('\n')[0], last:t
 | **Prefilled inputs are not selected on focus** | Typing appends: `explorer-shared-destexplorer-shared-filtered`. | `cmd+a` first, or set the value and dispatch `input`. |
 | **Monaco needs a click into the text layer** | `type` silently does nothing. | Click the code line, confirm `document.activeElement.className` is `native-edit-context`, `cmd+a`, type. Escape dismisses autocomplete before running. |
 | **The extension blocks returning query strings** | `[BLOCKED: Cookie/query string data]` from `javascript_tool`. | Return derived values — param *names*, booleans, counts — never the URL. |
+| **`computer type` does not reach a React input** | The DOM value changes, React state does not, and submitting sends the *old* value — a folder create that silently does nothing. | Use `form_input` (it dispatches `input`) for every controlled field. `computer type` is fine for Monaco and for comboboxes that filter on keystrokes. |
+| **A navigate wipes the instruments** | `window.__ath` is `[]` after any full page load, and an empty log reads as "no requests were issued". | Re-install after **every** `navigate`; prefer nav-tab clicks, which preserve them. |
+| **An inline link's box spans wrapped lines** | Clicking a notification link's *centre* hits the parent `<p>` and nothing happens — it looks like a dead link. | Probe with `elementFromPoint` for a coordinate the anchor actually owns, or click its first line. Not a defect; ~30% of the box belongs to the parent. |
 | **A failing Data Explorer apply used to double** | Two `StartQueryExecution` ~1.1 s apart for one gesture. | **Fixed** — `athena.start` declares no retry, so one failed apply is one `POST /v1/queries`. Counting on a failing statement is now meaningful; **two starts is a regression**, not the tool. |
 | **A dialog's `max-w-md` is 392px, not 448** | A width checker expecting 448 reads every pass as a fail. | Root font-size is **14px**. |
 
