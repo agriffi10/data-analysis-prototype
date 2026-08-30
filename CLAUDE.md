@@ -95,14 +95,20 @@ recorded nowhere else** — when a spec closes, prune here rather than appending
 
 - **API layer & containerisation (192 → 202, 192–200 done)** — "Arc B". CloudFront is still
   production and the rollback. Next: 201 flips the planes onto `identity.actor`, then 202 retires
-  the Identity Pool. **The browser's only remaining AWS call is presigned S3 bytes.**
-  **Owed and unrun:** `arc-b-api-container-e2e.md` §F; the SPEC-198/199 blocks of `e2e.md`
-  §4.2/§4.3/§4.5 — chiefly the multi-GiB upload settling whether a presigned URL's expiry is
-  evaluated at request receipt, the live foreign-prefix 403, and the **Lake Formation positive,
-  which also discharges SPEC-196 Phase 5 item 4** and is the arc's central claim; and **all of
-  SPEC-200's Phase 5**, which is every plane's first real request through the API and the
-  simulation proving the browser's grants are gone. §D/§E were **partly run on 2026-08-27**
-  (`sessions.md`). Read the `ARCS.md` arc entry first.
+  the Identity Pool. **The browser's only remaining AWS DATA call is presigned S3 bytes** — but it
+  still calls **Cognito**, and that includes `cognito-identity` (the Identity Pool), which
+  Amplify hits on every `fetchAuthSession` and the CSP allowlists deliberately. Measured
+  2026-08-30. So arc-b §4's "the browser makes no AWS calls" negative does **not** pass as
+  written until 202 lands; the credentials it vends carry the portal role, whose queue grants
+  are gone (simulated) but whose own-prefix S3 grants are not.
+  **A large live pass ran 2026-08-30** (`sessions.md`): the **Lake Formation positive** holds and
+  took SPEC-196 Phase 5 item 4 with it; both LF denial shapes, the foreign-prefix 403 with its
+  paired 200 control, the CORS trio, §G.5's grant simulation and §F's transport checks are all
+  discharged. **Still owed:** the **multi-GiB upload** settling whether a presigned URL's expiry is
+  evaluated at request receipt; **§G.1's other eight planes**, §G.2 and §G.4; **F.5's refresh-once
+  path**, which an aged token does *not* reach because Amplify refreshes proactively; and
+  **Safari**, since the tooling is Chromium. §D/§E were partly run 2026-08-27. Read the `ARCS.md`
+  arc entry first.
 
 ### Live checks
 

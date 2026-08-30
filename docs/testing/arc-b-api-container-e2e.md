@@ -1263,9 +1263,13 @@ made visible, and the twelfth proves the Deny is matching rather than merely pre
 
 
 
-## F. The transport contract and the first ported feature (SPEC-197) — WRITTEN, NOT YET RUN
+## F. The transport contract and the first ported feature (SPEC-197) — MOSTLY RUN 2026-08-30
 
-> **STATUS: every item below is OWED**, and every one has a row in [`owed.md`](owed.md).
+> **STATUS: F.1, F.3, F.4 and F.6 ran on 2026-08-30** and F.2's header half with them; the
+> evidence is in [`sessions.md`](sessions.md). **Still owed: F.5** (the refresh-once path — Amplify
+> refreshes *proactively*, so an aged token is not enough to reach it; the refresh must be broken)
+> and **F.2 in Safari**, since the tooling here is Chromium and a Chromium pass corroborates
+> without discharging.
 
 **What nothing offline can settle.** That the `cpcommon` layer attaches at **cold start** — SPEC-137
 shipped instrumented code whose attachment was missing while every offline gate passed. That a real
@@ -1323,9 +1327,16 @@ curl -s -D - -o /dev/stdout -w '\n%{http_code}\n' "$API/v1/user-directory"
 - [ ] `curl -H 'Origin: https://example.invalid'` on the preflight → **no**
       `access-control-allow-origin`. This is the assertion a `"*"` configuration fails and the
       positive one passes.
-- [ ] `curl -X POST "$API/v1/user-directory"` — a registered path, an unregistered method → **404**,
-      never 405.
-- [ ] `curl -X POST "$API/v1/nope" -d '{"requestId":"spoofed"}'` → **404**, envelope-shaped.
+- [ ] **Carry a valid bearer for both 404 checks.** The router resolves a principal **before** it
+      resolves the route, and refuses an unknown path as *unauthenticated* — deliberately, because a
+      404 to an unauthenticated caller tells them which paths exist. Unauthenticated, both of the
+      next two answer **401**, and asserting 404 on them fails against correct behaviour. *(Measured
+      2026-08-30; this block previously asserted 404 without a bearer.)*
+- [ ] `curl -H "Authorization: Bearer $ID_TOKEN" -X POST "$API/v1/user-directory"` — a registered
+      path, an unregistered method → **404** `NotFound`, never 405.
+- [ ] `curl -H "Authorization: Bearer $ID_TOKEN" -X POST "$API/v1/nope" -d '{"requestId":"spoofed"}'`
+      → **404**, envelope-shaped — and the logged `request_id` is the **gateway's**, with
+      `client_request_id: null`. `spoofed` must appear in no record.
 
 **F.4 — The correlation key is the gateway's. BLOCKING.**
 
@@ -1371,7 +1382,11 @@ Owed since SPEC-195, when `apiFetch` had no caller. It has one now.
 transport — and a check on a feature a user drives belongs in the guide beside every other check on
 that feature, which is where it will still be after this script is folded in and deleted.
 
-## G. The enqueue paths and the delegated actor (SPEC-200) — WRITTEN, NOT YET RUN
+## G. The enqueue paths and the delegated actor (SPEC-200) — PARTLY RUN 2026-08-30
+
+**G.5 and two of G.1's ten rows ran on 2026-08-30** — archive (row 8) and restore (row 9), each end
+to end, with G.3's record read back for the archive plane. Evidence in [`sessions.md`](sessions.md).
+The other eight rows, G.2 and G.4 are still owed. The paragraph below stands for those.
 
 Nothing below has been executed. The code merged and all four deploy workflows went green on
 `b0ad3f5b`, which is the whole of what is verified — every claim about how the deployed system
