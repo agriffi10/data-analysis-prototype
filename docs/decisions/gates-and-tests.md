@@ -78,7 +78,7 @@ permanent staleness. The Flask false positive is the demonstration that these ru
 if a second arrives, the answer is another `--exclude-rule` with a disposition, not a narrowed count.
 
 **Still not blocking, by decision:** `npm audit` — `apply-gate.sh` has no severity threshold and the
-runtime scope carries two accepted `dompurify` advisories (monaco pins the version exactly), so a
+runtime scope still carries accepted `dompurify` advisories (monaco vendors its own copy), so a
 flip would redden every PR; ZAP — two Lows survive by decision, so gate by `riskcode >= 2` or not at
 all. Record: `docs/security-baseline.md` → *Addendum — The Gates Went On*.
 

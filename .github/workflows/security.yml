@@ -50,8 +50,9 @@ env:
   #     still published and still does not block.
   #
   # NPM_AUDIT stays `report` and cannot yet be `block`: this script has no severity
-  # threshold, and the runtime scope carries two accepted dompurify advisories (transitive
-  # through monaco, which pins the version exactly). See docs/security-baseline.md.
+  # threshold, and the runtime scope still carries accepted dompurify advisories (transitive
+  # through monaco, which vendors its own copy). It fails on findings > 0, so the count is not
+  # what stands in the way — the acceptance is. See docs/security-baseline.md.
   #
   # Note what is NOT listed here: the two ESLint security plugins (SPEC-138 FR-003) run
   # in ci.yml's existing `npm run lint`, which already blocks. Injection sinks in code
@@ -304,9 +305,10 @@ jobs:
   # Two scopes, reported SEPARATELY, because for a static SPA they mean different things:
   #   --omit=dev  is what actually reaches a user's browser. This is the gating candidate.
   #   full        adds the build toolchain — a supply-chain concern, but not a runtime one.
-  # Today that distinction is live: react-router (high) ships to the browser, while
-  # postcss and brace-expansion (also high) are build-time only. One combined number would
-  # lose exactly the fact that decides what to fix first.
+  # The distinction sets the order of work, and severity does not: this repo has cleared
+  # HIGHs that reached no user and is still carrying lower-rated advisories that do ship.
+  # One combined number would lose exactly that. Which packages sit on which side changes;
+  # docs/security-baseline.md holds the current roll-call.
 
       # ── npm audit ───────────────────────────────────────────────────
       - name: Install dependencies
