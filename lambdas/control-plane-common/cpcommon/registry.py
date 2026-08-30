@@ -4,6 +4,16 @@ The registry is one S3 control object per space under ``shared-spaces/`` in the 
 admin bucket, owned by the shared-spaces control plane. Every other control-plane verb only
 ever reads it — to authorize that the actor is an active member of a space, and to confirm
 a share target exists.
+
+**Every role that calls this needs ``s3:ListBucket`` on the admin bucket covering
+``shared-spaces/``, and the None below is unreachable without it.** S3 reports a missing object
+as ``NoSuchKey`` only to a caller that can list; to one that cannot, the same missing object is
+``AccessDenied``. So a plane holding only the ``GetObject`` grant reads a registered space
+correctly and faults on an unregistered one — which is the case the None exists for. Measured
+live on 2026-08-17: a send naming an unregistered space raised out of ``load`` under a role with
+no list statement, instead of taking its caller's ``unknown_space`` refusal. The grant is
+conditioned to the registry prefix on every plane, which is sufficient and keeps the space names
+themselves unlistable; ``lambdas/test_absence_is_answerable.py`` holds each plane to it.
 """
 
 import json

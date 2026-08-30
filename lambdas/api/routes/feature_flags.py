@@ -18,7 +18,10 @@ the browser's own reader already treats it as one.
 
 Attributes:
   FLAGS_KEY: Where ``.github/workflows/deploy-config.yml`` publishes. The portal role holds
-    ``GetObject`` here and nothing else, which is what authorizes this route with no IAM change.
+    ``GetObject`` here, which authorizes the read, and ``ListBucket`` on this prefix, which is what
+    makes ``MISSING_CODES`` reachable — S3 reports a missing object as absent only to a caller that
+    can list, so without the second grant a never-published document answers ``AccessDenied`` and
+    this route raises instead of returning ``NotFound``.
   MISSING_CODES: The S3 responses meaning THE OBJECT is not there. Three spellings, because a
     ``GetObject`` for an absent key answers ``NoSuchKey`` while a head-shaped path answers
     ``NotFound`` or a bare ``404``. ``NoSuchBucket`` is deliberately absent: a wrong bucket name is
@@ -40,7 +43,8 @@ def feature_flags(context: RequestContext) -> dict[str, Any]:
     """Returns the flag document's bytes, decoded as UTF-8 and not parsed.
 
     Read through the caller's own assumed session rather than the execution role, so the read is
-    authorized by the same grant the browser relied on and this route needs no new one.
+    authorized by the same grants the browser relied on, plus the prefix listing that lets a
+    never-published document be reported absent rather than denied.
 
     Args:
       context: The authenticated request.

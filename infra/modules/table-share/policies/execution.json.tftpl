@@ -14,6 +14,17 @@
       "Resource": "${admin_bucket_arn}/shared-spaces/*"
     },
     {
+      "Sid": "RegistryList",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "${admin_bucket_arn}",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "shared-spaces/*"
+        }
+      }
+    },
+    {
       "Sid": "CopyPlanReadWrite",
       "Effect": "Allow",
       "Action": [

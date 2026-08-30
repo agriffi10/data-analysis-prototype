@@ -59,9 +59,13 @@ def now_iso() -> str:
 def _read(name: str) -> tuple[dict | None, str | None]:
     """Reads a space's registry record and its entity tag.
 
-    Only a true-absent signal is treated as missing. The admin bucket role holds list
-    permission, so unlike the cache a denial is not read as absence — any other fault propagates
-    rather than risk overwriting real data.
+    Only a true-absent signal is treated as missing. The orchestrator's list grant on the admin
+    bucket is conditioned to ``shared-spaces/*``, which covers exactly the keys read here, so S3
+    reports a missing record as absent rather than as a denial — and unlike the cache a denial is
+    therefore not read as absence. Any other fault propagates rather than risk overwriting real
+    data. **A conditioned grant is sufficient for that; what would break this is holding no list
+    statement on the bucket at all**, which is how the same read fails on planes that only reach
+    the registry through ``cpcommon``.
 
     Args:
       name: The space name.

@@ -20,8 +20,11 @@ JSON-encoded, is around 1.3 MB — comfortably inside the synchronous response p
 more than four times the headroom.
 
 Attributes:
-  DIRECTORY_KEY: Where the daily builder publishes. The portal role holds ``GetObject`` here and
-    nothing else, which is what authorizes this route with no IAM change at all.
+  DIRECTORY_KEY: Where the daily builder publishes. The portal role holds ``GetObject`` here,
+    which is what authorizes the read, and ``ListBucket`` on this prefix, which is what makes
+    ``MISSING_CODES`` reachable — S3 reports a missing object as absent only to a caller that can
+    list, so without the second grant an unpublished directory answers ``AccessDenied`` and this
+    route raises instead of degrading to empty.
   SUPPORTED_VERSION: The only document shape this reader understands. A different one is refused,
     not guessed at.
   MISSING_CODES: The S3 responses meaning THE OBJECT is not there — the same set the browser's
@@ -52,7 +55,8 @@ def user_directory(context: RequestContext) -> dict[str, Any]:
     """Returns the usernames the directory publishes.
 
     Reads through the caller's own assumed session rather than the execution role, so the read is
-    authorized by the same grant the browser used to rely on and this route needs no new one.
+    authorized by the same grants the browser used to rely on, plus the prefix listing that lets
+    an unpublished document be reported absent rather than denied.
 
     Args:
       context: The authenticated request.

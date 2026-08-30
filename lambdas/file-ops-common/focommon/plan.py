@@ -130,14 +130,21 @@ def _absent(key: str) -> bool:
 
     **This exists because a denial and an absence are the same answer on a `GetObject`.** S3
     reports a missing object as ``NoSuchKey`` only to a caller that can list the bucket; to one
-    that cannot, it is ``AccessDenied``. This role's list grant is conditioned on the plan prefix,
-    and a ``GetObject`` carries no prefix for that condition to match, so the read is denied for
-    every absent plan — which is every first submission.
+    that cannot, it is ``AccessDenied``, and this role held no list statement on the admin bucket
+    at all — so the read was denied for every absent plan, which is every first submission.
 
-    A list DOES carry the prefix, so it is answerable where the read is not, and it answers the
-    question the caller actually has. The denial is never itself read as absence: only a list that
-    comes back without the key is, so a genuine denial on an object that exists still raises and
-    cannot plan over a run already copying.
+    **Superseded on one point: the conditioned grant alone would have fixed the read.** This
+    docstring first said a ``GetObject`` carries no prefix for the condition to match, reasoning
+    from an IAM simulate; production disagrees, and the evidence is in
+    ``docs/decisions/infrastructure.md`` → *A role that cannot list a bucket cannot be told an
+    object is absent*. What breaks is holding no statement, not holding a conditioned one. So this
+    probe is belt-and-braces rather than the thing making absence answerable — worth keeping,
+    because it is also the only part that still answers if the condition ever stops covering the
+    key, but do not add one to a new plane on the strength of the old reasoning.
+
+    The rule the probe does carry is the one that matters: the denial is never itself read as
+    absence. Only a list that comes back without the key is, so a genuine denial on an object that
+    exists still raises and cannot plan over a run already copying.
 
     **One page is enough, and the reason is byte order rather than luck.** A key always sorts
     before any key that extends it, so if the exact key exists it is the first S3 returns under

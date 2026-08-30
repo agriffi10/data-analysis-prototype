@@ -63,6 +63,16 @@ TRUST = "infra/modules/data/policies/portal-role-trust.json.tftpl"
 #: byte comparison can only say "changed", which is not an answer to "changed how".
 EDITED = "infra/modules/shared-spaces/policies/portal-role-shared-space.json.tftpl"
 
+#: The user-space permission template, exempted for the same reason and asserted by content in
+#: ``test_the_user_space_template_gained_ONLY_the_shared_document_listing``. Its edit adds a
+#: ``ListBucket`` for the two documents that belong to no user, without which their absence
+#: branches answer ``AccessDenied`` instead of the empty list and the ``NotFound`` they promise.
+LISTING_EDITED = "infra/modules/data/policies/portal-role-permissions.json.tftpl"
+
+#: Every template the byte comparison skips because a test below reads it instead. **Adding a
+#: name here without also adding that test is how a widening gets absorbed unread.**
+CONTENT_ASSERTED = frozenset({EDITED, LISTING_EDITED})
+
 API_ROLE_ARN = "arn:aws:iam::696000197480:role/dat-prod-api-role"
 PORTAL_ROLE_ARN = "arn:aws:iam::696000197480:role/dat-portal-user-role"
 IDENTITY_POOL_ID = "us-east-1:11111111-2222-3333-4444-555555555555"
@@ -199,6 +209,48 @@ def _permission_templates(commit: str) -> set[str]:
 # ── FR-008: what stays true ───────────────────────────────────────────────────
 
 
+def _statements_by_sid(body: str) -> dict[str, str]:
+    """Splits a policy template into WHOLE statements, keyed by Sid.
+
+    Whole statements, not their names. A Sid-set comparison says a statement is still called what
+    it was called, which is not the same as it still saying what it said: deleting the
+    ``Condition`` from a list grant leaves the Sid, the Action and the Resource untouched and
+    turns "list the prefix your principal tag names" into "list the whole bucket" for every
+    signed-in user.
+
+    Split by text rather than parsed, because these templates carry ``%{ for }`` directives and
+    are not JSON until Terraform renders them.
+
+    Args:
+      body: The template's text.
+
+    Returns:
+      Sid to the statement's collapsed text.
+
+    Raises:
+      None.
+    """
+    found = {}
+    for chunk in re.split(r'(?=\{\s*\n\s*"Sid")', body):
+        name = re.search(r'"Sid"\s*:\s*"([^"]+)"', chunk)
+        if not name:
+            continue
+        # Cut at the statement's OWN closing brace. Splitting on the next statement makes the last
+        # chunk absorb the document's closing brackets, and removing the final element then reads
+        # as a change to its predecessor — punctuation presenting as a narrowed grant.
+        depth, end = 0, len(chunk)
+        for index, character in enumerate(chunk):
+            if character == "{":
+                depth += 1
+            elif character == "}":
+                depth -= 1
+                if depth == 0:
+                    end = index + 1
+                    break
+        found[name.group(1)] = re.sub(r"\s+", " ", chunk[:end]).strip()
+    return found
+
+
 def test_ACCEPTED_the_portal_role_permission_templates_are_byte_identical_to_the_baseline() -> (
     None
 ):
@@ -255,7 +307,7 @@ def test_ACCEPTED_the_portal_role_permission_templates_are_byte_identical_to_the
         "in ADDED_SINCE_BASELINE so it is an argued edit rather than a silent one."
     )
 
-    for path in sorted(baseline - RETIRED_SINCE_BASELINE - {EDITED}):
+    for path in sorted(baseline - RETIRED_SINCE_BASELINE - CONTENT_ASSERTED):
         assert _git("show", f"{BASELINE_COMMIT}:{path}") == (REPO / path).read_text(), (
             f"{path} differs from its pre-change bytes"
         )
@@ -386,38 +438,8 @@ def test_the_shared_space_template_lost_ONLY_its_enqueue_statement() -> None:
       AssertionError: If the enqueue statement survived, or any other statement did not.
     """
 
-    # WHOLE STATEMENTS, not their names. A Sid-set comparison says a statement is still called
-    # what it was called, which is not the same as it still saying what it said: deleting the
-    # `Condition` from `SharedSpaceList` leaves the Sid, the Action and the Resource untouched and
-    # turns "list the spaces your principal tags name" into "list the whole shared-space bucket"
-    # for every signed-in user.
-    #
-    # Split by text rather than parsed: this template carries `%{ for }` directives for the
-    # per-slot grants, so it is not JSON until Terraform renders it.
-    def statements(body: str) -> dict[str, str]:
-        chunks = re.split(r'(?=\{\s*\n\s*"Sid")', body)
-        found = {}
-        for chunk in chunks:
-            name = re.search(r'"Sid"\s*:\s*"([^"]+)"', chunk)
-            if name:
-                # Cut at the statement's OWN closing brace. Splitting on the next statement makes
-                # the last chunk absorb the document's closing brackets, and removing the final
-                # element then reads as a change to its predecessor — punctuation presenting as a
-                # narrowed grant.
-                depth, end = 0, len(chunk)
-                for index, character in enumerate(chunk):
-                    if character == "{":
-                        depth += 1
-                    elif character == "}":
-                        depth -= 1
-                        if depth == 0:
-                            end = index + 1
-                            break
-                found[name.group(1)] = re.sub(r"\s+", " ", chunk[:end]).strip()
-        return found
-
-    before = statements(_git("show", f"{BASELINE_COMMIT}:{EDITED}"))
-    after = statements((REPO / EDITED).read_text())
+    before = _statements_by_sid(_git("show", f"{BASELINE_COMMIT}:{EDITED}"))
+    after = _statements_by_sid((REPO / EDITED).read_text())
 
     assert len(before) >= 6, (
         "the sweep found nothing, so every comparison below is vacuous"
@@ -439,3 +461,65 @@ def test_the_shared_space_template_lost_ONLY_its_enqueue_statement() -> None:
         f"it should add none; it added {set(after) - set(before)}"
     )
     assert "sqs:SendMessage" not in (REPO / EDITED).read_text()
+
+
+def test_the_user_space_template_gained_ONLY_the_shared_document_listing() -> None:
+    """The user-space permission template, checked by content because bytes cannot say how.
+
+    Its other statements are what personal-file access IS — the prefix-scoped object grant, the
+    prefix-scoped list condition, the marker Deny and the archive-receipt Deny — and the one
+    that matters most here is the neighbour: ``UserPrefixList``'s condition is the whole of one
+    user's isolation from another's prefix. Adding a second list grant beside it is exactly the
+    edit that could widen that one by accident, and a byte comparison would report both the same
+    way.
+
+    The addition itself exists because ``_directory/`` and ``_config/`` are under no caller's own
+    prefix, so the role could read both documents and could not be told when one is absent — S3
+    answers ``NoSuchKey`` only to a caller that can list. Without it the username directory raises
+    instead of answering an empty list, and the flag document raises instead of ``NotFound``.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If anything but the listing statement changed, or it is not scoped to the
+        two document prefixes.
+    """
+    before = _statements_by_sid(_git("show", f"{BASELINE_COMMIT}:{LISTING_EDITED}"))
+    after = _statements_by_sid((REPO / LISTING_EDITED).read_text())
+
+    assert len(before) >= 5, "the sweep found nothing, so every comparison below is vacuous"
+
+    survived = set(before) & set(after)
+    changed = [name for name in sorted(survived) if before[name] != after[name]]
+    assert changed == [], (
+        f"a statement that should be untouched changed: {changed}. UserPrefixList's condition is "
+        "one user's isolation from another's prefix, and widening it would be this same diff."
+    )
+
+    assert set(before) - set(after) == set(), (
+        f"this change should remove nothing; it removed {set(before) - set(after)}"
+    )
+    assert set(after) - set(before) == {"ListTheSharedDocuments"}, (
+        f"it should add exactly the document listing; it added {set(after) - set(before)}"
+    )
+
+    added = after["ListTheSharedDocuments"]
+    assert '"s3:ListBucket"' in added
+    assert '"_directory/*"' in added and '"_config/*"' in added, (
+        "the listing must name both document prefixes"
+    )
+    assert "PrincipalTag" not in added, (
+        "this grant is deliberately not tag-scoped — the documents belong to no user — so it must "
+        "not be written as though it were, which would make it silently empty"
+    )
+    assert '"Condition"' in added, (
+        "the document listing must stay conditioned — unconditioned it is a bucket-wide list for "
+        "every signed-in user, which would expose every username prefix by name"
+    )
+    assert re.findall(r'"(_[a-z]+/\*)"', added) == ["_directory/*", "_config/*"], (
+        "the document listing may name those two prefixes and nothing else"
+    )
