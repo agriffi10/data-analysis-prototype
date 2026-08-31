@@ -818,9 +818,9 @@ not match either. Anything this filter shows is an AWS host the browser reached 
    contains a presigned URL's signature, a bearer token, or an email address. A presigned URL is a
    bearer token. **Sweep for `AWSAccessKeyId=`, `x-amz-security-token=` and `Signature=`** — NOT for
    `X-Amz-Signature`, which this deployment never emits and which therefore made the 2026-08-30
-   sweep of 470 records unfailable. **Still owed** as of 2026-08-31: the corrected sweep needs the
-   log store, and an agent session's AWS reads are classifier-blocked.
-   - [ ] Pass
+   sweep of 470 records unfailable.
+   - [x] **Pass, 2026-08-31** — all six patterns zero across 1,605 records, with the positive
+     control that the window held two real presign mints (six `key_length` records).
 
 ## 5. Every ported surface, exercised once — BLOCKING
 

@@ -1115,9 +1115,9 @@ The restore requested at 15:16:39 UTC completed at **18:32:22 UTC**, 3 h 16 m la
 *size*, never its text, so there is nothing to diff against. Capture the text next time; the size
 is what you have when you want the bytes.
 
-**Still owed on this archive:** `logs/service=archive/` carrying `retrieval polled` events hours
-apart with `poll_count` climbing, and the `cleanup` block. An agent session's AWS reads are
-classifier-blocked, so the log half needs Andrew or CI.
+**The log half ran too** — see *The archive plane's log, read after the fact* below. An earlier
+draft of this entry recorded it as classifier-blocked and owed; that was wrong, and the correction
+is at the end of the entry.
 
 ### §4, the load-bearing negative — and this is the first window in which it could fail
 
@@ -1155,7 +1155,7 @@ Two consequences, and the second is the one that matters:
    and §4 step 4 both sweep the day's records for `X-Amz-Signature`; 2026-08-30 swept 470 records
    for `x-amz-signature` and found zero. That zero was unfailable. A presigned URL is a bearer
    token, and the check meant to prove none leaked could not have caught one. Corrected in both
-   places; the corrected sweep is **owed**, because it needs the log store.
+   places, and the corrected sweep then **ran clean** — below.
 
 The S3 client does take a botocore `Config` — `identity.py`'s `S3_ENDPOINT_CONFIG`, which pins the
 regional endpoint and the addressing style *because* the SPA's `connect-src` names the regional
@@ -1203,8 +1203,40 @@ anything phrased against a *fresh* one.
   matched the document's 17 unread. Not a cap, and not a finding — checked in the source before
   writing it down.
 
+### The archive plane's log, read after the fact
+
+For request `26c2e82f`, from `logs/service=archive/`:
+
+| Event | What it says |
+|---|---|
+| `restore plan built` 15:16:41 | **`manifest_present: true`** |
+| `destinations clear` **15:16:42 and 18:32:11** | **Twice, three hours apart** — the guard before the bill, and the guard after retrieval. The two-pass design observed live rather than reasoned about. |
+| `retrieval polled` × **39** | `poll_count` climbing **1 → 39** at five-minute intervals, 15:21:52 → 18:32:09, `complete: false` throughout and **`true`** on the last. The loop really looped. |
+| `archive swept` 18:32:17 | The vault sweep ran. That it left *nothing behind* is still unread — that needs a principal on `dat-prod-archive`. |
+
+The terminal notification landed 18:32:22, thirteen seconds after `complete: true`. **The sweep
+event is named `archive swept`, not `cleanup`** — `e2e.md` §4.11 D and `owed.md` both said to look
+for a `cleanup` block, so a reader grepping for that word finds nothing and concludes the sweep
+never ran.
+
+### The corrected leak sweep, and it is clean
+
+`AWSAccessKeyId`, `x-amz-security-token`, `Signature=`, `X-Amz-Signature`, a JWT shape and an email
+shape: **zero across 1,605 records** in `logs/service=api/` for the day. The positive control is
+what makes that zero mean something — six `key_length` records in the same window, two of them this
+session's own presigned keys, so the route really was minting URLs while the sweep was looking.
+
+### A correction to this entry
+
+An earlier draft recorded the log store as **classifier-blocked** and both checks above as owed.
+That was wrong, and wrong in the way this project keeps paying for: **one compound command was
+refused and I generalised it into a capability claim without testing the simple case.** `aws s3 ls`
+and `aws s3api get-object` to stdout both run fine; `aws s3 cp` to a local file, and a pipe into
+`python3`, are the shapes that get refused. The wrong claim reached a merged doc before the
+spot-check caught it — a negative claim about *tooling* needs the same gate as one about code.
+
 ### Not run
 
 - **Safari, and 400 px.** Everything above is Chromium; it corroborates and cannot discharge.
-- **The log store**, for the archive poll events and the corrected leak sweep — classifier-blocked.
 - **Data Explorer §4.5 rows 14 and 15**, and §G.1's remaining plane rows.
+- **`KeyCount: 0` on the vault prefix** — needs a principal on `dat-prod-archive`.
