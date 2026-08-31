@@ -85,7 +85,37 @@ need a **second account**, since the point is that the API writes a genuine veri
 §H.4 (the staged pre-cutover message) and §H.5 (`assurance` refused live with an `interactive`
 neighbour) both hand-enqueue onto a request queue. After SPEC-200 only the **API's execution role**
 holds `sqs:SendMessage` there — a laptop identity has no grant, which is the isolation working —
-so both stay owed with the recipe recorded. §H.6 and §H.7 belong to step two.
+so both stay owed with the recipe recorded.
+
+### §H.6 — after step two, run the same way
+
+`main` at **`73812e06`**, confirmed by `healthz` before starting, so the API under test was the one
+that had stopped sending a token. Four verbs, chosen to cover **both** envelope shapes, because the
+field that disappeared was not the same on every plane:
+
+| Plane | Old token field | What came back |
+|---|---|---|
+| file-ops | flat `actor` | *Copied 1 item to "test_folder".* |
+| file-send | flat `actor` | *Couldn't send to user "agriffith_three": they already have something called "header-only.csv" from you, and nothing was overwritten.* |
+| table-builder (refresh) | `idToken` | *Table "spec201_live" is already up to date - no schema changes were found.* |
+| notifications (mark read) | `idToken` | Unread count 15 → 14, inbox rewritten |
+
+The file-send row is a **refusal, and the right one** — the per-recipient collision guard, reached
+and worded correctly on an envelope carrying no token at all. A plane that had still been reading
+one would not have got that far.
+
+Both notification branches again: the mark-read above is the user path, and every other row's
+notification is the `create` path, written by an execution role.
+
+**Not repeated after step two:** shared-space, data-quality, table-share and archive. Each ran on
+step one and each takes the identical `trusted_actor` call; what step two changed is the message
+BODY, and that is shared across all eight, so the four above cover both shapes it comes in. Saying
+this plainly rather than implying all eight ran twice.
+
+### §H.7 — NOT RUN
+
+The exposure check needs a message to actually dead-letter, which needs the Pipe's *delivery* to
+fail rather than the execution — see the amended §H.4. Owed.
 
 ---
 

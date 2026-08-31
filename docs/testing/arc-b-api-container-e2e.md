@@ -1460,13 +1460,15 @@ corroborates and cannot discharge — record it as such.
 Anything needing a second account (a shared space where the submitter is a non-owner member), and the
 malformed-body DLQ path, which belongs to the drain's own owed check.
 
-## H. The Lambda trust boundary (SPEC-201) — H.1-H.3 RUN 2026-08-30
+## H. The Lambda trust boundary (SPEC-201) — H.1-H.3 and H.6 RUN 2026-08-30
 
-**H.1 and H.3 are DISCHARGED and H.2 is half discharged, 2026-08-30** — all eight planes on cold
-starts, both notification branches, and the recipient-existence refusal that exercises the lazy
-`COGNITO_USER_POOL_ID` read. Evidence in [`sessions.md`](sessions.md). Still owed: H.2's
-non-member / foreign-prefix negatives (a second account), H.4 and H.5 (the API role's
-`sqs:SendMessage`), and H.6-H.7, which belong to step two.
+**H.1, H.3 and H.6 are DISCHARGED and H.2 is half discharged, 2026-08-30.** Step one: all eight
+planes on cold starts, both notification branches, and the recipient-existence refusal that
+exercises the lazy `COGNITO_USER_POOL_ID` read. Step two: four verbs covering both envelope shapes,
+after `healthz` confirmed the token-free build. Evidence in [`sessions.md`](sessions.md). Still
+owed: **H.2's** non-member / foreign-prefix negatives (a second account), **H.4** and **H.5** (the
+API role's `sqs:SendMessage`), and **H.7** (a message must genuinely dead-letter, which needs the
+Pipe's delivery to fail).
 
 **This section runs in TWO passes, and running it once after both deploys loses the only
 observation that distinguishes "the planes read the block" from "the planes still read the token".**

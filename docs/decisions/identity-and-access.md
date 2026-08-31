@@ -25,6 +25,10 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [The browser's queue grants come off with the switchover, not with the trust flip (SPEC-200)](#the-browsers-queue-grants-come-off-with-the-switchover-not-with-the-trust-flip-spec-200)
 - [Table-share's dedup id is keyed on the verified actor, not the token (SPEC-200)](#table-shares-dedup-id-is-keyed-on-the-verified-actor-not-the-token-spec-200)
 - [The identity grant is the only path to a request queue; no resource policy (SPEC-200)](#the-identity-grant-is-the-only-path-to-a-request-queue-no-resource-policy-spec-200)
+- [The planes trust a body field because of who may WRITE it, not because of cryptography (SPEC-201)](#the-planes-trust-a-body-field-because-of-who-may-write-it-not-because-of-cryptography-spec-201)
+- [`assurance` fails closed on an unknown value, including an absent one (SPEC-201)](#assurance-fails-closed-on-an-unknown-value-including-an-absent-one-spec-201)
+- [Collapsing five claim readers cost four things the spec did not list (SPEC-201)](#collapsing-five-claim-readers-cost-four-things-the-spec-did-not-list-spec-201)
+- [The trust flip is two deploys, and the second cannot be rolled back (SPEC-201)](#the-trust-flip-is-two-deploys-and-the-second-cannot-be-rolled-back-spec-201)
 - [The provider block is the API's verifier configuration, and it is server-side (SPEC-192)](#the-provider-block-is-the-apis-verifier-configuration-and-it-is-server-side-spec-192)
 - [Authorization lives in the router, not in an API Gateway authorizer (SPEC-193)](#authorization-lives-in-the-router-not-in-an-api-gateway-authorizer-spec-193)
 - [The API is a verifier, not an OIDC client (SPEC-195)](#the-api-is-a-verifier-not-an-oidc-client-spec-195)
@@ -868,3 +872,145 @@ request queue has eight writers and SPEC-200 removes exactly one. The other seve
 that notify, plus the dead-letter drain. The shared-spaces producer runs with `ResultPath: null` and a
 `Catch` leading onward so it deliberately cannot fail its run, and the other planes notify
 best-effort — so archives, shares and sends would all complete and no user would ever be told.
+
+## The planes trust a body field because of who may WRITE it, not because of cryptography (SPEC-201)
+
+Eight control planes each verified a Cognito ID token out of the queue message. That was correct
+while the browser was the sender: the queue was writable by every signed-in user's credentials, so
+the body proved nothing and only a signature could say who was asking.
+
+SPEC-200 changed the sender. The API verifies the bearer at the edge, writes a nested `identity`
+block carrying the verified actor, and — because SPEC-200 FR-008 also removed the browser's
+`sqs:SendMessage` grants — is the only principal that may write those queues. From that point the
+per-plane verification is a second answer to a question already answered, and it is the last reason
+a raw JWT travels through eight queues, sits in eight state-machine execution inputs, and lands in
+CloudWatch whenever a message dead-letters.
+
+**The provenance is a grant, and it is enumerated rather than asserted:** the API's execution role
+holds `sqs:SendMessage` on exactly the eight request-queue ARNs, and a `.tftpl` sweep derived from
+the modules on the filesystem fails if any policy attached to the browser's role grants it again.
+If that grant is ever widened, no amount of verification in the plane would help — a principal that
+can write the queue can write the block.
+
+**Dropping a VERIFICATION is not dropping an AUTHORIZATION, and the distinction is the whole
+spec.** The token answered "is this really alice?"; membership, ownership, containment, a space's
+active status and the recipient checks answer "may alice do this?". The API answers the first.
+Nothing but the plane answers the second, and `authorize` / `authorize_source` have **zero diff** —
+their inputs always took a plain username, and only where that string comes from changed.
+
+**Do NOT add a queue resource policy** to "make it structural". On the notifications queue it is
+destructive: that queue has eight writers, of which SPEC-200 removes one; the other seven are
+execution roles that notify. A blanket `Deny` denies all of them and presents as nothing at all —
+every plane notifies best-effort, so archives, shares and sends would complete and users would
+simply never be told. Enumerating the seven exceptions is the hand-maintained allowlist whose
+failure mode SPEC-164 FR-006 already records, arriving before the policy shipped. SPEC-200 FR-008
+AC5 settled this for the arc.
+
+**The reader may not verify, and that prohibition is the interesting half.** `cpcommon.actor`
+imports neither `jwt` nor `cpcommon.auth`, makes no network call and reads no environment variable,
+asserted by an import sweep. A reader that could fall back to verifying looks like defence in depth
+and is the opposite: a second answer to a settled question, in a module whose premise is that it was
+settled elsewhere. The fleet had five such readers and they had drifted; the cost was never that any
+one was wrong, it was that nobody could say which one a request had used.
+
+**The flat top-level `actor` is never consulted.** On four planes that field held the raw token
+during the cutover, and a raw JWT and a username are both non-empty strings — so a reader shaped
+"take the block, fall back to the field" passes every well-formed fixture ever written and builds an
+S3 prefix, a Glue database name and a notification recipient out of a 900-character token on the
+first stale message. The actor is checked against `config.CATALOG_IDENTIFIER_RE` (with `fullmatch`,
+since `$` also matches before a trailing newline), which is what makes the JWT case *fail* rather
+than merely look odd. Measured: mutating that check to a truthiness test reddens seven cases in the
+reader's own suite and leaves **every plane's suite green**.
+
+## `assurance` fails closed on an unknown value, including an absent one (SPEC-201)
+
+`identity.assurance` says how strongly the API established the actor, and today exactly one value is
+minted. A plane presented with anything else — including the reserved-but-unminted `delegated`, an
+empty string, a non-string, or **no value at all** — refuses the message terminally under a distinct
+reason code, `unsupported_assurance`. It does not downgrade, ignore, or treat an unrecognised value
+as the default. `identity.delegated_by` must be *present* and null, because SPEC-200 stamps an
+explicit null and an absent key is therefore a malformed block.
+
+Nothing mints anything but `interactive`, so the refusal is unreachable in production — **and that
+is its purpose.** When a later arc mints a machine principal, every plane refuses it until that
+plane is deliberately widened, rather than silently treating a service as a person at a keyboard.
+The absent case is refused for the same reason: a missing assurance reading as `interactive` makes
+the field's fail-closed property decorative, and an omitted field is the shape most likely to arrive
+first.
+
+The set is defined **once**, in `cpcommon.actor`, and a sweep fails if a second module declares its
+own — the widening must be one edit in one place, not whichever plane relaxed first. The literal
+agrees with the one the API mints **by import**, not by restatement: two hand-written copies of one
+string in two suites is exactly the shape that lets a contract disagree while both suites pass.
+
+**Its reason code does not survive on two planes**, and that is worth knowing before relying on it.
+shared-space and notifications-writer pass their own exception type, which carries a string and no
+code, so the refusal is prefixed into the detail for a human reading a log line. It does **not** come
+back through `errors.failure_reason`, which gates on `errorType == "TerminalError"`. A live check for
+an unaccepted assurance must therefore aim at a plane taking the default exception.
+
+## Collapsing five claim readers cost four things the spec did not list (SPEC-201)
+
+The collapse itself was the easy part — thirteen call sites onto one reader. What it actually cost:
+
+1. **The whole Cognito arm of `cpcommon.auth`, not the two entry points the spec named.** Once
+   `verified_username` and the two domain wrappers were gone, `verify_id_token`, `_verify`,
+   `_cognito_detail`, `_cognito_config` and the hard-coded claim name had no callers. Leaving
+   `_cognito_config` was not the conservative option: it reads `config.USER_POOL_ID`, which this
+   change removes from `_REQUIRED_VARS`, so it would have been an `AttributeError` on a path no test
+   exercises. `verify_exp` went too — no caller wants a relaxation, so there is now no flag, private
+   or public, that turns expiry off.
+2. **`COGNITO_USER_POOL_ID` could not follow its twin.** `cpcommon/cognito.py` and
+   `shared-space-common/membership.py` read it for `AdminGetUser`, which FR-004 requires to survive.
+   It moved out of the fleet-wide `_REQUIRED_VARS` — that set is a contract every plane must satisfy,
+   so a variable only three planes set would fail every other plane's guard — to a lazy
+   `config.require` at the call site, and stays in Terraform on **shared-spaces, file-send and
+   table-share** alone. The trade is real: a lazily-required variable that is missing raises
+   **mid-request** rather than at cold start, which is why `test_pool_id_reaches_its_readers.py`
+   pins both sets and why the live pass aimed at it deliberately.
+3. **What it did NOT reach.** The SPA's `getCurrentUser().username` is the same value but never the
+   claim string; `identity-pool.tf`'s principal-tag mapping retires in SPEC-202; and
+   `notifications_writer`'s `create` branch never had a token to read.
+4. **A correction worth keeping:** `notifications_writer` had not had "its own verification path"
+   since SPEC-156 FR-004. `transition_plan.md` §6.1 said it did, and a build session hunting for a
+   second `jwt.decode` would not have found one. It was a claim *reader*, which is why the count of
+   five still held.
+
+**`notifications_writer`'s branch is the one that must not be simplified.** `trusted_actor` replaces
+the reader on the `USER_ACTIONS` arm **only**. The `create` arm is the trusted-producer path —
+written by the control-plane execution roles, carrying a body `username` with no actor and no token —
+and hoisting the reader above the branch is the obvious tidy that a "one reader, every call site"
+sweep pushes toward. It refuses **every notification the fleet produces**, and it does so silently:
+the producers notify best-effort, so archives and shares complete and users are simply never told.
+Planted during the build, six tests redden.
+
+## The trust flip is two deploys, and the second cannot be rolled back (SPEC-201)
+
+Step one: the eight consumers require `identity` and stop calling `cpcommon.auth`, while the API is
+**still writing the token beside the block**. Step two, only once step one is deployed and
+exercised: the API stops writing it. Collapsing them into one merge fails all eight planes closed on
+the first request after deploy — and **both suites still pass**, because the planes' tests are
+written against `identity` and the API's against its own output, and nothing in either sees the
+other's envelope.
+
+**Rollback has a shape rather than a direction, and step one's is the inverse of the forward
+order.** Reverting step one's Lambdas restores token verification while the producer is still
+sending a token, so the revert is clean — *but only if the infra is reverted first*. The env comes
+out with the code, so redeploying the previous zips alone restores a verifier reading
+`config.USER_POOL_ID`, which is gone: a `RuntimeError` on the first request of every plane, worse
+than what is being rolled back. **Infra, then code.** After step two there is no backward path at
+all; recovery is forward.
+
+**The window between step one's deploy and the queue draining is real and its outcome is
+deliberate.** A message enqueued before carries a flat token and no block, so it is refused
+`unauthorized` with **no notification** — there is no trustworthy recipient and nothing in the
+message may be believed. It does **not** dead-letter: every plane's Pipe is `FIRE_AND_FORGET`, so
+`StartExecution` succeeds, the Pipe deletes the message, and the refusal happens inside the
+execution. A request DLQ only ever receives what the Pipe could not *deliver*. The spec asked for a
+drain record for this case; there cannot be one, and looking for it reads as the drain being broken.
+
+**The plane allowed-field sets are NOT tightened**, and this is the easy thing to get wrong while
+making everything else green. Removing the legacy flat token field turns that staged message into
+`malformed_event` before the reader ever sees it — a different reason code, a different notification
+decision, and a criterion that silently stops testing what it names. The sets are pinned **per
+plane**; a fleet-level "at least one still admits it" passes while any single plane regresses.
