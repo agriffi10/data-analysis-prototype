@@ -449,14 +449,19 @@ When a spec is done, in the same pass:
 4. If reusable services/hooks/components were added, add a **one-line** row to the
    `apps/portal/info/component-inventory/<area>.md` **matching the component's path** — a `features/query/` row
    belongs in the query area file, nowhere else (the router only changes if a whole new area appeared).
-5. A *new architectural decision* gets its full entry in the matching
-   `docs/decisions/<area>.md` **first** — one `##` heading, listed in that file's Contents — then
-   **one line** in CLAUDE.md's Key Decisions. The digest line is **never the only home of a fact**,
-   and never a paragraph. If the decision **supersedes an earlier one**, update the old register
-   entry in place and add a superseded marker (short blockquote: what changed, which spec, where the
-   full entry lives) at every doc site that still states the old claim — arc narratives in
-   `ARCS.md`, `architecture.md` sections. The new entry alone is not enough; an agent reading only
-   the old site must see the reversal. Reasoning lives in the spec/delivery doc.
+5. A *new architectural decision* gets its full entry in the matching `docs/decisions/<area>.md`
+   **first** — one `##` heading, listed in that file's Contents — then **one line** in CLAUDE.md's
+   Key Decisions. The digest line is **never the only home of a fact**, and never a paragraph.
+   **Add a clause, or replace one your decision supersedes**; do not add a line per spec, which is
+   what took that section to 105 one-per-spec lines and drove the file into its byte ceiling
+   before it was grouped by area. A decision that **supersedes an earlier one** has three
+   dispositions, one per artifact. The superseded **digest clause is replaced**, not left
+   standing beside its reversal. The old **register entry is updated in place**. Every
+   **other** doc site still stating the old claim gets an in-place superseded marker — a short
+   blockquote naming what changed, which spec, and where the full entry lives — meaning arc
+   narratives in `ARCS.md` and `architecture.md` sections. The new entry alone is not enough; an
+   agent reading only the old site must see the reversal. Reasoning lives in the spec/delivery
+   doc.
 6. **If the decision changed the SHAPE of the system** — a new piece, a piece removed, a boundary
    moved, a mechanism swapped — add a row to `docs/architecture.md` → *Architecture Decision Record*
    **and** update the prose section it contradicts. The row is an index entry: number, title,
