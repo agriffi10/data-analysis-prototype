@@ -515,8 +515,9 @@ it is CLI-only — see `owed.md`.
 | Read the roster | Every member sees a read-only roster, and **the reader's own row is never `Pending`**. No page ever asserts `Active` and `Pending` about one member at once. |
 | Query the space's database | Results route to the space's own `athenaresults/`, not yours. |
 | Leave a space, then reload with its `?space=` still in the URL | Falls back, with **zero S3 requests naming the space** — no existence oracle. |
-| **[approval gate]** Delete a space (type-to-confirm) | Gone from the rail **and** its Glue database gone. A partial teardown that frees the name is the failure this catches. |
-| **[approval gate]** Re-create a space with the just-deleted name | It is accepted. That is the proof the teardown was complete — a partial one leaves the registry record standing, and the record is the lock. |
+| **[approval gate]** Delete a space (type-to-confirm) | Gone from the rail, the Connections page and the Files browser, for the owner too. Its objects and its Glue database **survive** — a delete now removes people, not things. The dialog must not claim otherwise: no "can't be undone", no "permanently deletes". |
+| **[approval gate]** Re-create a space with the just-deleted name | **Refused** by name. The record is never released, so the name is spent forever — the opposite of what this row asserted before, and the reason the create dialog now warns before the name is chosen. |
+| Delete a space, then re-mint credentials and try to open it | **Sign out and back in first, or wait out the Identity Pool TTL.** The principal tag is stamped when credentials are vended, so a session held from before the delete still carries it and can still reach the retained data. The deleter's own browser is the one most likely to be used for this check and the one most likely to mislead. |
 
 ### 4.9 Send files
 

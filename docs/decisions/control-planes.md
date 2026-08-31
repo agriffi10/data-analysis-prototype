@@ -34,6 +34,9 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [The outcome wording reuses the failure bodies and is deliberately NOT a resolver (SPEC-191)](#the-outcome-wording-reuses-the-failure-bodies-and-is-deliberately-not-a-resolver-spec-191)
 - [A pre-existing notifications spoofing gap, recorded and not fixed here (SPEC-191)](#a-pre-existing-notifications-spoofing-gap-recorded-and-not-fixed-here-spec-191)
 - [The notifications `create` boundary is a runtime check, because IAM cannot express it (SPEC-206)](#the-notifications-create-boundary-is-a-runtime-check-because-iam-cannot-express-it-spec-206)
+- [A delete removes people, not things — and retention keys on a durable fact, never live status (SPEC-205)](#a-delete-removes-people-not-things--and-retention-keys-on-a-durable-fact-never-live-status-spec-205)
+- [One predicate decides who may be destroyed and who may be added (SPEC-205)](#one-predicate-decides-who-may-be-destroyed-and-who-may-be-added-spec-205)
+- [The emptied record is inert because the `owner` FIELD is cleared (SPEC-205)](#the-emptied-record-is-inert-because-the-owner-field-is-cleared-spec-205)
 
 ## Everything unbounded on the state travels by pointer — including the definition (SPEC-161, extending SPEC-090/160)
 
@@ -776,3 +779,93 @@ is the **interim** fix: Arc B removes the browser's grant (SPEC-200) and after S
 principal becomes a *service* principal, harmless because every `create` is emitted by execution roles.
 The check stays regardless; that removal is eleven specs out and reversible. Detail:
 `spec-delivery/SPEC-206`.
+
+## A delete removes people, not things — and retention keys on a durable fact, never live status (SPEC-205)
+
+Deleting a shared workspace ends every member's access, the owner's included, and destroys nothing:
+the objects, the Glue database and the registry record all survive, and the record keeps
+`status: "active"` with an empty roster. The bucket has no versioning, so the behaviour it replaces
+could not be undone at all; this one is undoable by an administrator. Two costs are permanent and
+product-visible, and both are said where users can see them: **the name is never reusable**, because
+the record that locks it is never released, and **data a user asked to delete is retained**.
+
+**Retention keys on `everActive`, a durable monotonic field, and not on live `status`.** A status
+moves `active → deleting → failed`, and every one of those transitions describes a workspace whose
+data is intact — so a route chosen from status destroys live data on a delete that failed once. The
+field is stamped by `finalize` **only** on the active outcome, because `finalize` runs on both create
+outcomes and an unconditional stamp marks every failed create ever-active, which refuses its owner's
+legitimate retry and refuses to tear it down. An AST sweep holds it monotonic: no module may write it
+anything but `True`, and `pop`/`del` count as writes.
+
+**`deleting` is NOT evidence that a space was ever usable, and a draft of this spec said it was.**
+The reasoning looked sound — only `delete_space` writes that status — but deleting is gated on
+ownership and nothing else, since neither the validator nor the authorizer inspects status. So an
+owner may delete their own failed or still-provisioning create, and the verb writes `deleting`
+*before* any teardown; an invocation that dies rather than raising leaves that status permanently,
+because the machine records a failure without writing one. A `deleting` record can therefore name a
+space that was never usable. The one-shot backfill stamps `active` **only**, and every other status
+is a row a human dispositions — for a `failed` record **the discriminator is the space's resources
+and its timestamps, never its roster**, since a failed create can have been added to and a failed
+delete of a single-member space is single-member too. Even the resources collide: a create writes its
+marker object second and its database third of eight steps, so most failed creates hold both.
+
+> Found by executing it rather than reading it, which is why the criterion it replaces had survived
+> two rounds of review.
+
+## One predicate decides who may be destroyed and who may be added (SPEC-205)
+
+`registry.is_destroyable` is the whole shape of the change: `not everActive and status != "active"`.
+The delete verb routes on it, and the guard refusing new members refuses on it. They are complements
+of each other, and every revision that wrote them twice moved one without the other — each drift
+silent, and each in a different direction. Written once they cannot disagree.
+
+**Do NOT re-derive either side.** Keying the add-guard on `status != "active"` freezes additions on a
+was-active-now-`failed` record — a live workspace whose owner is mid-recovery. Keying it on
+`not everActive` alone freezes them on any healthy `active` record the backfill has not reached, so a
+missed backfill surfaces as adds failing on a healthy workspace. The complement of the destroy
+predicate has neither blind spot, and that is the only reason to express it once.
+
+Both routes that free a name — the delete verb's never-active branch and `forget`'s owner path —
+**re-read before their loop, clear the UNION of the validator's roster and that fresh one, and re-read
+once more after freeing the name**, raising if the record came back. A slot outliving its record is a
+principal tag on whatever is created under that name next, because the portal policy is scoped on the
+tag *value* and not on any space identity.
+
+## The emptied record is inert because the `owner` FIELD is cleared (SPEC-205)
+
+`shared-space-common/auth.py` gates every owner-only action on `actor != registry.get("owner")` — the
+field, never the roster. An `owner` retained through a delete would leave the original owner able to
+`add-members` on the emptied space and revive it, with the previous cohort's files intact, in one call
+and with no confirmation. Clearing it refuses every owner-only action (`actor != None`) and every
+member-only action (the roster is empty). `previousOwner` survives for an operator and **no
+authorization path reads it**.
+
+**The inert-state test is driven as the ORIGINAL OWNER.** As a stranger it passes over the defect,
+because the field `authorize` reads is exactly the one a delete clears.
+
+Three further doors are closed, and each was found separately: `_resolve_reserve_collision`'s
+failed-retry overwrite additionally requires `not everActive`, or a failed *delete* is re-provisioned
+into a revived space with the roster reset to its owner alone; `save_members` refuses an addition to a
+record carrying `emptiedAt`, which covers the one record where the owner is back but the members are
+gone — a fault after the emptying rewrite restores `owner` so the space stays retryable; and
+`cpcommon.registry.is_active` stops being callable outside the module that defines it, because an
+emptied space keeps `status: "active"` and the two destination validators used that predicate to
+decide whether a space may receive a table or a file send.
+
+**Do NOT call `revoke_portal_role` on the emptying route.** SPEC-204's FR-011 asked for it and this
+supersedes that: with every member's slot cleared the grant reaches no user, and revoking it would
+leave a restored workspace's catalog unusable for no benefit.
+
+**The credential window is bounded, accepted, and worse than it used to be — in exactly one place.**
+Clearing a Cognito slot ends a membership, but the principal tag is stamped when credentials are
+vended, so every removed member keeps live access until their session expires. Under the old
+semantics that was harmless: the data was already destroyed. Now it survives, so the window is a
+window onto something real. Every browser surface that could reach a retained space derives from the
+connections cache, which the delete clears, and both the refresh and the reconcile force a token
+re-mint — so the deleter's own window closes within a poll, and a stale `?space=` link falls back
+truthfully. **The residual is the query workspace**, which has no active database and takes a fully
+qualified `database.table` straight from the editor: a removed member holding a live token can
+`SELECT` from, and `DROP TABLE` in, the retained Glue database until it expires. Every other plane
+refuses them through `is_active_member`. Recorded rather than fixed, because the fix is the
+transition's — an entitlement checked at query time rather than a tag minted an hour earlier — and
+because it is the one path by which the thing retention exists to preserve can still be destroyed.
