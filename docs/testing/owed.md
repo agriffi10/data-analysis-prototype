@@ -91,6 +91,18 @@ recipe anywhere** — write one when you run it.
 | **The foreign projection fixture** (SPEC-153 FR-006 AC2) | The same `GetTable` response. Paste it **verbatim** when you have it — the shipped fixture is docs-transcribed. |
 | **SPEC-201 H.4 (the staged pre-cutover message) and H.5 (`assurance` refused live with a neighbour)** | Both hand-enqueue onto a request queue, and after SPEC-200 FR-008 only the **API's execution role** holds `sqs:SendMessage` there. A laptop identity has no grant — that is the isolation working — and an agent session's production AWS writes are classifier-blocked whatever the chat authorization says. Needs an assumed session of that role driven from CI, which is where the grant already lives. Recipe: [`arc-b-api-container-e2e.md`](arc-b-api-container-e2e.md) §H.4, §H.5. |
 
+### SPEC-203's two owed checks — one of them EXPIRES
+
+| Check | Blocker | What it takes |
+|---|---|---|
+| **The two membership sources agree, against a real user** (FR-007) — read `custom:shared_space_*` with `admin_get_user`, read the resolved space set out of the `logs/` record for a real request (FR-010 puts it there as a `spaces` field), compare as sets | Needs a deployed environment running `MEMBERSHIP_SOURCE=index`, and **the variable is in no Terraform** — deliberately, because FR-011 requires every environment to omit it and a module variable defaulting to `""` would make the empty-string case the live one. There is also only one environment. | Wire `MEMBERSHIP_SOURCE` into `infra/modules/api/lambda.tf`'s environment block in a non-production environment, deploy, sign in, make one request, then run `aws cognito-idp admin-get-user` for the same user and compare. The **carve-out is part of the check**: a space mid-provision holds a Cognito slot and legitimately yields no tag from the index, so it is present in one and absent from the other by design. |
+| **The API role's membership-index grant, simulated against the DEPLOYED role** (FR-009) | Needs the deployed role, and every denial paired with an `allowed` control — an `implicitDeny` alone cannot tell an ungranted action from a wrong ARN. | §2.8. **Supply `s3:prefix` as a context entry** for the `ListBucket` half: a prefix-conditioned grant simulates as `implicitDeny` when it is not, because IAM answers what it decides given *your* context and never what the service supplies. Run without it, this produces a false negative on the one statement it most needs to confirm. |
+
+> **The parity check cannot be re-run after the environment moves.** It exists because Cognito slots
+> and the index both exist right now; in the successor account only one survives and a wrong
+> implementation is indistinguishable from a right one. A later reader should treat a recorded
+> result as **evidence**, not as a repeatable gate — and should not try to reconstruct it.
+
 ### Needs a deliberately broken deployment
 
 | Check | Why | Recipe |

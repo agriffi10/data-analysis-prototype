@@ -2489,6 +2489,27 @@ under CAS at the registry's own consistency point. The residual is a staleness w
 existing token keeps the old claim until it refreshes, which is what
 `useSharedSpaceAccessRecovery` exists to paper over. SPEC-204's sweep closes it.
 
+> **SPEC-203 IS COMPLETE (2026-08-31), and five of its own claims were wrong.** The index, its six
+> writers and the `MEMBERSHIP_SOURCE` seam all shipped; the default is `claims` and the variable is
+> in no Terraform, so nothing a user can see changed. What the build corrected, in the spec file and
+> in [`decisions/identity-and-access.md`](../decisions/identity-and-access.md): FR-008's "no
+> `ListBucket`, and that is the load-bearing half" **cannot stand beside FR-003** — S3 answers
+> `NoSuchKey` only to a caller that can list, so a read-only grant makes an *absent* index arrive as
+> a denial for every user in no shared space, and the settled remedy is a `s3:prefix`-conditioned
+> grant. FR-003's "cached with the credentials under the existing key" is **not constructible**: that
+> key is the tag set the read produces. FR-004's literal zero-AWS-calls refusal is **not satisfiable**
+> under `index`; what is preserved is that the refusal itself reaches no service. FR-001 reasoned
+> about a delete from the post-SPEC-205 world, where the record survives — today `reg.delete` frees
+> the name, so the drops ride the member loop before it, in `forget`'s teardown path as well as
+> `delete`'s. And Premise 4 — "a space name reaching a key builder has been through
+> `CATALOG_IDENTIFIER_RE`" — **was not true when it was written**; `_from_index` makes it true on
+> that path only, because a tag value of `*` is a wildcard grant and the claims source cannot check
+> it without rewriting the equivalence it exists to preserve.
+>
+> **FR-007's live parity check is OWED and expires** — it needs an environment running
+> `MEMBERSHIP_SOURCE=index`, and there is none. [`owed.md`](../testing/owed.md) carries the recipe
+> and the caveat that it cannot be re-run after the environment moves.
+
 ### What 204 is, and the cliff inside it
 
 Once the tags retire, a member's access becomes **two grants** — an S3 Access Grant on the space
