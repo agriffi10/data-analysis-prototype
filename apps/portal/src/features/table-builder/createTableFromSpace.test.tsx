@@ -12,10 +12,6 @@ vi.mock('../file-browser/fileBrowser.service', async (importActual) => {
   const actual = await importActual<typeof import('../file-browser/fileBrowser.service')>();
   return {...actual, listFiles: vi.fn()};
 });
-vi.mock('../../lib/awsCredentials', () => ({
-  getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}})
-}));
-
 const PERSONAL: BuildableSpace = {
   id: 'personal',
   label: 'My files',

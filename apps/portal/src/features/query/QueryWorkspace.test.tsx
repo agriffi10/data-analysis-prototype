@@ -142,11 +142,6 @@ vi.mock('../table-builder/tableBuild.service', async (importOriginal) => ({
   enqueueTableRefresh: vi.fn()
 }));
 
-vi.mock('../../lib/awsCredentials', () => ({
-  getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}}),
-  getIdToken: vi.fn().mockResolvedValue({success: true, data: 'id-token'})
-}));
-
 describe('QueryWorkspace', () => {
   // Integration style (react.md §21): render the REAL QueryWorkspace tree — real
   // hooks (useQueryTabs/useConnections/useSchema/useQueryExecution/useQueryResults/

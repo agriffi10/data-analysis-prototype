@@ -323,10 +323,11 @@ const CODE_RULES: readonly ErrorRule[] = [
     userFixable: true
   },
 
-  {code: 'ExpiredToken', message: 'Your session expired. Sign in again.', userFixable: true},
-  {code: 'ExpiredTokenException', message: 'Your session expired. Sign in again.', userFixable: true},
-  {code: 'CredentialsProviderError', message: 'Your session expired. Sign in again.', userFixable: true},
-  {code: 'NotAuthorizedException', message: 'Your session expired. Sign in again.', userFixable: true}, // Cognito refresh
+  // Cognito's own refresh failure, and the only expiry name left with a producer. The three
+  // beside it — ExpiredToken, ExpiredTokenException, CredentialsProviderError — were the
+  // browser's AWS-credential expiry names, matched by a retry helper that no longer exists
+  // and mintable by nothing the browser now talks to.
+  {code: 'NotAuthorizedException', message: 'Your session expired. Sign in again.', userFixable: true},
 
   // Trigger: the browser couldn't reach AWS (offline, DNS, CORS). User-fixable —
   // check the connection and retry. ──

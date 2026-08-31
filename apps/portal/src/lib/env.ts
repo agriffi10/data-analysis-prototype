@@ -42,8 +42,7 @@ export const VITE_NAME = {
   apiBaseUrl: 'VITE_API_BASE_URL',
   environment: 'VITE_ENVIRONMENT',
   maxUploadBytes: 'VITE_MAX_UPLOAD_BYTES',
-  sharedSpaceBucket: 'VITE_S3_SHARED_SPACE_BUCKET',
-  cognitoIdentityPoolId: 'VITE_COGNITO_IDENTITY_POOL_ID'
+  sharedSpaceBucket: 'VITE_S3_SHARED_SPACE_BUCKET'
 } as const satisfies Record<RuntimeConfigKey, string | null>;
 
 /** Every variable a dev fallback can read, derived from the table above. */
@@ -74,7 +73,6 @@ function readEnv(): Record<PortalEnvVar, string | undefined> {
     VITE_APP_URL: import.meta.env.VITE_APP_URL as string | undefined,
     VITE_S3_USER_SPACE_BUCKET: import.meta.env.VITE_S3_USER_SPACE_BUCKET as string | undefined,
     VITE_ENVIRONMENT: import.meta.env.VITE_ENVIRONMENT as string | undefined,
-    VITE_COGNITO_IDENTITY_POOL_ID: import.meta.env.VITE_COGNITO_IDENTITY_POOL_ID as string | undefined,
     VITE_S3_SHARED_SPACE_BUCKET: import.meta.env.VITE_S3_SHARED_SPACE_BUCKET as string | undefined,
     VITE_MAX_UPLOAD_BYTES: import.meta.env.VITE_MAX_UPLOAD_BYTES as string | undefined
   };

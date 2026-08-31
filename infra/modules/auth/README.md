@@ -1,15 +1,15 @@
-# `auth` — the User Pool, the Identity Pool, and the two Cognito triggers
+# `auth` — the User Pool and the two Cognito triggers
 
-A standalone Cognito User Pool for native username/password users (no external IdP), an Identity Pool
-that exchanges its token for scoped AWS credentials, and the two Lambda triggers that police and
-provision a new account.
+A standalone Cognito User Pool for native username/password users (no external IdP), and the two
+Lambda triggers that police and provision a new account. This module used to hold an Identity Pool
+too, exchanging the user's token for scoped AWS credentials; it went when the browser stopped
+making AWS calls, and the API now assumes the portal role from the same verified claims.
 
 | File | Holds |
 |---|---|
 | `cognito.tf` | the User Pool, its schema and password policy, the SPA client, the Hosted UI domain |
-| `identity-pool.tf` | the Identity Pool and **the principal-tag mapping the whole isolation model rests on** |
 | `lambda.tf` | `pre-signup` and `post-confirmation`, their roles, log groups and invoke grants |
-| `outputs.tf` | the four ids the SPA needs, plus the two function names |
+| `outputs.tf` | the three ids the SPA needs, plus the two function names |
 | `variables.tf` | the module interface |
 | `policies/` | trust and permission templates for both triggers |
 

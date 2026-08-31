@@ -75,20 +75,6 @@ CONTENT_ASSERTED = frozenset({EDITED, LISTING_EDITED})
 
 API_ROLE_ARN = "arn:aws:iam::696000197480:role/dat-prod-api-role"
 PORTAL_ROLE_ARN = "arn:aws:iam::696000197480:role/dat-portal-user-role"
-IDENTITY_POOL_ID = "us-east-1:11111111-2222-3333-4444-555555555555"
-
-EXPECTED_FEDERATED_STATEMENT = {
-    "Effect": "Allow",
-    "Principal": {"Federated": "cognito-identity.amazonaws.com"},
-    "Action": ["sts:AssumeRoleWithWebIdentity", "sts:TagSession"],
-    "Condition": {
-        "StringEquals": {"cognito-identity.amazonaws.com:aud": IDENTITY_POOL_ID},
-        "ForAnyValue:StringLike": {
-            "cognito-identity.amazonaws.com:amr": "authenticated"
-        },
-    },
-}
-
 
 def _git(*args: str) -> str:
     """Runs a git command in the repository, failing loudly rather than skipping.
@@ -174,7 +160,6 @@ def _rendered_trust() -> dict:
     rendered = (
         (REPO / TRUST)
         .read_text()
-        .replace("${identity_pool_id}", IDENTITY_POOL_ID)
         .replace("${api_execution_role_arn}", API_ROLE_ARN)
         .replace("${session_tag_keys}", json.dumps(_expected_tag_keys()))
     )
@@ -316,14 +301,21 @@ def test_ACCEPTED_the_portal_role_permission_templates_are_byte_identical_to_the
 # ── FR-003: the trust policy ──────────────────────────────────────────────────
 
 
-def test_the_tag_key_set_is_the_same_in_the_trust_policy_and_the_identity_pool() -> (
+def test_the_tag_key_set_is_the_same_in_the_trust_policy_and_the_permission_templates() -> (
     None
 ):
     """A fourth copy of the slot name arrived with this spec, so it joins the comparison.
 
-    The name is written in the Identity Pool's map, in the portal role's shared-space policy, in
-    the Python layer — and now in this statement's key list. A drifted list refuses the whole
-    assume at runtime with nothing offline to show it.
+    The name is written in the two portal-role permission templates, in the Python layer — and
+    in this statement's key list. A drifted list refuses the whole assume at runtime with
+    nothing offline to show it.
+
+    THE DECLARED SIDE COMES FROM BOTH TEMPLATES, and that is not tidiness. The Identity Pool's
+    ``principal_tags`` map used to be the single declaration of the whole set; it is retired,
+    and the two halves landed in different files. ``username`` appears only in the permissions
+    template and ``shared_space_${k}`` only in the shared-space one, so reading either alone
+    drops half the comparison silently — and the half that would go is ``username``, the only
+    one whose two sides do not already come from the same Tofu variable.
 
     Args:
       None.
@@ -332,22 +324,29 @@ def test_the_tag_key_set_is_the_same_in_the_trust_policy_and_the_identity_pool()
       None.
 
     Raises:
-      AssertionError: If the two sets differ.
+      AssertionError: If the two sets differ, or if either template declares nothing.
     """
-    pool = (INFRA / "modules" / "auth" / "identity-pool.tf").read_text()
-    block = re.search(r"principal_tags\s*=\s*merge\((.*?)\n\s*\)", pool, re.DOTALL)
-    assert block, "no principal_tags merge() was found — this comparison has no subject"
-
-    literal = re.search(
-        r"\{\s*([A-Za-z_][\w]*)\s*=\s*\"([^\"]+)\"\s*\}", block.group(1)
-    )
-    comprehension = re.search(r':\s*"([^"]*\$\{k\}[^"]*)"\s*=>', block.group(1))
-    assert literal and comprehension, "the principal-tag map's shape changed"
-
     slots = int(_tofu_default("max_shared_memberships"))
-    declared = [literal.group(1)] + [
-        comprehension.group(1).replace("${k}", str(k)) for k in range(1, slots + 1)
-    ]
+
+    permissions = (
+        INFRA / "modules" / "data" / "policies" / "portal-role-permissions.json.tftpl"
+    ).read_text()
+    shared = (
+        INFRA
+        / "modules"
+        / "shared-spaces"
+        / "policies"
+        / "portal-role-shared-space.json.tftpl"
+    ).read_text()
+
+    literal_keys = sorted(set(re.findall(r"aws:PrincipalTag/([A-Za-z_][\w]*)\}", permissions)))
+    assert literal_keys, "the permissions template declares no principal tag — no subject"
+
+    slot_template = re.findall(r"aws:PrincipalTag/([A-Za-z_]\w*)\$\{k\}\}", shared)
+    assert slot_template, "the shared-space template declares no slot tag — no subject"
+    assert len(set(slot_template)) == 1, f"more than one slot tag shape: {set(slot_template)}"
+
+    declared = literal_keys + [f"{slot_template[0]}{k}" for k in range(1, slots + 1)]
 
     assert declared == _expected_tag_keys()
 
@@ -419,6 +418,34 @@ def test_ACCEPTED_a_recreated_api_role_would_not_redraw_the_trust_policy() -> No
         if "AWS" in statement.get("Principal", {})
     ]
     assert len(principals) == 1
+
+
+def test_the_trust_policy_has_exactly_one_statement() -> None:
+    """The federated door is gone, and this is the only thing offline that says so.
+
+    The Identity Pool's ``AssumeRoleWithWebIdentity`` statement was removed when the pool was.
+    Nothing else here would notice it coming back: every other assertion in this module counts
+    AWS-principal statements or reads the tag keys, and a re-added federated statement carries
+    neither — so it slides in under all of them (measured: pasted back, the whole suite stayed
+    green). ``tofu validate`` catches it only because the template no longer takes the variable,
+    which stops being true the moment someone adds the variable back with it.
+
+    The live half is FR-010's ``get-role``. This is its offline twin, and the cheaper one.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a second statement appeared.
+    """
+    statements = _rendered_trust()["Statement"]
+
+    assert len(statements) == 1
+    assert statements[0]["Sid"] == "TheApiMayActAsAUser"
+    assert "Federated" not in statements[0]["Principal"]
 
 
 def test_the_shared_space_template_lost_ONLY_its_enqueue_statement() -> None:

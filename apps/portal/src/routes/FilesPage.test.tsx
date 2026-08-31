@@ -37,11 +37,6 @@ vi.mock('../features/shared-spaces/sharedSpaces.service', () => ({
   readSharedConnectionsCache: vi.fn(),
   enqueueSharedSpaceRequest: vi.fn().mockResolvedValue({success: true, data: {requestId: 'r1'}})
 }));
-vi.mock('../lib/awsCredentials', () => ({
-  getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}}),
-  getIdToken: vi.fn().mockResolvedValue({success: true, data: 'id-token'})
-}));
-
 const listFiles = vi.mocked(fileService.listFiles);
 const mockReadCache = vi.mocked(readSharedConnectionsCache);
 

@@ -18,20 +18,22 @@ and seven async control planes behind it for work a browser session must not be 
 Browser (React SPA)
   │  1. Sign in  ──────────────►  Cognito User Pool (Hosted UI, username + password)
   │                                     │ JWT (id/access/refresh)
-  │  2. Token exchange  ─────────►  Cognito Identity Pool (enhanced flow)
-  │                                     │ stamps  username  principal tag (server-side, ABAC)
+  │  2. Every request  ─────────►  The API, carrying the ID token as a bearer
+  │                                     │ verifies it, then assumes ONE shared role
+  │                                     │ stamping  username  from the verified claim (ABAC)
   │                                     ▼
-  │                               Temporary IAM credentials (1 hr) for ONE shared role
-  │  3. S3 calls (AWS SDK v3) ──►  S3 user-space bucket, scoped to  {username}/  by
+  │                               S3 user-space bucket, scoped to  {username}/  by
   │                               ${aws:PrincipalTag/username} in the role policy
+  │  3. Bytes  ─────────────────►  S3 directly, over a presigned URL the API minted
 ```
 
-- **One shared IAM role** for all users. Isolation comes from the Identity Pool mapping the
-  verified `username` claim to a principal tag — the browser never asserts its own identity,
-  so it can't be spoofed.
-- **Most file work runs in the browser** against S3 — uploads, downloads, listing, delete and
-  single‑file move/rename. Move/rename are copy‑then‑delete (S3 has neither); folders are zero‑byte
-  marker objects. Anything privileged, cross‑user or multi‑step runs on a **control plane** instead.
+- **One shared IAM role** for all users. Isolation comes from the API stamping the verified
+  `username` claim as a principal tag — the browser never asserts its own identity, and never
+  holds AWS credentials at all, so it can't be spoofed.
+- **File work goes through the API**, which does the S3 work under the assumed role. The one
+  thing the browser still sends to AWS itself is bytes, over a presigned URL. Move/rename are
+  copy‑then‑delete (S3 has neither); folders are zero‑byte marker objects. Anything privileged,
+  cross‑user or multi‑step runs on a **control plane** instead.
 - The pieces, how a request travels between them, and the decision record that explains the shape
   live in [`docs/architecture.md`](docs/architecture.md).
 
@@ -174,8 +176,8 @@ tofu output        # capture the values needed for the next step
 ```
 
 This provisions: static‑assets bucket + CloudFront (OAC), the GitHub Actions OIDC deploy role,
-the Cognito User Pool + SPA client + Hosted UI domain + Identity Pool, the shared portal IAM
-role, the user‑space S3 bucket, and the pre‑signup Lambda's infrastructure (placeholder code).
+the Cognito User Pool + SPA client + Hosted UI domain, the shared portal IAM role, the
+user‑space S3 bucket, and the pre‑signup Lambda's infrastructure (placeholder code).
 
 ### 4. Configure GitHub Actions (Settings → Secrets and variables → Actions)
 
@@ -202,7 +204,6 @@ for the full table and notes).
 | `VITE_COGNITO_USER_POOL_ID` | `tofu output cognito_user_pool_id` |
 | `VITE_COGNITO_USER_POOL_CLIENT_ID` | `tofu output cognito_user_pool_client_id` |
 | `VITE_COGNITO_DOMAIN` | `tofu output cognito_domain` |
-| `VITE_COGNITO_IDENTITY_POOL_ID` | `tofu output cognito_identity_pool_id` |
 | `VITE_S3_USER_SPACE_BUCKET` | `tofu output s3_user_space_bucket_name` |
 | `TF_VAR_project_name` / `TF_VAR_environment` | only if you overrode the Terraform defaults (`dat` / `prod`) |
 

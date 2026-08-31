@@ -5,18 +5,20 @@ and omit the ten membership slots, and personal S3, personal Glue, notifications
 browser all keep working; only shared spaces refuse, and the app already has a "Refresh access"
 recovery built for a documented propagation delay — so a missing tag *presents as that delay*.
 Nothing about the running system distinguishes the two. That is why the assertions below are
-written against the tag LIST rather than against any behaviour, and why the claim-to-tag mapping
-is read back out of Terraform instead of transcribed.
+written against the tag LIST rather than against any behaviour.
 
 **The Terraform read-backs are chained, and every link is asserted separately**, because a test
 comparing two things that both come from a default passes while the deployed value is something
-else. The chain: this module reads the slot count from an environment variable; the API module's
-environment block sets that variable from a Tofu variable; the Identity Pool's tag map ranges over
-the same Tofu variable. Assert only the ends and a broken middle reads as a pass.
+else. The chain: this module reads the slot count from an environment variable, and the API
+module's environment block sets that variable from a Tofu variable. Assert only the ends and a
+broken middle reads as a pass.
+
+The chain used to have a third link — the Identity Pool's tag map, ranging over the same Tofu
+variable, and the one Terraform declaration of which CLAIM fed which tag. The pool is retired,
+so the claim names are pinned instead; the tripwire below says what would restore the comparison.
 
 Attributes:
   INFRA: The IaC tree.
-  IDENTITY_POOL: The declaration AWS actually applies — which claim feeds which tag.
   API_LAMBDA: The API module's environment block, the middle link of the chain.
   STS_MAX_SESSION_TAGS: STS's ceiling on session tags per AssumeRole call.
   STS_MAX_TAG_KEY: STS's ceiling on one tag key.
@@ -29,7 +31,6 @@ Attributes:
 
 import os
 import pathlib
-import re
 import sys
 
 import pytest
@@ -39,7 +40,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from apicommon import config, identity
 
 INFRA = pathlib.Path(__file__).resolve().parent.parent.parent / "infra"
-IDENTITY_POOL = INFRA / "modules" / "auth" / "identity-pool.tf"
 API_LAMBDA = INFRA / "modules" / "api" / "lambda.tf"
 
 STS_MAX_SESSION_TAGS = 50
@@ -107,50 +107,23 @@ def _identity(username="alice", **spaces):
     )
 
 
-def principal_tag_map(source: str, slots: int) -> dict[str, str]:
-    """Parses ``principal_tags`` out of Terraform source into tag name to claim name.
+def test_accepted_the_claim_names_agree_with_the_retired_pool_declaration() -> None:
+    """ACCEPTED: the claim names are pinned, because nothing declares them any more.
 
-    The declaration is an HCL ``merge()`` of one literal pair and one ``for`` comprehension, so a
-    grep for a tag name would pass against a map rewritten to anything still containing the word.
-    This reads the structure: the literal pair, and the comprehension's key and value templates
-    with the loop variable expanded.
+    The Identity Pool's ``principal_tags`` map was the one Terraform declaration of which CLAIM
+    each tag reads, and this test compared the layer against it. The pool is retired, and the
+    tag NAMES kept three referents — ``sts:TagKeys`` in the trust policy and the
+    ``aws:PrincipalTag`` conditions in the two portal-role permission templates — but the claim
+    names kept none. Their only remaining referent is the User Pool's own token, which nothing
+    offline reads.
 
-    Args:
-      source: The Terraform source holding the map.
-      slots: How many membership slots to expand the comprehension over.
+    So this pins today's values rather than comparing them. A drifted ``SHARED_SPACE_CLAIM`` or
+    ``principal_tag_key`` produces a session whose tags match no policy statement — a denial on
+    every path, naming nothing — and this is what is left to catch it.
 
-    Returns:
-      Tag name to the claim name it reads.
-
-    Raises:
-      AssertionError: If neither shape is found, so a parser that silently matches nothing
-        cannot report an empty map as agreement.
-    """
-    block = re.search(r"principal_tags\s*=\s*merge\((.*?)\n\s*\)", source, re.DOTALL)
-    assert block, "no principal_tags merge() was found — the parser has no subject"
-    body = block.group(1)
-
-    literal = re.search(r"\{\s*([A-Za-z_][\w]*)\s*=\s*\"([^\"]+)\"\s*\}", body)
-    comprehension = re.search(
-        r":\s*\"([^\"]*\$\{k\}[^\"]*)\"\s*=>\s*\"([^\"]*\$\{k\}[^\"]*)\"", body
-    )
-    assert literal, "the username pair was not found in the map"
-    assert comprehension, "the membership comprehension was not found in the map"
-
-    pairs = {literal.group(1): literal.group(2)}
-    for slot in range(1, slots + 1):
-        pairs[comprehension.group(1).replace("${k}", str(slot))] = comprehension.group(
-            2
-        ).replace("${k}", str(slot))
-    return pairs
-
-
-def test_the_claim_to_tag_mapping_is_the_one_terraform_declares() -> None:
-    """The only thing this layer copies from the Identity Pool, asserted rather than transcribed.
-
-    A hand-written slot name that drifts from the Tofu map produces a session with
-    plausible-looking tags that match no policy statement — which reads as a denial everywhere
-    and names nothing.
+    REVISIT THE DECISION, DO NOT DELETE THE TEST: the day a provider block, a mapping resource
+    or a verifier configuration declares the claim names again, compare against that instead of
+    against these literals.
 
     Args:
       None.
@@ -159,10 +132,13 @@ def test_the_claim_to_tag_mapping_is_the_one_terraform_declares() -> None:
       None.
 
     Raises:
-      AssertionError: If any pair differs.
+      AssertionError: If any pair differs from the retired declaration.
     """
     slots = config.max_shared_memberships()
-    declared = principal_tag_map(IDENTITY_POOL.read_text(), slots)
+
+    retired_declaration = {"username": "cognito:username"}
+    for slot in range(1, slots + 1):
+        retired_declaration[f"shared_space_{slot}"] = f"custom:shared_space_{slot}"
 
     implemented = {config.principal_tag_key(): "cognito:username"}
     for slot in range(1, slots + 1):
@@ -170,7 +146,7 @@ def test_the_claim_to_tag_mapping_is_the_one_terraform_declares() -> None:
             identity.SHARED_SPACE_CLAIM.format(slot)
         )
 
-    assert implemented == declared
+    assert implemented == retired_declaration
 
 
 def test_the_tag_list_is_the_username_plus_every_occupied_slot() -> None:

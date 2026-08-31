@@ -322,7 +322,12 @@ jobs:
   apply:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 60, not 30. A CloudFront distribution is destroyed by disabling it, waiting for the
+    # change to propagate to every edge, and only then deleting — comfortably longer than half
+    # an hour. A job timeout cancels `tofu apply` mid-destroy WITH THE STATE LOCK HELD, which
+    # is a lost apply and a lock to clear by hand. Raised one merge ahead of the destroy that
+    # needs it, where it changes nothing.
+    timeout-minutes: 60
     permissions:
       id-token: write
       contents: read

@@ -1,21 +1,25 @@
 """The AWS identity a request acts as, and the two credential planes that serve it.
 
-**The API stamps what the Identity Pool stamps, from the same claims of the same token.** That is
-the whole of why no IAM policy, bucket policy or Lake Formation grant is rewritten by moving a
-call from the browser to here. ``identity-pool.tf`` declares which claim feeds which tag —
-``username`` from the username claim, ``shared_space_k`` from ``custom:shared_space_k`` — and AWS
-applies that map to the ID token the browser presents. This module is handed the same token's
-VERIFIED claims and applies the same map. A policy sees a session tag, not who stamped it.
+**The API stamps what the Identity Pool stamped, from the same claims of the same token.** That is
+the whole of why no IAM policy, bucket policy or Lake Formation grant was rewritten by moving a
+call from the browser to here. The pool's ``principal_tags`` map declared which claim fed which
+tag — ``username`` from the username claim, ``shared_space_k`` from ``custom:shared_space_k`` —
+and AWS applied that map to the ID token the browser presented. This module is handed the same
+token's VERIFIED claims and applies the same map. A policy sees a session tag, not who stamped it.
 
-The claim names are the only thing copied from the Identity Pool, and copying them is what makes
-the preservation provable rather than arguable. Sourcing membership from the shared-space registry
-instead would be defensible on its own and would break the equivalence.
+**The pool is retired, and the map went with it, so this module is now the ONLY declaration of
+which claim feeds which tag.** Nothing left in Terraform states it, which is why the comparison
+that used to read it back is a pinned tripwire in ``test_identity_apicommon.py`` rather than a
+live assertion. Copying the claim names is what made the preservation provable rather than
+arguable; keeping them exactly as they were is what keeps it so. Sourcing membership from the
+shared-space registry instead would be defensible on its own and would break the equivalence.
 
 **A provider fact lives here, deliberately, and it is the sixth.** The verifier describes its
 provider in five configured values and names none in code. ``custom:shared_space_{k}`` is a sixth,
-hard-coded, and it stays hard-coded because the requirement is byte-equivalence with the map
-Terraform declares — a configurable claim template would be free to drift from that map, which is
-the one thing the equivalence cannot survive. The username needs no such exception: it arrives
+hard-coded, and it stays hard-coded because the requirement is byte-equivalence with the map the
+Identity Pool declared — a configurable claim template would be free to drift from it, which is
+the one thing the equivalence cannot survive, and there is no longer a second declaration to
+drift against and be caught by. The username needs no such exception: it arrives
 already resolved through the configured username claim. Recorded rather than left to be found,
 because the tag set does not outlive the transition and the next reader deserves to know which
 half is a decision.

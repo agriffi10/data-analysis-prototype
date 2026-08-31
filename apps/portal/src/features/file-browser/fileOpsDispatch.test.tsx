@@ -45,10 +45,6 @@ vi.mock('./fileBrowser.service', async (importActual) => {
 });
 vi.mock('./fileOps.service', () => ({submitFileOperation: vi.fn()}));
 vi.mock('./fileBrowser.download', () => ({triggerBrowserDownload: vi.fn()}));
-vi.mock('../../lib/awsCredentials', () => ({
-  getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}}),
-  getIdToken: vi.fn().mockResolvedValue({success: true, data: 'id-token'})
-}));
 vi.mock('../data-quality/dataQuality.service', () => ({enqueueQualityCheck: vi.fn()}));
 vi.mock('../file-send/fileSend.service', () => ({enqueueFileSend: vi.fn()}));
 vi.mock('../user-directory/userDirectory.service', () => ({

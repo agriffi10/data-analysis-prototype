@@ -54,7 +54,6 @@ OPTIONAL_ENV=(
   -e "CONFIG_environment=$AWKWARD_VALUE"
   -e CONFIG_maxUploadBytes=1048576
   -e CONFIG_sharedSpaceBucket=fixture-shared-space
-  -e CONFIG_cognitoIdentityPoolId=us-east-1:fixture
 )
 # The mounts ECS creates, with the ownership that is the whole reason they are tmpfs rather than
 # task volumes. A volume arrives empty and root-owned, which a non-root container cannot write.

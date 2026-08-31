@@ -35,11 +35,6 @@ vi.mock('../file-browser/fileBrowser.service', async (importActual) => ({
   objectExists: vi.fn().mockResolvedValue({success: true, data: true})
 }));
 vi.mock('../../lib/apiClient', () => ({apiRequest: vi.fn()}));
-vi.mock('../../lib/awsCredentials', () => ({
-  getIdToken: vi.fn().mockResolvedValue({success: true, data: 'id-token-abc'}),
-  getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}})
-}));
-
 import {FileOpsInFlightProvider, UploadQueueProvider} from '../file-browser';
 import {FileBrowser} from '../file-browser/FileBrowser';
 import {listFiles} from '../file-browser/fileBrowser.service';

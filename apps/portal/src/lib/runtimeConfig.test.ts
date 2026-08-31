@@ -148,8 +148,11 @@ describe('runtimeConfig — the dev fallback', () => {
   it('pairs every key with the right VITE_ variable', () => {
     // The two tables are exhaustive by the compiler; that a key is paired with the RIGHT
     // variable is not a thing a type can say.
-    const paired = [...REQUIRED_CONFIG, ...OPTIONAL_CONFIG].filter((key) => VITE_NAME[key] !== null);
-    expect(paired).toHaveLength(11);
+    // Against the classification, not a literal. A hard count reddens on any deliberate
+    // key retirement, which reads as a defect in the retirement rather than in the test.
+    const keys = [...REQUIRED_CONFIG, ...OPTIONAL_CONFIG];
+    const paired = keys.filter((key) => VITE_NAME[key] !== null);
+    expect(paired).toHaveLength(keys.length);
 
     for (const key of paired) vi.stubEnv(VITE_NAME[key] as string, `env-${key}`);
 
@@ -266,6 +269,11 @@ describe('runtimeConfig — every key has a source in every environment', () => 
    * `lambdas/test_spa_image.py`, with the rest of the image's agreements, because nothing
    * in this suite can read a shell script's key list against a Dockerfile's user and a
    * task definition's mounts. A key added to the classification must reach it too.
+   *
+   * That sentence was FALSE for as long as it stood: no test over there read the entrypoint's
+   * `KEYS` against this classification, so the one wiring point whose staleness is silent —
+   * a key MISSING there refuses to start, a key LEFT BEHIND publishes quietly — was the one
+   * nothing compared. The two tests it names now exist.
    */
   const ROOT_MAIN = Object.values(
     import.meta.glob('../../../../infra/main.tf', {query: '?raw', import: 'default', eager: true})
@@ -355,8 +363,9 @@ describe('runtimeConfig — every key has a source in every environment', () => 
     const keys = runtimeConfigKeys();
 
     // Guard-the-guard: a parse that silently found nothing would agree with an empty
-    // classification and pass forever.
-    expect(keys.length).toBeGreaterThan(10);
+    // classification and pass forever. Named rather than counted — a count has to be
+    // revised by every key retirement, and revising it is where the guard gets lost.
+    expect(keys).toContain('apiBaseUrl');
     expect(keys.slice().sort()).toEqual([...ALL_KEYS].sort());
   });
 

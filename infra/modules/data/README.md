@@ -1,13 +1,13 @@
 # `data` — the user-space bucket and the shared portal role
 
 Bucket 1, and the one IAM role every authenticated user assumes. **Per-user isolation is a principal
-tag, not a policy per user**: the Identity Pool stamps `username` server-side from the verified
+tag, not a policy per user**: the API stamps `username` server-side from the verified
 claim, and every statement scopes to `${aws:PrincipalTag/username}`. One role for all users.
 
 | File | Holds |
 |---|---|
 | `s3.tf` | the bucket, its hygiene config, CORS, and the **bucket policy** |
-| `iam.tf` | the portal role's trust, its Identity Pool binding, and its permission policy |
+| `iam.tf` | the portal role's trust — one statement, the API's execution role — and its permission policy |
 | `outputs.tf` | bucket name/ARN, role ARN, and the role's **unique id** |
 | `variables.tf` | the module interface — mostly the allowlist ARNs |
 | `policies/` | the trust, permission and bucket-policy templates |
@@ -51,12 +51,17 @@ included — resolves to the role's IAM ARN, and the docs say not to use the ses
 what makes the user exclusion work. Every cross-module ARN arrives as a **root-constructed string**,
 so no role needs to exist at apply time and this module plans standalone.
 
-## The role has two doors, and both stamp the same tags
+## The role has one door now, and it stamps the tags the other one did
 
-The browser exchanges its ID token with the Identity Pool. The API **assumes the same role with the
-same tag set read from the same claims**. That is what makes "not one IAM policy, bucket policy or
-Lake Formation grant is rewritten" provable rather than argued — **a policy sees a session tag, not
-who stamped it**.
+The role had two doors while the browser held credentials: the Identity Pool's federated statement,
+and the API's. The pool is retired and its statement went with it, so `sts:AssumeRole` by the API's
+execution role is the only way in.
+
+Nothing about the tags changed, and that is the whole point: the API **assumes the role with the
+same tag set read from the same claims** the pool read. That is what makes "not one IAM policy,
+bucket policy or Lake Formation grant is rewritten" provable rather than argued — **a policy sees a
+session tag, not who stamped it**, so removing the door the tags used to come through is invisible
+to every policy.
 
 - **Both `sts:AssumeRole` and `sts:TagSession` are required, and either alone is a trap.**
   `AssumeRole` without `TagSession` renders, plans, applies and unit-tests green, then fails at

@@ -105,8 +105,10 @@ ABAC keystone — until `data.aws_region.current.name` became `var.aws_region`.
 `ignore_changes` is the wrong tool here, because nothing drifts. Contrast
 `aws_lakeformation_permissions`, where the API genuinely reads back different values and
 `ignore_changes` is correct. The two `archive_file` placeholders in `modules/auth` defer the same way
-but are harmless (`ignore_changes = [filename, source_code_hash]`). Full narrative: the comment above
-the resource in [`../modules/auth/identity-pool.tf`](../modules/auth/identity-pool.tf).
+but are harmless (`ignore_changes = [filename, source_code_hash]`). The case this rule was learned
+on — the Identity Pool's principal-tag map, replaced on every infra merge because a module-level
+`depends_on` made its `data.aws_region` unknown at plan time — is gone with the pool, so the
+narrative is in git history rather than beside a resource.
 
 ## The role's own budgets, and the forced wildcard
 

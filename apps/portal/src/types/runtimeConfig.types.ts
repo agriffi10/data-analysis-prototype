@@ -21,8 +21,7 @@
  * The queue URLs are gone from this document entirely — the browser no longer writes a queue,
  * so the URLs are the API function's configuration and an unset one is an operator fault it
  * reports rather than a feature that quietly disables itself. Not here either is
- * the shared-space bucket (a user may belong to no shared space), nor the
- * Identity Pool (sign-in works without it; only credentials don't). The test for
+ * the shared-space bucket (a user may belong to no shared space). The test for
  * membership is whether SOMETHING catches its absence and says so — not whether the
  * app is useful without it.
  */
@@ -44,8 +43,7 @@ export const OPTIONAL_CONFIG = [
   // per-environment override, which is why the flags feature owes a live check.
   'environment',
   'maxUploadBytes',
-  'sharedSpaceBucket',
-  'cognitoIdentityPoolId'
+  'sharedSpaceBucket'
 ] as const;
 
 export type RequiredConfigKey = (typeof REQUIRED_CONFIG)[number];

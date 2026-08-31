@@ -24,10 +24,9 @@ resource "time_sleep" "wait_for_portal_role_perms" {
 resource "aws_iam_role" "portal" {
   name = var.portal_role_name
 
-  # The Identity Pool, not the User Pool directly.
+  # One statement: the API's execution role, assuming this role on a caller's behalf. The
+  # Identity Pool's federated statement went with the pool.
   assume_role_policy = templatefile("${path.module}/policies/portal-role-trust.json.tftpl", {
-    identity_pool_id = var.identity_pool_id
-
     api_execution_role_arn = var.api_execution_role_arn
 
     # Same two variables the function's own environment carries, so the two key sets cannot
@@ -39,15 +38,6 @@ resource "aws_iam_role" "portal" {
   })
 
   depends_on = [time_sleep.wait_for_portal_role_perms]
-}
-
-# The pool id comes from the auth module, keeping the dependency one-directional (data -> auth).
-resource "aws_cognito_identity_pool_roles_attachment" "portal" {
-  identity_pool_id = var.identity_pool_id
-
-  roles = {
-    authenticated = aws_iam_role.portal.arn
-  }
 }
 
 # ── Prefix-Scoped Permission Policy ───────

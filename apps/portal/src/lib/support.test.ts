@@ -1,76 +1,8 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
-import {isExpiryError, withCredentialRetry} from './credentialRetry';
 import {toUserMessage} from './errorMessages';
 import {VITE_NAME, devFallbackValue, warnIfMisconfigured} from './env';
 import {isPortalConfigured, missingRequiredConfig} from './runtimeConfig';
 import {REQUIRED_CONFIG} from '../types/runtimeConfig.types';
-import type {ServiceResult} from '../types/service.types';
-
-// ─── from credentialRetry.test.ts ───
-describe('credentialRetry', () => {
-  describe('isExpiryError', () => {
-    it('is false for unknown / undefined codes', () => {
-      expect(isExpiryError('AccessDenied')).toBe(false);
-      expect(isExpiryError(undefined)).toBe(false);
-    });
-  });
-
-  describe('withCredentialRetry', () => {
-    const okClient = (id: string): ServiceResult<{id: string}> => ({
-      success: true,
-      data: {id}
-    });
-
-    it('does not retry on a non-expiry error', async () => {
-      const getClient = vi.fn(async () => okClient('first'));
-      const op = vi.fn(async () => ({
-        success: false as const,
-        error: {message: 'denied', code: 'AccessDenied'}
-      }));
-
-      const result = await withCredentialRetry(getClient, op);
-
-      expect(result.success).toBe(false);
-      expect(getClient).toHaveBeenCalledTimes(1);
-      expect(op).toHaveBeenCalledTimes(1);
-    });
-
-    it('refreshes the client and retries once on a credential-expiry error', async () => {
-      const getClient = vi
-        .fn<(forceRefresh?: boolean) => Promise<ServiceResult<{id: string}>>>()
-        .mockResolvedValueOnce(okClient('first'))
-        .mockResolvedValueOnce(okClient('refreshed'));
-      const op = vi
-        .fn<(c: {id: string}) => Promise<ServiceResult<string>>>()
-        .mockResolvedValueOnce({
-          success: false,
-          error: {message: 'expired', code: 'ExpiredToken'}
-        })
-        .mockResolvedValueOnce({success: true, data: 'done-after-refresh'});
-
-      const result = await withCredentialRetry(getClient, op);
-
-      expect(result).toEqual({success: true, data: 'done-after-refresh'});
-      expect(getClient).toHaveBeenCalledTimes(2);
-      expect(getClient).toHaveBeenNthCalledWith(2, true); // forced refresh
-      expect(op).toHaveBeenCalledTimes(2);
-      expect(op).toHaveBeenNthCalledWith(2, {id: 'refreshed'});
-    });
-
-    it('surfaces a client-acquisition failure without running the op', async () => {
-      const getClient = vi.fn(async () => ({
-        success: false as const,
-        error: {message: 'no creds'}
-      }));
-      const op = vi.fn();
-
-      const result = await withCredentialRetry(getClient, op);
-
-      expect(result.success).toBe(false);
-      expect(op).not.toHaveBeenCalled();
-    });
-  });
-});
 
 // ─── the NotConfigured rule, now with no producer ───
 describe('NotConfigured', () => {
@@ -174,12 +106,11 @@ describe('env', () => {
     });
 
     it('does not require the keys with their own degraded path', () => {
-      // The shared bucket degrades through "no shared spaces" and the identity pool through
-      // "signed in but no credentials" — one feature each, not the app. The queue URLs used to
-      // be the third example and are no longer browser configuration at all.
+      // The shared bucket degrades through "no shared spaces" — one feature, not the app.
+      // The queue URLs and the Identity Pool used to be the other examples and are no longer
+      // browser configuration at all.
       stubAllRequired();
       vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', '');
-      vi.stubEnv('VITE_COGNITO_IDENTITY_POOL_ID', '');
       expect(isPortalConfigured()).toBe(true);
     });
   });

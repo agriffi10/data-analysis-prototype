@@ -66,8 +66,8 @@ describe('configureAmplify', () => {
     expect(configure).not.toHaveBeenCalled();
   });
 
-  it('includes the Identity Pool when it is configured', () => {
-    seedRuntimeConfig(cognito({cognitoIdentityPoolId: 'us-east-1:pool-id'}));
+  it('configures the User Pool, the client and the Hosted UI, and nothing else', () => {
+    seedRuntimeConfig(cognito());
 
     configureAmplify();
 
@@ -77,7 +77,6 @@ describe('configureAmplify', () => {
         Cognito: {
           userPoolId: 'us-east-1_pool',
           userPoolClientId: 'client-id',
-          identityPoolId: 'us-east-1:pool-id',
           loginWith: {
             oauth: {
               domain: 'auth.example.test',
@@ -92,12 +91,11 @@ describe('configureAmplify', () => {
     });
   });
 
-  it('OMITS the key entirely without it, rather than passing undefined', () => {
-    // The two branches are two clean object literals on purpose: Amplify's Cognito config
-    // is a strict union, and an optional or ternary identityPoolId defeats the inference —
-    // it demands a definite string. Collapsing them is a type error waiting to be silenced
-    // with a cast.
-    seedRuntimeConfig(cognito());
+  it('carries no identityPoolId, whatever the document says', () => {
+    // The pool is retired and the branch that read it is gone. Asserted against a document
+    // that still carries the key, because that is the state a stale deployment serves: the
+    // key must reach no Amplify configuration even when it is present to read.
+    seedRuntimeConfig(cognito({cognitoIdentityPoolId: 'us-east-1:pool-id'} as never));
 
     configureAmplify();
 

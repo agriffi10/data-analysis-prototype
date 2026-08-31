@@ -103,11 +103,6 @@ vi.mock('../user-directory/userDirectory.service', () => ({
   DIRECTORY_KEY: '_directory/usernames.json',
   getUserDirectory: vi.fn().mockResolvedValue({success: true, data: {usernames: [], generatedAt: null}})
 }));
-vi.mock('../../lib/awsCredentials', () => ({
-  getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}}),
-  getIdToken: vi.fn().mockResolvedValue({success: true, data: 'id-token'})
-}));
-
 import {Header} from '../../components/Header';
 import {FileBrowser} from '../file-browser/FileBrowser';
 import {UploadQueueProvider} from '../file-browser';

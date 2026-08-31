@@ -5,7 +5,7 @@ import App from './App.tsx';
 import {AuthProvider} from './features/auth';
 import {ToastProvider} from './components/ToastProvider';
 import {queryClient} from './lib/queryClient';
-import {getIdToken} from './lib/awsCredentials';
+import {getIdToken} from './lib/idToken';
 import {setAuthTokenProvider} from './lib/apiClient';
 
 // WHERE THE API CLIENT LEARNS ABOUT SESSIONS, and it is one call rather than an import inside

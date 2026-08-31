@@ -14,11 +14,6 @@ variable "user_space_bucket_name" {
   type        = string
 }
 
-variable "identity_pool_id" {
-  description = "Cognito Identity Pool ID (from the auth module). Used as the portal role's trust audience and bound as the pool's authenticated role. Keeps the dependency one-directional: data -> auth."
-  type        = string
-}
-
 variable "portal_role_name" {
   description = "Name of the shared portal IAM role. Computed by the root module (default {project_name}-portal-user-role)."
   type        = string

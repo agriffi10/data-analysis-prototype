@@ -61,15 +61,17 @@ API_CLIENT = INFRA.parent / "apps" / "portal" / "src" / "lib" / "apiClient.ts"
 CSP_CONNECT_SRC_TERMS = (
     "'self'",
     "https://cognito-idp.${var.aws_region}.amazonaws.com",
-    "https://cognito-identity.${var.aws_region}.amazonaws.com",
     "https://${local.cognito_hosted_ui_domain}",
     "https://${local.user_space_bucket_name}.s3.${var.aws_region}.amazonaws.com",
     "https://${local.shared_space_bucket_name}.s3.${var.aws_region}.amazonaws.com",
-    "https://athena.${var.aws_region}.amazonaws.com",
-    "https://glue.${var.aws_region}.amazonaws.com",
-    "https://sqs.${var.aws_region}.amazonaws.com",
     "local.api_origin",
 )
+
+# Gone, and asserted gone by the set equality this tuple feeds: athena, glue and sqs left with
+# the SDK clients that called them, and cognito-identity with the Identity Pool. The last is the
+# one worth naming — it looks like a sign-in host and is not one, and leaving it would be a live
+# permission for the exact call the retirement exists to make impossible. Both Cognito hosts
+# above STAY: Amplify still runs in the tab, and the code exchange is a fetch, not a navigation.
 
 PRESIGN_PROBE_REGIONS = ("us-east-1", "eu-west-1")
 PRESIGN_PROBE_BUCKET = "probe-user-space"
