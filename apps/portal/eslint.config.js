@@ -7,7 +7,30 @@ import noUnsanitized from 'eslint-plugin-no-unsanitized';
 import tseslint from 'typescript-eslint';
 import {defineConfig, globalIgnores} from 'eslint/config';
 
+// The browser makes NO AWS calls. Two mechanisms hold that, because neither catches the
+// other's failure: this rule stops an import, and a test over package.json stops a
+// dependency nobody has imported yet — which is how the next one arrives.
+//
+// SPREAD INTO EVERY no-restricted-imports CLAUSE BELOW, and that is not stylistic. Flat
+// config REPLACES a rule's value at the last matching entry rather than merging it, so a
+// single `src/**` clause would be silently switched off for every file the layering blocks
+// also match. `eslintConfigShape.test.ts` enumerates the entries and fails if one omits it.
+const AWS_SDK_IMPORTS = {
+  group: ['@aws-sdk/*', '@aws-sdk/**'],
+  message:
+    'The browser makes no AWS calls. Go through the API — lib/apiClient.ts — or, for bytes, a ' +
+    'presigned URL the API minted. aws-amplify is unaffected.'
+};
+
 export default defineConfig([
+  {
+    // Every file under src/, tests included. The three clauses below re-state
+    // AWS_SDK_IMPORTS because each of them replaces this one for the files it matches.
+    files: ['src/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': ['error', {patterns: [AWS_SDK_IMPORTS]}]
+    }
+  },
   globalIgnores(['dist', 'coverage', 'src/types/apiContract.generated.ts']),
   {
     files: ['**/*.{ts,tsx}'],
@@ -72,7 +95,8 @@ export default defineConfig([
               group: ['**/features/*', '**/features/**'],
               message:
                 'components/, lib/ and hooks/ are the shared layers and must not import from features/. Move the shared piece into lib/, components/ or hooks/ — or move the caller into the feature that owns the concept.'
-            }
+            },
+            AWS_SDK_IMPORTS
           ]
         }
       ]
@@ -97,7 +121,10 @@ export default defineConfig([
       'src/components/ProtectedLayout.tsx'
     ],
     rules: {
-      'no-restricted-imports': 'off'
+      // The LAYERING rule is what these files are exempt from — not the SDK ban. A bare
+      // 'off' would exempt them from both, and a test mocking @aws-sdk/client-s3 is a test
+      // of a code path that no longer exists.
+      'no-restricted-imports': ['error', {patterns: [AWS_SDK_IMPORTS]}]
     }
   },
   {
@@ -164,7 +191,8 @@ export default defineConfig([
               ],
               message:
                 'features/query/ and features/data-explorer/ are siblings and must not import from each other, and the layers below them (features/catalog/, features/saved-queries/) may import neither. Anything both need belongs in features/catalog/ (SPEC-176) or features/saved-queries/ (SPEC-177).'
-            }
+            },
+            AWS_SDK_IMPORTS
           ]
         }
       ]

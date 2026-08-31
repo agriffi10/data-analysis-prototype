@@ -93,21 +93,21 @@ variable "max_shared_memberships" {
 }
 
 variable "principal_tag_key" {
-  description = "IAM principal-tag key carrying the username. Scopes the portal role's analytics Glue/results ARNs, and bounds the portal role's API trust statement. Default 'username' — matches the Identity Pool attribute mapping."
+  description = "IAM principal-tag key carrying the username. Scopes the portal role's analytics Glue/results ARNs, and bounds the portal role's API trust statement. Default 'username' — the tag the API stamps from the verified claim."
   type        = string
   default     = "username"
 
   # Pinned to the literal, and the validation is the point rather than the default. This key is
-  # hard-coded in identity-pool.tf's principal_tags map and in two of the portal role's
-  # permission templates, none of which this variable reaches — so "one variable feeds both,
-  # therefore they cannot drift" is false. An empty repo variable satisfies a required variable
+  # hard-coded in two of the portal role's permission templates and in the Python identity
+  # layer, none of which this variable reaches — so "one variable feeds both, therefore they
+  # cannot drift" is false. An empty repo variable satisfies a required variable
   # AND overrides a default, so a TF_VAR override would silently produce sessions whose tags
   # match no policy statement: AccessDenied on every API path, the browser path still working,
   # and nothing naming the cause. Refuse it at plan instead. Changing this key means threading it
   # through those three sites first, and this line is the reminder.
   validation {
     condition     = var.principal_tag_key == "username"
-    error_message = "principal_tag_key must be \"username\" while identity-pool.tf and the portal-role permission templates hard-code it. Thread the variable through those first, then change this."
+    error_message = "principal_tag_key must be \"username\" while the portal-role permission templates hard-code it. Thread the variable through those first, then change this."
   }
 }
 

@@ -148,8 +148,11 @@ describe('runtimeConfig — the dev fallback', () => {
   it('pairs every key with the right VITE_ variable', () => {
     // The two tables are exhaustive by the compiler; that a key is paired with the RIGHT
     // variable is not a thing a type can say.
-    const paired = [...REQUIRED_CONFIG, ...OPTIONAL_CONFIG].filter((key) => VITE_NAME[key] !== null);
-    expect(paired).toHaveLength(11);
+    // Against the classification, not a literal. A hard count reddens on any deliberate
+    // key retirement, which reads as a defect in the retirement rather than in the test.
+    const keys = [...REQUIRED_CONFIG, ...OPTIONAL_CONFIG];
+    const paired = keys.filter((key) => VITE_NAME[key] !== null);
+    expect(paired).toHaveLength(keys.length);
 
     for (const key of paired) vi.stubEnv(VITE_NAME[key] as string, `env-${key}`);
 
@@ -355,8 +358,9 @@ describe('runtimeConfig — every key has a source in every environment', () => 
     const keys = runtimeConfigKeys();
 
     // Guard-the-guard: a parse that silently found nothing would agree with an empty
-    // classification and pass forever.
-    expect(keys.length).toBeGreaterThan(10);
+    // classification and pass forever. Named rather than counted — a count has to be
+    // revised by every key retirement, and revising it is where the guard gets lost.
+    expect(keys).toContain('apiBaseUrl');
     expect(keys.slice().sort()).toEqual([...ALL_KEYS].sort());
   });
 

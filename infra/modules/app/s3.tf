@@ -1,10 +1,14 @@
-data "aws_caller_identity" "current" {}
-
 # ── Static Assets Bucket ─────────────────────────────────────────────────────
 # Private bucket for the built SPA. Only accessible via CloudFront OAC — not public.
 
 resource "aws_s3_bucket" "static_assets" {
-  bucket = "${var.project_name}-static-${data.aws_caller_identity.current.account_id}"
+  bucket = var.static_bucket_name
+
+  # Terraform cannot DeleteBucket a bucket holding objects, and this one holds a whole SPA
+  # build. Without this the retirement's destroy fails PART WAY THROUGH, with the state
+  # migrations and the deploy-role grant timing both mid-flight — the worst point in the
+  # sequence to stop. Set here, one merge ahead of the destroy, where it changes nothing.
+  force_destroy = true
 }
 
 resource "aws_s3_bucket_public_access_block" "static_assets" {

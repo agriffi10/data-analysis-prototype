@@ -323,21 +323,26 @@ locals {
   # that owns the bucket's lifecycle rules. A literal in each would be two literals.
   alb_access_logs_prefix = "alb-access-logs"
 
-  # Every host the browser fetches. Until the API exists there is no backend, so this list
-  # IS the app's network surface — anything missing is a broken feature, not a hardened one,
-  # and nothing observes a CSP offline.
+  # The static bucket's ARN, CONSTRUCTED rather than read from module.app's output. The
+  # deploy role's grant on this bucket is rendered from it, and sourcing it from the module
+  # would make the apply that destroys the bucket the same apply that removes the permission
+  # to destroy it — the refresh deadlock infra/info/deploy-role-iam.md records. Constructed,
+  # the grant outlives the module and is retired deliberately, one apply later.
+  static_assets_bucket_name = "${var.project_name}-static-${data.aws_caller_identity.current.account_id}"
+  static_assets_bucket_arn  = "arn:aws:s3:::${var.project_name}-static-${data.aws_caller_identity.current.account_id}"
+
+  # Every host the browser fetches. This list IS the app's network surface — anything missing
+  # is a broken feature, not a hardened one, and nothing observes a CSP offline.
   #
-  # Built from CONSTRUCTED STRINGS, never from a module output. module.app is upstream of
-  # base -> data, so a module reference here is a dependency cycle; and api_origin in
-  # particular must come from the subdomain variables above rather than from module.api's
-  # domain name, which would route the same cycle through base.
+  # Built from CONSTRUCTED STRINGS, never from a module output. api_origin in particular must
+  # come from the subdomain variables above rather than from module.api's domain name, which
+  # would route a dependency cycle through base.
   #
-  # It lives at root rather than in modules/app because three consumers need it and only
-  # one of them is that module.
+  # It lives at root because the container reads it directly and the assembled policy below
+  # reads it too, so neither module can own the computation.
   csp_connect_src = join(" ", [
     "'self'",
     "https://cognito-idp.${var.aws_region}.amazonaws.com",
-    "https://cognito-identity.${var.aws_region}.amazonaws.com",
     # NOT reachable via cognito-idp: Amplify's authorization-code exchange POSTs to
     # https://<domain>/oauth2/token. Omitting it blocks the exchange, so the returning
     # `?code=` is never redeemed and the app sits signed-out over a live session.
@@ -347,12 +352,6 @@ locals {
     "https://${local.cognito_hosted_ui_domain}",
     "https://${local.user_space_bucket_name}.s3.${var.aws_region}.amazonaws.com",
     "https://${local.shared_space_bucket_name}.s3.${var.aws_region}.amazonaws.com",
-    "https://athena.${var.aws_region}.amazonaws.com",
-    "https://glue.${var.aws_region}.amazonaws.com",
-    "https://sqs.${var.aws_region}.amazonaws.com",
-    # The API. Added here rather than in the spec that retires CloudFront, because the
-    # bundle in the static bucket is HEAD: once the ported routes land it fetches this
-    # host, and an origin whose CSP omits it is a portal that loads and can do nothing.
     local.api_origin,
   ])
 
@@ -441,7 +440,6 @@ locals {
     cognitoUserPoolId       = module.auth.user_pool_id
     cognitoUserPoolClientId = module.auth.user_pool_client_id
     cognitoDomain           = local.cognito_hosted_ui_domain
-    cognitoIdentityPoolId   = module.auth.identity_pool_id
     userSpaceBucket         = local.user_space_bucket_name
     sharedSpaceBucket       = local.shared_space_bucket_name
   }
@@ -456,6 +454,10 @@ module "app" {
   # out so one computation feeds both delivery paths, so a root-level check has a referent
   # it can read, and because this module does not outlive the distribution.
   content_security_policy = local.content_security_policy
+
+  # Root computes the name, because the deploy role's grant is rendered from it and must
+  # outlive this module by one apply.
+  static_bucket_name = local.static_assets_bucket_name
 }
 
 module "base" {
@@ -466,7 +468,7 @@ module "base" {
   state_bucket      = var.state_bucket
   state_lock_table  = var.state_lock_table
   aws_region        = var.aws_region
-  static_bucket_arn = module.app.static_assets_bucket_arn
+  static_bucket_arn = local.static_assets_bucket_arn
 
   # Scopes the deploy role's Route 53 grant to the single zone the front door owns.
   # The grant and the records that use it read the SAME variable, so they cannot
@@ -612,7 +614,6 @@ module "data" {
 
   # Identity Pool ID from auth — used as the portal role's trust audience and the
   # pool's authenticated-role binding. Dependency stays one-directional: data -> auth.
-  identity_pool_id = module.auth.identity_pool_id
 
   # Same ordering as auth: the deploy role grants itself the S3 + IAM-role
   # permissions (modules/base policy). Force that grant to settle before the

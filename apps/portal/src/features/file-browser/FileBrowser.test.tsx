@@ -8,7 +8,7 @@ import {FileOpsInFlightProvider} from './FileOpsInFlightProvider';
 import {UPLOAD_CONCURRENCY} from './upload.types';
 import * as service from './fileBrowser.service';
 import {triggerBrowserDownload} from './fileBrowser.download';
-import {getSessionCredentials} from '../../lib/awsCredentials';
+import {getIdToken} from '../../lib/idToken';
 import * as dqService from '../data-quality/dataQuality.service';
 import * as sendService from '../file-send/fileSend.service';
 import {submitFileOperation} from './fileOps.service';
@@ -37,8 +37,8 @@ vi.mock('./fileBrowser.service', async (importActual) => {
 // triggerBrowserDownload navigates the browser — stub the side effect (its own
 // unit test covers the anchor mechanics).
 vi.mock('./fileBrowser.download', () => ({triggerBrowserDownload: vi.fn()}));
-vi.mock('../../lib/awsCredentials', () => ({
-  getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}})
+vi.mock('../../lib/idToken', () => ({
+  getIdToken: vi.fn().mockResolvedValue({success: true, data: 'id-token'})
 }));
 // SPEC-113: the data-quality enqueue is another AWS boundary — mock it, and let the
 // real DataQualityDialog and useDataQualityCheck render.
@@ -188,7 +188,7 @@ describe('FileBrowser — listing states', () => {
     const refresh = await screen.findByRole('button', {name: 'Refresh access'});
     mock.listFiles.mockResolvedValue(ok(page()));
     await user.click(refresh);
-    expect(getSessionCredentials).toHaveBeenCalledWith(true);
+    expect(getIdToken).toHaveBeenCalledWith(true);
     expect(await screen.findByText('report.csv')).toBeInTheDocument();
   });
 

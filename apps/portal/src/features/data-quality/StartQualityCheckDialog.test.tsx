@@ -17,10 +17,6 @@ vi.mock('../file-browser/fileBrowser.service', async (importActual) => ({
   listFiles: vi.fn()
 }));
 
-vi.mock('../../lib/awsCredentials', () => ({
-  getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}})
-}));
-
 describe('StartQualityCheckDialog', () => {
   // Integration style (react.md §21): the real dialog driving the real DestinationPicker and
   // the real useFileBrowser, with only the S3 listing boundary mocked.

@@ -9,10 +9,6 @@ import {getRunsIndex} from './dataQualityRuns.service';
 import type {DataQualityRequest} from './dataQuality.types';
 
 // ─── from dataQuality.format.test.ts ───
-vi.mock('../../lib/awsCredentials', () => ({
-  getIdToken: vi.fn(),
-  getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}})
-}));
 vi.mock('../../lib/apiClient', () => ({apiRequest: vi.fn()}));
 
 describe('dataQuality.format', () => {

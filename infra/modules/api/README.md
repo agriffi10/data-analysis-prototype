@@ -103,14 +103,14 @@ A defaulted role ARN fails a long way from its cause. **A defaulted slot count s
 shared space a user is in** — which presents as the membership propagation delay the product already
 documents, so nothing about the running system distinguishes it from correct behaviour.
 
-`portal_role_arn` is the **existing** role, the same ARN the Identity Pool's role attachment names.
+`portal_role_arn` is the **existing** role — the one the Identity Pool's role attachment used to name, kept rather than re-minted.
 **No new role is created**: the user-space bucket policy's hand-maintained allowlist already names
 this one, and `aws:PrincipalArn` resolves an assumed-role request to the role's IAM ARN, so assuming
 the same role keeps that entry valid.
 
-`principal_tag_key` agreement with the Identity Pool's map is **asserted by test rather than made
-structural** — the map and two of the portal role's permission templates hard-code the literal, and
-threading a variable through them would edit templates this arc must leave byte-identical.
+`principal_tag_key` agreement with the portal role's permission templates is **asserted by test rather than made
+structural** — two of the portal role's permission templates hard-code the literal, and threading a
+variable through them would edit templates this arc must leave byte-identical.
 
 ## Small shapes that are load-bearing
 

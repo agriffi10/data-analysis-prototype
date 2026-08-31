@@ -313,8 +313,8 @@ rows stay, and three findings survive by decision.
 
 **The counts, measured rather than estimated.** The `.tf` scan over `infra/` reports **918 passed /
 736 failed**, 474 resources, against 508/373 when this file was written. The enforce list went from
-**52 IDs to 89**: 37 newly-passing IDs joined it, **none disappeared**, and the gate script itself
-reports `enforcing 89 check ID(s); 0 finding(s) on them`.
+**52 IDs to 89**: 37 newly-passing IDs joined it, **none disappeared then**, and the gate script itself
+reports `enforcing 88 check ID(s); 0 finding(s) on them`. It was 89 until `CKV_AWS_366` left with the Identity Pool — the entry above records why, as this file is where an enforce-list removal has to be argued.
 
 **Thirty-five of the 37 came with the new families. Two did not**, and the exception is the useful
 part: `CKV_AWS_251` and `CKV_AWS_36` both evaluate
@@ -404,6 +404,23 @@ now so the first scan has something to diff **per alert ID** rather than a judge
 | **`Server: nginx` on the container origin (SPEC-194)** | **ACCEPT — a divergence from the CloudFront path, stated rather than assumed.** The distribution strips `Server` outright; nginx cannot. `server_tokens off` hides the **version** and nothing more, and removing the header needs the third-party `headers-more` module, which the official images do not ship. Compiling it against the runtime base's exact source, in lockstep with every base bump and with an ABI mismatch stopping nginx from starting, is real maintenance coupling bought for a banner that now discloses only "nginx". **This alert fires on a VERSION, so it does not regress** — the Phase 5 ZAP diff is read per alert ID to confirm no new *Server Leaks Version Information* row appears. Re-open if a client security review objects to the banner; `headers-more` is the path, and the brotli decision moves with it, both being the same "no third-party module compile stage" call. |
 | **HSTS `preload` dropped on the container origin (SPEC-194)** | **ACCEPT, and it costs no finding.** **`CKV_AWS_259` is a CloudFront check**, evaluated against `aws_cloudfront_response_headers_policy.portal` — which still carries HSTS with `preload` and still passes it. nginx's header is invisible to that check, so dropping `preload` on the container origin regresses nothing. **When the distribution is deleted, `CKV_AWS_259` must come off `.github/checkov-enforced.txt` in the same change**: an enforced check ID matching no finding is a hard error, which is the gate working as designed. Three reasons in order of weight: emitting `preload` claims a submission this deployment has not made and does not intend, which is the class of silent divergence the container work exists to catch; the grant is against the **registrable domain** and is close to irreversible, and the SPA and API are subdomains of a parent this repository does not own, so the claim commits sibling services nobody asked; and the cost of dropping it is zero. `max-age=31536000; includeSubDomains` is kept. **Do not re-flip this to satisfy `CKV_AWS_259`** — that check does not read this header, and after the distribution goes it reads nothing at all. |
 
+
+### Enforce-list removal — CKV_AWS_366, with the Identity Pool (2026-08-30)
+
+`CKV_AWS_366` (*Ensure AWS Cognito identity pool does not allow unauthenticated guest access*) is
+removed from `.github/checkov-enforced.txt`. It is **not a suppression**: its only subject,
+`aws_cognito_identity_pool.portal`, was retired when the browser stopped needing AWS credentials,
+so the check now evaluates against nothing — and an enforced ID with no subject is a hard error
+by design, which is `checkov-enforced.sh`'s way of holding *"did not run is never clean"*.
+
+The property the check asserted is not lost, it is unreachable: there is no pool to allow
+unauthenticated identities into. The portal role's trust policy has one statement, admitting the
+API's execution role and nothing else, so no browser can assume it at all.
+
+**The removal is scheduled to repeat once more.** Retiring CloudFront takes `CKV2_AWS_32`, `46`,
+`54`, `72` and `CKV_AWS_34`, `216`, `259`, `305` with it, for the same reason. `CKV_AWS_70` is the
+one to measure rather than reason about — the distribution's bucket policy is one of five, and
+whether it is that ID's only subject cannot be settled by reading.
 
 ### Design finding — notifications `create` spoofing (not scanner-derived)
 

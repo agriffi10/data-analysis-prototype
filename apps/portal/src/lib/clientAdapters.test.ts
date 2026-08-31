@@ -3,8 +3,6 @@ import {classifyDocument, quarantineDocument, readJsonDocument, writeJsonDocumen
 import {apiRequest} from './apiClient';
 import type {ServiceResult} from '../types/service.types';
 
-vi.mock('./awsCredentials', () => ({getSessionCredentials: vi.fn()}));
-
 vi.mock('./apiClient', () => ({apiRequest: vi.fn()}));
 
 describe('s3Json', () => {

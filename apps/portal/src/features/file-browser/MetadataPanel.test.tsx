@@ -17,10 +17,6 @@ vi.mock('./fileBrowser.service', async (importActual) => {
   return {...actual, getObjectMetadata: vi.fn(), getDownloadUrl: vi.fn()};
 });
 vi.mock('./fileBrowser.download', () => ({triggerBrowserDownload: vi.fn()}));
-vi.mock('../../lib/awsCredentials', () => ({
-  getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}})
-}));
-
 const mock = vi.mocked(service);
 
 const file: S3FileItem = {

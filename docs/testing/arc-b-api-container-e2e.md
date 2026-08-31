@@ -1594,9 +1594,15 @@ a change nobody would connect back to a test run days later.
 
 | Value | Captured |
 |---|---|
-| `cognito_identity_pool_id` → `$POOL_ARN_ID` | |
-| `cloudfront_distribution_id` → `$DIST_ID` | |
+| `cognito_identity_pool_id` → `$POOL_ARN_ID` | `us-east-1:b937244c-1632-420d-81af-49838df20233` (2026-08-30) |
+| `cloudfront_distribution_id` → `$DIST_ID` | `E63PRJKNACLDP` (2026-08-30) |
 
 | Date | Section | Merge state | Browser | Result | Notes |
 |---|---|---|---|---|---|
+| 2026-08-30 | §0 — SPEC-193's three additive changes | pre-merge-1 | CLI | **PASS** | All three live. Callback and logout lists each carry `http://localhost:5173`, the CloudFront domain and `https://portal.dataquarry.app`. CloudFront's `connect-src` names `https://api.dataquarry.app`. The API's CORS lists both origins. Nothing was added — verification only. |
+| 2026-08-30 | §0 — the deployed trust policy | pre-merge-1 | CLI | **PASS** | `get-role` on `dat-portal-user-role` returns **two** statements: the federated one, and `TheApiMayActAsAUser` admitting `arn:aws:iam::696000197480:role/dat-prod-api-role` with `sts:AssumeRole` + `sts:TagSession` and the eleven-key `sts:TagKeys` ceiling. SPEC-196's statement is applied, so merge 1 leaves the role assumable. |
+| 2026-08-30 | §0 — the two ids | pre-merge-1 | CLI | **PASS** | Both recorded above. |
+| 2026-08-30 | FR-002 AC3 — the container's `appUrl` | pre-merge-1 | CLI | **PASS** | Task definition `dat-prod-spa:48` sets `CONFIG_appUrl=https://portal.dataquarry.app`, which is `spa_origin`. A container naming CloudFront here would send every sign-in to the other origin. |
+| 2026-08-30 | FR-008 — the `connect-src` before-state | pre-merge-1 | CLI | recorded | `spa_origin` serves ten terms, including `cognito-identity.`, `athena.`, `glue.` and `sqs.`. Merge 1 takes those four. |
+| 2026-08-30 | FR-008 AC4 — `Server` absent | pre-merge-1 | CLI | **contradiction, not a failure** | `spa_origin` returns `server: nginx`. That is SPEC-194's **first recorded divergence**, not a defect: the distribution stripped the S3 banner and nginx cannot without the third-party `headers-more` module. FR-008's clause was written before SPEC-194 measured it; the spec is corrected rather than the deployment. See `decisions/infrastructure.md` → *The nginx configuration reproduces CloudFront's jobs, and three are divergences*. |
 | | | pre-merge-1 / post-merge-1 / post-merge-2 | | | |

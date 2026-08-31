@@ -2,7 +2,7 @@ import {useCallback, useMemo, useRef} from 'react';
 import {useQuery, useQueryClient} from '@tanstack/react-query';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import {unwrap} from '../../lib/serviceResult';
-import {getSessionCredentials} from '../../lib/awsCredentials';
+import {getIdToken} from '../../lib/idToken';
 import {connectionKeys} from './connectionKeys';
 import {NO_KEY} from '../../lib/queryKeys';
 import type {Connection} from './connection.types';
@@ -100,10 +100,11 @@ export function useConnections(username: string | null): UseConnectionsResult {
   }, [username, query.data]);
 
   const refresh = useCallback(async () => {
-    // Force a fresh credential vend so newly-granted membership tags apply
-    // on demand, then re-read the cache. A failed refresh keeps the prior
-    // list intact (invalidate is non-destructive).
-    await getSessionCredentials(true);
+    // Force a fresh token so newly-granted membership claims reach the API on demand,
+    // then re-read the cache. A failed refresh keeps the prior list intact
+    // (invalidate is non-destructive). Dropping this leaves the button a no-op that
+    // still spins.
+    await getIdToken(true);
     return queryClient.invalidateQueries({queryKey: key});
   }, [queryClient, key]);
 
@@ -112,7 +113,7 @@ export function useConnections(username: string | null): UseConnectionsResult {
     // next poll, then re-mint the token (new membership tags for the actor) and
     // re-read the cache once immediately.
     reconcileUntil.current = Date.now() + RECONCILE_WINDOW_MS;
-    await getSessionCredentials(true);
+    await getIdToken(true);
     return queryClient.invalidateQueries({queryKey: key});
   }, [queryClient, key]);
 

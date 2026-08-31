@@ -13,19 +13,16 @@ vi.mock('./sharedSpaces.service', () => ({
   enqueueSharedSpaceRequest: vi.fn(),
   readSharedConnectionsCache: vi.fn()
 }));
-vi.mock('../../lib/awsCredentials', () => ({
-  getSessionCredentials: vi.fn(),
-  getIdToken: vi.fn()
-}));
+vi.mock('../../lib/idToken', () => ({getIdToken: vi.fn()}));
 
 import {enqueueSharedSpaceRequest, readSharedConnectionsCache} from './sharedSpaces.service';
-import {getSessionCredentials} from '../../lib/awsCredentials';
+import {getIdToken} from '../../lib/idToken';
 import {ConnectionsPage} from './ConnectionsPage';
 import type {SharedConnectionsCache} from './sharedSpaces.types';
 
 const mockEnqueue = enqueueSharedSpaceRequest as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown>>;
 const mockRead = readSharedConnectionsCache as unknown as MockedFunction<(u: string) => Promise<unknown>>;
-const mockForceRefresh = getSessionCredentials as unknown as MockedFunction<(f?: boolean) => Promise<unknown>>;
+const mockForceRefresh = getIdToken as unknown as MockedFunction<(f?: boolean) => Promise<unknown>>;
 
 function cache(connections: SharedConnectionsCache['connections']): {success: true; data: SharedConnectionsCache} {
   return {success: true, data: {version: 1, connections}};

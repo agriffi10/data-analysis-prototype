@@ -3,18 +3,18 @@ import {waitFor, act} from '@testing-library/react';
 import {renderHookWithProviders} from '../../test/renderWithProviders';
 
 // Boundary-only mocks (react.md §21): the shared-connections cache read and the
-// credential/token vend are the AWS seam. Everything else — the hook's merge,
+// token re-mint are the seam. Everything else — the hook's merge,
 // ordering, reconcile/refresh, polling window — runs for real.
 vi.mock('../shared-spaces/sharedSpaces.service', () => ({readSharedConnectionsCache: vi.fn()}));
-vi.mock('../../lib/awsCredentials', () => ({getSessionCredentials: vi.fn()}));
+vi.mock('../../lib/idToken', () => ({getIdToken: vi.fn()}));
 
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
-import {getSessionCredentials} from '../../lib/awsCredentials';
+import {getIdToken} from '../../lib/idToken';
 import {useConnections} from './useConnections';
 import type {SharedConnectionsCache} from '../shared-spaces/sharedSpaces.types';
 
 const mockRead = vi.mocked(readSharedConnectionsCache);
-const mockForceRefresh = vi.mocked(getSessionCredentials);
+const mockForceRefresh = vi.mocked(getIdToken);
 
 function cache(connections: SharedConnectionsCache['connections']): SharedConnectionsCache {
   return {version: 1, connections};

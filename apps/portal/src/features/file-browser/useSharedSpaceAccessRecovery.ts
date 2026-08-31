@@ -1,5 +1,5 @@
 import {useState} from 'react';
-import {getSessionCredentials} from '../../lib/awsCredentials';
+import {getIdToken} from '../../lib/idToken';
 import type {FileSpaceKind} from './useFileSpace';
 
 export type UseSharedSpaceAccessRecoveryResult = {
@@ -41,9 +41,10 @@ export function useSharedSpaceAccessRecovery({
     refreshing,
     refreshAccess: async () => {
       setRefreshing(true);
-      // Re-mint the ID token so the Identity Pool stamps the new shared_space_k tag,
-      // then re-list. A failed re-mint just leaves the error in place.
-      await getSessionCredentials(true);
+      // Re-mint the ID token so the new shared_space_k claim reaches the API, then
+      // re-list. A failed re-mint just leaves the error in place. Dropping this leaves
+      // the affordance a no-op that still spins.
+      await getIdToken(true);
       refreshListing();
       setRefreshing(false);
     }

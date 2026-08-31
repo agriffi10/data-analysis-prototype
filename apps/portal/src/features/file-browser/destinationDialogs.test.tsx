@@ -13,10 +13,6 @@ vi.mock('./fileBrowser.service', async (importActual) => {
   const actual = await importActual<typeof service>();
   return {...actual, listFiles: vi.fn()};
 });
-vi.mock('../../lib/awsCredentials', () => ({
-  getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}})
-}));
-
 describe('CopyDialog', () => {
   // Integration style (react.md §21): render the REAL CopyDialog → real
   // DestinationPicker → real useFileBrowser, mocking ONLY the AWS boundary

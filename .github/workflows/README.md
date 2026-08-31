@@ -67,7 +67,6 @@ Go to **Settings → Secrets and variables → Actions → Variables**.
 | `VITE_COGNITO_USER_POOL_ID` | `tofu output cognito_user_pool_id` | Injected into the build by `deploy-app.yml` (SPEC-007) |
 | `VITE_COGNITO_USER_POOL_CLIENT_ID` | `tofu output cognito_user_pool_client_id` | Injected into the build by `deploy-app.yml` (SPEC-007) |
 | `VITE_COGNITO_DOMAIN` | `tofu output cognito_domain` | Injected into the build by `deploy-app.yml` (SPEC-007) |
-| `VITE_COGNITO_IDENTITY_POOL_ID` | `tofu output cognito_identity_pool_id` | Injected into the build by `deploy-app.yml` (SPEC-011); without it the deployed app gets no AWS credentials |
 | `VITE_S3_USER_SPACE_BUCKET` | `tofu output s3_user_space_bucket_name` | Bucket provisioned in SPEC-010; read by the file browser starting SPEC-013. Required — an unset one fails the deploy at the render step |
 | `API_BASE_URL` | `https://api.dataquarry.app` | The API's origin, no trailing slash. **Required**: the browser reads it on every ported route, and this workflow refuses to publish a document without it rather than shipping a portal that cannot boot. |
 
@@ -104,7 +103,7 @@ Several workflow values are derived rather than stored as separate GitHub variab
 - `TF_VAR_app_url` is set to `${{ vars.VITE_APP_URL }}` — declared in `infra/variables.tf` for Cognito OAuth callback URLs when auth IaC is added.
 - `VITE_COGNITO_USER_POOL_ID`, `VITE_COGNITO_USER_POOL_CLIENT_ID` and `VITE_COGNITO_DOMAIN` are rendered into `/config.json` by `deploy-app.yml` from GitHub Actions **variables** (SPEC-007). Populate them from `tofu output` (see the variables table above) before the next app deploy: all three are required, so the deploy refuses to publish a document without them.
 - `VITE_S3_USER_SPACE_BUCKET` is provisioned by SPEC-010 (`tofu output s3_user_space_bucket_name`) and scopes the file browser to the user-space bucket. It is required, so an unset one fails the deploy at the render step rather than reaching a user. `VITE_S3_SHARED_SPACE_BUCKET` remains a future spec.
-- `VITE_IAM_ROLE_ARN` has been **removed** (SPEC-011): the Cognito Identity Pool issues scoped credentials and the app never handles a role ARN. `VITE_COGNITO_IDENTITY_POOL_ID` replaces it.
+- `VITE_IAM_ROLE_ARN` and `VITE_COGNITO_IDENTITY_POOL_ID` have both been **removed**. The first went when the Identity Pool took over credential issuance; the second went with the pool itself, once the browser stopped making AWS calls. The app handles neither a role ARN nor a pool id.
 - `TF_VAR_state_bucket` and `TF_VAR_state_lock_table` are stored as **secrets** (not variables) because they are used both as OpenTofu input variables (scoping IAM permissions in `iam.tf`) and as backend configuration passed to `tofu init`.
 
 ### `deploy-lambdas.yml` (SPEC-012)

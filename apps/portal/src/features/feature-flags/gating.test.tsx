@@ -40,11 +40,6 @@ vi.mock('../shared-spaces/sharedSpaces.service', () => ({
   readSharedConnectionsCache: vi.fn(),
   enqueueSharedSpaceRequest: vi.fn().mockResolvedValue({success: true, data: {requestId: 'r1'}})
 }));
-vi.mock('../../lib/awsCredentials', () => ({
-  getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}}),
-  getIdToken: vi.fn().mockResolvedValue({success: true, data: 'id-token'})
-}));
-
 import {Header} from '../../components/Header';
 import {FeatureRoute} from '../../routes/FeatureRoute';
 import LandingPage from '../../routes/LandingPage';

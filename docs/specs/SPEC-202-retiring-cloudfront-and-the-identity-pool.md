@@ -522,11 +522,19 @@ it and is deleted with the module in merge 2 — narrowing it first would only s
 - [ ] The `connect-src` is still **rendered from the task environment**, not baked — two containers
       started with different `PORTAL_CSP_CONNECT_SRC` values produce two different policies
       (SPEC-194 FR-006). One image promotes; a baked list does not.
-- [ ] The full SPEC-140 header set is present on a deployed response from `spa_origin`, `Server` is
-      absent, and the policy is **enforcing** (`Content-Security-Policy`, never
+- [ ] The full SPEC-140 header set is present on a deployed response from `spa_origin` and the
+      policy is **enforcing** (`Content-Security-Policy`, never
       `Content-Security-Policy-Report-Only`). **A report-only pass proves nothing about enforcement**,
       so the header name alone is not the criterion: FR-009 §7 pairs it with a blocked fetch, its
       negative control, and a `securitypolicyviolation` event whose `disposition` reads `"enforce"`.
+      **`Server` is NOT part of this criterion, and the removal is the correction of a contradiction**
+      (measured 2026-08-30: `spa_origin` returns `server: nginx`). This clause was written before
+      SPEC-194 measured the container and recorded `Server: nginx` as the **first of its three
+      knowing divergences** from CloudFront — nginx cannot strip its own banner without the
+      third-party `headers-more` module, and the alternative is a build stage recompiled in lockstep
+      with every base bump. Asserting the absence here would make an acceptance criterion that a
+      settled decision guarantees will fail. Re-open trigger is SPEC-194's, unchanged: a client
+      security review objecting to the banner.
 - [ ] **The verification method is stated precisely, because the house rule's blanket form is not
       buildable here.** SPEC-140 recorded that CDP evaluation bypasses page CSP; what it *measured*
       was `script-src` — `new Function` reported allowed under `script-src 'self'`, which is the

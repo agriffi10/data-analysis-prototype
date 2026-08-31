@@ -30,11 +30,6 @@ vi.mock('../file-browser/fileBrowser.service', async (importActual) => ({
   listFiles: vi.fn()
 }));
 
-vi.mock('../../lib/awsCredentials', () => ({
-  getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}}),
-  getIdToken: vi.fn().mockResolvedValue({success: true, data: 'tok'})
-}));
-
 describe('DataQualityPage', () => {
   // Integration style (react.md §21): the real page, the real useDataQualityRuns, the real
   // useConnections — mocking only the AWS service boundaries they sit on.
