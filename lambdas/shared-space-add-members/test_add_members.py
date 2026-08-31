@@ -7,9 +7,10 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
 import add_members as a
+import registry as reg
 from cpcommon import clients
 from cpcommon import config as cpconfig
-from fakes import install
+from fakes import install, raises
 
 
 def _enable_notifications():
@@ -125,3 +126,97 @@ if __name__ == "__main__":
         fn()
     print(f"All {len(fns)} add-members tests passed.")
     sys.exit(0)
+
+
+# ── The three refusals, and the slots they must give back ────────────────────
+
+
+def test_adding_to_an_EMPTIED_space_is_refused_and_gives_the_slot_back():
+    # The window is real: delivery is ordered but executions are not, so an add authorized
+    # against a live record can commit after a delete has emptied it. Without the guard the
+    # member holds a live grant to a supposedly deleted space, in a record with no owner — so
+    # nobody can remove them and nobody can delete it.
+    s3, _glue, _lf, cognito = install()
+    emptied = _active_reg(members=[])
+    del emptied["owner"]
+    emptied["previousOwner"] = "alice"
+    emptied["emptiedAt"] = "t1"
+    _seed_reg(s3, emptied)
+    cognito.users = {"bob": {}}
+
+    raises(lambda: a.add_members("sales", ["bob"], "req-a", _active_reg()), reg.SpaceHasNoOwner)
+
+    # The slot is the grant, so leaving it assigned is worse than the state being prevented.
+    assert cognito.users["bob"].get("custom:shared_space_1", "") == ""
+    assert json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])["members"] == []
+
+
+def test_adding_to_a_space_that_never_provisioned_is_refused():
+    # `authorize` gates delete and add on ownership alone — there is no status check anywhere —
+    # so without this an owner can add members to a failed create, and the slot is stamped
+    # before the roster is written. That would put somebody else's data in a space the
+    # destroying route is still allowed to tear down.
+    s3, _glue, _lf, cognito = install()
+    never_active = _active_reg()
+    never_active["status"] = "failed"
+    _seed_reg(s3, never_active)
+    cognito.users = {"bob": {}}
+
+    raises(lambda: a.add_members("sales", ["bob"], "req-a", never_active), reg.SpaceNeverActive)
+
+    assert cognito.users["bob"].get("custom:shared_space_1", "") == ""
+
+
+def test_a_was_active_now_failed_space_still_accepts_members():
+    # The complement of the test above, and the reason the guard keys on the durable stamp
+    # rather than on live status: this record is a delete that failed, its data is intact, and
+    # its owner is mid-recovery. Freezing adds on it would be a regression.
+    s3, _glue, _lf, cognito = install()
+    recovering = _active_reg()
+    recovering["status"] = "failed"
+    recovering["everActive"] = True
+    _seed_reg(s3, recovering)
+    cognito.users = {"bob": {}}
+
+    out = a.add_members("sales", ["bob"], "req-a", recovering)
+
+    assert out["added"] == ["bob"]
+    assert cognito.users["bob"]["custom:shared_space_1"] == "sales"
+
+
+def test_the_rollback_leaves_a_member_a_concurrent_run_already_committed():
+    # Assigning a slot is idempotent and hands back an existing one without writing, so a
+    # re-add of somebody another run just committed lands in this run's "added" list. Revoking
+    # them would take away access they legitimately hold.
+    s3, _glue, _lf, cognito = install()
+    emptied = _active_reg(members=["carol"])
+    del emptied["owner"]
+    emptied["emptiedAt"] = "t1"
+    _seed_reg(s3, emptied)
+    cognito.users = {"bob": {}, "carol": {"custom:shared_space_1": "sales"}}
+
+    raises(lambda: a.add_members("sales", ["bob", "carol"], "req-a", _active_reg()), reg.SpaceHasNoOwner)
+
+    assert cognito.users["bob"].get("custom:shared_space_1", "") == ""
+    assert cognito.users["carol"]["custom:shared_space_1"] == "sales"
+
+
+def test_adding_to_a_space_whose_delete_failed_AFTER_it_emptied_is_refused():
+    # The one record where the owner is back but the members are gone: a fault in the delete's
+    # latecomer pass restores `owner` so the space stays retryable, and that restore is what
+    # makes this reachable. Without the emptied stamp being checked, the owner-present guard
+    # passes and the owner can hand a NEW user live access over the previous cohort's retained
+    # files — the revival this spec closes, through a door the no-owner guard does not cover.
+    s3, _glue, _lf, cognito = install()
+    restored = _active_reg(members=[])
+    restored["status"] = "failed"
+    restored["everActive"] = True
+    restored["previousOwner"] = "alice"
+    restored["emptiedAt"] = "t1"
+    _seed_reg(s3, restored)
+    cognito.users = {"mallory": {}}
+
+    raises(lambda: a.add_members("sales", ["mallory"], "req-a", restored), reg.SpaceAlreadyEmptied)
+
+    assert cognito.users["mallory"].get("custom:shared_space_1", "") == ""
+    assert json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])["members"] == []

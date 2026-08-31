@@ -210,7 +210,14 @@ def create_space(name, actor, request_id):
         logger.error("create %s reserve failed for %s: %s", name, actor, reason)
         try:
             cache.upsert_entry(
-                actor, {"name": name, "role": "owner", "status": "failed", "reason": friendly}
+                actor,
+                {
+                    "name": name,
+                    "role": "owner",
+                    "status": "failed",
+                    "reason": friendly,
+                    "failedAction": "create",
+                },
             )
         except Exception:
             logger.exception("failed to mark reserve-collision failure in cache for %s", name)
@@ -254,7 +261,14 @@ def create_space(name, actor, request_id):
             logger.exception("failed to record registry failure for %s", name)
         try:
             cache.upsert_entry(
-                actor, {"name": name, "role": "owner", "status": "failed", "reason": friendly}
+                actor,
+                {
+                    "name": name,
+                    "role": "owner",
+                    "status": "failed",
+                    "reason": friendly,
+                    "failedAction": "create",
+                },
             )
         except Exception:
             logger.exception("failed to record cache failure for %s", name)

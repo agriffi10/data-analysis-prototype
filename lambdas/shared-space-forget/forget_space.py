@@ -38,11 +38,12 @@ def forget_space(space, actor, request_id, registry):
     not just the actor's** — because it calls ``reg.delete`` and the record is the name lock: a
     claim still naming a space whose name is free is an entitlement to whatever gets created under
     it next, since the portal role's shared-space policy is scoped on the membership tag value and
-    not on any space identity. A failed create is single-member, creating being creator-only — but
-    that is not the only record reaching this branch, and reasoning from it is what once left the
-    other members' slots standing: a delete that fails partway sets ``failed`` on a record that
-    keeps its members. The clearing runs BEFORE ``reg.delete``, so a fault partway through leaves
-    the name locked rather than free with tags still standing.
+    not on any space identity. Reasoning that a never-active space has only its creator is what
+    once left the other members' slots standing, and it is wrong: a space that never provisioned
+    can still have been added to, before additions to such a space were refused. The roster is
+    therefore the union of the validator's copy and a fresh read, and the clearing runs BEFORE
+    ``reg.delete``, so a fault partway through leaves the name locked rather than free with tags
+    still standing.
 
     The actor's own cache card is removed LAST, out of step with the loop, because it is the row
     the Connections page renders and therefore the only affordance for retrying this verb. A fault
@@ -50,12 +51,24 @@ def forget_space(space, actor, request_id, registry):
     still holding its name, and invisible to the one user who could ask again. The other members'
     cards go inside the loop, since their access is what is being withdrawn.
 
-    Three outcomes. An active space the actor still belongs to is refused, because clearing a
-    healthy membership's cache entry would recreate the vanishing-space bug — owners delete and
-    members leave. The actor's own non-active space is torn down in full and the registry record
-    deleted, freeing the name, and every teardown step is idempotent. Everything else — no
-    registry record, or a space owned by someone else — is cache-only, touching nothing but the
-    caller's own projection and slot.
+    **Four outcomes, and the order between them is the requirement.** An active space the actor
+    still belongs to is refused, because clearing a healthy membership's cache entry would
+    recreate the vanishing-space bug — owners delete and members leave. The actor's own space is
+    then split on whether it was ever usable: a space that never was is torn down in full and its
+    record deleted, freeing the name; one that WAS is **kept, and this verb clears nothing at all
+    for it** — not the slot, not the card, not the index entry. Everything else — no registry
+    record, or a space owned by someone else — is cache-only.
+
+    That third branch is the one worth explaining, because "clear the caller's own card" looks
+    harmless. The Connections page derives every row from the cache, so clearing the card deletes
+    the row, and the row is the only affordance for retrying a delete that failed. With create
+    refused on an ever-used name and delete needing a row that no longer renders, one dismiss
+    would strand the space permanently. It returns a no-op rather than raising, so the row simply
+    survives.
+
+    A branch that only guarded the OWNER's case would leave a member dismissing a failed-delete
+    row falling through to cache-only and clearing their own slot — which is what leaving means
+    and is fine; only the owner's row is load-bearing.
 
     What the cache-only path deliberately leaves is the point of its record: this verb exists
     because a space could get stuck in a user's list, and leaving the registry untouched is
@@ -72,6 +85,11 @@ def forget_space(space, actor, request_id, registry):
 
     Raises:
       AuthorizationError: When the space is active and the actor still belongs to it.
+      RegistryRecordMissing: When the actor owns the space but its record has gone. Unlike the
+        delete verb this is a live path, because the authorizer returns early for this action so
+        that a phantom card stays dismissible.
+      RegistryRecordResurrected: When a membership write re-created the record after the name
+        was freed.
       TeardownIncompleteError: When a teardown pass left resources behind, so the name is not
         freed.
       TransientError: On a retryable Glue fault during teardown.
@@ -85,11 +103,25 @@ def forget_space(space, actor, request_id, registry):
             raise AuthorizationError(
                 f"cannot forget active space {space!r} — use Delete (owner) or Leave (member)"
             )
-        if owner == actor and status != "active":
+        if owner == actor:
+            fresh = reg.load(space)
+            if fresh is None:
+                raise reg.RegistryRecordMissing(f"space {space!r} has no registry record")
+            if not reg.is_destroyable(fresh):
+                logger.info("forget %s by %s: kept, the space was usable", space, actor)
+                observability.info(
+                    "space forgotten",
+                    space=space,
+                    actor=actor,
+                    mode="kept",
+                    stores=[],
+                    registry_left_intact=True,
+                )
+                return {"status": "ok", "action": "forget", "space": space, "mode": "kept"}
             teardown.delete_shared_prefix(space)
             teardown.revoke_portal_role(space)
             teardown.drop_database(space)
-            roster = list(dict.fromkeys([actor, *members]))
+            roster = list(dict.fromkeys([actor, *members, *fresh.get("members", [])]))
             for member in roster:
                 membership.clear_slot(member, space)
                 if member != actor:
@@ -97,7 +129,11 @@ def forget_space(space, actor, request_id, registry):
             membership_index.drop_for_all(roster, space)
             cache.remove_entry(actor, space)
             reg.delete(space)
-            logger.info("forget %s by %s: tore down own non-active space", space, actor)
+            if reg.load(space) is not None:
+                raise reg.RegistryRecordResurrected(
+                    f"space {space!r} reappeared after its name was freed"
+                )
+            logger.info("forget %s by %s: tore down own never-active space", space, actor)
             observability.info(
                 "space forgotten",
                 space=space,

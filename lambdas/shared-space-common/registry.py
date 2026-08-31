@@ -26,6 +26,86 @@ class ProvisioningError(Exception):
     """
 
 
+class MembershipRefused(Exception):
+    """A membership addition the freshly-read record forbids. Terminal.
+
+    Raised from inside the compare-and-swap transform, which is the only place holding a record
+    fresh enough to decide: a gate at the verb or in the authorizer reads the copy the validator
+    loaded and inherits the staleness it exists to prevent.
+
+    The base of three, so a caller can roll back its slots by catching one type while the
+    notification still names the situation. The reason code the failure notifier resolves is the
+    RAISED class's name, so the subclasses stay distinguishable to a user; collapsing them would
+    give two quite different situations one sentence.
+
+    Only additions are refused. Removing and acknowledging are exempt — both only shrink or
+    annotate a roster, and refusing them would strand a member who slipped through.
+    """
+
+
+class SpaceHasNoOwner(MembershipRefused):
+    """The space has been emptied: its roster is blank and its owner field is gone."""
+
+
+class SpaceNeverActive(MembershipRefused):
+    """The space never finished provisioning, so it is still destroyable."""
+
+
+class SpaceAlreadyEmptied(MembershipRefused):
+    """The space carries an emptied stamp, so its members were deliberately revoked."""
+
+
+class RegistryRecordMissing(Exception):
+    """A verb's fresh read found no record where one is required. Terminal.
+
+    Refusing beats proceeding: the record is the only evidence of what a space was, and tearing
+    down a prefix and a database on its absence is the worst option available.
+    """
+
+
+class MembersRemainAfterEmpty(Exception):
+    """An emptied space still lists members after every revocation pass. Terminal.
+
+    Raised rather than looped, because additions are refused once the owner is gone, so a retry
+    could not converge on anything the first pass did not already reach.
+    """
+
+
+class RegistryRecordResurrected(Exception):
+    """A record reappeared after the delete that freed its name. Terminal.
+
+    A membership write that lost its race to the delete re-creates the record from the caller's
+    stale copy, leaving a name locked over resources that no longer exist.
+    """
+
+
+def is_destroyable(record: dict | None) -> bool:
+    """Reports whether a space may be torn down rather than emptied.
+
+    **One predicate with two consumers, and that is the whole point.** The delete route's test
+    and the guard refusing additions are complements of each other; written twice they drift,
+    and each drift is silent — one direction destroys a live workspace, the other freezes
+    additions on a healthy one.
+
+    A space is destroyable only while it has never been usable by anyone: no durable ever-active
+    stamp, and not currently active either, the second covering a record written before the
+    stamp existed. Such a space was reachable only by its creator, which is what licenses
+    destroying it.
+
+    Args:
+      record: The freshly-read registry record, or None.
+
+    Returns:
+      True when the space may be destroyed.
+
+    Raises:
+      None.
+    """
+    if record is None:
+        return False
+    return not record.get("everActive") and record.get("status") != "active"
+
+
 def _key(name):
     """Builds the S3 key of one space's registry object.
 
@@ -186,6 +266,14 @@ def _resolve_reserve_collision(name: str, actor: str, request_id: str, record: d
     the loser gets a precondition failure and re-reads. A reservation that vanished between the
     create attempt and the read is retried as a clean conditional create.
 
+    **That overwrite is refused on a space that was ever usable**, and the distinction is the
+    difference between a retry and a revival. A failed CREATE is the owner's own dead
+    reservation and re-provisioning it is what the path exists for. A failed DELETE looks
+    identical — same owner, same failed status — but its files are intact and its previous
+    cohort's are underneath; re-provisioning that resets the roster to the owner alone and hands
+    them back a populated workspace, in one call and with no confirmation. The durable
+    ever-active stamp is what tells the two apart; live status cannot.
+
     Args:
       name: The requested space name.
       actor: The verified creator.
@@ -214,7 +302,11 @@ def _resolve_reserve_collision(name: str, actor: str, request_id: str, record: d
                 raise
         if existing.get("lastRequestId") == request_id and existing.get("owner") == actor:
             return "replay"
-        if existing.get("owner") == actor and existing.get("status") == "failed":
+        if (
+            existing.get("owner") == actor
+            and existing.get("status") == "failed"
+            and not existing.get("everActive")
+        ):
             try:
                 _put(name, record, etag)
                 return "created"
@@ -409,6 +501,9 @@ def save_members(registry: dict, request_id: str, *, add=(), remove=(), acknowle
       cache would disagree with the registry.
 
     Raises:
+      SpaceHasNoOwner: When an addition targets a space whose owner has been cleared.
+      SpaceAlreadyEmptied: When an addition targets a space a delete has emptied.
+      SpaceNeverActive: When an addition targets a space that is still destroyable.
       RuntimeError: When the CAS attempts are exhausted.
       ClientError: On any non-precondition S3 fault.
     """
@@ -441,6 +536,13 @@ def save_members(registry: dict, request_id: str, *, add=(), remove=(), acknowle
           None.
         """
         record = dict(existing) if existing is not None else dict(registry)
+        if add:
+            if not record.get("owner"):
+                raise SpaceHasNoOwner(f"space {name!r} has no owner and cannot take new members")
+            if record.get("emptiedAt"):
+                raise SpaceAlreadyEmptied(f"space {name!r} was emptied and cannot take new members")
+            if is_destroyable(record):
+                raise SpaceNeverActive(f"space {name!r} is not provisioned and cannot take new members")
         prior_ack = effective_acknowledged(record)
         members = [m for m in record.get("members", []) if m not in removing]
         for member in add:
@@ -501,6 +603,159 @@ def set_status(registry: dict, status: str, request_id: str, reason: str | None 
         """
         record = dict(existing) if existing is not None else dict(registry)
         record["status"] = status
+        record["lastRequestId"] = request_id
+        record["updatedAt"] = now_iso()
+        if reason:
+            record["reason"] = reason
+        else:
+            record.pop("reason", None)
+        return record
+
+    casio.cas_mutate(
+        read=lambda: _read(name),
+        apply=apply,
+        write=lambda record, etag: _put(name, record, etag),
+        label=f"registry/{name}",
+    )
+
+
+def empty_space(name: str, request_id: str) -> tuple[dict, dict]:
+    """Rewrites a space as emptied, and hands back the record it replaced.
+
+    The delete route's consistency point. Everything the space owns survives — the objects, the
+    database, the record itself — and what ends is the membership: a blank roster, no owner, and
+    a stamp saying when. The status stays active, because nothing about the space's resources
+    changed and no reader may infer membership from status.
+
+    **The replaced record is captured out of the transform rather than read beforehand.** A
+    pre-read is a different record under a race, and it would pass every test that does not
+    actually race; the capture is reset at the top of the transform because that transform runs
+    once per attempt, so a value surviving a losing attempt would be stale. The caller needs it:
+    a member added between the verb's own read and this write appears only there, and their slot
+    is a live grant nobody would otherwise clear.
+
+    **Built from the freshly-read record, never from a literal**, so fields this function does
+    not name — the creation timestamp, the ever-active stamp, the schema version — survive.
+
+    A replay normalises rather than skipping. Skipping looks tempting and is wrong: the verb has
+    already written a deleting status by this point, so a skipped write leaves a completed delete
+    reading as one that never finished. The two fields a replay must not disturb are preserved
+    explicitly instead — the original owner, and the moment the space was emptied.
+
+    Args:
+      name: The space name.
+      request_id: The run's request id.
+
+    Returns:
+      A ``(committed, replaced)`` pair: the emptied record, and the record it overwrote.
+
+    Raises:
+      RegistryRecordMissing: When the record is gone, which is not a state to write over.
+      RuntimeError: When the CAS attempts are exhausted.
+      ClientError: On any non-precondition S3 fault.
+    """
+    replaced: dict = {}
+
+    def apply(existing):
+        """Builds the emptied record and captures the one it replaces.
+
+        Args:
+          existing: The freshly-read record, or None.
+
+        Returns:
+          The record to write.
+
+        Raises:
+          RegistryRecordMissing: When there is no record to empty.
+        """
+        nonlocal replaced
+        replaced = {}
+        if existing is None:
+            raise RegistryRecordMissing(f"space {name!r} has no registry record to empty")
+        replaced = dict(existing)
+        record = dict(existing)
+        previous_owner = existing.get("owner") or existing.get("previousOwner")
+        if previous_owner:
+            record["previousOwner"] = previous_owner
+        record["members"] = []
+        record["acknowledged"] = []
+        record["status"] = "active"
+        record.setdefault("emptiedAt", now_iso())
+        record.pop("owner", None)
+        record.pop("reason", None)
+        record["lastRequestId"] = request_id
+        record["updatedAt"] = now_iso()
+        return record
+
+    committed = casio.cas_mutate(
+        read=lambda: _read(name),
+        apply=apply,
+        write=lambda record, etag: _put(name, record, etag),
+        label=f"registry/{name}",
+    )
+    return committed, replaced
+
+
+def restore_owner(name: str, status: str, request_id: str, reason: str | None = None, members=()) -> None:
+    """Records a failure and hands the space back to its previous owner, in one write.
+
+    The repair for a fault that lands after the emptying rewrite. By then the owner field is
+    gone, so the ordinary failure path would leave a record nobody can act on: the delete is
+    owner-only and there is no owner, leaving is member-only and the roster is blank, and the
+    retry the screen offers is refused. Restoring the owner returns the space to the owned,
+    failed state every other failure leaves behind, which a retry can finish.
+
+    One transform rather than a status write followed by an owner write, because both would sit
+    inside a best-effort handler that swallows faults — and a fault between them leaves exactly
+    the ownerless record this exists to prevent.
+
+    **It restores a roster as well as an owner, and that is not tidiness.** The rewrite blanks the
+    roster, so anyone whose revocation had not yet happened when the fault landed exists in no
+    record at all: they keep the membership slot that IS their grant, they are never told, and
+    nobody can remove them — an owner cannot act on a roster they are absent from, and they cannot
+    leave a space that does not list them. Putting them back returns the record to the same
+    owned-with-members shape a fault BEFORE the rewrite leaves, which the retry already handles.
+    Re-revoking somebody already revoked is idempotent, so passing more names than strictly
+    necessary is safe and passing too few is not.
+
+    Args:
+      name: The space name.
+      status: The status to record.
+      request_id: The run's request id.
+      reason: The failure reason, when there is one.
+      members: Members to put back on the roster, for anyone the run may not have revoked.
+
+    Returns:
+      None.
+
+    Raises:
+      RuntimeError: When the CAS attempts are exhausted.
+      ClientError: On any non-precondition S3 fault.
+    """
+
+    def apply(existing):
+        """Applies the status and re-owns the record from its previous owner.
+
+        Args:
+          existing: The freshly-read record, or None.
+
+        Returns:
+          The record to write, unchanged when there is nothing to act on.
+
+        Raises:
+          None.
+        """
+        if existing is None:
+            return existing
+        record = dict(existing)
+        record["status"] = status
+        if not record.get("owner") and record.get("previousOwner"):
+            record["owner"] = record["previousOwner"]
+        roster = list(record.get("members") or [])
+        for member in members:
+            if member not in roster:
+                roster.append(member)
+        record["members"] = roster
         record["lastRequestId"] = request_id
         record["updatedAt"] = now_iso()
         if reason:

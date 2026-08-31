@@ -44,7 +44,7 @@ def _event(source=None, table_name="orders_copy", recipients=None, actor="alice"
 
 
 def _active_space(members):
-    return {"status": "active", "members": members}
+    return {"status": "active", "owner": "owner_of_space", "members": members}
 
 
 def _expect_reason(event, reason):
@@ -108,3 +108,18 @@ if __name__ == "__main__":
                 failures += 1
                 print(f"FAIL {name}: {exc}")
     raise SystemExit(1 if failures else 0)
+
+
+def test_a_share_into_an_EMPTIED_space_is_refused_even_from_a_former_member():
+    # A deleted space keeps `status: "active"` — nothing about its database changed — and what
+    # ends is its membership. Status alone would let a former member who remembers the name
+    # create a table in the retained catalog of a workspace every surface says is gone, and be
+    # told it succeeded, with no owner left to notify.
+    emptied = {"status": "active", "members": [], "previousOwner": "alice", "emptiedAt": "t1"}
+    _setup(spaces={"salesteam": emptied})
+
+    out = v.handler(_event(recipients=[{"kind": "space", "name": "salesteam"}]), None)
+
+    assert out["recipients"] == [
+        {"kind": "space", "name": "salesteam", "valid": False, "reason": "unknown_space"}
+    ]

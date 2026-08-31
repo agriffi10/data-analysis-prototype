@@ -189,6 +189,12 @@ def _describe(name, record):
 def backfill(mode="report", name=None, request_id=""):
     """Walks the registry and reports, stamps by status, or stamps one named record.
 
+    In apply mode the count is what the WRITER confirms, not what this loop intended: a record
+    can vanish between the read here and the write's own read, and a count of intentions would
+    report a stamp that never landed. The key it is reported under is named for what the mode
+    actually did, because the same number means two different things — what apply wrote, and
+    what report would write if it were run.
+
     Every mode is idempotent and re-runnable, so a second run over records the first already
     stamped costs a read each and writes nothing. **What it is not is resumable**: there is no
     marker, so a re-run restarts from the first key rather than continuing, which is why this
@@ -231,9 +237,6 @@ def backfill(mode="report", name=None, request_id=""):
             continue
         status = record.get("status")
         if status in STAMPABLE_STATUSES:
-            # In apply mode the count is what the writer CONFIRMS, not what this loop intended:
-            # a record can vanish between the read above and the write's own read, and a count
-            # of intentions would report a stamp that never landed.
             if mode != "apply" or reg.mark_ever_active(space, request_id):
                 counted[status] = counted.get(status, 0) + 1
             continue
@@ -243,8 +246,6 @@ def backfill(mode="report", name=None, request_id=""):
         "mode": mode,
         "scanned": scanned,
         "alreadyStamped": already,
-        # Named for what the mode actually did, because the same number means two things: what
-        # apply wrote, and what report would write if it were run.
         ("stamped" if mode == "apply" else "wouldStamp"): counted,
         "undecidable": undecidable,
     }

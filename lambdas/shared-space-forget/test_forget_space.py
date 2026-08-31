@@ -55,9 +55,10 @@ def test_forget_own_failed_space_tears_down_resources_and_frees_name():
     assert ("admin-bkt", "shared-spaces/sales.json") not in s3.store  # registry deleted -> name freed
 
 
-# Teardown: a delete that failed partway leaves a MULTI-member record in `failed`, and that
-# record reaches this branch too — so the single-member reasoning that once justified clearing
-# only the actor does not cover it. A slot still holding the name after reg.delete has freed it
+# Teardown: a never-active record can still carry MULTIPLE members — a create that was added to
+# before additions were refused on a space that never provisioned. Those records reach this
+# branch, so the old "a failed create is single-member" reasoning never covered it, and the
+# assertions below are what guard them. A slot still holding the name after reg.delete has freed it
 # is a principal tag on whatever gets created under that name next, because the portal role's
 # shared-space policy is scoped on the tag VALUE, not on any space identity.
 #
@@ -177,8 +178,8 @@ def test_forget_clears_the_index_on_the_teardown_path():
 
 
 def test_forget_teardown_clears_EVERY_members_index_because_it_frees_the_name():
-    # A delete that fails partway writes `failed` on a record that keeps its members, and that
-    # record reaches the teardown branch — so "a failed create is single-member" does not cover
+    # A never-active record can keep several members — one added before additions to an
+    # unprovisioned space were refused — so "a failed create is single-member" never covered
     # every case that lands here. reg.delete frees the name, and an index still naming a space
     # whose name is free is an entitlement to whatever gets created next.
     s3, glue, _lf, cognito = install()
@@ -218,3 +219,78 @@ if __name__ == "__main__":
         fn()
     print(f"All {len(fns)} forget-space tests passed.")
     sys.exit(0)
+
+
+def test_forget_as_the_OWNER_of_a_was_active_now_failed_space_tears_down_NOTHING():
+    # THE data-loss path. A delete that fails partway leaves a live workspace in `failed`, and
+    # the Connections page renders Dismiss on any failed row — which is this verb. Keyed on live
+    # status, Dismiss would have run the full teardown on a workspace whose files are intact.
+    # A never-active fixture passes over it, which is why this one is ever-active.
+    s3, glue, _lf, cognito = install()
+    cognito.users = {"alice": {"custom:shared_space_1": "sales"}, "bob": {"custom:shared_space_1": "sales"}}
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(
+        {"name": "sales", "owner": "alice", "members": ["alice", "bob"], "status": "failed", "everActive": True}
+    ).encode()
+    s3.store[("shared-bkt", "sales/data/file.csv")] = b"data"
+    glue.databases.add("sales")
+    s3.store[("user-bkt", "alice/user_settings/shared-connections.json")] = json.dumps(
+        {"version": 1, "connections": [{"name": "sales", "role": "owner", "status": "failed"}]}
+    ).encode()
+    registry = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+
+    out = f.forget_space("sales", "alice", "req-f", registry)
+
+    assert out["mode"] == "kept"
+    assert ("shared-bkt", "sales/data/file.csv") in s3.store
+    assert "sales" in glue.databases
+    assert ("admin-bkt", "shared-spaces/sales.json") in s3.store
+    # It clears NOTHING — the row it would otherwise delete is the only affordance for retrying
+    # the delete, and the slot is what a retry still needs.
+    assert cognito.users["alice"]["custom:shared_space_1"] == "sales"
+    kept = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])
+    assert kept["connections"][0]["name"] == "sales"
+
+
+def test_forget_raises_when_the_record_reappears_after_the_name_is_freed():
+    # The same race as the delete verb's, on the other route that frees a name. A membership
+    # write that lost to this teardown re-creates the record from its own stale copy, leaving a
+    # name locked over a prefix and a database that are already gone.
+    s3, glue, _lf, cognito = install()
+    cognito.users = {"alice": {"custom:shared_space_1": "sales"}}
+    registry = {"name": "sales", "owner": "alice", "members": ["alice"], "status": "failed"}
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(registry).encode()
+    glue.databases.add("sales")
+    _seed_cache(s3, "alice", [{"name": "sales", "role": "owner", "status": "failed"}])
+    real_delete = forget_registry.delete
+
+    def delete_then_lose_the_race(name):
+        real_delete(name)
+        s3.store[("admin-bkt", f"shared-spaces/{name}.json")] = json.dumps(registry).encode()
+
+    forget_registry.delete = delete_then_lose_the_race
+    try:
+        raises(
+            lambda: f.forget_space("sales", "alice", "req-f", registry),
+            forget_registry.RegistryRecordResurrected,
+            "reappeared",
+        )
+    finally:
+        forget_registry.delete = real_delete
+
+
+def test_forget_teardown_clears_a_member_the_validator_never_saw():
+    # Same union as the delete verb's destroying route, and for the same reason: this branch
+    # frees the name, so a slot it misses is an entitlement to whatever is created next.
+    s3, glue, _lf, cognito = install()
+    cognito.users = {m: {"custom:shared_space_1": "sales"} for m in ("alice", "bob")}
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(
+        {"name": "sales", "owner": "alice", "members": ["alice", "bob"], "status": "failed"}
+    ).encode()
+    glue.databases.add("sales")
+    for m in ("alice", "bob"):
+        _seed_cache(s3, m, [{"name": "sales", "role": "owner" if m == "alice" else "member", "status": "active"}])
+    stale_event_copy = {"name": "sales", "owner": "alice", "members": ["alice"], "status": "failed"}
+
+    f.forget_space("sales", "alice", "req-f", stale_event_copy)
+
+    assert cognito.users["bob"]["custom:shared_space_1"] == "", "bob's slot outlived the freed name"
