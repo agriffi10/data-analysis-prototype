@@ -51,6 +51,9 @@ Attributes:
     while still being advertised in ``process.md``. The digest is a reminder with the reasoning in
     ``decisions/``; past this length it has become the reasoning.
   DELIVERY_MAX_LINES: A delivery doc is "what shipped + what changed", typically under a page.
+  FR_CEILING: How many Functional Requirements one spec may carry (``docs/process.md`` §4). Named
+    here rather than inlined so the number that enforces the rule is discoverable from the
+    constants block if the rule ever moves.
   SPEC_OVERSIZE_MAX: How many specs may carry more than eight Functional Requirements. A ratchet
     at the measured level, and the only budget here whose unit is the SPEC rather than the file.
     ``docs/process.md`` §4 caps a spec at eight FRs: past that it is not a big spec, it is a spec
@@ -91,6 +94,7 @@ FIXTURES_MAX_SCRIPTS = 1
 CLAUDE_MAX_BYTES = 50_000
 DIGEST_MAX_CHARS = 1_400
 DELIVERY_MAX_LINES = 260
+FR_CEILING = 8
 SPEC_OVERSIZE_MAX = 41
 def decision_areas() -> list[str]:
     """Read the areas ``CLAUDE.md``'s Key Decisions digest groups by, in order.
@@ -483,6 +487,7 @@ def check_spec_size() -> list[str]:
     fence = re.compile(r"^\s*```")
     heading = re.compile(r"^### (FR-\d+)")
     oversize: list[tuple[str, int]] = []
+    unparsed: list[str] = []
     for path in sorted((ROOT / "docs" / "specs").glob("SPEC-*.md")):
         ids, in_fence, in_comment = set(), False, False
         for line in path.read_text().splitlines():
@@ -500,18 +505,29 @@ def check_spec_size() -> list[str]:
             found = heading.match(line)
             if found:
                 ids.add(found.group(1))
-        if len(ids) > 8:
+        if not ids:
+            unparsed.append(path.name)
+        if len(ids) > FR_CEILING:
             oversize.append((path.name, len(ids)))
+    # A ratchet sitting exactly at its threshold goes vacuous the moment the parse stops
+    # matching: every spec reads as zero FRs, nothing is over the ceiling, and the only
+    # enforcement of \u00a74 passes forever with no signal. Every spec has FRs, so none may parse
+    # to none.
+    errors = [
+        f"{name}: no '### FR-NNN' headings — the size ratchet cannot see this spec"
+        for name in unparsed
+    ]
     if len(oversize) <= SPEC_OVERSIZE_MAX:
-        return []
-    biggest = sorted(oversize, key=lambda pair: -pair[1])[:5]
-    worst = ", ".join(f"{name} ({count})" for name, count in biggest)
+        return errors
     return [
+        *errors,
         (
-            f"{len(oversize)} specs carry more than 8 FRs (ratchet {SPEC_OVERSIZE_MAX}): {worst}. "
-            "Split the new one into two specs and record the pair in ARCS.md "
-            "(docs/process.md \u00a74); raising this number is the failure mode, and "
-            "splitting one lowers it."
+            f"{len(oversize)} specs carry more than {FR_CEILING} FRs "
+            f"(ratchet {SPEC_OVERSIZE_MAX}). The spec you just added is over the ceiling: "
+            "split it into two and record the pair in ARCS.md (docs/process.md \u00a74). "
+            "Naming which existing specs are over is deliberately left out — with several "
+            "sitting exactly at the line, any list names innocent files rather than yours. "
+            "Raising this number is the failure mode; splitting one lowers it."
         )
     ]
 

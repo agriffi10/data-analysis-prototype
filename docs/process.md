@@ -118,16 +118,21 @@ session you notice it (two hand-synced copies of one procedure is how numbering 
    useful boundaries are inert-vs-live, either side of a switchover, a deletion following its last
    caller, and infra that must apply before a live check.
 
-**These two reviews are the gates, and they are the only ones that need answering.** Once the plan
-and the grouping have each been reviewed, the build runs to completion without checking in. The user
+**These two reviews are the only ones that gate the START of the build.** Once the plan and the
+grouping have each been reviewed, the build runs to completion without checking in. This does
+**not** retire the diff reviews — those gate the push, at the other end, and they are blocking
+too. Four reviews stand between a spec going In Progress and its PR merging: one on the plan
+before the first line of code, one on the PR grouping, and two on the diff — all four before the
+first push. The user
 confirmed the work when they set the spec going; a per-phase check-in re-asks a question already
 answered, and on a twelve-phase spec it asks it twelve times.
 
 **During the build — one spec, in phases**
 - Every file-changing task is done on its **own branch** and opened as a **PR** — automatically, without
   waiting to be asked. Never commit to `main` directly.
-- **The diff review runs BEFORE the push, not before the merge.** Commit locally, run the gates, send
-  the diff to a fresh-context reviewer, fix or explicitly reject every finding — *then* push and open
+- **The diff reviews run BEFORE the push, not before the merge — and there are two of them.** Commit
+  locally, run the gates, send the diff to **two** fresh-context reviewers in **different frames**
+  (*The reviewer contract*, below), fix or explicitly reject every finding — *then* push and open
   the PR. Pushing first and reviewing after inverts the gate: the branch is already public, the fixes
   arrive as follow-up commits, and the review reads as commentary on something that has already
   happened rather than as the thing that decides whether it should. Rotating the frame (below) happens
@@ -172,11 +177,12 @@ implementation plan when the build actually starts, and **two** on the diff befo
 plus the narrow pass on the PR grouping below. The diff gets two because it is the **widest**
 artifact and the last one before the branch goes public: a spec or a plan is one document a single
 reader can hold whole, while a diff spans code, infrastructure and tests *and* the criteria they
-are supposed to satisfy, and this repo's own measured history (*Rotating the frame*, below) is
-that the first differently-framed pass over a change finds a class the previous frame could not
-see — the pass after eight same-frame rounds found ~25 defects, several of them years old. That
-evidence argues for a **different frame**, not for the number two; two is the floor because one
-frame is demonstrably not enough and a floor has to be a number.
+are supposed to satisfy, and the method's measured history (*Rotating the frame*, below — measured
+on a sibling repo, not here) is that the first differently-framed pass over a change finds a class
+the previous frames could not see: after eight rounds spread across the spec, its revisions and
+the code, the first rotation found ~25 further defects. That evidence argues for a **different
+frame**, not for the number two; two is the floor because one frame is demonstrably not enough
+and a floor has to be a number.
 
 The two are **two frames, not two rounds** — the same frame run twice buys wording — and they are
 not free picks. One starts from the **change** and reads it against what it is supposed to
