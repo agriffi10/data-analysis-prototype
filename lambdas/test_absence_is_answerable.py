@@ -113,6 +113,7 @@ DISPOSITIONS = {
     "lambdas/shared-space-common/membership_index.py::_read": LIST_GRANT,
     "lambdas/file-ops-common/focommon/plan.py::_read": LIST_GRANT,
     "lambdas/notifications-writer/notifications_writer.py::load_inbox": LIST_GRANT,
+    "lambdas/api/apicommon/identity.py::membership_index_document": LIST_GRANT,
     "lambdas/api/routes/feature_flags.py::feature_flags": LIST_GRANT,
     "lambdas/api/routes/user_directory.py::user_directory": LIST_GRANT,
     "lambdas/api/routes/objects_content.py::read_content": LIST_GRANT,

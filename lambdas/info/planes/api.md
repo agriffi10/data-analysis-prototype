@@ -29,7 +29,7 @@ sibling template rather than fail.
 | `handler.py` | the entry point — one span per request, and a name on the wire for every fault |
 | `router.py` | matching, authentication, and the preflight answer |
 | `routes/` | one module per route |
-| `apicommon/` | the layer: contract, envelope, errors, identity, planes, principal, context, config |
+| `apicommon/` | the layer: contract, envelope, errors, identity, memberships, planes, principal, context, config |
 
 ## The fences
 
@@ -38,6 +38,31 @@ sibling template rather than fail.
   the **root**.
 - **A key-retrieval fault is 5xx, never 401.** Refusals are byte-identical, and **expiry is not
   disclosed** — the browser refreshes once on any 401.
+- **Where the memberships come from is a COLD-START choice, and there is no fallback.**
+  `MEMBERSHIP_SOURCE` is `claims` (the default, and what every environment runs) or `index`, read
+  once at import, and an unrecognised value raises there — a typo must be a dead container, not a
+  running one on the other authorization model. The two implementations sit behind one call in
+  `apicommon/memberships.py`, so the tag builder, the route-level space check and the parity test
+  cannot tell them apart. The interface is **slot to space name**, not a set: the claims source has
+  to keep the Cognito slot index it read, because renumbering would change which tag name carries
+  which value.
+- **The index read is an API-plane call that sits outside the route registry, deliberately.** The
+  tags are computed before the caller's credentials exist, so it runs on the execution role — and
+  `planes.require` answers per route while this runs for every route, so declaring `Plane.API` per
+  route would invert the registry's fail-closed default for the whole API. It goes through the
+  private constructor in the one module the credential sweep exempts by exact identity, and the
+  sweep still sees the call. A test asserts no other module names the door, because it takes a
+  username and a route holding it could read somebody else's memberships.
+- **Under the index source an absent index is an ANSWER and every other failure is a fault.** A
+  caller with no index is a member of no space, which is correct for anyone never added to one.
+  Anything else — throttle, denial, parse failure, an index naming more spaces than there are slots
+  — fails the request as `IdentityUnavailable`, mints nothing and caches nothing. The tempting
+  alternative is to stamp what resolved and continue: it fails closed in the permissions sense,
+  which reads as safe, and it is the worst option available — the caller is refused a space they
+  genuinely belong to and told it is a denial.
+- **That failure is answered in the router's PRE-DISPATCH clause**, not by `errors.for_exception`.
+  `for_request` runs before dispatch, so a failure it raises never reaches the guard that
+  classifies a route's exceptions and would arrive as a bare `InternalError`.
 - **It assumes the SAME role with the SAME tags from the SAME claims** as the identity pool, which
   is why no policy was rewritten. The role is **reused, never minted**. `DurationSeconds` 3600 is a
   ceiling **both ways**: shorter caps every presigned link, longer is refused because this is role

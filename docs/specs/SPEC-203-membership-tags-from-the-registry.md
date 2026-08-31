@@ -99,7 +99,16 @@ FR-007's comparison is available at every point after this spec lands.
    only thing separating it from the connections cache.
 3. **The identity layer and `apicommon/spaces.py` read the same source** (FR-004). Two membership
    answers in one request is a defect whichever one is right.
-4. **A space name reaching a key builder has been through `CATALOG_IDENTIFIER_RE`.**
+4. **A space name reaching a key builder has been through `CATALOG_IDENTIFIER_RE`.** This premise
+   was **not true when the spec was written and is made true by this spec, on the index path only**.
+   No shared-space verb applies the rule, and the register already records that a shared space's
+   name is format-checked nowhere server-side. `_from_index` checks every name before it becomes a
+   tag, because a tag value is interpolated straight into the portal role's resource ARNs and a name
+   of `*` would be a wildcard grant over every shared space. The **claims** path cannot check it
+   without rewriting the byte-equivalence it exists to preserve, so the two sources legitimately
+   diverge on a name the rule refuses — a divergence FR-007's parity fixture does not exercise, and
+   a later spec that wants the premise to hold everywhere must fix it at space CREATION, not here.
+   The caller's username is checked on the same path and for the same reason: it becomes the key.
 
 ---
 
@@ -179,7 +188,11 @@ other produces a working application with the wrong authorization model.
 - [ ] Both implementations satisfy one interface taking the verified principal and returning the
       user's spaces, so a call site cannot tell them apart — and neither can FR-004's route check or
       FR-007's parity test.
-- [ ] The resolved source is recorded once per container (FR-010).
+- [ ] **CORRECTED DURING BUILD: the resolved source is recorded per REQUEST and per mint, not once
+      per container.** A cold-start record is emitted before the logging layer has a span to hang it
+      on, and it answers "which source is this container on" only for a reader who can find that
+      container's first record. Stamped per request it answers the same question from any record,
+      which is what FR-007's live check actually needs.
 
 ### FR-003: The index source, and what absence means
 
@@ -190,8 +203,14 @@ cases are all failures.
 
 #### Acceptance Criteria:
 
-- [ ] One `GetObject` per credential mint, cached with the credentials under SPEC-196 FR-006's
-      existing key.
+- [ ] **CORRECTED DURING BUILD: one `GetObject` per authenticated REQUEST, and no new cache.** The
+      AC's two clauses cannot both hold: the credential cache is keyed on the whole tag set, which
+      is what this read *produces*, so nothing can consult it before the read. A username-keyed read
+      cache could — and is exactly what SPEC-196 FR-006's key exists to refuse, and what FR-006
+      below promises against ("the window closes on the next request rather than on the next token
+      refresh"). So the read happens once per request, more often than the AC's wording implies,
+      because the AC's version is not constructible. The credential cache is unchanged. Asserted as:
+      exactly one index `GetObject` per request, on the caller's own key, and no second cache.
 - [ ] Only entries whose status is `active` produce a tag — SPEC-073's rule (`is_active_member`
       requires an active space), applied to the projection. A test drives `provisioning`, `failed`
       and `deleting` and asserts no tag for each.
@@ -232,10 +251,15 @@ space; re-sourced carelessly, it disagrees with the tag the identity layer stamp
 - [ ] `apicommon/spaces.py` resolves membership through **the same FR-002 interface** as the identity
       layer, from the same resolved set, computed **once per request** and shared. Two reads is two
       answers.
-- [ ] **SPEC-198's zero-AWS-calls refusal is preserved**, and its call-count assertion is re-run
-      under both sources. It is the stronger contract: a refusal before any AWS call is also
-      SPEC-113's no-existence-oracle guarantee, and letting the request proceed to an IAM denial
-      would weaken both.
+- [ ] **CORRECTED DURING BUILD: the literal zero-call assertion is not satisfiable under `index`,
+      and the substitute is stated rather than quietly swapped in.** A request under the index
+      source has already made one `GetObject` — of the caller's OWN index, before any route was
+      chosen — to have an identity at all. What is preserved is the thing the AC is for: **the
+      refusal itself reaches no AWS service**, no `AssumeRole` and no listing, so the request
+      still discloses nothing about the space it named and SPEC-113's guarantee holds. The
+      end-to-end test asserts exactly that call list. `spaces.py`'s existing structural assertion
+      (`"boto3" not in source`) is kept as a tripwire but is **not** the guard: it is a substring
+      check that would pass against a module calling an injected client.
 - [ ] A test asserts the tag set and the route's resolved space agree — specifically, that a space
       `spaces.py` accepts always has a stamped tag, and one it refuses never does. A disagreement is
       a 403 on a space the session could reach, or worse.
@@ -422,8 +446,15 @@ silently reversed `transition_plan.md` §6.4.
       their count. Space names and usernames are user metadata and are permitted; the token, its
       claims and the index body are not.
 - [ ] The resolved space set is a **field**, because FR-007's live check reads it back.
-- [ ] A space present in the index but not `active` is recorded at `debug` with its status — the
-      difference between "not a member" and "the space is not ready" is otherwise invisible.
+- [ ] **EXTENDED DURING BUILD: the source and the space set are also stamped per REQUEST**, not only
+      per mint. A mint happens on a cold credential cache and on nothing else, so a per-mint-only
+      field is absent from the overwhelming majority of records — and FR-007's live check reads the
+      set back from "a real request", which is usually a warm one.
+- [ ] A space present in the index but not `active` is recorded with its status — the difference
+      between "not a member" and "the space is not ready" is otherwise invisible. **At `info`, not
+      `debug`: `cpcommon.observability` has three levels and `debug` is not one of them.** Adding a
+      fourth to the shared layer for one record is a change to every plane's log volume, which is
+      not this spec's to make.
 - [ ] **A stored `status` is stamped at write time and refreshed by nothing, which is a stated
       residual.** `set_status` changes a registry status with no membership change, so a delete that
       fails partway leaves a not-yet-dropped member's entry reading `active` for a space the registry
@@ -475,7 +506,13 @@ s3://{admin-bucket}/shared-spaces/{name}.json            # unchanged, still the 
 
 | Name | Values | Default | Notes |
 |---|---|---|---|
-| `MEMBERSHIP_SOURCE` | `claims` \| `index` | `claims` | Unrecognised value raises at import (FR-002) |
+| `MEMBERSHIP_SOURCE` | `claims` \| `index` | `claims` | Unrecognised value raises at import (FR-002). An **empty** value is an unset one, on the empty-`TF_VAR_` trap. |
+
+**It is wired into no Terraform, deliberately** — FR-011 requires every deployed environment to omit
+it, and a module variable defaulting to `""` would satisfy that while making the empty-string case
+the live one. The consequence is stated rather than discovered at Phase 5: **FR-007's live check
+cannot be run until somebody wires it**, which is a one-line change to `infra/modules/api/lambda.tf`
+that belongs to the transition and not to this spec. `owed.md` carries it.
 
 `ADMIN_BUCKET` and `MAX_SHARED_MEMBERSHIPS` are already delivered to both the API and the
 shared-space plane.

@@ -263,6 +263,13 @@ def route(
     reset runs before the public-route check, so a request that never dispatches still starts from
     a sentinel that authorizes nothing.
 
+    **An identity this API cannot RESOLVE is answered here, and that is not a duplicate of the
+    classification below.** ``for_request`` runs before dispatch, so a failure it raises never
+    reaches the dispatch guard where ``errors.for_exception`` maps it — it would leave ``route()``
+    entirely and arrive as a bare ``InternalError`` carrying nothing an operator or the browser can
+    act on. Reachable only when memberships are sourced from something that can be unavailable,
+    which is why it appears with the source that can be.
+
     **A failure a route raises is classified, never flattened.** A denial from AWS is the isolation
     model working and is answered 403; an identity this API cannot assume is a fault on this side
     and is answered 5xx. Anything else keeps rising, so an unexpected failure is recorded by the
@@ -308,6 +315,16 @@ def route(
         acting_as = identity.for_request(caller)
     except AuthError as exc:
         return _refuse(str(exc), asked_for, request_id)
+    except identity.IdentityUnavailableError as exc:
+        observability.error(
+            "request could not be served",
+            reason=str(exc),
+            route=asked_for,
+            request_id=request_id,
+        )
+        return _answered(
+            errors.identity_unavailable(request_id), errors.IDENTITY_UNAVAILABLE_CODE
+        )
     except (ConfigError, VerifierUnavailable) as exc:
         observability.error(
             "request could not be served",

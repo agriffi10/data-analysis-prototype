@@ -66,6 +66,7 @@ _IDENTITY_VARS = {
     "MAX_SHARED_MEMBERSHIPS": "MAX_SHARED_MEMBERSHIPS",
     "SHARED_SPACE_BUCKET": "SHARED_SPACE_BUCKET",
     "USER_SPACE_BUCKET": "USER_SPACE_BUCKET",
+    "ADMIN_BUCKET": "ADMIN_BUCKET",
     "ATHENA_WORKGROUP": "ATHENA_WORKGROUP",
 }
 
@@ -238,6 +239,25 @@ def athena_workgroup() -> str:
       ConfigError: If the variable is unset or empty.
     """
     return _require(_IDENTITY_VARS["ATHENA_WORKGROUP"])
+
+
+def admin_bucket() -> str:
+    """Returns the bucket holding the control-plane documents this API reads.
+
+    One document today, the membership index, and it is read on the execution role rather than
+    the caller's — which is why the variable belongs to the identity block rather than to the two
+    user-facing buckets beside it.
+
+    Args:
+      None.
+
+    Returns:
+      The bucket name.
+
+    Raises:
+      ConfigError: If the variable is unset or empty.
+    """
+    return _require(_IDENTITY_VARS["ADMIN_BUCKET"])
 
 
 def shared_space_bucket() -> str:
