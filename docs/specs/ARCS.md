@@ -5,6 +5,9 @@ carries status, this file carries reasoning. **These headings name a spec range 
 status written into them rotted silently, four arcs at a time. Most arcs below are shipped; their
 authoritative detail lives in `docs/spec-delivery/SPEC-XXX-*.md` and the per-arc architecture docs.
 
+A spec cut for **size** (`process.md` §4 — past 8 FRs, write a second spec rather than growing one)
+always leaves an arc entry here holding the pair's build order, even when nothing else groups them.
+
 **Arcs** — one `##` per arc; read only the one you're in:
 
 - [File-operations arc (SPEC-015 → 020, + 039 copy)](#file-operations-arc-spec-015--020--039-copy)

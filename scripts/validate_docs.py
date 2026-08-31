@@ -51,6 +51,15 @@ Attributes:
     while still being advertised in ``process.md``. The digest is a reminder with the reasoning in
     ``decisions/``; past this length it has become the reasoning.
   DELIVERY_MAX_LINES: A delivery doc is "what shipped + what changed", typically under a page.
+  SPEC_OVERSIZE_MAX: How many specs may carry more than eight Functional Requirements. A ratchet
+    at the measured level, and the only budget here whose unit is the SPEC rather than the file.
+    ``docs/process.md`` §4 caps a spec at eight FRs: past that it is not a big spec, it is a spec
+    that should have been two, and the cure is a second spec beside it with the pair's build order
+    in ``ARCS.md``. Making that a per-spec failure would red ``main`` on 41 specs written before
+    the rule, so the count is held instead — a new over-size spec fails, the existing ones do not,
+    and splitting one LOWERS this number in the same PR. A genuinely indivisible spec may still sit
+    above eight, but it is paid for out of this ratchet rather than waved through, which is what
+    makes the trade visible.
   STATUS_WORDS: Words that must not appear in an ``ARCS.md`` arc heading. Status lives in
     ``INDEX.md``, which is the only place it can be kept true.
   SOURCE_TREES: Where source lives, per language, for the citation check.
@@ -82,6 +91,7 @@ FIXTURES_MAX_SCRIPTS = 1
 CLAUDE_MAX_BYTES = 50_000
 DIGEST_MAX_CHARS = 1_400
 DELIVERY_MAX_LINES = 260
+SPEC_OVERSIZE_MAX = 41
 def decision_areas() -> list[str]:
     """Read the areas ``CLAUDE.md``'s Key Decisions digest groups by, in order.
 
@@ -448,6 +458,64 @@ def check_spec_status() -> list[str]:
     return errors
 
 
+def check_spec_size() -> list[str]:
+    """Hold the number of over-size specs at the level it was measured at.
+
+    A spec is one coherent slice of behavior (``docs/process.md`` §4): aim 3-6 Functional
+    Requirements, and past eight write a second spec beside the first rather than growing one.
+    Across these specs the median carries six FRs and four in five carry eight or fewer, so the
+    ones above the line are a tail rather than the norm — which is why this is a ratchet on the
+    COUNT and not a failure per spec.
+
+    FRs are counted as distinct ``### FR-NNN`` headings outside fenced blocks and HTML comments.
+    Both exclusions are load-bearing: a spec that quotes FR headings in an example, or comments
+    some out while splitting, would otherwise be told to split on requirements it does not have.
+
+    Args:
+      None.
+
+    Returns:
+      One message naming the over-size specs when the count exceeds the ratchet, else none.
+
+    Raises:
+      None.
+    """
+    fence = re.compile(r"^\s*```")
+    heading = re.compile(r"^### (FR-\d+)")
+    oversize: list[tuple[str, int]] = []
+    for path in sorted((ROOT / "docs" / "specs").glob("SPEC-*.md")):
+        ids, in_fence, in_comment = set(), False, False
+        for line in path.read_text().splitlines():
+            if fence.match(line):
+                in_fence = not in_fence
+                continue
+            if in_fence:
+                continue
+            if in_comment:
+                in_comment = "-->" not in line
+                continue
+            if "<!--" in line:
+                in_comment = "-->" not in line
+                continue
+            found = heading.match(line)
+            if found:
+                ids.add(found.group(1))
+        if len(ids) > 8:
+            oversize.append((path.name, len(ids)))
+    if len(oversize) <= SPEC_OVERSIZE_MAX:
+        return []
+    biggest = sorted(oversize, key=lambda pair: -pair[1])[:5]
+    worst = ", ".join(f"{name} ({count})" for name, count in biggest)
+    return [
+        (
+            f"{len(oversize)} specs carry more than 8 FRs (ratchet {SPEC_OVERSIZE_MAX}): {worst}. "
+            "Split the new one into two specs and record the pair in ARCS.md "
+            "(docs/process.md \u00a74); raising this number is the failure mode, and "
+            "splitting one lowers it."
+        )
+    ]
+
+
 def check_delivery_size() -> list[str]:
     """Keep a delivery doc to what shipped and what changed, not a second copy of the spec.
 
@@ -633,6 +701,7 @@ def main() -> int:
         check_decisions_register,
         check_arcs,
         check_spec_status,
+        check_spec_size,
         check_delivery_size,
         check_source_citations,
         check_links,
