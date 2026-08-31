@@ -154,15 +154,20 @@ one of those transitions describes a space whose data is intact.
 - [ ] `save_members` and `set_status` preserve it — both already do `dict(existing)`, asserted
       because the protection depends on it and a later projection-style rewrite would drop it
       silently.
-- [ ] **A one-time backfill stamps `everActive: true` on every record whose status is `active` OR
-      `deleting`.** *An earlier draft skipped every non-active record on the grounds that they are
-      "indistinguishable from failed creates". That is false for the highest-risk status:*
-      **`deleting` is written by `delete_space` and by nothing else** — `create_space` writes only
-      `provisioning`, `active` and `failed` — so a `deleting` record is unambiguously a space that
-      reached `active` and whose delete did not finish. And because the state machine's
-      `RecordFailure` is a `Pass` that writes no registry status, a timed-out delete leaves that
-      status permanently. Skipping them leaves round one's exact data-loss path open on every such
-      record that exists on the day this ships.
+- [ ] **A one-time backfill stamps `everActive: true` unattended on `active` records ONLY, and
+      reports every other status for a human to disposition.** *Two earlier drafts were wrong here
+      in opposite directions.* The first skipped every non-active record as "indistinguishable from
+      failed creates", which leaves the data-loss path open on a stuck `deleting` record. The
+      second corrected that by auto-stamping `deleting` too, on the grounds that **only
+      `delete_space` writes it** — true — **and that it therefore names a space which reached
+      `active`** — *which does not follow, and was disproved by execution during the build.*
+      `delete` is gated on ownership and on nothing else: neither `validate.py` nor `auth.py`
+      contains a status check (verified — zero occurrences of `status` in either), so an owner may
+      delete their own `failed` or still-`provisioning` create, and the verb writes `deleting`
+      **before** any teardown. Because `RecordFailure` is a `Pass` that writes no registry status,
+      an invocation that dies rather than raising leaves that status permanently. So a `deleting`
+      record *can* name a space that was never usable, and auto-stamping it would burn that name
+      forever with no human ever seeing it. `active` is the only status that cannot lie.
 - [ ] **Pre-existing `failed` records are enumerated and dispositioned manually before deploy**, not
       skipped silently. A failed *delete* was ever-active and must be stamped; a failed *create* must
       not be, or its name is burned. The set is small, but **the discriminator is the space's
@@ -180,9 +185,15 @@ one of those transitions describes a space whose data is intact.
       enumeration needs.
 - [ ] **It rides `locals.tf`'s `shared_space_functions` map**, which feeds both the function set and
       the orchestrator's `InvokeFunction` list, so it inherits the role, the env, the log group and
-      the deploy-role and layer wildcards. **No IAM change is needed** — `AdminRegistryList`'s
-      existing `s3:prefix` of `shared-spaces/*` already covers the enumeration. Stated because a
-      builder who does not check will assume a new grant.
+      the deploy-role and layer wildcards. **No IAM change is needed to RUN it** — `AdminRegistryList`'s
+      existing `s3:prefix` of `shared-spaces/*` covers the enumeration, and `GlueSharedDatabases`
+      plus the shared-bucket list grant cover the resource facts the report prints. Stated because a
+      builder who does not check will assume a new grant. *What it does need is one grant to be
+      INVOKED: the deploy role holds no `lambda:InvokeFunction` anywhere in the fleet, so a CI job
+      cannot call it. That statement lands in its own PR ahead of this one, per `CLAUDE.md`'s infra
+      rule. An earlier version of this criterion said "no IAM change is needed" flatly, which is
+      true of the function's own grants and false of the invoker, and whose closing sentence
+      actively discouraged the check that found the gap.*
 - [ ] **`test_instrumentation_coverage.py` carries the shared-space verb count as a literal** and the
       backfill matches its glob without being a verb, so it fails a test in a plane this spec never
       otherwise touches. Bump it, and note the failure text names the new module so the cause is

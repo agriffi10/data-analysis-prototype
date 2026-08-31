@@ -47,10 +47,11 @@ Orchestration, layer and traps: [`planes/shared-spaces.md`](planes/shared-spaces
 | Lambda | Handler | What it does |
 |---|---|---|
 | `shared-space-acknowledge-membership/` | `acknowledge_membership.py` | acknowledge-membership verb: a member confirms they have picked up the space. |
+| `shared-space-backfill-ever-active/` | `backfill_ever_active.py` | one-shot, not a verb: stamps the durable ever-active fact on records that predate it. Invoked from its own workflow. |
 | `shared-space-add-members/` | `add_members.py` | add-members verb: adds each valid username to the space. |
 | `shared-space-create/` | `create_space.py` | create-space verb: provisions a new shared space owned by the actor. |
-| `shared-space-delete/` | `delete_space.py` | delete-space verb: the owner's irreversible cascade delete. |
-| `shared-space-forget/` | `forget_space.py` | forget verb: a durable "clear this entry from my list", with no full delete cascade. |
+| `shared-space-delete/` | `delete_space.py` | delete-space verb: the owner ends everyone's access, and destroys the space only if it was never usable. |
+| `shared-space-forget/` | `forget_space.py` | forget verb: a durable "clear this entry from my list"; tears down only a space that was never usable. |
 | `shared-space-leave/` | `leave.py` | leave verb: a member revokes only their own access. |
 | `shared-space-notify-failure/` | `ss_notify_failure.py` | shared-space notify-failure — the terminal failure notification of last resort. |
 | `shared-space-remove-members/` | `remove_members.py` | remove-members verb: removes each member from the space. |

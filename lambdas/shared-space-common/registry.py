@@ -232,6 +232,14 @@ def finalize(name: str, actor: str, request_id: str, status: str, reason: str | 
     Preserves the creation timestamp the reservation stamped, which this full rewrite would
     otherwise drop. Compare-and-swap, so a racing writer cannot be lost.
 
+    Stamps ``everActive`` when — and only when — the outcome is active, because that field is
+    what decides whether a later delete empties the space or destroys it. This function is
+    called on both create outcomes, so an unconditional stamp would mark every failed create
+    ever-active, which would refuse its owner's legitimate retry and refuse to tear it down.
+    An existing stamp is carried forward on both paths for the same reason the creation
+    timestamp is: the record is rebuilt from a literal, so it is the one writer here that
+    provably drops a field it does not name.
+
     Args:
       name: The space name.
       actor: The verified creator, who is the sole member at this point.
@@ -248,7 +256,7 @@ def finalize(name: str, actor: str, request_id: str, status: str, reason: str | 
     """
 
     def apply(existing):
-        """Builds the outcome record, carrying forward the creation timestamp.
+        """Builds the outcome record, carrying forward the creation timestamp and the stamp.
 
         Args:
           existing: The freshly-read record, or None.
@@ -271,6 +279,8 @@ def finalize(name: str, actor: str, request_id: str, status: str, reason: str | 
         }
         if reason:
             record["reason"] = reason
+        if status == "active" or (existing or {}).get("everActive"):
+            record["everActive"] = True
         return record
 
     casio.cas_mutate(
@@ -279,6 +289,58 @@ def finalize(name: str, actor: str, request_id: str, status: str, reason: str | 
         write=lambda record, etag: _put(name, record, etag),
         label=f"registry/{name}",
     )
+
+
+def mark_ever_active(name: str, request_id: str) -> bool:
+    """Stamps the durable ever-active fact on a record that does not carry it yet.
+
+    The one writer of that field outside ``finalize``, shared by the delete verb and the
+    one-shot backfill so the two cannot drift. The field is monotonic — written once, never
+    cleared and never written false — because it is what decides whether a later delete empties
+    a space or destroys it, and a status can move back and forth while that answer cannot.
+
+    Compare-and-swap on the freshly-read record, and a no-op when the field is already there or
+    the record is gone, so a re-run after a timeout costs nothing.
+
+    Args:
+      name: The space name.
+      request_id: The run's request id.
+
+    Returns:
+      True when this call stamped the record, False when there was nothing to do.
+
+    Raises:
+      RuntimeError: When the CAS attempts are exhausted.
+      ClientError: On any non-precondition S3 fault.
+    """
+    stamped = False
+
+    def apply(existing):
+        """Adds the field to the freshly-read record unless it is already present.
+
+        Args:
+          existing: The freshly-read record, or None.
+
+        Returns:
+          The record to write, unchanged when there is nothing to stamp.
+
+        Raises:
+          None.
+        """
+        nonlocal stamped
+        stamped = False
+        if existing is None or existing.get("everActive"):
+            return existing
+        stamped = True
+        return {**existing, "everActive": True, "lastRequestId": request_id, "updatedAt": now_iso()}
+
+    casio.cas_mutate(
+        read=lambda: _read(name),
+        apply=apply,
+        write=lambda record, etag: _put(name, record, etag),
+        label=f"registry/{name}",
+    )
+    return stamped
 
 
 def effective_acknowledged(registry: dict) -> list[str]:

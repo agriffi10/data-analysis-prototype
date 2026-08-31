@@ -32,7 +32,12 @@ resource "aws_lambda_function" "functions" {
   role          = aws_iam_role.orchestrator.arn
   runtime       = "python3.12"
   handler       = each.value
-  timeout       = 60
+
+  # A verb touches one space and 60s is generous for that. The one-shot backfill walks EVERY
+  # registry record instead, and it has no resume marker — each run restarts from the first
+  # key — so a timeout is not a partial pass it can continue from but a run that made no
+  # progress. Its ceiling is sized to the whole walk rather than to one space.
+  timeout = lookup(local.shared_space_function_timeouts, each.key, 60)
 
   # Full env on every function. The validate Lambda verifies the caller's token against the
   # pool for member lookups; the verbs trust the validated actor.

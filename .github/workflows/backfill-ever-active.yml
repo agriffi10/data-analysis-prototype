@@ -1,0 +1,115 @@
+# ── One-shot: stamp the durable ever-active fact on pre-existing registry records ──────────
+#
+# Manual only. This is the step that has to run BETWEEN the PR that ships the backfill Lambda
+# and the PR that changes the delete verb: there is no enable switch on that verb, so a record
+# left unstamped when it deploys takes the DESTROYING route against a live workspace.
+#
+# It is a workflow of its own rather than an input on `deploy-lambdas.yml`, which already
+# carries a bare `workflow_dispatch:` and forces a full 73-function deploy on any non-push
+# event. A mode input bolted on there would mean every routine manual redeploy also wrote to
+# the registry, and — once the verb change has merged — that invoking the backfill also shipped
+# the switchover, which is the one ordering this whole exercise exists to control.
+#
+# Run it from `main`. The deploy role's trust policy admits `refs/heads/main` and pull requests
+# and nothing else, so a dispatch from another ref fails at the assume with an opaque STS error.
+
+name: Backfill ever-active
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'report (writes nothing) · apply (stamps active + deleting) · stamp (one named record)'
+        required: true
+        default: report
+        type: choice
+        options: [report, apply, stamp]
+      space:
+        description: 'Space name — required by stamp, ignored otherwise'
+        required: false
+        type: string
+
+# Two runs writing the registry at once is not a race the CAS loop should have to absorb.
+concurrency:
+  group: backfill-ever-active
+  cancel-in-progress: false
+
+env:
+  PROJECT_NAME: ${{ vars.TF_VAR_project_name || 'dat' }}
+  ENVIRONMENT: ${{ vars.TF_VAR_environment || 'prod' }}
+
+jobs:
+  invoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Refuse a stamp with no space name
+        if: inputs.mode == 'stamp' && inputs.space == ''
+        run: |
+          echo "::error::stamp mode needs a space name. The function refuses this too; failing here saves the round trip."
+          exit 1
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          retry-max-attempts: 3
+
+      - name: Invoke the backfill
+        env:
+          MODE: ${{ inputs.mode }}
+          SPACE: ${{ inputs.space }}
+        run: |
+          set -euo pipefail
+          FUNCTION="${PROJECT_NAME}-${ENVIRONMENT}-shared-space-backfill-ever-active"
+          # Built by jq rather than string-concatenated, so a space name can never break out
+          # of the JSON it is quoted into.
+          PAYLOAD=$(jq -nc \
+            --arg mode "$MODE" \
+            --arg space "$SPACE" \
+            --arg run "$GITHUB_RUN_ID" \
+            '{mode: $mode, requestId: ("gha-" + $run)} + (if $space == "" then {} else {name: $space} end)')
+          echo "Invoking ${FUNCTION} with ${PAYLOAD}"
+
+          # `--cli-binary-format raw-in-base64-out` is not optional on AWS CLI v2: without it
+          # the payload is read as base64 and the invoke fails outright.
+          aws lambda invoke \
+            --function-name "$FUNCTION" \
+            --cli-binary-format raw-in-base64-out \
+            --payload "$PAYLOAD" \
+            --cli-read-timeout 0 \
+            response.json > invoke.json
+
+          # A Lambda that raised still returns HTTP 200 with FunctionError set, so the exit
+          # code of `aws lambda invoke` says nothing about whether the backfill worked.
+          if python3 -c "import json,sys; sys.exit(0 if json.load(open('invoke.json')).get('FunctionError') else 1)"; then
+            echo "::error::the backfill raised:"
+            cat response.json
+            exit 1
+          fi
+
+      - name: Report what it found
+        run: |
+          echo '### Backfill (`${{ inputs.mode }}`)' >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          python3 -m json.tool response.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo ''
+            echo '**Every row under `undecidable` needs a human.** A failed DELETE must be stamped; a failed CREATE must NOT be, or its name is burned forever and its leftover database and objects can never be torn down.'
+            echo ''
+            echo '- A row whose `verdict` is `never stamp` is already decided — leave it.'
+            echo '- Otherwise read `updatedAt` against `createdAt` first: a create that never finished was written and abandoned inside one invocation, a delete that failed happened long after its space was made. `lastRequestId` joins the row to the retained logs, which settles it outright.'
+            echo '- `reason` names a provisioning fault or a teardown one. `hasData` corroborates (no failed create has data). `hasDatabase` settles nothing on its own — a create writes the database early.'
+            echo ''
+            echo 'Then re-run in `stamp` mode, once per record. **A stamp cannot be undone from here:** nothing clears the field, and correcting one means hand-editing `shared-spaces/<name>.json` in the admin bucket, which this workflow'"'"'s role cannot read.'
+            echo ''
+            echo 'You are done when a fresh `report` shows `wouldStamp: {}` and every remaining `undecidable` row is one you have consciously left alone.'
+          } >> "$GITHUB_STEP_SUMMARY"

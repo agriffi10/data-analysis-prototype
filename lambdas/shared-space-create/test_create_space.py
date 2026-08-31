@@ -140,3 +140,52 @@ if __name__ == "__main__":
     sys.exit(0)
 
 
+
+
+def _record(s3, name="sales"):
+    return json.loads(s3.store[("admin-bkt", f"shared-spaces/{name}.json")])
+
+
+def test_finalize_stamps_ever_active_only_when_the_outcome_is_active():
+    # finalize() runs on BOTH create outcomes, so an unconditional stamp would mark every
+    # failed create ever-active — which refuses its owner's legitimate retry and refuses to
+    # tear it down. The FAILED path is the one that has to be driven: a round-trip through
+    # the happy path alone passes either way.
+    s3, *_ = install()
+    reg.reserve("sales", "alice", "req-1")
+
+    reg.finalize("sales", "alice", "req-1", "failed", "boom")
+    assert "everActive" not in _record(s3)
+
+    reg.finalize("sales", "alice", "req-2", "active")
+    assert _record(s3)["everActive"] is True
+
+
+def test_finalize_carries_an_existing_ever_active_forward_onto_a_failed_outcome():
+    # A different bug from the stamp, asserted separately: finalize rebuilds the record from
+    # a literal, so it drops every field it does not name. It carries createdAt forward today
+    # and would have dropped this one.
+    s3, *_ = install()
+    reg.reserve("sales", "alice", "req-1")
+    reg.finalize("sales", "alice", "req-1", "active")
+
+    reg.finalize("sales", "alice", "req-2", "failed", "boom")
+
+    record = _record(s3)
+    assert record["status"] == "failed" and record["everActive"] is True
+
+
+def test_mark_ever_active_stamps_once_and_is_a_no_op_afterwards():
+    s3, *_ = install()
+    reg.reserve("sales", "alice", "req-1")
+
+    assert reg.mark_ever_active("sales", "req-2") is True
+    assert _record(s3)["everActive"] is True
+    assert reg.mark_ever_active("sales", "req-3") is False
+    assert _record(s3)["lastRequestId"] == "req-2"
+
+
+def test_mark_ever_active_tolerates_a_record_that_is_gone():
+    install()
+
+    assert reg.mark_ever_active("never-existed", "req-1") is False
