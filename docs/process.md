@@ -460,6 +460,16 @@ When a spec is done, in the same pass:
 - **A doc's own statement of when to read it must agree with CLAUDE.md's.** This file told readers it
   was read once and on demand while CLAUDE.md told them to read it first, every session. Both are
   cheap to write and neither is checked, so they drift silently and the reader follows the wrong one.
+- **A rebase resolves code hunks; it does not resolve CLAIMS.** Two branches editing the same
+  docstring merge clean when their paragraphs sit at different offsets — no conflict marker — and the
+  survivor asserts a thing and its opposite. A verb's docstring named the other members' membership
+  slots as deliberately left uncleared; the change landing on top cleared them, and git took the two
+  paragraphs as independent insertions because one sat above the shared sentence and one below.
+  Nothing catches it: the suite is green either way, and `validate_docs.py` checks layout, links and
+  citations rather than truth. After rebasing onto a branch that touched the same function, diff the
+  **prose** against the upstream blob (`git show <upstream>:<path>`) and read the merged docstring
+  end to end. Where your change falsifies a claim someone else just wrote, **delete their sentence** —
+  merging alongside it is how the contradiction ships.
 - **Status never appears in a heading**, anywhere. It rots the day the next spec lands, which is why
   `ARCS.md`'s headings are gated for it.
 - **A heading in a doc read by SUBJECT names the subject, not the spec that produced it** — this is
