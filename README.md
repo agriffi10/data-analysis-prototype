@@ -56,7 +56,7 @@ This is an **npm workspaces monorepo**.
 ├── infra/                     ← OpenTofu IaC (ECS + ALB, the API, Cognito, IAM, data buckets)
 │   ├── main.tf · variables.tf · outputs.tf
 │   ├── bootstrap/             ← one-time remote-state setup (S3 + DynamoDB)
-│   └── modules/               ← app/ (hosting) · base/ (OIDC + deploy role) · auth/ · data/
+│   └── modules/               ← spa/ + network/ (hosting) · api/ · base/ (OIDC + deploy role) · auth/ · data/
 ├── lambdas/
 │   └── pre-signup/            ← Cognito pre-signup trigger (Python)
 ├── docs/                      ← architecture, design system, specs, delivery records

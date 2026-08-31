@@ -467,9 +467,12 @@ upload passes with their invalidation.
       criterion here is that exactly one home for them remains and that deleting the module orphans
       neither.
 - [ ] **The five `moved` blocks in `infra/moved.tf` targeting `module.app.*` are deleted in the same
-      commit.** A `moved` block naming an address no configuration declares is a **plan-time error**,
-      so this one fails loudly rather than silently — but it fails the apply that is mid-destroy,
-      which is the worst moment to discover it.
+      commit.** This spec originally said a `moved` block naming an address no configuration
+      declares is a **plan-time error** that fails loudly. **Measured 2026-08-31 and it is not:**
+      an isolated OpenTofu 1.12.1 config with the target module deleted returns `Success!` from
+      `validate` and a clean `plan`, and appending a stale `module.app` block to this repo's
+      `infra/moved.tf` does the same. So there is **no safety net here** — the deletion has to be
+      done deliberately, in the same commit, because nothing will report it if it is not.
 - [ ] `.github/workflows/deploy-app.yml` is deleted. The `S3_STATIC_BUCKET` and
       `CLOUDFRONT_DISTRIBUTION_ID` repo secrets are deleted **after** the workflow, and any other
       workflow referencing them is found by a grep over `.github/workflows/` rather than by memory.
