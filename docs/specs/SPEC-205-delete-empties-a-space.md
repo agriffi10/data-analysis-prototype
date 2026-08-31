@@ -2,7 +2,7 @@
 
 **ID:** SPEC-205
 **Status:** Draft
-**Last Updated:** 2026-08-18
+**Last Updated:** 2026-08-31
 **Depends On:** SPEC-051/052/053/054/055 (the shared-space control plane, its registry, its verbs, and the criterion that the registry record is the name lock), SPEC-073 (acknowledge is display-only), SPEC-075 (the roster fan-out), SPEC-125 (`shared-space-common`), SPEC-151 (a partial teardown never frees the name — retained in full on the one route that still destroys), SPEC-157 (FIFO orders delivery, not executions — FR-008), SPEC-113 (no existence oracle), SPEC-106 (`toUserMessage`), SPEC-074 (Help content), SPEC-155 (`ConfirmDialog`, and its `irreversible` line), SPEC-127→137/186 (`cpcommon.observability`, the field rule, `env`/`version`)
 
 **Downstream:** **SPEC-204** is written against these semantics and cannot be built until this ships.
@@ -165,10 +165,15 @@ one of those transitions describes a space whose data is intact.
       record that exists on the day this ships.
 - [ ] **Pre-existing `failed` records are enumerated and dispositioned manually before deploy**, not
       skipped silently. A failed *delete* was ever-active and must be stamped; a failed *create* must
-      not be, or its name is burned. They are distinguishable by hand at this scale — a failed create
-      is single-member by construction, since creating is creator-only — and the set is small. The
-      spec requires the enumeration to be run and its disposition recorded, rather than guessing a
-      rule that is wrong in one direction or the other.
+      not be, or its name is burned. The set is small, but **the discriminator is the space's
+      resources, not its roster**: a failed *create* has no Glue database and no objects under
+      `{space}/`, a failed *delete* has whichever the cascade did not reach, and `reason` names a
+      `finalize` fault or a teardown one. *The roster cannot decide it. The old rule — "a failed
+      create is single-member, since creating is creator-only" — is the claim FR-002 withdraws, and
+      it fails in both directions: a failed create can have been added to before FR-002's gate, and a
+      failed delete of a single-member space is single-member too, since `set_status` preserves
+      `members`.* The spec requires the enumeration to be run and its disposition recorded, rather
+      than guessing a rule that is wrong in one direction or the other.
 - [ ] **The backfill runs as a one-shot Lambda under the plane's orchestrator role**, which is the
       only principal that can read and write the registry — the deploy user cannot read the data
       buckets, so a local script cannot do it. The same access is what FR-001's manual `failed`-record
@@ -220,8 +225,11 @@ not have today.
       it.
 - [ ] **A fresh read returning `None` refuses.** The record is the only evidence of what the space
       was, and destroying a prefix and a database on its absence is the worst available option. It is
-      near-unreachable — `validate` loads the record and `authorize` refuses a missing space — which
-      is why it is stated rather than left to the builder.
+      near-unreachable **on `delete`** — `validate` loads the record and `authorize` refuses a missing
+      space — which is why it is stated rather than left to the builder. *On `forget` it is merely
+      rare: `authorize` returns early on `forget` before that refusal, deliberately, so a phantom
+      card stays dismissible — so branch 2's fresh read can genuinely find the record gone under a
+      competing delete, and the refusal is a live path there rather than a stated impossibility.*
 - [ ] **The no-op below is placed AFTER `forget`'s existing active-member refusal, not before it.**
       Placed first it would convert today's `AuthorizationError` on a healthy active space the actor
       still belongs to into a silent success, which FR-013 says is untouched.
@@ -245,12 +253,43 @@ not have today.
       executions (SPEC-157), so an `add-members`, `leave` or competing `delete` can land between
       validate and this verb. *An earlier draft justified this by claiming the event record would
       "see `active` where a fresh read sees otherwise", which is not true of the code.*
+- [ ] **`forget_space`'s branch 2 reads freshly too, and both name-freeing routes clear the UNION.**
+      `reg.delete` has exactly two callers — this branch and `delete_space`'s never-active route
+      above — and freeing a name makes the roster those routes clear a security boundary rather than
+      housekeeping: a slot outliving the record is a principal tag on whatever is created under that
+      name next, because the portal role's shared-space policy is scoped on the tag value and not on
+      any space identity. Both take `members` from the validator's event and inherit the same
+      window, so both re-read before the loop and clear slots, index entries and cache cards for the
+      union of the event roster and the fresh one, then `reg.delete`. *Stated because FR-008's union
+      pass is written entirely against the emptying route's rewrite, and a builder closing that race
+      exactly as specified leaves it open on both routes that actually free a name.*
 - [ ] **The justification for destroying a never-`active` space is stated honestly**, and the "no
       user data by construction" claim is **withdrawn**: `create_space` assigns the Cognito slot —
       which *is* the S3 grant — before `finalize`, so a creator can write into a space that never
       becomes active. The real argument is narrower and sufficient: such a space was reachable **only
       by its creator**, and the destroying route is that same creator explicitly discarding their own
       failed create. Nobody else's data can be lost.
+- [ ] **"Reachable only by its creator" is itself FALSE, and the remedy is a status gate on
+      `add_members`, not a roster check on the destroying route.** `authorize` has no status gate —
+      `OWNER_ONLY_ACTIONS` checks the owner and nothing else — so an owner may `add_members` to a
+      `provisioning` or failed-create record, and `assign_or_find_slot` stamps each new member's
+      slot, which *is* the S3 and Glue grant, before `save_members` commits. A never-`active` space
+      can therefore hold data written by somebody other than its creator, and the sentence above is
+      what licenses destroying it. **The refusal goes in `save_members`' CAS transform, beside
+      FR-008's no-owner guard, and raises the same `MembershipRefused`**: that is the only site
+      holding a *fresh* record, so a gate in `authorize` or at the top of the verb would read the
+      same validate-loaded copy and inherit the staleness it exists to prevent — and `authorize` is
+      additionally the wrong home, since FR-013 keeps authorization untouched and this FR states
+      `delete`'s missing status guard there as a live fact. **FR-008's slot-rollback criterion covers
+      this refusal too**, unchanged in shape: without it the gate leaves the added user holding a
+      live `custom:shared_space_k` and appearing in no roster, which that criterion already calls
+      strictly worse than the state it prevents. The gate changes the retention predicate not at all
+      — both destroying routes keep evaluating `everActive` alone. *A roster check on the destroying
+      route was the obvious alternative and is rejected,
+      because it is blind to exactly the case that motivates it: `finalize` rebuilds the record from
+      a literal carrying `members: [actor]`, so an add that loses its race to `finalize` leaves a
+      live slot and no roster entry to read. It would also retain every failed create that ever had a
+      member, burning those names permanently — and it would pass any test written from the roster.*
 - [ ] `delete` has **no status guard** in `authorize` (`OWNER_ONLY_ACTIONS` checks the owner only);
       "delete operates on live spaces" is a UI convention, not an invariant. Stated, and the fresh
       read above is what makes the verb correct without one.
@@ -503,12 +542,29 @@ over destroyed data; here it is live access to retained data.
 - [ ] **Every new exception registers its reason token** with the domain resolver `ss_notify_failure`
       reaches through `cpcommon.errors.failure_reason`. An unregistered reason degrades to generic
       text, and a `TerminalError` carrying one raises `ValueError` **at the raise site** — a runtime
-      break rather than a review finding. This covers `MembershipRefused`, the `None`-record refusal
-      and the re-check failure below.
+      break rather than a review finding. This covers `MembershipRefused` — including FR-002's
+      `add_members` gate, which raises it — the `None`-record refusal, the re-check failure below and
+      the destroying routes' post-`reg.delete` resurrection raise.
 - [ ] **The re-check is one re-read, and it raises.** After the latecomer pass, re-read the record;
       a non-empty roster raises rather than looping — the `save_members` guard forbids further adds
       once the owner is gone, so a loop would be unreachable code and a version without the assertion
       would be indistinguishable in every test.
+- [ ] **The destroying routes have the same race and cannot use the same mechanism.** The no-owner
+      guard does not cover them: they delete the record rather than blanking its owner, so there is
+      no emptied record to refuse against, and there is no CAS return to take a union from — hence
+      FR-002's fresh read. Two outcomes, and the second is the one no union pass fixes. An
+      `add-members` committing *before* `reg.delete` leaves a member holding a slot for a name about
+      to be freed, which the fresh-read union catches. One committing *after* it **resurrects the
+      record**: `save_members` falls back to `dict(registry)` from the stale event copy and `_put`
+      sends `IfNoneMatch="*"` against a now-absent object, so the write succeeds and leaves a record
+      locking a name over torn-down resources. **The destroying routes re-read once after
+      `reg.delete` and raise if the record is back**, the same shape as the re-check above, because
+      the alternative is a name permanently held by a space that no longer exists. *The resurrector
+      is NOT `add-members`: FR-002's gate refuses it on exactly the never-`active` records these
+      routes handle. It is `remove_members`, `leave` or `acknowledge_membership` — which share the
+      same fallback and which the no-owner guard deliberately exempts — running against the legacy
+      multi-member never-`active` records FR-001 enumerates. Named because a builder reasoning from
+      the add case concludes the window is closed and skips the re-read.*
 - [ ] Two tests, one per window: (a) authorize `add-members` against a live record, empty the space,
       run the verb — the member is not added and holds no slot; (b) `add-members` commits mid-loop —
       the member's slot is cleared by the union pass. **The notification is asserted on the state
@@ -641,8 +697,27 @@ not survive is the product claiming the data was destroyed, and today it claims 
       `it('marks the action irreversible')` asserts `/can.t be undone/i` on `DeleteSharedSpaceDialog`,
       and FR-010 removes that line. A builder working from a lambdas-shaped list will meet it as a
       surprise in a different suite.
-- [ ] `test_forget_space.py` uses a never-`active` fixture and **survives unchanged**, which is
-      FR-002's split working.
+- [ ] `test_forget_space.py`'s teardown tests use never-`active` fixtures and **survive**, which is
+      FR-002's split working. Two caveats for whoever runs them. The multi-member test's comment
+      describes a was-`active`-now-`failed` record as the branch's population, and branch 3 stops
+      that record reaching teardown — **reword the comment, keep the assertions**: they guard the
+      union pass above on the never-`active` multi-member records FR-001 enumerates, which predate
+      FR-002's `add_members` gate and still reach branch 2. And **two** comments in that file carry
+      the withdrawn claim, not one — the multi-member test's and the index fan-out test's — as does
+      `forget_space.py`'s own verb docstring ("a failed create is single-member, creating being
+      creator-only"). Named by file because the tests have no docstrings, so a builder greps the
+      test file for the sentence, finds only comments, and leaves the verb's copy standing.
+- [ ] **The "nine existing tests" inventory above is STALE and is re-derived before it is worked
+      from, not trusted.** It predates the suite cut that reduced `test_delete_space.py` to a
+      caller-shaped set and the membership-index test added after it, so it names tests that no
+      longer exist while missing two that do and that this spec breaks:
+      `test_delete_clears_every_index_entry_BEFORE_the_name_is_freed` patches `registry.delete` with
+      a watcher the emptying route never calls, and
+      `test_a_key_that_could_not_be_deleted_leaves_the_registry_record_intact` injects an undeletable
+      key into a `delete_shared_prefix` that route never reaches — both fail as "expected raise, none
+      raised", which reads as a broken test rather than an inverted one. *Recorded rather than
+      rewritten here: re-deriving the list is the builder's first step, and a second stale list would
+      be worse than none.*
 - [ ] **The reasoning in this spec cannot be carried into `lambdas/` as comments.** That tree allows
       **zero** inline comments, and `scripts/validate_docs.py`'s citation rule bans `FR-\d+` and
       `AC-\d+` alongside `SPEC-\d{3}` — so the read-first ordering, the union pass and the `None`
