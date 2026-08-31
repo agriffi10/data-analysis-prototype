@@ -110,6 +110,7 @@ DISPOSITIONS = {
     # Reads whose absence branch depends on the role holding a covering list grant.
     "lambdas/control-plane-common/cpcommon/registry.py::load": LIST_GRANT,
     "lambdas/shared-space-common/registry.py::_read": LIST_GRANT,
+    "lambdas/shared-space-common/membership_index.py::_read": LIST_GRANT,
     "lambdas/file-ops-common/focommon/plan.py::_read": LIST_GRANT,
     "lambdas/notifications-writer/notifications_writer.py::load_inbox": LIST_GRANT,
     "lambdas/api/routes/feature_flags.py::feature_flags": LIST_GRANT,

@@ -2,7 +2,7 @@
 
 Atomically reserves the globally unique name, assigns the creator a membership slot, creates the
 shared prefix marker and Glue database, grants the shared portal role on the database, and
-writes the registry and the creator's cache. Every step tolerates an already-exists result, so
+writes the registry, the creator's cache and the creator's membership index. Every step tolerates an already-exists result, so
 the verb is replay-safe. Creating is creator-only: it provisions the actor as the sole member
 and takes no member list — members are added later.
 
@@ -26,6 +26,7 @@ import logging
 
 import cache
 import membership
+import membership_index
 import registry as reg
 from cpcommon import clients, errors, observability
 from cpcommon import config as cpconfig
@@ -172,6 +173,14 @@ def create_space(name, actor, request_id):
     cache is theirs to correct — the validator wrote a provisioning entry, so it is marked failed
     or the actor is left with a stuck phantom they cannot clear.
 
+    **The membership index is written after the registry reaches active, and INSIDE the guard.**
+    After, because ``reserve`` writes ``provisioning`` and only an active space yields a session
+    tag, so an index written mid-create entitles nobody and is immediately wrong. Inside, because
+    the alternative leaves an active space whose owner holds no index entry — and once membership
+    is sourced from the index, that owner can neither reach the space nor delete it, since delete
+    is gated on membership. Inside the guard the ordinary rollback runs and the owner gets a
+    failed card they can retry or forget.
+
     A provisioning failure is recorded in three independent best-effort steps, because a failure
     in one must not skip the others: the membership slot is rolled back so a failed create does
     not leak one toward the actor's cap, the registry records the raw reason, and the cache
@@ -230,6 +239,7 @@ def create_space(name, actor, request_id):
         created_at = (reg.load(name) or {}).get("createdAt")
         cache.write_owner_projection(actor, name, [actor], [], created_at)
         reg.finalize(name, actor, request_id, "active")
+        membership_index.record(actor, name, "active")
     except Exception as exc:
         reason = str(exc)
         friendly = _user_reason(exc)
@@ -296,6 +306,6 @@ def handler(event, context):
         actor=actor,
         status=result["status"],
         replayed=bool(result.get("replay")),
-        stores=["registry", "glue", "lakeformation", "cache"],
+        stores=["registry", "glue", "lakeformation", "cache", "membership-index"],
     )
     return result

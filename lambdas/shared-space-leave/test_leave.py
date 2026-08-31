@@ -55,6 +55,21 @@ def test_leave_idempotent_for_non_member():
     assert reg2["members"] == ["alice"]
 
 
+def test_leaving_drops_the_actors_index_entry_and_nobody_elses():
+    s3, glue, _lf, cognito = install()
+    _seed_full_space(s3, glue, cognito)
+    for member in ("alice", "bob"):
+        s3.store[("admin-bkt", f"memberships/{member}.json")] = json.dumps(
+            {"version": 1, "username": member, "spaces": [{"name": "sales", "status": "active"}]}
+        ).encode()
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+
+    l.leave_space("sales", "bob", "req-l", reg)
+
+    assert json.loads(s3.store[("admin-bkt", "memberships/bob.json")])["spaces"] == []
+    owner = json.loads(s3.store[("admin-bkt", "memberships/alice.json")])
+    assert owner["spaces"] == [{"name": "sales", "status": "active"}]
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

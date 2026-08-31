@@ -1,7 +1,7 @@
 """add-members verb: adds each valid username to the space.
 
 Validates each name against the user pool, assigns a membership slot, writes the member's cache
-entry, and appends to the registry. Idempotent — already-members are skipped, and the owner is
+entry and membership index entry, and appends to the registry. Idempotent — already-members are skipped, and the owner is
 never added, being normalised out.
 
 An unknown username is not silently ignored: the name is collected and the space owner is
@@ -19,6 +19,7 @@ import logging
 
 import cache
 import membership
+import membership_index
 import registry as reg
 from cpcommon import clients, observability
 from notify import emit_notification
@@ -101,6 +102,9 @@ def add_members(space, members, request_id, registry):
         )
 
     committed = reg.save_members(registry, request_id, add=summary["added"])
+    membership_index.record_for_all(
+        summary["added"], space, committed.get("status", "active")
+    )
     cache.write_roster_to_all(
         committed["members"],
         space,

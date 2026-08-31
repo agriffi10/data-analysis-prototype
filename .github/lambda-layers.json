@@ -10,7 +10,7 @@
     "flag": "layer",
     "layerName": "shared-space-common",
     "sourceDir": "lambdas/shared-space-common",
-    "modules": ["config", "casio", "auth", "registry", "membership", "cache", "notify", "messages", "teardown"],
+    "modules": ["config", "casio", "auth", "registry", "membership", "membership_index", "cache", "notify", "messages", "teardown"],
     "description": "Shared-space DOMAIN code (registry/cache/membership/teardown/casio/auth-adapter). Deps + the shared client/config/JWT surface come from the cpcommon layer (SPEC-062, slimmed by SPEC-125)."
   },
   {

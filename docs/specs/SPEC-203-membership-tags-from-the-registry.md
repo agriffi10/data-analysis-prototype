@@ -138,12 +138,21 @@ grant direction on a removal.
       steps: `reserve` writes `status: "provisioning"` and FR-003 stamps no tag for a non-active
       space, so an index written mid-create entitles nobody and is immediately wrong. A test asserts
       the ordering against the real `create_space` call sequence.
-- [ ] **A delete is a membership removal and needs no special path.** In the target environment a
-      delete removes every member and the owner and destroys nothing — the prefix, the Glue database
-      and the registry record all survive, and the record stays `active` with an empty roster
-      (SPEC-204). So the index write for a delete is the same write as a full `remove-members`, and
-      SPEC-151's name-lock ordering does not apply: the record is never released, so there is no
-      window in which the name is free and the index still names it.
+- [ ] **STRENGTHENED DURING BUILD: it is also placed INSIDE the provisioning guard.** After it, a
+      failed index write leaves an `active` space whose owner holds no entry — and once membership
+      is sourced from the index that owner can neither reach the space nor delete it, because delete
+      is gated on membership. Inside, the existing rollback runs and the owner gets a failed card
+      they can retry or forget. A separate test discriminates the two placements, since the
+      ordering test alone passes under both.
+- [ ] **CORRECTED DURING BUILD: SPEC-151's name-lock ordering DOES apply, until SPEC-205 lands.**
+      This AC reasons from the target environment, where a delete removes every member and destroys
+      nothing, so the record is never released. Today `delete_space` still calls `reg.delete`, which
+      frees the name — so the index drops ride the existing member loop, which runs **before** that
+      call. An index still naming a space whose name is free is an entitlement to whatever is
+      created next. The same correction applies to **`shared-space-forget`'s teardown path**, which
+      also calls `reg.delete`: it drops the **whole roster's** entries, not only the actor's, because
+      a delete that fails partway writes `failed` on a record that keeps its members and that record
+      reaches this branch too. When SPEC-205 lands, the drops are already where they belong.
 - [ ] **`active` with zero members is a legitimate, permanent state**, so nothing here infers
       membership from status. FR-003 filters on status *and* the index's own entries; a test asserts
       that a user whose index still named an emptied space would get no tag — because the entry is
@@ -415,6 +424,12 @@ silently reversed `transition_plan.md` §6.4.
 - [ ] The resolved space set is a **field**, because FR-007's live check reads it back.
 - [ ] A space present in the index but not `active` is recorded at `debug` with its status — the
       difference between "not a member" and "the space is not ready" is otherwise invisible.
+- [ ] **A stored `status` is stamped at write time and refreshed by nothing, which is a stated
+      residual.** `set_status` changes a registry status with no membership change, so a delete that
+      fails partway leaves a not-yet-dropped member's entry reading `active` for a space the registry
+      calls `failed`. Premise 1 says the index is never the authority on a space's status, and
+      FR-003's filter reads exactly that field — the two are reconciled by SPEC-204's sweep and by
+      nothing before it. Accepted, and named rather than left to be found.
 - [ ] An index write failure (FR-001) is recorded at `error` with a stable reason token, the member
       and the space.
 - [ ] `env` and `version` on every record; messages are literals; `echo=` prohibited. The

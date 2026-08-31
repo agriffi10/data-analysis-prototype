@@ -57,6 +57,22 @@ def test_remove_members_never_removes_the_owner():
     assert "alice" in reg2["members"]
 
 
+def test_a_removed_member_loses_their_index_entry_while_the_space_stays_active():
+    # An emptied space is a legitimate, permanent state: the record stays active with no members.
+    # So nothing may infer membership from status — the entry has to actually go.
+    s3, _glue, _lf, cognito = install()
+    cognito.users = {"bob": {"custom:shared_space_1": "sales"}}
+    reg = _active_reg(members=["alice", "bob"])
+    _seed_reg(s3, reg)
+    s3.store[("admin-bkt", "memberships/bob.json")] = json.dumps(
+        {"version": 1, "username": "bob", "spaces": [{"name": "sales", "status": "active"}]}
+    ).encode()
+
+    r.remove_members("sales", ["bob"], "req-3", reg)
+
+    assert json.loads(s3.store[("admin-bkt", "memberships/bob.json")])["spaces"] == []
+    assert json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])["status"] == "active"
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

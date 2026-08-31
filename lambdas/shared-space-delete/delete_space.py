@@ -2,7 +2,10 @@
 
 Flags the registry as deleting first, then tears down in a safe order: remove all shared
 objects, revoke the Lake Formation grant, drop all tables and the database, clear every
-member's slot and cache entry, and finally delete the registry object, which frees the name.
+member's slot, membership index entry and cache entry, and finally delete the registry object,
+which frees the name. The index drop sits in that member loop and therefore BEFORE the record is
+deleted: the record is the name lock, so an index still naming a space whose name is free would
+be an entitlement to whatever is created next.
 Every step is idempotent and tolerant of partial prior progress, so a re-run completes a
 half-done teardown, and the registry never returns to active mid-cascade.
 
@@ -16,6 +19,7 @@ import logging
 
 import cache
 import membership
+import membership_index
 import registry as reg
 import teardown
 from cpcommon import observability
@@ -65,6 +69,7 @@ def delete_space(space, actor, request_id, registry):
         teardown.drop_database(space)
         for member in members:
             membership.clear_slot(member, space)
+            membership_index.drop(member, space)
             cache.remove_entry(member, space)
         reg.delete(space)
     except Exception as exc:
@@ -101,7 +106,7 @@ def delete_space(space, actor, request_id, registry):
         actor=actor,
         members_applied=len(members),
         revoked=members,
-        stores=["registry", "cognito", "glue", "cache"],
+        stores=["registry", "cognito", "glue", "cache", "membership-index"],
     )
     return {"status": "ok", "action": "delete", "space": space, "revokedMembers": members}
 

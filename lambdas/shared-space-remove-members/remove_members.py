@@ -1,6 +1,7 @@
 """remove-members verb: removes each member from the space.
 
-Clears their membership slot, drops their cache entry, and removes them from the registry. The
+Clears their membership slot, drops their membership index entry and their cache entry, and
+removes them from the registry. The
 owner is never removed, being normalised out. Idempotent — removing a non-member is a no-op.
 Shared objects and tables are left intact; this is membership only.
 
@@ -14,6 +15,7 @@ import logging
 
 import cache
 import membership
+import membership_index
 import registry as reg
 from cpcommon import observability
 from notify import emit_notification
@@ -66,6 +68,7 @@ def remove_members(space, members, request_id, registry):
         removed.append(member)
 
     committed = reg.save_members(registry, request_id, remove=removed)
+    membership_index.drop_for_all(removed, space)
     cache.write_roster_to_all(
         committed["members"],
         space,

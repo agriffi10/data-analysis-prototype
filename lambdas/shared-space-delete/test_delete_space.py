@@ -7,6 +7,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
 import delete_space as d
+import registry as teardown_registry
 import teardown
 from cpcommon import clients
 from cpcommon import config as cpconfig
@@ -81,6 +82,39 @@ def test_delete_fans_out_to_every_member_deduped_with_distinct_deleter_message()
         "req-d:delete:alice", "req-d:delete:bob", "req-d:delete:carol"
     }
 
+
+def test_delete_clears_every_index_entry_BEFORE_the_name_is_freed():
+    # The registry record is the name lock, so an index still naming a space whose name is free
+    # is an entitlement to whatever gets created next. The drop rides the member loop, which runs
+    # before reg.delete — the ORDER is what is asserted, since the end state is the same either
+    # way when nothing else claims the name.
+    s3, glue, _lf, cognito = install()
+    _seed_full_space(s3, glue, cognito)
+    for member in ("alice", "bob"):
+        s3.store[("admin-bkt", f"memberships/{member}.json")] = json.dumps(
+            {"version": 1, "username": member, "spaces": [{"name": "sales", "status": "active"}]}
+        ).encode()
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+
+    still_indexed = {}
+    real_delete = teardown_registry.delete
+
+    def watching_delete(name):
+        still_indexed.update(
+            {
+                m: json.loads(s3.store[("admin-bkt", f"memberships/{m}.json")])["spaces"]
+                for m in ("alice", "bob")
+            }
+        )
+        return real_delete(name)
+
+    teardown_registry.delete = watching_delete
+    try:
+        d.delete_space("sales", "alice", "req-d", reg)
+    finally:
+        teardown_registry.delete = real_delete
+
+    assert still_indexed == {"alice": [], "bob": []}
 
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
