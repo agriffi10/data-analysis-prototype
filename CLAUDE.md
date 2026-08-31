@@ -115,13 +115,13 @@ the verified claim**, so it cannot be spoofed; one shared role, isolation by
 `${aws:PrincipalTag/username}`. Hosted UI is **Managed Login v2** — the classic one broke the
 post-signup redirect. The API verifies the browser's bearer and assumes that same role for it.
 
-- **The API VERIFIES a bearer, and is not an OIDC client.** No cookie → no CSRF surface; CORS
-  still required. Provider-agnosticism is **five config fields**, the JWKS URL built once at the
-  **root**. **A key-retrieval fault is 5xx, never 401.** Refusals are byte-identical; **expiry is
-  not disclosed**, because the browser refreshes once on any 401.
+- **The API VERIFIES a bearer, and is not an OIDC client.** No cookie → no CSRF surface; CORS still
+  required. Provider-agnosticism is **five config fields**, the JWKS URL built once at the **root**.
+  **A key-retrieval fault is 5xx, never 401.** Refusals are byte-identical; **expiry is not
+  disclosed**, because the browser refreshes once on any 401.
 - **The API assumes the SAME role with the SAME tags from the SAME claims** — one computation over
   one input, which is why no policy is rewritten. The claim names are the only thing copied from
-  `identity-pool.tf`; sourcing membership from the registry would break the equivalence. The role
+  `identity-pool.tf`. The role
   is **reused, never minted**: `aws:PrincipalArn` resolves to the *role's* ARN, so the
   hand-maintained bucket-policy allowlist stays correct. `DurationSeconds` 3600 is a ceiling **both
   ways** — shorter caps every presigned link, longer is refused because this is role chaining.
@@ -136,51 +136,52 @@ post-signup redirect. The API verifies the browser's bearer and assumes that sam
   so cleanup-on-exit alone lets the next request inherit a declaration. **An assume failure is a
   FAULT, never a denial** — STS says `AccessDenied` for a wrong trust policy, so the layer *wraps*
   it; that wrap, not the classifier's ordering, is what holds.
-- **The credential cache is keyed on the WHOLE tag set**, never the username alone (which freezes
-  membership until the next cold start) and never nothing (which serves B the session of A). Its
+- **The credential cache is keyed on the WHOLE tag set** — never the username alone, which freezes
+  membership until the next cold start, and never nothing, which serves B the session of A. Its
   margin is the life of **one request**, derived from the function timeout; the forced re-assume is
   the skew allowance, and it retries on a **new** client because boto3 binds credentials at
   construction. **A presigned URL is not a request** and takes `signing_client(covering=…)`, which
   forces a fresh session rather than clamping against a near-dead one — otherwise the window is a
-  draw from the hour (**up to** about a quarter of mints under 900 s on a uniform model; cold
-  starts bias it upward, so a quarter is the ceiling, not the expectation). A short window is
-  *correctly clamped*, so no clamp test can see it.
+  draw from the hour. A short window is *correctly clamped*, so no clamp test can see it.
 
-- **The API's error shape is a machine CODE plus operator text nobody renders** — a success body is
-  the payload itself, the error envelope is the only wrapped shape, and wording is chosen
-  client-side from the code. The trap is a rule written to uphold it: eight `passthrough` rules
-  return the service's message unchanged, so a guard intersects the generated `API_ERROR_CODES`
-  with a computed `PASSTHROUGH_CODES` — **two derived sets, never two lists**. An unrecognised code
-  resolves to the generic sentence, which is the deploy-skew case rather than a fallback nobody
-  meets. **A code rule wins over an engine-message match rule.**
+- **The API's error shape is a machine CODE plus operator text nobody renders** — the error envelope
+  is the only wrapped shape and wording is chosen client-side from the code. The trap is a rule
+  written to uphold it: eight `passthrough` rules
+  return the service's message unchanged, so a guard intersects the generated `API_ERROR_CODES` with
+  a computed `PASSTHROUGH_CODES` — **two derived sets, never two lists**. An unrecognised code
+  resolves to the generic sentence: the deploy-skew case, not a fallback nobody meets. **A code rule
+  wins over an engine-message match rule.**
 - **The wire is declared in PYTHON and the TypeScript is GENERATED**, with two gates: CI refuses a
   regeneration diff (catching both drift directions) and `tsc -b` fails at every call site on a
   changed type. The validator and the emitter read **one** walk of one annotation. The type
-  vocabulary is **closed and never falls back** — a fallback type agrees with every possible value,
-  so the day the emitter meets a shape it cannot express is the day the contract stops being checked
-  and nothing goes red.
+  vocabulary is **closed and never falls back**: a fallback type agrees with every value, so the day
+  the emitter meets a shape it cannot express is the day the contract stops being checked.
 - **`apiRequest` retries NOTHING**, asserted as a call count, with exactly one exception: a 401 takes
   one forced refresh and one retry — the browser's only refresh path, so deleting it signs everyone
   out at the hour mark with a green suite. Idempotency is declared **per route**, never derived from
-  the method. The client's timeout sits **above the function's**, so the server gives up first and an
-  abort always means a dead connection.
+  the method. The client's timeout sits **above the function's**, so an abort always means a dead
+  connection.
 - **The API makes exactly ONE AWS call per request and never waits** — every poll and page walk stays
   in the browser, because a 5-minute query is 10× a **non-raisable** 30-second integration ceiling
   (the *function* timeout is the 29 — the two are easy to conflate and a past spec did).
   The count is on the **route's own service client**, never on botocore: the session cache fires
   `AssumeRole` on some invocations and not others, so "one botocore call" is unsatisfiable cold and
   satisfiable warm. SPEC-198's free-name route is the arc's one exception. A route may carry **path
-  parameters**, and a value that is not **one segment** is refused in the browser — `%2F` survives to
-  the gateway and `.`/`..` collapse in `fetch`'s URL parser, so either addresses a **sibling route
-  that answers 200 with the wrong shape**. A missing parameter is a **compile error**: as an optional
-  field the omission ships the literal `{queryExecutionId}` to Athena as an execution id.
+  parameters**, and a value that is not **one segment** is refused in the browser: either spelling
+  reaches a **sibling route that answers 200 with the wrong shape**. A missing one is a **compile
+  error**, deliberately — as an optional field it ships the literal placeholder to the service.
 - **`$default` matches OPTIONS**, so API Gateway's own CORS responder never sees a preflight and the
-  router must answer one **before authentication**. Found live: every bearer-carrying `fetch` failed
-  as an opaque `TypeError`, which reads as "the API is down" — and `curl` cannot see it, because only
-  a browser enforces CORS. **The FIX is offline-asserted and live-OWED** (§F.2): that the gateway
-  overlays its CORS headers onto the integration's own `OPTIONS` 200 is read from AWS's docs, not
-  measured, and if it is wrong the suggestions simply stop appearing — the degraded path is silent
-  by design.
+  router must answer one **before authentication**. Found live, and `curl` cannot see it because only
+  a browser enforces CORS: every bearer-carrying `fetch` failed as an opaque `TypeError` reading as
+  "the API is down". That the gateway overlays its CORS headers onto the integration's own `OPTIONS`
+  200 is read from AWS's docs; if it is wrong the degraded path is **silent by design**.
+
+- **The tag VALUES have two sources, chosen at COLD START, no fallback** — `MEMBERSHIP_SOURCE`,
+  default `claims`, in no Terraform. The other is `memberships/{username}.json`, **admin** bucket:
+  an authorization input, unlike the username directory, safe only because it is
+  **user-unreachable, plane-written, CAS-written**. The user's own `shared-connections.json` is the
+  same shape and **user-writable** — reading it is a bypass. Absence needs a
+  **`s3:prefix`-conditioned `ListBucket`** or it reads as denial.
 
 **One string is four things:** username = S3 prefix = principal tag = Glue database name, so it is
 catalog-safe by construction (`^[a-z][a-z0-9_]{2,62}$`). The username directory is built from **S3,

@@ -1,7 +1,7 @@
 # Spec: The Membership Index — Where the Tags Come From Without a Claim
 
 **ID:** SPEC-203
-**Status:** In Progress
+**Status:** Completed
 **Last Updated:** 2026-08-18
 **Depends On:** SPEC-196 (the AWS identity layer — the tag set, the per-container credential cache keyed on the whole tag set, and the claim-sourced implementation this spec makes one of two), SPEC-195 (the verified bearer and `Principal.username`), SPEC-197 (the transport contract), SPEC-198 (`apicommon/spaces.py` — the route-level membership check this spec must also re-source, FR-004), SPEC-199 (the query route, whose body names no space — the reason FR-002 is an index and not a request scan), SPEC-011 (the identity is a verified claim, never a caller assertion), SPEC-051/053/056/073/075 (the shared-space registry, the slots, the propagation contract, and `cache.write_roster_to_all` — the fan-out this spec rides), SPEC-113 (no existence oracle), SPEC-123 (an admin-bucket index under ETag CAS — **the precedent this spec follows**), SPEC-146 (a published directory that is advisory and never an authorization input — the rule this spec's index deliberately breaks, and says so), SPEC-151 (a partial teardown never frees the name), SPEC-106 (`toUserMessage`), SPEC-127→137/186 (`cpcommon.observability`, the field rule, `env`/`version`)
 
