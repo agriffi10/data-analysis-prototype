@@ -1460,6 +1460,118 @@ corroborates and cannot discharge — record it as such.
 Anything needing a second account (a shared space where the submitter is a non-owner member), and the
 malformed-body DLQ path, which belongs to the drain's own owed check.
 
+## H. The Lambda trust boundary (SPEC-201) — H.1-H.3 RUN 2026-08-30
+
+**H.1 and H.3 are DISCHARGED and H.2 is half discharged, 2026-08-30** — all eight planes on cold
+starts, both notification branches, and the recipient-existence refusal that exercises the lazy
+`COGNITO_USER_POOL_ID` read. Evidence in [`sessions.md`](sessions.md). Still owed: H.2's
+non-member / foreign-prefix negatives (a second account), H.4 and H.5 (the API role's
+`sqs:SendMessage`), and H.6-H.7, which belong to step two.
+
+**This section runs in TWO passes, and running it once after both deploys loses the only
+observation that distinguishes "the planes read the block" from "the planes still read the token".**
+H.1–H.5 run after **step one** (merged `ff3a76b6`, deployed — `api.dataquarry.app/healthz` reports
+that sha), with the API still sending a token beside the block. H.6–H.7 run after **step two**,
+which is [#561](https://github.com/agriffi10/data-analysis-prototype/pull/561) and **must not merge
+until H.1–H.5 have run** (FR-006 AC2). Step two is the merge that cannot be rolled back.
+
+**Sign in FRESH, signed out to start.** Override `document.visibilityState` before anything that
+polls — a hidden Chrome window pauses polling and a healthy query reads as hung.
+
+### H.1 — One real request per plane, all eight, each on a COLD start
+
+Invoke each plane after the deploy rather than after a warm neighbour, or the import is never
+exercised. This change removed an import and two required environment variables from a dozen
+functions at once, and a shared layer's import-time failure shows only at cold start — the class
+that once broke sign-up for nine days while pytest, the deploy job and the instrumentation harness
+were all green.
+
+| # | Plane | Do this in the portal | Expect |
+|---|---|---|---|
+| 1 | shared-space | Create a shared space | It appears, and a notification arrives |
+| 2 | table-builder | Create a table from a folder | Table appears in the rail |
+| 3 | table-builder | Refresh that table | Succeeds, notification arrives |
+| 4 | data-quality | Run a quality check | Report link in the notification |
+| 5 | table-share | Share a table with a second user | Recipient annotated, notification |
+| 6 | file-send | Send a file to a recipient | Lands in their `shared_files/` |
+| 7 | archive | Archive a folder | Receipt written, source swept |
+| 8 | file-ops | Copy or move a multi-file selection | Outcomes per item |
+
+Each one must reach its **normal terminal state and produce its normal notification**. A plane that
+completes but notifies nobody is the failure mode a hoisted actor read produces, and it is silent.
+
+### H.2 — The load-bearing negative, per plane
+
+A request whose actor names a user who is **not** authorized — a non-member's space, a foreign
+prefix, an out-of-root key — is refused with the reason it is refused with today.
+
+**Send it through the API as that unauthorized user.** A hand-crafted body cannot reach the queue
+any more, which is SPEC-200 FR-008 working; and the point of the check is that the API writes a
+genuine verified `identity.actor` that the plane then declines to act for. Offline this is the
+deliberate-violation run (1,1,1,1,1,1,1,2 tests redden); live it is the same claim against a real
+principal.
+
+### H.3 — Notifications, BOTH branches, in one pass
+
+1. **Mark a notification read from the UI.** The user path: it carries an identity block, and is
+   refused without one.
+2. **Confirm the notification a control plane produced in H.1 arrived at all.** This is the
+   `create` branch. It has no actor, is written by the execution roles, and is what a
+   `trusted_actor` hoisted above `_resolve_username`'s branch silently kills.
+
+A run that only checks mark-read reports success over an inbox nothing can write to. Both, or
+neither is evidence.
+
+### H.4 — The staged pre-cutover message
+
+Enqueue one message with the **old** envelope on one plane: a flat `actor` holding a raw JWT, and
+no `identity` block.
+
+Expect: refused terminally with `unauthorized`, **no notification**, and the execution visible in
+the state machine's history with that reason. **It does NOT dead-letter** — every plane's Pipe is
+`FIRE_AND_FORGET`, so `StartExecution` succeeds and the refusal happens inside the execution, so
+there is no DLQ record and no `logs/service=dlq-drain/` body for this case. The spec's original
+criterion asked for one; it is amended, and looking for it would read as the drain being broken.
+
+### H.5 — `assurance` refused live, with a neighbour
+
+Enqueue one message carrying `identity.assurance: "delegated"` and one carrying
+`identity.delegated_by: "svc-x"`. Both refused with `unsupported_assurance`, while a neighbouring
+`interactive` message **on the same queue** succeeds. Without the neighbour the refusal proves only
+that the plane is broken.
+
+**Aim this at a plane that takes the DEFAULT exception** — table-builder, data-quality, table-share,
+file-send, archive or file-ops. On shared-space and notifications the reader is given the plane's
+own exception type, which carries a string and no reason code, so the distinction rides the detail
+text only.
+
+### H.6 — After step two: one request per plane again
+
+That deploy changes the body every plane receives, and nothing offline sees both sides of it. Repeat
+H.1.
+
+### H.7 — After step two: the exposure closed
+
+Dead-letter one message on each of the eight queues — this needs the Pipe's *delivery* to fail, which
+is what a real DLQ record requires. Then read the drain's CloudWatch log group and
+`logs/service=dlq-drain/` and confirm:
+
+- no three-segment JWT-shaped string in either, and
+- the user was notified, with the recipient taken from `identity.actor`.
+
+This is the observation the whole spec is for. It cannot be made offline, and run before H.6 it
+fails for the right reason.
+
+### H.8 — Recorded as OWED, not discharged
+
+- **H.4 and H.5 both need `sqs:SendMessage`,** which after SPEC-200 is the API's execution role
+  alone. A laptop identity holds no grant, and this session's production AWS writes are
+  classifier-blocked regardless of chat authorization — so both go through an assumed session of
+  that role driven from CI, or they stay owed. Do not record a proxy as a run.
+- **Safari** is the discharging browser, since that is the one in use; a Chromium pass corroborates
+  and cannot discharge.
+- **A second account** for H.2's shared-space non-member case.
+
 ## 14. Cleanup
 
 **Restore the app client's ID-token validity if D.3 was run.** It is shortened to five minutes to

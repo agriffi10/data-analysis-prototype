@@ -1,10 +1,15 @@
-"""The bearer reaches the message body and nothing else.
+"""The bearer reaches the verifier and nothing else — not even the message body.
 
-This service is the first in the package to hold a raw credential past authentication, which
-re-opens the trap a token-handling service is most likely to fall into: a token reaching a log
-record or a stack trace by being interpolated into a message far from where it was read. Every
-assertion here is about a rendering path rather than about intent — a rule that the token "must
-not be logged" is upheld by nothing, where a wrapper that cannot render is upheld by the type.
+This service used to hold a raw credential past authentication, because the control planes
+verified a token out of the message body and the enqueue routes had to forward one. A wrapper
+that could not be rendered kept that contained, and a sweep counted its single unwrapper.
+
+**The planes read the API's identity block now, so the containment problem is gone rather than
+solved.** These assertions were rewritten upward rather than deleted: what was "exactly one module
+unwraps a bearer" is now "none does", and what was "the token does not appear in a failure" now
+holds because nothing ever put it anywhere. A guard whose subject disappears is worth keeping only
+if the stronger claim is the one you actually want, and here it is — the way this regresses is
+somebody re-introducing a forwarded credential, which is exactly what a zero-count catches.
 """
 
 import ast
@@ -14,14 +19,11 @@ import pathlib
 import handler as api_handler
 from apicommon import contract
 from apicommon import enqueue as enqueue_module
-from apicommon.context import Redacted, reveal
 from conftest import bearer
-
-_SECRET = "TOKEN-THAT-MUST-NOT-APPEAR-ANYWHERE"
 
 
 class _ExplodingSqs:
-    """A client that fails inside the send helper, after the bearer has been unwrapped.
+    """A client that fails inside the send helper, on the path that used to carry a bearer.
 
     Attributes:
       None.
@@ -42,31 +44,16 @@ class _ExplodingSqs:
         raise RuntimeError("the queue exploded")
 
 
-def test_a_wrapped_bearer_renders_as_redacted_down_every_path_that_can_print_it():
-    """The guard whose failure is silent: one missing dunder and the token renders with padding."""
-    wrapped = Redacted(_SECRET)
-
-    rendered = [
-        f"{wrapped}",
-        f"{wrapped:>40}",
-        f"{wrapped!r}",
-        f"{wrapped!s}",
-        str(wrapped),
-        repr(wrapped),
-        json.dumps({"bearer": wrapped}, default=str),
-        str(RuntimeError(f"failed for {wrapped}")),
-    ]
-
-    assert reveal(wrapped) == _SECRET
-    for text in rendered:
-        assert _SECRET not in text, text
-        assert "<redacted>" in text, text
-
-
 def test_a_failure_inside_the_sender_puts_no_part_of_the_bearer_on_the_wire(
     monkeypatch, capsys
 ):
-    """The path that actually carries a token, driven to a fault with a distinctive literal."""
+    """The path that used to carry a token, driven to a fault with a distinctive literal.
+
+    It held before because the token was wrapped; it holds now because the token is never put on
+    that path at all. Kept because the assertion is about the OBSERVABLE — nothing in the response
+    or the emitted records carries the caller's credential — which is the property a reader
+    actually wants, and which survives whatever the mechanism happens to be.
+    """
     for queue in contract.QUEUES:
         monkeypatch.setenv(queue.env_var, f"https://sqs.test/1/{queue.id}.fifo")
     monkeypatch.setenv("USER_SPACE_BUCKET", "dat-prod-user-space")
@@ -96,8 +83,19 @@ def test_a_failure_inside_the_sender_puts_no_part_of_the_bearer_on_the_wire(
     assert token not in emitted.out + emitted.err
 
 
-def test_exactly_one_module_unwraps_a_bearer_and_it_is_the_sender():
-    """A second reveal is a second place a token can escape, so the count is the guard."""
+def test_no_module_unwraps_a_bearer_into_a_message_body():
+    """The count was one and is now ZERO, which is the stronger form of the same guard.
+
+    ``reveal`` was the single deliberate door through the wrapper, and the sender was the only
+    caller. Both are gone with the field they served.
+
+    **What this catches is narrow, and the narrowness is worth stating**: it is coupled to that
+    name, so a forwarded credential reintroduced under any other one is invisible here. The teeth
+    for that regression are in ``test_enqueue_routes``, which asserts the sent body carries neither
+    field name a plane ever kept a token in — ten routes, checked on the message itself. This
+    remains because the specific shape it names is the one somebody restoring the old design would
+    reach for first.
+    """
     api = pathlib.Path(__file__).parent
     callers = []
 
@@ -112,7 +110,10 @@ def test_exactly_one_module_unwraps_a_bearer_and_it_is_the_sender():
                 if name == "reveal":
                     callers.append(str(path.relative_to(api)))
 
-    assert callers == ["apicommon/enqueue.py"]
+    assert callers == [], (
+        f"{callers} unwrap a credential — the planes read the identity block, so a token in a "
+        "message body has no reader and is exposure with no purpose"
+    )
 
 
 def test_no_handler_names_a_credential_in_code():

@@ -10,6 +10,85 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-08-30 (SPEC-201 step one: the planes stop verifying tokens, §H.1–H.3)
+
+Run against **`https://portal.dataquarry.app`**, the deployed load balancer, signed in as
+**`agriffith`** in **Chromium** at desktop width. `main` at **`ff3a76b6`** — confirmed as the
+running build by `api.dataquarry.app/healthz`, which reported that exact sha, so the planes under
+test were the ones this spec changed.
+
+**Instruments:** `document.visibilityState` pinned `visible` (a hidden window pauses polling and a
+healthy request reads as hung); the browser's own network panel for the enqueue status codes.
+Nothing else — every action below was taken through the UI as a user would.
+
+**This is a Chromium pass and therefore corroborates rather than discharges** anything
+browser-specific; Safari is the browser in use. Nothing here is browser-specific — the claims are
+about what the control planes did — so that is recorded rather than limiting.
+
+### §H.1 — one real request per plane, all eight, each producing its normal notification
+
+Every plane reached its normal terminal state. Quoting the notifications, which are the plane's own
+words rather than my summary:
+
+| Plane | What was done | What came back |
+|---|---|---|
+| file-ops | Copied folder `dq-smoke` into `arcb_live` | *Copied 1 item to "arcb_live".* |
+| data-quality | Quality check on `agriffith/dq-smoke` | *Data quality check on "agriffith/dq-smoke" finished — open the report for details.* |
+| table-builder (create) | Built `spec201_live` from `agriffith/dq151a` | *Table "spec201_live" is ready to query in "agriffith".* |
+| table-builder (refresh) | Refreshed it | *Table "spec201_live" is already up to date - no schema changes were found.* |
+| file-send | Sent `beta.csv` to `agriffith_three` | *Sent "beta.csv" (1 file) to user "agriffith_three".* |
+| shared-space (create) | Created `spec201_live_check` | *Creating shared workspace…* then *Your shared workspace "spec201_live_check" is ready.* |
+| shared-space (delete, owner-only) | Deleted it as cleanup | *Deleting shared workspace…* then *You deleted the shared workspace "spec201_live_check".* |
+| table-share | Shared `spec201_live` to `agriffith_three` | *Shared "spec201_live" to user "agriffith_three" as "spec201_live".* |
+| archive | Archived `arcb_live/dq-smoke` — the copy made above, so nothing pre-existing was swept | *Archived 4 files (773 B). … Archive id: `7150f49c-e375-44d3-8aa6-e546af9ffa0b`* |
+
+Ten verbs across all eight planes. Each was the first invocation of that function since the deploy,
+so each was a **cold start** — which is the half no offline gate can reach: this change removed an
+import and two required environment variables from a dozen functions at once, and a shared layer's
+import-time failure shows only at cold start.
+
+Two corroborating observations, not asked for and worth keeping: the table built above was
+immediately **queryable** (5 rows, 35 B scanned) through the Data Explorer, so the catalog and
+Athena paths still work under the changed identity; and `spec201_live_check` appeared in the
+database rail, so the shared space was **fully provisioned** — Glue database and Lake Formation
+grants — not merely recorded.
+
+### §H.3 — notifications, both branches, in one pass
+
+**The user branch:** marking one notification read from the UI dropped the unread count 4 → 3 and
+rewrote the inbox. That path carries the identity block and is refused without one.
+
+**The `create` branch:** every row in the table above. Each was written by a control plane's own
+execution role, with a body `username`, **no actor and no token**. This is the branch a
+`trusted_actor` hoisted above `_resolve_username`'s test silently kills, and the failure would be
+invisible — the producers notify best-effort, so the work completes and the user is simply never
+told. Both branches in one pass, which is the only way either is evidence.
+
+### §H.2 — partially run, and the half that ran is the one that mattered most
+
+**Sending to a user that does not exist** returned *Couldn't send to user "nosuchuser_spec201":
+there is no user with that name.*
+
+That is the recipient-existence check — `cpcommon.cognito.user_exists` → `admin_get_user` — and it
+is the riskiest line in this change. `COGNITO_USER_POOL_ID` stopped being a fleet-wide required
+variable here and became a **lazy `config.require`** read on the three planes that resolve a user;
+a lazily-required variable that is missing raises **mid-request**, not at cold start, so a wrong
+Terraform mapping would have surfaced exactly here and nowhere earlier. It came back as a clean,
+correctly-worded refusal naming the user.
+
+**The rest of §H.2 is OWED**: a non-member's space, a foreign prefix and an out-of-root key all
+need a **second account**, since the point is that the API writes a genuine verified
+`identity.actor` for somebody who is not authorized, and a hand-crafted body cannot reach the queue.
+
+### Not run
+
+§H.4 (the staged pre-cutover message) and §H.5 (`assurance` refused live with an `interactive`
+neighbour) both hand-enqueue onto a request queue. After SPEC-200 only the **API's execution role**
+holds `sqs:SendMessage` there — a laptop identity has no grant, which is the isolation working —
+so both stay owed with the recipe recorded. §H.6 and §H.7 belong to step two.
+
+---
+
 ## Live-check session — 2026-08-27 (the auth boundary and the identity layer, §D and §E)
 
 Run against **`https://api.dataquarry.app`**, `main` at `951e6a8a`, signed in as **`agriffith_three`**

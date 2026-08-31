@@ -89,6 +89,7 @@ recipe anywhere** — write one when you run it.
 |---|---|
 | **`Description` and column-comment preservation across a refresh** (SPEC-149) — both survive, the columns changed, `get-table-versions` shows a previous version | Needs the `dat-prod-verification` role. From any other principal Glue returns *Insufficient Lake Formation permission(s): Required Describe*. See §2.5. |
 | **The foreign projection fixture** (SPEC-153 FR-006 AC2) | The same `GetTable` response. Paste it **verbatim** when you have it — the shipped fixture is docs-transcribed. |
+| **SPEC-201 H.4 (the staged pre-cutover message) and H.5 (`assurance` refused live with a neighbour)** | Both hand-enqueue onto a request queue, and after SPEC-200 FR-008 only the **API's execution role** holds `sqs:SendMessage` there. A laptop identity has no grant — that is the isolation working — and an agent session's production AWS writes are classifier-blocked whatever the chat authorization says. Needs an assumed session of that role driven from CI, which is where the grant already lives. Recipe: [`arc-b-api-container-e2e.md`](arc-b-api-container-e2e.md) §H.4, §H.5. |
 
 ### Needs a deliberately broken deployment
 
@@ -328,7 +329,7 @@ aws sqs send-message --queue-url "$QUEUE_URL" \
 # told apart from the browser having lost access to the queue entirely.
 aws sqs send-message --queue-url "$QUEUE_URL" \
   --message-group-id "$USERNAME" --message-deduplication-id "control-$(date +%s)" \
-  --message-body "{\"action\":\"markAllRead\",\"idToken\":\"$(cat /tmp/idtoken)\"}"
+  --message-body "{\"action\":\"markAllRead\",\"identity\":{\"actor\":\"$USERNAME\",\"delegated_by\":null,\"assurance\":\"interactive\"}}"
 ```
 
 Then observe, in this order:
@@ -346,30 +347,43 @@ Then observe, in this order:
 
 ### 2.2 Hand-crafted control-plane requests
 
-The only way to stage a malformed request, or two executions that genuinely contend. Every plane
-takes one FIFO queue — **but the token field is NOT the same on all seven**, and the wrong one is
-refused at the front door in a way that reads exactly like the check failing.
+The only way to stage a malformed request, or two executions that genuinely contend.
 
-| Plane | Queue | Token field |
-|---|---|---|
-| Table builder | `dat-prod-table-builder-requests.fifo` | `idToken` |
-| Data quality | `dat-prod-data-quality-requests.fifo` | `idToken` |
-| Shared spaces | `dat-prod-shared-space-requests.fifo` | `idToken` |
-| Table share | `dat-prod-table-share-requests.fifo` | `actor` (flat, raw) |
-| File send | `dat-prod-file-send-requests.fifo` | `actor` (flat, raw) |
-| Archive / restore | `dat-prod-archive-requests.fifo` | `actor` (flat, raw) |
-| File operations | `dat-prod-file-ops-requests.fifo` | `actor` (flat, raw) |
+> **REWRITTEN by SPEC-201 (2026-08-30). Every recipe below that sends a token is now a refusal.**
+> The planes stopped verifying tokens; they read the `identity` block the API stamps, and the
+> per-plane token-field table this section used to carry has no subject left. Two things changed
+> for anyone running these:
+>
+> 1. **The envelope is the block, on every plane.** `{"identity": {"actor": "<username>",
+>    "delegated_by": null, "assurance": "interactive"}}` plus that plane's own fields. All three
+>    keys are required — an absent `delegated_by` or `assurance` is refused, deliberately.
+>    A message with a token and no block is refused `unauthorized`, produces no notification, and
+>    does **not** dead-letter (the Pipe is `FIRE_AND_FORGET`, so `StartExecution` succeeds and the
+>    refusal happens inside the execution).
+> 2. **A laptop identity can no longer send these at all**, which matters more. SPEC-200 removed
+>    the portal role's `sqs:SendMessage` and gave it to the API's execution role alone, so every
+>    recipe here needs an assumed session of that role rather than the credentials the rest of this
+>    file assumes. That is a real obstacle, not a formality — see the row for it in the ledger.
 
-On the four `actor` planes the value is the **raw** token at the top level — never
-`{"idToken": …}`, which the front door refuses, and which SPEC-126's drain would write to
-CloudWatch while notifying nobody. Verified against the seven `validate-authorize` handlers.
+Every plane takes one FIFO queue:
+
+| Plane | Queue |
+|---|---|
+| Table builder | `dat-prod-table-builder-requests.fifo` |
+| Data quality | `dat-prod-data-quality-requests.fifo` |
+| Shared spaces | `dat-prod-shared-space-requests.fifo` |
+| Table share | `dat-prod-table-share-requests.fifo` |
+| File send | `dat-prod-file-send-requests.fifo` |
+| Archive / restore | `dat-prod-archive-requests.fifo` |
+| File operations | `dat-prod-file-ops-requests.fifo` |
 
 ```bash
 QUEUE=$(aws sqs get-queue-url --queue-name dat-prod-table-builder-requests.fifo --query QueueUrl --output text)
 aws sqs send-message --queue-url "$QUEUE" \
   --message-group-id "$USERNAME" --message-deduplication-id "$REQUEST_ID" \
-  --message-body "$(jq -nc --arg t "$(cat /tmp/idtoken)" --arg u "$USERNAME" --arg r "$REQUEST_ID" \
-      '{idToken:$t, mode:"refresh", requestId:$r, tableName:"partfix",
+  --message-body "$(jq -nc --arg u "$USERNAME" --arg r "$REQUEST_ID" \
+      '{identity:{actor:$u, delegated_by:null, assurance:"interactive"},
+        mode:"refresh", requestId:$r, tableName:"partfix",
         space:{kind:"personal", bucket:"dat-prod-user-space", prefix:($u+"/partfix/"), database:$u}}')"
 ```
 

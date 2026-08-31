@@ -355,7 +355,6 @@ def route(
                         body,
                         MappingProxyType(dict(query or {})),
                         MappingProxyType(dict(path_params)),
-                        principal.bearer(headers or {}),
                     )
                 )
             )

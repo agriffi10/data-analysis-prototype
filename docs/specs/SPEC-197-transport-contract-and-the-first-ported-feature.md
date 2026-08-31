@@ -117,13 +117,6 @@ Everything a reader would reasonably assume travels with "we built the API contr
    third field on the error object is proposing to touch every service, hook and consumer in the app
    and must say so out loud.
 
-   > **NARROWED by SPEC-200 (2026-08-29), not dropped.** The enqueue routes must put a token in the
-   > message body until the planes stop verifying one, so the bearer now reaches `RequestContext` as
-   > a `Redacted` wrapper that renders `<redacted>` down every path. It still reaches no HANDLER, and
-   > exactly one module unwraps it — `apicommon/enqueue.py` — asserted as a call count over the
-   > package. **SPEC-201 deletes the wrapper, the field and that sweep** in the commit that stops the
-   > token being sent.
-
 ---
 
 ## Functional Requirements
