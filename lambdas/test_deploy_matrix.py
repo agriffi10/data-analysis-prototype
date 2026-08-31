@@ -72,8 +72,8 @@ LAYER_PACKAGES = {
     "arcommon": "arcommon",
     "polars": None,  # two different polars layers — resolved per function below
     **dict.fromkeys(
-        ("config", "casio", "auth", "registry", "membership", "cache", "notify", "messages",
-         "teardown"),
+        ("config", "casio", "auth", "registry", "membership", "membership_index", "cache",
+         "notify", "messages", "teardown"),
         "layer",
     ),
 }
@@ -217,6 +217,72 @@ def _copy_list(directory):
             assert listed, f"the layer entry for {directory} names no modules"
             return listed
     raise AssertionError(f"no layer entry with a sourceDir for {directory} in {LAYERS.name}")
+
+
+def test_the_layer_copy_list_matches_the_layer_directory():
+    """The explicit module list and the directory it is built from agree, both directions.
+
+    This is SPEC-137's shape one level down, and it is the only failure in this file that no
+    other test can see: all nine flat modules ship in ONE layer behind ONE flag, so
+    ``test_every_imported_layer_package_is_attached`` reports the flag attached whether or not a
+    given module reached the zip. A module added to the directory and left out of the list never
+    ships, and the function importing it raises ``ModuleNotFoundError`` at cold start — after a
+    green suite and a green deploy.
+
+    The other direction matters too: a name in the list with no file behind it makes the layer
+    build's ``cp`` fail, which is a broken deploy rather than a broken cold start, but it is the
+    same drift and it is free to catch here.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the list and the directory disagree in either direction.
+    """
+    for directory in sorted(EXPLICIT_COPY_LISTS):
+        listed = _copy_list(directory)
+        on_disk = {
+            path.stem
+            for path in (LAMBDAS / directory).glob("*.py")
+            if not path.name.startswith(_NOT_SHIPPED)
+        }
+        assert listed == on_disk, (
+            f"{directory}'s copy list and its directory disagree: only in the list "
+            f"{sorted(listed - on_disk)}, only on disk {sorted(on_disk - listed)}. A module on "
+            "disk and not in the list never reaches the layer zip, and the function importing it "
+            "raises ModuleNotFoundError at cold start"
+        )
+
+
+def test_no_unchecked_explicit_copy_list_was_added():
+    """A second layer built from a hand-written module list would be exempt by omission.
+
+    ``EXPLICIT_COPY_LISTS`` is what the test above iterates, so a new ``modules`` entry in the
+    layer table that nobody adds here ships with no agreement check at all — the same silent
+    exemption the deploy matrix's own map already cost this fleet once.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a layer names a module list and is not declared here.
+    """
+    declared = {
+        pathlib.Path(entry["sourceDir"]).name
+        for entry in json.loads(LAYERS.read_text())
+        if entry.get("modules")
+    }
+    assert declared == EXPLICIT_COPY_LISTS, (
+        f"layers built from an explicit module list: {sorted(declared)}, declared here: "
+        f"{sorted(EXPLICIT_COPY_LISTS)}. An undeclared one is exempt from the agreement check "
+        "above, which is the whole failure this pair exists to prevent"
+    )
 
 
 def test_the_handler_sweep_found_the_fleet():

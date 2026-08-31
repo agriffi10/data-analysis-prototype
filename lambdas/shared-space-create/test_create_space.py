@@ -11,6 +11,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
 import create_space as c
+import membership_index
 import registry as reg
 from cpcommon import clients
 from fakes import install, raises
@@ -86,6 +87,50 @@ def test_create_failure_after_slot_rolls_back_slot():
     rec = json.loads(clients._s3.store[("admin-bkt", "shared-spaces/sales.json")])
     assert rec["status"] == "failed"
 
+
+def test_create_writes_the_owners_index_only_once_the_space_is_active():
+    # reserve() writes `provisioning` and only an active space yields a session tag, so an
+    # index written mid-create entitles nobody. The ORDER is what is asserted, not just the
+    # end state: a write placed before finalize passes an end-state check and is still wrong.
+    install()
+    order = []
+    real_finalize = reg.finalize
+    real_record = membership_index.record
+    reg_module = sys.modules["registry"]
+    reg_module.finalize = lambda *a, **k: (order.append(("finalize", a[3])), real_finalize(*a, **k))[1]
+    membership_index.record = lambda *a, **k: (order.append(("index", a[2])), real_record(*a, **k))[1]
+    try:
+        c.create_space("sales", "alice", "req-1")
+    finally:
+        reg_module.finalize = real_finalize
+        membership_index.record = real_record
+
+    assert order == [("finalize", "active"), ("index", "active")]
+    document = json.loads(clients._s3.store[("admin-bkt", "memberships/alice.json")])
+    assert document["spaces"] == [{"name": "sales", "status": "active"}]
+
+
+def test_a_failed_index_write_rolls_the_create_back_rather_than_stranding_the_space():
+    # The index write sits INSIDE the provisioning guard, and this is the discriminator: placed
+    # after it, a failure would leave an ACTIVE space whose owner holds no index entry — and once
+    # membership is sourced from the index that owner can neither reach the space nor delete it,
+    # because delete is gated on membership. Inside, the ordinary rollback runs and the owner gets
+    # a failed card they can retry or forget.
+    install()
+    real_record = membership_index.record
+
+    def boom(*a, **k):
+        raise RuntimeError("index write failed")
+
+    membership_index.record = boom
+    try:
+        raises(lambda: c.create_space("sales", "alice", "req-1"), RuntimeError, "index write failed")
+    finally:
+        membership_index.record = real_record
+
+    rec = json.loads(clients._s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert rec["status"] == "failed"
+    assert clients._cognito.attrs.get("custom:shared_space_1", "") == ""
 
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

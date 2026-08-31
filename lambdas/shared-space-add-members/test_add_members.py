@@ -103,6 +103,22 @@ def test_add_member_notifies_added_user():
     assert _sent(sqs) == [("bob", 'You\'ve been added to the shared workspace "sales".')]
 
 
+def test_added_members_get_an_index_entry_and_skipped_ones_do_not():
+    # The index is written from what the registry committed, not from what was requested — an
+    # unknown user and a user at their cap are both "not added", and an entry for either would
+    # be an entitlement to a space they are not in.
+    s3, _glue, _lf, cognito = install()
+    cognito.users = {"bob": {}}
+    reg = _active_reg(members=["alice"])
+    _seed_reg(s3, reg)
+
+    out = a.add_members("sales", ["bob", "nosuchuser"], "req-9", reg)
+    assert out["added"] == ["bob"] and out["ignoredUnknown"] == ["nosuchuser"]
+
+    document = json.loads(s3.store[("admin-bkt", "memberships/bob.json")])
+    assert document["spaces"] == [{"name": "sales", "status": "active"}]
+    assert ("admin-bkt", "memberships/nosuchuser.json") not in s3.store
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

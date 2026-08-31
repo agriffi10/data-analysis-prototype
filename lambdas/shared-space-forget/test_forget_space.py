@@ -65,6 +65,56 @@ def test_forget_refuses_active_space_owner():
     assert "sales" in glue.databases
 
 
+def test_forget_clears_the_index_on_the_teardown_path():
+    s3, _glue, _lf, cognito = install()
+    cognito.users = {"alice": {"custom:shared_space_1": "sales"}}
+    registry = {"name": "sales", "owner": "alice", "members": ["alice"], "status": "failed"}
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(registry).encode()
+    s3.store[("admin-bkt", "memberships/alice.json")] = json.dumps(
+        {"version": 1, "username": "alice", "spaces": [{"name": "sales", "status": "active"}]}
+    ).encode()
+    _seed_cache(s3, "alice", [{"name": "sales", "role": "owner", "status": "failed"}])
+
+    assert f.forget_space("sales", "alice", "req-f", registry)["mode"] == "teardown"
+    assert json.loads(s3.store[("admin-bkt", "memberships/alice.json")])["spaces"] == []
+
+
+def test_forget_teardown_clears_EVERY_members_index_because_it_frees_the_name():
+    # A delete that fails partway writes `failed` on a record that keeps its members, and that
+    # record reaches the teardown branch — so "a failed create is single-member" does not cover
+    # every case that lands here. reg.delete frees the name, and an index still naming a space
+    # whose name is free is an entitlement to whatever gets created next.
+    s3, glue, _lf, cognito = install()
+    cognito.users = {"alice": {"custom:shared_space_1": "sales"}, "bob": {"custom:shared_space_1": "sales"}}
+    registry = {"name": "sales", "owner": "alice", "members": ["alice", "bob"], "status": "failed"}
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(registry).encode()
+    for member in ("alice", "bob"):
+        s3.store[("admin-bkt", f"memberships/{member}.json")] = json.dumps(
+            {"version": 1, "username": member, "spaces": [{"name": "sales", "status": "active"}]}
+        ).encode()
+    _seed_cache(s3, "alice", [{"name": "sales", "role": "owner", "status": "failed"}])
+    glue.databases.add("sales")
+
+    assert f.forget_space("sales", "alice", "req-f", registry)["mode"] == "teardown"
+    assert ("admin-bkt", "shared-spaces/sales.json") not in s3.store
+    for member in ("alice", "bob"):
+        assert json.loads(s3.store[("admin-bkt", f"memberships/{member}.json")])["spaces"] == []
+
+
+def test_forget_clears_the_index_on_the_cache_only_path_too():
+    # The cache-only path leaves the REGISTRY alone by design. Leaving the entitlement behind is
+    # a different thing, and it is not the design: the slot is cleared here, so the index is too.
+    s3, _glue, _lf, cognito = install()
+    cognito.users = {"bob": {"custom:shared_space_1": "sales"}}
+    s3.store[("admin-bkt", "memberships/bob.json")] = json.dumps(
+        {"version": 1, "username": "bob", "spaces": [{"name": "sales", "status": "active"}]}
+    ).encode()
+    _seed_cache(s3, "bob", [{"name": "sales", "role": "member", "status": "active"}])
+
+    assert f.forget_space("sales", "bob", "req-f", None)["mode"] == "cache_only"
+    assert json.loads(s3.store[("admin-bkt", "memberships/bob.json")])["spaces"] == []
+    assert ("admin-bkt", "shared-spaces/sales.json") not in s3.store
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

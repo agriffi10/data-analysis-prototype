@@ -15,6 +15,7 @@ import logging
 
 import cache
 import membership
+import membership_index
 import registry as reg
 import teardown
 from auth import AuthorizationError
@@ -28,6 +29,18 @@ observability.init(service="shared-space")
 
 def forget_space(space, actor, request_id, registry):
     """Clears a space from the actor's list, tearing it down when it is their own dead create.
+
+    Both paths clear the actor's membership slot and their membership index entry, because both
+    are the actor's own claim on the space and this verb exists to end it. The cache-only path
+    leaves the registry alone by design; it does not leave the entitlement behind.
+
+    **The teardown path clears the WHOLE roster's index, not just the actor's**, because it calls
+    ``reg.delete`` and the record is the name lock: an index still naming a space whose name is
+    free is an entitlement to whatever gets created next. The single-member reasoning below holds
+    for a failed *create*, which is creator-only — but a delete that fails partway sets ``failed``
+    on a record that keeps its members, and that record reaches this branch too. The Cognito slots
+    of those other members are NOT cleared here, which is a pre-existing residual of this verb
+    rather than something the index introduces; it is named so the asymmetry is deliberate.
 
     Three outcomes. An active space the actor still belongs to is refused, because clearing a
     healthy membership's cache entry would recreate the vanishing-space bug — owners delete and
@@ -70,6 +83,7 @@ def forget_space(space, actor, request_id, registry):
             teardown.revoke_portal_role(space)
             teardown.drop_database(space)
             membership.clear_slot(actor, space)
+            membership_index.drop_for_all(members, space)
             cache.remove_entry(actor, space)
             reg.delete(space)
             logger.info("forget %s by %s: tore down own non-active space", space, actor)
@@ -78,10 +92,11 @@ def forget_space(space, actor, request_id, registry):
                 space=space,
                 actor=actor,
                 mode="teardown",
-                stores=["registry", "glue", "cache"],
+                stores=["registry", "glue", "cache", "membership-index"],
             )
             return {"status": "ok", "action": "forget", "space": space, "mode": "teardown"}
     membership.clear_slot(actor, space)
+    membership_index.drop(actor, space)
     cache.remove_entry(actor, space)
     logger.info("forget %s by %s: cache-only removal", space, actor)
     observability.info(
@@ -89,7 +104,7 @@ def forget_space(space, actor, request_id, registry):
         space=space,
         actor=actor,
         mode="cache_only",
-        stores=["cache"],
+        stores=["cache", "membership-index"],
         registry_left_intact=True,
     )
     return {"status": "ok", "action": "forget", "space": space, "mode": "cache_only"}

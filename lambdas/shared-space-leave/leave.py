@@ -1,6 +1,7 @@
 """leave verb: a member revokes only their own access.
 
-Clears the actor's membership slot and cache entry and drops them from the registry. Shared
+Clears the actor's membership slot, membership index entry and cache entry, and drops them from
+the registry. Shared
 objects, tables, the database and every other member are untouched. Idempotent — if the actor
 is not a member, such as on a retry after the registry write, it is a clean no-op success. The
 registry write is last, so a mid-way failure leaves the actor still listed and a retry re-runs
@@ -17,6 +18,7 @@ import logging
 
 import cache
 import membership
+import membership_index
 import registry as reg
 from auth import AuthorizationError
 from cpcommon import observability
@@ -66,6 +68,7 @@ def leave_space(space, actor, request_id, registry):
     membership.clear_slot(actor, space)
     cache.remove_entry(actor, space)
     committed = reg.save_members(registry, request_id, remove=[actor])
+    membership_index.drop(actor, space)
     remaining = committed["members"]
     cache.write_roster_to_all(
         remaining,

@@ -34,6 +34,13 @@ machine and every verb.
   pipeline into each member's own prefix, carrying a per-entry status of `provisioning`, `active`,
   `failed` or `leaving`. A missing cache is an empty state, never an error.
   `cache.write_roster_to_all` fans the roster out on add, remove and leave.
+- **The per-user membership index** is `<admin-bucket>/memberships/{username}.json`, holding
+  `{version, username, spaces: [{name, status}], updatedAt}`. It is the projection that answers
+  *which spaces is this user in* in one `GetObject`, which the registry — one object per space,
+  keyed by space name — cannot do without a listing plus a read per space. Written under ETag CAS
+  by the six verbs that move a Cognito membership slot, at the same consistency point the roster
+  fan-out uses. **Never deleted:** a user with no spaces holds an empty list, because a deleted
+  document and a user who was never a member are indistinguishable.
 - **Results routing:** querying a shared database sets the per-query `OutputLocation` to
   `{shared-space-bucket}/{name}/athenaresults/{username}/`, which is delete-denied, mirroring the
   personal lock. Personal queries route to the personal `athenaresults/` unchanged.
@@ -66,6 +73,7 @@ This layer is **top-level modules, not a package** — the only one shaped that 
 | `casio` | this plane's door to `cpcommon.cas` |
 | `config` | domain configuration |
 | `membership` | per-user membership slots in Cognito custom attributes |
+| `membership_index` | the per-user membership index in the admin bucket |
 | `messages` | user-facing failure wording |
 | `notify` | best-effort notification emit |
 | `registry` | registry I/O — the source of truth |
@@ -79,6 +87,43 @@ The verbs are listed in [`../INDEX.md`](../INDEX.md).
 
 Long-form reasoning that outgrew a docstring: sizing evidence, rejected designs and the
 traps. Read the entry for what you are changing.
+
+### `shared-space-common/membership_index.py` — why it does not inherit the fan-out's posture
+
+It writes at the same point `cache.write_roster_to_all` does, after the registry commits, and it
+deliberately does **not** copy that function's `except: log and continue`. A stale roster is
+cosmetic — one member sees an out-of-date member list. A stale index is an authorization input
+that is wrong, and on a removal it is wrong in the **granting** direction. So every failure raises
+and the plane's per-verb `Catch: States.ALL -> RecordFailure` turns it into a failed run with a
+notification. An implementer reusing the fan-out will find the tolerant version first; this is why
+it must not be copied.
+
+Two more differences from `cache.py`, each load-bearing:
+
+- **A denial is not absence.** `cache.py` reads `AccessDenied` as a missing object, which is safe
+  there only because its write is create-only. Here the same tolerance would read a
+  present-but-unreadable index as "member of nothing". Both roles hold a `ListBucket` on the admin
+  bucket conditioned to `memberships/*`, which is what makes S3 answer `NoSuchKey` at all.
+- **A malformed document raises its own type.** Unreadable is not absent, and the two must not
+  share a branch.
+
+**Two placements are the whole of the ordering.** `create` writes the index *after*
+`reg.finalize(..., "active")` and *inside* the provisioning guard: after, because a space still
+`provisioning` yields no tag, so an index written mid-create is immediately wrong; inside, because
+outside it a failure leaves an active space whose owner holds no entry — and once membership comes
+from the index, that owner can neither reach the space nor delete it, since delete is gated on
+membership. `delete` drops the entries inside its member loop, which runs *before* `reg.delete`:
+the record is the name lock, so an index still naming a space whose name is free is an entitlement
+to whatever is created next. **`forget`'s teardown path calls `reg.delete` too**, so it drops the
+whole roster's entries rather than only the actor's — "a failed create is single-member" covers a
+failed create and not a delete that failed partway, which writes `failed` on a record that keeps
+its members.
+
+**One residual, stated rather than left to be found:** a stored `status` is stamped at write time
+and refreshed by nothing, so a `set_status` with no membership change leaves a not-yet-dropped
+member's entry reading `active` for a space the registry calls `failed`. The registry stays the
+authority on status; the index answers *which spaces*, and SPEC-204's sweep is what reconciles the
+two.
 
 ### `shared-space-common/registry.py` — why a membership write is a delta
 
