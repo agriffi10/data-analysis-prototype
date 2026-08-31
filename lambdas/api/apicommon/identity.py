@@ -30,7 +30,10 @@ is a PARAMETER at every door, the credential cache is keyed on the whole tag set
 cleared, and a route reaches AWS through exactly two constructors.
 
 Attributes:
-  SHARED_SPACE_CLAIM: The claim carrying the space name occupying one membership slot.
+  SHARED_SPACE_CLAIM: The claim carrying the space name occupying one membership slot. Owned by
+    ``memberships``, which is where the reading moved, and re-exported here because this is the
+    module the equivalence argument is about and the name every test of it uses. Re-exported
+    rather than restated: two copies of a provider fact are two things to drift.
   SHARED_SPACE_TAG: The session tag that claim becomes. Its agreement with the Tofu map is
     asserted, because a hand-written slot name that drifts produces plausible-looking tags
     matching no policy statement.
@@ -70,6 +73,7 @@ Attributes:
 
 import dataclasses
 import datetime
+import json
 import re
 import types
 from collections.abc import Mapping
@@ -79,9 +83,9 @@ from cpcommon import observability
 from cpcommon.auth import Principal
 from cpcommon.config import CATALOG_IDENTIFIER_RE
 
-from . import config, planes
+from . import config, memberships, planes
 
-SHARED_SPACE_CLAIM = "custom:shared_space_{}"
+SHARED_SPACE_CLAIM = memberships.SHARED_SPACE_CLAIM
 SHARED_SPACE_TAG = "shared_space_{}"
 
 ROLE_SESSION_NAME_RE = re.compile(r"^[\w+=,.@-]{2,64}$")
@@ -90,6 +94,9 @@ MAX_ROLE_SESSION_NAME = 64
 REASON_UNREPRESENTABLE_USERNAME = "unrepresentable_username"
 REASON_ASSUME_FAILED = "assume_role_failed"
 REASON_CREDENTIALS_EXPIRED = "credentials_expired"
+
+MEMBERSHIP_INDEX_PREFIX = "memberships/"
+ABSENT_OBJECT_CODES = frozenset({"NoSuchKey", "NotFound", "404"})
 
 EXPIRED_CREDENTIAL_CODES = frozenset({"ExpiredToken", "ExpiredTokenException"})
 
@@ -161,11 +168,10 @@ class AssumedCredentials:
 def memberships_from(claims: Mapping[str, object]) -> Mapping[int, str]:
     """Reads the occupied membership slots out of a verified claim set.
 
-    A slot whose claim is absent, empty or not a string contributes NOTHING — it is omitted from
-    the mapping rather than carried as an empty value. That is load-bearing rather than tidy: an
-    empty-valued tag makes a shared-space resource ARN resolve to a bucket followed by a bare
-    slash, which is a live grant on every key beginning with one, and S3 permits such a key. An
-    unstamped slot, by contrast, matches nothing.
+    The reading itself lives in ``memberships`` now, behind the interface the two sources share.
+    This wrapper is kept because it is the claim-sourced half of the equivalence argument and the
+    name every test of it uses — moving the code without moving the name is what makes "the
+    extraction changed no behaviour" a claim the existing tests can still check.
 
     Args:
       claims: The verified claim set, whole.
@@ -176,20 +182,21 @@ def memberships_from(claims: Mapping[str, object]) -> Mapping[int, str]:
     Raises:
       ConfigError: If the slot count is unset or unusable.
     """
-    occupied: dict[int, str] = {}
-    for slot in range(1, config.max_shared_memberships() + 1):
-        value = claims.get(SHARED_SPACE_CLAIM.format(slot))
-        if isinstance(value, str) and value:
-            occupied[slot] = value
-    return occupied
+    return memberships._from_claims(Principal(username="", claims=claims))
 
 
 def identity_from(caller: Principal) -> UserIdentity:
     """Builds the identity a request acts as, from the verifier's result alone.
 
     Takes the resolved principal rather than a raw token, so this module holds no decoder of its
-    own. It reads the same claims the Identity Pool reads out of the same token, which is the
-    whole equivalence argument in one function.
+    own. Under the claims source it reads the same claims the Identity Pool read out of the same
+    token, which is the whole equivalence argument in one function; under the index source it
+    reads the projection the shared-space plane maintains. Which one is a cold-start decision, and
+    this function cannot tell them apart — that is what makes the two comparable.
+
+    **It is called ONCE per request**, from the router, before dispatch. The identity it returns
+    is what every route and the route-level space check both read, so a request cannot hold two
+    membership answers.
 
     Args:
       caller: The verified caller.
@@ -198,11 +205,10 @@ def identity_from(caller: Principal) -> UserIdentity:
       The identity, carrying the username and every occupied membership slot.
 
     Raises:
+      IdentityUnavailableError: If the configured source cannot answer.
       ConfigError: If the slot count is unset or unusable.
     """
-    return UserIdentity(
-        username=caller.username, memberships=memberships_from(caller.claims)
-    )
+    return UserIdentity(username=caller.username, memberships=memberships.resolve(caller))
 
 
 def session_tags(identity: UserIdentity) -> list[dict[str, str]]:
@@ -310,6 +316,70 @@ def _client(service: str, credentials: AssumedCredentials | None = None) -> Any:
     return boto3.client(service, **session)
 
 
+def membership_index_document(username: str) -> Mapping[str, object] | None:
+    """Reads one caller's membership index, on the execution role.
+
+    **This is an API-plane call that sits outside the route registry, on purpose.** The tags are
+    computed before the caller's credentials exist, so the read cannot be made as the caller — and
+    ``planes.require`` answers per route, while this runs for every route including the ones that
+    must never reach the execution role. Declaring ``Plane.API`` per route to cover it would invert
+    the registry's fail-closed default for the whole API. So it goes through the private
+    constructor, in the one module the credential sweep exempts by exact identity, and the sweep
+    still sees the call.
+
+    **The door is deliberately narrow.** It takes a username and returns that user's document,
+    nothing else, and it is called from exactly one place. A test asserts no other module names it,
+    because a route holding it could read another user's memberships.
+
+    **An absent object is None and a denial is not.** S3 answers ``NoSuchKey`` only to a caller
+    holding ``s3:ListBucket``; the execution role holds one conditioned to this prefix, which is
+    what makes the absent branch reachable at all. Reading a denial as absence would report every
+    caller a member of nothing, on a path where that is a plausible-looking answer.
+
+    **The bucket is resolved OUTSIDE the guard, and that placement is the point.** Inside it, an
+    unset variable — which an empty ``TF_VAR_`` renders as — is caught by the wrap below and
+    re-raised as an unreadable index: the operator is sent to look at S3 grants and throttling for
+    a missing environment variable, and the caller gets the wrong one of two 5xx codes. The three
+    conditions the failure mapping distinguishes are only distinguishable if each one arrives as
+    itself.
+
+    Args:
+      username: The verified caller's username, already checked against the catalog rule by the
+        caller — this function does not re-check it, and the read is issued on whatever it is
+        given.
+
+    Returns:
+      The parsed document, or None when the caller has no index.
+
+    Raises:
+      IdentityUnavailableError: If the read fails for any reason other than absence, or if the
+        body does not parse. Never a permission denial: the caller did nothing wrong and can do
+        nothing about it.
+      ConfigError: If the admin bucket is unset. Raised BEFORE the wrap, so the router answers it
+        as the configuration fault it is.
+    """
+    bucket = config.admin_bucket()
+    client = _client(S3_SERVICE)
+    try:
+        response = client.get_object(
+            Bucket=bucket,
+            Key=f"{MEMBERSHIP_INDEX_PREFIX}{username}.json",
+        )
+        body = response["Body"].read()
+    except Exception as exc:
+        if aws_error_code(exc) in ABSENT_OBJECT_CODES:
+            return None
+        raise IdentityUnavailableError(memberships.REASON_INDEX_UNREADABLE) from exc
+
+    try:
+        document = json.loads(body)
+    except ValueError as exc:
+        raise IdentityUnavailableError(memberships.REASON_INDEX_UNREADABLE) from exc
+    if not isinstance(document, dict):
+        raise IdentityUnavailableError(memberships.REASON_INDEX_UNREADABLE)
+    return document
+
+
 def aws_error_code(exc: BaseException) -> str:
     """Reads the service error code off a botocore client error, if it is one.
 
@@ -409,6 +479,8 @@ def _assume(caller: UserIdentity) -> AssumedCredentials:
     observability.info(
         "assuming the caller's role",
         username=caller.username,
+        membership_source=memberships.SOURCE,
+        spaces=sorted(caller.memberships.values()),
         membership_slots=len(caller.memberships),
     )
     try:
@@ -686,6 +758,12 @@ def for_request(caller: Principal) -> UserIdentity:
     overwhelming majority of requests, the warm ones, unattributable in the log store while every
     offline test passed.
 
+    **The resolved space set is stamped here for that same reason**, and the per-mint span carries
+    it too. The mint record is what the spec asks for; the stamp is what makes it readable back
+    from an arbitrary request, since a warm container mints nothing. Space names and usernames are
+    permitted metadata; the token, its claims and the index body are not, and none of them is here
+    to emit.
+
     Args:
       caller: The verified caller.
 
@@ -693,8 +771,14 @@ def for_request(caller: Principal) -> UserIdentity:
       The identity, carrying the username and every occupied membership slot.
 
     Raises:
+      IdentityUnavailableError: If the configured source cannot answer — which is why the router
+        answers this call in a clause of its own, before dispatch.
       ConfigError: If the slot count is unset or unusable.
     """
     acting_as = identity_from(caller)
-    observability.stamp(username=acting_as.username)
+    observability.stamp(
+        username=acting_as.username,
+        membership_source=memberships.SOURCE,
+        spaces=sorted(acting_as.memberships.values()),
+    )
     return acting_as

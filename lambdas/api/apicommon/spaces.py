@@ -1,21 +1,26 @@
-"""A request's space, resolved from verified claims and never from what the request said.
+"""A request's space, resolved from the verified identity and never from what the request said.
 
 Every object route names a space. This module turns that name into a bucket and a root prefix,
 and it is the only thing standing between a caller and somebody else's prefix — so the whole
 module is about what it *refuses*.
 
-**It reads claims and nothing else.** `focommon.authz` solves the same problem by loading the
-shared-space registry and asking whether the caller is an active member, and copying that here
-would be wrong twice: it costs an S3 read on a path that must make **zero** AWS calls before
-refusing, and it sources membership from somewhere other than the claims the identity layer's
-"the same role with the same tags from the same claims" equivalence rests on.
-That file is the obvious thing to reach for; this docstring is here to say don't.
+**It reads the identity the router already built, and nothing else.** That identity carries the
+memberships the configured source resolved — claims today, the admin-bucket index in the successor
+account — so this module and the tag set are answers to one question asked once. `focommon.authz`
+solves the same problem by loading the shared-space registry and asking whether the caller is an
+active member, and copying that here would be wrong twice: it costs an S3 read of its own on a path
+that must reach no AWS service before refusing, and it would be a **second** membership answer
+inside one request. Two answers is a defect whichever one is right. That file is the obvious thing
+to reach for; this docstring is here to say don't.
 
-**A refusal costs no AWS call, and that is asserted by call count** — because a refusal issued
-*after* a successful `AssumeRole` and `ListObjectsV2` looks identical from outside the process.
+**A refusal reaches no AWS service, and that is asserted by call count** — because a refusal
+issued *after* a successful `AssumeRole` and `ListObjectsV2` looks identical from outside the
+process. Under the index source the request has already made one call to exist at all: the read of
+the caller's OWN index, before any route was chosen. That is not an oracle for anything the request
+named, and it is the honest form of the guarantee — the refusal itself still costs nothing.
 
 The only personal space a caller may name is their own, compared against the verified username and
-never against anything in the request; a shared one is compared against the claim set's *values*,
+never against anything in the request; a shared one is compared against the membership *values*,
 because checking a slot number would let a caller choose which of their own memberships is tested.
 """
 
@@ -58,7 +63,7 @@ def resolve(identity: UserIdentity, kind: str, name: str) -> ResolvedSpace:
       The resolved space.
 
     Raises:
-      ApiError: ``AccessDenied`` when the name is not one the claims authorize, or when the kind
+      ApiError: ``AccessDenied`` when the name is not one the identity authorizes, or when the kind
         is neither of the two. Raised before any AWS call.
       ConfigError: If the bucket variables are unset.
     """
@@ -69,7 +74,7 @@ def resolve(identity: UserIdentity, kind: str, name: str) -> ResolvedSpace:
 
     if kind == "shared":
         if name not in set(identity.memberships.values()):
-            raise ApiError("AccessDenied", "no membership claim for that space")
+            raise ApiError("AccessDenied", "no membership for that space")
         return ResolvedSpace("shared", name, config.shared_space_bucket(), f"{name}/")
 
     raise ApiError("AccessDenied", "unknown space kind")
