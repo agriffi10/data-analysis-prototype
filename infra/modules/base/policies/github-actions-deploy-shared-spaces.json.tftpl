@@ -90,6 +90,12 @@
       "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-shared-space-*"
     },
     {
+      "Sid": "SharedSpaceBackfillInvoke",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-shared-space-backfill-*"
+    },
+    {
       "Sid": "SharedSpaceLayerManage",
       "Effect": "Allow",
       "Action": [
