@@ -748,7 +748,16 @@ exercises the *narrowed* Cognito lists.
 5. Sign out, then sign in again. **Expected:** lands on `/` then back on `/files`.
    - [ ] Pass
 
-## 4. The load-bearing negative: the browser makes no AWS calls — BLOCKING
+## 4. The load-bearing negative: the browser makes no AWS calls — RUN 2026-08-31, in Chromium
+
+> **RESULT (2026-08-31, after merge 1 deployed).** Nine filters over one document that held a
+> listing, a folder create, a 7 MB upload, a download, an Athena query and an enqueue:
+> `api.dataquarry.app` **69**; the user bucket **2** (one `PUT`, one `GET`); `athena.` **0**;
+> `glue.` **0**; `sqs.` **0**; **`cognito-identity.` 0**; catch-all **empty**. The whole host table
+> was four entries — the SPA, the API, the user bucket and `fonts.googleapis.com`. Rows 3 and 4
+> read 0 because no sign-in or refresh fell inside the window, which the table permits as *any*.
+> `/config.json` no longer carries `cognitoIdentityPoolId` **at all** — the key is absent, not
+> empty, which is what makes row 8 meaningful for the first time. **Chromium; Safari still owed.**
 
 **Runs after merge 1, and the counting step runs after §8.** Two reasons, and both have been a
 vacuous pass in a draft of this script:
@@ -790,15 +799,27 @@ not match either. Anything this filter shows is an AWS host the browser reached 
 
 - [ ] Every count matches. Record all nine numbers, not a tick.
 
-3. **Each S3 request must be *presigned*.** A SigV4 *header*-signed S3 request is the browser holding
+3. **Each S3 request must be *presigned*.** A *header*-signed S3 request is the browser holding
    credentials — the exact thing this arc removes — and it is indistinguishable from a presigned one
    at the host level. For each S3 request in the panel:
-   - **Expected:** the query string contains `X-Amz-Signature` **and** `X-Amz-Expires`.
-   - **Expected:** the request headers contain **no** `Authorization` and **no**
-     `x-amz-security-token`.
-   - [ ] Pass — record how many S3 requests were inspected.
+   - **Expected:** the query string carries the signature. **This deployment mints SigV2**, measured
+     2026-08-31: `AWSAccessKeyId`, a 28-character `Signature`, `Expires` (an absolute epoch) and
+     `x-amz-security-token`. It carries **no `X-Amz-Signature` and no `X-Amz-Expires`** — an earlier
+     draft of this step asserted exactly those two and would have failed against a healthy system.
+     Nothing pins the version, so assert *a* signature in the query rather than a spelling: check
+     for `Signature=` **and** an expiry parameter, and record which shape you saw.
+   - **Expected:** the request *headers* contain **no** `Authorization` and **no**
+     `x-amz-security-token`. The token riding in the **query** is normal for a URL presigned by an
+     assumed session; the header is what would mean the browser holds credentials.
+   - [x] **Pass, 2026-08-31** — 2 requests inspected (one `PUT`, one `GET`), both with an empty
+     request-header set and both signed in the query. Upload and download windows were both 900 s,
+     unclamped, so the credential had more than that left and the clamp did not bite.
 4. **The presigned URL never appears in a log.** Spot-check `logs/service=api/` for the day: no record
-   contains `X-Amz-Signature`, a bearer token, or an email address. A presigned URL is a bearer token.
+   contains a presigned URL's signature, a bearer token, or an email address. A presigned URL is a
+   bearer token. **Sweep for `AWSAccessKeyId=`, `x-amz-security-token=` and `Signature=`** — NOT for
+   `X-Amz-Signature`, which this deployment never emits and which therefore made the 2026-08-30
+   sweep of 470 records unfailable. **Still owed** as of 2026-08-31: the corrected sweep needs the
+   log store, and an agent session's AWS reads are classifier-blocked.
    - [ ] Pass
 
 ## 5. Every ported surface, exercised once — BLOCKING

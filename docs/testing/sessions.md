@@ -1089,3 +1089,122 @@ back at their original paths, `archive/{id}/` still holding its rewritten receip
 - **A fresh sign-in.** The session was warm throughout. A second tab was found signed **out** —
   tab-scoped storage working as intended — but signing it in needs a password, which is not mine to
   enter.
+
+---
+
+## 2026-08-31 — the restore lands, and the browser's last AWS call is gone
+
+Run from a warm signed-in Chromium session as `agriffith` against the container origin
+(`portal.dataquarry.app`), after SPEC-202 **merge 1** deployed. Instruments 1–2 from `e2e.md` §1,
+plus `performance.getEntriesByType('resource')` as the catch-all — it sees every subresource
+whatever API issued it, which is what §4's row 9 actually needs.
+
+### The archive from 2026-08-30, Phase D — every browser assertion passed
+
+The restore requested at 15:16:39 UTC completed at **18:32:22 UTC**, 3 h 16 m later.
+
+| Assertion | Result |
+|---|---|
+| The terminal notification, with its specified wording | *"Restored 3 files (489 B) to your space, back where they came from. The archive has been cleaned up."* Link `/files?prefix=agriffith/`. |
+| Every file back at its original path | `archive_live_0830/` is at the space root holding `arch_a.csv` (235 B) and `arch_b.csv` (254 B) — 489 B, matching the receipt and the notification. The third "file" was the folder placeholder, which is why the folder exists at all. |
+| `archive/{id}/` still holds its receipt | Present, and **416 B where it was 361 B** before the restore — the rewrite. |
+| The receipt's archive lines survived, `Restored to` now filled | `Requested: 2026-08-30 14:56:06 UTC`, `Request ID`, `Original path`, `Archived path`, `Total size: 489 B`, `Files archived: 3`, `Restore requested: 2026-08-30 15:16:39 UTC`, `Restored to: s3://dat-prod-user-space/agriffith/`. **No line blanked.** |
+| The bytes are readable, not merely listed | `arch_a.csv` fetched through its presigned URL in-page: 235 B, first line `id,region,amount`. |
+
+**Byte-identity of the archive lines could not be asserted** — 2026-08-30 recorded the receipt's
+*size*, never its text, so there is nothing to diff against. Capture the text next time; the size
+is what you have when you want the bytes.
+
+**Still owed on this archive:** `logs/service=archive/` carrying `retrieval polled` events hours
+apart with `poll_count` climbing, and the `cleanup` block. An agent session's AWS reads are
+classifier-blocked, so the log half needs Andrew or CI.
+
+### §4, the load-bearing negative — and this is the first window in which it could fail
+
+`/config.json` no longer carries `cognitoIdentityPoolId`: the key is **absent**, not empty. That
+closes 2026-08-30's finding #1, and it is what makes row 8 meaningful rather than structurally
+unfailable.
+
+One document held a listing, a folder create, a 7.0 MB upload, a download, an Athena query and an
+enqueue. Nine filters:
+
+| Filter | Expected | Observed |
+|---|---|---|
+| `api.dataquarry.app` | > 20 | **69** |
+| `dat-prod-user-space.s3.us-east-1.amazonaws.com` | ≥ 2, a `GET` and a `PUT` | **2**, one of each |
+| `cognito-idp.` / Hosted UI | any | **0** — no sign-in or refresh fell in the window |
+| `athena.` · `glue.` · `sqs.` | 0 | **0 · 0 · 0** |
+| `cognito-identity.` | 0 | **0** |
+| catch-all | 0 | **empty** |
+
+The entire host table was four entries: the SPA, the API, the user bucket, and
+`fonts.googleapis.com`. The enqueue in the window (`POST /v1/enqueue/notifications`) is what makes
+the `sqs.` zero mean something.
+
+### The presigned URLs are SigV2 — and the leak sweep looks for a string they never contain
+
+Both minted URLs carry `AWSAccessKeyId`, a **28-character** `Signature` (base64 HMAC-SHA1),
+`Expires` as an absolute epoch, and `x-amz-security-token`. There is **no `X-Amz-Signature` and no
+`X-Amz-Expires`** anywhere in either.
+
+Two consequences, and the second is the one that matters:
+
+1. `arc-b-api-container-e2e.md` §4 step 3 asserted those two parameter names, so anyone running it
+   literally records a failure against a working system. Corrected in place.
+2. **The credential-leak sweep has never run against the string production emits.** `e2e.md` §4.3
+   and §4 step 4 both sweep the day's records for `X-Amz-Signature`; 2026-08-30 swept 470 records
+   for `x-amz-signature` and found zero. That zero was unfailable. A presigned URL is a bearer
+   token, and the check meant to prove none leaked could not have caught one. Corrected in both
+   places; the corrected sweep is **owed**, because it needs the log store.
+
+The S3 client does take a botocore `Config` — `identity.py`'s `S3_ENDPOINT_CONFIG`, which pins the
+regional endpoint and the addressing style *because* the SPA's `connect-src` names the regional
+host. It sets no `signature_version`, and that word appears nowhere in `lambdas/` or `infra/`, so
+the shape is botocore's default rather than a choice, and every offline fixture returns a v4-shaped
+string it wrote itself. Whether to pin `s3v4` is a decision for a spec.
+
+### The refresh-once path (F.5) — the arithmetic, at last
+
+Reading or corrupting a stored token is refused by the agent's own classifier, and should stay
+refused. The 401 was injected at the **response** layer instead — every `/v1/` answer replaced with
+the API's own envelope at status 401 — which leaves Amplify's refresh entirely real.
+
+| Condition | Result |
+|---|---|
+| Persistent 401, refresh healthy | **Exactly two** API requests for one gesture, **one** `cognito-idp` call between them, **zero** `cognito-identity`, **no third request**, user not signed out, no banner. |
+| Persistent 401, refresh broken (`NotAuthorizedException` on every `cognito-idp` call) | **One** request, one failed refresh, and **no second request at all**. |
+
+The second row is not what the script predicted. `apiClient.ts` returns
+`failure('SessionExpired')` the moment a forced refresh yields no token, *before* the retry is
+sent — so *"the retry 401s and there is no third request"* names a shape this code cannot produce.
+No loop either way, which is the property the row exists for. **Still owed:** the same arithmetic
+with a 401 the API itself produced from a genuinely expired bearer.
+
+**A broken refresh does end the tab's session** — and recovery cost one click and no password,
+because the Cognito Hosted UI cookie is browser-wide and outlives the tab's tokens. That is what
+makes this a safe experiment to repeat, and equally why a warm-cookie sign-in cannot discharge
+anything phrased against a *fresh* one.
+
+### Also observed
+
+- **Tab-scoped storage, three rows discharged** (see `owed.md`): a new tab arrived signed out; the
+  code exchange ran; the deep link came back **with its query string**; tokens in `sessionStorage`,
+  `localStorage` holding only `oauthSignIn`.
+- **Lake Formation still authorizes the assumed session after merge 1** — `SELECT employee_id, name
+  FROM agriffith.employees` returned **2 rows, 112 B scanned**. The 2026-08-30 pass observed this
+  while the browser still held Identity Pool credentials; this one observes it with the pool gone.
+- **§G.1 row 2, mark one notification read** — `POST /v1/enqueue/notifications`, and the bell went
+  17 → 16 **and stayed 16 across a reload**.
+- **A folder delete reaches the file-ops plane** — one `POST /v1/enqueue/file-ops`, an in-progress
+  card, then *"Deleted 1 item."* and the card settled with the listing correct.
+- **One call per gesture holds** — a folder create is one `PUT /v1/objects/content` plus the
+  listing refetch; an upload is one `POST /v1/objects/upload-url` and one XHR `PUT`.
+- The notifications page renders 10 of 83 with a client pager (`PAGE_SIZE`), and the bell's 17
+  matched the document's 17 unread. Not a cap, and not a finding — checked in the source before
+  writing it down.
+
+### Not run
+
+- **Safari, and 400 px.** Everything above is Chromium; it corroborates and cannot discharge.
+- **The log store**, for the archive poll events and the corrected leak sweep — classifier-blocked.
+- **Data Explorer §4.5 rows 14 and 15**, and §G.1's remaining plane rows.

@@ -320,7 +320,7 @@ never tests the token path.
 | As user A, `GET /v1/objects` naming a shared space A is not a member of | The same 403. |
 | `curl` a `PUT /v1/objects/content` under `{root}archive/` | Refused — and record it as the **route-layer** refusal it is. It is byte-identical to an IAM denial and is issued before IAM sees anything; the credential-layer half is SPEC-196 Phase 5 item 6's dated `_identity/self` result, **cited, never re-run here**. |
 | `curl -X OPTIONS` the presign path from a foreign `Origin`, from the SPA origin, and from the CloudFront origin | No `access-control-allow-origin` for the foreign one; allowed for **both** of the others — the CloudFront one is the rollback FR-011 preserves. `DELETE` and `HEAD` are still in `access-control-allow-methods`; SPEC-202 is where that changes. |
-| Read one record in `logs/service=api/` | Present: `env`, a real build sha, `route_id`, `actor`. **Absent:** any `X-Amz-Signature`, any bearer substring, any email, any object body. |
+| Read one record in `logs/service=api/` | Present: `env`, a real build sha, `route_id`, `actor`. **Absent:** any bearer substring, any email, any object body, and any presigned-URL signature — sweep for **`AWSAccessKeyId=`, `x-amz-security-token=` and `Signature=`**. **Not `X-Amz-Signature`:** this deployment's presigned URLs are SigV2 and never contain that string, so a sweep for it passes on a log that is leaking (measured 2026-08-31). |
 
 **The zero-call half of the isolation proof is taken OFFLINE, by call count**, in
 `lambdas/api/test_objects_routes.py`. A route that resolved the prefix from the request and let IAM
