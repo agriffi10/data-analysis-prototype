@@ -118,6 +118,12 @@ variable through them would edit templates this arc must leave byte-identical.
   `iam:PutRolePolicy` on this role and holds neither `iam:AttachRolePolicy` nor a scoped
   `iam:CreatePolicy` — so the managed shape is refused at apply, and **the refusal reads as a missing
   permission rather than as a wrong shape**.
+- **The execution role's only S3 grant is the membership index, and it comes in two statements.**
+  The read is `s3:GetObject` on `memberships/*`; the list is `s3:ListBucket` on the bucket,
+  conditioned to the same prefix. The list is not redundant: S3 answers `NoSuchKey` only to a
+  caller that can list, so without it an **absent** index — the correct state for every user in no
+  shared space — arrives as `AccessDenied` on the credential-minting path. The condition is what
+  keeps the grant from being an inventory of every shared space and then every roster.
 - **`api_execution_role_arn` is a real reference, not a constructed string.** IAM validates a trust
   policy's `Principal` and refuses an ARN naming a role that does not exist yet, so **the dependency
   edge is what makes a from-scratch apply order the two correctly**.

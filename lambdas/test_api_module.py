@@ -13,7 +13,14 @@ Attributes:
   AUTH_COGNITO: The app client whose callback list gains the container origin.
   CSP_CONNECT_SRC_TERMS: Every term the deployed connect-src must carry, named independently.
   FORBIDDEN_IN_API_MODULE: Block types whose presence means a network attachment was started.
-  API_ROLE_ALLOWED_ACTIONS: The whole of the API function's permissions.
+  API_ROLE_ALLOWED_ACTIONS: The whole of the API function's permissions. The two S3 actions are
+    the membership index and nothing else, and they are scoped by the two statements
+    ``test_the_membership_index_grant_is_narrow`` pins: a read by exact key, and the list that
+    makes an ABSENT index answerable rather than a denial. S3 tells a caller an object is missing
+    only when that caller can list the bucket, so a read-only grant would answer AccessDenied for
+    every user who belongs to no shared space — which is the common case, and a fault the user
+    cannot act on.
+  MEMBERSHIP_INDEX_PREFIX: The one prefix those two statements may touch.
   API_ROLE_FORBIDDEN_SERVICES: Services whose arrival would mean a server-side login flow.
   REQUIRED_ENVIRONMENT_KEYS: The configuration the function cannot start without.
   OIDC_KEYS: The provider block — the five values the verifier reads, and the only five.
@@ -83,11 +90,15 @@ API_ROLE_ALLOWED_ACTIONS = frozenset(
     {
         "logs:CreateLogStream",
         "logs:PutLogEvents",
+        "s3:GetObject",
+        "s3:ListBucket",
         "sqs:SendMessage",
         "sts:AssumeRole",
         "sts:TagSession",
     }
 )
+
+MEMBERSHIP_INDEX_PREFIX = "memberships/"
 
 API_ROLE_FORBIDDEN_SERVICES = (
     "dynamodb:",
@@ -235,6 +246,7 @@ def _rendered_execution_policy() -> dict:
         )
         .replace("${logs_queue_arn}", "arn:aws:sqs:us-east-1:696000197480:dat-prod-logs.fifo")
         .replace("${portal_role_arn}", "arn:aws:iam::696000197480:role/dat-portal-user-role")
+        .replace("${admin_bucket_arn}", "arn:aws:s3:::dat-prod-athena-admin")
         .replace(
             "${request_queue_arns_json}",
             json.dumps([f"arn:aws:sqs:us-east-1:696000197480:q{n}.fifo" for n in range(8)]),
@@ -428,6 +440,73 @@ def test_the_function_is_an_isolated_front_door_holding_only_what_it_needs() -> 
         "before the integration gives up — otherwise the caller gets a 504 while the invocation "
         "keeps running and keeps billing. Equal is not ordered; which one answers is then a race"
     )
+
+
+def test_the_membership_index_grant_is_narrow() -> None:
+    """The two S3 statements, read back from the rendered template, exactly.
+
+    The identity layer reads one caller's membership index before that caller's credentials
+    exist, so the read runs on the execution role — a privilege held on behalf of every caller,
+    which is why it is pinned by resource and not only by action.
+
+    **The list statement is what makes an absence answerable, and its condition is what keeps it
+    from being an inventory.** Unconditioned, it would hand the one role every request runs
+    through the ability to enumerate the admin bucket — every shared space's name, and then every
+    roster, which is the disclosure this project declines by publishing no shared-space directory
+    at all. Conditioned to this prefix it admits the membership objects and nothing else.
+
+    A write is absent and asserted absent: the API projects the index, it never owns it. The
+    plane that owns membership is the only writer.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If either statement widens beyond the membership prefix, if the list is
+        unconditioned, or if the role gains a write.
+    """
+    policy = _rendered_execution_policy()
+    statements = {
+        statement["Sid"]: statement
+        for statement in policy["Statement"]
+        if statement["Sid"] in ("MembershipIndexRead", "MembershipIndexList")
+    }
+    assert set(statements) == {"MembershipIndexRead", "MembershipIndexList"}
+
+    read = statements["MembershipIndexRead"]
+    assert read["Action"] == "s3:GetObject"
+    assert read["Resource"].endswith(f"/{MEMBERSHIP_INDEX_PREFIX}*")
+    assert "Condition" not in read, (
+        "a condition on the read would be a second place the prefix is stated, and the resource "
+        "already says it"
+    )
+
+    listing = statements["MembershipIndexList"]
+    assert listing["Action"] == "s3:ListBucket"
+    assert listing["Resource"] == read["Resource"].rsplit("/", 1)[0].rsplit("/", 1)[0], (
+        "the list is on the bucket, not on a key"
+    )
+    assert listing["Condition"] == {
+        "StringLike": {"s3:prefix": f"{MEMBERSHIP_INDEX_PREFIX}*"}
+    }
+
+    for statement in policy["Statement"]:
+        actions = (
+            [statement["Action"]]
+            if isinstance(statement["Action"], str)
+            else statement["Action"]
+        )
+        assert not any(action.startswith("s3:") for action in actions) or statement["Sid"] in (
+            "MembershipIndexRead",
+            "MembershipIndexList",
+        ), f"{statement['Sid']} names S3 outside the two membership-index statements"
+        assert "s3:PutObject" not in actions and "s3:DeleteObject" not in actions, (
+            "the API reads the membership index and never writes it — the plane that owns "
+            "membership is its only writer"
+        )
 
 
 def test_the_browser_is_admitted_by_cors_the_csp_and_the_callback_list() -> None:

@@ -40,6 +40,9 @@ Attributes:
   ABSENT_STATUSES: The HTTP status that means the same thing, as an int.
   READ_OPS: The S3 calls whose absence answer is at issue.
   REGISTRY_PREFIX: The admin-bucket prefix every plane's registry record sits under.
+  MEMBERSHIP_INDEX_PREFIX: The admin-bucket prefix the per-user membership index sits under.
+    Read by the API's identity layer and written by the plane that owns membership, so BOTH
+    roles need a covering list grant and neither may hold an unconditioned one.
   ADMIN_BUCKET_TOKEN: The template variable naming the admin bucket, unexpanded.
   USER_SPACE_BUCKET_TOKEN: The template variable naming the user-space bucket, unexpanded.
   REGISTRY_LIST_SID: The statement each plane names its registry list grant with.
@@ -63,6 +66,7 @@ ABSENT_STRINGS = {"NoSuchKey", "NotFound", "404"}
 ABSENT_STATUSES = {404}
 READ_OPS = {"get_object", "head_object", "download_file", "download_fileobj"}
 REGISTRY_PREFIX = "shared-spaces/"
+MEMBERSHIP_INDEX_PREFIX = "memberships/"
 REGISTRY_LIST_SID = "RegistryList"
 ADMIN_BUCKET_TOKEN = "@{admin_bucket_arn}"
 USER_SPACE_BUCKET_TOKEN = "@{bucket_arn}"
@@ -460,6 +464,27 @@ def _as_list(value):
     return value if isinstance(value, list) else [value]
 
 
+def _prefix_patterns(statement):
+    """The ``s3:prefix`` patterns one statement is conditioned on, from any operator.
+
+    Args:
+      statement: One policy statement.
+
+    Returns:
+      The patterns, empty when the statement carries no ``s3:prefix`` condition at all.
+
+    Raises:
+      None.
+    """
+    return [
+        pattern
+        for operator in (statement.get("Condition") or {}).values()
+        for key, value in operator.items()
+        if key.lower() == "s3:prefix"
+        for pattern in _as_list(value)
+    ]
+
+
 def _admin_bucket_list_grants(policy_path):
     """Every ``s3:ListBucket`` Allow naming the admin bucket, whatever its Sid.
 
@@ -738,4 +763,85 @@ def test_the_plane_that_owns_the_registry_can_read_it_back_absent():
             f"{statement.get('Sid')!r} lists the whole admin bucket. The orchestrator holds the "
             "registry's object grants, so a bucket-wide list adds nothing it needs and widens "
             "what a compromised verb could enumerate."
+        )
+
+
+def test_both_roles_that_touch_the_membership_index_can_see_it_absent():
+    """The index read and the index write each need a list grant, on different roles.
+
+    **An absent index is the correct answer, not a fault**, and it is the answer for every user
+    who has never been added to a shared space. S3 says ``NoSuchKey`` only to a caller holding
+    ``s3:ListBucket``; to a caller without it the same missing object is ``AccessDenied``. So a
+    read-only grant would turn the commonest state of this object into a server fault on the
+    credential-minting path — every such user refused, for a reason no user can act on.
+
+    Both roles need it, and each fails differently without it. On the API's execution role the
+    absence IS the answer: the identity layer refuses a caller who is correctly a member of
+    nothing. On the orchestrator the absence is the first step of a create-if-absent write, and
+    ``cas_mutate`` runs its read outside the retry guard — so the fault propagates on the first
+    attempt rather than being retried, and the plane's contract is that an index-write failure
+    fails the run.
+
+    The condition is asserted by its PATTERN rather than by its presence. ``s3:prefix: "*"`` is a
+    bucket-wide list wearing a condition, and a presence check passes it — which is how the role
+    every request runs through would come to hold every shared space's name and then every
+    roster. Every admin-bucket list statement is checked, not only the named one: a second
+    statement under any other Sid satisfies a Sid-filtered check while handing over exactly what
+    this withholds.
+
+    The object statement is pinned too, and for the same reason one level down: widened to the
+    whole bucket it reaches every other plane's registry record and lock, under a Sid that still
+    says memberships.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If either role cannot list the membership prefix, or can reach wider.
+    """
+    roles = {
+        "the API's execution role": ROOT / "infra" / "modules" / POLICY_FOR_PREFIX["api"],
+        "the shared-space orchestrator": ROOT / "infra" / "modules" / ORCHESTRATOR_POLICY,
+    }
+    for who, policy in roles.items():
+        assert policy.exists(), f"{policy} has moved — this test has no subject for {who}"
+        assert list_grants_covering(policy, ADMIN_BUCKET_TOKEN, MEMBERSHIP_INDEX_PREFIX), (
+            f"{who} touches {MEMBERSHIP_INDEX_PREFIX} but holds no s3:ListBucket grant covering "
+            "it, so an absent index answers AccessDenied instead of being reported absent"
+        )
+        for statement in _admin_bucket_list_grants(policy):
+            patterns = _prefix_patterns(statement)
+            assert patterns, (
+                f"{statement.get('Sid')!r} in {policy.name} lists the whole admin bucket for "
+                f"{who}. That hands it every shared space's name and then every roster."
+            )
+            assert all(pattern.rstrip("*") for pattern in patterns), (
+                f"{statement.get('Sid')!r} in {policy.name} is conditioned on {patterns}, which "
+                "admits every prefix — a bucket-wide list wearing a condition"
+            )
+
+        objects = [
+            statement
+            for statement in _statements(policy)
+            if any(
+                MEMBERSHIP_INDEX_PREFIX in resource
+                for resource in _as_list(statement.get("Resource"))
+            )
+        ]
+        assert len(objects) == 1, (
+            f"{who} should reach {MEMBERSHIP_INDEX_PREFIX} through exactly one object statement"
+        )
+        assert _as_list(objects[0]["Resource"]) == [
+            f"{ADMIN_BUCKET_TOKEN}/{MEMBERSHIP_INDEX_PREFIX}*"
+        ], (
+            f"{who}'s membership-index objects statement names {objects[0]['Resource']} — "
+            "widening it past the prefix reaches every other plane's registry record and lock "
+            "through a statement whose Sid still says memberships"
+        )
+        assert "s3:DeleteObject" not in _as_list(objects[0]["Action"]), (
+            f"{who} may not delete a membership index — an emptied index is written empty, and a "
+            "deleted one is indistinguishable from a user who was never a member"
         )

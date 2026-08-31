@@ -23,6 +23,23 @@
       "Resource": ${request_queue_arns_json}
     },
     {
+      "Sid": "MembershipIndexRead",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "${admin_bucket_arn}/memberships/*"
+    },
+    {
+      "Sid": "MembershipIndexList",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "${admin_bucket_arn}",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "memberships/*"
+        }
+      }
+    },
+    {
       "Sid": "AssumeThePortalRoleAsTheCaller",
       "Effect": "Allow",
       "Action": [

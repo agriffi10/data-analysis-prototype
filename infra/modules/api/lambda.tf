@@ -42,6 +42,11 @@ resource "aws_iam_role_policy" "api" {
     logs_queue_arn  = var.logs_queue_arn
     portal_role_arn = var.portal_role_arn
 
+    # The membership index the identity layer reads before a caller's credentials exist. Built
+    # here from the bucket name the environment already carries, so there is no second wiring
+    # site and no root change.
+    admin_bucket_arn = "arn:aws:s3:::${var.admin_bucket}"
+
     # Exactly the eight request queues. The browser's grants come off in the same change, so at
     # no point are there two writers with nothing asserting it.
     request_queue_arns_json = jsonencode(var.request_queue_arns)

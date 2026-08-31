@@ -74,6 +74,26 @@
       }
     },
     {
+      "Sid": "AdminMembershipIndexObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": "${admin_bucket_arn}/memberships/*"
+    },
+    {
+      "Sid": "AdminMembershipIndexList",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "${admin_bucket_arn}",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "memberships/*"
+        }
+      }
+    },
+    {
       "Sid": "UserSpaceCacheWrite",
       "Effect": "Allow",
       "Action": [

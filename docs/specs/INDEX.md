@@ -208,7 +208,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 200 — The Enqueue Paths & the Delegated Actor Contract | Completed |
 | 201 — The Lambda Trust Boundary | Completed |
 | 202 — Retiring CloudFront & the Identity Pool, and the Arc's Live Checks | Draft |
-| 203 — The Membership Index | Draft |
+| 203 — The Membership Index | In Progress |
 | 204 — Shared-Space Entitlements as Grants | Draft |
 | 205 — A Delete Empties a Space and Destroys Nothing | Draft |
 | 206 — The Notifications `create` Boundary | Completed |

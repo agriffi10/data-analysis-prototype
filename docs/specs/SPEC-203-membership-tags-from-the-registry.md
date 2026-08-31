@@ -1,7 +1,7 @@
 # Spec: The Membership Index — Where the Tags Come From Without a Claim
 
 **ID:** SPEC-203
-**Status:** Draft
+**Status:** In Progress
 **Last Updated:** 2026-08-18
 **Depends On:** SPEC-196 (the AWS identity layer — the tag set, the per-container credential cache keyed on the whole tag set, and the claim-sourced implementation this spec makes one of two), SPEC-195 (the verified bearer and `Principal.username`), SPEC-197 (the transport contract), SPEC-198 (`apicommon/spaces.py` — the route-level membership check this spec must also re-source, FR-004), SPEC-199 (the query route, whose body names no space — the reason FR-002 is an index and not a request scan), SPEC-011 (the identity is a verified claim, never a caller assertion), SPEC-051/053/056/073/075 (the shared-space registry, the slots, the propagation contract, and `cache.write_roster_to_all` — the fan-out this spec rides), SPEC-113 (no existence oracle), SPEC-123 (an admin-bucket index under ETag CAS — **the precedent this spec follows**), SPEC-146 (a published directory that is advisory and never an authorization input — the rule this spec's index deliberately breaks, and says so), SPEC-151 (a partial teardown never frees the name), SPEC-106 (`toUserMessage`), SPEC-127→137/186 (`cpcommon.observability`, the field rule, `env`/`version`)
 
@@ -326,21 +326,49 @@ execution role — SPEC-196's API plane. That is a privilege held on behalf of e
 
 #### Acceptance Criteria:
 
-- [ ] The grant is `s3:GetObject` on `arn:{admin-bucket}/memberships/*` and nothing else — no
-      `ListBucket`, no other prefix, no write. A test reads the rendered policy back and asserts the
-      action and resource set exactly.
-- [ ] **No `ListBucket` is the load-bearing half.** The read is by exact key, and a `ListBucket` here
-      would make the admin bucket enumerable by the one role every request runs through.
+- [ ] The grant is `s3:GetObject` on `arn:{admin-bucket}/memberships/*` **plus a `s3:ListBucket` on
+      the bucket conditioned to `s3:prefix = memberships/*`**, and nothing else — no other prefix, no
+      write. A test reads the rendered policy back and asserts the action and resource set exactly.
+- [ ] **CORRECTED DURING BUILD: the `ListBucket` is required, and its CONDITION is the load-bearing
+      half.** This AC originally read "no `ListBucket`", and it cannot stand beside FR-003. S3
+      answers `NoSuchKey` only to a caller holding `s3:ListBucket`; to a caller without it the same
+      missing object is `AccessDenied` — which FR-003 requires to fail the request. So a read-only
+      grant would refuse, with an unactionable 5xx on the credential-minting path, **every user who
+      belongs to no shared space**, which FR-003 names as the common and correct case. This is the
+      defect the register already records against `cpcommon.registry.load`, measured live
+      2026-08-17, and its settled remedy is a conditioned grant scoped to the keys read — never an
+      unconditioned one, and never reading `AccessDenied` as absence. Conditioned to
+      `memberships/*` the grant discloses *which usernames have ever been in a shared space*, a
+      proper subset of the directory SPEC-146 already publishes to every authenticated user; it
+      discloses no space name and no roster. An **unconditioned** list would, which is why every
+      admin-bucket list statement on both roles is asserted to carry a condition.
+- [ ] The same pair is granted to the shared-space orchestrator, for the write side: the first
+      write for a user begins by reading an index that is not there, and `cas_mutate` runs its read
+      **outside** the retry guard, so without the list that read raises on the first attempt and
+      FR-001 fails the run. Its condition is pinned by **pattern**, not by presence — `s3:prefix:
+      "*"` is a bucket-wide list wearing a condition — and its object statement is pinned to the
+      prefix, because widened to the bucket it reaches every other plane's registry record and lock
+      under a Sid that still says memberships.
 - [ ] **The identity layer's own API-plane call sits outside `ROUTE_PLANES`.** SPEC-196 FR-005's
       registry is keyed by *route* and its default is the user plane, deliberately; declaring
       `Plane.API` per route to cover a call the identity layer makes on every request would invert
       that default for the whole API. The exemption is **by module identity** (SPEC-165's rule), it
       covers only the identity layer, and FR-005's AST sweep still sees the call.
-- [ ] The read reuses `cpcommon`'s S3 client under that same exemption, and the spec says so — the
-      module-level default-credential client is exactly what SPEC-196 FR-005 names as dangerous
-      *for a user-scoped call*, and this one is correctly the execution role's.
+- [ ] **CORRECTED DURING BUILD: the read reuses the API package's OWN one client construction site
+      (`apicommon.identity._client`), not `cpcommon.clients`.** `test_credential_planes.py` forbids
+      any `cpcommon.clients` import anywhere in the API package and asserts the package holds
+      **exactly one** construction site; reaching for `cpcommon.clients` would need
+      `apicommon/memberships.py` added to `EXEMPT_MODULES`, which removes that whole module from the
+      sweep. It would also bypass `S3_ENDPOINT_CONFIG`, which `_client` pins and the shared cache
+      does not. So the door stays one door, and the exemption list does not grow: the index read is
+      a **public** function on the identity layer, called from the source module, which therefore
+      stays fully swept.
 - [ ] A deployed-role IAM simulation on SPEC-186's discipline: every denial paired with an `allowed`
       control, because an `implicitDeny` alone cannot distinguish an ungranted action from a wrong ARN.
+      **The list grant needs `s3:prefix` supplied as a context entry** — the register records that a
+      prefix-conditioned `ListBucket` simulates as `implicitDeny` when it is not, because IAM answers
+      what it decides given *your* context and never what the service supplies. Run without it, this
+      AC produces a false negative on the one statement it most needs to confirm.
 - [ ] The deploy role is **verified as already sufficient** rather than assumed; no new resource type.
 
 ### FR-009: The slot ceiling, restated correctly
@@ -362,9 +390,13 @@ silently reversed `transition_plan.md` §6.4.
 - [ ] **An index holding more spaces than there are slots fails the request** (FR-003's rule), rather
       than truncating. It is unreachable while `assign_or_find_slot` is live and becomes reachable the
       moment the slots retire, which is why it is asserted rather than assumed impossible.
-- [ ] **The slot index carries no meaning**, and the AC says why correctly:
-      `portal-role-shared-space.json.tftpl` is the only file in `infra/` referencing `shared_space_k`,
-      and its **three** tag-bearing statements — `SharedSpaceObjects`, `SharedSpaceList`,
+- [ ] **The slot index carries no meaning**, and the AC says why correctly — with one negative claim
+      **corrected during build**: `portal-role-shared-space.json.tftpl` is *not* the only file in
+      `infra/` referencing `shared_space_k` — two others **produce** the tag name from the same
+      range (`auth/cognito.tf` declares the custom-attribute schema, `data/iam.tf` builds the trust
+      policy's `sts:TagKeys` list) and several more mention it in prose.
+      The conclusion is unaffected and rests on the template alone: its **three** tag-bearing
+      statements — `SharedSpaceObjects`, `SharedSpaceList`,
       `SharedSpaceGlue` — each carry one resource entry or condition value per slot **inside a single
       statement**, so the resource lists and the `StringLike` prefix list are unions. *An earlier
       draft said "one identical statement pair per slot", which is not the shape.* The property is
@@ -394,15 +426,23 @@ silently reversed `transition_plan.md` §6.4.
 
 - [ ] **The default is `claims`** and every deployed environment omits `MEMBERSHIP_SOURCE`. No user
       in the current environment can observe this spec.
-- [ ] **Not one IAM policy, bucket policy or Lake Formation grant is edited.** SPEC-196 FR-008's
-      no-change guard stays green — the tag names and values are identical across sources, which is
-      the entire reason a source swap is possible.
+- [ ] **Not one TAG-CONSUMING IAM policy, bucket policy or Lake Formation grant is edited.**
+      SPEC-196 FR-008's no-change guard stays green — the tag names and values are identical across
+      sources, which is the entire reason a source swap is possible. Two **execution-role** policies
+      do change (FR-008), and that is the scope this AC always meant: the guarantee is about the
+      policies the session tags are evaluated against, not about the roles that compute them.
 - [ ] **`useSharedSpaceAccessRecovery` stays.** Under `claims` it papers over SPEC-056's delay, which
       is unchanged. Under `index` it is inert but harmless, and removing it would have to be undone
       if the source were flipped back.
 - [ ] **The Cognito slot machinery stays live** — under `claims` it is authoritative.
-- [ ] `apicommon/spaces.py` is the **one** module outside the identity layer that changes (FR-004).
-      No other `*.service.ts`, hook, component or route changes.
+- [ ] **CORRECTED DURING BUILD, in both directions.** `apicommon/spaces.py` needs no *functional*
+      change at all: it already resolves membership from `identity.memberships` on the `UserIdentity`
+      the router builds once per request, which **is** the FR-002 interface's output. Only its module
+      docstring changes, because "It reads claims and nothing else" goes false. And `router.py` does
+      change, one clause: `identity.for_request` runs **before** dispatch, so an
+      `IdentityUnavailableError` raised there escapes `route()` entirely and reaches the caller as
+      `InternalError` — FR-003's "maps to `IdentityUnavailable`" does not hold without it. No
+      `*.service.ts`, hook, component or route handler changes.
 
 ---
 
