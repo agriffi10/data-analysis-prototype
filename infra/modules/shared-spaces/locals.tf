@@ -12,6 +12,9 @@ locals {
 
   # The verb Lambdas, keyed by the function suffix, which is also the lambdas/ subdirectory
   # suffix and the deploy-lambdas.yml matrix name. `forget` is a durable "clear from my list".
+  # `backfill-ever-active` is NOT a verb: nothing enqueues it and the machine never routes to
+  # it. It rides this map to inherit the orchestrator role, the env, the log group and the
+  # deploy-role wildcards, and it is invoked directly from its own workflow.
   shared_space_functions = {
     "validate"               = "validate.handler"
     "create"                 = "create_space.handler"
@@ -22,6 +25,15 @@ locals {
     "forget"                 = "forget_space.handler"
     "acknowledge-membership" = "acknowledge_membership.handler" # join-status ack
     "notify-failure"         = "ss_notify_failure.handler"      # last-resort notify
+    "backfill-ever-active"   = "backfill_ever_active.handler"   # one-shot, not a verb
+  }
+
+  # Overrides only. Everything absent here takes the 60s a single-space verb needs.
+  # 900 is Lambda's own ceiling, and the walk is one GetObject per record: at a conservative
+  # 50ms per record that covers ~18,000 records, against a registry the product has to grow a
+  # user at a time. It is the whole budget because a run that times out resumes from nothing.
+  shared_space_function_timeouts = {
+    "backfill-ever-active" = 900
   }
 
   shared_space_function_names = {

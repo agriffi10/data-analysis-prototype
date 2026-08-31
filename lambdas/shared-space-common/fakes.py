@@ -330,6 +330,23 @@ class FakeGlue:
         self.databases.add(name)
         self.tables.setdefault(name, [])
 
+    def get_database(self, Name):
+        """Reports whether a database exists, raising the way the real client does.
+
+        Args:
+          Name: The database name.
+
+        Returns:
+          The database description, carrying only the name.
+
+        Raises:
+          FakeEntityNotFound: When no such database exists, which is how the real API answers
+            and therefore what a caller reading absence has to catch.
+        """
+        if Name not in self.databases:
+            raise FakeEntityNotFound(f"no such database {Name}")
+        return {"Database": {"Name": Name}}
+
     def get_tables(self, DatabaseName, NextToken=None):
         """Lists a database's tables one page at a time.
 

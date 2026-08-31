@@ -79,7 +79,10 @@ PLANES = [
     Plane(
         service="shared-space",
         glob="shared-space-*",
-        verb_count=9,
+        # Ten modules, nine of them verbs: `backfill-ever-active` is a one-shot invoked
+        # directly, not routed to by the machine, but it defines a traced handler and so is
+        # covered by every rule below.
+        verb_count=10,
         # Its verbs notify explicitly from inside the handler — see Plane's docstring.
         notifies_on_failure=False,
         not_verbs=frozenset({"shared-space-common"}),

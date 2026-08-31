@@ -87,6 +87,13 @@
     ]
   },
   {
+    "name": "shared-space-backfill-ever-active",
+    "layers": [
+      "cpcommon",
+      "layer"
+    ]
+  },
+  {
     "name": "table-builder-validate-authorize",
     "layers": [
       "cpcommon",
