@@ -15,10 +15,20 @@ import eslintConfig from '../../eslint.config.js';
  * here, which a review of that entry alone would not.
  */
 describe('the @aws-sdk ban survives every no-restricted-imports clause', () => {
+  // A glob need not START with `src/` to govern it: the base entry is `**/*.{ts,tsx}`, and
+  // an entry with no `files` at all governs everything. Filtering on the `src/` prefix let
+  // exactly that shape — the one most likely to be added next — declare the rule without the
+  // group while this test passed and an `@aws-sdk` import in `features/` linted clean
+  // (reproduced). So the question is inverted: an entry is out of scope only if EVERY glob it
+  // names is demonstrably not under `src/`.
+  const governsSrc = (entry: (typeof eslintConfig)[number]): boolean => {
+    const globs = entry.files;
+    if (globs === undefined || globs.length === 0) return true;
+    return globs.some((glob) => glob.startsWith('src/') || !glob.startsWith('.'));
+  };
+
   const governing = eslintConfig.filter(
-    (entry) =>
-      entry.rules?.['no-restricted-imports'] !== undefined &&
-      (entry.files ?? []).some((glob) => glob.startsWith('src/'))
+    (entry) => entry.rules?.['no-restricted-imports'] !== undefined && governsSrc(entry)
   );
 
   it('is declared by every clause that governs a file under src/', () => {

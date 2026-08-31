@@ -75,20 +75,6 @@ CONTENT_ASSERTED = frozenset({EDITED, LISTING_EDITED})
 
 API_ROLE_ARN = "arn:aws:iam::696000197480:role/dat-prod-api-role"
 PORTAL_ROLE_ARN = "arn:aws:iam::696000197480:role/dat-portal-user-role"
-IDENTITY_POOL_ID = "us-east-1:11111111-2222-3333-4444-555555555555"
-
-EXPECTED_FEDERATED_STATEMENT = {
-    "Effect": "Allow",
-    "Principal": {"Federated": "cognito-identity.amazonaws.com"},
-    "Action": ["sts:AssumeRoleWithWebIdentity", "sts:TagSession"],
-    "Condition": {
-        "StringEquals": {"cognito-identity.amazonaws.com:aud": IDENTITY_POOL_ID},
-        "ForAnyValue:StringLike": {
-            "cognito-identity.amazonaws.com:amr": "authenticated"
-        },
-    },
-}
-
 
 def _git(*args: str) -> str:
     """Runs a git command in the repository, failing loudly rather than skipping.
@@ -174,7 +160,6 @@ def _rendered_trust() -> dict:
     rendered = (
         (REPO / TRUST)
         .read_text()
-        .replace("${identity_pool_id}", IDENTITY_POOL_ID)
         .replace("${api_execution_role_arn}", API_ROLE_ARN)
         .replace("${session_tag_keys}", json.dumps(_expected_tag_keys()))
     )
@@ -433,6 +418,34 @@ def test_ACCEPTED_a_recreated_api_role_would_not_redraw_the_trust_policy() -> No
         if "AWS" in statement.get("Principal", {})
     ]
     assert len(principals) == 1
+
+
+def test_the_trust_policy_has_exactly_one_statement() -> None:
+    """The federated door is gone, and this is the only thing offline that says so.
+
+    The Identity Pool's ``AssumeRoleWithWebIdentity`` statement was removed when the pool was.
+    Nothing else here would notice it coming back: every other assertion in this module counts
+    AWS-principal statements or reads the tag keys, and a re-added federated statement carries
+    neither — so it slides in under all of them (measured: pasted back, the whole suite stayed
+    green). ``tofu validate`` catches it only because the template no longer takes the variable,
+    which stops being true the moment someone adds the variable back with it.
+
+    The live half is FR-010's ``get-role``. This is its offline twin, and the cheaper one.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a second statement appeared.
+    """
+    statements = _rendered_trust()["Statement"]
+
+    assert len(statements) == 1
+    assert statements[0]["Sid"] == "TheApiMayActAsAUser"
+    assert "Federated" not in statements[0]["Principal"]
 
 
 def test_the_shared_space_template_lost_ONLY_its_enqueue_statement() -> None:

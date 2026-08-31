@@ -612,9 +612,6 @@ module "data" {
   # skips it is denied at runtime with nothing in the plan to warn it.
   file_ops_execution_role_arn = local.file_ops_execution_role_arn
 
-  # Identity Pool ID from auth — used as the portal role's trust audience and the
-  # pool's authenticated-role binding. Dependency stays one-directional: data -> auth.
-
   # Same ordering as auth: the deploy role grants itself the S3 + IAM-role
   # permissions (modules/base policy). Force that grant to settle before the
   # bucket/role are created, or a first apply can hit AccessDenied.

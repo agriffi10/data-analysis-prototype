@@ -173,3 +173,105 @@ def test_the_entrypoint_refuses_unset_and_empty_alike() -> None:
     assert "exit 1" in text, "The entrypoint never exits non-zero, so nginx starts regardless."
 
 
+
+
+def _shell_word_list(source: str, name: str) -> list[str]:
+    """Reads a single-quoted space-separated shell assignment into a list.
+
+    Args:
+      source: The shell script's text.
+      name: The variable to read, e.g. ``KEYS``.
+
+    Returns:
+      The words assigned, in declaration order.
+
+    Raises:
+      AssertionError: If the assignment is absent or empty, so a parser that matched
+        nothing cannot report an empty list as agreement.
+    """
+    match = re.search(rf"^{name}='([^']+)'", source, re.MULTILINE)
+    assert match, f"no {name}= assignment found in the entrypoint — this has no subject"
+    words = match.group(1).split()
+    assert words, f"{name} is empty"
+    return words
+
+
+def _ts_string_array(source: str, name: str) -> list[str]:
+    """Reads a ``const NAME = [...] as const`` array of string literals.
+
+    Args:
+      source: The TypeScript module's text.
+      name: The exported const to read.
+
+    Returns:
+      The string literals, in declaration order.
+
+    Raises:
+      AssertionError: If the declaration is absent or holds no literal.
+    """
+    match = re.search(rf"export const {name} = \[(.*?)\] as const", source, re.DOTALL)
+    assert match, f"no {name} declaration found — this comparison has no subject"
+
+    # Comments are stripped FIRST. These blocks carry prose naming the key's degraded path,
+    # and one of them quotes a status value — so a literal sweep over the raw block reads
+    # `'ready'` as a configuration key and the comparison fails on the comment rather than
+    # on the classification.
+    body = re.sub(r"//[^\n]*", "", match.group(1))
+    literals = re.findall(r"'([A-Za-z][A-Za-z0-9]*)'", body)
+    assert literals, f"{name} declares no key"
+    return literals
+
+
+def test_the_entrypoint_renders_exactly_the_keys_the_browser_classifies() -> None:
+    """The sixth wiring point, which nothing was comparing.
+
+    A key reaches the served document through six places, and five of them are compared in
+    ``apps/portal/src/lib/runtimeConfig.test.ts``. The sixth is this script, and its own
+    docstring there claimed the check lived here — it did not. Measured: leaving a retired key
+    in ``KEYS`` and in the matrix fixture kept BOTH suites entirely green, while planting the
+    same staleness in any of the other five reddened immediately.
+
+    The harm is asymmetric and that is why it went unnoticed. A key MISSING here fails loudly —
+    the container refuses to start on an unset required value. A key left behind is silent, and
+    the entrypoint's own comment says what is at stake: the named list is the only thing
+    standing between a stray ``CONFIG_*`` variable and a world-readable document.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the two sets differ, either way.
+    """
+    classification = CONFIG_TYPES.read_text()
+    classified = _ts_string_array(classification, "REQUIRED_CONFIG") + _ts_string_array(
+        classification, "OPTIONAL_CONFIG"
+    )
+    rendered = _shell_word_list(ENTRYPOINT.read_text(), "KEYS")
+
+    assert sorted(rendered) == sorted(classified)
+
+
+def test_the_entrypoint_requires_exactly_what_the_browser_requires() -> None:
+    """The other half, because the two lists fail in opposite directions.
+
+    A key the browser requires but this script does not lets a container start and serve a
+    document that boot-fails in every browser. A key this script requires but the browser does
+    not refuses to start over a value with its own degraded path — an outage for a feature that
+    was designed to be absent.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the two sets differ, either way.
+    """
+    required_ts = _ts_string_array(CONFIG_TYPES.read_text(), "REQUIRED_CONFIG")
+    required_sh = _shell_word_list(ENTRYPOINT.read_text(), "REQUIRED")
+
+    assert sorted(required_sh) == sorted(required_ts)
