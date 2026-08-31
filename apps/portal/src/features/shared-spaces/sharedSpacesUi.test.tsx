@@ -319,3 +319,29 @@ describe('memberInput', () => {
     });
   });
 });
+
+describe('DeleteSharedSpaceDialog — what it may no longer claim (SPEC-205)', () => {
+  it('makes no destruction claim and does not say the action cannot be undone', () => {
+    // Render-based rather than a word sweep over the source: the sentences that mattered were
+    // "This can’t be undone." with a curly apostrophe and a body naming files and tables, and a
+    // list of search terms written from memory matched neither.
+    render(
+      <DeleteSharedSpaceDialog
+        space="sales"
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).not.toHaveTextContent(/can.t be undone/i);
+    expect(dialog).not.toHaveTextContent(/permanently deletes/i);
+    // Deliberately not a ban on the word "destroy": the copy uses it truthfully, in
+    // "kept … rather than destroyed". Forbidding a word rather than a claim is the sweep this
+    // assertion exists to replace.
+    // What it says instead: access ends, the contents are kept, the name is spent.
+    expect(dialog).toHaveTextContent(/every member loses access/i);
+    expect(dialog).toHaveTextContent(/kept by administrators/i);
+    expect(dialog).toHaveTextContent(/name can never be used again/i);
+  });
+});

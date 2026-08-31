@@ -2,6 +2,13 @@
 // pipeline writes to {username}/user_settings/shared-connections.json.
 
 export type SharedConnectionRole = 'owner' | 'member';
+
+/**
+ * The verb behind a `failed` entry. A failed create and a failed delete look identical on
+ * the card and need opposite actions — one is retried by creating, the other by deleting,
+ * and dismissing the second is a no-op the server refuses.
+ */
+export type FailedAction = 'create' | 'delete';
 export type SharedConnectionStatus = 'provisioning' | 'active' | 'failed' | 'leaving' | 'deleting';
 
 /**
@@ -26,6 +33,12 @@ export type SharedConnectionEntry = {
   /** Present when status === 'failed'. */
   reason?: string;
   /**
+   * Which verb failed, so the row can offer the right retry. Absent on entries written
+   * before a delete could fail without destroying the space — those were all creates,
+   * which is how an absent value is read.
+   */
+  failedAction?: FailedAction;
+  /**
    * Owner-readable projection: the pipeline writes the current member roster (with
    * per-member join status) into the OWNER's entry only, so the Manage drawer can
    * render it without reading the admin-bucket registry. Absent on member entries.
@@ -45,7 +58,7 @@ export type SharedConnectionsCache = {
 };
 
 /**
- * Shared-space request actions. `forget` = durable "clear this entry from my list";
+ * Shared-space request actions. `forget` = durable "clear this entry from my list", which clears nothing for a space that was ever usable;
  * `acknowledge_membership` = a member confirming they've picked up the space.
  */
 export type SharedSpaceAction =

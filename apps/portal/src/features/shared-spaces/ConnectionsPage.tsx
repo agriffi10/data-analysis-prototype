@@ -20,7 +20,7 @@ import {LeaveSharedSpaceDialog} from './LeaveSharedSpaceDialog';
 import {DeleteSharedSpaceDialog} from './DeleteSharedSpaceDialog';
 import {RefreshConnectionsButton} from './RefreshConnectionsButton';
 import {connectionStatusLabel} from '../connections/connectionStatus';
-import type {Member, SharedConnectionRole, SharedConnectionStatus} from './sharedSpaces.types';
+import type {FailedAction, Member, SharedConnectionRole, SharedConnectionStatus} from './sharedSpaces.types';
 
 // One renderable shared-connection row, normalized from the cache (via
 // useConnections) and the local optimistic pending list.
@@ -36,6 +36,8 @@ type ConnectionRow = {
   createdAt?: string;
   /** Owner username (member rows); drives the "owner: <name>" meta line. */
   owner?: string;
+  /** Which verb failed, so Retry enqueues that one and Dismiss is offered only where it acts. */
+  failedAction?: FailedAction;
 };
 
 /**
@@ -72,7 +74,10 @@ export function ConnectionsPage() {
   // optimistically as provisioning). Both are local-only; a Refresh reconciles
   // against the authoritative cache.
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  const [retrying, setRetrying] = useState<Set<string>>(new Set());
+  // Keyed by the verb being retried, not a bare set: the optimistic override forces a status,
+  // which makes `row.status === 'failed'` false on the next render — so without the kind carried
+  // here, failedAction-based logic flips a retried delete back to looking like a create.
+  const [retrying, setRetrying] = useState<Map<string, FailedAction>>(new Map());
 
   const rows = useMemo<ConnectionRow[]>(() => {
     const fromCache: ConnectionRow[] = connections
@@ -82,6 +87,7 @@ export function ConnectionsPage() {
         role: c.role ?? 'member',
         status: c.status ?? 'active',
         reason: c.reason,
+        failedAction: c.failedAction,
         members: c.members,
         createdAt: c.createdAt,
         owner: c.owner
@@ -94,9 +100,15 @@ export function ConnectionsPage() {
     return (
       [...fromCache, ...fromPending]
         .filter((r) => !dismissed.has(r.name))
-        // A retried entry shows provisioning until the cache reconciles it to active
-        // (then the override is inert, so the auto-poll resolves it without a Refresh).
-        .map((r) => (retrying.has(r.name) && r.status !== 'active' ? {...r, status: 'provisioning' as const} : r))
+        // A retried entry shows the status its own verb is heading for, until the cache
+        // reconciles (then the override is inert, so the auto-poll resolves it without a
+        // Refresh). A retried DELETE showing 'provisioning' would be a row that lies for the
+        // length of the run.
+        .map((r) => {
+          const kind = retrying.get(r.name);
+          if (!kind || r.status === 'active') return r;
+          return {...r, status: kind === 'delete' ? ('deleting' as const) : ('provisioning' as const)};
+        })
         .map((r) => {
           const t = transitioning.get(r.name);
           return t ? {...r, status: t} : r;
@@ -123,7 +135,7 @@ export function ConnectionsPage() {
     // a still-failed entry reappears and a now-active retry/leave/delete reflects
     // reality (a successful leave/delete is simply gone from the cache).
     setDismissed(new Set());
-    setRetrying(new Set());
+    setRetrying(new Map());
     setTransitioning(new Map());
     void refresh();
   };
@@ -208,16 +220,22 @@ export function ConnectionsPage() {
     }
   };
 
-  const handleRetry = async (name: string) => {
-    setRetrying((prev) => new Set(prev).add(name));
-    const result = await create(name);
+  const handleRetry = async (row: ConnectionRow) => {
+    // A `deleting` row IS a delete, whatever its cache entry carries — the entry the validator
+    // writes has no `failedAction` at all, so a nullish default would send `create` here and
+    // retry the one verb that cannot work. Create is refused on a name that was ever used, and
+    // the refusal overwrites the row's own discriminator, so nothing can enqueue a delete after
+    // that: the workspace is stranded with no affordance that does anything.
+    const kind: FailedAction = row.status === 'deleting' ? 'delete' : (row.failedAction ?? 'create');
+    setRetrying((prev) => new Map(prev).set(row.name, kind));
+    const result = kind === 'delete' ? await remove(row.name) : await create(row.name);
     if (result.success) {
-      toast.push({variant: 'success', message: `Retrying “${name}”…`});
+      toast.push({variant: 'success', message: `Retrying “${row.name}”…`});
       void reconcile();
     } else {
       setRetrying((prev) => {
-        const next = new Set(prev);
-        next.delete(name);
+        const next = new Map(prev);
+        next.delete(row.name);
         return next;
       });
       toast.push({variant: 'danger', message: toUserText(result.error)});
@@ -286,7 +304,8 @@ export function ConnectionsPage() {
                 onDelete={() => setDeleting(row)}
                 onLeave={() => setLeaving(row)}
                 onDismiss={() => void handleDismiss(row.name)}
-                onRetry={() => void handleRetry(row.name)}
+                onRetry={() => void handleRetry(row)}
+                submitting={transitioning.has(row.name) || retrying.has(row.name)}
               />
             ))}
           </ul>
@@ -351,7 +370,7 @@ export function ConnectionsPage() {
 // Secondary meta line under a card's name. Owner cards show member count + created
 // date; member cards show the owner; transient states explain that the change
 // applies on the next refresh. Null when there's nothing to show.
-function metaLine(row: ConnectionRow): string | null {
+function metaLine(row: ConnectionRow, submitting: boolean): string | null {
   if (row.status === 'active') {
     if (row.role === 'owner') {
       const parts: string[] = [];
@@ -369,7 +388,14 @@ function metaLine(row: ConnectionRow): string | null {
   }
   if (row.status === 'provisioning') return 'Creating prefix, database, and your access — applies on next refresh';
   if (row.status === 'leaving') return 'Leaving — applies on next refresh';
-  if (row.status === 'deleting') return 'Deleting — applies on next refresh';
+  // A row the validator left in `deleting` never reconciles on its own, so the reassuring
+  // sentence is false there; it is true only while the user's own delete is in flight.
+  // A Refresh drops the local override, so after one there is no way to tell a delete in
+  // flight from one that stopped — the cache says `deleting` for both. The sentence has to be
+  // true of both, and Retry is safe either way because deleting again is idempotent.
+  if (row.status === 'deleting') {
+    return submitting ? 'Deleting — applies on next refresh' : 'Deleting — if this doesn’t clear, Retry';
+  }
   return null; // failed: the reason is shown in its own line
 }
 
@@ -380,6 +406,7 @@ function formatCreated(iso?: string): string | null {
 
 function ConnectionRowItem({
   row,
+  submitting,
   onManage,
   onView,
   onDelete,
@@ -388,6 +415,8 @@ function ConnectionRowItem({
   onRetry
 }: {
   row: ConnectionRow;
+  /** True while this row's own status is a local optimistic override rather than the cache's. */
+  submitting: boolean;
   onManage: () => void;
   onView: () => void;
   onDelete: () => void;
@@ -396,21 +425,34 @@ function ConnectionRowItem({
   onRetry: () => void;
 }) {
   const isOwner = row.role === 'owner';
-  const meta = metaLine(row);
+  const meta = metaLine(row, submitting);
 
   // The applicable actions per state, each full-width on mobile / auto at ≥ tablet.
   const dangerGhost = 'w-full text-danger hover:bg-danger-soft hover:text-danger tablet:w-auto';
   const actions: ReactNode[] = [];
-  if (row.status === 'failed') {
+  // A row stuck in `deleting` — the validator writes that status and a run that dies never
+  // clears it — needs an exit that is not an operator. It gets the same Retry. A row that is
+  // `deleting` only because the user just confirmed one is indistinguishable in `rows`, so the
+  // optimistic flag is what tells them apart; offering Retry there would put the button beside
+  // a delete submitted two seconds ago.
+  const stuckDeleting = row.status === 'deleting' && !submitting;
+  if (row.status === 'failed' || stuckDeleting) {
+    // Dismiss is suppressed on anything delete-shaped. `forget` is a server-side no-op for a
+    // space that was ever usable, so the button would present an action that does nothing —
+    // and the row it would clear is the only affordance left for retrying the delete.
+    if (row.status === 'failed' && (row.failedAction ?? 'create') === 'create') {
+      actions.push(
+        <Button
+          key="dismiss"
+          variant="ghost"
+          size="sm"
+          className="w-full tablet:w-auto"
+          onClick={onDismiss}>
+          Dismiss
+        </Button>
+      );
+    }
     actions.push(
-      <Button
-        key="dismiss"
-        variant="ghost"
-        size="sm"
-        className="w-full tablet:w-auto"
-        onClick={onDismiss}>
-        Dismiss
-      </Button>,
       <Button
         key="retry"
         size="sm"
@@ -479,7 +521,9 @@ function ConnectionRowItem({
         </div>
         {meta && <div className="mt-1 text-xs text-text-3">{meta}</div>}
         {row.status === 'failed' && (
-          <div className="mt-1 text-xs text-danger">{row.reason ?? 'Provisioning failed.'}</div>
+          <div className="mt-1 text-xs text-danger">
+            {row.reason ?? (row.failedAction === 'delete' ? 'Removing this workspace failed.' : 'Provisioning failed.')}
+          </div>
         )}
       </div>
       {actions.length > 0 && (

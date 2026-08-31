@@ -538,7 +538,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         ],
         callout: {
           kind: 'tip',
-          text: 'Choose the name carefully — it’s permanent, must be unique across every space, and can’t be renamed later. You’ll start the space on your own; add people whenever you’re ready with <b>Add members</b>.'
+          text: 'Choose the name carefully — it’s permanent, must be unique across every space, can’t be renamed later, and can’t be reused even if the space is deleted. You’ll start the space on your own; add people whenever you’re ready with <b>Add members</b>.'
         }
       },
       {
@@ -598,16 +598,16 @@ export const HELP_SECTIONS: HelpSection[] = [
       {
         id: 'delete-space',
         title: 'Delete a space',
-        subtitle: 'Permanently remove a space you own.',
+        subtitle: 'Remove a space you own from everyone’s list.',
         intro:
-          'When a shared space has served its purpose, the owner can delete it outright. This is the big one — it clears the space away for everyone, so it asks you to confirm by name first.',
+          'When a shared space has served its purpose, the owner can delete it. This is the big one — it ends everyone’s access at once, including your own, so it asks you to confirm by name first.',
         steps: [
           'On a space you own, choose <b>Delete</b>.',
           'Type the space’s name to confirm you mean it, then click <b>Delete</b>.'
         ],
         callout: {
           kind: 'warning',
-          text: 'This permanently deletes the space for everyone — all of its files, all of its tables, the database itself, and every member’s access. There’s no undo.'
+          text: 'Deleting removes the space for everyone — every member loses access, you included, and it disappears from everyone’s list. Its files and tables are kept by administrators rather than destroyed, so ask one of them if you delete a space by mistake. The name can never be used for a new space.'
         }
       }
     ]

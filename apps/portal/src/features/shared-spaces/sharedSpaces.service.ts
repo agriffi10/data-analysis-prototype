@@ -3,7 +3,13 @@ import {ok} from '../../lib/serviceResult';
 import {apiRequest} from '../../lib/apiClient';
 import {userSpaceBucket, userSettingsKey} from '../../lib/userSpace';
 import type {ServiceResult} from '../../types/service.types';
-import type {Member, SharedConnectionEntry, SharedConnectionsCache, SharedSpaceAction} from './sharedSpaces.types';
+import type {
+  FailedAction,
+  Member,
+  SharedConnectionEntry,
+  SharedConnectionsCache,
+  SharedSpaceAction
+} from './sharedSpaces.types';
 
 export type EnqueueInput = {
   action: SharedSpaceAction;
@@ -71,8 +77,25 @@ function normalizeMember(raw: unknown): Member | null {
 
 // Coerce a validated raw entry into a `SharedConnectionEntry`, normalizing the
 // owner-readable `members` projection (legacy `string[]` or new `Member[]`) to `Member[]`.
+const VALID_FAILED_ACTION = new Set<FailedAction>(['create', 'delete']);
+
+// An unrecognized `failedAction` reads as 'create', which is what every entry written before
+// the field existed was — a delete could not fail and leave a space standing. Dropping the
+// field instead would be the same answer by a longer route; validating it here is what keeps
+// an unchecked union member out of the row, where it would decide which verb Retry enqueues.
+function normalizeFailedAction(raw: unknown): FailedAction {
+  return VALID_FAILED_ACTION.has(raw as FailedAction) ? (raw as FailedAction) : 'create';
+}
+
 function normalizeEntry(e: unknown): SharedConnectionEntry {
   const o = e as SharedConnectionEntry & {members?: unknown};
+  const withAction = o.failedAction === undefined ? o : {...o, failedAction: normalizeFailedAction(o.failedAction)};
+  if (withAction.members === undefined) return withAction;
+  const o2 = withAction as SharedConnectionEntry & {members?: unknown};
+  return normalizeMembers(o2);
+}
+
+function normalizeMembers(o: SharedConnectionEntry & {members?: unknown}): SharedConnectionEntry {
   if (o.members === undefined) return o;
   // A malformed (non-array) members field degrades to "unavailable" rather than
   // reaching the UI as a non-Member[] that a later .filter/.length would crash on.

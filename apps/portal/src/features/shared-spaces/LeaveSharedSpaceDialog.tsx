@@ -10,7 +10,7 @@ type Props = {
 /**
  * Member's confirm to leave a shared space. Leaving only revokes the member's own
  * access — no shared data is deleted — so a plain danger confirm fits (contrast the
- * owner's type-the-name cascade in DeleteSharedSpaceDialog). Owners never see this;
+ * owner's type-the-name confirm in DeleteSharedSpaceDialog). Owners never see this;
  * the action is owner-gated upstream.
  */
 export function LeaveSharedSpaceDialog({space, busy = false, onConfirm, onCancel}: Props) {

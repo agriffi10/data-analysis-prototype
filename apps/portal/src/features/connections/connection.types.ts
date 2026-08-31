@@ -1,6 +1,11 @@
 // Shared types for the connections domain — the databases a signed-in user can target.
 
-import type {Member, SharedConnectionRole, SharedConnectionStatus} from '../shared-spaces/sharedSpaces.types';
+import type {
+  FailedAction,
+  Member,
+  SharedConnectionRole,
+  SharedConnectionStatus
+} from '../shared-spaces/sharedSpaces.types';
 
 export type ConnectionKind = 'personal' | 'shared';
 
@@ -22,6 +27,8 @@ export type Connection = {
   role?: SharedConnectionRole;
   /** Failure reason (present when status === 'failed'). */
   reason?: string;
+  /** Which verb failed, so the row offers the retry that matches it. */
+  failedAction?: FailedAction;
   /** Owner-readable member roster + join status (present only on a connection the user owns); drives the Manage-members drawer. */
   members?: Member[];
   /** Creation date (ISO). Absent on older cache entries. */

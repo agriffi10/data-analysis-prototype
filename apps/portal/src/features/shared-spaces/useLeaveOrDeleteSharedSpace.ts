@@ -4,7 +4,7 @@ import type {ServiceResult} from '../../types/service.types';
 
 /**
  * Terminal shared-space lifecycle actions. `leave` revokes only the caller's own
- * access; `delete` (owner-only) cascades the whole space away; `forget` durably
+ * access; `delete` (owner-only) ends everyone's access and keeps the space's contents; `forget` durably
  * clears a failed/phantom entry from the caller's own list — never a healthy active
  * space. All are pipeline requests authorized server-side; results apply after a
  * Refresh-connections. This hook only enqueues + tracks in-flight state; optimistic
