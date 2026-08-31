@@ -1,7 +1,7 @@
 # Spec: The Lambda Trust Boundary — the Planes Stop Verifying Tokens
 
 **ID:** SPEC-201
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-18
 **Depends On:** SPEC-011 (the identity is a verified claim, never a caller assertion — the invariant this spec relocates without weakening), SPEC-107/125/156 (`cpcommon.auth` — the repo's one JWKS path, whose control-plane callers this spec removes), SPEC-126 (the DLQ drain — its recipient and its redaction both change here), SPEC-152 (`NotifyFailure` on every plane, and the fleet-test discipline this spec's enumeration copies), SPEC-164 (the **flat** `actor` field, shaped around the exposure this spec closes), SPEC-187/191 (Arc A's file-ops plane — the eighth queue), SPEC-195 (the API is now the only verifier; `Principal.username`), SPEC-196 (the assumed role carrying the user's identity), **SPEC-200 (writes the nested `{"identity": {actor, delegated_by, assurance}}` block while still forwarding the token, and declares the `assurance` literal both specs pin — this spec is meaningless and destructive if built before it)**
 

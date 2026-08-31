@@ -93,26 +93,12 @@ recorded nowhere else** — when a spec closes, prune here rather than appending
 
 ### Current work
 
-- **API layer & containerisation (192 → 202, 192–200 done)** — "Arc B". CloudFront is still
-  production and the rollback. Next: 201 flips the planes onto `identity.actor`, then 202 retires
-  the Identity Pool. **The browser's only remaining AWS DATA call is presigned S3 bytes** — but it
-  still calls **Cognito**, and that includes `cognito-identity` (the Identity Pool), which
-  Amplify hits on every `fetchAuthSession` and the CSP allowlists deliberately. Measured
-  2026-08-30. So arc-b §4's "the browser makes no AWS calls" negative does **not** pass as
-  written until 202 lands; the credentials it vends carry the portal role, whose queue grants
-  are gone (simulated) but whose own-prefix S3 grants are not.
-  **A large live pass ran 2026-08-30** (`sessions.md`): the **Lake Formation positive** holds and
-  took SPEC-196 Phase 5 item 4 with it; both LF denial shapes, the foreign-prefix 403 with its
-  paired 200 control, the CORS trio, §G.5's grant simulation and §F's transport checks are all
-  discharged. **Still owed:** the **multi-GiB upload** settling whether a presigned URL's expiry is
-  evaluated at request receipt; **§G.1's other eight planes**, §G.2 and §G.4; **F.5's refresh-once
-  path**, which an aged token does *not* reach because Amplify refreshes proactively; and
-  **Safari**, since the tooling is Chromium. §D/§E were partly run 2026-08-27. Read the `ARCS.md`
-  arc entry first.
-
-### Live checks
-
-Keyed by feature in `@docs/testing/e2e.md`. **Do not restate an owed check here.**
+- **API layer & containerisation (192 → 202, 192–201 done)** — "Arc B"; narrative in `ARCS.md`,
+  what ran in `sessions.md`, what did not in `owed.md`. CloudFront is still production and the
+  rollback. **Only 202 is left**, and two things it must not miss: it **re-points SPEC-206's
+  `SenderId` boundary**, which still names the portal role it retires (`UNTRUSTED_SENDER_ID` empty
+  refuses *every* notification `create`), and until it lands the browser still calls
+  `cognito-identity`, so arc-b §4's "no AWS calls" negative does not pass.
 
 
 ## Key Decisions (settled — don't re-litigate)
@@ -285,11 +271,17 @@ DLQ lets one malformed request dead-letter someone else's work.
 - **A partial teardown never frees the name.** `delete_objects` returns **HTTP 200 with a per-item
   `Errors` array**, so a partial failure reads as success; raise, and leave the registry record —
   the record *is* the name lock.
-- **The request envelope is FLAT** — `actor` is the raw token at the top level — because the drain
-  reads and **redacts** that field flatly. Nested, a dead-lettered request notifies nobody *and*
-  writes the JWT to CloudWatch.
-- **The DLQ drain** sweeps all request DLQs on a schedule and notifies from the **verified token**,
-  never the untrusted body. The notifications DLQ stays undrained, deliberately: it is circular.
+- **The planes do not verify — they read the API's `identity` block**, trusted because only the API
+  may write these queues (`.tftpl` sweep). Dropping a verification is NOT dropping an authorization:
+  `authorize`/`authorize_source` have **zero diff**. `cpcommon.actor` **cannot verify** (no `jwt`,
+  `auth`, network or env — import sweep), and the flat `actor` is **never** read: it carried a raw
+  JWT, and a JWT and a username are both non-empty, so the guard is the **shape rule**.
+  `assurance` fails closed on an unknown value **including an absent one**. Do **NOT** add a queue resource policy — notifications has eight writers and a blanket
+  `Deny` silences seven notifying roles, invisibly. A pre-cutover message is `unauthorized` and
+  does **not** dead-letter (`FIRE_AND_FORGET`), so plane allowed-field sets stay untightened.
+- **The DLQ drain** sweeps all request DLQs on a schedule and notifies from **`identity.actor`**;
+  its redaction blanks the two LEGACY token fields, since a stale message still carries one. The
+  notifications DLQ stays undrained: circular.
 - **File operations are synchronous IFF exactly one file**; the lock is per **space** and its loser
   **waits** (cross-space takes both in digest order or neither); the **space root is refused** as an
   item; the collision unit is the derived destination **key**, and a **403 counts as occupied**; the
@@ -305,7 +297,10 @@ DLQ lets one malformed request dead-letter someone else's work.
   at add time.
 - **The notifications `create` boundary is a RUNTIME check**, because no SQS condition key reaches a
   message body. It compares the **role-id half** of the `SenderId`, and a refusal **logs and drops,
-  never raises** — dead-lettering per forged request would drown the one undrained DLQ.
+  never raises** — dead-lettering per forged request would drown the one undrained DLQ. The actor
+  reader replaces the `USER_ACTIONS` arm **only**: `create` is the trusted producer (body username,
+  no actor, no token), and hoisting the reader above that branch refuses **every notification the
+  fleet produces**, silently.
 - **`cpcommon` owns the algorithm; a domain layer owns its wording.** Do **NOT** merge the domain
   layers wholesale. Where a layer is packaged by an explicit file list, a test asserts **set
   equality** with the directory — completing a flag map closes nothing.
@@ -440,6 +435,8 @@ only reads; the API enqueues on its behalf.
   with a normal run. A green plan is not proof; IAM is eventually consistent.
 - **A module-level `depends_on` defers every data source in that module** — benign for a policy
   document, a hard error where the value feeds a `for_each`.
+- **`COGNITO_USER_POOL_ID` is no longer fleet-wide** — a lazy `config.require` on the three planes
+  resolving a recipient, so a missing one raises **mid-request**, not at cold start.
 - **An empty `TF_VAR_` is not an unset one.** It satisfies a required variable *and* overrides a
   default; an unset repo variable renders as exactly that. Guard with `validation`, not with the
   absence of a default.
