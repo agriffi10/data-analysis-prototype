@@ -38,12 +38,6 @@ variable "athena_workgroup" {
   type        = string
 }
 
-variable "app_url" {
-  description = "Public URL of the deployed app. Added to the shared-space bucket CORS allowed-origins alongside local dev; empty = localhost only."
-  type        = string
-  default     = ""
-}
-
 variable "user_space_bucket_name" {
   description = "Name of the user-space bucket (Bucket 1). The orchestrator writes each member's per-user cache to {username}/user_settings/shared-connections.json here (env USER_SPACE_BUCKET + scoped in the orchestrator policy)."
   type        = string
@@ -110,7 +104,7 @@ variable "control_plane_execution_role_arns" {
 }
 
 variable "spa_origin" {
-  description = "Origin serving the container SPA (https://host), allowlisted for CORS so a presigned URL minted by the API can be redeemed from it. Empty contributes no entry, matching app_url's idiom."
+  description = "Origin serving the container SPA (https://host), allowlisted for CORS so a presigned URL minted by the API can be redeemed from it. Empty contributes no entry — compact() drops it rather than sending S3 an empty origin."
   type        = string
   default     = ""
 }

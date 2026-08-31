@@ -1,6 +1,6 @@
 {
   "api_origin": "apiBaseUrl",
-  "cloudfront_domain": "appUrl",
+  "spa_origin": "appUrl",
   "aws_region": "awsRegion",
   "cognito_user_pool_id": "cognitoUserPoolId",
   "cognito_user_pool_client_id": "cognitoUserPoolClientId",

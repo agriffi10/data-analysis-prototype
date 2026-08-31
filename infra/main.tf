@@ -323,11 +323,10 @@ locals {
   # that owns the bucket's lifecycle rules. A literal in each would be two literals.
   alb_access_logs_prefix = "alb-access-logs"
 
-  # The static bucket's ARN, CONSTRUCTED rather than read from module.app's output. The
-  # deploy role's grant on this bucket is rendered from it, and sourcing it from the module
-  # would make the apply that destroys the bucket the same apply that removes the permission
-  # to destroy it — the refresh deadlock infra/info/deploy-role-iam.md records. Constructed,
-  # the grant outlives the module and is retired deliberately, one apply later.
+  # The static bucket's ARN. The module that owned the bucket is gone; the deploy role's
+  # grant on it is rendered from this and OUTLIVES the destroy by one apply on purpose —
+  # removing the grant in the same apply is the refresh deadlock deploy-role-iam.md records.
+  # Both this local and the grant retire together in the next change.
   static_assets_bucket_name = "${var.project_name}-static-${data.aws_caller_identity.current.account_id}"
   static_assets_bucket_arn  = "arn:aws:s3:::${var.project_name}-static-${data.aws_caller_identity.current.account_id}"
 
@@ -339,7 +338,8 @@ locals {
   # would route a dependency cycle through base.
   #
   # It lives at root because the container reads it directly and the assembled policy below
-  # reads it too, so neither module can own the computation.
+  # reads it too. Neither belongs in a module: a root-level check cannot read a local
+  # declared in one.
   csp_connect_src = join(" ", [
     "'self'",
     "https://cognito-idp.${var.aws_region}.amazonaws.com",
@@ -362,12 +362,13 @@ locals {
   # it may execute, style, fetch a font from, spawn a worker as — so the two
   # halves have different owners and only this one is environment-shaped.
   #
-  # ONE consumer reads this string today, the distribution's response-headers
-  # policy, and it still does not belong inside that module: a check at root
-  # cannot read a local declared in one, and the module is deleted outright when
-  # the distribution is retired, which would orphan the computation. The
-  # container reads `csp_connect_src` alone and carries every other directive
-  # in its own image.
+  # NO Terraform resource reads this string any more — the distribution that did is
+  # retired. It stays because it is the container's DECLARED policy: the image bakes
+  # every directive but `connect-src`, and `lambdas/test_spa_image.py` asserts the baked
+  # set against this computation. Delete it and the image's directives have no source of
+  # truth at all, which nothing observes offline — which is the whole reason the assertion
+  # exists. The container takes `csp_connect_src` from its task environment and inherits
+  # the rest from this.
   #
   # ASSEMBLED FROM VARIABLES, NEVER LITERALS. A hardcoded region or bucket has
   # to be found and edited by hand during the client-environment transition
@@ -426,11 +427,11 @@ locals {
   # wired by adding its value here — there is no second list to keep in step, and no shape in
   # which a container ships carrying only some of the document.
   #
-  # `appUrl` IS THE CONTAINER'S OWN ORIGIN, never var.app_url. Amplify builds redirectSignIn
-  # and redirectSignOut from it, so a container serving the CloudFront URL sends a sign-in
-  # STARTED on the container back to CloudFront: the container never receives the ?code=, and
-  # the user lands signed-out on a live session. Root var.app_url is unchanged and keeps
-  # feeding the CloudFront build.
+  # `appUrl` IS THE CONTAINER'S OWN ORIGIN. Amplify builds redirectSignIn and redirectSignOut
+  # from it, so a container serving any other origin sends a sign-in STARTED here somewhere
+  # else: the container never receives the ?code=, and the user lands signed-out on a live
+  # session. There is one origin now, so the two can no longer disagree — the rule is kept
+  # because the failure it names is invisible in every offline check.
   spa_runtime_config = {
     apiBaseUrl              = local.api_origin
     appUrl                  = local.spa_origin
@@ -443,21 +444,6 @@ locals {
     userSpaceBucket         = local.user_space_bucket_name
     sharedSpaceBucket       = local.shared_space_bucket_name
   }
-}
-
-module "app" {
-  source = "./modules/app"
-
-  project_name = var.project_name
-
-  # The whole policy, built at root. It used to be assembled inside this module; it moved
-  # out so one computation feeds both delivery paths, so a root-level check has a referent
-  # it can read, and because this module does not outlive the distribution.
-  content_security_policy = local.content_security_policy
-
-  # Root computes the name, because the deploy role's grant is rendered from it and must
-  # outlive this module by one apply.
-  static_bucket_name = local.static_assets_bucket_name
 }
 
 module "base" {
@@ -501,7 +487,6 @@ module "auth" {
 
   project_name = var.project_name
   environment  = var.environment
-  app_url      = var.app_url
   spa_origin   = local.spa_origin
   # The RESOLVED prefix, not the raw var: the CSP allows a host built from this
   # same local, so root has to be the one place the default is decided. Passing
@@ -537,7 +522,6 @@ module "data" {
   source = "./modules/data"
 
   project_name           = var.project_name
-  app_url                = var.app_url
   spa_origin             = local.spa_origin
   user_space_bucket_name = local.user_space_bucket_name
   portal_role_name       = local.portal_role_name
@@ -737,7 +721,6 @@ module "shared_spaces" {
   account_id               = data.aws_caller_identity.current.account_id
   shared_space_bucket_name = local.shared_space_bucket_name
   athena_admin_bucket_name = local.athena_admin_bucket_name
-  app_url                  = var.app_url
   spa_origin               = local.spa_origin
 
   # Not used by any shared-space verb — required by the cpcommon layer's config.
@@ -1072,8 +1055,7 @@ module "file_ops" {
 # The vault bucket, the plane and its front door. Decision record:
 # lambdas/info/planes/archive.md.
 #
-# THE BROWSER HAS NO RELATIONSHIP WITH THE ARCHIVE BUCKET, which is why this block passes
-# no CSP input, no CORS origin and no bucket name to module.app: no CORS configuration, no
+# THE BROWSER HAS NO RELATIONSHIP WITH THE ARCHIVE BUCKET: no CORS configuration, no
 # connect-src entry, and the portal role holds zero statements naming it. Its only browser
 # surface is nothing — the API writes the request queue on the caller's behalf.
 #
@@ -1343,8 +1325,8 @@ module "verification" {
 # green and shows up only when something tries to pull an image through it, so proving the
 # network is worth its own apply rather than being debugged underneath a container.
 # The API's front door. A leaf: nothing else in this composition reads its outputs, and
-# nothing in it is referenced by module.app's CSP — api_origin is a constructed string in
-# the locals above precisely so this module never becomes an input to that list.
+# nothing in it is referenced by the CSP — api_origin is a constructed string in the locals
+# above precisely so this module never becomes an input to that list.
 #
 # It takes the six cpcommon required values as ENVIRONMENT, which is not the same as taking
 # them as permissions: the function's role names logs and one queue and nothing else, and a
@@ -1389,7 +1371,6 @@ module "api" {
   # Built at root from the domain variables, never derived inside the module.
   api_host        = local.api_host
   spa_origin      = local.spa_origin
-  app_url         = var.app_url
   route53_zone_id = var.route53_zone_id
 
   # From the VALIDATION, not the certificate: same ARN, but only this one creates the edge

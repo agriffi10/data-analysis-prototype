@@ -12,6 +12,10 @@
 # resource. A couple are merely operational rather than security-critical (CKV_AWS_216,
 # CKV_AWS_305); they are here because they pass, which is the whole rule.
 #
+# RE-MEASURED 2026-08-31, after CloudFront was retired: 79 IDs, nine fewer, every removal
+# measured by the command below rather than predicted, and each argued in
+# docs/security-baseline.md. Nothing newly passing went unenforced.
+#
 # RE-MEASURED 2026-08-26, after the container platform landed: 918 passed / 736 failed, and
 # the list went from 52 IDs to 89. Nothing was removed — every ID already here still measures
 # zero — and the same rule produced the 37 additions: they pass, so they are enforced.
@@ -59,11 +63,13 @@
 #     259, 305, 366 and CKV2_AWS_32, 46, 54, 72), and most of the 2026-08-26 additions join them:
 #     every ECS, ECR and ALB entry except the three listener ones (CKV2_AWS_74, CKV_AWS_103 and
 #     CKV_AWS_2, two apiece) has exactly one resource behind it — the count in each comment says
-#     which. The first of the two known cases has now happened: the Cognito identity pool was
-#     retired and CKV_AWS_366 left with it, in the same change. The second is next — retiring
-#     CloudFront takes CKV2_AWS_32, 46, 54, 72, CKV_AWS_34, 216, 259 and 305 with it, and
-#     CKV_AWS_70 has to be re-measured rather than reasoned about, because the distribution's
-#     bucket policy is one of five and may or may not be that ID's only subject.
+#     which. BOTH known cases have now happened. The Cognito identity pool was retired and
+#     CKV_AWS_366 left with it; then CloudFront was retired and took NINE — CKV2_AWS_32, 46,
+#     54, 72 and CKV_AWS_34, 216, 259, 305, and CKV_AWS_70. The ninth is the lesson: the
+#     prediction here named eight and reasoned that CKV_AWS_70's bucket policy was one of five
+#     and so probably not its only subject. It was. **Re-measure with the regeneration command
+#     below; do not reason about which IDs a deletion takes** — the reasoning was wrong by one,
+#     and the one it was wrong about would have failed the apply that removed the resource.
 
 # aws
 CKV_AWS_41     # Ensure no hard coded AWS access key and secret key exists in provider (1)
@@ -81,18 +87,6 @@ CKV_AWS_76     # Ensure API Gateway has Access Logging enabled (1)
 
 # aws_athena_workgroup
 CKV_AWS_159    # Ensure that Athena Workgroup is encrypted (1)
-
-# aws_cloudfront_distribution
-CKV2_AWS_32    # Ensure CloudFront distribution has a response headers policy attached (1)
-CKV2_AWS_46    # Ensure AWS CloudFront Distribution with S3 have Origin Access set to enabled (1)
-CKV2_AWS_54    # Ensure AWS CloudFront distribution is using secure SSL protocols for HTTPS communication (1)
-CKV2_AWS_72    # Ensure AWS CloudFront origin protocol policy enforces HTTPS-only (1)
-CKV_AWS_216    # Ensure CloudFront distribution is enabled (1)
-CKV_AWS_305    # Ensure CloudFront distribution has a default root object configured (1)
-CKV_AWS_34     # Ensure CloudFront distribution ViewerProtocolPolicy is set to HTTPS (1)
-
-# aws_cloudfront_response_headers_policy
-CKV_AWS_259    # Ensure CloudFront response header policy enforces Strict Transport Security (1)
 
 # aws_cloudtrail
 CKV_AWS_251    # Ensure CloudTrail logging is enabled (1)
@@ -187,9 +181,6 @@ CKV_AWS_300    # Ensure S3 lifecycle configuration sets period for aborting fail
 
 # aws_s3_bucket_ownership_controls
 CKV2_AWS_65    # Ensure access control lists for S3 buckets are disabled (4)
-
-# aws_s3_bucket_policy
-CKV_AWS_70     # Ensure S3 bucket does not allow an action with any Principal (1)
 
 # aws_s3_bucket_public_access_block
 CKV_AWS_53     # Ensure S3 bucket has block public ACLS enabled (5)

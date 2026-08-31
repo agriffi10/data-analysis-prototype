@@ -30,12 +30,6 @@ variable "state_lock_table" {
   type        = string
 }
 
-variable "app_url" {
-  description = "Public URL of the deployed app (e.g. the CloudFront domain). Used for Cognito OAuth callback URLs when auth IaC is added."
-  type        = string
-  default     = ""
-}
-
 variable "cognito_domain_prefix" {
   description = "Hosted UI domain prefix (must be globally unique across all AWS accounts). When empty, defaults to {project_name}-{environment}-portal."
   type        = string

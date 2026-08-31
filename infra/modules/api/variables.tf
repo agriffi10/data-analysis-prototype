@@ -33,12 +33,6 @@ variable "spa_origin" {
   type        = string
 }
 
-variable "app_url" {
-  description = "Origin of the CloudFront-served portal, admitted by CORS beside spa_origin for as long as it is the rollback. Empty until the first CloudFront deploy, and omitted from the list when empty — the same ternary the Cognito callback list and both bucket CORS rules already use. It is removed at the cutover, when the container origin is the only one left."
-  type        = string
-  default     = ""
-}
-
 variable "logs_queue_url" {
   description = "FIFO queue the structured-logging layer writes spans to."
   type        = string

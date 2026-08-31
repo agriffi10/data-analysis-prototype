@@ -18,7 +18,7 @@ whole new area appears — and the row belongs in the file matching the componen
 > of truth; verify signatures before relying on them.
 
 **Adding a configuration key** is not an inventory question and has its own checklist — a key is
-wired in six places and a missed one stops the container starting:
+wired in five places and a missed one stops the container starting:
 [`../runtime-configuration.md`](../runtime-configuration.md).
 
 ## Shared (read when building anything)

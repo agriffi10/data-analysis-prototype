@@ -36,7 +36,7 @@ CHECK_ID = re.compile(r"^CKV[0-9]*_[A-Z]+_[0-9]+$")
 #: 52 when the container platform's VPC, ECS, ECR, ALB, ACM and API Gateway resources brought 37
 #: newly-passing IDs with them; no ID was removed, and the measurement is in
 #: docs/security-baseline.md under the dated section for that spec.
-ENFORCED_COUNT = 88
+ENFORCED_COUNT = 79
 
 #: The same pin for the dockerfile framework's list, for the same reason. Measured at 38 passed /
 #: 2 failed against checkov 3.3.9 on lambdas/Dockerfile; the two failures — no HEALTHCHECK and no

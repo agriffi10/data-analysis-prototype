@@ -53,7 +53,7 @@ This is an **npm workspaces monorepo**.
 │       ├── src/               ← components, features, hooks, lib, routes, types
 │       ├── .env.example       ← every VITE_* var, documented
 │       └── package.json
-├── infra/                     ← OpenTofu IaC (S3 + CloudFront, Cognito, IAM, data buckets)
+├── infra/                     ← OpenTofu IaC (ECS + ALB, the API, Cognito, IAM, data buckets)
 │   ├── main.tf · variables.tf · outputs.tf
 │   ├── bootstrap/             ← one-time remote-state setup (S3 + DynamoDB)
 │   └── modules/               ← app/ (hosting) · base/ (OIDC + deploy role) · auth/ · data/
@@ -132,8 +132,8 @@ There is no unsigned call left for that mode to make, so it is gone along with i
 
 ## Deploying to a fresh AWS account
 
-The app deploys as static files to S3 behind CloudFront; all other resources (Cognito, the
-shared IAM role, the user‑space bucket, the GitHub Actions OIDC role, Lambda infra) are
+The app deploys as a container image behind a load balancer; all other resources (Cognito, the
+shared IAM role, the user‑space bucket, the GitHub Actions OIDC role, the API, Lambda infra) are
 provisioned by OpenTofu. The runbook below stands up the whole thing in a **new AWS account**.
 
 > Detailed, step‑by‑step references: [`infra/bootstrap/README.md`](infra/bootstrap/README.md)
@@ -175,7 +175,8 @@ tofu apply
 tofu output        # capture the values needed for the next step
 ```
 
-This provisions: static‑assets bucket + CloudFront (OAC), the GitHub Actions OIDC deploy role,
+This provisions: the VPC and its endpoints, the load balancer and the ECS service that serves
+the SPA, the API's front door, the GitHub Actions OIDC deploy role,
 the Cognito User Pool + SPA client + Hosted UI domain, the shared portal IAM role, the
 user‑space S3 bucket, and the pre‑signup Lambda's infrastructure (placeholder code).
 
@@ -189,8 +190,6 @@ for the full table and notes).
 | Secret | Source |
 |---|---|
 | `AWS_DEPLOY_ROLE_ARN` | `tofu output github_actions_role_arn` |
-| `S3_STATIC_BUCKET` | `tofu output s3_static_assets_bucket_name` |
-| `CLOUDFRONT_DISTRIBUTION_ID` | `tofu output cloudfront_distribution_id` |
 | `TF_VAR_state_bucket` | your bootstrap state bucket name |
 | `TF_VAR_state_lock_table` | your bootstrap lock table name |
 
@@ -199,7 +198,7 @@ for the full table and notes).
 | Variable | Source |
 |---|---|
 | `AWS_REGION` | e.g. `us-east-1` (must match all resources) |
-| `VITE_APP_URL` | `tofu output cloudfront_domain` (placeholder on first deploy — see step 7) |
+| `VITE_APP_URL` | `tofu output spa_origin` |
 | `TF_VAR_github_repo` | `owner/repo` (must match exactly; scopes OIDC trust) |
 | `VITE_COGNITO_USER_POOL_ID` | `tofu output cognito_user_pool_id` |
 | `VITE_COGNITO_USER_POOL_CLIENT_ID` | `tofu output cognito_user_pool_client_id` |
@@ -215,17 +214,15 @@ CI. Trigger **Deploy Lambdas** — run it manually (`workflow_dispatch`) or push
 
 ### 6. Deploy the app
 
-Push to `main` (or merge a PR). **Deploy App** builds the SPA with the injected `VITE_*`
-variables, syncs `apps/portal/dist/` to the static bucket, and invalidates CloudFront. The app
-loads at the CloudFront domain once the invalidation finishes.
+Push to `main` (or merge a PR). **Deploy SPA image** builds the image, proves it against the
+container matrix, pushes it to ECR tagged with the commit sha, and points the ECS service at the
+new revision. The app loads at `spa_origin` when the rolling deployment finishes.
 
-### 7. Close the URL loop
-
-On the first deploy the CloudFront domain isn't known yet. After it's live: set the `VITE_APP_URL`
-variable to `tofu output cloudfront_domain`, set the same value as `app_url` in `terraform.tfvars`
-and re‑apply infra (so Cognito's OAuth callback URLs include the real domain), then redeploy the
-app. A custom domain additionally needs an ACM certificate in `us-east-1` (DNS‑validated) — see
-[`docs/architecture.md`](docs/architecture.md) → *Infrastructure and delivery*.
+There is no URL loop to close any more. The app's origin is a subdomain the infrastructure owns,
+so `spa_origin` is known before the first deploy rather than after it — which is what the old
+CloudFront domain was not. The certificate is DNS-validated in `us-east-1` and provisioned with
+the rest of the front door; see [`docs/architecture.md`](docs/architecture.md) →
+*Infrastructure and delivery*.
 
 ---
 
@@ -237,7 +234,7 @@ See [`.github/workflows/README.md`](.github/workflows/README.md) for the full co
 | Workflow | Trigger | Purpose |
 |---|---|---|
 | `ci.yml` | push (any branch) · PR → `main` | Lint, unit/component tests, production build |
-| `deploy-app.yml` | push → `main` | Build SPA with `VITE_*` vars, sync to S3, invalidate CloudFront |
+| `deploy-spa-image.yml` | push → `main` | Build the SPA image, prove it against the container matrix, push to ECR by commit sha, point the ECS service, wait for it to settle |
 | `deploy-infra.yml` | PR / push → `main` (paths `infra/**`) | `tofu fmt -check` + `plan` (posts plan to the PR); `apply` on merge |
 | `deploy-lambdas.yml` | push → `main` (paths `lambdas/**`) · manual | Build each Python Lambda, upload artifact, `update-function-code` |
 

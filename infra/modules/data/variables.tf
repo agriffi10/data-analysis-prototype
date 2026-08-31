@@ -3,12 +3,6 @@ variable "project_name" {
   type        = string
 }
 
-variable "app_url" {
-  description = "Public URL of the deployed app (CloudFront domain). Added as a CORS origin when non-empty."
-  type        = string
-  default     = ""
-}
-
 variable "user_space_bucket_name" {
   description = "Name of the user-space S3 bucket (Bucket 1). Computed by the root module (default {project_name}-prod-user-space, overridable via the root user_space_bucket_name variable if the global name is taken)."
   type        = string
@@ -105,7 +99,7 @@ variable "max_shared_memberships" {
 }
 
 variable "spa_origin" {
-  description = "Origin serving the container SPA (https://host), allowlisted for CORS so a presigned URL minted by the API can be redeemed from it. Empty contributes no entry, matching app_url's idiom."
+  description = "Origin serving the container SPA (https://host), allowlisted for CORS so a presigned URL minted by the API can be redeemed from it. Empty contributes no entry — compact() drops it rather than sending S3 an empty origin."
   type        = string
   default     = ""
 }

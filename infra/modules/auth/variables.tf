@@ -8,12 +8,6 @@ variable "environment" {
   type        = string
 }
 
-variable "app_url" {
-  description = "Public URL of the deployed app (e.g. the CloudFront domain). Added to the User Pool Client callback/logout URLs alongside localhost. When empty, only localhost is configured."
-  type        = string
-  default     = ""
-}
-
 variable "cognito_domain_prefix" {
   description = "Hosted UI domain prefix (must be globally unique). When empty, defaults to {project_name}-{environment}-portal."
   type        = string
@@ -67,7 +61,7 @@ variable "logs_queue_url" {
 }
 
 variable "spa_origin" {
-  description = "Origin of the container SPA, added to the app client's callback and logout lists beside the CloudFront one. Built at root from the domain variables. Empty is tolerated for the same reason app_url's is — the list compacts — but under normal operation it is always set."
+  description = "Origin of the container SPA, and the only deployed entry in the app client's callback and logout lists now that the CloudFront one is retired. Built at root from the domain variables. Empty is tolerated because the list compacts, but under normal operation it is always set — an empty value leaves localhost as the only callback and no deployed sign-in can complete."
   type        = string
   default     = ""
 }

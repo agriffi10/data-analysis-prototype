@@ -5,31 +5,6 @@
 # after the refactor.
 
 moved {
-  from = aws_s3_bucket.static_assets
-  to   = module.app.aws_s3_bucket.static_assets
-}
-
-moved {
-  from = aws_s3_bucket_public_access_block.static_assets
-  to   = module.app.aws_s3_bucket_public_access_block.static_assets
-}
-
-moved {
-  from = aws_s3_bucket_policy.static_assets
-  to   = module.app.aws_s3_bucket_policy.static_assets
-}
-
-moved {
-  from = aws_cloudfront_origin_access_control.static_assets
-  to   = module.app.aws_cloudfront_origin_access_control.static_assets
-}
-
-moved {
-  from = aws_cloudfront_distribution.portal
-  to   = module.app.aws_cloudfront_distribution.portal
-}
-
-moved {
   from = aws_iam_openid_connect_provider.github_actions
   to   = module.base.aws_iam_openid_connect_provider.github_actions
 }

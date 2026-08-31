@@ -39,7 +39,6 @@ keys with em dashes are rejected at `CreatePolicy`, invisible to `tofu validate`
 
 | Module | Owns | README |
 |---|---|---|
-| `app` | the **CloudFront** path — static-assets bucket, OAC, response-headers policy, distribution | [README](../modules/app/README.md) |
 | `spa` | the **container** path — ECR, Fargate cluster/service, ALB, and the admin bucket's first policy | [README](../modules/spa/README.md) |
 | `api` | the HTTP API, its Lambda, custom domain and DNS record | [README](../modules/api/README.md) |
 

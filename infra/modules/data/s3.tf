@@ -82,17 +82,28 @@ resource "aws_s3_bucket_cors_configuration" "user_space" {
   bucket = aws_s3_bucket.user_space.id
 
   cors_rule {
-    allowed_methods = ["GET", "PUT", "POST", "DELETE", "HEAD"]
+    allowed_methods = ["GET", "PUT"]
     # `localhost` stays, and NOT because of the dev-unauth path: a developer running `npm run dev`
-    # against a deployed API still redeems presigned URLs from it. `app_url` stays for the whole
-    # arc — CloudFront is the rollback until it is retired, and removing it here would break the
-    # rollback in exactly the way that is only discovered when it is needed. `allowed_methods` is
-    # left alone for the same reason: the rollback is to the CURRENT bundle, which issues HEAD,
-    # DELETE and multipart POST, so narrowing to GET/PUT would keep the origin allowlisted while
-    # breaking every method it uses.
-    allowed_origins = compact(["http://localhost:5173", var.app_url, var.spa_origin])
+    # against a deployed API still redeems presigned URLs from it.
+    #
+    # ONE ORIGIN NOW. The CloudFront entry was the rollback and went with the distribution.
+    #
+    # GET AND PUT ARE THE WHOLE PRESIGNED SURFACE the browser redeems: a presigned GET to
+    # download, and a presigned PUT to upload over XMLHttpRequest. HEAD (objectExists,
+    # getObjectMetadata, every collision pre-check), DELETE and multipart POST were the
+    # browser's own SDK calls and are API routes now. A stale-but-working CORS rule is
+    # invisible, so their absence is asserted rather than assumed.
+    #
+    # `allowed_headers` and `max_age_seconds` are deliberately UNCHANGED: the header set a
+    # presigned PUT carries depends on what the signer signed, and a missing entry fails the
+    # PREFLIGHT, which the browser reports as a generic network error naming nothing.
+    allowed_origins = compact(["http://localhost:5173", var.spa_origin])
     allowed_headers = ["*"]
-    expose_headers  = ["ETag", "x-amz-server-side-encryption", "x-amz-request-id", "x-amz-id-2"]
+    # ETag alone. The other three were removed against a grep over apps/portal/src returning
+    # ZERO readers of each — a named absent reader, not tidiness. ETag is kept WITHOUT such a
+    # grep and deliberately: an exposed header nobody reads costs nothing, while a missing one
+    # fails as an opaque browser error at the first upload.
+    expose_headers  = ["ETag"]
     max_age_seconds = 3000
   }
 }

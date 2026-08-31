@@ -24,12 +24,13 @@ The loader is `lib/runtimeConfig.ts`; the shape and its key classification are
 
 - **Same-origin, never proxied.** The SPA has to render its own error states while the API is down,
   so the document is served by the SPA's own server.
-- **`Cache-Control: no-store`, and the distribution enforces it independently.** A document answered
-  from a cache populated in the previous environment renders a working, fully functional portal
-  pointed at the wrong account, and nothing on screen distinguishes it. The upload sets the header and
-  `/config.json` has its own `Managed-CachingDisabled` behaviour — with the response-headers policy
-  re-attached, because it is per-behaviour and not inherited
-  ([`infra/modules/app/README.md`](../../../infra/modules/app/README.md)).
+- **`Cache-Control: no-store`.** A document answered from a cache populated in the previous
+  environment renders a working, fully functional portal pointed at the wrong account, and nothing
+  on screen distinguishes it. The container sets the header on `/config.json` in its own `location`
+  block, and the container matrix asserts it **on a response** rather than in the config text.
+  There is no second delivery path to keep in step: the distribution that needed its own
+  per-behaviour cache policy and its own re-attached header policy is retired, and with it the
+  shape where two paths could serve the same document under different headers.
 - **A production boot with bad configuration fails hard.** Unreachable, unparseable, an unsupported
   version, or a missing required key each render `BootFailure` and mount no route. One `console.error`
   carries the reason and the missing key **names** — never a value.
@@ -38,9 +39,9 @@ The loader is `lib/runtimeConfig.ts`; the shape and its key classification are
   `npm run check:bundle`.
 - **The container refuses to start** when a required key is unset or empty.
 
-## A key is wired in six places
+## A key is wired in five places
 
-Adding one means touching all six, and a test compares them:
+Adding one means touching all five, and a test compares them:
 
 1. the classification in `types/runtimeConfig.types.ts`, and its `VITE_` name in `lib/env.ts`
 2. `apps/portal/.env.example`
@@ -48,11 +49,22 @@ Adding one means touching all six, and a test compares them:
    one map from Terraform output name to configuration key, for a value Terraform computes; a
    GitHub repository variable for a genuine **input** Terraform is *given*. Today only
    `environment` and `maxUploadBytes` are inputs
-4. **both** the build env and the render step in `.github/workflows/deploy-app.yml`
-5. the ECS task definition
-6. the container entrypoint's own `KEYS`/`REQUIRED` lists in
-   `apps/portal/docker/docker-entrypoint.d/40-render-portal-config.sh` — the leg that actually renders
-   the served document
+4. the ECS task definition — `local.spa_runtime_config` at root, which `modules/spa` renders one
+   `CONFIG_<key>` entry per map entry from
+5. the container entrypoint's own `KEYS`/`REQUIRED` lists in
+   `apps/portal/docker/docker-entrypoint.d/40-render-portal-config.sh` — the leg that actually
+   renders the served document, compared against the classification in `lambdas/test_spa_image.py`
+
+It was six until the CloudFront delivery path was retired: `deploy-app.yml` carried a build env
+and a render step, each its own site. **The count went DOWN by a deletion, which is the direction
+that hides a gap** — so the entrypoint's two lists gained a real comparison in the same change,
+rather than inheriting a claim that a deleted workflow's tests had been covering them.
+
+Site 3 survives the retirement and had to be **edited** by it. The map named `cloudfront_domain`
+as the source of `appUrl`; that output is deleted here, and `resolve-config.sh` refuses an output
+it cannot resolve — so leaving the entry would have failed `Publish Config` on every run, with the
+flag document silently stuck at its last value. It names `spa_origin` now, which is what root's
+own `spa_runtime_config` has always given the container.
 
 **Site 3 was "the GitHub repository variable" for every key until the deploy learned to read state.**
 That arrangement made a person the transport between `tofu output` and a settings page: a value that
@@ -108,5 +120,5 @@ else would have caught it.
 If a reachability assertion fails it is a finding to raise, **not** a licence to widen infra.
 
 The flag key set is re-stated in that suite rather than imported from the validator, so a test
-cannot pass by agreeing with a mistake it imported. A key is added in six places, and that
+cannot pass by agreeing with a mistake it imported. A key is added in five places, and that
 restatement is the one that fails if the validator was not among them.

@@ -444,11 +444,12 @@ only reads; the API enqueues on its behalf.
   what production fails — and its expected count comes from the deploy table, never from the same
   rule the sweep uses, or renaming a handler drops **both** sides and agrees.
 - **Configuration is a RUNTIME document** (`/config.json`, `no-store`, refused whole on version)
-  with **no production fallback**. Its key set is wired in six places, asserted across all, and the
+  with **no production fallback**. Its key set is wired in five places, asserted across all, and the
   container **refuses to start** on a required one unset or empty. **The deploy READS the values
   from Terraform state**, one `tofu output -json` through `.github/config-outputs.json`, refusing an
   absent *or empty* output by name; only a genuine **input** is still a repository variable, because
-  an input cannot be read from the thing it configures. The API's **verifier** config is
+  an input cannot be read from the thing it configures — so retiring an origin means **re-pointing
+  that map**, not just deleting the output. The API's **verifier** config is
   server-side, never in the browser's document — and the exclusion cuts one way: a rule forbidding
   "anything identity-shaped" takes Amplify's own Cognito keys with it.
 - **Origins are admitted ADDITIVELY**, narrowed only at the cutover — an allowlist naming one

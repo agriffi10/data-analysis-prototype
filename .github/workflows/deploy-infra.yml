@@ -129,7 +129,6 @@ jobs:
         run: set -o pipefail && tofu plan -no-color -out=tfplan 2>&1 | tee /tmp/plan.txt
         env:
           TF_VAR_aws_region: ${{ vars.AWS_REGION }}
-          TF_VAR_app_url: ${{ vars.VITE_APP_URL }}
           TF_VAR_github_repo: ${{ vars.TF_VAR_github_repo }}
           TF_VAR_state_bucket: ${{ secrets.TF_VAR_state_bucket }}
           TF_VAR_state_lock_table: ${{ secrets.TF_VAR_state_lock_table }}
@@ -375,7 +374,6 @@ jobs:
           tofu apply -auto-approve $REFRESH_FLAG
         env:
           TF_VAR_aws_region: ${{ vars.AWS_REGION }}
-          TF_VAR_app_url: ${{ vars.VITE_APP_URL }}
           TF_VAR_github_repo: ${{ vars.TF_VAR_github_repo }}
           TF_VAR_state_bucket: ${{ secrets.TF_VAR_state_bucket }}
           TF_VAR_state_lock_table: ${{ secrets.TF_VAR_state_lock_table }}
