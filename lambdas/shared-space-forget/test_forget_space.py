@@ -7,6 +7,8 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
 import forget_space as f
+import membership_index as forget_membership_index
+import registry as forget_registry
 from auth import AuthorizationError
 from fakes import install, raises
 
@@ -51,6 +53,101 @@ def test_forget_own_failed_space_tears_down_resources_and_frees_name():
     assert cognito.users["alice"]["custom:shared_space_1"] == ""  # slot cleared
     assert _cache(s3, "alice") == []                           # cache entry gone
     assert ("admin-bkt", "shared-spaces/sales.json") not in s3.store  # registry deleted -> name freed
+
+
+# Teardown: a delete that failed partway leaves a MULTI-member record in `failed`, and that
+# record reaches this branch too — so the single-member reasoning that once justified clearing
+# only the actor does not cover it. A slot still holding the name after reg.delete has freed it
+# is a principal tag on whatever gets created under that name next, because the portal role's
+# shared-space policy is scoped on the tag VALUE, not on any space identity.
+#
+# The state is sampled AT reg.delete rather than after it, so the ORDER is asserted too: clearing
+# after the name is freed would leave the same end state here but, on a fault partway through,
+# would free the name with tags still standing — which is the bug itself, reintroduced.
+def test_forget_multi_member_failed_space_clears_every_slot_BEFORE_the_name_is_freed():
+    members = ("alice", "bob", "carol")
+    s3, glue, _lf, cognito = install()
+    cognito.users = {m: {"custom:shared_space_1": "sales"} for m in members}
+    registry = {
+        "name": "sales",
+        "owner": "alice",
+        "members": list(members),
+        "status": "failed",
+        "reason": "teardown left objects behind",
+    }
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(registry).encode()
+    s3.store[("shared-bkt", "sales/DO_NOT_DELETE.txt")] = b"marker"
+    glue.databases.add("sales")
+    glue.tables["sales"] = ["t1"]
+    for m in members:
+        _seed_cache(s3, m, [{"name": "sales", "role": "owner" if m == "alice" else "member", "status": "active"}])
+
+    at_delete = {}
+    real_delete = forget_registry.delete
+
+    def watching_delete(name):
+        at_delete.update({m: (cognito.users[m]["custom:shared_space_1"], _cache(s3, m)) for m in members})
+        return real_delete(name)
+
+    forget_registry.delete = watching_delete
+    try:
+        out = f.forget_space("sales", "alice", "req-f", registry)
+    finally:
+        forget_registry.delete = real_delete
+
+    assert out["mode"] == "teardown"
+    assert ("admin-bkt", "shared-spaces/sales.json") not in s3.store  # name freed for reuse
+    assert at_delete == {m: ("", []) for m in members}, at_delete
+
+
+# A fault anywhere in the fan-out must leave the ACTOR's card standing. That card is the only
+# row the Connections page renders, so it is the sole affordance for asking again — without it
+# the space is torn down, still holding its name via the surviving registry record, and
+# invisible to the one user who could retry. The other members' cards are already gone, which
+# is correct: their access is what was being withdrawn.
+def test_forget_teardown_fault_leaves_the_actors_card_so_the_verb_can_be_retried():
+    members = ("alice", "bob")
+    s3, glue, _lf, cognito = install()
+    cognito.users = {m: {"custom:shared_space_1": "sales"} for m in members}
+    registry = {"name": "sales", "owner": "alice", "members": list(members), "status": "failed"}
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(registry).encode()
+    glue.databases.add("sales")
+    for m in members:
+        _seed_cache(s3, m, [{"name": "sales", "role": "owner" if m == "alice" else "member", "status": "active"}])
+
+    real_drop_for_all = forget_membership_index.drop_for_all
+    forget_membership_index.drop_for_all = lambda *_a, **_kw: (_ for _ in ()).throw(RuntimeError("index unreadable"))
+    try:
+        raises(lambda: f.forget_space("sales", "alice", "req-f", registry), RuntimeError, "index unreadable")
+    finally:
+        forget_membership_index.drop_for_all = real_drop_for_all
+
+    assert ("admin-bkt", "shared-spaces/sales.json") in s3.store   # name still locked, not freed
+    assert _cache(s3, "alice") != []                               # actor keeps the retry affordance
+    assert _cache(s3, "bob") == []                                 # member's access already withdrawn
+
+
+# The index fan-out takes the same roster as the slot loop, not the bare `members` list, so the
+# two cannot disagree about who held a claim. They differ only for a record whose `members` omits
+# its own owner — which nothing writes today, so this pins the defence rather than a live path.
+# It matters because the index is the tag source once it supersedes the Cognito slots: a stale
+# index entry for a freed name is the same entitlement hole through the other store.
+def test_forget_teardown_index_fanout_covers_the_owner_even_if_members_omits_them():
+    s3, glue, _lf, cognito = install()
+    cognito.users = {m: {"custom:shared_space_1": "sales"} for m in ("alice", "bob")}
+    registry = {"name": "sales", "owner": "alice", "members": ["bob"], "status": "failed"}
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(registry).encode()
+    glue.databases.add("sales")
+    for m in ("alice", "bob"):
+        s3.store[("admin-bkt", f"memberships/{m}.json")] = json.dumps(
+            {"version": 1, "username": m, "spaces": [{"name": "sales", "status": "active"}]}
+        ).encode()
+        _seed_cache(s3, m, [{"name": "sales", "role": "owner" if m == "alice" else "member", "status": "active"}])
+
+    f.forget_space("sales", "alice", "req-f", registry)
+
+    for m in ("alice", "bob"):
+        assert json.loads(s3.store[("admin-bkt", f"memberships/{m}.json")])["spaces"] == [], f"{m} still indexed"
 
 
 # Refuse: a healthy active space the actor belongs to.
