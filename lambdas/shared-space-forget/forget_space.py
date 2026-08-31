@@ -34,19 +34,26 @@ def forget_space(space, actor, request_id, registry):
     are the actor's own claim on the space and this verb exists to end it. The cache-only path
     leaves the registry alone by design; it does not leave the entitlement behind.
 
-    **The teardown path clears the WHOLE roster's index, not just the actor's**, because it calls
-    ``reg.delete`` and the record is the name lock: an index still naming a space whose name is
-    free is an entitlement to whatever gets created next. The single-member reasoning below holds
-    for a failed *create*, which is creator-only — but a delete that fails partway sets ``failed``
-    on a record that keeps its members, and that record reaches this branch too. The Cognito slots
-    of those other members are NOT cleared here, which is a pre-existing residual of this verb
-    rather than something the index introduces; it is named so the asymmetry is deliberate.
+    **The teardown path clears the WHOLE roster — every member's slot, index entry and cache card,
+    not just the actor's** — because it calls ``reg.delete`` and the record is the name lock: a
+    claim still naming a space whose name is free is an entitlement to whatever gets created under
+    it next, since the portal role's shared-space policy is scoped on the membership tag value and
+    not on any space identity. A failed create is single-member, creating being creator-only — but
+    that is not the only record reaching this branch, and reasoning from it is what once left the
+    other members' slots standing: a delete that fails partway sets ``failed`` on a record that
+    keeps its members. The clearing runs BEFORE ``reg.delete``, so a fault partway through leaves
+    the name locked rather than free with tags still standing.
+
+    The actor's own cache card is removed LAST, out of step with the loop, because it is the row
+    the Connections page renders and therefore the only affordance for retrying this verb. A fault
+    anywhere in the fan-out has to leave that card standing, or the space is stranded: torn down,
+    still holding its name, and invisible to the one user who could ask again. The other members'
+    cards go inside the loop, since their access is what is being withdrawn.
 
     Three outcomes. An active space the actor still belongs to is refused, because clearing a
     healthy membership's cache entry would recreate the vanishing-space bug — owners delete and
     members leave. The actor's own non-active space is torn down in full and the registry record
-    deleted, freeing the name; a failed create is single-member, since creating is creator-only,
-    so there is no one else to clear, and every teardown step is idempotent. Everything else — no
+    deleted, freeing the name, and every teardown step is idempotent. Everything else — no
     registry record, or a space owned by someone else — is cache-only, touching nothing but the
     caller's own projection and slot.
 
@@ -82,8 +89,12 @@ def forget_space(space, actor, request_id, registry):
             teardown.delete_shared_prefix(space)
             teardown.revoke_portal_role(space)
             teardown.drop_database(space)
-            membership.clear_slot(actor, space)
-            membership_index.drop_for_all(members, space)
+            roster = list(dict.fromkeys([actor, *members]))
+            for member in roster:
+                membership.clear_slot(member, space)
+                if member != actor:
+                    cache.remove_entry(member, space)
+            membership_index.drop_for_all(roster, space)
             cache.remove_entry(actor, space)
             reg.delete(space)
             logger.info("forget %s by %s: tore down own non-active space", space, actor)
@@ -92,7 +103,8 @@ def forget_space(space, actor, request_id, registry):
                 space=space,
                 actor=actor,
                 mode="teardown",
-                stores=["registry", "glue", "cache", "membership-index"],
+                members_applied=len(roster),
+                stores=["registry", "cognito", "glue", "cache", "membership-index"],
             )
             return {"status": "ok", "action": "forget", "space": space, "mode": "teardown"}
     membership.clear_slot(actor, space)
@@ -104,7 +116,7 @@ def forget_space(space, actor, request_id, registry):
         space=space,
         actor=actor,
         mode="cache_only",
-        stores=["cache", "membership-index"],
+        stores=["cognito", "cache", "membership-index"],
         registry_left_intact=True,
     )
     return {"status": "ok", "action": "forget", "space": space, "mode": "cache_only"}
