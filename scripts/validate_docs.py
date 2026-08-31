@@ -51,6 +51,18 @@ Attributes:
     while still being advertised in ``process.md``. The digest is a reminder with the reasoning in
     ``decisions/``; past this length it has become the reasoning.
   DELIVERY_MAX_LINES: A delivery doc is "what shipped + what changed", typically under a page.
+  FR_CEILING: How many Functional Requirements one spec may carry (``docs/process.md`` §4). Named
+    here rather than inlined so the number that enforces the rule is discoverable from the
+    constants block if the rule ever moves.
+  SPEC_OVERSIZE_MAX: How many specs may carry more than eight Functional Requirements. A ratchet
+    at the measured level, and the only budget here whose unit is the SPEC rather than the file.
+    ``docs/process.md`` §4 caps a spec at eight FRs: past that it is not a big spec, it is a spec
+    that should have been two, and the cure is a second spec beside it with the pair's build order
+    in ``ARCS.md``. Making that a per-spec failure would red ``main`` on 41 specs written before
+    the rule, so the count is held instead — a new over-size spec fails, the existing ones do not,
+    and splitting one LOWERS this number in the same PR. A genuinely indivisible spec may still sit
+    above eight, but it is paid for out of this ratchet rather than waved through, which is what
+    makes the trade visible.
   STATUS_WORDS: Words that must not appear in an ``ARCS.md`` arc heading. Status lives in
     ``INDEX.md``, which is the only place it can be kept true.
   SOURCE_TREES: Where source lives, per language, for the citation check.
@@ -82,6 +94,8 @@ FIXTURES_MAX_SCRIPTS = 1
 CLAUDE_MAX_BYTES = 50_000
 DIGEST_MAX_CHARS = 1_400
 DELIVERY_MAX_LINES = 260
+FR_CEILING = 8
+SPEC_OVERSIZE_MAX = 41
 def decision_areas() -> list[str]:
     """Read the areas ``CLAUDE.md``'s Key Decisions digest groups by, in order.
 
@@ -448,6 +462,85 @@ def check_spec_status() -> list[str]:
     return errors
 
 
+def check_spec_size() -> list[str]:
+    """Hold the number of over-size specs at the level it was measured at.
+
+    A spec is one coherent slice of behavior (``docs/process.md`` §4): aim 3-6 Functional
+    Requirements, and past eight write a second spec beside the first rather than growing one.
+    Across these specs the median carries six FRs and four in five carry eight or fewer, so the
+    ones above the line are a tail rather than the norm — which is why this is a ratchet on the
+    COUNT and not a failure per spec.
+
+    FRs are counted as distinct ``### FR-NNN`` headings outside fenced blocks and HTML comments.
+    Both exclusions are load-bearing: a spec that quotes FR headings in an example, or comments
+    some out while splitting, would otherwise be told to split on requirements it does not have.
+
+    Args:
+      None.
+
+    Returns:
+      One message naming the over-size specs when the count exceeds the ratchet, else none.
+
+    Raises:
+      None.
+    """
+    fence = re.compile(r"^\s*(?:```|~~~)")
+    inline_comment = re.compile(r"<!--[^>]*-->")
+    heading = re.compile(r"^### (FR-\d+)")
+    oversize: list[tuple[str, int]] = []
+    unparsed: list[str] = []
+    for path in sorted((ROOT / "docs" / "specs").glob("SPEC-*.md")):
+        ids, in_fence, in_comment = set(), False, False
+        for raw in path.read_text().splitlines():
+            # A comment closes before a fence opens, so a ``` quoted inside a comment
+            # cannot swallow the rest of the file. A one-line <!-- ... --> is stripped
+            # rather than skipped, so a heading with a trailing note still counts.
+            if in_comment:
+                in_comment = "-->" not in raw
+                continue
+            if in_fence:
+                if fence.match(raw):
+                    in_fence = False
+                continue
+            if fence.match(raw):
+                in_fence = True
+                continue
+            line = inline_comment.sub("", raw)
+            if "<!--" in line:
+                in_comment = True
+                continue
+            found = heading.match(line)
+            if found:
+                ids.add(found.group(1))
+        if not ids:
+            unparsed.append(path.name)
+        if len(ids) > FR_CEILING:
+            oversize.append((path.name, len(ids)))
+    # A ratchet sitting exactly at its threshold goes vacuous the moment the parse stops
+    # matching: every spec reads as zero FRs, nothing is over the ceiling, and the only
+    # enforcement of \u00a74 passes forever with no signal. Every spec has FRs, so none may parse
+    # to none.
+    errors = [
+        f"{name}: no '### FR-NNN' headings — the size ratchet cannot see this spec"
+        for name in unparsed
+    ]
+    if len(oversize) <= SPEC_OVERSIZE_MAX:
+        return errors
+    return [
+        *errors,
+        (
+            f"{len(oversize)} specs carry more than {FR_CEILING} FRs "
+            f"(ratchet {SPEC_OVERSIZE_MAX}). A spec in this PR crossed the ceiling — added "
+            "or grown. Split it into two and record the pair in ARCS.md "
+            "(docs/process.md \u00a74). Which existing specs are over is deliberately not "
+            "listed: several sit exactly at the line, so any list names other people's "
+            "files rather than the one in your diff. If yours is genuinely indivisible, "
+            "raise this constant by one and say why in the spec (docs/process.md \u00a74) — "
+            "that is the argued exception, not the reflex."
+        )
+    ]
+
+
 def check_delivery_size() -> list[str]:
     """Keep a delivery doc to what shipped and what changed, not a second copy of the spec.
 
@@ -633,6 +726,7 @@ def main() -> int:
         check_decisions_register,
         check_arcs,
         check_spec_status,
+        check_spec_size,
         check_delivery_size,
         check_source_citations,
         check_links,

@@ -85,7 +85,11 @@ Specs move **Draft → In Progress → Completed** (the status in each spec's he
 
 **Arcs.** Related specs are grouped into *arcs* (file-operations, analytics, query-editor UX,
 shared-connections, notifications) with an explicit **build order** documented in
-`docs/specs/ARCS.md`. Build in that order; arcs can have non-obvious dependencies (e.g. 056 before 051).
+`docs/specs/ARCS.md`. Build in that order; arcs can have non-obvious dependencies (e.g. 056 before
+051). Grouping is a choice; recording the order of a **size split** (§4) is not — a spec cut for
+size always leaves an arc entry behind. An arc is also what an over-scoped spec *becomes*: a spec
+that runs past the size ceiling in §4 is cured by a second spec beside it and an arc entry holding
+the order, rather than by a longer spec.
 
 ---
 
@@ -114,16 +118,28 @@ session you notice it (two hand-synced copies of one procedure is how numbering 
    useful boundaries are inert-vs-live, either side of a switchover, a deletion following its last
    caller, and infra that must apply before a live check.
 
-**These two reviews are the gates, and they are the only ones that need answering.** Once the plan
-and the grouping have each been reviewed, the build runs to completion without checking in. The user
+**These two reviews are the only ones that gate the START of the build.** Once the plan and the
+grouping have each been reviewed, the build runs to completion without checking in. This does
+**not** retire the diff reviews — those gate the push, at the other end, and they are blocking
+too. Four reviews stand between a spec going In Progress and its PR merging: one on the plan
+before the first line of code, one on the PR grouping, and two on the diff — all four before the
+first push. The user
 confirmed the work when they set the spec going; a per-phase check-in re-asks a question already
 answered, and on a twelve-phase spec it asks it twelve times.
 
 **During the build — one spec, in phases**
 - Every file-changing task is done on its **own branch** and opened as a **PR** — automatically, without
   waiting to be asked. Never commit to `main` directly.
-- **The diff review runs BEFORE the push, not before the merge.** Commit locally, run the gates, send
-  the diff to a fresh-context reviewer, fix or explicitly reject every finding — *then* push and open
+- **An acceptance criterion that cannot settle before the push does not pass the pre-push review —
+  it is recorded as owed on the PR.** A criterion that closes "against a green CI run" is
+  undecidable while the branch is still local, and the failure mode is a reviewer ticking it
+  vacuously. Name it in the PR body's **Owed** list, settle it on the green run, and do not merge
+  until it is settled. This is a different ledger from `docs/testing/owed.md`, which holds live
+  checks that cannot be run from a signed-in session at all; a criterion that merely needs CI to
+  go green belongs on the PR and is discharged there.
+- **The diff reviews run BEFORE the push, not before the merge — and there are two of them.** Commit
+  locally, run the gates, send the diff to **two** fresh-context reviewers in **different frames**
+  (*The reviewer contract*, below), fix or explicitly reject every finding — *then* push and open
   the PR. Pushing first and reviewing after inverts the gate: the branch is already public, the fixes
   arrive as follow-up commits, and the review reads as commentary on something that has already
   happened rather than as the thing that decides whether it should. Rotating the frame (below) happens
@@ -161,7 +177,37 @@ Nothing reaches the next stage on its author's own judgement. A **spec**, an **i
 and a **diff** each go to a reviewer in a **fresh context** — a subagent or a new session, never the
 context that produced the artifact. An author reviewing their own work assumes its output was
 intended and rubber-stamps it; that is as true of a plan as of code, and a wrong plan is the more
-expensive of the two, because the code that follows will faithfully implement it.
+expensive one to leave *undetected*, because the code that follows will faithfully implement it.
+
+**How many reviewers, and where.** **One** on the spec when it is written, **one** on the
+implementation plan when the build actually starts, and **two** on the diff before it is pushed —
+plus the narrow pass on the PR grouping below. The diff gets two because it is the **widest**
+artifact and the last one before the branch goes public: a spec or a plan is one document a single
+reader can hold whole, while a diff spans code, infrastructure and tests *and* the criteria they
+are supposed to satisfy, and the method's measured history (*Rotating the frame*, below — measured
+on a sibling repo, not here) is that the first differently-framed pass over a change finds a class
+the previous frames could not see: after eight rounds spread across the spec, its revisions and
+the code, the first rotation found ~25 further defects. That evidence argues for a **different
+frame**, not for the number two; two is the floor because one frame is demonstrably not enough
+and a floor has to be a number.
+
+The two are **two frames, not two rounds** — the same frame run twice buys wording — and they are
+not free picks. One starts from the **change** and reads it against what it is supposed to
+satisfy; the other starts from **something other than the change**, which is the same requirement
+as "at least one pass must start from the feature, not the diff" below. On a code diff those are:
+the spec's acceptance criteria plus the `best-practices/` rules for the domains it touches, and a
+pass that **builds** the thing and runs the suites rather than reading it. On a diff with no code
+in it — a spec, a plan, a docs change — they are: the artifact against its own sources, and the
+artifact against every *other* place the same rule is stated. Both land **before** the push; a
+review that only happens once the branch is public does not count toward the two.
+
+Every count here is a **floor**, not a cap, but the two floors work differently and should not be
+read across. **On a diff**, two is a minimum before a push: a clean first review does not close
+the gate, because "the reviewer found nothing" means nothing within the frame it was given, and
+the exit rules below decide when to stop *above* two. **On a spec or a plan**, one review closes
+the gate — a clean review there is an answer. What makes that count a floor is **re-entry**: a
+revised artifact is a new artifact and goes back through the gate as one, which is why a phase
+that rewrites the plan sends the new plan through again.
 
 - **The gate is blocking, and what it asks for is an answer, not a filing.** A spec is not
   Draft-ready, a plan does not start code, and a branch does not reach the remote, until every
@@ -201,6 +247,9 @@ several of them years old.
   spec alone and report what it could not determine. For a plan: one asked to find the phase that
   will be discovered impossible. For code: adversarial *execution*, whole-feature fresh eyes, a11y,
   security, or concurrency.
+- **The exit rules govern the ceiling, never the floor.** "Never exit on a round count" is about when
+  to *stop*; it does not license stopping below the counts in *The reviewer contract*. A diff still
+  gets its two frames even when the first one comes back clean.
 - **At least one pass must start from the feature, not the diff.** Every diff-scoped review is
   structurally blind to a defect that predates the diff — and to the states the diff is never
   exercised in: SPEC-140's CSP was reviewed and verified *signed in*, and the `connect-src` host it
@@ -245,6 +294,9 @@ several of them years old.
   and contradictions → coin-flips no test would catch. Stop when a new frame's worst finding is one
   that would not change the built result, **and say which finding that was.** "The reviewer found
   nothing" only ever means "nothing within the frame I gave it."
+  **This governs the ceiling, never the floor.** It says when to stop *above* the counts in *The
+  reviewer contract*, not that a count can be skipped: a diff still gets its two frames when the
+  first comes back with nothing that would change the built result.
 
 **When a review changes a rule, re-audit the rule — not the line**
 
@@ -347,6 +399,29 @@ Specs are written from `docs/templates/spec-template.md`. What makes a spec *bui
 - **Functional Requirements** — one FR per discrete, testable behavior, with binary pass/fail
   **Acceptance Criteria** covering happy path, error path, and edges. Sequential IDs so a prompt can
   say "implement FR-001 through FR-003 only."
+- **Size: aim for 3–6 FRs, and split above 8.** A spec is one coherent slice of behavior, not a
+  feature's whole surface, and a spec past eight is not a big spec — it is a spec that should have
+  been two. (Measured once, when this rule landed on 2026-08-31: the median spec carried 6 FRs and
+  four in five carried 8 or fewer. A dated observation, not a standing claim about the corpus — §5
+  forbids a rule resting on a number that rots.) The 3–6 aim sits at or below that median
+  deliberately: it is where the method is going, not where it already is. Growing one spec is the
+  wrong repair; the right one is a second spec beside it, with the pair's build order recorded in
+  `ARCS.md` as an **arc** (§2). Splitting keeps paying off past the first cut — a three-spec arc
+  reads better than one fourteen-FR spec, and each piece earns its own reviewed plan, its own
+  review gate and its own delivery doc. Cut along a seam the system already has — a plane, a
+  surface, a switchover, the point where something inert goes live — never at "FR-009, because that
+  is where the count ran out." **The second spec restarts at FR-001**: IDs are spec-local, which is
+  why a dependency cites them as "SPEC-111 FR-001" and never as a number on its own.
+- **The ceiling is a ratchet, not a per-spec fail.** `validate_docs.py` holds the *number of specs*
+  above 8 at the level it was measured at, in the same shape as every other budget in that file: a
+  new over-size spec fails CI, the ones that predate the rule do not, and splitting one lowers the
+  constant in the same PR. The number lives in `SPEC_OVERSIZE_MAX` and is deliberately not repeated
+  here — two hand-synced copies of one number is how they drift (§3). A genuinely indivisible spec
+  can still sit above the line, but it is paid for out of the ratchet, which means **raising
+  `SPEC_OVERSIZE_MAX` by one in the same PR**, the way `CLAUDE_MAX_BYTES` was raised: a deliberate,
+  argued edit rather than a reflex. Say why in one line under *Scope → In Scope*, and it is the
+  reviewer's call to accept or reject — "it is all one feature" is the claim to be most skeptical
+  of, because it is what every over-scoped spec says about itself.
 - **Data Model / Interface Contract** — TypeScript shapes, not prose. Explicit types produce
   better-typed output. Note the target path (`src/types/…`).
 - **Implementation Phases** — each phase is one session's worth of work and maps to a discrete,
@@ -420,7 +495,8 @@ When a spec is done, in the same pass:
 > **`scripts/validate_docs.py` enforces the structural half of these rules and runs on every PR**
 > (`ci.yml` → *Validate the documentation layout*). It holds: `docs/testing/` to the guide, the
 > ledger, the log and at most **one** in-flight arc script; `docs/testing/fixtures/` to
-> plane-named scripts within a ratchet, refusing a spec-numbered one outright; `CLAUDE.md` to a
+> plane-named scripts within a ratchet, refusing a spec-numbered one outright; the number of specs
+> carrying more than 8 FRs to a ratchet at the measured level (§4); `CLAUDE.md` to a
 > byte budget and each
 > Key Decisions line to a length; the `docs/decisions/` register to one file per digest area, each
 > routed by its `INDEX.md`, with one heading level per entry and a Contents that reaches every one
