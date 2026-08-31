@@ -484,23 +484,30 @@ def check_spec_size() -> list[str]:
     Raises:
       None.
     """
-    fence = re.compile(r"^\s*```")
+    fence = re.compile(r"^\s*(?:```|~~~)")
+    inline_comment = re.compile(r"<!--[^>]*-->")
     heading = re.compile(r"^### (FR-\d+)")
     oversize: list[tuple[str, int]] = []
     unparsed: list[str] = []
     for path in sorted((ROOT / "docs" / "specs").glob("SPEC-*.md")):
         ids, in_fence, in_comment = set(), False, False
-        for line in path.read_text().splitlines():
-            if fence.match(line):
-                in_fence = not in_fence
+        for raw in path.read_text().splitlines():
+            # A comment closes before a fence opens, so a ``` quoted inside a comment
+            # cannot swallow the rest of the file. A one-line <!-- ... --> is stripped
+            # rather than skipped, so a heading with a trailing note still counts.
+            if in_comment:
+                in_comment = "-->" not in raw
                 continue
             if in_fence:
+                if fence.match(raw):
+                    in_fence = False
                 continue
-            if in_comment:
-                in_comment = "-->" not in line
+            if fence.match(raw):
+                in_fence = True
                 continue
+            line = inline_comment.sub("", raw)
             if "<!--" in line:
-                in_comment = "-->" not in line
+                in_comment = True
                 continue
             found = heading.match(line)
             if found:
@@ -523,11 +530,13 @@ def check_spec_size() -> list[str]:
         *errors,
         (
             f"{len(oversize)} specs carry more than {FR_CEILING} FRs "
-            f"(ratchet {SPEC_OVERSIZE_MAX}). The spec you just added is over the ceiling: "
-            "split it into two and record the pair in ARCS.md (docs/process.md \u00a74). "
-            "Naming which existing specs are over is deliberately left out — with several "
-            "sitting exactly at the line, any list names innocent files rather than yours. "
-            "Raising this number is the failure mode; splitting one lowers it."
+            f"(ratchet {SPEC_OVERSIZE_MAX}). A spec in this PR crossed the ceiling — added "
+            "or grown. Split it into two and record the pair in ARCS.md "
+            "(docs/process.md \u00a74). Which existing specs are over is deliberately not "
+            "listed: several sit exactly at the line, so any list names other people's "
+            "files rather than the one in your diff. If yours is genuinely indivisible, "
+            "raise this constant by one and say why in the spec (docs/process.md \u00a74) — "
+            "that is the argued exception, not the reflex."
         )
     ]
 

@@ -130,6 +130,13 @@ answered, and on a twelve-phase spec it asks it twelve times.
 **During the build — one spec, in phases**
 - Every file-changing task is done on its **own branch** and opened as a **PR** — automatically, without
   waiting to be asked. Never commit to `main` directly.
+- **An acceptance criterion that cannot settle before the push does not pass the pre-push review —
+  it is recorded as owed on the PR.** A criterion that closes "against a green CI run" is
+  undecidable while the branch is still local, and the failure mode is a reviewer ticking it
+  vacuously. Name it in the PR body's **Owed** list, settle it on the green run, and do not merge
+  until it is settled. This is a different ledger from `docs/testing/owed.md`, which holds live
+  checks that cannot be run from a signed-in session at all; a criterion that merely needs CI to
+  go green belongs on the PR and is discharged there.
 - **The diff reviews run BEFORE the push, not before the merge — and there are two of them.** Commit
   locally, run the gates, send the diff to **two** fresh-context reviewers in **different frames**
   (*The reviewer contract*, below), fix or explicitly reject every finding — *then* push and open
@@ -287,6 +294,9 @@ several of them years old.
   and contradictions → coin-flips no test would catch. Stop when a new frame's worst finding is one
   that would not change the built result, **and say which finding that was.** "The reviewer found
   nothing" only ever means "nothing within the frame I gave it."
+  **This governs the ceiling, never the floor.** It says when to stop *above* the counts in *The
+  reviewer contract*, not that a count can be skipped: a diff still gets its two frames when the
+  first comes back with nothing that would change the built result.
 
 **When a review changes a rule, re-audit the rule — not the line**
 
@@ -390,23 +400,27 @@ Specs are written from `docs/templates/spec-template.md`. What makes a spec *bui
   **Acceptance Criteria** covering happy path, error path, and edges. Sequential IDs so a prompt can
   say "implement FR-001 through FR-003 only."
 - **Size: aim for 3–6 FRs, and split above 8.** A spec is one coherent slice of behavior, not a
-  feature's whole surface. Across this repo's 216 specs the median carries 6 FRs and four in five
-  carry 8 or fewer, so a spec past eight is not a big spec — it is a spec that should have been two.
-  The 3–6 aim sits at or below that median deliberately: it is where the method is going, not a
-  description of where it already is. Growing one spec is the wrong repair; the right one is a
-  second spec beside it, with the pair's build order recorded in `ARCS.md` as an **arc** (§2).
-  Splitting keeps paying off past the first cut — a three-spec arc reads better than one fourteen-FR
-  spec, and each piece earns its own reviewed plan, its own review gate and its own delivery doc.
-  Cut along a seam the system already has — a plane, a surface, a switchover, the point where
-  something inert goes live — never at "FR-009, because that is where the count ran out." **The
-  second spec restarts at FR-001**: IDs are spec-local, which is why a dependency cites them as
-  "SPEC-111 FR-001" and never as a number on its own.
+  feature's whole surface, and a spec past eight is not a big spec — it is a spec that should have
+  been two. (Measured once, when this rule landed on 2026-08-31: the median spec carried 6 FRs and
+  four in five carried 8 or fewer. A dated observation, not a standing claim about the corpus — §5
+  forbids a rule resting on a number that rots.) The 3–6 aim sits at or below that median
+  deliberately: it is where the method is going, not where it already is. Growing one spec is the
+  wrong repair; the right one is a second spec beside it, with the pair's build order recorded in
+  `ARCS.md` as an **arc** (§2). Splitting keeps paying off past the first cut — a three-spec arc
+  reads better than one fourteen-FR spec, and each piece earns its own reviewed plan, its own
+  review gate and its own delivery doc. Cut along a seam the system already has — a plane, a
+  surface, a switchover, the point where something inert goes live — never at "FR-009, because that
+  is where the count ran out." **The second spec restarts at FR-001**: IDs are spec-local, which is
+  why a dependency cites them as "SPEC-111 FR-001" and never as a number on its own.
 - **The ceiling is a ratchet, not a per-spec fail.** `validate_docs.py` holds the *number of specs*
   above 8 at the level it was measured at, in the same shape as every other budget in that file: a
-  new over-size spec fails CI, the 41 that predate the rule do not, and splitting one lowers the
-  constant in the same PR. A genuinely indivisible spec can still sit above the line, but it is
-  paid for out of the ratchet, said **out loud** in one line under *Scope → In Scope*, and it is the
-  reviewer's call to accept or reject. "It is all one feature" is the claim to be most skeptical
+  new over-size spec fails CI, the ones that predate the rule do not, and splitting one lowers the
+  constant in the same PR. The number lives in `SPEC_OVERSIZE_MAX` and is deliberately not repeated
+  here — two hand-synced copies of one number is how they drift (§3). A genuinely indivisible spec
+  can still sit above the line, but it is paid for out of the ratchet, which means **raising
+  `SPEC_OVERSIZE_MAX` by one in the same PR**, the way `CLAUDE_MAX_BYTES` was raised: a deliberate,
+  argued edit rather than a reflex. Say why in one line under *Scope → In Scope*, and it is the
+  reviewer's call to accept or reject — "it is all one feature" is the claim to be most skeptical
   of, because it is what every over-scoped spec says about itself.
 - **Data Model / Interface Contract** — TypeScript shapes, not prose. Explicit types produce
   better-typed output. Note the target path (`src/types/…`).
