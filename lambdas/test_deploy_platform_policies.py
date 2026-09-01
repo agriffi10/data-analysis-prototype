@@ -27,8 +27,9 @@ PLATFORM_POLICIES = (
 )
 
 BASE_IAM = ROOT / "infra" / "modules" / "base" / "iam.tf"
-DEFAULT_ATTACHED_MANAGED_POLICIES = 20
-MAX_ATTACHED_MANAGED_POLICIES = 25
+#: The attach ceiling is asserted in ``test_feedback_deploy_grant.py``, against the role's own
+#: attachment count. Two constants for it used to sit here, unused and disagreeing with each
+#: other (20 and 25); a number that asserts nothing is a number nobody notices is wrong.
 
 PLANNED_RESOURCES = {
     "VPC": "arn:aws:ec2:us-east-1:696000197480:vpc/vpc-0abc",

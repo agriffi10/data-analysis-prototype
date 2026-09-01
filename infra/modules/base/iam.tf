@@ -93,6 +93,27 @@ resource "aws_iam_role_policy_attachment" "deploy_notifications" {
   policy_arn = aws_iam_policy.deploy_notifications.arn
 }
 
+# Feedback. The same shape as the notifications block above, and for the same reason: a FIFO
+# queue with its own DLQ, one writer Lambda, its role and its log group. No S3-bucket-manage
+# statement — the writer appends under a prefix of the admin bucket the analytics module already
+# owns, so nothing here creates a bucket.
+resource "aws_iam_policy" "deploy_feedback" {
+  name        = "${var.project_name}-deploy-feedback"
+  description = "Deploy-role grants for the feedback write pipeline (FIFO SQS queue + DLQ, writer Lambda + role + log group, SQS event-source mapping), kept off the role's inline-policy aggregate limit."
+
+  policy = templatefile("${path.module}/policies/github-actions-deploy-feedback.json.tftpl", {
+    project_name = var.project_name
+    aws_region   = var.aws_region
+  })
+
+  depends_on = [time_sleep.wait_for_self_grant]
+}
+
+resource "aws_iam_role_policy_attachment" "deploy_feedback" {
+  role       = aws_iam_role.github_actions_deploy.name
+  policy_arn = aws_iam_policy.deploy_feedback.arn
+}
+
 # Table-builder. No S3-bucket-manage statement: the module creates no bucket.
 # states:ValidateStateMachineDefinition is not resource-scopable, so it sits alone.
 resource "aws_iam_policy" "deploy_table_builder" {

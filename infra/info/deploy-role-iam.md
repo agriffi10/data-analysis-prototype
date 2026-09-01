@@ -3,7 +3,7 @@
 The deploy role **self-grants** — `module.base` writes the permissions the same `tofu apply` then
 uses — so every new resource type in `infra/` walks the same short list of traps. Work through this
 page before merging, and read [`../modules/base/README.md`](../modules/base/README.md) for what the
-role already holds and why it is split across fourteen managed policies.
+role already holds and why it is split across one managed policy per resource family.
 
 **The grant lands in its own PR, applied before the resources that need it.** Every plane module's
 "no `time_sleep` guard is required here" comment is relying on that split.
@@ -112,7 +112,9 @@ narrative is in git history rather than beside a resource.
 
 ## The role's own budgets, and the forced wildcard
 
-Neither failure here is visible in a plan; `lambdas/test_deploy_platform_policies.py` holds both.
+Neither failure here is visible in a plan. The per-document budget and the attach ceiling are
+asserted in `lambdas/test_feedback_deploy_grant.py`, against the rendered policy and the role's
+own attachment count; `lambdas/test_deploy_platform_policies.py` holds the wildcard rule.
 
 **The budgets.** IAM's 10,240-character limit is the **aggregate** of a role's inline policies,
 not a per-policy allowance, and `github-actions-deploy.json.tftpl` already renders to 9,289. A
