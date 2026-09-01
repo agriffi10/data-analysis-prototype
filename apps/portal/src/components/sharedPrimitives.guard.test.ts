@@ -5,8 +5,9 @@ import {describe, it, expect} from 'vitest';
  *
  * The finding this spec recorded is that the problem is not missing components — it is existing
  * components being bypassed and then DRIFTING. Three chip lists were byte-identical until one
- * grew a 24x24 remove target and the other two stayed at 20x20, under WCAG 2.2 SC 2.5.8's
- * minimum; `Badge` shipped and was used by two files while three others hand-rolled it, each
+ * grew an `h-6 w-6` remove target and the other two stayed at `h-5 w-5` — 21px and 17.5px at
+ * this app's 14px root, both under WCAG 2.2 SC 2.5.8's 24px minimum;
+ * `Badge` shipped and was used by two files while three others hand-rolled it, each
  * differing by a token or two. Nothing was holding any of it.
  *
  * These sweeps hold it. A second copy of a consolidated shape fails here rather than in a
@@ -86,5 +87,22 @@ describe('shared primitives are not re-implemented (SPEC-186)', () => {
     ]) {
       expect(filesContaining(variant)).toEqual([]);
     }
+  });
+
+  // The chip's remove target is the one size in this file that encodes an ACCESSIBILITY
+  // THRESHOLD rather than a visual step, and the difference is invisible on the page: the
+  // spacing scale is rem-derived against a 14px root, so `h-6` draws 21px and `h-7` 24.5 —
+  // both of which look right and one of which is under WCAG 2.2 SC 2.5.8's 24. This target
+  // carried a comment claiming 24x24 over a class drawing 21 for the whole of its life,
+  // because nothing but prose was holding it.
+  //
+  // This is a TRIPWIRE, not a behavioural test: it restates the source, which is the point,
+  // since the regression it exists for is a textual tidy back onto the scale. Do not delete it
+  // to make a restyle pass — revisit the decision instead, and note that the measured check
+  // lives in docs/testing/e2e.md, because jsdom has no layout and axe's `target-size` cannot
+  // fail here. `toContain` rather than set equality: the divider's step buttons legitimately
+  // carry the same class, and a second correct user must not redden this.
+  it('pins the chip remove target to an absolute 24px', () => {
+    expect(filesContaining('h-[24px] w-[24px]')).toContain('components/Chip.tsx');
   });
 });

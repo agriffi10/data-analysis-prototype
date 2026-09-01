@@ -75,9 +75,15 @@ an import-time failure there costs.
 ## Consolidation is worth doing against a SWEEP, not against a list
 
 The reuse pass found that the problem is not missing components — it is existing components being
-bypassed and then drifting. Three chip lists were byte-identical until one grew a 24x24 remove
-target and the other two stayed at **20x20**, under WCAG 2.2 SC 2.5.8's minimum; `Badge` shipped and
+bypassed and then drifting. Three chip lists were byte-identical until one grew an `h-6 w-6` remove
+target and the other two stayed at `h-5 w-5`; `Badge` shipped and
 was used by two files while three others hand-rolled it, each differing by a token or two.
+
+That drift was recorded here for years as "24x24" against "20x20", and **neither figure was ever
+real**: the spacing scale is rem-derived against a 14px root, so those classes draw 21px and 17.5px
+and *none* of the three met WCAG 2.2 SC 2.5.8's 24px minimum — including the one this entry called
+correct. The chip's target is now pinned absolutely at `h-[24px] w-[24px]`, because 24 is a
+threshold rather than a step on a scale that tracks the root.
 
 The spec enumerated six status-pill sites; the sweep found **seven** (`LandingPage`, whose own
 comment said "Mirrors UploadList's StatusChip"). It counted eleven caption sites; the sweep found

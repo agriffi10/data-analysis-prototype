@@ -134,7 +134,7 @@ export function QueryTabStrip({
                 on the focused tab (onTabKeyDown), so the same action stays fully
                 operable without this control (WCAG 2.1.1).
                 The last remaining tab renders no ✕ and no placeholder — the tab
-                shrinks to its label rather than holding an empty 24px slot. */}
+                shrinks to its label rather than holding an empty 21px slot. */}
               {!solo && (
                 <span
                   role="presentation"

@@ -82,11 +82,17 @@ export function QueryHistoryRow({
         {stats.length > 0 && <span className="text-xs text-text-3">{stats.join(' · ')}</span>}
         <span className="min-w-0 truncate text-xs text-text-3">{entry.database}</span>
         <div className="flex-1" />
+        {/* The tablet floor is WCAG 2.2 SC 2.5.8's 24 CSS px, written absolutely because it is
+            a THRESHOLD rather than a step on the rem-derived spacing scale — at this app's 14px
+            root `min-h-6` draws 21px while reading as if it met the minimum, and the padded
+            `text-xs` content stops at 23px on its own, so this floor is load-bearing rather
+            than decorative. `min-h-11` is the mobile floor and draws 38.5px, short of the 44
+            that SC 2.5.5 asks for at AAA. */}
         <button
           type="button"
           onClick={onReopen}
           aria-label={openAriaLabel}
-          className="inline-flex min-h-11 items-center rounded-sm px-2 py-1 text-xs font-semibold text-accent-text tablet:min-h-6 hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+          className="inline-flex min-h-11 items-center rounded-sm px-2 py-1 text-xs font-semibold text-accent-text tablet:min-h-[24px] hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
           {openLabel}
         </button>
         <button
@@ -94,7 +100,7 @@ export function QueryHistoryRow({
           onClick={onRerun}
           disabled={rerunDisabled}
           aria-label={runAriaLabel}
-          className="inline-flex min-h-11 items-center rounded-sm px-2 py-1 text-xs font-semibold text-accent-text tablet:min-h-6 hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+          className="inline-flex min-h-11 items-center rounded-sm px-2 py-1 text-xs font-semibold text-accent-text tablet:min-h-[24px] hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
           {runLabel}
         </button>
       </div>
