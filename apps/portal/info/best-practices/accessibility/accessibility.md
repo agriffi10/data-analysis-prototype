@@ -199,16 +199,15 @@ The sweep cannot do that geometry, so it never claims a violation — and a chec
 that reported every small control as one would manufacture failures on correct
 code, which is the same defect as the axe rule pointing the other way.
 
-**What the sweep cannot see, and why nothing here pretends otherwise:** a control
-with **no size class**, whose height is its line box plus padding. A bare
-`text-sm` link is a ~15.5px content-area box (an inline non-replaced element is
-the font's content area — `line-height` sets the *line* box, not the element's);
-a `px-3 py-2 text-sm` menu row is 32px. Both carry no `h-*`, one is undersized
-and one is fine, and only layout separates them. A rule demanding `min-h-[24px]`
-on text-only controls would fire on the correct one. Uncovered on purpose; a
-browser is the only thing that settles it. Also skipped, and said so in the file
-rather than left to be inferred: a class string built somewhere other than the
-tag, an inline style, and an arbitrary value in a unit other than px.
+**What it cannot see is written out at the top of the file itself** — read it
+there rather than here, so the two cannot drift. The headline is a **text-derived
+height**: a control with no size class is its line box plus padding, so a bare
+`text-sm` link is a ~15.5px content-area box while a `px-3 py-2 text-sm` menu row
+is 32px, and only layout separates them. A rule demanding `min-h-[24px]` from
+text-only controls would fire on the correct one, so none was written. The one
+carve-out, because it needs no layout to decide: a **checkbox or radio is a
+replaced element** with no line box that padding can grow, so an unsized one is
+the user agent's 13×13 box and the sweep flags it.
 
 **2. The live checks** — `docs/testing/e2e.md` **§4.13** owns the browser recipe:
 the console one-liner, the `aria-label` fallback it needs, and the

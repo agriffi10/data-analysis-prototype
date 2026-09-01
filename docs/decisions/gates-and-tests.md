@@ -219,7 +219,8 @@ blind spot, and the reason the fix is a disable *with a reason* rather than a no
 disabled set is now one exported constant spread into all three options bags, asserted as such,
 because a bag that spells its own `rules` map and forgets an entry is invisible.
 
-**Audited the rest.** The tags select **70 rules**; each one that plausibly needs layout, computed
+**Audited the rest.** The base bag's tags select **70 rules** (route specs add `best-practice` for
+100; a sample of those was probed too and turned up no second offender, but they were not swept); each one that plausibly needs layout, computed
 style or a document was probed with markup built to violate it, and the rest were read off as
 DOM-only. Four come back silently **inapplicable** rather than passing —
 `scrollable-region-focusable` (nothing in jsdom reports as scrollable), `link-in-text-block`,
@@ -242,10 +243,14 @@ stated in the file so its silence is not read as coverage:
   register is named `ACCEPTED_UNDERSIZED` and its notes say what a control *is*, never that it
   conforms. A sweep reporting every small control as a violation would manufacture failures on
   correct code — the same defect as the axe rule, pointing the other way.
-- **A control with no size class is invisible to it, on purpose.** A bare `text-sm` link is a
-  ~15.5px content-area box and a `px-3 py-2 text-sm` menu row is 32px; neither carries an `h-*`,
-  and only layout separates them. A rule demanding `min-h-[24px]` from text-only controls would
-  fire on the correct one, so none was written.
+- **A control whose height comes from its TEXT is invisible to it, on purpose** — and the full list
+  of limits lives at the top of the test file, not here, so the two cannot drift. The distinction
+  worth keeping in the register is the one that decides whether a static check is honest: a bare
+  `text-sm` link is ~15.5px and a `px-3 py-2 text-sm` menu row is 32px, so demanding a height class
+  from either would fire on the correct one; but a **checkbox or radio is a replaced element**, with
+  no line box padding can grow, so an unsized one is the UA's 13×13 box and there is no correct
+  variant to false-positive on. The general argument does not transfer, and reading it as though it
+  did left the app's largest population of small controls unexamined until a review counted them.
 - **A guard against this class of defect must be planted against.** Every assertion here was
   broken deliberately and watched go red before being reverted, because a check for a vacuous
   guard that is itself vacuous is worse than none. Planting found three holes that reasoning had
@@ -266,8 +271,9 @@ stated in the file so its silence is not read as coverage:
 `min-h-7` is 24.5px under this one and 21px under a 12px one, and nothing would catch the change.
 A rem step expresses visual rhythm, and rhythm is not what this value is for.
 
-> Thirteen controls sit in the register at 21×21 or 14×14, across twelve files — six icon
-> controls and seven checkboxes or radios. Only the chip's has been measured in a browser
-> (31.75px between wrapped rows, comfortably clear). Two of them, the tab-strip closes, sit
-> INSIDE a clickable tab, which is the one geometry the spacing exception cannot rescue — they
-> need a design decision rather than a resize. `docs/testing/owed.md` carries all of it.
+> **`ACCEPTED_UNDERSIZED` is the population and the only place it is counted** — a number repeated
+> in prose goes stale on the first correct fix with nothing to catch it. Only the chip's geometry
+> has been measured in a browser (31.75px between wrapped rows, comfortably clear). Two entries,
+> the tab-strip closes, sit INSIDE a clickable tab, which is the one geometry the spacing exception
+> cannot rescue — they need a design decision rather than a resize. `docs/testing/owed.md` carries
+> what is owed.

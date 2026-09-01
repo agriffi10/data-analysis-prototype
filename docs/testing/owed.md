@@ -133,20 +133,25 @@ recipe anywhere** — write one when you run it.
 | **Monaco keeps the cursor and the scroll position across a theme switch** | `SqlEditor.test.tsx` stubs the editor, so it can assert the buffer and that the editor was not re-created — a **count**, mutation-tested — but there is no cursor and no scrollable viewport in jsdom to lose. The mechanism is `@monaco-editor/react` applying a changed `theme` through `editor.setTheme` in an effect, read out of its `dist`; that is a settled premise, not a run check. | `e2e.md` §4.16 step 4. |
 | **No flash of the light theme before the first paint** | The pre-paint initialiser is asserted three ways offline — it is loaded blocking in `<head>`, it precedes the module script, and no `<script>` in `index.html` has a body — but "the first paint is dark" is a property of a real render. The production half is also unreachable locally: an INLINE initialiser would work in dev and be refused by `script-src 'self'`, so only a deployed page proves the shape that ships. | `e2e.md` §4.16 step 1, on the deployed origin, not `npm run dev`. |
 
-### Thirteen undersized targets, one of them measured (2026-09-01)
+### The undersized-target register, of which one entry has been measured (2026-09-01)
 
-`src/lib/targetSize.test.ts` names every interactive control whose own size class puts it under
-WCAG 2.2 SC 2.5.8's 24×24 CSS px floor — **13 controls across 12 files** as of today. **Being under
-the floor is not a violation**: the spacing exception exempts a target nothing else comes within a
-24px-diameter circle of, and that is geometry no suite here can do. So the register is a list of
-*candidates*, and this is the check that resolves them. Read `ACCEPTED_UNDERSIZED` for the current
-population; the recipe is `e2e.md` §4.13.
+`src/lib/targetSize.test.ts`'s `ACCEPTED_UNDERSIZED` names every interactive control whose own size
+class — or, for a checkbox or radio, its ABSENCE of one — puts it under WCAG 2.2 SC 2.5.8's 24×24
+CSS px floor. **Read the register for the population; it is deliberately not counted here**, because
+a number in prose goes stale on the first correct fix with nothing to catch it.
+
+**Being under the floor is not a violation.** The spacing exception exempts a target nothing else
+comes within a 24px-diameter circle of, and that is geometry no suite here can do. The register is a
+list of *candidates* and this is the check that resolves them. The recipe is `e2e.md` §4.13; measure
+the **centre-to-centre** distance to the nearest other target, not just the box.
 
 | Check | Why the suite cannot settle it | What it takes |
 |---|---|---|
-| **The seven 14×14 checkboxes and radios**, file-list first — `FileListTable` (header + per row), `FileListRowMobile`, `SelectionToolbar`, `RefreshTableDialog`, `TableShareDialog`, `SendFilesDialog` | The population most likely to be a real violation, because a per-row checkbox repeats one per row and the circle is centred on each. The rows are `h-12`, so 42px of vertical pitch, but the horizontal neighbour and the enclosing double-clickable row are **computed, not measured**. | Sign in, open `/files` on a folder holding ≥3 files, and run §4.13's one-liner. Record the **centre-to-centre** distance to the nearest other target, not just the box. |
-| **The four remaining 21×21 icon controls** — `Chip`, `Toast`, `ColumnFilterMenu`, `TableActionsMenu` | Only `Chip` has been measured (31.75px between the remove buttons of two wrapped rows, the tight axis, in a browser against the built stylesheet — comfortably clear). The other three are arithmetic from source at best. | Same one-liner, on a toast, a Data Explorer column header and a query schema rail row. |
-| **The two tab-strip closes are the case the exception CANNOT rescue** — `ExplorationTabStrip`, `QueryTabStrip` | The 21×21 ✕ sits **inside** the clickable tab, so a 24px circle centred on it necessarily intersects another target's box. This one needs a design decision, not a resize, and is deliberately left alone. Not a keyboard defect: the span is non-focusable on purpose (a button inside `role="tab"` is nested-interactive) and the tab closes on **Delete** — `dataExplorerUi.test.tsx` covers that path for the Data Explorer, and `QueryTabStrip`'s equivalent has no test. | Confirm the overlap in the inspector, then decide. While there, close a query tab with Delete on the focused tab — the untested half. |
+| **The unsized checkboxes and radios across the Data Explorer's dialogs and panels** — `AdvancedCopyDialog`, `CalcPanel`, `GroupingPanel`, `OrderFilterDialog`, `RowColoursDialog`, `StripingControl`, `TransformersDialog` | They carry no size class at all, so they render at the user agent's intrinsic **13×13** — measured in headless Chrome against the built stylesheet, and *smaller* than the `h-4 w-4` ones elsewhere. Several stack one per row or one per column, which is the arrangement the spacing exception is least likely to rescue. | Open each dialog and run §4.13's one-liner. These are the first to measure. |
+| **The sized 14×14 checkboxes and radios** — `FileListTable` (header + per row), `FileListRowMobile`, `SelectionToolbar`, `RefreshTableDialog`, `TableShareDialog`, `SendFilesDialog` | The file-list rows are `h-12`, so 42px of vertical pitch, but the horizontal neighbour and the enclosing double-clickable row are **computed, not measured**. | `/files` on a folder holding ≥3 files, plus each dialog. |
+| **The 21×21 icon controls** — `Chip`, `Toast`, `ColumnFilterMenu`, `TableActionsMenu` | Only `Chip` has been measured (31.75px between the remove buttons of two wrapped rows, the tight axis, comfortably clear). The other three are arithmetic from source at best. | Same one-liner, on a toast, a Data Explorer column header and a query schema rail row. |
+| **`ColumnResizeHandle` is the smallest target in the app at 10.5px** | A focusable `role="separator"` span that drags rather than clicks. Whether the exception covers it depends on how close the neighbouring header controls sit, which is per-column. | Widen a Data Explorer column, then measure the handle and its distance to the column menu trigger beside it. |
+| **The two tab-strip closes are the case the exception CANNOT rescue** — `ExplorationTabStrip`, `QueryTabStrip` | The 21×21 ✕ sits **inside** the clickable tab, so a 24px circle centred on it necessarily intersects another target's box. A design decision, not a resize, and deliberately left alone. Not a keyboard defect: the span is non-focusable on purpose (a button inside `role="tab"` is nested-interactive) and the tab closes on **Delete** — `dataExplorerUi.test.tsx` covers that for the Data Explorer, and `QueryTabStrip`'s equivalent has no test. | Confirm the overlap in the inspector, then decide. While there, close a query tab with Delete on the focused tab — the untested half. |
 
 ### Needs Safari, or 400px
 

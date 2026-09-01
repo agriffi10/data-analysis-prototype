@@ -14,22 +14,29 @@ import {readCss} from '../test/cssTokens';
 // This file is what covers the part a class name CAN answer: a control sized from the spacing
 // scale. WHAT IT DOES NOT COVER, said plainly so nobody reads its silence as coverage:
 //
-//   1. A control with NO size class, whose height is its line box plus padding. A bare `text-sm`
-//      link is a ~15.5px content-area box; a `px-3 py-2 text-sm` menu row is 32px. Both carry no
-//      `h-*`, one is undersized and the other is fine, and only layout separates them. A rule
-//      demanding `min-h-[24px]` on every text-only control would fire on the correct one, which is
-//      the same defect as the axe rule pointing the other way. Left uncovered on purpose.
+//   1. A TEXT-DERIVED height — a control with no size class, whose box is its line box plus
+//      padding. A bare `text-sm` link is a ~15.5px content-area box; a `px-3 py-2 text-sm` menu row
+//      is 32px. Both carry no `h-*`, one is undersized and the other is fine, and only layout
+//      separates them. A rule demanding `min-h-[24px]` from every text-only control would fire on
+//      the correct one, which is the same defect as the axe rule pointing the other way.
+//      THE ONE EXCEPTION, and it is handled below: a checkbox or radio is a replaced element with
+//      no line box that padding cannot grow, so an unsized one is the user agent's own 13px box
+//      and there is no correct variant to false-positive on.
 //   2. Whether an undersized control is actually a VIOLATION. SC 2.5.8's spacing exception exempts
 //      a small target that no other target comes within a 24px-diameter circle of. That is
 //      geometry, so under 24px is a CANDIDATE here and nothing more — which is why the register
 //      below is named for acceptance rather than for exemption.
-//   3. A class string assembled somewhere other than the tag, a size given in an inline style, and
-//      an arbitrary value in a unit other than px (`h-[1.5rem]`, `w-[100%]`) — read as unmeasurable
-//      and skipped rather than guessed at.
+//   3. A size that is not on the tag: a class string assembled elsewhere (a primitive's own `SIZES`
+//      map is covered separately, by name), an inline style, and an arbitrary value in a unit other
+//      than px (`h-[1.5rem]`, `w-[100%]`) — skipped rather than guessed at.
 //
-// The one thing that settles any of the three is a browser. The console one-liner and both
-// mechanisms are written up in `info/best-practices/accessibility/accessibility.md`; what has not
-// been run is in `docs/testing/owed.md`.
+// And one about how it RUNS: `import.meta.glob(…, '?raw')` gives module ids that vitest's
+// changed-file graph does not relate to the sources they came from, so a `--changed` run never
+// includes this file. CI runs the whole suite, which is what actually holds.
+//
+// The one thing that settles any of the above is a browser. `docs/testing/e2e.md` §4.13 owns that
+// recipe, the coding rules are in `info/best-practices/accessibility/accessibility.md`, and what
+// has not been run is in `docs/testing/owed.md`.
 
 const SOURCES = import.meta.glob('/src/**/*.tsx', {query: '?raw', import: 'default', eager: true}) as Record<
   string,
@@ -143,7 +150,22 @@ const NATIVE_CONTROL = /^(?:button|a|input|select|textarea|summary)$/;
 /** Components that render a native control and take a `className` straight through to it. */
 const CONTROL_COMPONENT = /^(?:Link|NavLink|IconButton|Button)$/;
 
-const INTERACTIVE_ROLE = /role=['"](?:button|link|tab|switch|checkbox|radio|menuitem|option)['"]/;
+const INTERACTIVE_ROLE =
+  /role=['"](?:button|link|tab|switch|checkbox|radio|menuitem|option|separator|slider|spinbutton)['"]/;
+
+// Any pointer handler, not `onClick` alone. A resize handle drags rather than clicks, so it carries
+// `onPointerDown` and nothing else — and keying on `onClick` hid a focusable 10.5px widget behind
+// the name of its handler, which is not a property anything here should turn on.
+const POINTER_HANDLER = /on(?:Click|PointerDown|MouseDown)=/;
+
+// A checkbox or radio is a REPLACED element: it has no line box and padding does not grow it, so
+// one with no size class of its own is the user agent's intrinsic box and nothing else. Measured
+// against this app's own built stylesheet in a browser — 13×13 for both, smaller than the `h-4 w-4`
+// ones already in the register. This is the one no-size-class shape that IS statically decidable,
+// and the reason the general "a control with no height class could be anything" argument does not
+// cover it: there is no padded variant that comes out correct.
+const UNSIZED_INPUT_PX = 13;
+const CHECKBOX_OR_RADIO = /type=['"](?:checkbox|radio)['"]/;
 
 /**
  * The text of one JSX opening tag's attributes, from `start` to the `>` that closes it.
@@ -254,11 +276,16 @@ function undersizedControls(source: string): string[] {
       NATIVE_CONTROL.test(name) ||
       CONTROL_COMPONENT.test(name) ||
       INTERACTIVE_ROLE.test(attributes) ||
-      (/onClick=/.test(attributes) && /^[a-z]/.test(name));
+      (POINTER_HANDLER.test(attributes) && /^[a-z]/.test(name));
     if (!interactive) continue;
-    for (const [whole, cls] of ownClassName(attributes).matchAll(SIZE_CLASS)) {
+    const classes = ownClassName(attributes);
+    const sized = [...classes.matchAll(SIZE_CLASS)];
+    for (const [whole, cls] of sized) {
       const px = sizeClassPx(cls);
       if (px !== null && px < MIN_TARGET_PX) offences.push(`<${name}> ${whole} = ${px}px`);
+    }
+    if (!sized.length && name === 'input' && CHECKBOX_OR_RADIO.test(attributes)) {
+      offences.push(`<input type=checkbox|radio> no size class = ${UNSIZED_INPUT_PX}px`);
     }
   }
   return offences;
@@ -268,9 +295,16 @@ function undersizedControls(source: string): string[] {
  * Every control under the floor today, and what it is.
  *
  * A tripwire, not a clean bill of health: each of these is a CANDIDATE that the spacing exception
- * may or may not cover, and only the chip has had its geometry measured at all. The notes say what
- * a control is and where it sits, never that it conforms. Revisit the decision — measure them and
- * move them out — rather than deleting the entry.
+ * may or may not cover, and NONE of them has had its geometry measured in a browser. The notes say
+ * what a control is and where it sits, never that it conforms. Revisit the decision — measure them
+ * and move them out — rather than deleting the entry.
+ *
+ * The chip's remove button was the thirteenth, and left by the intended route: someone measured it,
+ * decided the cushion was invisible and load-bearing, sized it absolutely at `h-[24px]`, and this
+ * list told them to delete the entry.
+ *
+ * This list is the population, and the only place it is counted. Prose that repeats the count goes
+ * stale on the first correct fix with nothing to catch it, so no doc states one.
  *
  * `controls` is what makes this a guard rather than a blanket. Keyed by FILE ALONE it exempted
  * whole files: the app's most control-dense ones are in here, and inside them a control could be
@@ -278,10 +312,6 @@ function undersizedControls(source: string): string[] {
  * offences means a change to any of them is a change to this list.
  */
 const ACCEPTED_UNDERSIZED: Record<string, {why: string; controls: string[]}> = {
-  '/src/components/Chip.tsx': {
-    why: 'the chip remove button, in a wrapping row of chips. The only one measured in a browser: 31.75px between the centres of two remove buttons on wrapped rows, which is the tight axis — across a row they are further apart still, and further the longer the neighbouring name is',
-    controls: ['<button> h-6 = 21px', '<button> w-6 = 21px']
-  },
   '/src/components/Toast.tsx': {
     why: 'the toast dismiss button, beside an optional underlined text action in the same bar',
     controls: ['<button> h-6 = 21px', '<button> w-6 = 21px']
@@ -325,6 +355,42 @@ const ACCEPTED_UNDERSIZED: Record<string, {why: string; controls: string[]}> = {
   '/src/features/table-share/TableShareDialog.tsx': {
     why: 'the share-kind radios, each inside its own label',
     controls: ['<input> h-4 = 14px', '<input> w-4 = 14px']
+  },
+  '/src/features/catalog/ColumnResizeHandle.tsx': {
+    why: 'the column resize handle: a focusable `role="separator"` span, 10.5px wide and the smallest target in the app. It drags rather than clicks, which is the only reason a sweep keyed on `onClick` could not see it',
+    controls: ['<span> w-3 = 10.5px']
+  },
+  '/src/features/data-explorer/AdvancedCopyDialog.tsx': {
+    why: 'three copy-option checkboxes, each inside its own label',
+    controls: [
+      '<input type=checkbox|radio> no size class = 13px',
+      '<input type=checkbox|radio> no size class = 13px',
+      '<input type=checkbox|radio> no size class = 13px'
+    ]
+  },
+  '/src/features/data-explorer/CalcPanel.tsx': {
+    why: 'the include-strings toggle and one checkbox per aggregate function',
+    controls: ['<input type=checkbox|radio> no size class = 13px', '<input type=checkbox|radio> no size class = 13px']
+  },
+  '/src/features/data-explorer/GroupingPanel.tsx': {
+    why: 'the duplicates-only and show-percentage toggles',
+    controls: ['<input type=checkbox|radio> no size class = 13px', '<input type=checkbox|radio> no size class = 13px']
+  },
+  '/src/features/data-explorer/OrderFilterDialog.tsx': {
+    why: 'the show and pin checkboxes, one pair per column, stacked in a list',
+    controls: ['<input type=checkbox|radio> no size class = 13px', '<input type=checkbox|radio> no size class = 13px']
+  },
+  '/src/features/data-explorer/RowColoursDialog.tsx': {
+    why: 'the colour-by-type toggle and one gradient toggle per rule',
+    controls: ['<input type=checkbox|radio> no size class = 13px', '<input type=checkbox|radio> no size class = 13px']
+  },
+  '/src/features/data-explorer/StripingControl.tsx': {
+    why: 'one checkbox per column in the striping picker',
+    controls: ['<input type=checkbox|radio> no size class = 13px']
+  },
+  '/src/features/data-explorer/TransformersDialog.tsx': {
+    why: 'the lenient toggle, one per configured transformer',
+    controls: ['<input type=checkbox|radio> no size class = 13px']
   }
 };
 
@@ -378,6 +444,19 @@ describe('a control sized from the spacing scale reaches the target floor', () =
       expect(undersizedControls(tag), tag).toEqual([]);
     }
 
+    // A checkbox with no size class is the UA's own box; one that IS sized is judged on the size,
+    // and a large one is not flagged twice or at all.
+    expect(undersizedControls('<input type="checkbox" className="accent-accent" />')).toEqual([
+      '<input type=checkbox|radio> no size class = 13px'
+    ]);
+    expect(undersizedControls('<input type="checkbox" className="h-8 w-8" />')).toEqual([]);
+    expect(undersizedControls('<input type="text" className="px-2" />')).toEqual([]);
+
+    // A drag handle carries no `onClick`, which is how a 10.5px focusable widget stayed invisible.
+    expect(
+      undersizedControls('<span role="separator" tabIndex={0} onPointerDown={grab} className="h-full w-3" />')
+    ).toEqual(['<span> w-3 = 10.5px']);
+
     // The apostrophe that made this sweep fail open. Comments are stripped before the scan; if
     // they stop being, this control disappears and the whole file goes quiet rather than red.
     expect(undersizedControls("<button\n  // SC 2.5.8's floor\n  className='h-6'>x</button>")).toEqual([
@@ -398,11 +477,18 @@ describe('a control sized from the spacing scale reaches the target floor', () =
     for (const [path, entry] of Object.entries(ACCEPTED_UNDERSIZED)) expect(entry.why.length, path).toBeGreaterThan(20);
   });
 
-  it('keeps both button primitives clear of the floor at their smallest size', () => {
-    // The two primitives already sized around this rule, and the reason most controls in the app
-    // are not in the register above. `IconButton`'s `sm` is the tightest at 24.5px, so a tidy-up
-    // that normalised it down one scale step would cost every one of its call sites at once.
-    for (const primitive of ['/src/components/IconButton.tsx', '/src/components/Button.tsx']) {
+  it('keeps every size-mapped primitive clear of the floor at its smallest step', () => {
+    // The primitives already sized around this rule, and the reason most controls in the app are
+    // not in the register above. `IconButton`'s `sm` is the tightest at 24.5px, so a tidy-up that
+    // normalised it down one scale step would cost every one of its call sites at once.
+    const primitives = Object.keys(SOURCES).filter(
+      (path) => path.startsWith('/src/components/') && /const SIZES[^=]*= \{/.test(SOURCES[path])
+    );
+    // Found rather than listed. A hard-coded pair went blind the moment somebody extracted a third
+    // primitive — which the rulebook actively tells them to do, and which the sweep cannot see
+    // because the size lives in a map rather than on the tag.
+    expect(primitives.length, 'no size maps were found in components/ — every check below is empty').toBeGreaterThan(1);
+    for (const primitive of primitives) {
       const sizes = /const SIZES[^=]*= \{[^}]*}/.exec(SOURCES[primitive])?.[0] ?? '';
       const measured = [...sizes.matchAll(SIZE_CLASS)].map(([size, cls]) => ({size, px: sizeClassPx(cls)}));
 
