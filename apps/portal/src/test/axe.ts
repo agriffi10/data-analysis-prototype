@@ -18,15 +18,35 @@ import {expect} from 'vitest';
 /** WCAG A/AA rule tags the suite asserts against (machine-detectable subset). */
 export const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] as const;
 
+/**
+ * The rules jsdom cannot decide, off with a reason and covered somewhere real.
+ *
+ * ONE object, spread into every options bag below so that each bag carries the whole set —
+ * asserted as such by `lib/targetSize.test.ts`, which is the guard that actually holds. The
+ * older note here said an override bag REPLACES this map; it does not. `configureAxe` merges
+ * with lodash `merge`, so an override deep-merges and the disables survive a bag that omits
+ * them — measured, both bags, on markup that would otherwise report the rule. The spread costs
+ * a line and makes the config right under either semantic; the assertion is what catches a
+ * third bag added later that forgets one.
+ *
+ * - `color-contrast` needs computed colour. jsdom has none, so axe ERRORS rather than passing.
+ *   Covered by `lib/contrast.test.ts`, which computes WCAG ratios from the token values for
+ *   every pairing the design uses, in both themes.
+ * - `target-size` needs layout. jsdom has none — every `getBoundingClientRect` is 0×0 — and
+ *   the rule does not error on that: it reports a **PASS**, worded "Safe clickable space has a
+ *   diameter of 24px which is at least 24px", for two adjacent 10×10 buttons. That is a
+ *   measurement it did not make, and an enabled rule advertising coverage it cannot provide is
+ *   worse than a disabled one. Measured, and pinned as a tripwire by `lib/targetSize.test.ts`,
+ *   which also carries the static sweep that covers the part of this a class name can see.
+ */
+export const RULES_JSDOM_CANNOT_DECIDE = {
+  'color-contrast': {enabled: false},
+  'target-size': {enabled: false}
+} as const;
+
 const runAxe = configureAxe({
   runOnly: {type: 'tag', values: [...WCAG_TAGS]},
-  rules: {
-    // jsdom has no layout engine or computed styles, so axe cannot evaluate
-    // contrast — it would error, not pass. Disabled deliberately, never faked. What
-    // covers it instead is `lib/contrast.test.ts`, which computes WCAG ratios from the
-    // token values for every pairing the design uses, in both themes.
-    'color-contrast': {enabled: false}
-  }
+  rules: {...RULES_JSDOM_CANNOT_DECIDE}
 });
 
 /**
@@ -37,10 +57,7 @@ const runAxe = configureAxe({
 export const ROUTE_AXE_OPTIONS: RunOptions = {
   runOnly: {type: 'tag', values: [...WCAG_TAGS, 'best-practice']},
   rules: {
-    // Disabled for the reason above, and covered by `lib/contrast.test.ts` instead. It is
-    // repeated here because this object REPLACES the base `rules` for the specs that pass
-    // it — a route spec would otherwise re-enable a rule that cannot run.
-    'color-contrast': {enabled: false},
+    ...RULES_JSDOM_CANNOT_DECIDE,
     region: {enabled: true}
   }
 };
@@ -52,6 +69,7 @@ export const ROUTE_AXE_OPTIONS: RunOptions = {
  */
 export const COMPONENT_AXE_OPTIONS: RunOptions = {
   rules: {
+    ...RULES_JSDOM_CANNOT_DECIDE,
     region: {enabled: false}
   }
 };

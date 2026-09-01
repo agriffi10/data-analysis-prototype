@@ -344,7 +344,7 @@ two-lock path and the pagination boundary are not reachable from the UI. They li
 | **Save results** | Writes a CSV where asked, with an overwrite confirm. With `sharedWorkspaces` off it offers **My files only** — a colleague's space must never be a write target. |
 | **Drag the divider** between the editor and the results, release, then reload the page | The panes follow the pointer continuously and the two always fill the column with no gap; Monaco's gutter and scrollbar match the new height (the reason the pane height alone is not the check). The split you left survives the reload and is gone in a private window — it is per session, per user. |
 | Reach the divider by tabbing (**not** forward from the editor — Monaco swallows Tab; come backwards from the results, which is two Shift+Tabs, since the ▼ button sits between them), then use the arrow keys, **Home** and **End**; then double-click it | Focus is visible on the divider itself; the arrows step the split, `Home`/`End` go to the floors, and a double-click returns it to even. Then click the divider and press an arrow **without** dragging — the click must leave it focused, or the keyboard path is unreachable for anyone who found it with a mouse. |
-| Use the **▲** and **▼** buttons on the divider, without dragging | Each click steps the split by one notch and the split sticks. This is the non-drag pointer path — run it with a click only, since a drag would pass it vacuously. **Measure one button** in the inspector: it must be at least 24x24 CSS px. jsdom reports axe's `target-size` as a pass it never evaluated, so it has to be measured here rather than asserted — §4.13 carries the rule itself, including SC 2.5.8's spacing exception. |
+| Use the **▲** and **▼** buttons on the divider, without dragging | Each click steps the split by one notch and the split sticks. This is the non-drag pointer path — run it with a click only, since a drag would pass it vacuously. **Measure one button** in the inspector: it must be at least 24x24 CSS px — they are `h-[24px] w-[24px]`, an absolute value chosen so neither the 14px root nor the type scale reaches them. axe's `target-size` cannot evaluate this and is now disabled; §4.13 carries the rule itself, including SC 2.5.8's spacing exception. |
 | Shrink the window until the workspace is short, then grow it again | Neither pane collapses — the editor keeps its floor and the results keep theirs — and growing the window returns the split to the proportion you dragged, not to the clamped one. |
 
 **The catalog behind the API (SPEC-199).** Start **signed out** — a signed-in pass never tests the
@@ -830,9 +830,11 @@ whole app actually looks right.
    the header's theme button `h-8` → **28px**; each of the drawer's three options `h-7` →
    **24.5px**, which clears the floor by half a pixel and is the one to watch if any of this is
    restyled; and a theme menu row, which has **no height class at all** — 18px line box plus
-   `py-2` (2 × 3.5px, twice) → **32px**. axe's `target-size` rule is enabled in the suite and
-   reports a **pass it cannot make**, jsdom having no layout engine, so this is the only place any
-   of these numbers is real.
+   `py-2` (2 × 3.5px, twice) → **32px**. axe's `target-size` rule is **disabled** in the suite,
+   because with no layout engine jsdom made it report a pass it could not make; the static sweep
+   that replaced it sees the two `h-*` controls and is blind to the menu row, so a browser is
+   still the only place that last number is real. Mechanisms:
+   `apps/portal/info/best-practices/accessibility/accessibility.md` → *Target size in this app*.
 
 ### The container platform — what a signed-in session CANNOT reach
 

@@ -133,6 +133,21 @@ recipe anywhere** — write one when you run it.
 | **Monaco keeps the cursor and the scroll position across a theme switch** | `SqlEditor.test.tsx` stubs the editor, so it can assert the buffer and that the editor was not re-created — a **count**, mutation-tested — but there is no cursor and no scrollable viewport in jsdom to lose. The mechanism is `@monaco-editor/react` applying a changed `theme` through `editor.setTheme` in an effect, read out of its `dist`; that is a settled premise, not a run check. | `e2e.md` §4.16 step 4. |
 | **No flash of the light theme before the first paint** | The pre-paint initialiser is asserted three ways offline — it is loaded blocking in `<head>`, it precedes the module script, and no `<script>` in `index.html` has a body — but "the first paint is dark" is a property of a real render. The production half is also unreachable locally: an INLINE initialiser would work in dev and be refused by `script-src 'self'`, so only a deployed page proves the shape that ships. | `e2e.md` §4.16 step 1, on the deployed origin, not `npm run dev`. |
 
+### Twelve undersized targets, none of them measured (2026-09-01)
+
+`src/lib/targetSize.test.ts` names every interactive control whose own size class puts it under
+WCAG 2.2 SC 2.5.8's 24×24 CSS px floor. **Being under the floor is not a violation** — the spacing
+exception exempts a target nothing else comes within a 24px-diameter circle of, and that is
+geometry no suite here can do. So the register is a list of *candidates* and this is the check
+that resolves them. Read `ACCEPTED_UNDERSIZED` for the current population; it is twelve controls
+across eleven files today.
+
+| Check | Why the suite cannot settle it | What it takes |
+|---|---|---|
+| **The six 14×14 checkboxes and radios**, and the file-list ones first — `FileListTable` (header + per row), `FileListRowMobile`, `SelectionToolbar`, `RefreshTableDialog`, `TableShareDialog`, `SendFilesDialog` | These are the population most likely to be a real violation, because a per-row checkbox repeats one per row and the circle is centred on each. The rows are `h-12`, which is 42px of vertical pitch, but the horizontal neighbour and the enclosing double-clickable row are both **computed, not measured**. | Sign in, open `/files` with a folder holding ≥3 files, and run the one-liner in `apps/portal/info/best-practices/accessibility/accessibility.md` → *Measuring one*. Record the centre-to-centre distance to the nearest other target, not just the box. |
+| **The six 21×21 icon controls** — `Chip`, `Toast`, `ColumnFilterMenu`, `TableActionsMenu`, and the two tab strips' close controls | Only `Chip` has had its geometry worked out at all (42px between adjacent remove buttons, 29.75px between wrapped rows) and that too is arithmetic from the source, never a measurement. | Same one-liner, on a chip list, a toast, a Data Explorer column header and a query tab strip. |
+| **The tab close control is also keyboard-unreachable** — `ExplorationTabStrip` and `QueryTabStrip` both render it as `<span role="presentation" onClick>` | Found while sweeping for size; it is a **2.1.1 Keyboard** defect, not a 2.5.8 one, and nothing in the suite asserts it. Recorded here rather than lost. | Tab through a strip with two or more tabs open and try to close one without a pointer. |
+
 ### Needs Safari, or 400px
 
 | Check | Note |

@@ -987,10 +987,16 @@ and the step buttons are drawn at the **2.5.8 Target Size** minimum. That minimu
 the app's root font-size is 14px**, so Tailwind's rem spacing lies about it: `h-6` is 21px, not 24,
 and the buttons shipped that way until it was measured in a browser. They are sized in px now and the
 band is tall enough to hold them. jsdom reports axe's `target-size` rule as a **pass** because it has
-no layout, so the rule is enabled and carries no information — nothing in CI can catch this, and the
-live guide asks for it to be measured instead. Be exact about what that rule is: it is not a
-limitation, it is a **vacuous guard** — an enabled rule advertising coverage it cannot provide, which
-is worse than a disabled one, because the suite reads as checking something it never checks.
+no layout. Be exact about what that rule was: not a limitation, a **vacuous guard** — an enabled rule
+advertising coverage it cannot provide, which is worse than a disabled one, because the suite reads
+as checking something it never checks.
+
+**Superseded on the last clause, 2026-09-01:** the rule is now **disabled** with its reason, and a
+static sweep covers the part a class name can answer. "Nothing in CI can catch this" no longer holds
+for a control sized from the spacing scale — it does still hold for one whose height is its line box
+plus padding, and for whether the spacing exception covers a small target. See
+*An axe rule that cannot measure is disabled, and what replaces it* in
+[`gates-and-tests.md`](gates-and-tests.md).
 
 Neither of those answers **2.5.7 Dragging
 Movements**, which asks for a *single-pointer, non-dragging* alternative specifically — keyboard

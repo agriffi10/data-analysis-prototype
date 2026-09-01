@@ -12,6 +12,7 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [Compiler and coverage defaults are declared, never inherited (SPEC-150)](#compiler-and-coverage-defaults-are-declared-never-inherited-spec-150)
 - [`ACCEPTED_` tripwires: what the project knows it has not verified (SPEC-153)](#accepted_-tripwires-what-the-project-knows-it-has-not-verified-spec-153)
 - [A refusal is the half of the system no user exercises (2026-08-28)](#a-refusal-is-the-half-of-the-system-no-user-exercises-2026-08-28)
+- [An axe rule that cannot measure is disabled, and what replaces it (2026-09-01)](#an-axe-rule-that-cannot-measure-is-disabled-and-what-replaces-it-2026-09-01)
 
 ## Security scanning (SPEC-138)
 
@@ -202,3 +203,60 @@ counts.
 > The 28 codes this project knowingly stopped asserting are listed on the PR that reduced the
 > suites. Restoring one is `git show <ref>:<path>` plus a prune; the decision to leave them was
 > deliberate, not an oversight.
+
+## An axe rule that cannot measure is disabled, and what replaces it (2026-09-01)
+
+`src/test/axe.ts` ran axe under the `wcag22aa` tag, which includes **`target-size`** — WCAG 2.2
+SC 2.5.8's 24×24 CSS px floor. jsdom has no layout engine, so every `getBoundingClientRect` is
+0×0, and the rule does **not** error on that the way `color-contrast` does. It reports a **PASS**,
+worded *"Safe clickable space has a diameter of 24px which is at least 24px"*, for two adjacent
+10×10 buttons. Measured, and pinned as a tripwire in `src/lib/targetSize.test.ts` so the day jsdom
+gains layout the rule can be turned back on.
+
+**The hazard is the rule's presence, not its absence.** A reviewer asking "do we assert target
+size?" got yes, and axe's own output recorded a pass — the same shape as the dark-mode contrast
+blind spot, and the reason the fix is a disable *with a reason* rather than a note somewhere. The
+disabled set is now one exported constant spread into all three options bags, asserted as such,
+because a bag that spells its own `rules` map and forgets an entry is invisible.
+
+**Audited the rest.** The tags select **70 rules**; each one that plausibly needs layout, computed
+style or a document was probed with markup built to violate it, and the rest were read off as
+DOM-only. Four come back silently **inapplicable** rather than passing —
+`scrollable-region-focusable` (nothing in jsdom reports as scrollable), `link-in-text-block`,
+`css-orientation-lock`, `no-autoplay-audio`. Two come back **incomplete**, which
+`toHaveNoViolations` ignores outright — `aria-hidden-focus`, `avoid-inline-spacing`. Two more
+(`meta-viewport`, `bypass`) find nothing because the assertions are handed a container rather than
+a document. **`target-size` is the only rule measured reporting a pass it cannot make**, which is
+what separates it from all of those: an inapplicable rule records nothing and misleads nobody.
+`p-as-heading` was suspected on the same grounds and cleared — it violates correctly, on a fixture
+built for it, so the suspicion was wrong and the rule stays on.
+
+**What replaces it, and what deliberately does not.** `src/lib/targetSize.test.ts` sweeps every
+`.tsx` for interactive tags whose own `h-*`/`w-*`/`size-*` classes fall under the floor, with the
+threshold **computed** from Tailwind's `--spacing` and the app's 14px root rather than written
+down — one step is 3.5px, so `h-6` is 21px and `h-7` clears by half a pixel. Three limits, all
+stated in the file so its silence is not read as coverage:
+
+- **Under 24px is a candidate, not a violation.** SC 2.5.8's spacing exception exempts a small
+  target nothing else comes within a 24px circle of. That is geometry the suite cannot do, so the
+  register is named `ACCEPTED_UNDERSIZED` and its notes say what a control *is*, never that it
+  conforms. A sweep reporting every small control as a violation would manufacture failures on
+  correct code — the same defect as the axe rule, pointing the other way.
+- **A control with no size class is invisible to it, on purpose.** A bare `text-sm` link is a
+  ~15.5px content-area box and a `px-3 py-2 text-sm` menu row is 32px; neither carries an `h-*`,
+  and only layout separates them. A rule demanding `min-h-[24px]` from text-only controls would
+  fire on the correct one, so none was written.
+- **A guard against this class of defect must be planted against.** All four assertions here were
+  broken deliberately and watched go red before being reverted, because a check for a vacuous
+  guard that is itself vacuous is worse than none. One of them found a real fail-open while being
+  written: an apostrophe in a source comment (`SC 2.5.8's`) read as an opening quote to the
+  attribute scanner, and two of the twelve controls were invisible until comments were stripped
+  first.
+
+**Encode an absolute threshold in an absolute unit.** `min-h-[24px]` is 24px under any root;
+`min-h-7` is 24.5px under this one and 21px under a 12px one, and nothing would catch the change.
+A rem step expresses visual rhythm, and rhythm is not what this value is for.
+
+> Twelve controls sit in the register at 21×21 or 14×14 — six icon buttons and six checkboxes or
+> radios. **None has been measured in a browser**, and the file-list checkboxes are the ones worth
+> measuring first: they repeat one per row. `docs/testing/owed.md` carries the check.
