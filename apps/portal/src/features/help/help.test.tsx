@@ -1,11 +1,14 @@
-import {afterEach, describe, expect, it, vi} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {fireEvent, render, screen} from '@testing-library/react';
+import {Link, useLocation} from 'react-router';
 import {HelpGuideCard} from './HelpGuideCard';
-import {MemoryRouter} from 'react-router';
 import {HelpPage} from './HelpPage';
 import {HELP_SECTIONS} from './helpContent';
 import {COMPONENT_AXE_OPTIONS, ROUTE_AXE_OPTIONS, expectNoA11yViolations} from '../../test/axe';
-import {TestProviders, renderWithProviders} from '../../test/renderWithProviders';
+import {TestProviders, createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
+import {FEATURE_FLAG_DEFAULTS, featureFlagKeys} from '../feature-flags';
+import type {FeatureFlags} from '../feature-flags';
+import {configValue} from '../../lib/runtimeConfig';
 import {HelpLink} from './HelpLink';
 import {HelpSectionChips} from './HelpSectionChips';
 import {HelpSidebar} from './HelpSidebar';
@@ -186,18 +189,17 @@ describe('HelpPage.a11y', () => {
       expect(screen.getByRole('main')).toBeInTheDocument();
     });
 
-    it('gives the header help link an accessible name (FR-001)', async () => {
-      await expectNoA11yViolations(
-        <MemoryRouter>
+    it('gives the header help control an accessible name (FR-001)', async () => {
+      // Through the app's providers rather than a bare router: the control resolves its
+      // behaviour from the route and the flags, so it needs both. `/` has no contextual
+      // section, which is the link half of that decision.
+      const control = (
+        <TestProviders route="/">
           <HelpLink />
-        </MemoryRouter>,
-        COMPONENT_AXE_OPTIONS
+        </TestProviders>
       );
-      render(
-        <MemoryRouter>
-          <HelpLink />
-        </MemoryRouter>
-      );
+      await expectNoA11yViolations(control, COMPONENT_AXE_OPTIONS);
+      render(control);
       expect(screen.getByRole('link', {name: 'Help & guides'})).toBeInTheDocument();
     });
   });
@@ -421,5 +423,119 @@ describe('the delete-space guide (SPEC-205)', () => {
     expect(text).not.toMatch(/permanently remove|permanently deletes/i);
     expect(text).toMatch(/kept by administrators/i);
     expect(text).toMatch(/name can never be used/i);
+  });
+});
+
+// ─── guide-level deep links (SPEC-207 FR-005) ───────────────────────────────
+
+describe('HelpPage guide deep links', () => {
+  /** A client answering the flags query with the compiled-in defaults plus `overrides`. */
+  function clientWithFlags(overrides: Partial<FeatureFlags> = {}) {
+    const client = createTestQueryClient();
+    client.setQueryDefaults(featureFlagKeys.all, {gcTime: Infinity, staleTime: Infinity});
+    client.setQueryData(featureFlagKeys.resolved(configValue('environment')), {
+      ...FEATURE_FLAG_DEFAULTS,
+      ...overrides
+    });
+    return client;
+  }
+
+  const renderAt = (route: string, overrides: Partial<FeatureFlags> = {}) =>
+    renderWithProviders(<HelpPage />, {route, queryClient: clientWithFlags(overrides), seedFeatureFlags: false});
+
+  const byTitle = (title: string) => ({name: (accessibleName: string) => accessibleName.startsWith(title)});
+
+  // jsdom implements neither of the page's two scroll calls, so the guide scroll is stubbed
+  // in rather than spied on. Its ORDER relative to the reset-to-top is unassertable here —
+  // there is no layout — and is held by the comment beside the effects instead.
+  const scrolled: Element[] = [];
+  beforeEach(() => {
+    scrolled.length = 0;
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this);
+    };
+  });
+  afterEach(() => {
+    delete (Element.prototype as {scrollIntoView?: unknown}).scrollIntoView;
+  });
+
+  it('leaves a SECTION hash meaning exactly what it always has', () => {
+    // Pinned so the guide half below cannot regress it: a section hash selects the section
+    // and opens its FIRST card, naming no guide.
+    renderAt('/help#query');
+
+    expect(screen.getByRole('heading', {level: 1})).toHaveTextContent('Query');
+    const query = HELP_SECTIONS.find((s) => s.id === 'query')!;
+    expect(screen.getByRole('button', byTitle(query.guides[0].title))).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', byTitle(query.guides[1].title))).toHaveAttribute('aria-expanded', 'false');
+    expect(scrolled).toEqual([]);
+  });
+
+  it('opens the guide a guide hash names, in that guide’s own section, and scrolls to it', () => {
+    // `delete-space` lives in Shared connections, not the first section — so this fails for a
+    // resolver that only ever answers "the first visible section".
+    renderAt('/help#delete-space');
+
+    expect(screen.getByRole('heading', {level: 1})).toHaveTextContent('Shared connections');
+    expect(screen.getByRole('button', byTitle('Delete a space'))).toHaveAttribute('aria-expanded', 'true');
+    const shared = HELP_SECTIONS.find((s) => s.id === 'shared-connections')!;
+    expect(screen.getByRole('button', byTitle(shared.guides[0].title))).toHaveAttribute('aria-expanded', 'false');
+    expect(scrolled.at(-1)).toHaveAttribute('id', 'help-guide-delete-space');
+  });
+
+  it('falls back to the section-level behaviour for a guide the flags hide', () => {
+    // What it cannot see, said out loud: every flag-hidden guide whose section survives lives
+    // in the Files section, and Files is the first section — so "the guide's own section" and
+    // "the first visible section" are the same answer for all of them today. What this does
+    // assert is that no card is expanded by a hash naming content nobody rendered.
+    renderAt('/help#check-data-quality', {dataQuality: false});
+
+    expect(screen.getByRole('heading', {level: 1})).toHaveTextContent(HELP_SECTIONS[0].label);
+    expect(screen.queryByRole('button', byTitle('Check data quality'))).not.toBeInTheDocument();
+    expect(screen.getByRole('button', byTitle(HELP_SECTIONS[0].guides[0].title))).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    );
+    expect(scrolled).toEqual([]);
+  });
+
+  it('moves to the guide a NEW hash names, without remounting the page', async () => {
+    // The mount-only half passes with `defaultOpen` alone, because the card reads it once
+    // into state. This is what the card's key is for: a hash change while the page stays
+    // mounted has to re-open a different card.
+    const {user} = renderWithProviders(
+      <>
+        <HelpPage />
+        <Link to="/help#leave-space">To leave-space</Link>
+      </>,
+      {route: '/help#delete-space'}
+    );
+
+    expect(screen.getByRole('button', byTitle('Delete a space'))).toHaveAttribute('aria-expanded', 'true');
+    await user.click(screen.getByRole('link', {name: 'To leave-space'}));
+
+    expect(screen.getByRole('button', byTitle('Leave a space'))).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', byTitle('Delete a space'))).toHaveAttribute('aria-expanded', 'false');
+    expect(scrolled.at(-1)).toHaveAttribute('id', 'help-guide-leave-space');
+  });
+
+  it('writes no history entry when it expands a guide', () => {
+    // `location.key` changes on a push AND on a replace, so this is stricter than the
+    // criterion: any navigation at all reddens it.
+    const keys: string[] = [];
+    function KeyProbe() {
+      keys.push(useLocation().key);
+      return null;
+    }
+    renderWithProviders(
+      <>
+        <HelpPage />
+        <KeyProbe />
+      </>,
+      {route: '/help#delete-space'}
+    );
+
+    expect(new Set(keys).size).toBe(1);
+    expect(screen.getByRole('button', byTitle('Delete a space'))).toHaveAttribute('aria-expanded', 'true');
   });
 });
