@@ -2,6 +2,9 @@
 // sizing are `features/catalog/` — this feature adds no second pager.
 
 import type {CalcFunction, ColourOperator, ColourToken, CopyOptions, SurfaceToken} from './dataExplorer.types';
+import type {Hex} from '../../lib/contrast';
+import {PALETTE} from '../../lib/palette';
+import type {EffectiveTheme} from '../../lib/theme.types';
 
 /**
  * Soft cap on open exploration tabs, enforced by refusal: `openTab` returns null and the
@@ -112,25 +115,42 @@ export const CALC_NO_VALUE = '—';
 export const CALC_PRECISION = 12;
 
 // ---------------------------------------------------------------------------------------
-// the palette. Nothing here is a NEW design token: these are the tokens `index.css`
-// already defines, and this map exists because two of the spec's requirements need their
-// VALUES rather than their names — a gradient has to interpolate between two of them, and
-// the contrast has to be computed from them. `formatting.test.ts` pins every entry
-// against `index.css` itself, so the copy cannot drift from the source.
+// the palette. Nothing here is a NEW design token: these are the tokens `index.css` already
+// defines, RESOLVED PER THEME from the one palette declaration. Two of this feature's
+// requirements need their VALUES rather than their names — a gradient has to interpolate
+// between two of them, and the contrast has to be computed from them — and a value is what a
+// CSS variable cannot give a `useMemo`. Resolving instead of copying is why there is no
+// second map to drift: `lib/contrast.test.ts` pins the declaration itself to `index.css`.
 // ---------------------------------------------------------------------------------------
 
-/** The token values, exactly as `src/index.css` declares them. */
-export const FORMATTING_TOKEN_HEX: Record<ColourToken | SurfaceToken, string> = {
-  text: '#15191e',
-  'text-2': '#5b6573',
-  'accent-text': '#4338ca',
-  success: '#047857',
-  danger: '#b91c1c',
-  'accent-soft': '#eef2ff',
-  'success-soft': '#e7f7f0',
-  'warning-soft': '#fdf4e3',
-  'danger-soft': '#fdeceb'
-};
+/** The tokens a formatted cell's own colours come from. */
+const FORMATTING_TOKENS = [
+  'text',
+  'text-2',
+  'accent-text',
+  'success',
+  'danger',
+  'accent-soft',
+  'success-soft',
+  'warning-soft',
+  'danger-soft'
+] as const satisfies readonly (ColourToken | SurfaceToken)[];
+
+/** The grid's own backgrounds, plus the selection fill a coloured cell can still sit under. */
+const FORMATTING_SURFACE_TOKENS = ['surface', 'surface-2', 'accent-soft'] as const;
+
+/**
+ * The formatting palette's values in one theme.
+ *
+ * @param theme - The theme being painted.
+ * @returns Each formatting token's hex, as `index.css` declares it for that theme.
+ */
+export function formattingTokenHex(theme: EffectiveTheme): Record<ColourToken | SurfaceToken, Hex> {
+  return Object.fromEntries(FORMATTING_TOKENS.map((token) => [token, PALETTE[theme][token]])) as Record<
+    ColourToken | SurfaceToken,
+    Hex
+  >;
+}
 
 /**
  * The surfaces a formatted cell can land on, which is what its colours are measured against.
@@ -138,12 +158,13 @@ export const FORMATTING_TOKEN_HEX: Record<ColourToken | SurfaceToken, string> = 
  * `surface` and `surface-2` are the grid's own backgrounds (the second is the hover and
  * zebra shade), and `accent-soft` is the SELECTION — a coloured cell is still selectable,
  * so the selection's fill is one of the backgrounds every foreground has to clear.
+ *
+ * @param theme - The theme being painted.
+ * @returns Each surface's hex for that theme.
  */
-export const FORMATTING_BASE_SURFACES: Record<string, string> = {
-  surface: '#ffffff',
-  'surface-2': '#fafbfc',
-  'accent-soft': '#eef2ff'
-};
+export function formattingBaseSurfaces(theme: EffectiveTheme): Record<string, Hex> {
+  return Object.fromEntries(FORMATTING_SURFACE_TOKENS.map((token) => [token, PALETTE[theme][token]]));
+}
 
 /**
  * The foregrounds a rule may choose, in the one order they are ever listed.

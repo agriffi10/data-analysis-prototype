@@ -15,6 +15,7 @@ import {percentageColumnName, percentageOfTotal, selectedCellValues} from './cal
 import {ColumnsPanel} from './ColumnsPanel';
 import {RowColoursDialog} from './RowColoursDialog';
 import {TransformersDialog} from './TransformersDialog';
+import {useTheme} from '../../lib/useTheme';
 import {computePageFormatting} from './formatting';
 import {GeneratedSqlDisclosure} from './GeneratedSqlDisclosure';
 import {GroupingPanel} from './GroupingPanel';
@@ -333,9 +334,12 @@ export function ExplorationResultsRegion({
   // they call applicable is what the evaluator can actually see. Judged over `visible`,
   // the dialog reported a rule as fine while it silently did nothing (found in review).
   // Formats for hidden columns are simply never looked up.
+  // The theme is a dependency because a GRADIENT mixes two tints into a literal colour —
+  // every other colour here is a CSS variable that re-resolves on its own.
+  const {effective} = useTheme();
   const pageFormatting = useMemo(
-    () => computePageFormatting(presentation.formatting, geometry.all, rows),
-    [presentation.formatting, geometry.all, rows]
+    () => computePageFormatting(presentation.formatting, geometry.all, rows, effective),
+    [presentation.formatting, geometry.all, rows, effective]
   );
 
   const setFormatting = (update: Partial<FormattingState>) =>

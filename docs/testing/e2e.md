@@ -748,6 +748,33 @@ at **400px via DevTools device toolbar**.
 - Every dialog is **392px** at this width (root font-size 14px), centred, with no horizontal page
   scroll — and the suggestion listbox stays **inside** its dialog, not overhanging it.
 
+### 4.16 Dark mode (SPEC-210)
+
+The palette itself is measured offline by `lib/contrast.test.ts` in both themes, so what a browser
+adds is the three things jsdom cannot see: the first paint, the editor's own state, and whether the
+whole app actually looks right.
+
+1. **No flash of light.** With **Dark** already chosen, hard-reload (⇧⌘R) a deep link such as
+   `/query`. The page must arrive dark. A white flash means `/theme-init.js` did not run before the
+   first paint — check the Network panel for a **200** on it and a `Cache-Control: no-cache`, and
+   the Console for a CSP refusal (an inline initialiser is the failure this shape exists to avoid).
+2. **The switch, and where it lives.** At desktop width use the half-circle button in the top bar;
+   the current choice carries a tick. Narrow the window below 900px while signed in: the header's
+   button is **gone** and the three choices are in the ☰ drawer. Sign out and narrow again: the
+   button is back, because there is no drawer.
+3. **System follows the OS.** Choose **System**, then flip macOS *Appearance* between Light and
+   Dark with the tab in the foreground. The app must follow **without a reload**. Choose **Light**
+   and flip again: it must not move.
+4. **Monaco keeps its place.** On `/query`, type a multi-line statement, put the cursor mid-line and
+   scroll the editor. Switch the theme. The text, the cursor and the scroll position must all
+   survive — this is the half `SqlEditor.test.tsx` cannot assert, because it stubs the editor.
+5. **Walk the surfaces in dark**: Files (table and, below 900px, the card list), the Query workspace
+   with a result, the Data Explorer with a colour rule and a **gradient** rule applied, the schema
+   rail, Help, Notifications, the landing page signed out, and one danger dialog. Nothing washes
+   out; the landing page's indigo call-to-action strip is deliberately unchanged by the theme.
+6. **Shadows.** A modal and the Menu popover must still read as raised against the dark page. If
+   they look flat, the `--shadow-tint-*` override is not landing.
+
 ### The container platform — what a signed-in session CANNOT reach
 
 `portal.dataquarry.app` is a **placeholder** and no user is pointed at it: the portal you sign in to
@@ -764,6 +791,7 @@ or a ported route needs them, and both are cheap:
 
 The platform's own verification — the no-NAT pull, the redirect, target health — is **§B of
 `arc-b-api-container-e2e.md`**, discharged 2026-08-26 and recorded in `owed.md`.
+
 
 ---
 

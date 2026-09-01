@@ -101,7 +101,7 @@ function Callout({callout}: {callout: NonNullable<HelpGuide['callout']>}) {
     <div
       className={cx(
         'mt-4 flex gap-2.5 rounded-lg border px-3.5 py-3 text-[13px] leading-[1.5] text-text',
-        warning ? 'border-[#f6caca] bg-danger-soft' : 'border-accent-border bg-accent-soft'
+        warning ? 'border-danger-border bg-danger-soft' : 'border-accent-border bg-accent-soft'
       )}>
       <Icon className={cx('mt-px h-4 w-4 flex-none', warning ? 'text-danger' : 'text-accent-text')} />
       <span>

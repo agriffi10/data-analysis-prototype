@@ -1,5 +1,6 @@
 import {useEffect, useId, useRef, useState, type ReactNode, type Ref} from 'react';
 import {cx} from '../lib/cx';
+import {CheckIcon} from './icons';
 
 export type MenuItem =
   | {
@@ -18,6 +19,12 @@ export type MenuItem =
        * reason stays reachable rather than hover-only.
        */
       disabledReason?: string;
+      /**
+       * Marks this item as the current choice in a set of alternatives, which makes it a
+       * `menuitemradio` and gives it a tick. Assistive technology gets `aria-checked` and a
+       * sighted user gets the glyph, so the selection is never carried by colour alone.
+       */
+      selected?: boolean;
     }
   | {kind: 'separator'};
 
@@ -151,7 +158,8 @@ export function Menu({trigger, items, ariaLabel, align = 'right', className, men
                   itemRefs.current[refIndex] = el;
                 }}
                 type="button"
-                role="menuitem"
+                role={item.selected === undefined ? 'menuitem' : 'menuitemradio'}
+                aria-checked={item.selected}
                 disabled={item.disabled}
                 aria-disabled={item.disabledReason ? true : undefined}
                 title={item.disabledReason}
@@ -178,6 +186,9 @@ export function Menu({trigger, items, ariaLabel, align = 'right', className, men
                   item.disabledReason && 'cursor-not-allowed opacity-45',
                   item.tone === 'danger' ? 'text-danger hover:bg-danger-soft' : 'text-text hover:bg-surface-2'
                 )}>
+                {item.selected !== undefined && (
+                  <CheckIcon className={cx('h-3.5 w-3.5 flex-none', !item.selected && 'invisible')} />
+                )}
                 {item.icon}
                 {item.label}
               </button>

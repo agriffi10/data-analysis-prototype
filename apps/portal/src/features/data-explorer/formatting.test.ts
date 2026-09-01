@@ -1,12 +1,15 @@
-import {readFileSync} from 'node:fs';
 import {describe, expect, it} from 'vitest';
+import {contrastRatio} from '../../lib/contrast';
+import type {Hex} from '../../lib/contrast';
+import {PALETTE} from '../../lib/palette';
+import type {EffectiveTheme} from '../../lib/theme.types';
 import {
   FORMATTING_BACKGROUNDS,
-  FORMATTING_BASE_SURFACES,
   FORMATTING_FOREGROUNDS,
   FORMATTING_GRADIENT_STEPS,
   FORMATTING_PATTERN_MAX,
-  FORMATTING_TOKEN_HEX,
+  formattingBaseSurfaces,
+  formattingTokenHex,
   NUMERIC_TRANSFORMER_ERROR,
   TRUNCATION_INDICATOR
 } from './dataExplorer.constants';
@@ -57,107 +60,75 @@ function rule(overrides: Partial<ColourRule> = {}): ColourRule {
 // Contrast (FR-002 AC8)
 // ---------------------------------------------------------------------------------------
 
-function relativeLuminance(hex: string): number {
-  const n = parseInt(hex.slice(1), 16);
-  const channel = (value: number) => {
-    const c = value / 255;
-    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * channel((n >> 16) & 255) + 0.7152 * channel((n >> 8) & 255) + 0.0722 * channel(n & 255);
-}
+const THEMES: EffectiveTheme[] = ['light', 'dark'];
 
-/** WCAG 2.2 relative-contrast ratio between two opaque colours. */
-function contrastRatio(a: string, b: string): number {
-  const [high, low] = [relativeLuminance(a), relativeLuminance(b)].sort((x, y) => y - x);
-  return (high + 0.05) / (low + 0.05);
-}
-
-/**
- * The token stylesheet, from whichever directory the runner was started in.
- *
- * Two literal paths rather than a loop over a list: `security/detect-non-literal-fs-filename`
- * is on, and a constructed path is exactly what it exists to flag — even here, where the
- * only inputs are these two constants.
- */
-function readCss(): string {
-  try {
-    return readFileSync('src/index.css', 'utf8');
-  } catch {
-    return readFileSync('apps/portal/src/index.css', 'utf8');
-  }
-}
-
-/**
- * The body of `index.css`'s `@theme` block, with comments removed.
- *
- * Scoped to the block rather than matched across the whole file, because a whole-file scan
- * reads every `--color-*` anywhere in the stylesheet: a second token block — which is what a
- * dark theme adds — would overwrite these values with its own, and every assertion below
- * would go on passing while measuring a palette the light theme never paints.
- */
-function themeBlock(css: string): string {
-  // Comments come out FIRST, before the braces are counted. Stripping afterwards leaves the
-  // scan reading punctuation inside prose: a `}` in a comment truncates the block, and — the
-  // only case that fails open rather than loudly — an `@theme` mentioned in a comment with no
-  // real block returns the NEXT block's body as though it were the theme. On today's
-  // stylesheet both orders give byte-identical output, which is exactly why the order has to
-  // be chosen deliberately rather than discovered later.
-  const source = css.replace(/\/\*[\s\S]*?\*\//g, '');
-
-  const declaration = source.indexOf('@theme');
-  const start = declaration < 0 ? -1 : source.indexOf('{', declaration);
-  if (start < 0) throw new Error('index.css declares no @theme block');
-
-  let depth = 0;
-  for (let i = start; i < source.length; i += 1) {
-    if (source[i] === '{') depth += 1;
-    else if (source[i] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start + 1, i);
-    }
-  }
-  throw new Error('index.css has no closed @theme block');
+/** The evaluator, under the theme every behaviour test below reads its colours from. */
+function formatPage(formatting: FormattingState, columns: FormattingColumn[], rows: (string | null)[][]) {
+  return computePageFormatting(formatting, columns, rows, 'light');
 }
 
 describe('the formatting palette clears WCAG AA on every surface it can land on', () => {
   // Every surface a formatted cell can sit on: the grid's own two, the SELECTION's fill
   // (a coloured cell is still selectable), and every background a rule may choose.
-  const surfaces = {
-    ...FORMATTING_BASE_SURFACES,
-    ...Object.fromEntries(FORMATTING_BACKGROUNDS.map((token) => [token, FORMATTING_TOKEN_HEX[token]]))
-  };
+  function surfacesOf(theme: EffectiveTheme): Record<string, Hex> {
+    const tokens = formattingTokenHex(theme);
+    return {
+      ...formattingBaseSurfaces(theme),
+      ...Object.fromEntries(FORMATTING_BACKGROUNDS.map((token) => [token, tokens[token]]))
+    };
+  }
 
-  it('every foreground meets 4.5:1 against every background', () => {
+  // The five the palette offers, plus the one it left out. Which of them a theme admits is
+  // COMPUTED below rather than copied between themes: a dark palette can readmit `warning` or
+  // expel a colour the light one includes, and the assertion has to be about the palette it is
+  // measuring.
+  const CANDIDATES = [...FORMATTING_FOREGROUNDS, 'warning'] as const;
+
+  function admissible(theme: EffectiveTheme): string[] {
+    const surfaces = Object.values(surfacesOf(theme));
+    return CANDIDATES.filter((token) => surfaces.every((bg) => contrastRatio(PALETTE[theme][token], bg) >= 4.5));
+  }
+
+  it.each(THEMES)('%s: every offered foreground meets 4.5:1 against every background', (theme) => {
     const failures: string[] = [];
+    const tokens = formattingTokenHex(theme);
     for (const foreground of FORMATTING_FOREGROUNDS) {
-      for (const [name, background] of Object.entries(surfaces)) {
-        const ratio = contrastRatio(FORMATTING_TOKEN_HEX[foreground], background);
+      for (const [name, background] of Object.entries(surfacesOf(theme))) {
+        const ratio = contrastRatio(tokens[foreground], background);
         if (ratio < 4.5) failures.push(`${foreground} on ${name}: ${ratio.toFixed(2)}`);
       }
     }
     expect(failures).toEqual([]);
   });
 
-  it('records why `warning` is not a foreground — it fails on the soft backgrounds', () => {
-    // The measurement that decided the palette, kept so the exclusion is a finding rather
-    // than a preference. If this starts FAILING, the tokens have moved and `warning` may
-    // be admissible again — revisit the palette, do not delete the test.
-    expect(contrastRatio('#b45309', FORMATTING_TOKEN_HEX['accent-soft'])).toBeLessThan(4.5);
-    expect(contrastRatio('#b45309', FORMATTING_TOKEN_HEX['danger-soft'])).toBeLessThan(4.5);
-    expect(contrastRatio('#b45309', FORMATTING_BASE_SURFACES.surface)).toBeGreaterThan(4.5);
+  it('records which foregrounds each theme admits, and that the offered set is a subset', () => {
+    // The measurement that decided the palette, kept so the exclusion is a finding rather than
+    // a preference — and recomputed per theme rather than restated. `warning` is out in light
+    // (4.49 on `accent-soft`, 4.39 on `danger-soft`) and IN on dark, where every soft tint is
+    // dark: the offered set stays five in both, because a colour a user can pick in one theme
+    // and not the other is a rule that changes meaning when they switch. If either line starts
+    // FAILING the tokens have moved — revisit the palette, do not delete the test.
+    expect(admissible('light')).toEqual([...FORMATTING_FOREGROUNDS]);
+    expect(admissible('dark')).toEqual([...FORMATTING_FOREGROUNDS, 'warning']);
+    // …and the reason `warning` is excluded, from the palette rather than from a literal that
+    // would go stale the day the token moved.
+    expect(contrastRatio(PALETTE.light.warning, PALETTE.light['accent-soft'])).toBeLessThan(4.5);
+    expect(contrastRatio(PALETTE.light.warning, PALETTE.light['danger-soft'])).toBeLessThan(4.5);
+    expect(contrastRatio(PALETTE.light.warning, PALETTE.light.surface)).toBeGreaterThan(4.5);
   });
 
-  it('every shade a gradient can produce meets 4.5:1 against every foreground', () => {
+  it.each(THEMES)('%s: every shade a gradient can produce meets 4.5:1 against every foreground', (theme) => {
     // A gradient emits a colour that is in no token, so its contrast has to be measured at
     // every step it can quantise to — including the mixed shades between two tints of
     // different hues, which is where a naive "both ends are pale" argument breaks.
     const failures: string[] = [];
+    const tokens = formattingTokenHex(theme);
     for (const from of FORMATTING_BACKGROUNDS) {
       for (const to of FORMATTING_BACKGROUNDS) {
         for (let step = 0; step < FORMATTING_GRADIENT_STEPS; step += 1) {
-          const shade = gradientShade(from, to, step / (FORMATTING_GRADIENT_STEPS - 1));
+          const shade = gradientShade(from, to, step / (FORMATTING_GRADIENT_STEPS - 1), theme) as Hex;
           for (const foreground of FORMATTING_FOREGROUNDS) {
-            const ratio = contrastRatio(FORMATTING_TOKEN_HEX[foreground], shade);
+            const ratio = contrastRatio(tokens[foreground], shade);
             if (ratio < 4.5) failures.push(`${foreground} on ${from}→${to} @${step}: ${ratio.toFixed(2)}`);
           }
         }
@@ -166,61 +137,17 @@ describe('the formatting palette clears WCAG AA on every surface it can land on'
     expect(failures).toEqual([]);
   });
 
-  it('the palette map matches the tokens index.css actually declares', () => {
-    // The one thing that would make every measurement above meaningless: a hex here that is
-    // not the hex the browser paints. The map exists only because a gradient has to
-    // interpolate values and contrast has to be computed from them — so it is a copy, and a
-    // copy needs a guard.
-    // Read from disk rather than imported. Vitest does not process CSS, so BOTH
-    // `import '…?raw'` and a raw `import.meta.glob` of a stylesheet resolve to an empty
-    // string — measured, not assumed — and an empty string would make every assertion below
-    // pass by finding nothing to disagree with. The size guard is what catches a path that
-    // stops resolving.
-    const declared = new Map<string, string>();
-    for (const [, name, hex] of themeBlock(readCss()).matchAll(/--color-([a-z0-9-]+):\s*(#[0-9a-f]{6});/g)) {
-      declared.set(name, hex);
+  it('takes every value from the palette declaration, so no literal can creep back in', () => {
+    // What used to stand here pinned a hand-written mirror of the palette against `index.css`.
+    // There is no mirror any more — both maps resolve from the one declaration — so the guard
+    // that matters now is that they still do, for every token the feature paints with.
+    for (const theme of THEMES) {
+      const declared = Object.entries({...formattingTokenHex(theme), ...formattingBaseSurfaces(theme)});
+      for (const [token, hex] of declared) {
+        expect(hex, `${theme} --color-${token}`).toBe(PALETTE[theme][token as keyof (typeof PALETTE)['light']]);
+      }
+      expect(declared.length).toBe(11);
     }
-    expect(declared.size).toBeGreaterThan(10);
-
-    for (const [token, hex] of Object.entries(FORMATTING_TOKEN_HEX)) {
-      expect(declared.get(token), `--color-${token}`).toBe(hex);
-    }
-
-    // The SECOND mirror, and the one with no other cover: `surface` and `surface-2` appear in
-    // no other map, and they are the backgrounds every contrast number above is measured
-    // against. Pinning both maps to the same source is also what makes `accent-soft` — the one
-    // token they share — agree by construction rather than by a fourth assertion.
-    expect(declared.get('surface')).toBe(FORMATTING_BASE_SURFACES.surface);
-    expect(declared.get('surface-2')).toBe(FORMATTING_BASE_SURFACES['surface-2']);
-    expect(declared.get('accent-soft')).toBe(FORMATTING_BASE_SURFACES['accent-soft']);
-  });
-
-  it('reads only the @theme block, so a second token block cannot overwrite it', () => {
-    // The scoping is the whole reason the parse above is not a whole-file regex, and
-    // `index.css` does not exercise it yet — a dark theme is what adds the second block. So
-    // it is asserted against a synthetic stylesheet, which is the only way to have the guard
-    // before the case it guards against exists.
-    const body = themeBlock(
-      [
-        '@theme {',
-        '  /* text-3 was #8a93a2 (failed) */',
-        '  --color-surface: #ffffff;',
-        '}',
-        ":root[data-theme='dark'] {",
-        '  --color-surface: #14171c;',
-        '}'
-      ].join('\n')
-    );
-
-    // Asserted through the SAME matchAll the real check runs, not on the extracted text — a
-    // guard on the extractor alone would still pass if the composition around it changed.
-    const declared = new Map<string, string>();
-    for (const [, name, hex] of body.matchAll(/--color-([a-z0-9-]+):\s*(#[0-9a-f]{6});/g)) {
-      declared.set(name, hex);
-    }
-
-    expect(declared.get('surface'), 'a later block must not reach the light palette').toBe('#ffffff');
-    expect(declared.size, 'a hex inside a comment is not a declaration').toBe(1);
   });
 });
 
@@ -230,14 +157,14 @@ describe('the formatting palette clears WCAG AA on every surface it can land on'
 
 describe('conditional colouring', () => {
   it('paints only the cells a cell-scoped rule matched', () => {
-    const {formats} = computePageFormatting(state({rules: [rule({column: 'status', value: 'ok'})]}), COLUMNS, ROWS);
+    const {formats} = formatPage(state({rules: [rule({column: 'status', value: 'ok'})]}), COLUMNS, ROWS);
     expect(formats[0].status).toEqual({color: colourValue('danger')});
     expect(formats[0].id).toBeUndefined();
     expect(formats[1].status).toBeUndefined();
   });
 
   it('paints the whole row for a row-scoped rule, from a condition on one column', () => {
-    const {formats} = computePageFormatting(
+    const {formats} = formatPage(
       state({rules: [rule({column: 'status', value: 'failed', scope: 'row', background: 'danger-soft'})]}),
       COLUMNS,
       ROWS
@@ -249,27 +176,19 @@ describe('conditional colouring', () => {
   });
 
   it('tests every cell in the row when no column is named', () => {
-    const {formats} = computePageFormatting(state({rules: [rule({value: 'ok'})]}), COLUMNS, ROWS);
+    const {formats} = formatPage(state({rules: [rule({value: 'ok'})]}), COLUMNS, ROWS);
     expect(formats[0].status).toBeDefined();
     expect(formats[0].id).toBeUndefined();
     expect(formats[2].status).toBeDefined();
   });
 
   it('compares numerically when both sides are plain numbers, and textually otherwise', () => {
-    const numeric = computePageFormatting(
-      state({rules: [rule({column: 'qty', operator: '>', value: '9'})]}),
-      COLUMNS,
-      ROWS
-    );
+    const numeric = formatPage(state({rules: [rule({column: 'qty', operator: '>', value: '9'})]}), COLUMNS, ROWS);
     // Text comparison would put '10' before '9'; both rows must match.
     expect(numeric.formats[0].qty).toBeDefined();
     expect(numeric.formats[1].qty).toBeDefined();
 
-    const textual = computePageFormatting(
-      state({rules: [rule({column: 'id', operator: '>', value: 'a'})]}),
-      COLUMNS,
-      ROWS
-    );
+    const textual = formatPage(state({rules: [rule({column: 'id', operator: '>', value: 'a'})]}), COLUMNS, ROWS);
     expect(textual.formats[0].id).toBeUndefined();
     expect(textual.formats[1].id).toBeDefined();
   });
@@ -277,24 +196,20 @@ describe('conditional colouring', () => {
   it('leaves a NULL unstyled, including under <>', () => {
     // NULL is the one value Athena does not hand back as a string, and "is not 5" over a
     // value that was never there would paint every empty cell in the column.
-    const {formats} = computePageFormatting(
-      state({rules: [rule({column: 'qty', operator: '<>', value: '5'})]}),
-      COLUMNS,
-      ROWS
-    );
+    const {formats} = formatPage(state({rules: [rule({column: 'qty', operator: '<>', value: '5'})]}), COLUMNS, ROWS);
     expect(formats[0].qty).toBeDefined();
     expect(formats[2].qty).toBeUndefined();
   });
 
   it('folds case for ILIKE and not for LIKE', () => {
-    const insensitive = computePageFormatting(
+    const insensitive = formatPage(
       state({rules: [rule({column: 'status', operator: 'ilike', value: 'OK'})]}),
       COLUMNS,
       ROWS
     );
     expect(insensitive.formats[0].status).toBeDefined();
 
-    const sensitive = computePageFormatting(
+    const sensitive = formatPage(
       state({rules: [rule({column: 'status', operator: 'like', value: 'OK'})]}),
       COLUMNS,
       ROWS
@@ -303,7 +218,7 @@ describe('conditional colouring', () => {
   });
 
   it('lets a later rule override an earlier one per property, not wholesale', () => {
-    const {formats} = computePageFormatting(
+    const {formats} = formatPage(
       state({
         rules: [
           rule({id: 'a', column: 'status', value: 'ok', foreground: 'success', background: 'success-soft'}),
@@ -323,7 +238,7 @@ describe('conditional colouring', () => {
   it('never applies an invalid rule, even if one reaches it from storage', () => {
     const broken = rule({column: 'status', operator: 'regex', value: '('});
     expect(ruleRefusal(broken)).toBe(PATTERN_REFUSAL);
-    const {formats} = computePageFormatting(state({rules: [broken]}), COLUMNS, ROWS);
+    const {formats} = formatPage(state({rules: [broken]}), COLUMNS, ROWS);
     expect(formats.every((row) => Object.keys(row).length === 0)).toBe(true);
   });
 
@@ -350,18 +265,18 @@ describe('gradients', () => {
   });
 
   it('interpolates a numeric cell across the range', () => {
-    const {formats} = computePageFormatting(state({rules: [gradient]}), COLUMNS, ROWS);
-    expect(formats[0].qty?.backgroundColor).toBe(gradientShade('accent-soft', 'danger-soft', 0.5));
-    expect(formats[1].qty?.backgroundColor).toBe(FORMATTING_TOKEN_HEX['danger-soft']);
+    const {formats} = formatPage(state({rules: [gradient]}), COLUMNS, ROWS);
+    expect(formats[0].qty?.backgroundColor).toBe(gradientShade('accent-soft', 'danger-soft', 0.5, 'light'));
+    expect(formats[1].qty?.backgroundColor).toBe(formattingTokenHex('light')['danger-soft']);
   });
 
   it('clamps a numeric value outside the range to the nearest end', () => {
-    const {formats} = computePageFormatting(
+    const {formats} = formatPage(
       state({rules: [{...gradient, gradient: {min: 0, max: 5, from: 'accent-soft', to: 'danger-soft'}}]}),
       COLUMNS,
       ROWS
     );
-    expect(formats[0].qty?.backgroundColor).toBe(FORMATTING_TOKEN_HEX['danger-soft']);
+    expect(formats[0].qty?.backgroundColor).toBe(formattingTokenHex('light')['danger-soft']);
   });
 });
 
@@ -381,7 +296,7 @@ describe('colour by data type', () => {
   });
 
   it('loses to a conditional rule where both apply', () => {
-    const {formats} = computePageFormatting(
+    const {formats} = formatPage(
       state({colourByType: true, rules: [rule({column: 'qty', operator: '>', value: '5'})]}),
       COLUMNS,
       ROWS
@@ -413,7 +328,7 @@ describe('group row striping', () => {
     expect(bands).toEqual([-1, -1, -1, -1]);
     expect(bandStarts).toEqual([false, false, false, false]);
 
-    const {formats} = computePageFormatting(state(), COLUMNS, BANDED);
+    const {formats} = formatPage(state(), COLUMNS, BANDED);
     expect(formats.every((row) => Object.keys(row).length === 0)).toBe(true);
   });
 
@@ -472,7 +387,7 @@ describe('transformers change the rendering and nothing else', () => {
       transformers: {qty: {kind: 'numeric', precision: 2, lenient: true}},
       rules: [rule({column: 'qty', operator: '=', value: '10'})]
     });
-    const {transformed, formats} = computePageFormatting(formatting, COLUMNS, ROWS);
+    const {transformed, formats} = formatPage(formatting, COLUMNS, ROWS);
     expect(transformed[0].qty.text).toBe('10.00');
     // The rule matched the RAW `10`, not the rendered `10.00` — a rule tested against the
     // rendering would need the user to write the transformer's own output as its value.
@@ -489,7 +404,7 @@ describe('a LIKE pattern cannot be made to backtrack catastrophically', () => {
 
   it('finishes promptly on a pattern of repeated wildcards', () => {
     const started = Date.now();
-    const {formats} = computePageFormatting(
+    const {formats} = formatPage(
       state({rules: [rule({column: 'id', operator: 'like', value: '%%%%%%%%x'})]}),
       COLUMNS,
       [[value, '1', 'ok']]
@@ -506,16 +421,8 @@ describe('a LIKE pattern cannot be made to backtrack catastrophically', () => {
       ['abc', '1', 'ok'],
       ['xbc', '1', 'ok']
     ];
-    const many = computePageFormatting(
-      state({rules: [rule({column: 'id', operator: 'like', value: '%%%bc'})]}),
-      COLUMNS,
-      rows
-    );
-    const one = computePageFormatting(
-      state({rules: [rule({column: 'id', operator: 'like', value: '%bc'})]}),
-      COLUMNS,
-      rows
-    );
+    const many = formatPage(state({rules: [rule({column: 'id', operator: 'like', value: '%%%bc'})]}), COLUMNS, rows);
+    const one = formatPage(state({rules: [rule({column: 'id', operator: 'like', value: '%bc'})]}), COLUMNS, rows);
     expect(many.formats.map((f) => Boolean(f.id))).toEqual(one.formats.map((f) => Boolean(f.id)));
     expect(many.formats[0].id).toBeDefined();
   });

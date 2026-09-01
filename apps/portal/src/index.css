@@ -36,13 +36,25 @@
        success #047857 ≈ 5.5:1 / 4.8:1-on-soft   (was #0f9d6e ≈ 3.5:1 — failed)
        warning #b45309 ≈ 5.0:1 / 4.7:1-on-soft   (was #c2820a ≈ 3.3:1 — failed)
        danger  #b91c1c ≈ 6.5:1 / 5.9:1-on-soft   (was #dc2626 ≈ 4.4:1 on soft — failed)
-     Danger also backs white-on-danger buttons (≈6.5:1 — AA). */
+     danger-border is accent-border's opposite number: the visible edge of a
+     danger-soft fill, decorative reinforcement and never the sole signal.
+     on-danger is the foreground of the one danger BUTTON. It exists because a
+     single token cannot be both readable text on a dark surface and a fill that
+     carries white; the two roles part company in the dark theme and this names
+     the second one. */
   --color-success: #047857;
   --color-success-soft: #e7f7f0;
   --color-warning: #b45309;
   --color-warning-soft: #fdf4e3;
   --color-danger: #b91c1c;
   --color-danger-soft: #fdeceb;
+  --color-danger-border: #f6caca;
+  --color-on-danger: #ffffff;
+
+  /* The editor's function colour (≈5.7:1 on the editor background). A token
+     rather than a literal inside the Monaco theme, so it is measured and gains a
+     dark counterpart with everything else. */
+  --color-syntax-fn: #7c3aed;
 
   /* Breakpoints (SPEC-095). Reset Tailwind's defaults to `initial` so only the
      two project breakpoints compile — a self-documenting `tablet:` / `desktop:`
@@ -82,10 +94,78 @@
   --radius-lg: 10px;
   --radius-full: 999px;
 
-  /* Shadow */
-  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
-  --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.08);
-  --shadow-lg: 0 12px 32px rgba(16, 24, 40, 0.14);
+  /* Shadow. The tint is a SEPARATE custom property and that is load-bearing:
+     Tailwind inlines a --shadow-* theme value into the utility and emits no
+     --shadow-* variable at all, so redefining --shadow-md in a theme block
+     changes nothing and does so silently. What survives inlining is the var()
+     INSIDE the value, which is why the tint is what a theme overrides. */
+  --shadow-sm: 0 1px 2px var(--shadow-tint-sm);
+  --shadow-md: 0 4px 12px var(--shadow-tint-md);
+  --shadow-lg: 0 12px 32px var(--shadow-tint-lg);
+}
+
+/* The default theme. `theme-init.js` stamps data-theme on <html> before the
+   first paint, so these are the values the browser starts from either way. */
+:root {
+  --shadow-tint-sm: rgba(16, 24, 40, 0.05);
+  --shadow-tint-md: rgba(16, 24, 40, 0.08);
+  --shadow-tint-lg: rgba(16, 24, 40, 0.14);
+
+  /* The landing page's call-to-action strip: a fixed brand surface, deliberately
+     outside @theme so no theme block can reach it and Tailwind mints no utility
+     for it. Fixing it is what keeps its white buttons safe — a themed label
+     colour would go light in the dark theme and vanish against the button. */
+  --landing-cta-bg: #4f46e5;
+  --landing-cta-text: #ffffff;
+  --landing-cta-text-muted: #dfe0fb;
+  --landing-cta-button-bg: #ffffff;
+  --landing-cta-button-hover: #f3f4ff;
+  --landing-cta-button-text: #4338ca;
+}
+
+/* The dark theme. Every value is derived under `lib/contrast.test.ts` rather than
+   chosen: the harness measures each declared pairing in both themes, and these
+   are what passes it. Ratios run 3.3–16.2, the lowest being the focus ring
+   against the lightest surface (floor 3:1, WCAG 1.4.11). */
+:root[data-theme='dark'] {
+  --color-bg: #0d1014;
+  --color-surface: #14181e;
+  --color-surface-2: #191e25;
+  --color-border: #2b323c;
+  --color-border-2: #1f242c;
+
+  --color-text: #e9edf3;
+  --color-text-2: #a5aeba;
+  --color-text-3: #98a1ad;
+
+  /* accent is lightened until it clears 3:1 as a focus ring on surface-2 and
+     still carries white at 5.1:1 — a narrow band, and the reason bg/surface sit
+     as dark as they do. accent-hover DEEPENS rather than lightens: the resting
+     fill is already near the top of that band, so the hover feedback has
+     nowhere to go but down. */
+  --color-accent: #615ae9;
+  --color-accent-hover: #4f46e5;
+  --color-accent-soft: #1d1f3d;
+  --color-accent-text: #a5b4fc;
+  --color-accent-border: #383c6b;
+
+  --color-success: #34d399;
+  --color-success-soft: #0d2a21;
+  --color-warning: #f0b429;
+  --color-warning-soft: #2c220c;
+  --color-danger: #f87171;
+  --color-danger-soft: #34181a;
+  --color-danger-border: #4a2427;
+  /* Near-black, not white: the danger fill is light here so its text inverts. */
+  --color-on-danger: #1a0c0c;
+
+  --color-syntax-fn: #c4b5fd;
+
+  /* A shadow tuned for a white page is invisible on a dark one; these carry the
+     depth instead. Overriding the TINT, never --shadow-*, for the reason above. */
+  --shadow-tint-sm: rgba(0, 0, 0, 0.5);
+  --shadow-tint-md: rgba(0, 0, 0, 0.6);
+  --shadow-tint-lg: rgba(0, 0, 0, 0.72);
 }
 
 @layer base {

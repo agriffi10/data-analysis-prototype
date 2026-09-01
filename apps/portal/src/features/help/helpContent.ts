@@ -349,6 +349,22 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Need the schema? Open the menu in the header — your databases and their tables are in the drawer.',
           'From a table’s <b>⋮</b> menu in that drawer, <b>View data</b> opens the table’s rows in the results view, and <b>View DDL</b> shows how the table was defined.'
         ]
+      },
+      {
+        id: 'choose-a-theme',
+        title: 'Switch between light and dark',
+        subtitle: 'Pick how the portal looks, or let it follow your device.',
+        intro:
+          'A long session with the editor is easier on the eyes in the dark. Choose Light or Dark to fix it, or System to let the portal follow whatever your computer or phone is set to — so it turns dark in the evening if your device does.',
+        steps: [
+          'Click the <b>half-circle</b> button in the top bar and choose <b>Light</b>, <b>Dark</b>, or <b>System</b>.',
+          'On a phone, open the menu from the <b>☰</b> button instead — the same three choices are near the bottom of the drawer.',
+          'The change applies straight away, and the editor, the results grid and every other screen follow it.'
+        ],
+        callout: {
+          kind: 'tip',
+          text: 'The choice is remembered in this browser, not on your account — so signing out keeps it, and signing in on another computer starts again from System.'
+        }
       }
     ]
   },

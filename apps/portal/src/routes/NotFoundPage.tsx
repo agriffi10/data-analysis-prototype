@@ -9,11 +9,11 @@ export default function NotFoundPage() {
     <main
       id="main"
       className="flex flex-1 flex-col items-center justify-center px-4 text-center">
-      <h1 className="text-3xl font-semibold text-gray-900">Page not found</h1>
-      <p className="mt-3 text-gray-600">The page you&rsquo;re looking for doesn&rsquo;t exist.</p>
+      <h1 className="text-3xl font-semibold text-text">Page not found</h1>
+      <p className="mt-3 text-text-2">The page you&rsquo;re looking for doesn&rsquo;t exist.</p>
       <Link
         to="/"
-        className="mt-8 font-medium text-gray-900 underline hover:text-gray-700">
+        className="mt-8 font-medium text-text underline hover:text-text-2">
         Back to home
       </Link>
     </main>

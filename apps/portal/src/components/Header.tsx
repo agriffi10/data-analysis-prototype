@@ -9,6 +9,7 @@ import {BrandMark} from './BrandMark';
 import {Button} from './Button';
 import {useNavRailContent} from './navRailContext';
 import {PrimaryNav} from './PrimaryNav';
+import {ThemeMenu} from './ThemeMenu';
 
 /**
  * Persistent auth-aware top bar: brand mark, primary tabs (authenticated only;
@@ -88,6 +89,14 @@ export function Header() {
         <div className="flex-1" />
 
         <div className="flex items-center gap-3">
+          {/* Present signed out too — the header is what a signed-out visitor sees on any
+              route but the landing page, which carries its own copy. It is the one control
+              here that steps aside below `tablet`: the authenticated header is over its width
+              budget at 375px before anything is added, so the drawer takes it instead. There
+              is no drawer when signed out, and that header carries only a brand mark and one
+              button, so it keeps the control at every width. */}
+          {!(authed && isMobile) && <ThemeMenu />}
+
           {status === 'loading' && (
             <span
               className="text-sm text-text-3"

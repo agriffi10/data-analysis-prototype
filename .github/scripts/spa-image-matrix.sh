@@ -371,6 +371,19 @@ for near in /healthz/ /healthzz; do
   check_contains "${near} falls through to the shell (so /healthz is real)" "$(header content-type)" "text/html"
 done
 
+section "The pre-paint theme initialiser"
+# It resolves the stored theme and stamps it on <html> before the module script runs, so it has
+# to carry the SHELL's cache class and not the assets one: a long-cached initialiser would pin a
+# stale resolution while the page it themes was refetched every load. Asserted as the same
+# literal the shell's section asserts, so the two cannot drift apart quietly.
+fetch "/theme-init.js"
+check_eq "status" "$(status)" "200"
+check_contains "content-type" "$(header content-type)" "javascript"
+check_eq "cache class is the shell's, not the assets one" "$(header cache-control)" "no-cache"
+# A removed root file answers the shell with a 200 (see the preserved trap below), so the status
+# alone cannot tell a served initialiser from a missing one — the content type is what can.
+assert_security_headers "theme-init.js"
+
 section "A root-level static file"
 # A stable URL, and none of the six classes above — the assets rule is scoped by PREFIX precisely
 # so that a root file does not accidentally inherit an immutable year.

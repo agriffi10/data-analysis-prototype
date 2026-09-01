@@ -30,7 +30,10 @@ const VARIANTS: Record<ButtonVariant, string> = {
   primary: 'bg-accent text-white hover:bg-accent-hover',
   default: 'bg-surface border border-border text-text hover:bg-surface-2',
   ghost: 'text-text-2 hover:bg-surface-2 hover:text-text',
-  danger: 'bg-danger text-white hover:bg-danger/90'
+  // `on-danger`, not white: `danger` has to be light enough to read as text on a dark surface,
+  // which leaves it too light to carry white as a fill. The two roles part company in the dark
+  // theme, and this is the token that names the second one.
+  danger: 'bg-danger text-on-danger hover:bg-danger/90'
 };
 
 const SIZES: Record<ButtonSize, string> = {

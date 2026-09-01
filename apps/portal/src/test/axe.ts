@@ -7,6 +7,13 @@ import {expect} from 'vitest';
 // Centralised axe configuration: one place defines which rules run and which
 // are disabled (with a written reason). Every a11y check renders through
 // `expectNoA11yViolations` so the config lives here and nowhere else.
+//
+// THESE ASSERTIONS RUN IN THE LIGHT THEME, with one deliberate exception: `components/
+// theme.test.tsx` renders the app shell in the dark theme once. The cap is stated rather than
+// left to be inferred from what is absent — `color-contrast` is disabled below in either
+// theme, so a second full pass would double an already long suite for a rule that cannot
+// fire. Contrast, in BOTH themes, is measured from the token values by
+// `lib/contrast.test.ts`.
 
 /** WCAG A/AA rule tags the suite asserts against (machine-detectable subset). */
 export const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] as const;
@@ -15,8 +22,9 @@ const runAxe = configureAxe({
   runOnly: {type: 'tag', values: [...WCAG_TAGS]},
   rules: {
     // jsdom has no layout engine or computed styles, so axe cannot evaluate
-    // contrast — it would error, not pass. Contrast is governed by the design
-    // tokens and stays a manual/visual concern. Disabled deliberately, never faked.
+    // contrast — it would error, not pass. Disabled deliberately, never faked. What
+    // covers it instead is `lib/contrast.test.ts`, which computes WCAG ratios from the
+    // token values for every pairing the design uses, in both themes.
     'color-contrast': {enabled: false}
   }
 });
@@ -29,6 +37,9 @@ const runAxe = configureAxe({
 export const ROUTE_AXE_OPTIONS: RunOptions = {
   runOnly: {type: 'tag', values: [...WCAG_TAGS, 'best-practice']},
   rules: {
+    // Disabled for the reason above, and covered by `lib/contrast.test.ts` instead. It is
+    // repeated here because this object REPLACES the base `rules` for the specs that pass
+    // it — a route spec would otherwise re-enable a rule that cannot run.
     'color-contrast': {enabled: false},
     region: {enabled: true}
   }

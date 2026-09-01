@@ -1,10 +1,11 @@
 import {
   FORMATTING_GRADIENT_STEPS,
   FORMATTING_PATTERN_MAX,
-  FORMATTING_TOKEN_HEX,
+  formattingTokenHex,
   NUMERIC_TRANSFORMER_ERROR,
   TRUNCATION_INDICATOR
 } from './dataExplorer.constants';
+import type {EffectiveTheme} from '../../lib/theme.types';
 import {isBareNumeric} from './renderExplorationSql';
 import {resolveUrl} from './urlTransformer';
 import type {ColourRule, ColourToken, FormattingState, SurfaceToken, Transformer} from './dataExplorer.types';
@@ -101,16 +102,22 @@ function channels(hex: string): [number, number, number] {
  * Quantised to {@link FORMATTING_GRADIENT_STEPS} rather than continuous: a distinct colour
  * per row is a scale nobody can read, and a decile scale is one people already know.
  *
+ * The one colour this module emits as a LITERAL rather than as `var(--color-…)`: a mixed
+ * shade is in no token, so there is no variable to name it and the theme has to be resolved
+ * here, where the style is built.
+ *
  * @param from - The colour at the low end.
  * @param to - The colour at the high end.
  * @param position - Where the value falls, 0 to 1 inclusive; clamped.
+ * @param theme - The theme being painted, whose tints are mixed.
  * @returns A `#rrggbb` colour.
  */
-export function gradientShade(from: SurfaceToken, to: SurfaceToken, position: number): string {
+export function gradientShade(from: SurfaceToken, to: SurfaceToken, position: number, theme: EffectiveTheme): string {
   const clamped = Math.min(1, Math.max(0, position));
   const step = Math.round(clamped * (FORMATTING_GRADIENT_STEPS - 1)) / (FORMATTING_GRADIENT_STEPS - 1);
-  const a = channels(FORMATTING_TOKEN_HEX[from]);
-  const b = channels(FORMATTING_TOKEN_HEX[to]);
+  const tints = formattingTokenHex(theme);
+  const a = channels(tints[from]);
+  const b = channels(tints[to]);
   const mixed = a.map((channel, i) => Math.round(channel * (1 - step) + b[i] * step));
   return `#${mixed.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
 }
@@ -345,12 +352,15 @@ export function bandsOf(
  * @param formatting - The tab's formatting state.
  * @param columns - The visible columns, carrying their row-array index and type.
  * @param rows - The loaded page's rows, in the execution's column order.
+ * @param theme - The theme being painted; only a gradient's mixed shade needs it, every
+ *   other colour here is a CSS variable that resolves itself.
  * @returns Bands and per-cell colours for the page.
  */
 export function computePageFormatting(
   formatting: FormattingState,
   columns: FormattingColumn[],
-  rows: (string | null)[][]
+  rows: (string | null)[][],
+  theme: EffectiveTheme
 ): PageFormatting {
   const {bands, bandStarts} = bandsOf(rows, columns, formatting.stripeColumns);
 
@@ -390,7 +400,7 @@ export function computePageFormatting(
         const value = tested.length === 1 ? row[tested[0].index] : undefined;
         if (value === undefined || value === null || !isBareNumeric(value)) continue;
         const {min, max, from, to} = rule.gradient;
-        const shade = gradientShade(from, to, (Number(value) - min) / (max - min));
+        const shade = gradientShade(from, to, (Number(value) - min) / (max - min), theme);
         const painted = rule.scope === 'row' ? columns : tested;
         for (const column of painted) {
           set(column.name, {backgroundColor: shade, ...(rule.foreground ? {color: colourValue(rule.foreground)} : {})});
