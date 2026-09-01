@@ -17,10 +17,15 @@ a separate job. It is now a step, and the ordering is a string repeated on every
 YAML enforced the old form; nothing enforces the new one, so a scanner added without the
 condition would run under a failed gate and report as if the gate had held.
 
-The sweep covers every ``.ts``/``.tsx`` under ``src/``, not only ``*.test.ts``. A coupled read
-moved one file sideways into a ``src/test/`` helper is the shape this repository already uses
-— ``cssTokens.ts`` reads from disk — and a test-file-only sweep is blind to it while looking
-exactly as green.
+The sweep covers every ``.ts``/``.tsx``/``.mts``/``.cts`` under ``apps/portal``, not only
+``src/**/*.test.ts``. A coupled read moved one file sideways into a ``src/test/`` helper is the
+shape this repository already uses — ``cssTokens.ts`` reads from disk — and a test-file-only
+sweep is blind to it while looking exactly as green.
+
+One shape it still cannot see: a BRACE glob, ``…/*.{tf,tftpl}``. Half the suite's
+``import.meta.glob`` calls use braces, all of them in-tree today, and covering them needs
+brace expansion before the glob rather than a wider character class. A coupled read written
+that way would be missed, so write it as two globs or add the expansion.
 
 Specifiers are RESOLVED against the file holding them, never string-stripped. Dropping the
 ``../`` prefixes and testing the remainder at the repository root reads ``../../package.json``
@@ -37,6 +42,9 @@ disappearance of any individual one. The five that do not come from that glob ar
 import os
 import pathlib
 import re
+import shutil
+import subprocess
+import tempfile
 
 import yaml
 
@@ -81,6 +89,35 @@ NAMED_OUT_OF_TREE_READS = frozenset(
     }
 )
 
+#: One repository path per ``SCOPE_PATTERNS`` entry that the list MUST select. The sweep above
+#: derives only the out-of-tree half; nothing derived the build half, so deleting ``^apps/portal/``
+#: passed green while every pull request touching app source skipped lint, build and the suite.
+SELECTED_BY_SCOPE = (
+    "apps/portal/src/App.tsx",
+    "packages/shared/index.ts",
+    "package.json",
+    "package-lock.json",
+    ".nvmrc",
+    ".github/workflows/ci.yml",
+    ".github/workflows/deploy-app.yml",
+    "config/feature-flags.json",
+    "infra/main.tf",
+    "infra/modules/data/policies/portal-role-permissions.json.tftpl",
+    "lambdas/api/routes/feature_flags.py",
+    "lambdas/archive-common/arcommon/config.py",
+)
+
+#: Paths the list must NOT select, or the saving is gone. Each is a near miss of a real pattern
+#: rather than an obvious non-match, so an over-broad or unanchored pattern is caught.
+REFUSED_BY_SCOPE = (
+    "docs/process.md",
+    "CLAUDE.md",
+    "lambdas/api/routes/objects.py",
+    "lambdas/archive-common/arcommon/registry.py",
+    "infra/modules/data/main.tf",
+    "infra/variables.tf",
+)
+
 #: The floor for the glob-derived half. 88 templates exist; a lower bound lets one be added or
 #: removed without editing this file, while still failing if the glob stops being swept at all.
 MINIMUM_IAM_TEMPLATE_READS = 80
@@ -109,6 +146,31 @@ def _scope_patterns() -> list[str]:
     return steps[0]["env"]["SCOPE_PATTERNS"].splitlines()
 
 
+def _portal_sources() -> list[pathlib.Path]:
+    """Every portal source a coupled read can hide in.
+
+    Walks the whole of ``apps/portal`` rather than ``src/`` alone, and the four suffixes
+    vitest's default include accepts, because a read moved into a helper or a config file is
+    still a read — and a sweep scoped to ``src/**/*.test.ts`` was blind to exactly that.
+
+    Args:
+        None.
+
+    Returns:
+        Every ``.ts``/``.tsx``/``.mts``/``.cts`` file under the portal, build output excluded.
+
+    Raises:
+        None.
+    """
+    skip = {"node_modules", "dist", "coverage", "htmlcov"}
+    return [
+        path
+        for suffix in ("*.ts", "*.tsx", "*.mts", "*.cts")
+        for path in PORTAL.rglob(suffix)
+        if not skip & set(path.relative_to(PORTAL).parts)
+    ]
+
+
 def _out_of_tree_reads() -> set[str]:
     """Sweep the portal's sources for files they read from outside ``apps/portal/``.
 
@@ -127,7 +189,7 @@ def _out_of_tree_reads() -> set[str]:
         None.
     """
     found: set[str] = set()
-    for source in [*PORTAL_SRC.rglob("*.ts"), *PORTAL_SRC.rglob("*.tsx")]:
+    for source in _portal_sources():
         for specifier, _query in PATH_SPECIFIER.findall(source.read_text(encoding="utf-8")):
             base = PORTAL if specifier.startswith("/") else source.parent
             resolved = pathlib.Path(os.path.normpath(base / specifier.lstrip("/")))
@@ -140,6 +202,48 @@ def _out_of_tree_reads() -> set[str]:
                 if match.is_file() and PORTAL not in match.parents:
                     found.add(match.relative_to(ROOT).as_posix())
     return found
+
+
+def _grep_selection(paths: tuple[str, ...]) -> set[str]:
+    """Run the workflow's pattern list against ``paths`` using the engine CI uses.
+
+    GNU ``grep -E`` rather than Python ``re``: they are not the same language, and validating
+    with the wrong one let a plant claim coverage of a named read while grep silently disagreed.
+    A warning on stderr is treated as failure — grep reports an unsupported construct that way
+    and still exits 0, having matched nothing.
+
+    Args:
+        paths: Repository-relative paths to offer the pattern list, one per line.
+
+    Returns:
+        The subset of ``paths`` the list selects.
+
+    Raises:
+        AssertionError: If grep is absent, errors, or writes any diagnostic about the list.
+    """
+    grep = shutil.which("grep")
+    assert grep, "no grep on PATH; this test validates the pattern list with the engine CI uses"
+
+    with tempfile.NamedTemporaryFile("w", suffix=".grep", delete=False) as handle:
+        handle.write("\n".join(_scope_patterns()) + "\n")
+        pattern_file = handle.name
+    try:
+        result = subprocess.run(  # noqa: S603
+            [grep, "-E", "-f", pattern_file],
+            input="\n".join(paths) + "\n",
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    finally:
+        os.unlink(pattern_file)
+
+    assert result.returncode in (0, 1), f"grep rejected ci.yml's pattern list: {result.stderr.strip()}"
+    assert not result.stderr.strip(), (
+        "grep reported a problem with ci.yml's pattern list, which means it matched less than it "
+        f"appears to — a Python-only construct such as `(?:` reaches CI as a broken pattern: {result.stderr.strip()}"
+    )
+    return set(result.stdout.split())
 
 
 def test_every_file_the_suite_reads_from_outside_the_portal_is_in_ci_scope():
@@ -183,12 +287,13 @@ def test_every_file_the_suite_reads_from_outside_the_portal_is_in_ci_scope():
     )
 
 
-def test_no_scope_pattern_matches_every_path():
-    """``grep -f`` reads a blank line as a pattern matching everything.
+def test_the_pattern_list_selects_every_build_input_and_refuses_the_rest():
+    """The half of ``SCOPE_PATTERNS`` no sweep derives, checked with the engine CI runs.
 
-    One stray empty line in the block scalar makes the scope step answer ``app=true`` for every
-    pull request — the whole saving gone, silently and in the expensive direction, with the
-    coverage test above still green because a blank pattern covers all of its paths.
+    Deleting ``^apps/portal/`` is the worst single edit possible here — every pull request
+    touching app source would skip lint, format, build and the whole suite and report green —
+    and nothing caught it, because the coverage test above only asserts the paths its own sweep
+    found. This names one path per pattern instead.
 
     Args:
         None.
@@ -197,7 +302,38 @@ def test_no_scope_pattern_matches_every_path():
         None.
 
     Raises:
-        AssertionError: If a pattern is blank, holds whitespace, or matches an unrelated path.
+        AssertionError: If a build input is not selected, or a near miss is.
+    """
+    selected = _grep_selection(SELECTED_BY_SCOPE + REFUSED_BY_SCOPE)
+
+    missed = [path for path in SELECTED_BY_SCOPE if path not in selected]
+    assert not missed, (
+        "ci.yml's SCOPE_PATTERNS no longer selects these inputs, so a pull request changing one "
+        f"would skip the build and the suite and report green: {missed}"
+    )
+
+    over = [path for path in REFUSED_BY_SCOPE if path in selected]
+    assert not over, (
+        f"these patterns select paths the app does not read, so the saving is gone: {over}"
+    )
+
+
+def test_no_scope_pattern_matches_every_path():
+    """``grep -f`` reads a blank line as a pattern matching everything.
+
+    One stray empty line in the block scalar makes the scope step answer ``app=true`` for every
+    pull request — the whole saving gone, silently and in the expensive direction, with the
+    coverage tests still green because a blank pattern covers all of their paths.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If a pattern is blank, carries whitespace, or uses a construct POSIX
+            ERE does not have.
     """
     patterns = _scope_patterns()
 
@@ -209,14 +345,19 @@ def test_no_scope_pattern_matches_every_path():
         "match-everything pattern and the scoping stops scoping"
     )
 
-    spaced = [pattern for pattern in patterns if " " in pattern.strip()]
-    assert not spaced, f"these patterns contain whitespace and would not mean what they look like: {spaced}"
+    whitespaced = [pattern for pattern in patterns if any(char.isspace() for char in pattern.strip())]
+    assert not whitespaced, (
+        "these patterns carry whitespace and do not mean what they look like — a trailing tab "
+        f"survives YAML and makes the pattern match nothing: {whitespaced!r}"
+    )
 
-    unrelated = "docs/process.md"
-    matching = [pattern for pattern in patterns if re.search(pattern, unrelated)]
-    assert not matching, (
-        f"these patterns match {unrelated}, so a documentation-only pull request would still run "
-        f"the full suite: {matching}"
+    # Asserted textually rather than by running grep, because the two greps disagree: BSD accepts
+    # `(?:` and matches, GNU warns and matches nothing, so a check that shells out passes on a
+    # developer's Mac and fails on the runner — or worse, the reverse.
+    pcre = [pattern for pattern in patterns if "(?" in pattern]
+    assert not pcre, (
+        "POSIX ERE has no non-capturing or lookaround group, and `grep -E` on the runner matches "
+        f"NOTHING for a pattern using one — silently, in the cheap direction: {pcre}"
     )
 
 
