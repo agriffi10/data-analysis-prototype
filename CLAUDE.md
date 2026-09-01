@@ -117,66 +117,36 @@ the verified claim**, so it cannot be spoofed; one shared role, isolation by
 post-signup redirect. The API verifies the browser's bearer and assumes that same role for it.
 
 - **The API VERIFIES a bearer, and is not an OIDC client.** No cookie → no CSRF surface; CORS still
-  required. Provider-agnosticism is **five config fields**, the JWKS URL built once at the **root**.
-  **A key-retrieval fault is 5xx, never 401.** Refusals are byte-identical; **expiry is not
-  disclosed**, because the browser refreshes once on any 401.
-- **The API assumes the SAME role with the SAME tags from the SAME claims** — one computation over
-  one input, which is why no policy is rewritten. The claim names are the only thing copied from
-  `identity-pool.tf`. The role
-  is **reused, never minted**: `aws:PrincipalArn` resolves to the *role's* ARN, so the
-  hand-maintained bucket-policy allowlist stays correct. `DurationSeconds` 3600 is a ceiling **both
-  ways** — shorter caps every presigned link, longer is refused because this is role chaining.
-  Tag-key agreement is **asserted, not structural** (the templates hard-code the literal), and the
-  trust statement's `sts:TagKeys` is a **ceiling that cannot require a tag was stamped**.
+  required. **A key-retrieval fault is 5xx, never 401**; refusals are byte-identical and **expiry is
+  not disclosed**, because the browser refreshes once on any 401.
+- **It assumes the SAME role with the SAME tags from the SAME claims** — one computation over one
+  input, which is why no policy is rewritten. The role is **reused, never minted**
+  (`aws:PrincipalArn` resolves to the *role's* ARN, so the hand-maintained bucket-policy allowlist
+  stays correct), `DurationSeconds` 3600 is a ceiling **both ways**, and tag-key agreement is
+  **asserted, not structural** — the trust statement's `sts:TagKeys` is a ceiling that **cannot
+  require a tag was stamped**.
 - **Two credential planes, user by default, declared ON THE ROUTE — the failure fails OPEN.** A wrong
-  client *succeeds* against the wrong identity. One construction site (asserted as a **count**), an
-  AST sweep that also forbids `cpcommon.clients` and any minted `UserIdentity`, exemptions by
-  **exact module path**. The plane is a **required field on the contract's `Route`**, derived per
-  call — so the old registry's set-equality guard is now a tautology, kept as a labelled tripwire,
-  and the teeth are the required field plus a **raise on a plane value that is neither of the two**. The route is set on the way **IN**: a warm container has no fresh context,
-  so cleanup-on-exit alone lets the next request inherit a declaration. **An assume failure is a
-  FAULT, never a denial** — STS says `AccessDenied` for a wrong trust policy, so the layer *wraps*
-  it; that wrap, not the classifier's ordering, is what holds.
+  client *succeeds* against the wrong identity. The plane is a **required field** on the contract's
+  `Route`, a value that is neither of the two **raises**, and the route is set on the way **IN**: a
+  warm container has no fresh context, so cleanup-on-exit alone lets the next request inherit a
+  declaration. **An assume failure is a FAULT, never a denial** — STS says `AccessDenied` for a wrong
+  trust policy, so the layer *wraps* it.
 - **The credential cache is keyed on the WHOLE tag set** — never the username alone, which freezes
-  membership until the next cold start, and never nothing, which serves B the session of A. Its
-  margin is the life of **one request**, derived from the function timeout; the forced re-assume is
-  the skew allowance, and it retries on a **new** client because boto3 binds credentials at
-  construction. **A presigned URL is not a request** and takes `signing_client(covering=…)`, which
-  forces a fresh session rather than clamping against a near-dead one — otherwise the window is a
-  draw from the hour. A short window is *correctly clamped*, so no clamp test can see it.
-
-- **The API's error shape is a machine CODE plus operator text nobody renders** — the error envelope
-  is the only wrapped shape and wording is chosen client-side from the code. The trap is a rule
-  written to uphold it: eight `passthrough` rules
-  return the service's message unchanged, so a guard intersects the generated `API_ERROR_CODES` with
-  a computed `PASSTHROUGH_CODES` — **two derived sets, never two lists**. An unrecognised code
-  resolves to the generic sentence: the deploy-skew case, not a fallback nobody meets. **A code rule
-  wins over an engine-message match rule.**
-- **The wire is declared in PYTHON and the TypeScript is GENERATED**, with two gates: CI refuses a
-  regeneration diff (catching both drift directions) and `tsc -b` fails at every call site on a
-  changed type. The validator and the emitter read **one** walk of one annotation. The type
-  vocabulary is **closed and never falls back**: a fallback type agrees with every value, so the day
-  the emitter meets a shape it cannot express is the day the contract stops being checked.
-- **`apiRequest` retries NOTHING**, asserted as a call count, with exactly one exception: a 401 takes
-  one forced refresh and one retry — the browser's only refresh path, so deleting it signs everyone
-  out at the hour mark with a green suite. Idempotency is declared **per route**, never derived from
-  the method. The client's timeout sits **above the function's**, so an abort always means a dead
-  connection.
-- **The API makes exactly ONE AWS call per request and never waits** — every poll and page walk stays
-  in the browser, because a 5-minute query is 10× a **non-raisable** 30-second integration ceiling
-  (the *function* timeout is the 29 — the two are easy to conflate and a past spec did).
-  The count is on the **route's own service client**, never on botocore: the session cache fires
-  `AssumeRole` on some invocations and not others, so "one botocore call" is unsatisfiable cold and
-  satisfiable warm. SPEC-198's free-name route is the arc's one exception. A route may carry **path
-  parameters**, and a value that is not **one segment** is refused in the browser: either spelling
-  reaches a **sibling route that answers 200 with the wrong shape**. A missing one is a **compile
-  error**, deliberately — as an optional field it ships the literal placeholder to the service.
-- **`$default` matches OPTIONS**, so API Gateway's own CORS responder never sees a preflight and the
-  router must answer one **before authentication**. Found live, and `curl` cannot see it because only
-  a browser enforces CORS: every bearer-carrying `fetch` failed as an opaque `TypeError` reading as
-  "the API is down". That the gateway overlays its CORS headers onto the integration's own `OPTIONS`
-  200 is read from AWS's docs; if it is wrong the degraded path is **silent by design**.
-
+  membership until the next cold start, and never nothing, which serves B the session of A. **A
+  presigned URL is not a request** and takes `signing_client(covering=…)`, forcing a fresh session
+  rather than clamping against a near-dead one. A short window is *correctly clamped*, so no clamp
+  test can see it.
+- **The API's remaining fences live beside it**, in `@lambdas/info/planes/api.md`, and they are traps
+  rather than reference: the error shape is a machine **CODE** whose wording is chosen client-side;
+  the wire is declared in **Python** and the TypeScript **generated** from a **closed** vocabulary
+  that never falls back; **`$default` matches OPTIONS**, so the router answers a preflight **before
+  authentication** and only a browser can see that fail; and **no route waits**, every poll and page
+  walk staying in the browser against a **non-raisable** 30-second integration ceiling.
+- **Browser-side, `apiRequest` retries NOTHING**, with one exception: a 401 takes one forced refresh
+  and one retry — the browser's only refresh path, so deleting it signs everyone out at the hour mark
+  with a green suite. Idempotency is declared **per route**, never derived from the method, and a
+  path parameter that is not **one segment** reaches a **sibling route answering 200 with the wrong
+  shape**.
 - **The tag VALUES have two sources, chosen at COLD START, no fallback** — `MEMBERSHIP_SOURCE`,
   default `claims`, in no Terraform. The other is `memberships/{username}.json`, **admin** bucket:
   an authorization input, unlike the username directory, safe only because it is
@@ -200,11 +170,10 @@ emails.
   would have had, signed by the **caller's own assumed session**, and in **no emitted record** (the
   span carries the key's *length*). Its lifetime is clamped to the **credential that signed**, read
   in the same call — never to `DurationSeconds`, which agrees today and will not under Access
-  Grants, and never by assuming a second time (the cache refuses a near-dead session and hands back
-  a fresh hour while the near-dead one signed the URL).
+  Grants, and never by assuming a second time.
 - **The dev-unauth path is RETIRED** — it worked by calling S3 unsigned from the browser, and no
-  unsigned call is left. `s3Client.ts`, `s3Errors.ts` and five `VITE_*` variables went with it; the
-  `VITE_` allowlist is now `lib/env.ts` alone. Local dev points the SPA at an API.
+  unsigned call is left. The `VITE_` allowlist is now `lib/env.ts` alone; local dev points the SPA at
+  an API.
 - **A document that belongs to no user has no space, so it gets its OWN route** — `_config/` and
   `_directory/` are not prefixes any caller's claims authorize, and leaving one on the object
   surface makes every read a 403 that falls back to defaults, which looks exactly like health.
@@ -397,6 +366,12 @@ is a smell.
 - **The one irreversible surface refuses the affordance that would fire it.** The archive dialog is
   built on the confirm dialog *because* the form dialog has Enter-to-submit — focus sits on Cancel,
   Enter cancels — and it never says "this can't be undone", which would be its one false sentence.
+- **A drag is not an alternative to itself.** WCAG 2.5.7 wants a *single-pointer, non-dragging* path;
+  a keyboard is not one and **no axe rule detects the absence**, so a drag-only control regresses it
+  in silence. The editor divider carries step buttons for exactly that reason, and
+  `ColumnResizeHandle` — which never had such a path — is a standing gap, not the same finding.
+  Sizing them is its own trap: the root font is **14px**, so `rem` spacing lies about the 24px
+  minimum, and jsdom reports axe's `target-size` as a **pass it cannot measure**.
 - **A palette is measured, not chosen**, in **both** themes; a colour that fails is measured
   **out**. Four theme traps ship green.
 - **Client state is computed in the browser; billed work is not.** A selection aggregate issues

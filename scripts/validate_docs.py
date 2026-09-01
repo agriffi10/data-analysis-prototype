@@ -29,21 +29,34 @@ Attributes:
     ratchet at the measured level, and the unit is the PLANE: four specs build one control
     plane, and a script each would be four files sharing a token, a queue URL, a group digest
     and an envelope builder. A spec that owes a CLI check adds a SECTION to its plane's script.
-  CLAUDE_MAX_BYTES: The always-loaded file's budget. It was 121,098 bytes before the first cut and
+  CLAUDE_MAX_BYTES: The always-loaded file's budget. It was 121,098 bytes before the first cut,
     51,995 before the second, which replaced a Key Decisions list of 105 one-per-spec lines with
-    eight blocks grouped by AREA. The list had stopped being a reminder and become a changelog:
-    every closing spec appended one, and the file hit its own ratchet exactly when a spec tried to
-    close. Group into the existing blocks; do not start a new line per spec.
+    eight blocks grouped by AREA, and 49,972 before the third (2026-09-01), which cut the Identity
+    block's API fences back to a pointer once they were carried in full by both
+    ``docs/decisions/identity-and-access.md`` and ``lambdas/info/planes/api.md``. The list had
+    stopped being a reminder and become a changelog: every closing spec appended one, and the file
+    hit its own ratchet exactly when a spec tried to close. Group into the existing blocks; do not
+    start a new line per spec.
 
     **Raised from 34,000 to 50,000 (user decision, 2026-08-27), and this is the ONE budget here
     deliberately not held at the measured level.** A ratchet at the measured level assumes the file
     only grows by accretion, and after the second cut that stopped being true: what remains is
-    fences, and the completion ritual REQUIRES every closing spec to fold in a clause. At 34,000
-    with 161 bytes free, SPEC-195 could not close without pruning another area's fences to pay for
-    its own — which is the gate causing the damage it exists to prevent. The anti-regrowth rules
-    that actually bind are the shape ones (group by area, no per-spec line, DIGEST_MAX_CHARS), and
-    they are unchanged. If this file approaches 50,000 the answer is still a cut, not another
-    raise: two cuts have already been needed, and both were structural.
+    fences, and a spec that settles a genuinely new architectural decision folds a clause in beside
+    them.
+
+    **That is NOT a per-spec requirement, and reading it as one has already done damage.** The
+    ritual gates the fold on a new *architectural* decision — a rule or a per-feature choice is a
+    register entry and nothing more — so most closing specs add nothing here, and several close by
+    replacing a clause they falsified at no net cost. Nothing in this file checks for a clause
+    either: the checks below are grouping, area agreement and ``DIGEST_MAX_CHARS``. An earlier
+    version of this docstring asserted the requirement, and a closing spec acted on it by carving
+    another area's fences to pay for a clause it did not owe.
+
+    At 34,000 with 161 bytes free, SPEC-195 could not close without pruning another area's fences
+    to pay for its own — which is the gate causing the damage it exists to prevent. The
+    anti-regrowth rules that actually bind are the shape ones (group by area, no per-spec line,
+    DIGEST_MAX_CHARS), and they are unchanged. If this file approaches 50,000 the answer is still a
+    cut, not another raise: three cuts have already been needed, and all three were structural.
   DIGEST_MAX_CHARS: The longest a single Key Decisions bullet may be, measured on the LOGICAL
     bullet — continuation lines joined. It was measured per physical line until 2026-08-26, which
     stopped meaning anything the moment the section was rewritten as wrapped prose: the longest
