@@ -3,7 +3,7 @@
 The deploy role **self-grants** — `module.base` writes the permissions the same `tofu apply` then
 uses — so every new resource type in `infra/` walks the same short list of traps. Work through this
 page before merging, and read [`../modules/base/README.md`](../modules/base/README.md) for what the
-role already holds and why it is split across fourteen managed policies.
+role already holds and why it is split across one managed policy per resource family.
 
 **The grant lands in its own PR, applied before the resources that need it.** Every plane module's
 "no `time_sleep` guard is required here" comment is relying on that split.

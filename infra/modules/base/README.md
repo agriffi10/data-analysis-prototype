@@ -5,7 +5,7 @@ the repo can be created until the grant for it lands here first.
 
 | File | Holds |
 |---|---|
-| `iam.tf` | the provider, the role, one inline policy, **fourteen customer-managed policies**, and three propagation guards |
+| `iam.tf` | the provider, the role, one inline policy, **one customer-managed policy per resource family**, and three propagation guards |
 | `outputs.tf` / `variables.tf` | the module interface |
 | `policies/` | one `.tftpl` per policy |
 
@@ -15,14 +15,16 @@ endpoint.
 
 Read [`../../info/deploy-role-iam.md`](../../info/deploy-role-iam.md) before adding one.
 
-## Why fourteen managed policies instead of more inline JSON
+## Why one managed policy per family instead of more inline JSON
 
 **IAM's 10,240-character limit is the AGGREGATE of all inline policies on a role** — a sum, not a
 per-policy budget — and the main deploy policy alone renders to **9,289 characters**. An inline second
 policy pushed the aggregate over and failed with `LimitExceeded`.
 
 **A customer-managed policy has its own separate 6,144-character budget and does not count toward the
-inline aggregate.** So every new resource family gets its own managed policy.
+inline aggregate.** So every new resource family gets its own managed policy. The count is not written
+down here — it moves with the resource families, and the only ceiling it has to clear is IAM's cap of
+twenty managed policies attached to one role.
 
 That budget is also why the container platform is **two** files rather than one: the halves measure
 5,095 and 3,985 stripped, and **one document would not have fitted**. The split is by what the
