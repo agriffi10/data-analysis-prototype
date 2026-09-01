@@ -81,7 +81,6 @@ UNGATED_SCAN_STEPS = frozenset(
 #: these five could stop being swept while the total still cleared any plausible threshold.
 NAMED_OUT_OF_TREE_READS = frozenset(
     {
-        ".github/workflows/deploy-app.yml",
         "config/feature-flags.json",
         "infra/main.tf",
         "lambdas/api/routes/feature_flags.py",
@@ -99,7 +98,6 @@ SELECTED_BY_SCOPE = (
     "package-lock.json",
     ".nvmrc",
     ".github/workflows/ci.yml",
-    ".github/workflows/deploy-app.yml",
     "config/feature-flags.json",
     "infra/main.tf",
     "infra/modules/data/policies/portal-role-permissions.json.tftpl",

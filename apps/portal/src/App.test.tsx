@@ -31,7 +31,7 @@ describe('App routing', () => {
   });
 
   // A lazy route with no ErrorBoundary unmounts the tree on a chunk-load rejection, and
-  // `Suspense` has no error path of its own (deploy-app.yml's accepted deploy race). The
+  // `Suspense` has no error path of its own (the accepted rollover race). The
   // boundary's own behaviour is exercised through the features that render it; what can only be checked
   // here is that this route is WRAPPED in one — and inside the gate, so the page cannot
   // start fetching before the flag answer arrives.

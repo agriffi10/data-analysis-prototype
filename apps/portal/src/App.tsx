@@ -54,8 +54,8 @@ export default function App() {
             }
           />
           {/* Each lazy route's Suspense is wrapped: Suspense has NO error path, so
-              a chunk-load rejection (deploy-app.yml's accepted race) would
-              otherwise unmount the tree. Both lazy routes are exposed, so both are
+              a chunk-load rejection (the accepted rollover race) would otherwise
+              unmount the tree. Both lazy routes are exposed, so both are
               wrapped — a fix scoped to Monaco would miss /connections. */}
           <Route
             path="/query"

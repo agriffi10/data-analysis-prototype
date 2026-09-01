@@ -27,8 +27,8 @@ on:
 
 # One publish at a time. The upload addresses a single fixed key, so two concurrent runs
 # would race to last-writer-wins on it; serializing makes the last merge the winner, which
-# is the correct outcome for a deploy. Not cancel-in-progress, for the same reason
-# deploy-app.yml isn't: a cancelled run leaves the question of what is live open.
+# is the correct outcome for a deploy. Not cancel-in-progress, for the same reason no deploy
+# workflow is: a cancelled run leaves the question of what is live open.
 concurrency:
   group: deploy-config
   cancel-in-progress: false
@@ -95,7 +95,7 @@ jobs:
       # THE DESTINATION COMES FROM TERRAFORM, and the hand-written empty-variable guard this
       # replaces is gone rather than kept beside it: one refusal, in one place, for every
       # value the deploy derives. An absent or empty output fails here, naming the key and
-      # the output — the same refusal `deploy-app.yml` gets from the same script.
+      # the output — the same refusal every consumer of this script gets.
       - name: Resolve the configuration from Terraform state
         id: config
         working-directory: infra

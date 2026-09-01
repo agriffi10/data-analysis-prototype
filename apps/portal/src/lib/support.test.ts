@@ -31,8 +31,8 @@ describe('NotConfigured', () => {
 describe('env', () => {
   /**
    * The registry is only useful if it is COMPLETE, and nothing enforced that until
-   * `VITE_ARCHIVE_QUEUE_URL` shipped read by `archive.service.ts`, wired into
-   * `deploy-app.yml` and absent from this module — so an unset repository variable
+   * `VITE_ARCHIVE_QUEUE_URL` shipped read by `archive.service.ts`, wired into the
+   * deploy and absent from this module — so an unset repository variable
    * made Archive and Restore silently do nothing, which is the exact failure
    * `warnIfMisconfigured` exists to name. A hand-kept list rots; this one is derived
    * from the source that reads the variables.
