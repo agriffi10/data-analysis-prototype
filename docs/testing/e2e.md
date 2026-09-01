@@ -802,8 +802,11 @@ whole app actually looks right.
    names: `--spacing` is `.25rem` against a **14px** root, so a spacing-derived size is 12.5%
    smaller than it reads — `h-8` is 28px, `h-7` is 24.5px, `h-6` would be 21px and fail WCAG
    2.5.8's 24px. **Type does not scale the same way**: `--text-sm` is authored as `13px` with an
-   18px line-height, so a control with no height class is whatever its line box plus padding comes
-   to, at any root size. The three to measure, and what they should be:
+   18px line-height, so a PADDED control with no height class is its line box plus padding, at any
+   root size — but one with no padding either is smaller still, because a bare inline box is the
+   font's content area rather than its line box (15.5px for `text-sm`, measured). §4.13 owns that
+   rule in full, along with SC 2.5.8's spacing exception, which is what decides whether an
+   undersized target is a violation at all. The three to measure, and what they should be:
    the header's theme button `h-8` → **28px**; each of the drawer's three options `h-7` →
    **24.5px**, which clears the floor by half a pixel and is the one to watch if any of this is
    restyled; and a theme menu row, which has **no height class at all** — 18px line box plus
