@@ -148,9 +148,15 @@ def test_the_map_carries_every_configuration_key_terraform_supplies() -> None:
     Raises:
       AssertionError: If the two sets differ, either way.
     """
-    mapped = set(_mapping().values())
+    mapping = _mapping()
 
-    assert mapped == _derived_config_keys()
+    # SET EQUALITY CANNOT SEE A DUPLICATE. Two outputs mapped to one configuration key
+    # collapse to one element here and pass, while the resolver writes that key twice and
+    # GitHub silently keeps the last — so which output won would depend on file order.
+    duplicated = sorted({key for key in mapping.values() if list(mapping.values()).count(key) > 1})
+    assert duplicated == [], f"configuration keys mapped from more than one output: {duplicated}"
+
+    assert set(mapping.values()) == _derived_config_keys()
 
 
 def test_every_mapped_output_is_declared_in_terraform() -> None:

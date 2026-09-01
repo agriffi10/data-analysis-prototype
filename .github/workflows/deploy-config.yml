@@ -105,9 +105,19 @@ jobs:
       # one prefix over in this same bucket, and a mis-scoped reconcile that removed it would
       # break username typeahead everywhere (SPEC-146/147) for a feature nothing user-facing
       # depends on yet.
+      #
+      # THROUGH `env:`, NOT SPLICED INTO THE SCRIPT. Every other consumer of a resolved value
+      # reads it as an environment variable; this was the one interpolated directly into a
+      # `run:` body, where GitHub substitutes the text BEFORE the shell sees it — so a value
+      # carrying a quote would end the argument and run whatever followed. The bucket name
+      # comes from this repo's own state and AWS constrains it to `[a-z0-9.-]`, so it cannot
+      # happen today; it is written this way because the resolver spends ten lines keeping the
+      # value newline-safe on the way out, and one spliced consumer undoes that.
       - name: Publish the flag document
+        env:
+          BUCKET: ${{ steps.config.outputs[matrix.bucket_key] }}
         run: |
           aws s3 cp config/feature-flags.json \
-            "s3://${{ steps.config.outputs[matrix.bucket_key] }}/_config/feature-flags.json" \
+            "s3://${BUCKET}/_config/feature-flags.json" \
             --cache-control 'no-cache' \
             --content-type 'application/json'

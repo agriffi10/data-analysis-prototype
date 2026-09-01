@@ -93,7 +93,18 @@ while IFS=$'\t' read -r output_name config_key; do
     continue
   fi
 
-  value="$(printf '%s' "$DOCUMENT" | jq -r --arg n "$output_name" '.[$n].value // ""')"
+  # A NUMBER, A BOOLEAN, AN OBJECT OR A LIST IS A FAULT, not a value to coerce. `jq -r`
+  # pretty-prints a composite, so an output whose type changed in `outputs.tf` would publish a
+  # multi-line JSON blob as, say, a bucket name — through a document whose every value is
+  # declared to be a string.
+  value_type="$(printf '%s' "$DOCUMENT" | jq -r --arg n "$output_name" '.[$n].value | type')"
+  if [ "$value_type" != "string" ]; then
+    missing="${missing}
+  ${config_key} — Terraform output '${output_name}' is a ${value_type}, not a string"
+    continue
+  fi
+
+  value="$(printf '%s' "$DOCUMENT" | jq -r --arg n "$output_name" '.[$n].value')"
   if [ -z "$value" ]; then
     missing="${missing}
   ${config_key} — Terraform output '${output_name}' is empty"

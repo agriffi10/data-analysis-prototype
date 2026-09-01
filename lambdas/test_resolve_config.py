@@ -152,6 +152,32 @@ def test_an_empty_output_fails_the_job_the_same_way(tmp_path: pathlib.Path) -> N
     assert "absent from the state" not in completed.stderr
 
 
+def test_a_non_string_output_is_refused(tmp_path: pathlib.Path) -> None:
+    """Every value in the served document is declared to be a string.
+
+    ``jq -r`` pretty-prints a composite, so an output whose type changed in ``outputs.tf``
+    would be published as a multi-line JSON blob under a name like ``userSpaceBucket``
+    rather than failing. Coercion is the wrong answer here: a value of the wrong type means
+    the state is not what the deploy assumes.
+
+    Args:
+      tmp_path: pytest's temporary directory.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a non-string value is accepted, or the message does not name the
+        type it found.
+    """
+    for value, expected in (({"nested": "object"}, "object"), ([1, 2], "array"), (5, "number")):
+        completed, _ = _run(tmp_path, _document(s3_user_space_bucket_name=value))
+
+        assert completed.returncode != 0
+        assert "userSpaceBucket" in completed.stderr
+        assert f"is a {expected}, not a string" in completed.stderr
+
+
 def test_it_reports_every_missing_value_at_once(tmp_path: pathlib.Path) -> None:
     """One deploy cycle per missing value is the cost this avoids.
 
