@@ -1,11 +1,13 @@
 import {apiRequest} from '../../lib/apiClient';
 import {spaceFor} from '../../lib/objectSpace';
-import {fromApiFailure, ok, toServiceError} from '../../lib/serviceResult';
+import {fromApiFailure, ok} from '../../lib/serviceResult';
 import type {FileListPage} from '../../types/s3.types';
 import type {ServiceResult} from '../../types/service.types';
 import type {SpaceRef} from '../../types/apiContract.generated';
 import type {DownloadUrl, UploadResult, CreateFolderResult, ObjectMetadata} from './fileBrowser.types';
 import {maxUploadBytes} from './uploadLimits';
+import {uploadParts} from './multipartUpload';
+import {putBytes, uploadCancelled, uploadRejection} from './xhrUpload';
 import {PREFIX_MARKER_BODY, prefixMarkerKey} from './fileBrowser.constants';
 
 /**
@@ -409,26 +411,30 @@ export function validateFolderName(name: string): string | null {
 }
 
 /**
- * Uploads one file: a presigned `PUT`, sent by this browser straight to S3.
+ * Uploads one file, by whichever path the SERVER chose for it.
+ *
+ * **The browser does not hold the threshold, and that is the point.** `objects.upload` answers
+ * either a presigned `PUT` or a multipart plan, so the size at which one becomes the other is a
+ * policy number living in exactly one place. A browser-side fork would need a second copy of it,
+ * and a drifted copy sends files down the wrong path with nothing failing.
  *
  * **`XMLHttpRequest`, not `fetch`, and the reason is the progress bar.** `fetch` fires no
  * upload-progress event, so an implementation built on it uploads correctly and leaves the bar at
  * 0% until it jumps to 100% — a shipped feature deleted by a transport choice, with every "the
- * upload succeeded" test still green.
+ * upload succeeded" test still green. The transport lives in `xhrUpload`, which both paths call.
  *
- * Three consequences of one `PUT` where `lib-storage` auto-multiparted: the 5 GiB ceiling is
- * unchanged (it is exactly the single-`PUT` cap, and exactly what the configured maximum already
- * clamped to); there is **no part-level retry** any more, so a dropped connection restarts the
- * whole file; and the URL's expiry is evaluated when S3 receives the request, not when the transfer
- * finishes, which is what makes a long upload through a 15-minute window sound.
+ * The 5 GiB ceiling is unchanged: it is exactly the single-`PUT` cap, and exactly what the
+ * configured maximum already clamped to. Multipart would technically permit 5 TiB and deliberately
+ * does not raise it — that is a product decision about cost and blast radius, not a technical one.
  *
  * @param params.bucket - The bucket to write into.
  * @param params.key - The object key.
  * @param params.body - The bytes.
  * @param params.contentType - Signed into the URL, so it must be the type actually sent.
- * @param params.overwrite - Replace an occupied key. With false and the key taken the route mints
- *   no URL at all — it refuses before handing out the capability.
- * @param params.onProgress - Called with bytes sent and the total, repeatedly, during the transfer.
+ * @param params.overwrite - Replace an occupied key. With false and the key taken the route creates
+ *   nothing at all — it refuses before handing out any capability.
+ * @param params.onProgress - Called with bytes sent and the total, repeatedly. On a multipart
+ *   upload this is the AGGREGATE across parts, and it is monotonic across a retry.
  * @param params.signal - Aborts the transfer; resolves to `Cancelled`.
  * @returns The key written, or a failure.
  */
@@ -453,40 +459,79 @@ export async function uploadFile(params: {
 
   if (signal?.aborted) return cancelled();
 
-  const minted = await apiRequest('objects.uploadUrl', {
-    body: {space: spaceFor(bucket, key), key, contentType, overwrite},
+  const space = spaceFor(bucket, key);
+  const begun = await apiRequest('objects.upload', {
+    body: {space, key, contentType, overwrite, size: body.size},
     signal
   });
-  if (!minted.success) {
-    if (minted.error.code === 'Conflict') {
+  if (!begun.success) {
+    if (begun.error.code === 'Conflict') {
       return {success: false, error: {message: `"${key}" already exists.`, code: 'Collision'}};
     }
-    return fromApiFailure(minted.error, 'Failed to upload file');
+    return fromApiFailure(begun.error, 'Failed to upload file');
   }
 
-  // Checked AGAIN, after the mint. `addEventListener('abort')` on an already-fired signal never
-  // runs, so a cancel that lands while the URL is being minted would otherwise attach a listener
-  // to a spent signal and send the bytes anyway — the queue row going straight from `uploading` to
-  // Succeeded for a file the user stopped.
+  // Checked AGAIN, after the route answered. `addEventListener('abort')` on an already-fired signal
+  // never runs, so a cancel that lands while the plan is being fetched would otherwise attach a
+  // listener to a spent signal and send the bytes anyway — the queue row going straight from
+  // `uploading` to Succeeded for a file the user stopped.
   if (signal?.aborted) return cancelled();
 
+  const plan = begun.data;
+
+  // Every member is checked at RUNTIME. The generated type is one object with optional members and
+  // a `mode` discriminant that narrows nothing else — the contract's vocabulary is closed and
+  // carries no union other than `X | None`, so widening it for this is what that rule forbids.
+  if (plan.mode === 'multipart') {
+    if (plan.uploadId === undefined || plan.partSize === undefined || plan.partCount === undefined) {
+      return unusablePlan();
+    }
+    return uploadParts({
+      space,
+      key,
+      body,
+      contentType,
+      uploadId: plan.uploadId,
+      partSize: plan.partSize,
+      partCount: plan.partCount,
+      overwrite,
+      onProgress,
+      signal
+    });
+  }
+
+  if (plan.url === undefined || plan.expiresAt === undefined) return unusablePlan();
+
   return sendBytes({
-    url: minted.data.url,
+    url: plan.url,
     key,
     body,
     contentType,
     onProgress,
     signal,
-    expiresAt: minted.data.expiresAt
+    expiresAt: plan.expiresAt
   });
 }
 
-/** The one wording for an upload the user stopped, minted at both of the two places it can happen. */
-function cancelled(): ServiceResult<never> {
-  return {success: false, error: {message: 'Upload cancelled.', code: 'Cancelled'}};
+/**
+ * The answer for a create response whose chosen branch cannot be used.
+ *
+ * Reachable only from a deploy skew or a contract change, and it is a named code rather than a
+ * crash so the user gets a sentence instead of a stalled row.
+ */
+function unusablePlan(): ServiceResult<never> {
+  return {
+    success: false,
+    error: {message: 'The upload could not be started.', code: 'UploadPlanUnusable'}
+  };
 }
 
-/** What `sendBytes` and `sendOverXhr` both take. */
+/** The one wording for an upload the user stopped, delegated so both paths say it identically. */
+function cancelled(): ServiceResult<never> {
+  return uploadCancelled();
+}
+
+/** What `sendBytes` takes. `expiresAt` tells an expired link from a denial on a 403. */
 type TransferParams = {
   url: string;
   key: string;
@@ -494,97 +539,32 @@ type TransferParams = {
   contentType: string;
   onProgress?: (loaded: number, total: number) => void;
   signal?: AbortSignal;
-  /** When the URL dies. Read on a 403 to tell an expired link from a denial — see `rejection`. */
   expiresAt: string;
 };
 
 /**
- * What S3 refusing the bytes means, in the user's terms.
+ * The single-`PUT` transfer, over the transport both upload paths share.
  *
- * **A 403 here is routinely an EXPIRY, not a permissions problem**, and telling a user to contact
- * an administrator about it is wrong twice over: nothing is misconfigured, and the thing that would
- * actually help — upload it again — goes unsaid. The window is clamped to the signing session's
- * remaining life, so a transfer that outlives it is an ordinary outcome of a large file rather than
- * an exceptional one, and there is no part-level retry left to paper over it.
- *
- * This is what `expiresAt` is FOR. The route returns it so a caller can tell the two apart, and a
- * caller that discards it leaves the field satisfying its acceptance criterion in letter only.
- *
- * @param status - The HTTP status S3 answered with.
- * @param expiresAt - When the URL the transfer used was due to die.
- * @returns The service failure, with a code `errorMessages.ts` has a sentence for.
+ * Nothing here names `XMLHttpRequest` any more — it lives in `xhrUpload`, which the part loop
+ * calls too. One copy, because otherwise the abort handling, the progress plumbing and the
+ * expiry-versus-denial mapping are each written twice and diverge in the path nobody tests.
  */
-function rejection(status: number, expiresAt: string): ServiceResult<never> {
-  if (status === 403 && Date.parse(expiresAt) <= Date.now()) {
-    return {
-      success: false,
-      error: {message: 'The upload took longer than its secure link lasted.', code: 'UploadLinkExpired'}
-    };
-  }
-  // Never S3's own body, which is XML and names a bucket. The code is what the surface maps, and
-  // `AccessDenied` and `UploadFailed` both have authored sentences.
-  return {
-    success: false,
-    error: {message: 'Failed to upload file.', code: status === 403 ? 'AccessDenied' : 'UploadFailed'}
-  };
-}
-
-// The transfer itself. Separate from `uploadFile` so the promise wrapper — which cannot `await`
-// anything — has nothing in it but the request and its outcomes.
-function sendBytes(params: TransferParams): Promise<ServiceResult<UploadResult>> {
-  return new Promise((resolve) => {
-    // EVERYTHING below is inside the try, and that is the point. A service in this app never
-    // throws, and a promise executor that throws REJECTS rather than resolving — which the upload
-    // queue awaits with no catch, so the item would sit in `uploading` forever, its concurrency
-    // slot never freed and nothing said to the user. `xhr.open` throws on a malformed URL and
-    // `setRequestHeader` on an invalid header value, both reachable from a route answer.
-    try {
-      sendOverXhr(params, resolve);
-    } catch (err) {
-      resolve(toServiceError(err, 'Failed to upload file'));
-    }
-  });
-}
-
-// The request itself. Separated only so the executor above is nothing but its own guard — a `try`
-// wrapping thirty lines is a `try` whose scope nobody re-reads.
-function sendOverXhr(params: TransferParams, resolve: (result: ServiceResult<UploadResult>) => void): void {
+async function sendBytes(params: TransferParams): Promise<ServiceResult<UploadResult>> {
   const {url, key, body, contentType, onProgress, signal, expiresAt} = params;
-  {
-    const xhr = new XMLHttpRequest();
-    // Listening on `xhr.upload`, not on `xhr`: the request's own progress events describe the
-    // RESPONSE download, which for a `PUT` is empty and fires once at the end.
-    if (onProgress) {
-      xhr.upload.addEventListener('progress', (event) => {
-        onProgress(event.loaded, event.lengthComputable ? event.total : body.size);
-      });
-    }
 
-    const onAbort = () => xhr.abort();
-    // Removed on every path, not left to `{once: true}`: that fires the listener at most once but
-    // does not detach it, so a long-lived queue signal accumulated one closure per completed file.
-    const settle = (result: ServiceResult<UploadResult>) => {
-      signal?.removeEventListener('abort', onAbort);
-      resolve(result);
-    };
+  const sent = await putBytes({
+    url,
+    body,
+    contentType,
+    // The whole file is one request, so its own `loaded` IS the aggregate.
+    onProgress: onProgress ? (loaded) => onProgress(loaded, body.size) : undefined,
+    signal
+  });
+  if (!sent.success) return sent as ServiceResult<never>;
 
-    xhr.addEventListener('load', () => {
-      if (xhr.status >= 200 && xhr.status < 300) return settle(ok({key}));
-      settle(rejection(xhr.status, expiresAt));
-    });
-    xhr.addEventListener('error', () =>
-      settle({success: false, error: {message: 'Failed to upload file.', code: 'NetworkUnavailable'}})
-    );
-    xhr.addEventListener('abort', () => settle(cancelled()));
-
-    signal?.addEventListener('abort', onAbort);
-
-    xhr.open('PUT', url);
-    // The SIGNED content type, byte for byte. A different one here fails the signature check at S3
-    // and returns a 403 that reads as a permissions problem.
-    xhr.setRequestHeader('Content-Type', contentType);
-    xhr.send(body);
-  }
+  const {status} = sent.data;
+  if (status >= 200 && status < 300) return ok({key});
+  return uploadRejection(status, expiresAt);
 }
 
 /**

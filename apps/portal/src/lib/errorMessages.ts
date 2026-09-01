@@ -242,6 +242,36 @@ const CODE_RULES: readonly ErrorRule[] = [
     userFixable: true
   },
 
+  // Trigger: every attempt at one part of a multipart upload failed. The wording says nothing was
+  // saved, and that is TRUE of multipart in a way it is not of a single PUT: an upload that never
+  // completes assembles no object at all, so there is no partial file to find or clean up.
+  {
+    code: 'UploadPartsExhausted',
+    message: 'That file could not be uploaded, and nothing was saved. Try again.',
+    userFixable: true
+  },
+
+  // Trigger: a part uploaded but its `ETag` response header was unreadable, which in practice means
+  // the bucket's CORS stopped exposing it. NOT retryable — the bytes would go again and the header
+  // would be absent again — and NOT completable, because an assembly request carrying nulls fails
+  // at S3 with an error naming none of this. A deploy fault wearing a user-facing sentence, so it
+  // says what happened to their file rather than blaming them.
+  {
+    code: 'UploadUnverifiable',
+    message: `That upload could not be verified, so nothing was saved. ${CONTACT_ADMIN}`,
+    userFixable: false
+  },
+
+  // Trigger: the upload route answered a shape the chosen branch cannot use — a plan with no
+  // upload id, or a single-PUT answer with no url. Only a deploy skew or a contract change reaches
+  // it. Named rather than left to fall through, because the generic sentence for a stalled upload
+  // row tells the user nothing about a file they can simply try again.
+  {
+    code: 'UploadPlanUnusable',
+    message: `That upload could not be started. ${CONTACT_ADMIN}`,
+    userFixable: false
+  },
+
   {code: 'AccessDenied', message: `You don't have permission to do that. ${CONTACT_ADMIN}`, userFixable: false},
   {
     code: 'AccessDeniedException',

@@ -689,6 +689,9 @@ class FakeXhr {
     }
   };
 
+  /** Set by a test that wants a header read back; empty means the response exposed none. */
+  responseHeaders: Record<string, string> = {ETag: '"fixture-etag"'};
+
   constructor() {
     FakeXhr.last = this;
   }
@@ -707,6 +710,17 @@ class FakeXhr {
 
   setRequestHeader(name: string, value: string) {
     this.headers[name] = value;
+  }
+
+  /**
+   * What a real `XMLHttpRequest` does for a header the response did not expose: answers `null`.
+   *
+   * It does NOT throw, which is the whole reason the ETag round trip needs a check rather than a
+   * try — a CORS regression that stops exposing `ETag` is silent at this layer and only shows up
+   * as an assembly request full of nulls.
+   */
+  getResponseHeader(name: string): string | null {
+    return this.responseHeaders[name] ?? null;
   }
 
   send(body: unknown) {
@@ -738,8 +752,14 @@ describe('uploadFile', () => {
     return {size, type: 'text/csv'} as Blob;
   }
 
+  /**
+   * The create route answering `single`, which is what every test in this block drives.
+   *
+   * The SERVER chooses the path, so a small body gets one presigned `PUT` and the browser never
+   * sees a threshold. The multipart answer is `multipartUpload.test.ts`'s subject.
+   */
   function mintedUrl(url = 'https://signed.example/put', expiresAt = '2999-01-01T00:00:00Z') {
-    api.on('objects.uploadUrl', {success: true, data: {url, expiresAt}});
+    api.on('objects.upload', {success: true, data: {mode: 'single', url, expiresAt}});
   }
 
   it('mints a URL and PUTs the bytes to it', async () => {
@@ -756,11 +776,14 @@ describe('uploadFile', () => {
 
     expect(await pending).toEqual({success: true, data: {key: 'alice/report.csv'}});
     expect(FakeXhr.last!.opened).toEqual(['PUT', 'https://signed.example/put']);
-    expect(api.bodyFor('objects.uploadUrl')).toEqual({
+    expect(api.bodyFor('objects.upload')).toEqual({
       space: {kind: 'personal', name: 'alice'},
       key: 'alice/report.csv',
       contentType: 'text/csv',
-      overwrite: false
+      overwrite: false,
+      // The planning input. No S3 call can supply it — the object does not exist yet — and
+      // without it the route cannot decide which path this upload takes.
+      size: 10
     });
   });
 
@@ -822,7 +845,7 @@ describe('uploadFile', () => {
   it('turns the mint’s Conflict into a Collision and never opens a request', async () => {
     // The route mints NO url on a refused overwrite: a route that minted first and checked after
     // would already have handed out the capability.
-    api.on('objects.uploadUrl', apiFailure('Conflict'));
+    api.on('objects.upload', apiFailure('Conflict'));
 
     const result = await uploadFile({
       bucket: 'user-space',
@@ -995,13 +1018,16 @@ describe('uploadFile', () => {
     // after the mint is attached to a spent signal — the queue row would go straight from
     // `uploading` to Succeeded for a file the user stopped.
     const controller = new AbortController();
-    api.on('objects.uploadUrl', {
+    api.on('objects.upload', {
       success: true,
-      data: {url: 'https://signed.example/put', expiresAt: '2999-01-01T00:00:00Z'}
+      data: {mode: 'single', url: 'https://signed.example/put', expiresAt: '2999-01-01T00:00:00Z'}
     });
     mockRequest.mockImplementationOnce(async () => {
       controller.abort();
-      return {success: true, data: {url: 'https://signed.example/put', expiresAt: '2999-01-01T00:00:00Z'}};
+      return {
+        success: true,
+        data: {mode: 'single', url: 'https://signed.example/put', expiresAt: '2999-01-01T00:00:00Z'}
+      };
     });
 
     const result = await uploadFile({
@@ -1067,7 +1093,7 @@ describe('the passthrough codes this surface owns are minted CLIENT-SIDE (FR-010
   });
 
   it('Collision — from an upload, before any byte is sent', async () => {
-    api.on('objects.uploadUrl', serverFailure('Conflict'));
+    api.on('objects.upload', serverFailure('Conflict'));
 
     const result = await uploadFile({
       bucket: 'user-space',

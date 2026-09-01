@@ -307,6 +307,14 @@ describe('UploadQueueProvider cancel (FR-002)', () => {
 
 describe('a presigned URL is minted PER FILE, when that file starts (FR-008 AC2)', () => {
   /**
+   * The create route answering `single`, which every file in these tests takes.
+   *
+   * The SERVER decides the path from the declared size, so these small bodies get one presigned
+   * `PUT` each — the same one call per file the queue has always made.
+   */
+  const singleUpload = {mode: 'single', url: 'https://signed/x', expiresAt: 'later'};
+
+  /**
    * The transport, stubbed so the real `uploadFile` can run inside the real queue.
    *
    * Every request completes on the next microtask, which is what lets the concurrency gate free
@@ -324,6 +332,9 @@ describe('a presigned URL is minted PER FILE, when that file starts (FR-008 AC2)
       ImmediateXhr.opened.push(url);
     }
     setRequestHeader() {}
+    getResponseHeader() {
+      return '"etag"';
+    }
     send() {
       queueMicrotask(() => this.handlers.get('load')?.());
     }
@@ -340,7 +351,10 @@ describe('a presigned URL is minted PER FILE, when that file starts (FR-008 AC2)
     const minted: string[] = [];
     vi.mocked(apiRequest).mockImplementation((async (route: string, options?: {body?: {key?: string}}) => {
       minted.push(`${route}:${options?.body?.key}`);
-      return {success: true, data: {url: `https://signed/${options?.body?.key}`, expiresAt: 'later'}};
+      return {
+        success: true,
+        data: {mode: 'single', url: `https://signed/${options?.body?.key}`, expiresAt: 'later'}
+      };
     }) as typeof apiRequest);
     // The REAL uploader, so the mint this asserts is the one production performs. Reached through
     // `importActual` because this file mocks the module it lives in — `service.uploadFile` would
@@ -354,11 +368,11 @@ describe('a presigned URL is minted PER FILE, when that file starts (FR-008 AC2)
 
     await waitFor(() => expect(countBy(result.current.items, 'done')).toBe(5));
     expect(minted).toEqual([
-      'objects.uploadUrl:alice/f0.txt',
-      'objects.uploadUrl:alice/f1.txt',
-      'objects.uploadUrl:alice/f2.txt',
-      'objects.uploadUrl:alice/f3.txt',
-      'objects.uploadUrl:alice/f4.txt'
+      'objects.upload:alice/f0.txt',
+      'objects.upload:alice/f1.txt',
+      'objects.upload:alice/f2.txt',
+      'objects.upload:alice/f3.txt',
+      'objects.upload:alice/f4.txt'
     ]);
     // And each mint was redeemed by the file it was signed for.
     expect(ImmediateXhr.opened).toEqual(minted.map((entry) => `https://signed/${entry.split(':')[1]}`));
@@ -376,7 +390,7 @@ describe('a presigned URL is minted PER FILE, when that file starts (FR-008 AC2)
       () =>
         new Promise((resolve) => {
           mints += 1;
-          held.push(() => resolve({success: true, data: {url: 'https://signed/x', expiresAt: 'later'}}));
+          held.push(() => resolve({success: true, data: singleUpload}));
         })
     );
     // The REAL uploader, so the mint this asserts is the one production performs. Reached through

@@ -3,7 +3,17 @@ import {API_ERROR_CODES} from '../types/apiContract.generated';
 import {PASSTHROUGH_CODES, USER_FIXABLE_CODES, toUserText} from './errorMessages';
 
 /** The two the client mints. Declared here as data so the guards below can reach them. */
-const CLIENT_MINTED = ['RequestTimeout', 'NetworkUnavailable', 'UnsendableParameter'] as const;
+const CLIENT_MINTED = [
+  'RequestTimeout',
+  'NetworkUnavailable',
+  'UnsendableParameter',
+  // The multipart upload path mints these three itself. A code left off this list is
+  // invisible to the 'every code has a rule of its own' guard below, which is how a minted
+  // code with no rule reaches a user as the generic sentence.
+  'UploadPartsExhausted',
+  'UploadUnverifiable',
+  'UploadPlanUnusable'
+] as const;
 
 /** Read as source, so the assertions are about what the modules DECLARE, not what they do. */
 const sources = import.meta.glob('./{apiClient,errorMessages}.ts', {
@@ -55,6 +65,11 @@ function code(source: string): string {
 }
 
 const FETCH_EXEMPT = ['/runtimeConfig.ts', '/apiClient.ts', './runtimeConfig.ts', './apiClient.ts'];
+
+// The modules permitted to name `XMLHttpRequest`. A NAMED list rather than a pattern: the outcome
+// the rule protects is that `XMLHttpRequest` is not an escape hatch from `apiRequest`, and a named
+// list of one serves that exactly as well as a named list of two, where a pattern would not.
+const XHR_EXEMPT = ['/xhrUpload.ts'];
 
 /**
  * One glob key as a path under `src/`.
@@ -162,26 +177,33 @@ describe('the one door', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('names XMLHttpRequest in exactly one module, the upload path', () => {
+  it('names XMLHttpRequest only in the modules on the list', () => {
     // Widening the fetch sweep, and it has to be widened together with it: a rule that forbids
     // `fetch` and says nothing about `XMLHttpRequest` permits the same escape hatch under another
-    // name. One module may use it, and only because `fetch` fires no upload-progress event — a
-    // `fetch` upload works perfectly and leaves the progress bar at 0% until it jumps to 100%.
+    // name. The listed modules may use it, and only because `fetch` fires no upload-progress event
+    // — a `fetch` upload works perfectly and leaves the progress bar at 0% until it jumps to 100%.
     const offenders = Object.entries(appSources)
       .filter(([, source]) => code(source).includes('XMLHttpRequest'))
       .map(([path]) => path)
-      .filter((path) => !path.endsWith('/fileBrowser.service.ts'));
+      .filter((path) => !XHR_EXEMPT.some((exempt) => path.endsWith(exempt)));
 
     expect(offenders).toEqual([]);
   });
 
-  it('still has that one module — the exemption is not a dead entry', () => {
+  it('still has those modules — an exemption is not a dead entry', () => {
     // The half a sweep cannot state on its own: an exemption for a module that stopped using the
     // thing reads exactly like an exemption for a module that still does. If the upload path ever
     // moves back to `fetch`, the progress bar dies silently and this is what says so.
-    const uploader = Object.entries(appSources).find(([path]) => path.endsWith('/fileBrowser.service.ts'));
+    //
+    // Read through `code()`, like the sweep above — against RAW source a module could keep its
+    // exemption alive on a JSDoc sentence alone, which is exactly the state `fileBrowser.service.ts`
+    // is in now that the transport moved out of it.
+    const found = Object.entries(appSources).filter(([path]) => XHR_EXEMPT.some((exempt) => path.endsWith(exempt)));
 
-    expect(uploader?.[1]).toContain('XMLHttpRequest');
+    // The positive control. Without it an empty `found` satisfies `every` vacuously, and a renamed
+    // or deleted module would read as a passing rule rather than as a missing one.
+    expect(found).toHaveLength(XHR_EXEMPT.length);
+    expect(found.every(([, source]) => code(source).includes('XMLHttpRequest'))).toBe(true);
   });
 
   it('has no module importing the AWS packages these surfaces retired', () => {
