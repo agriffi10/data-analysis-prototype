@@ -81,10 +81,16 @@ def require(name: str) -> str:
     """The fleet's ONE fail-fast environment reader, for values outside ``_REQUIRED_VARS``.
 
     ``_REQUIRED_VARS`` above is the set every control plane needs, and a domain layer must not
-    add to it: that set is a fleet-wide contract, asserted per plane by
-    ``test_the_common_environment_satisfies_every_import_time_require``, so a variable only one
-    plane sets would fail every other plane's guard. ``ARCHIVE_BUCKET`` was the first
+    add to it: that set is a fleet-wide contract every plane's Terraform environment must supply,
+    so a variable only one plane sets breaks every other plane. ``ARCHIVE_BUCKET`` was the first
     such value and this is what it uses instead.
+
+    **Adding a name here is guarded on one plane, not on the fleet — and never was on more.**
+    The guard whose name suggested otherwise checked ``table-builder`` alone, and was retired with
+    the suite cut that flattened the coverage floor. Today only ``user-directory-build`` compares
+    its Terraform environment against this set; the API checks a hand-kept copy that would not
+    notice an addition here at all. Everywhere else the contract rests on review, and a name added
+    here reaches production as a ``RuntimeError`` at first access.
 
     Exported rather than left private so a domain layer reaches for it instead of writing its
     own three-line ``os.environ`` check — one reader means one error sentence and one place the

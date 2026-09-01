@@ -56,8 +56,9 @@ deleted; the machine validates and stops at a placeholder terminal.
 lazy `__getattr__` resolution makes it free for planes that never read it — is true of
 *resolution* and false of the *contract*: that set is a fleet-wide one every plane's Lambda
 environment must supply, and `test_the_common_environment_satisfies_every_import_time_require`
-failed for table-builder immediately. It is `arcommon.config.archive_bucket()` now, a function so
-the layer stays import-safe.
+failed for table-builder immediately — the one plane it actually read. (It was retired in #540;
+an equivalent on `user-directory-build` is what would catch the same mistake today.) It is
+`arcommon.config.archive_bucket()` now, a function so the layer stays import-safe.
 
 **The `mode` branch was first written on the Pipe's SQS message attributes**, which would have
 invented an unverified contract about the record shape. It reads `$.mode` on the *validated*
