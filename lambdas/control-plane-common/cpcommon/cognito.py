@@ -9,8 +9,9 @@ name; The file-send verbs call it directly rather than adding a third copy.
 ``COGNITO_USER_POOL_ID`` is read through ``config.require`` rather than being a fleet-wide
 required variable. It stopped being one when the planes stopped verifying tokens: only the three
 that look a recipient up still need it, and a name in ``_REQUIRED_VARS`` is a contract every
-plane must satisfy, so leaving it there would fail the guard on every plane that no longer sets
-it. Read lazily, at the call, so a verb on one of those planes that never looks a user up never
+plane must satisfy, so leaving it there would break every plane that no longer sets it. Nothing
+asserts that fleet-wide — the guard that once did covered one plane and is gone — which is why
+the contract is kept by not adding to the set rather than by being caught. Read lazily, at the call, so a verb on one of those planes that never looks a user up never
 pays for the variable.
 
 ``shared-space-common.membership`` is deliberately NOT folded in here: its lookup is embedded

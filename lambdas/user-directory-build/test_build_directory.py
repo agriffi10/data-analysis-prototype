@@ -4,26 +4,34 @@ The weight here is on the four properties that make an unattended daily rebuild 
 S3 and never Cognito (FR-001), it never publishes an empty document over a good one (FR-002),
 its event count does not grow with the organisation (FR-008), and nothing else in the fleet
 treats the document it writes as an authorization input (FR-007).
+
+The last section guards a fifth, which is deployment rather than behaviour: the Terraform
+environment must carry exactly the set `cpcommon.config` declares, because every other signal
+this repo has — apply, deploy, and the suite itself — is green against a thin one.
 """
 
 import json
 import os
 import pathlib
+import re
 import sys
 
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(
     0,
     os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "control-plane-common"),
 )
 
 import build_directory
-from cpcommon import clients
+from cpcommon import clients, config
+from tf_blocks import blocks
 
 HERE = pathlib.Path(__file__).resolve().parent
 LAMBDAS = HERE.parent
+LAMBDA_TF = LAMBDAS.parent / "infra" / "modules" / "user-directory" / "lambda.tf"
 
 
 class FakeS3:
@@ -113,3 +121,112 @@ def test_an_empty_result_never_overwrites_the_existing_document(s3):
     assert result == {"published": False, "username_count": 0}
 
 
+# -- The deployed environment matches what config.py declares ---------------------------
+#
+# Nothing else ties the two sides together. `tofu apply` is green against a thin environment,
+# `update-function-code` is green against it, and the suite is green because `lambdas/conftest.py`
+# stamps the required names before collection. The failure surfaces only in production, and only
+# on the branch that reads the missing name — today that is `USER_SPACE_BUCKET` alone, so the
+# other three are guarded for the reader this function does not yet have.
+
+# The two names `config.py` declares in NEITHER `_REQUIRED_VARS` nor `_OPTIONAL_VARS`, so no
+# comparison against it can speak for them. `observability` reads both through `os.environ.get`,
+# which is what makes losing one silent rather than loud — but they do not degrade alike, and the
+# difference is the point: without `LOGS_QUEUE_URL` the sink becomes stdout and nothing reaches the
+# logs queue at all, while without `ENV_NAME` every event still ships, carrying a blank `env`.
+# Neither raises, so the assertion below cannot see either. Hence one of their own.
+UNDECLARED_BY_CONFIG = {"LOGS_QUEUE_URL", "ENV_NAME"}
+
+
+def _terraform_environment_variables():
+    """The names assigned inside lambda.tf's `environment { variables = { … } }` block.
+
+    The same read `test_api_module.py` uses, through the shared `tf_blocks` splitter rather
+    than a second brace counter — its own docstring says why a copy of that scanner is the
+    thing that drifts. Isolating the resource first is what keeps the non-greedy terminator
+    honest: it ends at this function's `environment` block and cannot run into another
+    resource's.
+    """
+    source = LAMBDA_TF.read_text(encoding="utf-8")
+    function = blocks(source, "aws_lambda_function")["build"]
+    body = re.search(r"environment\s*\{(.*?)\n  \}", function, re.DOTALL)
+    assert body, "lambda.tf's environment block did not parse"
+
+    names = re.compile(r"^\s*([A-Z_][A-Z0-9_]*)\s*=", re.MULTILINE)
+    captured = set(names.findall(body.group(1)))
+    everywhere = set(names.findall(function))
+    assert captured == everywhere, (
+        f"the environment slice captured {sorted(captured)}, but the resource assigns "
+        f"{sorted(everywhere)}. Every SHOUTING assignment in this resource is an environment "
+        "variable, so a difference means either the slice stopped before the block closed, or "
+        "this resource grew a SHOUTING assignment outside it. A slice anchored to a position "
+        "rather than to the close is the failure worth spending an assertion on: it looks "
+        "exhaustive while measuring less, and stays green the entire time"
+    )
+    return captured
+
+
+def test_the_environment_block_matches_config_pys_own_declaration():
+    """The block must carry `_REQUIRED_VARS` exactly — no name short, and no name spare.
+
+    Both directions are real drift. A name missing from Terraform raises `RuntimeError` at
+    first access on whichever branch reads it; a name set here that `config.py` no longer
+    declares is a variable nothing requires, which is how a block silently becomes a
+    hand-kept copy of a set it was supposed to mirror.
+
+    `_OPTIONAL_VARS` is subtracted rather than ignored. Most other plane modules already set
+    `NOTIFICATIONS_QUEUE_URL`, so this one may grow it too — and `config.py` DOES declare it,
+    just as degrading rather than required. Comparing against the required set
+    alone would refuse that correct change while reporting, wrongly, that `config.py` had never
+    heard of it. The set's other member, `AWS_REGION`, is subtracted with it and costs nothing:
+    Lambda reserves that key, so a block trying to set it fails the apply long before this runs.
+    """
+    declared = set(config._REQUIRED_VARS.values())
+    deployed = (
+        _terraform_environment_variables()
+        - set(config._OPTIONAL_VARS.values())
+        - UNDECLARED_BY_CONFIG
+    )
+
+    assert deployed == declared, (
+        f"lambda.tf and cpcommon/config.py disagree. Required by config.py and absent from "
+        f"lambda.tf: {sorted(declared - deployed)}. Set by lambda.tf and not required by "
+        f"config.py: {sorted(deployed - declared)}. The first crashes the builder at first "
+        "access in production; the second means one side dropped a name the other still keeps"
+    )
+
+
+def test_both_sides_of_that_comparison_are_actually_being_read():
+    """Guards the assertion above against the one way it can pass while measuring nothing.
+
+    Two empty sets compare equal. If the regex stopped matching and `_REQUIRED_VARS` were
+    emptied, the test above would go green on a block that mirrors nothing at all.
+    """
+    parsed = _terraform_environment_variables()
+    known = set(config._REQUIRED_VARS.values()) | set(config._OPTIONAL_VARS.values())
+
+    assert "USER_SPACE_BUCKET" in parsed, "the lambda.tf parse found no variables at all"
+    assert set(config._REQUIRED_VARS.values()) >= {"ADMIN_BUCKET", "ATHENA_WORKGROUP"}, (
+        "config.py declares no required variables — the comparison above has nothing to match"
+    )
+    assert not UNDECLARED_BY_CONFIG & known, (
+        f"{sorted(UNDECLARED_BY_CONFIG & known)} is exempted above while config.py declares it. "
+        "An exemption is for names config.py cannot speak for, and one that covers a declared "
+        "name subtracts it from both sides of the comparison, which passes on its removal"
+    )
+
+
+def test_the_names_config_py_cannot_speak_for_are_still_set():
+    """The two exempted names need their own guard, because the comparison cannot see them.
+
+    Subtracting a name from one side of a set equality removes it from the test entirely.
+    Deleting `LOGS_QUEUE_URL` from lambda.tf left every other assertion here green while
+    structured logging silently fell back to stdout — no queue, no logs, no failure.
+    """
+    missing = UNDECLARED_BY_CONFIG - _terraform_environment_variables()
+
+    assert not missing, (
+        f"lambda.tf no longer sets {sorted(missing)}. `observability` reads both with "
+        "`os.environ.get`, so losing one degrades in silence rather than raising — nothing "
+        "else in this file or in production will tell you"
+    )

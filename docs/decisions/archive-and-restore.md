@@ -179,14 +179,20 @@ them.
 
 **`ARCHIVE_BUCKET` is not a `cpcommon.config` required variable.** The first attempt added it to
 `_REQUIRED_VARS`, reasoning that the lazy `__getattr__` made it free for planes that never read it.
-That is true of resolution and false of the contract: `_REQUIRED_VARS` is a **fleet-wide** set that
-`test_the_common_environment_satisfies_every_import_time_require` asserts each plane's Lambda
-environment supplies, so the change failed table-builder's guard immediately. The value is
-`arcommon.config.archive_bucket()` instead — a **function**, not a module attribute, because a
+That is true of resolution and false of the contract: `_REQUIRED_VARS` is a **fleet-wide** set each
+plane's Lambda environment must supply, and the change failed table-builder's guard immediately.
+The value is `arcommon.config.archive_bucket()` instead — a **function**, not a module attribute, because a
 constant resolved at import time in a layer runs for every attaching function and an unset variable
 then crashes at **cold start**, where no test and no deploy can see it (PR #196). `cpcommon.config`
 gained a public `require()` so a domain layer reaches for the fleet's one fail-fast reader rather
 than writing a second.
+
+> **Superseded in part (2026-09-01) — the CHECK, not the decision.**
+> `test_the_common_environment_satisfies_every_import_time_require` was retired in #540. It also
+> never had the reach its name implies: it read `infra/modules/table-builder` alone, so the
+> paragraph above overstates it, as several other doc sites did. Today the equivalent guard exists
+> for `user-directory-build` only, and it is what would catch this mistake now. Keeping
+> `ARCHIVE_BUCKET` out of `_REQUIRED_VARS` is unchanged and still right.
 
 ## The commit gate, and the four choices that make a deletion safe (SPEC-169)
 

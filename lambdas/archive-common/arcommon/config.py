@@ -8,10 +8,11 @@ layer's import-time failure surfaces at COLD START, where no test and no deploy 
 
 ``archive_bucket()`` is the one env-derived value, and it is a FUNCTION for exactly that reason.
 It does **not** belong in ``cpcommon.config._REQUIRED_VARS``: that set is a fleet-wide contract
-every plane's Lambda environment must satisfy — asserted per plane by
-``test_the_common_environment_satisfies_every_import_time_require`` — so putting a variable only
-THIS plane sets into it fails every other plane's guard. That test caught the mistake while the
-change was being written, which is what it is for.
+every plane's Lambda environment must satisfy, so putting a variable only THIS plane sets into it
+breaks every other plane. A per-plane guard caught exactly that mistake while this change was
+being written. It covered table-builder alone, despite a name that suggested the fleet, and it has
+since been retired. Another one-plane guard stands in its place: adding a name here still reddens,
+but only through ``user-directory-build``'s environment test. Nothing on THIS plane checks it.
 
 Every cap below is a whole-request terminal in validate-authorize, raised before any AWS call
 that costs anything, so a refused archive leaves nothing behind.
