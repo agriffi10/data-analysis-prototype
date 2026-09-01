@@ -237,6 +237,10 @@ def write_owner_deleting(owner: str, name: str) -> None:
     back to active mid-cascade. Superseded by the entry's removal on success or a failed upsert
     on error.
 
+    It names the verb it belongs to, because the screen offers a retry on a card stuck in this
+    state and a card that does not say which verb it came from is retried as a create — the one
+    verb that cannot work on a name already taken.
+
     Args:
       owner: The space's owner.
       name: The space name.
@@ -248,7 +252,7 @@ def write_owner_deleting(owner: str, name: str) -> None:
       RuntimeError: When the CAS attempts are exhausted.
       ClientError: On any non-precondition S3 fault.
     """
-    upsert_entry(owner, {"name": name, "role": "owner", "status": "deleting"})
+    upsert_entry(owner, {"name": name, "role": "owner", "status": "deleting", "failedAction": "delete"})
 
 
 def _member_projection(members, owner, acknowledged):

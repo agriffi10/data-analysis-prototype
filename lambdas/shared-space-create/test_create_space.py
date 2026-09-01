@@ -189,3 +189,46 @@ def test_mark_ever_active_tolerates_a_record_that_is_gone():
     install()
 
     assert reg.mark_ever_active("never-existed", "req-1") is False
+
+
+def test_a_failed_CREATE_may_be_retried_but_a_failed_DELETE_may_not_be_revived():
+    # Two records that look identical — same owner, same failed status — and the durable stamp
+    # is the only thing telling them apart. Re-provisioning the first is what the retry path
+    # exists for. Re-provisioning the second resets the roster to the owner alone and hands
+    # them back the previous cohort's files, in one call and with no confirmation.
+    s3, *_ = install()
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(
+        {"name": "sales", "owner": "alice", "members": ["alice"], "status": "failed"}
+    ).encode()
+
+    assert reg.reserve("sales", "alice", "req-2") == "created"
+
+    s3.store[("admin-bkt", "shared-spaces/finance.json")] = json.dumps(
+        {"name": "finance", "owner": "alice", "members": ["alice", "bob"], "status": "failed", "everActive": True}
+    ).encode()
+
+    raises(lambda: reg.reserve("finance", "alice", "req-3"), reg.ProvisioningError, "name already taken")
+    # Untouched — the previous cohort is still on the record an operator would restore from.
+    assert json.loads(s3.store[("admin-bkt", "shared-spaces/finance.json")])["members"] == ["alice", "bob"]
+
+
+def test_save_members_and_set_status_both_preserve_the_stamp():
+    # Neither names the field, so both preserve it only because they build from dict(existing).
+    # A later projection-style rewrite of either would drop it with a green suite, which is
+    # exactly what the field cannot survive.
+    s3, *_ = install()
+    record = {
+        "name": "sales",
+        "owner": "alice",
+        "members": ["alice"],
+        "status": "active",
+        "everActive": True,
+        "createdAt": "t0",
+    }
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(record).encode()
+
+    reg.save_members(record, "req-2", add=["bob"])
+    assert _record(s3)["everActive"] is True
+
+    reg.set_status(record, "deleting", "req-3")
+    assert _record(s3)["everActive"] is True

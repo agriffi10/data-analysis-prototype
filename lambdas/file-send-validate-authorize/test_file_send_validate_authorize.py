@@ -71,7 +71,7 @@ def _event(
 
 
 def _active_space(members):
-    return {"status": "active", "members": members}
+    return {"status": "active", "owner": "owner_of_space", "members": members}
 
 
 def _expect_reason(event, reason):
@@ -220,3 +220,16 @@ def test_the_verb_refuses_a_message_with_no_identity_block():
 
     assert raised.value.reason == "unauthorized"
     assert "identity block" in raised.value.detail
+
+
+def test_a_send_into_an_EMPTIED_space_is_refused_even_from_a_former_member():
+    # A deleted space keeps `status: "active"` — nothing about its objects changed — and what
+    # ends is its membership. A former member remembers the name and the name is typeable, so
+    # status alone would let them send files into a workspace every surface says is gone, under
+    # a prefix nobody holds a claim to, with no owner left to notify.
+    emptied = {"status": "active", "members": [], "previousOwner": "alice", "emptiedAt": "t1"}
+    _setup(spaces={"sales": emptied})
+
+    out = v.handler(_event(recipients=[{"kind": "space", "name": "sales"}]), None)
+
+    assert out["recipients"] == [{"kind": "space", "name": "sales", "invalid": "unknown_space"}]

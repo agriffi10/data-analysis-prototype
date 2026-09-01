@@ -12,6 +12,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
 import auth
+import cache
 import validate as v
 from fakes import install, raises
 
@@ -91,3 +92,16 @@ if __name__ == "__main__":
         fn()
     print(f"All {len(fns)} validate tests passed.")
     sys.exit(0)
+
+
+def test_the_deleting_card_names_the_verb_it_belongs_to():
+    # The screen offers a retry on a card stuck in this state, and a card that does not say
+    # which verb it came from is retried as a CREATE — the one verb that cannot work on a name
+    # already taken. Its refusal then overwrites the discriminator, after which nothing can
+    # enqueue a delete and the workspace is stranded.
+    s3, *_ = install()
+    cache.write_owner_deleting("alice", "sales")
+
+    entry = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])["connections"][0]
+
+    assert entry["status"] == "deleting" and entry["failedAction"] == "delete"

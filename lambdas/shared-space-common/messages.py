@@ -7,19 +7,30 @@ execution that dies before or outside any verb's Python: a cold-start import err
 timeout, a task that cannot be invoked at all. The only code that runs then is a notifier
 holding an action name and a raw Step Functions error, with no verb to borrow a sentence from.
 
-The reason is deliberately not a lookup table. Every code that can reach that path is a raw
-engine name, and none may be shown to a user. So what varies here is the action, not the
-reason: the resolver names the operation the user asked for and ends on the shared generic
-clause. The domain table is empty because there is genuinely nothing to put in it, not because
-it was left unfinished — and going through the shared registration rather than hard-coding the
-clause means a shared-space reason code registered later renders through the same path, as do
-the shared base codes if a verb ever raises one.
+The reason was deliberately not a lookup table for as long as every code reaching that path was
+a raw engine name that may not be shown to a user, so what varied was the action rather than the
+reason. **The table has entries now**, and they arrived exactly as that note anticipated: a
+shared-space code registered later renders through the same path. What each one buys is a
+sentence a user can act on in place of the generic clause — "that workspace has been deleted"
+answers a member's question, where "please try again or contact the Administrator" invites them
+to retry something that will never succeed.
+
+The keys are **class names, verbatim and CamelCase**, and that is not a style slip. The shared
+decoder only splits a reason code out of a Step Functions cause for a ``TerminalError``; for
+every other exception it returns the engine's own ``Error`` field, which is the raised class's
+name. So a key written in this file's neighbouring snake_case would match nothing and render the
+generic clause — silently, which is the failure mode registering them exists to prevent.
+
+The two refusals that mean "deleted" share one sentence while keeping separate codes: a caller
+distinguishes them, a user does not need to.
 
 The wording matches what this plane already sends from its own verbs, because a user cannot
 tell which code emitted the message in their inbox and a second phrasing for the same event
 would read as a second kind of problem. Kept ASCII — no smart quotes.
 
 Attributes:
+  _DOMAIN_REASONS: Reason code to the clause a user reads, keyed by the exception class name the
+    engine reports. See above for why the casing is load-bearing.
   _ACTION_PHRASES: Action to the clause following "We couldn't ", with the space name appended
     in quotes. The action values are the Step Function's own, not a parallel vocabulary: they
     are the same strings the routing state branches on and the validator puts on the context,
@@ -50,7 +61,16 @@ _ACTION_PHRASES = {
 
 _UNKNOWN_ACTION = "complete that shared workspace request"
 
-_resolver = _cpmessages.register({})
+_DOMAIN_REASONS = {
+    "SpaceHasNoOwner": "that workspace has been deleted",
+    "SpaceAlreadyEmptied": "that workspace has been deleted",
+    "SpaceNeverActive": "that workspace hasn't finished being set up",
+    "RegistryRecordMissing": "we couldn't find that workspace",
+    "MembersRemainAfterEmpty": "some members' access could not be removed, so please try again",
+    "RegistryRecordResurrected": "someone changed that workspace while it was being removed, so please try again",
+}
+
+_resolver = _cpmessages.register(_DOMAIN_REASONS)
 
 
 def failure_message(action: str = "", space: str = "", reason: str = "") -> str:
@@ -66,9 +86,10 @@ def failure_message(action: str = "", space: str = "", reason: str = "") -> str:
     Args:
       action: The requested action.
       space: The space name, when one is known.
-      reason: A code from the shared decoder. Passed through to the resolver, which falls back
-        to the generic clause for anything it does not know — which today is everything that
-        can reach this call site. It is never interpolated raw.
+      reason: A code from the shared decoder. Passed through to the resolver, which answers with
+        this domain's sentence for a registered code and falls back to the generic clause for
+        anything else — which is still most of what reaches here, since a raw engine name has no
+        wording and must not acquire one. It is never interpolated raw.
 
     Returns:
       The full sentence.

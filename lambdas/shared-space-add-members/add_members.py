@@ -31,6 +31,49 @@ logger.setLevel(logging.INFO)
 observability.init(service="shared-space")
 
 
+def _release_slots(space, added):
+    """Gives back the membership slots this run assigned, after the roster write refused them.
+
+    Slots are assigned one at a time BEFORE the roster is written, so a refusal at the write
+    leaves every one of them standing — and a slot *is* the S3 and Glue grant. Without this the
+    guard leaves the added user holding live access to a space they appear in no roster of, which
+    is strictly worse than the state the guard prevents: at least a roster entry is visible.
+
+    A name already on the freshly-read roster is skipped, because assigning a slot is idempotent
+    and returns an existing one without writing. A concurrent run that legitimately committed the
+    same member would otherwise have their access revoked by this rollback.
+
+    Each release is best-effort, **including the roster read**: a fault anywhere here would
+    propagate out of the caller's refusal handler and release nothing at all — the orphan this
+    function exists to prevent — and the user would get the generic clause instead of the
+    refusal's own sentence, since the resolver keys on the raised class. An unreadable roster
+    falls back to releasing every slot: over-releasing costs a re-add, under-releasing leaves a
+    live grant nobody can see.
+
+    Args:
+      space: The space name.
+      added: The members this run assigned a slot to.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    try:
+        committed = set((reg.load(space) or {}).get("members") or [])
+    except Exception:
+        logger.exception("failed to read the roster before releasing slots on %s", space)
+        committed = set()
+    for member in added:
+        if member in committed:
+            continue
+        try:
+            membership.clear_slot(member, space)
+        except Exception:
+            logger.exception("failed to release the slot for %s on %s", member, space)
+
+
 def add_members(space, members, request_id, registry):
     """Adds members to a space and reports which were added, unknown, or at their limit.
 
@@ -101,7 +144,11 @@ def add_members(space, members, request_id, registry):
             (member, f'You\'ve been added to the shared workspace "{space}".', f"add-member:{member}")
         )
 
-    committed = reg.save_members(registry, request_id, add=summary["added"])
+    try:
+        committed = reg.save_members(registry, request_id, add=summary["added"])
+    except reg.MembershipRefused:
+        _release_slots(space, summary["added"])
+        raise
     membership_index.record_for_all(
         summary["added"], space, committed.get("status", "active")
     )

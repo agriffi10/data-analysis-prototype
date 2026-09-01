@@ -232,7 +232,7 @@ def _annotate_recipients(recipients) -> list:
         if entry["kind"] == "user":
             reason = None if cognito.user_exists(entry["name"]) else "unknown_user"
         else:
-            reason = None if reg.is_active(reg.load(entry["name"])) else "unknown_space"
+            reason = None if reg.may_receive_share(reg.load(entry["name"])) else "unknown_space"
         annotated.append({**entry, **({"invalid": reason} if reason else {})})
     return annotated
 

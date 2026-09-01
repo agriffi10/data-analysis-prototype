@@ -7,8 +7,10 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
 import delete_space as d
+import membership as membership_module
 import registry as teardown_registry
 import teardown
+from auth import AuthorizationError, authorize
 from cpcommon import clients
 from cpcommon import config as cpconfig
 from fakes import install, raises
@@ -27,11 +29,22 @@ def _sent(sqs):
     return out
 
 
-def _seed_full_space(s3, glue, cognito, name="sales", members=("alice", "bob")):
+def _seed_full_space(
+    s3, glue, cognito, name="sales", members=("alice", "bob"), status="active", ever_active=None
+):
     owner = members[0]
-    s3.store[("admin-bkt", f"shared-spaces/{name}.json")] = json.dumps(
-        {"name": name, "owner": owner, "members": list(members), "status": "active", "createdAt": "t0"}
-    ).encode()
+    record = {
+        "name": name,
+        "owner": owner,
+        "members": list(members),
+        "status": status,
+        "createdAt": "t0",
+    }
+    # An active space is ever-active by definition; anything else says so explicitly, which is
+    # what tells a failed CREATE (destroyable) from a failed DELETE (not).
+    if ever_active if ever_active is not None else status == "active":
+        record["everActive"] = True
+    s3.store[("admin-bkt", f"shared-spaces/{name}.json")] = json.dumps(record).encode()
     s3.store[("shared-bkt", f"{name}/DO_NOT_DELETE.txt")] = b"marker"
     s3.store[("shared-bkt", f"{name}/data/file.csv")] = b"data"
     s3.store[("shared-bkt", f"{name}/athenaresults/alice/q.csv")] = b"result"
@@ -46,21 +59,75 @@ def _seed_full_space(s3, glue, cognito, name="sales", members=("alice", "bob")):
         ).encode()
 
 
-def test_delete_cascades_files_tables_db_members_and_registry_frees_name():
+def test_delete_removes_every_member_and_destroys_nothing():
+    # A test that checked only the registry would pass over the point of the change: the
+    # objects and the database surviving is the whole feature.
     s3, glue, lf, cognito = install()
     _seed_full_space(s3, glue, cognito)
     reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
 
     out = d.delete_space("sales", "alice", "req-d", reg)
+
     assert out["status"] == "ok" and set(out["revokedMembers"]) == {"alice", "bob"}
-    assert not any(b == "shared-bkt" and k.startswith("sales/") for (b, k) in s3.store)
-    assert "sales" not in glue.databases and "sales" not in glue.tables
-    assert len(lf.revokes) == 2
     for m in ("alice", "bob"):
         assert cognito.users[m]["custom:shared_space_1"] == ""
         cache = json.loads(s3.store[("user-bkt", f"{m}/user_settings/shared-connections.json")])
         assert cache["connections"] == []
+    assert ("shared-bkt", "sales/data/file.csv") in s3.store
+    assert "sales" in glue.databases and glue.tables["sales"] == ["t1", "t2"]
+    assert lf.revokes == []
+    saved = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert saved["members"] == [] and saved["acknowledged"] == []
+    assert "owner" not in saved
+    assert saved["status"] == "active" and saved["everActive"] is True
+    assert saved["previousOwner"] == "alice" and saved["emptiedAt"]
+    # Carried forward from the record it replaced, not rebuilt from a literal.
+    assert saved["createdAt"] == "t0"
+
+
+def test_the_emptied_record_is_inert_to_its_ORIGINAL_OWNER():
+    # Driven as alice, not as a stranger: `authorize` reads the owner FIELD, so the original
+    # owner is the only actor who could have survived the clearing.
+    s3, glue, _lf, cognito = install()
+    _seed_full_space(s3, glue, cognito)
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    d.delete_space("sales", "alice", "req-d", reg)
+    emptied = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+
+    for action in ("add_members", "remove_members", "leave", "acknowledge_membership", "delete"):
+        raises(
+            lambda action=action: authorize(action, "sales", "alice", emptied),
+            AuthorizationError,
+        )
+    # previousOwner is for an operator to read, and no authorization path may consult it.
+    assert emptied["previousOwner"] == "alice"
+
+
+def test_a_never_active_space_is_still_destroyed_and_its_name_freed():
+    s3, glue, lf, cognito = install()
+    _seed_full_space(s3, glue, cognito, members=("alice",), status="failed")
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+
+    d.delete_space("sales", "alice", "req-d", reg)
+
+    assert not any(b == "shared-bkt" and k.startswith("sales/") for (b, k) in s3.store)
+    assert "sales" not in glue.databases and "sales" not in glue.tables
+    assert len(lf.revokes) == 2
     assert ("admin-bkt", "shared-spaces/sales.json") not in s3.store
+
+
+def test_an_ever_active_space_that_is_now_failed_is_emptied_not_destroyed():
+    # The record a delete-that-failed leaves behind. Keying the route on live status rather
+    # than the durable stamp would destroy a live workspace here.
+    s3, glue, _lf, cognito = install()
+    _seed_full_space(s3, glue, cognito, status="failed", ever_active=True)
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+
+    d.delete_space("sales", "alice", "req-d", reg)
+
+    assert ("shared-bkt", "sales/data/file.csv") in s3.store
+    assert "sales" in glue.databases
+    assert json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])["status"] == "active"
 
 
 def test_delete_fans_out_to_every_member_deduped_with_distinct_deleter_message():
@@ -87,9 +154,10 @@ def test_delete_clears_every_index_entry_BEFORE_the_name_is_freed():
     # The registry record is the name lock, so an index still naming a space whose name is free
     # is an entitlement to whatever gets created next. The drop rides the member loop, which runs
     # before reg.delete — the ORDER is what is asserted, since the end state is the same either
-    # way when nothing else claims the name.
+    # way when nothing else claims the name. Seeded never-active, because that is now the only
+    # route that reaches reg.delete at all.
     s3, glue, _lf, cognito = install()
-    _seed_full_space(s3, glue, cognito)
+    _seed_full_space(s3, glue, cognito, status="failed")
     for member in ("alice", "bob"):
         s3.store[("admin-bkt", f"memberships/{member}.json")] = json.dumps(
             {"version": 1, "username": member, "spaces": [{"name": "sales", "status": "active"}]}
@@ -135,7 +203,7 @@ def test_a_key_that_could_not_be_deleted_leaves_the_registry_record_intact():
     inherit another tenant's data (SPEC-054: never a dangling half-deleted resource).
     """
     s3, glue, _lf, cognito = install()
-    _seed_full_space(s3, glue, cognito)
+    _seed_full_space(s3, glue, cognito, status="failed")
     reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     s3.undeletable.add("sales/data/file.csv")
 
@@ -151,3 +219,255 @@ def test_a_key_that_could_not_be_deleted_leaves_the_registry_record_intact():
     # And the object that could not be removed is still in the bucket, which is the
     # condition the record is now protecting.
     assert ("shared-bkt", "sales/data/file.csv") in s3.store
+
+
+# ── FR-008/FR-009: a membership write racing the empty, and a fault after the rewrite ────
+
+
+def _add_member_behind_the_verbs_back(s3, name, member):
+    record = json.loads(s3.store[("admin-bkt", f"shared-spaces/{name}.json")])
+    record["members"].append(member)
+    s3.store[("admin-bkt", f"shared-spaces/{name}.json")] = json.dumps(record).encode()
+    clients._cognito.users[member] = {"custom:shared_space_1": name}
+    s3.store[("user-bkt", f"{member}/user_settings/shared-connections.json")] = json.dumps(
+        {"version": 1, "connections": [{"name": name, "role": "member", "status": "active"}]}
+    ).encode()
+    s3.store[("admin-bkt", f"memberships/{member}.json")] = json.dumps(
+        {"version": 1, "username": member, "spaces": [{"name": name, "status": "active"}]}
+    ).encode()
+
+
+def test_a_member_added_while_the_verb_runs_is_revoked_by_the_union_pass_and_told():
+    # Delivery is ordered and executions are not, so an add authorized against a live record can
+    # commit while this verb is mid-flight. The verb captured its roster before that, so the
+    # latecomer's slot — which IS the grant — would otherwise outlive the space they were added
+    # to, in a record with no owner to remove them.
+    s3, glue, _lf, cognito = install()
+    _seed_full_space(s3, glue, cognito)
+    sqs = _enable_notifications()
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+
+    real_remove = d.cache.remove_entry
+    landed = []
+
+    def add_carol_then_remove(username, name):
+        if not landed:
+            landed.append(True)
+            _add_member_behind_the_verbs_back(s3, "sales", "carol")
+        return real_remove(username, name)
+
+    d.cache.remove_entry = add_carol_then_remove
+    try:
+        out = d.delete_space("sales", "alice", "req-d", reg)
+    finally:
+        d.cache.remove_entry = real_remove
+
+    assert "carol" in out["revokedMembers"]
+    assert cognito.users["carol"]["custom:shared_space_1"] == ""
+    assert json.loads(s3.store[("admin-bkt", "memberships/carol.json")])["spaces"] == []
+    carol_cache = json.loads(s3.store[("user-bkt", "carol/user_settings/shared-connections.json")])
+    assert carol_cache["connections"] == []
+    # Told the same thing as everyone else — either choice compiles, and the silent one revokes
+    # a user's access without a word.
+    assert _sent(sqs)["carol"] == 'The shared workspace "sales" was deleted.'
+    assert json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])["members"] == []
+
+
+def test_a_fault_after_the_rewrite_hands_the_space_back_to_its_owner():
+    # By this point the owner field is gone, so the ordinary failed state would be one nobody
+    # can act on: delete is owner-only, leave is member-only against an empty roster, and the
+    # Retry the screen offers is refused. The space has to come back owned.
+    s3, glue, _lf, cognito = install()
+    _seed_full_space(s3, glue, cognito)
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+
+    real_remove = d.cache.remove_entry
+    state = {"added": False}
+
+    def fail_for_the_latecomer(username, name):
+        if not state["added"]:
+            state["added"] = True
+            _add_member_behind_the_verbs_back(s3, "sales", "carol")
+            return real_remove(username, name)
+        if username == "carol":
+            raise RuntimeError("cognito is having a day")
+        return real_remove(username, name)
+
+    d.cache.remove_entry = fail_for_the_latecomer
+    try:
+        raises(
+            lambda: d.delete_space("sales", "alice", "req-d", reg),
+            RuntimeError,
+            "cognito is having a day",
+        )
+    finally:
+        d.cache.remove_entry = real_remove
+
+    saved = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert saved["status"] == "failed"
+    assert saved["owner"] == "alice", "an ownerless failed record is one nobody can act on"
+    assert saved["everActive"] is True
+    # And the owner can now finish what they started.
+    authorize("delete", "sales", "alice", saved)
+
+
+def test_a_failed_delete_records_the_action_so_the_screen_retries_the_right_verb():
+    s3, glue, _lf, cognito = install()
+    _seed_full_space(s3, glue, cognito)
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+
+    def boom(*_a, **_k):
+        raise RuntimeError("clear_slot failed")
+
+    # Captured BEFORE the patch: `d.membership` is the same module object every other verb
+    # imports, so reading the attribute back afterwards would restore the fake to the whole suite.
+    real_clear_slot = membership_module.clear_slot
+    membership_module.clear_slot = boom
+    try:
+        raises(lambda: d.delete_space("sales", "alice", "req-d", reg), RuntimeError, "clear_slot")
+    finally:
+        membership_module.clear_slot = real_clear_slot
+
+    entry = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])["connections"][0]
+    assert entry["status"] == "failed" and entry["failedAction"] == "delete"
+    # The captured loop failed, so the rewrite never ran and the owner was never cleared.
+    assert json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])["owner"] == "alice"
+
+
+# ── The destroying route's own races (FR-002) ───────────────────────────────
+
+
+def test_the_destroying_route_clears_a_member_the_validator_never_saw():
+    # The event's roster and a fresh read are both snapshots, and the destroying route FREES
+    # THE NAME — so a slot it misses becomes a principal tag on whatever is created under that
+    # name next, because the portal policy is scoped on the tag value and not on any space
+    # identity. The verb clears the union of the two, not the copy it was handed.
+    s3, glue, _lf, cognito = install()
+    _seed_full_space(s3, glue, cognito, members=("alice", "bob"), status="failed")
+    stale_event_copy = {"name": "sales", "owner": "alice", "members": ["alice"], "status": "failed"}
+
+    d.delete_space("sales", "alice", "req-d", stale_event_copy)
+
+    assert cognito.users["bob"]["custom:shared_space_1"] == "", "bob's slot outlived the freed name"
+    assert cognito.users["alice"]["custom:shared_space_1"] == ""
+    assert ("admin-bkt", "shared-spaces/sales.json") not in s3.store
+
+
+def test_a_record_that_reappears_after_the_name_is_freed_raises():
+    # A membership write that lost its race to the delete re-creates the record from its own
+    # stale copy — save_members falls back to that copy when the fresh read is None, and the
+    # write is create-if-absent, so it succeeds against the object we just removed. The result
+    # is a name locked over resources that no longer exist, and nothing else would notice.
+    s3, glue, _lf, cognito = install()
+    _seed_full_space(s3, glue, cognito, members=("alice",), status="failed")
+    reg_copy = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    real_delete = teardown_registry.delete
+
+    def delete_then_lose_the_race(name):
+        real_delete(name)
+        s3.store[("admin-bkt", f"shared-spaces/{name}.json")] = json.dumps(reg_copy).encode()
+
+    teardown_registry.delete = delete_then_lose_the_race
+    try:
+        raises(
+            lambda: d.delete_space("sales", "alice", "req-d", reg_copy),
+            teardown_registry.RegistryRecordResurrected,
+            "reappeared",
+        )
+    finally:
+        teardown_registry.delete = real_delete
+
+
+def test_a_latecomer_the_fault_never_reached_is_put_BACK_on_the_roster():
+    # The rewrite blanks the roster, so a latecomer whose revocation had not happened when a
+    # fault landed exists in no record at all: they keep the slot that IS their grant, are never
+    # told, and nobody can remove them — an owner cannot act on a roster they are absent from,
+    # and they cannot leave a space that does not list them. Restoring only the owner is what
+    # made that permanent, and the retry reported success with `revoked: []`.
+    s3, glue, _lf, cognito = install()
+    _seed_full_space(s3, glue, cognito)
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+
+    real_remove = d.cache.remove_entry
+    state = {"added": False}
+
+    def fail_for_the_latecomer(username, name):
+        if not state["added"]:
+            state["added"] = True
+            _add_member_behind_the_verbs_back(s3, "sales", "carol")
+            return real_remove(username, name)
+        if username == "carol":
+            raise RuntimeError("cognito is having a day")
+        return real_remove(username, name)
+
+    d.cache.remove_entry = fail_for_the_latecomer
+    try:
+        raises(lambda: d.delete_space("sales", "alice", "req-d", reg), RuntimeError, "having a day")
+    finally:
+        d.cache.remove_entry = real_remove
+
+    saved = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert saved["owner"] == "alice"
+    assert saved["members"] == ["carol"], "the latecomer must be visible to the retry"
+
+    # And the retry finishes the job: carol is revoked, told, and counted.
+    sqs = _enable_notifications()
+    out = d.delete_space("sales", "alice", "req-d2", saved)
+
+    assert "carol" in out["revokedMembers"]
+    assert cognito.users["carol"]["custom:shared_space_1"] == ""
+    assert _sent(sqs)["carol"] == 'The shared workspace "sales" was deleted.'
+
+
+def test_an_unstamped_active_record_is_stamped_before_it_is_emptied():
+    # The record the backfill exists for: active, written before the field did. Every other
+    # fixture here sets everActive whenever the status is active, so nothing else represents it.
+    # Left unstamped, the emptied record is safe only while its status stays active — and the
+    # failure path writes `failed`, at which point it becomes destroyable again and Dismiss
+    # would tear down the retained data.
+    s3, glue, _lf, cognito = install()
+    _seed_full_space(s3, glue, cognito, ever_active=False)
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert "everActive" not in reg
+
+    d.delete_space("sales", "alice", "req-d", reg)
+
+    assert json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])["everActive"] is True
+
+
+def test_re_emptying_preserves_the_original_owner_and_the_first_emptied_time():
+    # A Step Functions task retry re-runs the verb with the pre-empty event record. Recomputing
+    # previousOwner from a record that no longer has an owner writes a JSON null over the only
+    # trace of who owned the space, and restamping emptiedAt tells an operator the wrong hour.
+    s3, glue, _lf, cognito = install()
+    _seed_full_space(s3, glue, cognito)
+    event_record = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    d.delete_space("sales", "alice", "req-d", event_record)
+    first = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+
+    d.delete_space("sales", "alice", "req-d", event_record)
+
+    replayed = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    assert replayed["previousOwner"] == "alice"
+    assert replayed["emptiedAt"] == first["emptiedAt"]
+    assert "owner" not in replayed and replayed["status"] == "active"
+
+
+def test_the_requester_loses_their_own_card_even_when_the_roster_is_empty():
+    # The retry after a repaired failure runs against an emptied record, so the loop clears
+    # nobody — and the one card that must not survive is the requester's own, because the
+    # screen renders a deleting row from it for a workspace that is already gone. That row is
+    # the entry point to the stranding this spec closes.
+    s3, glue, _lf, cognito = install()
+    _seed_full_space(s3, glue, cognito)
+    restored = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    restored.update({"members": [], "previousOwner": "alice", "emptiedAt": "t1", "status": "failed"})
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(restored).encode()
+    s3.store[("user-bkt", "alice/user_settings/shared-connections.json")] = json.dumps(
+        {"version": 1, "connections": [{"name": "sales", "role": "owner", "status": "deleting"}]}
+    ).encode()
+
+    d.delete_space("sales", "alice", "req-d2", restored)
+
+    alice_cache = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])
+    assert alice_cache["connections"] == [], "the requester kept a card for a space that is gone"

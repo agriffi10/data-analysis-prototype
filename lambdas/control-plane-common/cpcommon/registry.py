@@ -60,6 +60,32 @@ def is_active(record: dict | None) -> bool:
     return isinstance(record, dict) and record.get("status") == "active"
 
 
+def may_receive_share(record: dict | None) -> bool:
+    """Reports whether a space may be pushed a table or sent files.
+
+    **``is_active`` alone is not that question, and reading it as though it were is a live
+    disclosure.** A space that has been deleted keeps an active status by design — nothing about
+    its objects or its database changed — and what ends is its membership: a blank roster and no
+    owner. So a former member who remembers the name could push a table or send files into a
+    workspace every surface tells them is gone, the objects would land under a prefix nobody
+    holds a claim to, and the owner notification would be skipped for want of an owner. Nobody
+    would be told at all.
+
+    An owner is therefore the second half of the test, and it is expressed here once rather than
+    at each call site, because the two callers are different planes.
+
+    Args:
+      record: A record from ``load``, or None.
+
+    Returns:
+      True if the space exists, is live, and still belongs to somebody.
+
+    Raises:
+      None.
+    """
+    return bool(is_active(record) and (record or {}).get("owner"))
+
+
 def is_active_member(record: dict | None, actor: str) -> bool:
     """Reports whether a space is live and the actor is one of its members.
 

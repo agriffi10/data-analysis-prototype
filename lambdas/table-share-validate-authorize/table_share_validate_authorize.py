@@ -153,7 +153,7 @@ def _annotate_recipients(recipients) -> list:
             valid = cog.user_exists(entry["name"])
             reason = None if valid else "unknown_user"
         else:
-            valid = reg.is_active(reg.load(entry["name"]))
+            valid = reg.may_receive_share(reg.load(entry["name"]))
             reason = None if valid else "unknown_space"
         annotated.append({**entry, "valid": valid, **({"reason": reason} if reason else {})})
     return annotated
