@@ -177,6 +177,11 @@ def _render(path: pathlib.Path) -> str:
     scoped to the one zone, so an id substituted here that differed from the one simulated
     against would make the scoping assertions pass on a document nothing is measured against.
 
+    The substitution table is hand-maintained and nothing ties it to the templates, so a
+    template naming a variable it does not carry is refused rather than rendered: the literal
+    placeholder is shorter than the value it stands for, and a length measured from it is short
+    by that difference on every occurrence.
+
     Args:
       path: The ``.tftpl`` template to render.
 
@@ -184,7 +189,7 @@ def _render(path: pathlib.Path) -> str:
       The rendered document as text.
 
     Raises:
-      None.
+      AssertionError: When the template interpolates a variable this suite cannot render.
     """
     substitutions = {
         "aws_region": "us-east-1",
@@ -206,6 +211,11 @@ def _render(path: pathlib.Path) -> str:
     text = path.read_text()
     for name, value in substitutions.items():
         text = text.replace("${" + name + "}", value)
+    assert "${" not in text, (
+        f"{path.name} interpolates a variable this suite does not render, so every length "
+        "measured from it is short by the difference between the placeholder and the value. "
+        "Add it to the substitution table with a value of the shape the real render produces."
+    )
     return text
 
 
@@ -302,6 +312,30 @@ def test_every_managed_deploy_policy_stays_under_the_managed_limit(path: pathlib
         f"{path.name} renders to {length:,} non-whitespace characters against IAM's "
         f"{MANAGED_LIMIT:,} limit for one customer-managed policy. Split it rather than "
         "trimming until it fits."
+    )
+
+
+@pytest.mark.parametrize("path", MANAGED_POLICIES, ids=lambda p: p.name)
+def test_every_managed_deploy_policy_is_printable_ascii(path: pathlib.Path) -> None:
+    """IAM rejects a non-ASCII character at ``CreatePolicy``, and nothing earlier sees it.
+
+    An em dash pasted into a ``Sid`` survives ``tofu validate`` and the plan untouched. The rule
+    was held for one policy of sixteen, which is the one that gets written most carefully.
+
+    Args:
+      path: One deploy-role managed policy template.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the rendered document carries a non-ASCII character.
+    """
+    rendered = _render(path)
+    offenders = sorted({character for character in rendered if not character.isascii()})
+    assert not offenders, (
+        f"{path.name} carries the non-ASCII character(s) {offenders}. IAM rejects the document "
+        "at CreatePolicy, and neither validate nor plan can see it."
     )
 
 

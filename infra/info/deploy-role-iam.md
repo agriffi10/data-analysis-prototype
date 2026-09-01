@@ -119,8 +119,8 @@ attachment count, and re-checks its own document.
 
 **The budgets.** IAM's 10,240-character limit is the **aggregate** of a role's inline policies,
 not a per-policy allowance, and `github-actions-deploy.json.tftpl` already renders to 9,289. A
-customer-managed policy has its own separate 6,144-character budget, and a role may carry at most
-twenty of them. All three ceilings are enforced at `CreatePolicy` / `PutRolePolicy` /
+customer-managed policy has its own separate 6,144-character budget, and a role may carry only
+so many of them. All three ceilings are enforced at `CreatePolicy` / `PutRolePolicy` /
 `AttachRolePolicy` — an apply-time `LimitExceeded` on a document that rendered, validated and
 planned green. The container platform's grants are two managed policies rather than one for
 exactly this reason.
@@ -132,8 +132,9 @@ rather than a raise this account already spent (`get-aws-default-service-quota` 
 `get-service-quota` both return 20; it is auto-approved up to 25).
 
 **`github-actions-deploy-platform` is the one near its line** — the largest managed policy, and
-the only one far enough along that a statement added without looking fails the apply. The suite
-prints every current figure when it fails, so measure there rather than trusting a number here.
+the only one far enough along that a statement added without looking fails the apply. No current
+figure is written down here, because the last one written down rotted; the suite names the policy
+and both numbers when one goes over, so measure there.
 
 **The wildcard.** `Resource: "*"` on a deploy grant is sometimes forced and sometimes laziness,
 and the two read identically in a diff. IAM defines no resource type at all for the actions in
