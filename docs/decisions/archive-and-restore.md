@@ -190,9 +190,22 @@ than writing a second.
 > **Superseded in part (2026-09-01) — the CHECK, not the decision.**
 > `test_the_common_environment_satisfies_every_import_time_require` was retired in #540. It also
 > never had the reach its name implies: it read `infra/modules/table-builder` alone, so the
-> paragraph above overstates it, as several other doc sites did. Today the equivalent guard exists
-> for `user-directory-build` only, and it is what would catch this mistake now. Keeping
-> `ARCHIVE_BUCKET` out of `_REQUIRED_VARS` is unchanged and still right.
+> paragraph above overstates it, as several other doc sites did. Keeping `ARCHIVE_BUCKET` out of
+> `_REQUIRED_VARS` is unchanged and still right.
+>
+> **Restored, and this time across the fleet (2026-09-01).** `lambdas/test_fleet_environment.py`
+> checks all 86 deployed functions. It does not demand the whole set on every plane, because that
+> was never true — archive, file-ops and file-send reach no Athena workgroup on any branch and
+> correctly omit it — so it refuses only a name a function's own import closure can reach while
+> its Terraform withholds it. **That reachability is not what catches THIS decision, and the
+> distinction is worth keeping straight:** `ARCHIVE_BUCKET` is read only by archive, whose
+> Terraform sets it, so the reachability half stays green. What reddens is the pair of tripwires
+> either side of it — the fleet guard's assertion that the required set is still exactly the four,
+> and `user-directory-build`'s mirror of that set against its own block. Verified by adding the
+> variable and watching exactly those two fail. The read itself is genuinely seen rather than
+> merely absent: delete `ARCHIVE_BUCKET` from `infra/modules/archive/lambda.tf` in the same breath
+> and seventeen of archive's eighteen verbs redden with it — all but `copy-objects`, the one whose
+> closure never reaches `archive_bucket()`.
 
 ## The commit gate, and the four choices that make a deletion safe (SPEC-169)
 

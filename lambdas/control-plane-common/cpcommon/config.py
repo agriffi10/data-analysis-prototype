@@ -85,12 +85,14 @@ def require(name: str) -> str:
     so a variable only one plane sets breaks every other plane. ``ARCHIVE_BUCKET`` was the first
     such value and this is what it uses instead.
 
-    **Adding a name here is guarded on one plane, not on the fleet — and never was on more.**
-    The guard whose name suggested otherwise checked ``table-builder`` alone, and was retired with
-    the suite cut that flattened the coverage floor. Today only ``user-directory-build`` compares
-    its Terraform environment against this set; the API checks a hand-kept copy that would not
-    notice an addition here at all. Everywhere else the contract rests on review, and a name added
-    here reaches production as a ``RuntimeError`` at first access.
+    **Adding a name here is guarded across the fleet — which it never was before.** The guard
+    whose name suggested otherwise read ``table-builder`` alone, and was retired with the suite
+    cut that flattened the coverage floor. ``test_fleet_environment.py`` now computes, for every
+    deployed function, the required names its import closure can actually reach, and refuses one
+    its Terraform does not supply. So a name added to this set costs nothing on the planes that
+    never read it, and reddens precisely the functions that would otherwise raise here at first
+    access — which apply, ``update-function-code`` and the rest of this suite are blind to. A
+    name nothing reads yet reddens nothing, so the declaration is pinned separately there.
 
     Exported rather than left private so a domain layer reaches for it instead of writing its
     own three-line ``os.environ`` check — one reader means one error sentence and one place the

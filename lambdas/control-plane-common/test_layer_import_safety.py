@@ -40,7 +40,10 @@ import pytest
 LAYER_ROOT = pathlib.Path(__file__).resolve().parent
 LAMBDAS = LAYER_ROOT.parent
 
-#: The functions that attach the layer for `observability` alone (SPEC-137 FR-001).
+#: The functions that attach the layer without setting the environment its `config` governs.
+#: `observability` is what they all reach for; two of them are granted a little more, each
+#: entry in the allowlist below carrying the reason. Read as "observability alone" this
+#: understates two of the four (SPEC-137 FR-001).
 SINGLETONS = ("pre-signup", "post-confirmation", "notifications-writer", "feedback-writer")
 
 #: What a scrubbed environment keeps: enough to find the interpreter and its site-packages, and
