@@ -112,7 +112,8 @@ what it says rather than by number. Read the entry for an area before working in
 
 Cognito User Pool → Identity Pool, ABAC. The `username` principal tag is stamped **server-side from
 the verified claim**, so it cannot be spoofed; one shared role, isolation by
-`${aws:PrincipalTag/username}`. Hosted UI is **Managed Login v2** — the classic one broke the
+`${aws:PrincipalTag/username}`; a SHARED space is that tag **∩** a per-space role-level LF grant,
+so retiring the tag alone unions every space. Hosted UI is **Managed Login v2** — the classic one broke the
 post-signup redirect. The API verifies the browser's bearer and assumes that same role for it.
 
 - **The API VERIFIES a bearer, and is not an OIDC client.** No cookie → no CSRF surface; CORS still

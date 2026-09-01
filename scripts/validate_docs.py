@@ -95,7 +95,7 @@ CLAUDE_MAX_BYTES = 50_000
 DIGEST_MAX_CHARS = 1_400
 DELIVERY_MAX_LINES = 260
 FR_CEILING = 8
-SPEC_OVERSIZE_MAX = 41
+SPEC_OVERSIZE_MAX = 40
 def decision_areas() -> list[str]:
     """Read the areas ``CLAUDE.md``'s Key Decisions digest groups by, in order.
 

@@ -777,10 +777,10 @@ can consult it, so that bucket forces the literal form whatever this one decides
   halves, and they are one spec**: they are written and revoked at the same moments (add member,
   remove member, leave, delete space), and splitting them across two owners is how a member ends up
   holding one and not the other. §3.8's reconciler is the **pattern** to follow — desired state,
-  read current, converge — not a second owner. **That spec is now written: SPEC-204.** Phase 3's
-  inventory sizes it; Phase 5 executes it. Read its FR-008 before planning Phase 5 — it found a
-  standing role-level Lake Formation grant that becomes a union grant on every space the moment the
-  tags retire.
+  read current, converge — not a second owner. **That design is §3.11.** Phase 3's
+  inventory sizes it; Phase 5 executes it. Read its cutover ordering before planning Phase 5 — it
+  found a standing role-level Lake Formation grant that becomes a union grant on every space the
+  moment the tags retire.
 
 **What does not change:** the seven control-plane execution roles keep their direct S3 grants and are
 untouched by any of this (§3.4).
@@ -909,7 +909,7 @@ version floor and the rollout below are a single piece of work rather than three
   population of users, which strengthens the case for deciding both surfaces at once.
 
 **What driver users do NOT get, and it is not a regression.** The Access Grants entitlements §3.9 and
-SPEC-204 issue for personal prefixes and shared-space prefixes serve the **portal's file browser**. A
+§3.11 issue for personal prefixes and shared-space prefixes serve the **portal's file browser**. A
 driver user queries the **catalog**: reaching their personal database or a shared space's database
 from Excel needs the matching Lake Formation grant, which this app already issues. Nothing here gives
 Excel a file browser and nothing in this plan proposes one.
@@ -1056,7 +1056,14 @@ reports one outcome. Within the pair the order is **S3 Access Grant first, Lake 
 least privileged first. With the space's data location registered with Lake Formation in hybrid mode
 (§6.2), an LF grant alone is enough for Athena to read the whole space through LF credential vending,
 while the Access Grant is what the file browser needs; LF-first therefore hands a member the ability
-to query everything while the UI still looks empty.
+to query everything while the UI still looks empty. The Access Grant is issued at **`READWRITE`** on
+the space prefix.
+
+**The pair is expressed once, in `shared-space-common`, and every trigger calls it** — not in
+`cpcommon`, which owns algorithms rather than a domain's wording. A test asserts no verb issues a
+`grant_permissions` or a `CreateAccessGrant` of its own, and the reason it matters here is that
+revocation must mirror the grant exactly. **The space prefix is derived by the existing path builder,
+never reconstructed:** a grant scoped one segment wrong is a grant on somebody else's data.
 
 **The member's Lake Formation set is DERIVED, and reusing the role's constants is a privilege
 escalation.** `shared-space-common/config.py` holds `DATABASE_PERMISSIONS`
@@ -1132,7 +1139,10 @@ that strands grants nothing can find. `DeleteAccessGrant` takes an `AccessGrantI
 scope means a paginated `ListAccessGrants` then a delete, and `lakeformation:ListPermissions` is the
 same shape: a sweep is O(spaces × members) list calls, not O(1). `identitystore:GetUserId`, the Lake
 Formation grant/revoke/list calls and `s3control:ListAccessGrants` are all low-TPS, so the sweep's
-pacing is **computed** against the tightest of them from the Phase 3 pair count.
+pacing is **computed** against the tightest of them from the Phase 3 pair count. Two runs projecting
+the same pair must produce neither two grants nor a spurious failure, and that is asserted against
+genuinely concurrent runs rather than inferred from the queue — FIFO orders **delivery**, not
+executions.
 
 > **Every idempotency claim above is a claim about the behaviour of the S3 Access Grants and Lake
 > Formation APIs, and offline it can only be asserted against a stub we wrote.** A double-run test
@@ -1148,6 +1158,8 @@ change did not fully apply, naming the member and the space, in `toUserMessage` 
 **affected member is told nothing** — they can do nothing about it, the actor can, and the sweep
 repairs it within the cadence; *if the repair window ever exceeds the cadence, revisit this.* The
 registry is **not** rolled back: it is correct, and the grant systems are what is behind.
+`logs/service=shared-spaces/` carries one record per failed pair: the member, the space, the half
+that failed and a stable reason token.
 
 **The grant budget.** Literal grants consume an account-wide pool of **100,000 grants** and **1,000
 locations** per instance (§3.9, §4.4), and consumption is members × spaces, which grows faster than
@@ -1159,6 +1171,13 @@ replaces this number.** The arithmetic waits on the Phase 3 inventory; until the
 `pairs = Σ(members per space)`, consumption = `pairs` grants, headroom = `50,000 − pairs`. Hitting
 the ceiling is a refusal with a named reason, never an opaque AWS error.
 
+**What it needs and what it emits.** Three settings it does not have today: the Access Grants
+instance ARN, the Identity Store id, and which Identity Store attribute the portal username matches.
+One span per projection and one per sweep, through `cpcommon.observability` and no other door,
+carrying the space, the member, the operation and the outcome; the sweep's corrected-drift counts and
+the budget figure are **fields**, never interpolations into a message. The fleet-wide rules apply
+unchanged — `env` and `version` on every record, messages are literals, `echo=` prohibited.
+
 #### The cutover order, and the role grant that must not be left behind
 
 **The most consequential decision here, and it has a wrong answer in both directions.**
@@ -1166,6 +1185,12 @@ the ceiling is a refusal with a named reason, never an opaque AWS error.
 role** for every space; per-user isolation is supplied entirely by the tag conditions in
 `portal-role-shared-space.json.tftpl`. Those role-level grants appear nowhere else in this plan and
 are the thing most likely to be left in place.
+
+**The objection to answer first, because a reader will raise it to skip step 3.** On the
+identity-enhanced plane Lake Formation authorizes the **propagated identity**, so a role-level grant
+is not what governs a TIP query — which reads as a reason to leave it alone. It is not: the grant
+stays live for any **non-TIP** assumption of that role, and once the tags are gone there is nothing
+narrowing it. Left behind it is a standing union grant on every shared space.
 
 1. **Issue per-member entitlements for every space, and verify them.** Additive; nothing is removed.
 2. **Retire the principal tags and the interim plane.**
@@ -2186,8 +2211,8 @@ shared spaces from cutover.
   one: the registry object must carry every member the manifest names, because nothing else does.
 - **Inventory the (member, space) pairs and record them as Phase 5 work.** In the end state each one
   becomes an S3 Access Grant on the space's prefix plus a Lake Formation grant on its database
-  (§3.9), issued by the shared-space control plane — **SPEC-204**. This phase is where the size of
-  that job becomes known, and the count is a direct input to its FR-009 grant budget: the Access
+  (§3.9), issued by the shared-space control plane — **§3.11**. This phase is where the size of
+  that job becomes known, and the count is a direct input to that section's grant budget: the Access
   Grants instance holds 100,000 grants and is shared account-wide.
 - Run the parity check (§6.4) against every seeded workspace before enabling any verb on it.
 
@@ -2369,10 +2394,10 @@ freeze. This is the whole reason the old account survives the quiet period.
   `max_shared_memberships` and re-render the policy — the one IAM change the interim window
   otherwise promises not to make — or accept a truncated membership until Phase 5. The pair **count**
   matters separately: every pair is a grant Phase 5 has to issue.
-- ~~Who issues the per-(member, space) grants, and under which spec?~~ **Answered 2026-08-18:
-  SPEC-204**, a new verb plus a reconciling sweep on the existing shared-space control plane. What
-  remains open is an *input* to it, not a question about it: the Phase 3 pair count, which sizes its
-  FR-009 budget against the instance's 100,000-grant ceiling.
+- ~~Who issues the per-(member, space) grants, and under which spec?~~ **Answered 2026-08-18, and
+  it is no longer a spec: §3.11**, a new verb plus a reconciling sweep on the existing shared-space
+  control plane. What remains open is an *input* to it, not a question about it: the Phase 3 pair
+  count, which sizes its grant budget against the instance's 100,000-grant ceiling.
 - Are all old-account workspace names catalog-safe under `^[a-z][a-z0-9_]{2,62}$`? They become
   Glue database names in the successor account.
 

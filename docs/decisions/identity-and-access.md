@@ -1060,7 +1060,8 @@ worse: clearing the Cognito attribute does not reach the user's *existing token*
 The index is read per request, so the window closes on the next request rather than the next
 refresh. A second residual is stated rather than found: a stored `status` is stamped at write time
 and refreshed by nothing, so a status change with no membership change can leave an entry reading
-`active`. The registry stays the authority on status; SPEC-204's sweep reconciles both.
+`active`. The registry stays the authority on status; the sweep in `transition_plan.md` §3.11 reconciles
+both.
 
 **Three fences the implementation added because the spec's ACs were wrong about them:**
 
@@ -1119,8 +1120,8 @@ untouched, the ARNs resolve to nothing and the outcome is a lockout.
 **A third fact falls out of the same intersection, and it is a live security property rather than a
 transition one.** The Lake Formation grant carries `ALTER` and `DROP` on the Database. The role
 cannot use them because **no** portal-role template grants `glue:DeleteDatabase` or
-`glue:UpdateDatabase` — the shared-space and analytics templates each name ten Glue actions and
-neither of those two. So a member cannot destroy a shared space's catalog today, and the reason is an
+`glue:UpdateDatabase` — the shared-space template names ten Glue actions and the analytics one
+eleven, and neither names either of those two. So a member cannot destroy a shared space's catalog today, and the reason is an
 omission in IAM rather than anything in the grant. **Adding either action is not a widening; it is
 the removal of the guard**, and it needs no other change to become reachable by any member of any
 space. The same reasoning is why a future per-member grant must be the **intersection** — Database:

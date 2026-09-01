@@ -2084,7 +2084,7 @@ Do not model shared spaces as directory groups.
 **And that is the same reason the end state's storage grants are per-user too.** Once the tags are
 gone, the Access Grant on a space's prefix is keyed exactly the way the Lake Formation grant on its
 database already is: per (member, space), from the registry, issued by the plane that owns
-membership. The two halves are one job and are specced as one: **SPEC-204**.
+membership. The two halves are one job and are designed as one: **`transition_plan.md` §3.11**.
 
 ### Other applications acting on behalf of users
 
@@ -2304,10 +2304,10 @@ trusted identity propagation only when grantor and grantee share a Region, an Or
 organization instance. Both shapes are now available. Nothing in Arc B ever depended on the answer;
 Phase 5 and any future team-level data sharing did.
 
-**One question replaced it and has since been taken: SPEC-204.** Per-(member, shared-space) Access
-Grants and Lake Formation grants (`transition_plan.md` §3.9) are a new verb plus a reconciling sweep
-on the shared-space control plane, they are transition Phase 5 work, and the Phase 3 inventory sizes
-them. Its companion, **SPEC-203**, ships in *this* environment: it is where the interim plane's
+**One question replaced it, and it is answered in the transition plan rather than in a spec:
+`transition_plan.md` §3.11.** Per-(member, shared-space) Access Grants and Lake Formation grants
+(§3.9) are a new verb plus a reconciling sweep on the shared-space control plane, they are transition
+Phase 5 work, and the Phase 3 inventory sizes them. Its companion, **SPEC-203**, ships in *this* environment: it is where the interim plane's
 membership tags come from once there is no Cognito claim to read.
 
 It is here because of what it forecloses. AWS's own prerequisite is explicit: with an **account
@@ -2495,7 +2495,8 @@ properties carry that: user-unreachable, written only by the plane that owns mem
 under CAS at the registry's own consistency point. The residual is a staleness window, and it is
 **smaller than the one it replaces** — `clear_slot` clears a Cognito attribute but the user's
 existing token keeps the old claim until it refreshes, which is what
-`useSharedSpaceAccessRecovery` exists to paper over. SPEC-204's sweep closes it.
+`useSharedSpaceAccessRecovery` exists to paper over. The sweep in `transition_plan.md` §3.11
+closes it.
 
 > **SPEC-203 IS COMPLETE (2026-08-31), and five of its own claims were wrong.** The index, its six
 > writers and the `MEMBERSHIP_SOURCE` seam all shipped; the default is `claims` and the variable is
@@ -2570,7 +2571,7 @@ Access Grants; it is a change to one verb and one registry write, and it stands 
 a deleted workspace becomes recoverable by an administrator, where today it is gone from a bucket
 with versioning off.
 
-**What it buys SPEC-204 is a whole failure class.** SPEC-151 exists because a partial teardown could
+**What it buys §3.11 is a whole failure class.** SPEC-151 exists because a partial teardown could
 free a name while resources survived under it, and FR-011 was originally a teardown protocol
 descending from that. On a route that releases no record the hazard is *unreachable*, so FR-011 is
 three criteria and `TeardownIncompleteError` does not apply to it.
