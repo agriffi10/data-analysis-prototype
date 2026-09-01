@@ -406,3 +406,20 @@ describe('HelpSidebar', () => {
     });
   });
 });
+
+describe('the delete-space guide (SPEC-205)', () => {
+  it('no longer promises the space is destroyed with no undo', () => {
+    // Asserted on the guide OBJECT rather than by rendering the panel: the content module is
+    // the source of truth and a rendered assertion would pass just as well on a guide the
+    // panel happens not to show.
+    const section = HELP_SECTIONS.find((s) => s.id === 'shared-connections');
+    const guide = section?.guides.find((g) => g.id === 'delete-space');
+
+    expect(guide).toBeDefined();
+    const text = `${guide!.subtitle} ${guide!.intro} ${guide!.callout?.text ?? ''}`;
+    expect(text).not.toMatch(/no undo/i);
+    expect(text).not.toMatch(/permanently remove|permanently deletes/i);
+    expect(text).toMatch(/kept by administrators/i);
+    expect(text).toMatch(/name can never be used/i);
+  });
+});

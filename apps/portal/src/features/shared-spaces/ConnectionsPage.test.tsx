@@ -418,3 +418,91 @@ describe('ConnectionsPage — responsive reflow (SPEC-101)', () => {
     expect(within(newBtn).getByText('New shared connection')).toHaveClass('hidden', 'desktop:inline');
   });
 });
+
+describe('ConnectionsPage — a delete that failed (SPEC-205)', () => {
+  it('retries a failed DELETE with delete, and offers no Dismiss', async () => {
+    // Retry used to always create. On a name that was ever used the server now refuses that,
+    // and re-provisioning one would reset the roster to the owner alone over the previous
+    // cohort's files. Dismiss is suppressed because `forget` is a server no-op here, and the
+    // row it would clear is the only affordance left for finishing the delete.
+    mockRead.mockResolvedValue(
+      cache([{name: 'sales', role: 'owner', status: 'failed', reason: 'S3 was unhappy', failedAction: 'delete'}])
+    );
+    const {user} = renderPage();
+
+    const row = await rowFor('sales');
+    expect(within(row).queryByRole('button', {name: 'Dismiss'})).not.toBeInTheDocument();
+    await user.click(within(row).getByRole('button', {name: 'Retry'}));
+
+    await waitFor(() => expect(mockEnqueue).toHaveBeenCalledTimes(1));
+    expect(mockEnqueue.mock.calls[0][0]).toMatchObject({action: 'delete', space: 'sales'});
+  });
+
+  it('leaves a failed CREATE row exactly as it was', async () => {
+    mockRead.mockResolvedValue(
+      cache([{name: 'ops', role: 'owner', status: 'failed', reason: 'name already taken', failedAction: 'create'}])
+    );
+    const {user} = renderPage();
+
+    const row = await rowFor('ops');
+    expect(within(row).getByRole('button', {name: 'Dismiss'})).toBeInTheDocument();
+    await user.click(within(row).getByRole('button', {name: 'Retry'}));
+
+    await waitFor(() => expect(mockEnqueue).toHaveBeenCalledTimes(1));
+    expect(mockEnqueue.mock.calls[0][0]).toMatchObject({action: 'create', space: 'ops'});
+  });
+
+  it('gives a row stuck in deleting a Retry, but not one the user just submitted', async () => {
+    // The validator writes `deleting` and a run that dies never clears it, so that row needs an
+    // exit that is not an operator. A row the user just confirmed a delete on is forced to the
+    // same status locally and is indistinguishable in `rows` — offering Retry there would put
+    // the button beside a delete submitted two seconds ago.
+    mockRead.mockResolvedValue(
+      cache([
+        {name: 'stuck', role: 'owner', status: 'deleting'},
+        {name: 'live', role: 'owner', status: 'active'}
+      ])
+    );
+    const {user} = renderPage();
+
+    expect(within(await rowFor('stuck')).getByRole('button', {name: 'Retry'})).toBeInTheDocument();
+
+    const live = await rowFor('live');
+    await user.click(within(live).getByRole('button', {name: 'Delete'}));
+    const dialog = await screen.findByRole('alertdialog', {name: 'Delete live'});
+    await user.type(within(dialog).getByLabelText(/to confirm/), 'live');
+    await user.click(within(dialog).getByRole('button', {name: 'Delete'}));
+
+    await waitFor(() => expect(mockEnqueue).toHaveBeenCalled());
+    expect(within(await rowFor('live')).queryByRole('button', {name: 'Retry'})).not.toBeInTheDocument();
+  });
+});
+
+describe('ConnectionsPage — a delete that stopped (SPEC-205)', () => {
+  it('retries a stuck deleting row with DELETE, not create', async () => {
+    // Asserting the button RENDERS is not enough, and that gap is what let this through: the
+    // card the validator writes for a delete in progress carried no `failedAction`, so a
+    // nullish default sent `create` — the one verb that cannot work on a name already taken.
+    // Its refusal then overwrites the row's own discriminator, after which nothing on the page
+    // can enqueue a delete and the workspace is stranded with no affordance that does anything.
+    mockRead.mockResolvedValue(cache([{name: 'stuck', role: 'owner', status: 'deleting'}]));
+    const {user} = renderPage();
+
+    await user.click(within(await rowFor('stuck')).getByRole('button', {name: 'Retry'}));
+
+    await waitFor(() => expect(mockEnqueue).toHaveBeenCalledTimes(1));
+    expect(mockEnqueue.mock.calls[0][0]).toMatchObject({action: 'delete', space: 'stuck'});
+  });
+
+  it('says something true of a deleting row whether it is in flight or stopped', async () => {
+    // A Refresh drops the local override, so after one there is no way to tell the two apart —
+    // the cache says `deleting` for both. Claiming it stopped is a guess that is wrong for an
+    // impatient owner who refreshed two seconds in.
+    mockRead.mockResolvedValue(cache([{name: 'stuck', role: 'owner', status: 'deleting'}]));
+    renderPage();
+
+    const row = await rowFor('stuck');
+    expect(row).toHaveTextContent(/Deleting/);
+    expect(row).not.toHaveTextContent(/Not finished removing/);
+  });
+});
