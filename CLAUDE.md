@@ -272,6 +272,12 @@ DLQ lets one malformed request dead-letter someone else's work.
 - **A partial teardown never frees the name.** `delete_objects` returns **HTTP 200 with a per-item
   `Errors` array**, so a partial failure reads as success; raise, and leave the registry record —
   the record *is* the name lock.
+- **A shared-space delete removes PEOPLE, not things**, keyed on the durable `everActive` — never
+  live `status`, which moves `active → deleting → failed` over intact data, and where `deleting` is
+  **not** evidence a space was usable (delete is gated on ownership alone). **One predicate**,
+  `is_destroyable`, routes the delete AND refuses the add; complements written twice drift silently
+  both ways. Inert because the `owner` **field** is cleared — so test it **as the original owner**.
+  A name is never reusable.
 - **The planes do not verify — they read the API's `identity` block**, trusted because only the API
   may write these queues (`.tftpl` sweep). Dropping a verification is NOT dropping an authorization:
   `authorize`/`authorize_source` have **zero diff**. `cpcommon.actor` **cannot verify** (no `jwt`,

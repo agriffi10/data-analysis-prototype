@@ -1,7 +1,7 @@
 # Spec: A Delete Empties a Space and Destroys Nothing
 
 **ID:** SPEC-205
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-31
 **Depends On:** SPEC-051/052/053/054/055 (the shared-space control plane, its registry, its verbs, and the criterion that the registry record is the name lock), SPEC-073 (acknowledge is display-only), SPEC-075 (the roster fan-out), SPEC-125 (`shared-space-common`), SPEC-151 (a partial teardown never frees the name — retained in full on the one route that still destroys), SPEC-157 (FIFO orders delivery, not executions — FR-008), SPEC-113 (no existence oracle), SPEC-106 (`toUserMessage`), SPEC-074 (Help content), SPEC-155 (`ConfirmDialog`, and its `irreversible` line), SPEC-127→137/186 (`cpcommon.observability`, the field rule, `env`/`version`)
 
@@ -83,10 +83,13 @@ write into a space that never reaches `active`. FR-002 states the honest version
   given access — a worse failure than the one it fixes.
 - **Fixing the stuck `deleting` record generally.** The state machine's `RecordFailure` is a `Pass`
   that writes no registry status, so a Lambda timeout leaves `status: "deleting"` permanently. This
-  spec makes that state **safe** — FR-001's backfill stamps `deleting` records, which is unambiguous
-  because only `delete_space` writes that status, and FR-002's guard then refuses to tear them down —
-  and **exitable**, because FR-002 stops `forget` clearing the row and FR-007 renders Retry on it. It
-  does not otherwise change the state machine.
+  spec makes that state **safe** — FR-002's guard refuses to tear such a record down whenever it
+  carries the durable stamp — and **exitable**, because FR-002 stops `forget` clearing the row and
+  FR-007 renders Retry on it. *An earlier version of this bullet said the backfill stamps `deleting`
+  records automatically, "unambiguous because only `delete_space` writes that status". FR-001 now
+  says why that does not follow: delete is gated on ownership alone, so a never-active create can
+  reach `deleting` too. Those records are reported for a human instead.* It does not otherwise change
+  the state machine.
 - **Entitlements, Access Grants, Identity Center.** SPEC-204, which this unblocks.
 
 ### What runs today, and what each step becomes
