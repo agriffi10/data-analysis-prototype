@@ -112,9 +112,10 @@ narrative is in git history rather than beside a resource.
 
 ## The role's own budgets, and the forced wildcard
 
-Neither failure here is visible in a plan. The per-document budget and the attach ceiling are
-asserted in `lambdas/test_feedback_deploy_grant.py`, against the rendered policy and the role's
-own attachment count; `lambdas/test_deploy_platform_policies.py` holds the wildcard rule.
+Neither failure here is visible in a plan. `lambdas/test_deploy_platform_policies.py` measures
+**every** managed policy against the per-document budget, and holds the wildcard rule;
+`lambdas/test_feedback_deploy_grant.py` holds the attach ceiling against the role's own
+attachment count, and re-checks its own document.
 
 **The budgets.** IAM's 10,240-character limit is the **aggregate** of a role's inline policies,
 not a per-policy allowance, and `github-actions-deploy.json.tftpl` already renders to 9,289. A
@@ -123,6 +124,16 @@ twenty of them. All three ceilings are enforced at `CreatePolicy` / `PutRolePoli
 `AttachRolePolicy` — an apply-time `LimitExceeded` on a document that rendered, validated and
 planned green. The container platform's grants are two managed policies rather than one for
 exactly this reason.
+
+**Which one you can buy your way out of, read from the account.** The 6,144 is Service Quotas
+`L-ED111B8C`, `Adjustable: false` — a hard limit, so a document over it gets **split**, never a
+quota request. The attach ceiling is `L-0DA4ABF3`, adjustable, and twenty is AWS's own default
+rather than a raise this account already spent (`get-aws-default-service-quota` and
+`get-service-quota` both return 20; it is auto-approved up to 25).
+
+**`github-actions-deploy-platform` is the one near its line** — the largest managed policy, and
+the only one far enough along that a statement added without looking fails the apply. The suite
+prints every current figure when it fails, so measure there rather than trusting a number here.
 
 **The wildcard.** `Resource: "*"` on a deploy grant is sometimes forced and sometimes laziness,
 and the two read identically in a diff. IAM defines no resource type at all for the actions in

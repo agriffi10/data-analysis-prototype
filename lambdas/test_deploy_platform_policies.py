@@ -6,6 +6,20 @@ by eye, are in ``infra/info/deploy-role-iam.md``.
 
 Attributes:
   POLICY_DIR: Where every deploy-role policy template lives.
+  INLINE_POLICY: The role's one inline policy, measured against the 10,240 aggregate.
+  MANAGED_LIMIT: IAM's character budget for one customer-managed policy.
+  INLINE_AGGREGATE_LIMIT: IAM's character budget for all of a role's inline policies together.
+  MANAGED_POLICIES: Every template that becomes a customer-managed policy, derived from the
+    directory rather than listed, so a new one is measured the day it lands.
+  PLATFORM_POLICIES: The two container-platform templates the wildcard rules apply to.
+  BASE_IAM: The Terraform that renders every template and attaches every managed policy.
+  PLANNED_RESOURCES: The ARN each platform resource will have, keyed by what it is. The grant is
+    written against these names, so a module that names one differently is denied. One row is an
+    authorization-context ARN rather than a resource that will exist — it is labelled as such.
+  NON_SCOPABLE: Every action IAM defines no resource type for, and therefore the only actions
+    a ``Resource: "*"`` statement in those two templates may hold.
+  SERVICE_LINKED_ROLE_TRIGGERS: Resource types whose creation makes AWS create a service-linked
+    role, mapped to the service name the grant must name.
 """
 
 import json
@@ -20,6 +34,8 @@ INLINE_POLICY = POLICY_DIR / "github-actions-deploy.json.tftpl"
 
 MANAGED_LIMIT = 6_144
 INLINE_AGGREGATE_LIMIT = 10_240
+
+MANAGED_POLICIES = tuple(sorted(POLICY_DIR.glob("github-actions-deploy-*.json.tftpl")))
 
 PLATFORM_POLICIES = (
     POLICY_DIR / "github-actions-deploy-platform.json.tftpl",
@@ -264,6 +280,80 @@ def test_the_inline_deploy_policy_stays_under_the_iam_aggregate() -> None:
     )
 
 
+@pytest.mark.parametrize("path", MANAGED_POLICIES, ids=lambda p: p.name)
+def test_every_managed_deploy_policy_stays_under_the_managed_limit(path: pathlib.Path) -> None:
+    """Each customer-managed policy must fit its own 6,144-character budget.
+
+    Enforced at ``CreatePolicy``, so a document over the line renders, validates and plans
+    green and fails on the apply. The budget is not adjustable, so the answer to a policy over
+    it is to split it, never to request a quota raise.
+
+    Args:
+      path: One deploy-role managed policy template.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the rendered document exceeds the managed-policy limit.
+    """
+    length = _stripped_length(_render(path))
+    assert length <= MANAGED_LIMIT, (
+        f"{path.name} renders to {length:,} non-whitespace characters against IAM's "
+        f"{MANAGED_LIMIT:,} limit for one customer-managed policy. Split it rather than "
+        "trimming until it fits."
+    )
+
+
+def test_every_attached_managed_policy_is_one_this_suite_measures() -> None:
+    """The measured population and the wired one are two derived sets, never a list.
+
+    The glob is what the budget assertion above walks; ``iam.tf`` is what IAM will actually be
+    asked to create. A template wired as a managed policy but named outside the glob would ship
+    unmeasured, which is the same silence the budget guard itself sat in.
+
+    A block whose document comes from somewhere other than a ``policies/*.tftpl`` file is
+    reported rather than skipped: it would otherwise escape both sets and the budget guard with
+    it, which is the one way this comparison could agree while measuring nothing.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When either set names a template the other does not, or when a policy
+        block names no template.
+    """
+    blocks = re.findall(
+        r'^resource "aws_iam_policy" "([A-Za-z0-9_-]+)" \{(.*?)^\}',
+        BASE_IAM.read_text(),
+        re.DOTALL | re.MULTILINE,
+    )
+    assert blocks, "Found no aws_iam_policy blocks — the parse went trivial rather than passing."
+
+    wired = set()
+    unresolved = []
+    for name, body in blocks:
+        match = re.search(r"policies/([A-Za-z0-9._\-]+\.tftpl)", body)
+        if match:
+            wired.add(match.group(1))
+        else:
+            unresolved.append(name)
+    assert not unresolved, (
+        f"{sorted(unresolved)} are customer-managed policies whose document comes from no "
+        "policies/*.tftpl file, so nothing measures them against the 6,144 budget."
+    )
+
+    measured = {path.name for path in MANAGED_POLICIES}
+    assert wired == measured, (
+        f"{sorted(wired - measured)} are attached as customer-managed policies but fall outside "
+        f"the glob this suite measures, and {sorted(measured - wired)} are measured but attached "
+        "nowhere. Both halves must name the same templates."
+    )
+
+
 @pytest.mark.parametrize("path", PLATFORM_POLICIES, ids=lambda p: p.name)
 def test_a_wildcard_resource_holds_only_non_scopable_actions(path: pathlib.Path) -> None:
     """``Resource: "*"`` is for actions IAM defines no resource type for, and nothing else.
@@ -317,6 +407,78 @@ def test_a_scoped_statement_holds_no_non_scopable_action() -> None:
             )
 
 
+def _iam_match(pattern: str, arn: str) -> bool:
+    """Applies IAM's wildcard semantics to one resource pattern.
+
+    IAM's ``*`` matches any run of characters including ``/`` and ``:``, which is why an ECS
+    service ARN of ``service/{cluster}/{service}`` matches a pattern naming one segment. ``?``
+    matches exactly one character.
+
+    Args:
+      pattern: The ``Resource`` entry from a statement.
+      arn: A concrete ARN to test it against.
+
+    Returns:
+      Whether IAM would consider the pattern to cover the ARN.
+
+    Raises:
+      None.
+    """
+    expression = re.escape(pattern).replace(r"\*", ".*").replace(r"\?", ".")
+    return re.fullmatch(expression, arn) is not None
+
+
+def test_the_grant_covers_every_resource_the_platform_will_create() -> None:
+    """Each planned resource must be matched by a SCOPED pattern, not merely by a wildcard.
+
+    The wildcard statements match everything by construction, so counting them would make this
+    pass for a name nothing actually grants — the shape of a test that passes by finding
+    nothing. Only the ARN-scoped statements count here.
+
+    This is the half of the grant no offline check could otherwise reach: a name pattern that
+    matches nothing applies green, plans green, and denies on first use.
+
+    **What it does NOT do is bind the modules.** This table and the patterns it checks were
+    written together, so on its own the pair is self-consistent and says nothing about what
+    Terraform will actually name. What makes it useful is that it carries each resource under
+    BOTH naming shapes the repo uses — the bare ``dat-prod-spa`` a Lambda-style name would take
+    and the ``dat-prod-spa-cluster`` kind-suffixed form every other plane uses — so a pattern
+    that admits only one of them fails here rather than on the apply that uses the other.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a planned resource is covered by no scoped pattern.
+    """
+    scoped = [
+        (statement["Sid"], pattern)
+        for path in PLATFORM_POLICIES
+        for statement in _statements(path)
+        if statement["Resource"] != "*"
+        for pattern in (
+            statement["Resource"]
+            if isinstance(statement["Resource"], list)
+            else [statement["Resource"]]
+        )
+    ]
+    assert scoped, "No scoped statements found — the templates did not parse."
+
+    unmatched = sorted(
+        label
+        for label, arn in PLANNED_RESOURCES.items()
+        if not any(_iam_match(pattern, arn) for _, pattern in scoped)
+    )
+    assert not unmatched, (
+        f"No scoped grant matches {unmatched}. A pattern that matches nothing applies green and "
+        "denies on first use — check the ARN format for that resource type, not just the name."
+    )
+
+
+
 # Resource types whose creation makes AWS create a SERVICE-LINKED ROLE in the account, mapped
 # to the service name `iam:CreateServiceLinkedRole` is conditioned on. A missing entry is a 403
 # at apply — "Caller does not have permissions to create a Service Linked Role" — naming neither
@@ -331,3 +493,57 @@ SERVICE_LINKED_ROLE_TRIGGERS = {
 }
 
 
+def _declared_resource_types() -> set[str]:
+    """Every resource type the IaC tree declares.
+
+    Args:
+      None.
+
+    Returns:
+      The set of ``resource "<type>"`` names across ``infra/``.
+
+    Raises:
+      None.
+    """
+    types: set[str] = set()
+    for path in (ROOT / "infra").rglob("*.tf"):
+        types.update(re.findall(r'^resource\s+"([a-z0-9_]+)"', path.read_text(), re.MULTILINE))
+    return types
+
+
+def test_every_resource_that_needs_a_service_linked_role_can_create_one() -> None:
+    """The grant must name a service BEFORE the resource that triggers it is declared.
+
+    This is the one class of deploy-role gap a plan cannot reveal: the creating API is never
+    called, so the plan is green and the apply is a 403 whose message names neither the
+    resource nor the missing service name. Tying the condition list to the declared resource
+    types is what makes the next one fail here instead of on main.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When infra declares a trigger resource the role cannot create the role for.
+    """
+    document = json.loads(_render(POLICY_DIR / "github-actions-deploy-platform.json.tftpl"))
+    granted: set[str] = set()
+    for statement in document["Statement"]:
+        actions = statement.get("Action", [])
+        actions = [actions] if isinstance(actions, str) else actions
+        if "iam:CreateServiceLinkedRole" in actions:
+            granted.update(
+                statement.get("Condition", {}).get("StringEquals", {}).get("iam:AWSServiceName", [])
+            )
+
+    declared = _declared_resource_types()
+    assert declared, "Found no resource declarations — the parse went trivial rather than passing."
+    for resource_type, service_name in SERVICE_LINKED_ROLE_TRIGGERS.items():
+        if resource_type in declared:
+            assert service_name in granted, (
+                f"infra declares {resource_type}, whose creation makes AWS create a "
+                f"service-linked role, but the deploy role may not create one for "
+                f"{service_name}. This applies green at plan and 403s at apply."
+            )
