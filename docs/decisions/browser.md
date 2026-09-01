@@ -24,6 +24,7 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [One `apply` per gesture, a numeric refusal at the INPUT, and a failure that keeps the rows (SPEC-181)](#one-apply-per-gesture-a-numeric-refusal-at-the-input-and-a-failure-that-keeps-the-rows-spec-181)
 - [A palette is measured, not chosen; a link's encoding depends on where the value lands (SPEC-184)](#a-palette-is-measured-not-chosen-a-links-encoding-depends-on-where-the-value-lands-spec-184)
 - [The palette is a bounded token set, because the contrast criterion is otherwise unassertable](#the-palette-is-a-bounded-token-set-because-the-contrast-criterion-is-otherwise-unassertable)
+- [The dark palette is derived under the harness, not chosen, and the theme boundary put four fences there (SPEC-210)](#the-dark-palette-is-derived-under-the-harness-not-chosen-and-the-theme-boundary-put-four-fences-there-spec-210)
 - [The URL transformer's encoding is position-dependent, and both simple rules are wrong](#the-url-transformers-encoding-is-position-dependent-and-both-simple-rules-are-wrong)
 - [A rule's `scope` is a field the spec's model did not have](#a-rules-scope-is-a-field-the-specs-model-did-not-have)
 - [The raw value drives everything, and the transform lives at the cell](#the-raw-value-drives-everything-and-the-transform-lives-at-the-cell)
@@ -471,12 +472,22 @@ has no layout engine, so the axe pass over a coloured grid proves its markup and
 proves its contrast. Reporting "the axe pass is green" as evidence of contrast would be a claim
 that tool never makes.
 
-`FORMATTING_TOKEN_HEX` exists only because a gradient must interpolate values and contrast must be
-computed from them; a second test pins every entry against `src/index.css` itself, since a copy
+`FORMATTING_TOKEN_HEX` existed only because a gradient must interpolate values and contrast must be
+computed from them; a second test pinned every entry against `src/index.css` itself, since a copy
 needs a guard. Vitest resolves a stylesheet `?raw` import **and** a raw `import.meta.glob` to an
 empty string (measured), which would have made that guard pass by finding nothing — so it reads the
 file, through a one-function ambient declaration rather than by adding `"node"` to the app's
 `types` and handing every module in `src/` the Node surface.
+
+> **Superseded in part by SPEC-210 (dark mode).** There is no copy any more, so there is nothing
+> for that guard to pin: `formattingTokenHex(theme)` and `formattingBaseSurfaces(theme)` **resolve**
+> from `lib/palette.ts`, which is itself pinned to `index.css` by `lib/contrast.test.ts`. The block
+> scoping below is now exercised by a real second block rather than only by a synthetic one, and
+> the cross product runs **per theme** with the admissible foreground set recomputed rather than
+> copied — `warning` is measured out in light and measured back IN on dark, while the offered set
+> stays five in both, because a colour a user can pick in one theme and not the other is a rule
+> that changes meaning when they switch. Full entry: *The dark palette is derived under the
+> harness…* below.
 
 **That parse is scoped to the `@theme` block, and the scoping is the load-bearing part.** A
 whole-file `--color-*` match reads every token declaration anywhere in the stylesheet, so the day a
@@ -495,6 +506,84 @@ second block exists.
 > of a source of truth is only as good as the test that pins it, and deleting that test is
 > invisible** — the mirror keeps working, the suite stays green, and the three places that promise
 > the guard exists go on promising it.
+
+## The dark palette is derived under the harness, not chosen, and the theme boundary put four fences there (SPEC-210)
+
+The rule this project already had — *a palette is measured, not chosen* — is what decides a second
+palette too. `lib/palette.ts` declares both themes and every pairing the design uses;
+`lib/contrast.test.ts` computes WCAG ratios from those values and fails naming the pair and its
+measured ratio, in **both** themes. The dark values are whatever passes it. The harness ran against
+the **light** palette first and reproduced every ratio `index.css`'s comments record, which is what
+makes it trustworthy for a palette nobody has measured before. axe cannot carry any of this:
+`color-contrast` is disabled in jsdom, at both sites in `test/axe.ts`, and the app shell gets one
+dark axe pass for markup — the cap is written into that module rather than inferred from absence.
+
+**A completeness guard, not a pairing count.** Every token is either in a pairing or in a named
+decorative exemption carrying its reason; a token in neither fails. Measured against the light
+palette the four borders are 1.06–1.27, so **any** floor fails the shipped palette — the exemption
+is a fact about hairlines, not a convenience, and the list is frozen so "decorative" cannot become
+where a failing colour is put. The harness has a deliberately-failing pair asserted to be reported,
+because one that silently passes everything is indistinguishable from one that works.
+
+**Four fences the second theme put there, each of which ships green if you get it wrong:**
+
+- **A themed `--shadow-*` is inert.** Tailwind **inlines** an `@theme` shadow value into the utility
+  and emits no `--shadow-*` custom property at all (read out of the built CSS), so a dark block
+  redefining `--shadow-md` changes nothing while the stylesheet-agreement check beside it passes.
+  What survives inlining is a `var()` **inside** the value: each shadow references a
+  `--shadow-tint-*`, and the theme overrides the tint. Colours are unaffected — `bg-surface`
+  compiles to `var(--color-surface)` and themes itself.
+- **One token cannot be both a text colour and a fill.** In the light palette `danger` reads on
+  white *and* backs a white button, and `accent-hover` happens to equal `accent-text`. In the dark
+  palette those roles pull apart: `danger` has to be light enough to read on a dark surface, which
+  leaves it too light to carry white. So the one danger BUTTON gained `--color-on-danger`, and
+  `accent`/`accent-hover` are measured as white-on-the-fill rather than as text — which is the
+  pairing the design actually uses, verified by grep before the pairing list was written.
+- **A fixed brand surface has to be made fixed.** The landing call-to-action strip was `bg-accent`
+  with `text-accent-text` buttons; both theme, and in the dark theme the label goes light and
+  vanishes against its white button. Its six colours are now plain custom properties declared
+  outside `@theme` and outside every theme block, declared once more in `palette.ts`, pinned
+  together by a test and measured as four raw pairings.
+- **A hex-only sweep misses the colours that matter most.** `text-gray-900` is as unreachable by a
+  theme as `#15191e` and invisible to a sweep looking for `#`. Three of them sat on the 404 page —
+  a public route that renders the themed shell to a signed-out visitor. The guard reads every
+  non-test source through `import.meta.glob('?raw')` (measured to work for `.ts`/`.tsx`, unlike a
+  stylesheet) and sweeps hexes, Tailwind's numbered scales, and `white`/`black` separately, the last
+  exempted per file with a reason.
+
+**A fifth trap, found by measuring rather than by the theme boundary: a foreground carrying an
+opacity modifier.** `text-danger/80` is not `danger` — it is `danger` blended toward whatever is
+behind it, so it lands below the number the harness measured for the token, and no pairing
+describes it. One shipped at 4.19:1 on its own `danger-soft` fill and nothing could see it: the
+literal sweep looks for literals, the harness measures tokens at full strength. Swept now, and
+foregrounds only — a background modifier is a scrim or a hover state whose foreground is measured
+against the result.
+
+**The preference is a module store read through `useSyncExternalStore`** — three states
+(`light`/`dark`/`system`, anything else read as `system`), `localStorage`, per browser. **A Context
+provider would work equally well, and the entry says so because two justifications for preferring
+the store were written here and both were false.** The first: a provider would remount its subtree.
+It would not — a reviewer built one and measured it; consumers re-render, the controlled input keeps
+its value, the DOM node is identical, and FR-004's no-remount criterion is met by either shape. The
+second, written to replace the first: the consumers sit in disjoint subtrees, so a provider would
+have to sit above the router. Also false — `RootLayout` renders the header and the `Outlet` as
+siblings and already hosts `NavRailProvider` in the exact position a theme provider would occupy.
+
+The one real asymmetry is small: the state lives outside React, so the setter is callable without a
+render and the module resolves the preference the same way `theme-init.js` does, with no provider to
+thread. **The lesson is not about theming.** A design choice that is genuinely a preference attracts
+a justification anyway, each one plausible and each one written with more confidence than the last;
+both of these were caught only by someone building the alternative rather than reading the argument
+for it. When the honest answer is "either would do", write that.
+`public/theme-init.js` stamps `data-theme` before the first paint and is **external, not inline**:
+the CSP is `script-src 'self'` with no nonce and no hash, so an inline initialiser would work in dev
+and be refused in production. It throws on nothing, because it blocks the module script behind it.
+
+**The control is in the header unless the drawer is showing it.** Below `tablet` an authenticated
+header is over its width budget before anything is added (SPEC-211 FR-007), so the three choices go
+into `AppNavDrawer` — but that drawer is mounted only for an authenticated user, so the signed-out
+header keeps the control at every width, and the landing route, which suppresses the app header
+entirely, carries its own copy.
 
 ## The URL transformer's encoding is position-dependent, and both simple rules are wrong
 

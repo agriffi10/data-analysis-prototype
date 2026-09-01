@@ -6,6 +6,7 @@ import {IconButton} from './IconButton';
 import {BellIcon, HelpCircleIcon} from './icons';
 import {useEscapeKey} from '../hooks/useEscapeKey';
 import {SECTION_CAPTION} from './fieldStyles';
+import {ThemeChoiceGroup} from './ThemeMenu';
 
 export type AppNavDrawerProps = {
   open: boolean;
@@ -207,6 +208,11 @@ export function AppNavDrawer({open, onClose, id, contextualRail, isPathEnabled}:
               </NavLink>
             ))}
           </nav>
+
+          <div className="flex flex-col gap-2 border-t border-border px-3 py-3">
+            <span className={SECTION_CAPTION}>Theme</span>
+            <ThemeChoiceGroup />
+          </div>
 
           {contextualRail && (
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto border-t border-border">{contextualRail}</div>

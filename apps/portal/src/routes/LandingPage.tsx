@@ -8,6 +8,7 @@ import {Badge} from '../components/Badge';
 import {Button} from '../components/Button';
 import {StatusPill} from '../components/StatusPill';
 import {LandingNavMenu, type LandingNavLink} from './LandingNavMenu';
+import {ThemeMenu} from '../components/ThemeMenu';
 import {FeatureUnavailablePage} from './FeatureUnavailablePage';
 import {cx} from '../lib/cx';
 import {CheckIcon, FolderIcon, DatabaseIcon, ConnectionsIcon, PlayIcon} from '../components/icons';
@@ -417,7 +418,7 @@ export default function LandingPage() {
       {/* Sticky nav */}
       <nav
         aria-label="Primary"
-        className="sticky top-0 z-20 h-16 border-b border-border bg-white/80 backdrop-blur-sm backdrop-saturate-150">
+        className="sticky top-0 z-20 h-16 border-b border-border bg-surface/80 backdrop-blur-sm backdrop-saturate-150">
         <div className="mx-auto flex h-full max-w-[1080px] items-center gap-3 px-4 tablet:gap-4 tablet:px-6">
           <LandingNavMenu links={NAV_LINKS} />
           <a
@@ -437,6 +438,9 @@ export default function LandingPage() {
           </div>
           <div className="flex-1" />
           <div className="flex items-center gap-2">
+            {/* The landing page suppresses the app header, so this is the only theme control a
+                signed-out visitor can reach. */}
+            <ThemeMenu />
             {isAuthed ? (
               dashboard && (
                 <Button
@@ -576,11 +580,15 @@ export default function LandingPage() {
           id="security"
           className="py-8 pb-10">
           <div className="mx-auto max-w-[1080px] px-6">
-            <div className="rounded-lg bg-accent px-8 py-10 text-center text-white shadow-md">
+            {/* A fixed brand surface: its colours are declared outside `@theme` and outside
+                every theme block, so it looks the same in both. That is what keeps its white
+                buttons legible — a themed label colour would go light in the dark theme and
+                vanish against them. */}
+            <div className="rounded-lg bg-(--landing-cta-bg) px-8 py-10 text-center text-(--landing-cta-text) shadow-md">
               <h2 className="mb-3 text-[28px] font-bold tracking-[-0.01em]">
                 Isolation enforced at the infrastructure layer
               </h2>
-              <p className="mx-auto mb-6 max-w-[480px] text-md text-[#dfe0fb]">
+              <p className="mx-auto mb-6 max-w-[480px] text-md text-(--landing-cta-text-muted)">
                 Authentication runs on AWS Cognito and every user is scoped to their own storage by AWS IAM — not by
                 application code. Get started in under a minute.
               </p>
@@ -590,7 +598,7 @@ export default function LandingPage() {
                     <button
                       type="button"
                       onClick={() => navigate(dashboard.to)}
-                      className="h-[46px] w-full rounded-md border-white bg-white px-6 text-md font-semibold text-accent-text hover:bg-[#f3f4ff] tablet:w-auto">
+                      className="h-[46px] w-full rounded-md bg-(--landing-cta-button-bg) px-6 text-md font-semibold text-(--landing-cta-button-text) hover:bg-(--landing-cta-button-hover) tablet:w-auto">
                       Go to {dashboard.label}
                     </button>
                   )
@@ -599,13 +607,13 @@ export default function LandingPage() {
                     <button
                       type="button"
                       onClick={() => void signUp()}
-                      className="h-[46px] w-full rounded-md border-white bg-white px-6 text-md font-semibold text-accent-text hover:bg-[#f3f4ff] tablet:w-auto">
+                      className="h-[46px] w-full rounded-md bg-(--landing-cta-button-bg) px-6 text-md font-semibold text-(--landing-cta-button-text) hover:bg-(--landing-cta-button-hover) tablet:w-auto">
                       Create account
                     </button>
                     <button
                       type="button"
                       onClick={() => void signIn()}
-                      className="h-[46px] w-full rounded-md border border-white/40 bg-white/10 px-6 text-md font-semibold text-white hover:bg-white/20 tablet:w-auto">
+                      className="h-[46px] w-full rounded-md border border-(--landing-cta-text)/40 bg-(--landing-cta-text)/10 px-6 text-md font-semibold text-(--landing-cta-text) hover:bg-(--landing-cta-text)/20 tablet:w-auto">
                       Sign in
                     </button>
                   </>

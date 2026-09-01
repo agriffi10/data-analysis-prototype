@@ -748,6 +748,45 @@ at **400px via DevTools device toolbar**.
 - Every dialog is **392px** at this width (root font-size 14px), centred, with no horizontal page
   scroll — and the suggestion listbox stays **inside** its dialog, not overhanging it.
 
+### 4.16 Dark mode (SPEC-210)
+
+The palette itself is measured offline by `lib/contrast.test.ts` in both themes, so what a browser
+adds is the three things jsdom cannot see: the first paint, the editor's own state, and whether the
+whole app actually looks right.
+
+1. **No flash of light.** With **Dark** already chosen, hard-reload (⇧⌘R) a deep link such as
+   `/query`. The page must arrive dark. A white flash means `/theme-init.js` did not run before the
+   first paint — check the Network panel for a **200** on it and a `Cache-Control: no-cache`, and
+   the Console for a CSP refusal (an inline initialiser is the failure this shape exists to avoid).
+2. **The switch, and where it lives.** At desktop width use the half-circle button in the top bar;
+   the current choice carries a tick. Narrow the window below 900px while signed in: the header's
+   button is **gone** and the three choices are in the ☰ drawer. Sign out and narrow again: the
+   button is back, because there is no drawer.
+3. **System follows the OS.** Choose **System**, then flip macOS *Appearance* between Light and
+   Dark with the tab in the foreground. The app must follow **without a reload**. Choose **Light**
+   and flip again: it must not move.
+4. **Monaco keeps its place.** On `/query`, type a multi-line statement, put the cursor mid-line and
+   scroll the editor. Switch the theme. The text, the cursor and the scroll position must all
+   survive — this is the half `SqlEditor.test.tsx` cannot assert, because it stubs the editor.
+5. **Walk the surfaces in dark**: Files (table and, below 900px, the card list), the Query workspace
+   with a result, the Data Explorer with a colour rule and a **gradient** rule applied, the schema
+   rail, Help, Notifications, the landing page signed out, and one danger dialog. Nothing washes
+   out; the landing page's indigo call-to-action strip is deliberately unchanged by the theme.
+6. **Shadows.** A modal and the Menu popover must still read as raised against the dark page. If
+   they look flat, the `--shadow-tint-*` override is not landing.
+7. **Target size, in the browser and not in the suite.** Read off the built CSS, not off the class
+   names: `--spacing` is `.25rem` against a **14px** root, so a spacing-derived size is 12.5%
+   smaller than it reads — `h-8` is 28px, `h-7` is 24.5px, `h-6` would be 21px and fail WCAG
+   2.5.8's 24px. **Type does not scale the same way**: `--text-sm` is authored as `13px` with an
+   18px line-height, so a control with no height class is whatever its line box plus padding comes
+   to, at any root size. The three to measure, and what they should be:
+   the header's theme button `h-8` → **28px**; each of the drawer's three options `h-7` →
+   **24.5px**, which clears the floor by half a pixel and is the one to watch if any of this is
+   restyled; and a theme menu row, which has **no height class at all** — 18px line box plus
+   `py-2` (2 × 3.5px, twice) → **32px**. axe's `target-size` rule is enabled in the suite and
+   reports a **pass it cannot make**, jsdom having no layout engine, so this is the only place any
+   of these numbers is real.
+
 ### The container platform — what a signed-in session CANNOT reach
 
 `portal.dataquarry.app` is a **placeholder** and no user is pointed at it: the portal you sign in to

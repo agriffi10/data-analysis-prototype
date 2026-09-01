@@ -6,24 +6,39 @@ import '@testing-library/jest-dom';
 import {beforeEach, expect} from 'vitest';
 import * as axeMatchers from 'vitest-axe/matchers';
 import {memoryStorage} from './test/storage';
+import {addSchemeListener, prefersDarkScheme, removeSchemeListener, resetColorScheme} from './test/colorScheme';
 
 expect.extend(axeMatchers);
 
-// jsdom has no `matchMedia`; the responsive hook (`useBreakpoint`)
-// needs it. Back it by `window.innerWidth` so a test can set the viewport width
-// before render to drive breakpoint-gated mounts. Default jsdom width is 1024
-// (≥ tablet, < desktop) → non-mobile, so existing tests keep desktop behavior.
+// jsdom has no `matchMedia`, and two things need it: the responsive hook
+// (`useBreakpoint`) and the theme store's OS preference. Width queries are backed by
+// `window.innerWidth`, so a test can set the viewport before render to drive
+// breakpoint-gated mounts — default jsdom width is 1024 (≥ tablet, < desktop) → non-mobile,
+// so existing tests keep desktop behavior. `prefers-color-scheme` is backed by
+// `test/colorScheme.ts`, which a test drives with `setPrefersDark`.
+//
+// Anything else answers FALSE. It used to answer `innerWidth >= 0`, i.e. true, for every
+// query that was not a width — so the day a second kind of query arrived it would have been
+// matched by accident, and the whole suite would have run in the dark theme with nothing
+// saying so.
 if (typeof window.matchMedia !== 'function') {
   window.matchMedia = (query: string): MediaQueryList => {
-    const min = Number(/\(min-width:\s*(\d+)px\)/.exec(query)?.[1] ?? 0);
+    const width = /\(min-width:\s*(\d+)px\)/.exec(query);
+    const scheme = /\(prefers-color-scheme:\s*(dark|light)\)/.exec(query);
     return {
       get matches() {
-        return window.innerWidth >= min;
+        if (width) return window.innerWidth >= Number(width[1]);
+        if (scheme) return (scheme[1] === 'dark') === prefersDarkScheme();
+        return false;
       },
       media: query,
       onchange: null,
-      addEventListener() {},
-      removeEventListener() {},
+      addEventListener(_type: string, listener: (event: MediaQueryListEvent) => void) {
+        if (scheme) addSchemeListener(listener);
+      },
+      removeEventListener(_type: string, listener: (event: MediaQueryListEvent) => void) {
+        if (scheme) removeSchemeListener(listener);
+      },
       addListener() {},
       removeListener() {},
       dispatchEvent() {
@@ -51,6 +66,7 @@ try {
 }
 
 beforeEach(() => {
+  resetColorScheme();
   try {
     globalThis.localStorage?.clear();
   } catch {

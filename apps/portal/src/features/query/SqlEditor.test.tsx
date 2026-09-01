@@ -1,6 +1,9 @@
+import {useEffect} from 'react';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {cleanup, render} from '@testing-library/react';
+import {act, cleanup, render} from '@testing-library/react';
 import type {GlueTableSummary} from '../catalog/catalog.types';
+import {CONTRAST_PAIRS, PALETTE} from '../../lib/palette';
+import {resetThemeForTest, setThemePreference} from '../../lib/useTheme';
 
 // Exercise the editor's completion-provider wiring without the real Monaco
 // runtime (no worker, no DOM editor). The mocks below stand in for the three
@@ -28,18 +31,47 @@ const h = vi.hoisted(() => {
   // The receiving spy was created inline and discarded, so no registration could be
   // asserted at all. Hoisted here, it survives the mount.
   const addCommand = vi.fn<(keybinding: number, handler: () => void) => void>();
-  return {registerCompletionItemProvider, addCommand, monacoMock};
+  // What the editor was RENDERED with, and how many times it was created. A theme switch has
+  // to change the first and leave the second alone: `@monaco-editor/react` applies a changed
+  // `theme` through `editor.setTheme` in an effect, so a remount would be a regression that
+  // costs the user their buffer.
+  const rendered: {theme?: string; value?: string}[] = [];
+  const created = vi.fn();
+  return {registerCompletionItemProvider, addCommand, monacoMock, rendered, created};
 });
 
 vi.mock('monaco-editor/esm/vs/editor/editor.worker?worker', () => ({default: class {}}));
 vi.mock('monaco-editor', () => h.monacoMock);
 vi.mock('@monaco-editor/react', () => ({
   loader: {config: vi.fn()},
-  default: ({onMount}: {onMount: (editor: unknown, m: unknown) => void}) => {
+  default: ({
+    onMount,
+    beforeMount,
+    theme,
+    value
+  }: {
+    onMount: (editor: unknown, m: unknown) => void;
+    beforeMount?: (m: unknown) => void;
+    theme?: string;
+    value?: string;
+  }) => {
+    h.rendered.push({theme, value});
     onMount({addCommand: h.addCommand}, h.monacoMock);
-    return null;
+    return <MonacoStub onCreate={() => beforeMount?.(h.monacoMock)} />;
   }
 }));
+
+/** Stands in for the editor instance, so a REMOUNT is observable rather than inferred. */
+function MonacoStub({onCreate}: {onCreate: () => void}) {
+  useEffect(() => {
+    // `beforeMount` runs once for the editor's lifetime in the real component too, which is
+    // why both themes have to be defined there rather than lazily on a switch.
+    onCreate();
+    h.created();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return null;
+}
 
 const {KeyMod, KeyCode} = h.monacoMock;
 
@@ -66,6 +98,10 @@ const orders: GlueTableSummary = {
 beforeEach(() => {
   h.registerCompletionItemProvider.mockClear();
   h.addCommand.mockClear();
+  h.monacoMock.editor.defineTheme.mockClear();
+  h.created.mockClear();
+  h.rendered.length = 0;
+  resetThemeForTest();
 });
 afterEach(cleanup);
 
@@ -233,3 +269,94 @@ describe('SqlEditor completion-provider wiring', () => {
     expect(provider.provideCompletionItems(model, pos).suggestions.map((s) => s.label)).toEqual(['alice.orders', 'id']);
   });
 });
+
+describe('the editor follows the app theme', () => {
+  afterEach(resetThemeForTest);
+
+  it('defines both themes up front, from the palette rather than from its own copy', () => {
+    render(
+      <SqlEditor
+        value=""
+        onChange={() => {}}
+      />
+    );
+
+    const defined = h.monacoMock.editor.defineTheme.mock.calls as [string, MonacoTheme][];
+    expect(defined.map(([name]) => name)).toEqual(['file-portal-sql', 'file-portal-sql-dark']);
+
+    // Every colour traceable to a token, so the fork that kept the pre-fix hexes for strings,
+    // numbers and comments long after `index.css` had darkened them cannot come back.
+    for (const [name, theme] of defined) {
+      const palette = PALETTE[name.endsWith('-dark') ? 'dark' : 'light'];
+      const values = new Set(Object.values(palette).map((hex) => hex.slice(1)));
+      for (const rule of theme.rules) expect(values, `${name} ${rule.token}`).toContain(rule.foreground);
+      expect(theme.colors['editor.background']).toBe(palette.surface);
+      expect(theme.colors['editorLineNumber.foreground']).toBe(palette['text-3']);
+      expect(theme.colors['editorGutter.background']).toBe(palette['surface-2']);
+    }
+  });
+
+  it('uses only tokens the contrast harness measures against the editor background', () => {
+    // FR-006 AC5. Without this the rules are merely "some palette value": pointing `comment` at
+    // `border-2` renders SQL comments at ~1.1:1 on white and every other test here stays green,
+    // because the harness measures only the pairings it is DECLARED, and a decorative token is
+    // declared against no floor at all.
+    //
+    // Read back out of what Monaco was GIVEN rather than from the module's own map, so this
+    // needs no internal exported for it and cannot drift from what the editor actually renders.
+    render(
+      <SqlEditor
+        value=""
+        onChange={() => {}}
+      />
+    );
+    const paired: Set<string> = new Set(
+      CONTRAST_PAIRS.flatMap((pair) => (pair.kind === 'token' && pair.bg === 'surface' ? [pair.fg] : []))
+    );
+
+    for (const [name, theme] of h.monacoMock.editor.defineTheme.mock.calls as [string, MonacoTheme][]) {
+      // A loop over an empty rule set passes by finding nothing to disagree with — the same shape
+      // the stylesheet check guards with its own size assertion.
+      expect(theme.rules.length, `${name} defines no syntax rules at all`).toBeGreaterThan(5);
+      const palette = PALETTE[name.endsWith('-dark') ? 'dark' : 'light'];
+      for (const rule of theme.rules) {
+        // One value can belong to more than one token (light `accent-text` and `accent-hover`
+        // are the same hex), so any token carrying it may be the one that is measured.
+        const tokens = Object.entries(palette).filter(([, hex]) => hex.slice(1) === rule.foreground);
+        expect(tokens.length, `${name} ${rule.token}: #${rule.foreground} is in no token`).toBeGreaterThan(0);
+        expect(
+          tokens.some(([token]) => paired.has(token)),
+          `${name} ${rule.token} (${tokens.map(([t]) => t).join('/')}) is measured against no editor background`
+        ).toBe(true);
+      }
+    }
+  });
+
+  it('switches theme without re-creating the editor or losing the buffer', async () => {
+    // Driven through the store's own setter, which is what the menu item calls — the control
+    // itself is covered where it lives, and reaching for it here would import a component this
+    // test is not about.
+    render(
+      <SqlEditor
+        value="select 1"
+        onChange={() => {}}
+      />
+    );
+
+    expect(h.rendered.at(-1)?.theme).toBe('file-portal-sql');
+    expect(h.created).toHaveBeenCalledTimes(1);
+
+    await act(async () => setThemePreference('dark'));
+
+    expect(h.rendered.at(-1)?.theme).toBe('file-portal-sql-dark');
+    expect(h.rendered.at(-1)?.value).toBe('select 1');
+    // A COUNT, because "it was created" cannot see a second creation — and a second creation
+    // is exactly what would drop the buffer, the cursor and the scroll position.
+    expect(h.created).toHaveBeenCalledTimes(1);
+  });
+});
+
+type MonacoTheme = {
+  rules: {token: string; foreground: string}[];
+  colors: Record<string, string>;
+};

@@ -622,3 +622,32 @@ export function RefreshIcon({className = 'h-4 w-4'}: IconProps) {
     </svg>
   );
 }
+
+/**
+ * Half-filled circle — the theme control's glyph, in the header and the nav drawer.
+ *
+ * @example
+ * <ThemeIcon className="h-4 w-4" />
+ */
+export function ThemeIcon({className = 'h-4 w-4'}: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      className={className}
+      aria-hidden="true">
+      <circle
+        cx="12"
+        cy="12"
+        r="9"
+      />
+      <path
+        fill="currentColor"
+        stroke="none"
+        d="M12 3a9 9 0 0 1 0 18z"
+      />
+    </svg>
+  );
+}

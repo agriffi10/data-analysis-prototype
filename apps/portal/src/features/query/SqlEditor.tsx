@@ -2,6 +2,9 @@ import {forwardRef, useEffect, useImperativeHandle, useRef} from 'react';
 import Editor, {loader, type OnMount} from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import editorWorker from 'monaco-editor/editor/editor.worker?worker';
+import {PALETTE, type ColorToken} from '../../lib/palette';
+import type {EffectiveTheme} from '../../lib/theme.types';
+import {useTheme} from '../../lib/useTheme';
 import {createSqlCompletionProvider} from './sqlCompletions';
 import type {DatabaseSchema} from '../catalog/catalog.types';
 
@@ -23,29 +26,57 @@ self.MonacoEnvironment = {
 };
 loader.config({monaco});
 
-// Token theme mapped onto the design tokens: keywords accent, strings success,
-// numbers warning, comments muted italic, functions violet.
-const THEME = 'file-portal-sql';
-function defineTheme(m: typeof monaco) {
-  m.editor.defineTheme(THEME, {
-    base: 'vs',
-    inherit: true,
-    rules: [
-      {token: 'keyword', foreground: '4338ca', fontStyle: 'bold'},
-      {token: 'keyword.sql', foreground: '4338ca', fontStyle: 'bold'},
-      {token: 'operator.sql', foreground: '5b6573'},
-      {token: 'string', foreground: '0f9d6e'},
-      {token: 'string.sql', foreground: '0f9d6e'},
-      {token: 'number', foreground: 'c2820a'},
-      {token: 'comment', foreground: '8a93a2', fontStyle: 'italic'},
-      {token: 'predefined.sql', foreground: '7c3aed'}
-    ],
-    colors: {
-      'editor.background': '#ffffff',
-      'editorLineNumber.foreground': '#8a93a2',
-      'editorGutter.background': '#fafbfc'
-    }
-  });
+// Monaco's syntax colours, as design tokens. Monaco cannot read a CSS variable, so it is
+// given the VALUES — which is why every one is named here rather than written out: a private
+// copy of the palette is exactly what this used to be, and it kept the pre-fix hexes for
+// strings, numbers and comments long after `index.css` had darkened them.
+const SYNTAX: Record<string, ColorToken> = {
+  keyword: 'accent-text',
+  'keyword.sql': 'accent-text',
+  'operator.sql': 'text-2',
+  string: 'success',
+  'string.sql': 'success',
+  number: 'warning',
+  comment: 'text-3',
+  'predefined.sql': 'syntax-fn'
+};
+
+const BOLD = new Set(['keyword', 'keyword.sql']);
+const ITALIC = new Set(['comment']);
+
+const THEMES: Record<EffectiveTheme, string> = {
+  light: 'file-portal-sql',
+  dark: 'file-portal-sql-dark'
+};
+
+/**
+ * Register both editor themes, from the same expression evaluated twice.
+ *
+ * Both, not the current one: `beforeMount` runs once for the editor's lifetime, so a theme
+ * defined lazily on a switch would not exist when the switch asked for it.
+ *
+ * @param m - The Monaco namespace the editor is mounting against.
+ * @returns Nothing.
+ */
+function defineThemes(m: typeof monaco) {
+  for (const theme of ['light', 'dark'] as const) {
+    const palette = PALETTE[theme];
+    m.editor.defineTheme(THEMES[theme], {
+      base: theme === 'dark' ? 'vs-dark' : 'vs',
+      inherit: true,
+      rules: Object.entries(SYNTAX).map(([token, colour]) => ({
+        token,
+        foreground: palette[colour].slice(1),
+        ...(BOLD.has(token) ? {fontStyle: 'bold'} : {}),
+        ...(ITALIC.has(token) ? {fontStyle: 'italic'} : {})
+      })),
+      colors: {
+        'editor.background': palette.surface,
+        'editorLineNumber.foreground': palette['text-3'],
+        'editorGutter.background': palette['surface-2']
+      }
+    });
+  }
 }
 
 // Schema-aware completions registered on Monaco's `sql` language GLOBAL (shared by
@@ -116,6 +147,10 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
   {value, onChange, onRun, onRunScriptSingle, onRunScriptTabs, completionSchemas},
   ref
 ) {
+  // The `theme` prop is a THEME NAME, and @monaco-editor/react applies a change to it through
+  // `editor.setTheme` in an effect — no new model, no new editor — so the buffer, the cursor
+  // and the scroll position survive a switch.
+  const {effective} = useTheme();
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   // Keep the latest run handlers without rebinding the Monaco commands each render.
   const onRunRef = useRef(onRun);
@@ -180,8 +215,8 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
     <Editor
       height="100%"
       defaultLanguage="sql"
-      theme={THEME}
-      beforeMount={defineTheme}
+      theme={THEMES[effective]}
+      beforeMount={defineThemes}
       onMount={handleMount}
       value={value}
       onChange={(v) => onChange(v ?? '')}

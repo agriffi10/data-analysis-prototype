@@ -119,6 +119,13 @@ recipe anywhere** — write one when you run it.
 | **Fresh sign-in end to end, from a private window** (SPEC-192) — proves Amplify is configured before the first render | A warm session cannot exercise it: the browser arrives already authenticated, and a bootstrap that configured Amplify too late looks identical. Same shape as the omitted Hosted UI host that broke fresh sign-in for a day. | §A.4 |
 | **Everything the container owns about `/config.json`** — the entrypoint rendering it from the task environment, nginx's `no-store`, image promotion itself | No container exists yet; the document is a static object until SPEC-194. | SPEC-194's own checks |
 
+### SPEC-210's two dark-mode checks that jsdom cannot reach
+
+| Check | Why the suite cannot settle it | What it takes |
+|---|---|---|
+| **Monaco keeps the cursor and the scroll position across a theme switch** | `SqlEditor.test.tsx` stubs the editor, so it can assert the buffer and that the editor was not re-created — a **count**, mutation-tested — but there is no cursor and no scrollable viewport in jsdom to lose. The mechanism is `@monaco-editor/react` applying a changed `theme` through `editor.setTheme` in an effect, read out of its `dist`; that is a settled premise, not a run check. | `e2e.md` §4.16 step 4. |
+| **No flash of the light theme before the first paint** | The pre-paint initialiser is asserted three ways offline — it is loaded blocking in `<head>`, it precedes the module script, and no `<script>` in `index.html` has a body — but "the first paint is dark" is a property of a real render. The production half is also unreachable locally: an INLINE initialiser would work in dev and be refused by `script-src 'self'`, so only a deployed page proves the shape that ships. | `e2e.md` §4.16 step 1, on the deployed origin, not `npm run dev`. |
+
 ### Needs Safari, or 400px
 
 | Check | Note |
