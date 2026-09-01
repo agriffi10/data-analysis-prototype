@@ -93,7 +93,7 @@
 - **2.5.3 Label in Name (A)** — a control's accessible name **contains** its visible label text (ideally at the start). ✅ match `aria-label` to visible text. 🔴 visible "Search" button whose accessible name is "submit" (F96) — breaks voice control.
 - **2.5.4 Motion Actuation (A)** — motion-triggered functions also work via UI controls and motion can be disabled. 🔴 shake-only actions with no alternative.
 - **2.5.7 Dragging Movements (AA)** — dragging operations have a single-pointer non-drag alternative (e.g. click targets) unless essential.
-- **2.5.8 Target Size (Minimum) (AA)** — pointer targets ≥ **24×24 CSS px** (or sufficient spacing). ✅ `min-height`/`min-width`. 
+- **2.5.8 Target Size (Minimum) (AA)** — pointer targets ≥ **24×24 CSS px** (or sufficient spacing). ✅ `min-height`/`min-width`. 🔴 reading the px off a Tailwind class at an assumed 16px root — **this app's root is 14px**, so `h-6` is 21px, not 24. See *Target size in this app* below before writing or auditing one.
 - **AAA**: 2.5.5 Target Size (Enhanced) 44×44, 2.5.6 Concurrent Input Mechanisms.
 
 ## §3 Understandable
@@ -165,7 +165,89 @@ place, `apps/portal/src/test/axe.ts`. Routes also assert exactly one `<h1>` + a
 `<main>` via the DOM.
 
 **What axe does NOT cover** — it complements manual testing, it doesn't replace
-it. It can't see `color-contrast` (jsdom has no layout/computed style — verified
-visually instead, per the design tokens), real `:focus-visible` rendering, true
-focus order, screen-reader output, or whether copy/labels actually make sense.
-Keep doing manual keyboard + screen-reader passes for those.
+it. It can't see `color-contrast` or `target-size` (jsdom has no layout or
+computed style — both are disabled in `src/test/axe.ts` and covered as described
+below), real `:focus-visible` rendering, true focus order, screen-reader output,
+or whether copy/labels actually make sense. Keep doing manual keyboard +
+screen-reader passes for those.
+
+**A rule that cannot measure is disabled, never left running.** `target-size`
+ran for months and reported a *pass* — "Safe clickable space has a diameter of
+24px which is at least 24px" — for two adjacent 10×10 buttons, because every
+`getBoundingClientRect` in jsdom is 0×0. An enabled rule advertising coverage it
+cannot provide is worse than a disabled one: a reviewer asking "do we assert
+this?" gets yes. If a rule cannot decide, turn it off in
+`RULES_JSDOM_CANNOT_DECIDE` with the reason, and say what covers it instead.
+
+## Target size in this app (2.5.8)
+
+**Two mechanisms, and neither is the axe rule.**
+
+**1. The static sweep — `src/lib/targetSize.test.ts`.** Reads every `.tsx`, finds
+interactive tags (native controls, an interactive `role`, an `onClick` on a plain
+element, and the components that pass `className` to a control), and measures
+their own `h-*` / `w-*` / `size-*` classes. The threshold is **computed**, not
+written down: `--spacing` comes from Tailwind's `theme.css` and the root from
+`src/index.css`, so one step is 3.5px, `h-6` is 21px and fails, and `h-7` is
+24.5px and clears by half a pixel. Controls already under the floor sit in
+`ACCEPTED_UNDERSIZED` with a note each — a **tripwire, not a clean bill of
+health**; new ones fail the build by name.
+
+**Under 24px is a CANDIDATE, not a violation.** SC 2.5.8's spacing exception
+exempts a small target no other target comes within a 24px-diameter circle of.
+The sweep cannot do that geometry, so it never claims a violation — and a check
+that reported every small control as one would manufacture failures on correct
+code, which is the same defect as the axe rule pointing the other way.
+
+**What it cannot see is written out at the top of the file itself** — read it
+there rather than here, so the two cannot drift. The headline is a **text-derived
+height**: a control with no size class is its line box plus padding, so a bare
+`text-sm` link is a ~15.5px content-area box while a `px-3 py-2 text-sm` menu row
+is 32px, and only layout separates them. A rule demanding `min-h-[24px]` from
+text-only controls would fire on the correct one, so none was written. The one
+carve-out, because it needs no layout to decide: a **checkbox or radio is a
+replaced element** with no line box that padding can grow, so an unsized one is
+the user agent's 13×13 box and the sweep flags it.
+
+**2. The live checks** — `docs/testing/e2e.md` **§4.13** owns the browser recipe:
+the console one-liner, the `aria-label` fallback it needs, and the
+circle-to-circle form of the spacing exception. §4.16 measures the theme
+controls. Reference those; do not write a third.
+
+### Writing one
+
+- **Reach for `IconButton` or `Button`** rather than a hand-rolled `<button>`.
+  Both are already sized around this rule — `IconButton`'s `sm` is `h-7`, the
+  first scale step that clears the floor, and it clears by half a pixel. That is
+  why most controls in the app are not in the register, and both `SIZES` maps are
+  pinned by the sweep.
+- **Encode the threshold in an absolute unit.** `min-h-[24px]` is 24px under any
+  root; `min-h-7` is 24.5px under this one and 21px under a 12px one. A rem step
+  expresses visual rhythm, and rhythm is not what this value is for.
+- **When a class encodes an accessibility threshold rather than a visual step,
+  name the threshold in the comment** — otherwise the next reviewer normalises it
+  back onto the scale on style grounds, which has already happened once.
+
+### Measuring one
+
+**Never derive a px figure from a class name.** Read what the browser will apply.
+The two scales come out of the built stylesheet, so run `npm run build -w
+apps/portal` first:
+
+```bash
+grep -o -- "--spacing:[^;]*;" apps/portal/dist/assets/index-*.css
+```
+
+```bash
+grep -o -- "--text-sm[^;)]*;" apps/portal/dist/assets/index-*.css
+```
+
+A **control** needs a running browser — a `file://` preview cannot do it, because
+`script-src 'none'` means `getBoundingClientRect` never runs. Use §4.13's
+one-liner. Measure the **centre-to-centre distance to the nearest other target**,
+not just the box: that is what the spacing exception turns on, and it is the half
+a quick check drops.
+
+**Do not change `html { font-size: 14px }` or the px type scale** to fix a target
+size. Both are load-bearing for the whole product and moving either silently
+resizes controls everywhere with no test failing.
