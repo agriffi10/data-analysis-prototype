@@ -26,7 +26,9 @@ resource "aws_sqs_queue" "requests_dlq" {
 # `content_based_deduplication` is OFF on purpose. The API sets an explicit
 # MessageDeduplicationId (the event id) on every send, and with the fallback available a send
 # that stopped setting one would still mostly collapse double-submits — so the guard would be
-# gone with nothing going red. A test holds this value against the contract's own record of it.
+# gone with nothing going red. A test pins this value; the contract's dedup registry is keyed to
+# the ten enqueue routes and this queue is deliberately not one of them, so there is no second
+# record to hold it against.
 resource "aws_sqs_queue" "requests" {
   name                        = local.requests_queue_name
   fifo_queue                  = true

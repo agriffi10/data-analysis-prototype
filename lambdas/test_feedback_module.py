@@ -94,7 +94,16 @@ def _grant_resources() -> list[str]:
     patterns: list[str] = []
     for statement in json.loads(text)["Statement"]:
         resource = statement["Resource"]
-        patterns.extend(resource if isinstance(resource, list) else [resource])
+        # A BARE WILDCARD IS DROPPED, and that is the whole difference between this join and a
+        # tautology: `fnmatch(anything, "*")` is True, so leaving the two event-source-mapping
+        # statements' `Resource: "*"` in the list made every name below match no matter what it
+        # was renamed to. Their real constraint is the condition, which is collected instead.
+        for candidate in resource if isinstance(resource, list) else [resource]:
+            if candidate != "*":
+                patterns.append(candidate)
+        arn_like = statement.get("Condition", {}).get("ArnLike", {})
+        patterns.extend(value for value in arn_like.values() if value != "*")
+    assert patterns, "every pattern was a bare wildcard; this join would agree with any name"
     return patterns
 
 
@@ -178,8 +187,12 @@ def test_the_queue_is_fifo_with_its_own_dlq_and_encryption_on_both() -> None:
 
     assert set(queues) == {"requests", "requests_dlq"}
     for name, body in queues.items():
-        assert "fifo_queue                  = true" in body.replace("  ", "  "), name
-        assert "sqs_managed_sse_enabled" in body and "true" in body, name
+        # Each attribute is read as a VALUE. `"true" in body` is satisfied by `fifo_queue = true`
+        # sitting three lines up, so it cannot see `sqs_managed_sse_enabled = false`.
+        for attribute in ("fifo_queue", "sqs_managed_sse_enabled"):
+            found = re.search(rf"^\s*{attribute}\s+=\s+(\w+)$", body, re.MULTILINE)
+            assert found, f"{name} does not set {attribute}"
+            assert found.group(1) == "true", f"{name} sets {attribute} = {found.group(1)}"
     assert "aws_sqs_queue.requests_dlq.arn" in queues["requests"], (
         "the request queue does not redrive to its own dead-letter queue"
     )
@@ -193,7 +206,11 @@ def test_the_event_source_mapping_delivers_one_record_at_a_time() -> None:
     """The handler's single-record assumption is coupled to this number and nothing else."""
     lambda_tf = (MODULE / "lambda.tf").read_text(encoding="utf-8")
 
-    assert "batch_size       = 1" in lambda_tf
+    assert re.search(r"^\s*batch_size\s+=\s+1$", lambda_tf, re.MULTILINE), (
+        "the mapping does not deliver exactly one record. Asserted anchored to the end of the "
+        "line, because the unanchored string is a PREFIX of every batch size from 1 to 19 — the "
+        "handler refuses a batch, so this number is the only thing making that refusal unreachable"
+    )
     assert "ignore_changes = [filename, source_code_hash, layers]" in lambda_tf, (
         "without `layers` an apply landing after a deploy strips the cpcommon layer back off, and "
         "the function fails at its next cold start on an import that had been working"
@@ -270,8 +287,14 @@ def _expiring_rule_prefixes() -> list[str]:
         found = re.search(r'prefix\s+=\s+"([^"]*)"', rule)
         prefix = found.group(1) if found else ""
         for variable in re.findall(r"\$\{var\.(\w+)\}", prefix):
-            resolved = re.search(rf'^\s+{variable}s?\s+=\s+"([^"]+)"$', root, re.MULTILINE)
-            prefix = prefix.replace("${var." + variable + "}", resolved.group(1) if resolved else "")
+            # The root passes these from its own locals, whose names are not always the
+            # variable's. Resolution must SUCCEED — falling back to the empty string turned the
+            # ALB rule's prefix into "/", which reads as a scoped rule and is not one.
+            resolved = re.search(
+                rf'^\s+{variable}s?\s+=\s+"([^"]+)"$', root, re.MULTILINE
+            ) or re.search(r'^\s+alb_access_logs_prefix\s+=\s+"([^"]+)"$', root, re.MULTILINE)
+            assert resolved, f"could not resolve var.{variable} from the root; the prefix is unknown"
+            prefix = prefix.replace("${var." + variable + "}", resolved.group(1))
         prefixes.append(prefix)
     return prefixes
 
@@ -290,3 +313,38 @@ def test_no_expiring_lifecycle_rule_can_reach_the_feedback_prefix() -> None:
     assert "" not in prefixes, "an unfiltered EXPIRING rule reaches every prefix in the bucket"
     reaching = [p for p in prefixes if "feedback/".startswith(p)]
     assert reaching == [], f"these expiring rules would delete the feedback records: {reaching}"
+
+
+def test_the_list_that_actually_attaches_the_drain_agrees_with_its_source_table() -> None:
+    """``UNDRAINED_QUEUES`` controls nothing; ``local.drained_dlq_names`` does.
+
+    The drain is wired by event-source mappings built from that root local, and until now nothing
+    read it — a queue added there is attached whatever the Python says. Adding feedback's DLQ to
+    it would quietly consume and delete feedback dead letters, defeating the 14-day retention
+    that is the only thing standing in for an alarm.
+
+    ``infra/main.tf`` has claimed since it was written that "a test in
+    ``lambdas/control-plane-dlq-drain/`` reads the module locals.tf files and fails if a fifth
+    control plane appears without being wired or explicitly excluded". No such test existed. This
+    is that test, and it lives here because this is the change that needed it.
+    """
+    sys.path.insert(0, str(REPO / "lambdas" / "control-plane-dlq-drain"))
+    import dlq_drain
+
+    root = (INFRA / "main.tf").read_text(encoding="utf-8")
+    block = root[root.index("drained_dlq_names = [") :]
+    block = block[: block.index("]")]
+    attached = set(
+        re.findall(r'"\$\{var\.project_name\}-\$\{var\.environment\}-(.+?)-requests-dlq\.fifo"', block)
+    )
+
+    assert attached, "the drained-DLQ list did not parse; this join would be vacuous"
+    assert attached == set(dlq_drain.SOURCES), (
+        f"the drain is ATTACHED to {sorted(attached)} but its notification table names "
+        f"{sorted(dlq_drain.SOURCES)}. A queue attached but absent from the table is drained into "
+        "silence; one in the table but unattached is a plane nobody is told about."
+    )
+    assert not attached & dlq_drain.UNDRAINED_QUEUES, (
+        "a queue named as deliberately undrained is wired to the drain anyway"
+    )
+

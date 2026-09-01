@@ -358,6 +358,15 @@ def test_every_drained_queue_has_a_writer_and_the_undrained_ones_say_why():
         "a queue was added to or removed from UNDRAINED_QUEUES without a reason being written "
         f"down beside it: {sorted(dlq_drain.UNDRAINED_QUEUES ^ set(_UNDRAINED_BY_DESIGN))}"
     )
+    # Key equality alone lets a queue be added to BOTH tables with an empty reason, which is the
+    # repair this guard exists to refuse — the reason is the content, not the membership.
+    empty = [queue for queue, reason in _UNDRAINED_BY_DESIGN.items() if not reason.strip()]
+    assert empty == [], f"undrained with no reason given: {empty}"
+    both = set(_UNDRAINED_BY_DESIGN) & set(dlq_drain.SOURCES)
+    assert both == set(), (
+        f"{sorted(both)} is drained AND named as deliberately undrained; the tables disagree and "
+        "the drain follows SOURCES"
+    )
 
 
 #: What each allowlist plane admitted the day the API stopped sending a token, per mode where a

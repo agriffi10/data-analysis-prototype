@@ -78,6 +78,11 @@ than `list-grant`.
 There is **no `s3:DeleteObject` anywhere**. The document is only ever read-modify-rewritten, and
 an existing document that will not parse is raised over rather than replaced.
 
+> The writer's own code lands in the next change, and with it the `fail-safe-cas` disposition in
+> `lambdas/test_absence_is_answerable.py` that records this reasoning against the read site.
+> Until then this section describes what the writer is specified to do, not what a test holds it
+> to.
+
 ## What is not here
 
 No alarm on DLQ depth — there is no CloudWatch alarm anywhere in `infra/` today, and it would be
