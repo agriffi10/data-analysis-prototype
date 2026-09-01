@@ -1,0 +1,30 @@
+# The ignore file for the LAMBDA image's build, which takes the repository root as its context.
+#
+# BuildKit reads `<dockerfile-path>.dockerignore` when one exists and falls back to the context
+# root's `.dockerignore` otherwise. That fallback is what this file exists to avoid: the root file
+# excludes `lambdas` and `infra` on purpose, to keep them out of the SPA image's context — whose
+# build asserts their absence — and a Lambda build reading it would find no source at all.
+#
+# `apps/portal/Dockerfile` has no sibling ignore file, so the SPA build still reads the root one
+# and nothing here reaches it.
+#
+# Everything the image does not need is excluded rather than merely unused: the context is sent to
+# the daemon whole, and `.claude/` alone holds every agent worktree in this checkout.
+.git
+.github/workflows
+.claude
+apps
+docs
+infra
+node_modules
+**/node_modules
+scripts
+**/.env
+**/.env.*
+**/dist
+**/coverage
+htmlcov
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache

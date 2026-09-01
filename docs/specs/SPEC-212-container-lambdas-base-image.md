@@ -1,7 +1,7 @@
 # Spec: Container Lambdas — the Base Image, ECR and the Build Pipeline
 
 **ID:** SPEC-212
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-28
 **Depends On:** SPEC-107/125/156 (`cpcommon` and the domain layers this image absorbs), SPEC-137 (the cold-start `ModuleNotFoundError` that broke sign-up for nine days — the failure this arc's smoke test is aimed at), SPEC-193/194 (the ECR repository, immutable commit-sha tags and the image behaviour-matrix pattern), SPEC-138/139 (the scanners the image joins)
 
@@ -9,7 +9,7 @@
 
 ## Overview
 
-Eighty-two Lambda functions are deployed as zip archives with ten shared layers attached in a
+Eighty-six Lambda functions are deployed as zip archives with ten shared layers attached in a
 specific order. The arrangement works, and everything that is hard about it is hard for the same
 reason: **what a function can import is decided at deploy time, by a table, and is not observable
 anywhere else.** `.github/lambda-functions.json` says which layers a function gets,
@@ -102,6 +102,19 @@ places a layer and a zip put them today. No import statement anywhere in `lambda
       ends,
       and the set of flat modules there equals `shared-space-common`'s declared `modules` list — the
       same set-equality guard the layer build already carries, moved onto the artifact.
+- [ ] **No two function directories contribute the same path to the task root**, and **no
+      top-level name in the task root is also a name on `/opt/python`**. Both are consequences of
+      one shared task root, which no zip ever had: the runtime searches the task root first, so a
+      duplicate does not collide — it silently wins, and the copy that loses is the one that was
+      supposed to be used. Both are measured empty today and both are asserted against the **built
+      image**, not against the source tree, because an absence asserted against a tree proves
+      nothing about an artefact.
+- [ ] Dependencies are installed into the interpreter's own site-packages rather than onto
+      `/opt/python`. This is a deliberate divergence from the layers, which mix a package with its
+      pip-installed dependencies in one directory: reproducing that would make the set-equality
+      criterion above false by construction and decay the guard into a hand-maintained dependency
+      list. It does put the repository's shared code AHEAD of the dependencies on the search path,
+      so a third guard asserts no repository module shadows an installed one.
 - [ ] `git diff` over `lambdas/**/*.py` for this spec is empty apart from new test files: the
       packaging changes, the code does not.
 
@@ -125,20 +138,34 @@ whole reason the arc is worth doing, and it is the check that would have caught 
 - [ ] The matrix reports **how many** functions it imported, and a test asserts that count equals the
       number of function directories, so a silently shrinking sweep is visible.
 - [ ] The matrix asserts the interpreter in the image is 3.12.
+- [ ] The imports run **through the runtime's own bootstrap**, not under a reconstructed search
+      path. `docker run --entrypoint python` puts neither `/opt/python` nor its site-packages on
+      `sys.path`, so a sweep taken that way has to rebuild the path — and a rebuilt path that is a
+      superset of the real one passes an import production would fail, which is this arc's own
+      failure mode rebuilt by its own tooling.
+- [ ] The **expected** count comes from a source that does not depend on what is being checked.
+      Deriving both sides from "a module defining a top-level `handler`" makes the count
+      self-referential: renaming a handler removes the function from both sides at once, the two
+      numbers agree, and the mutation passes. Measured — that is exactly what happened.
 
 ### FR-004: The widened import surface is guarded
 
 #### Description:
 
 Today a function can import only the layers attached to it. In one image every function can import
-everything — including `shared-space-common`'s nine flat top-level modules (`config`, `auth`,
-`registry`, `cache`, `notify`, `messages`, `membership`, `casio`, `teardown`), which are generic
-enough to be imported by accident from another plane and would resolve.
+everything — including `shared-space-common`'s **ten** flat top-level modules (`config`, `auth`,
+`registry`, `cache`, `notify`, `messages`, `membership`, `membership_index`, `casio`, `teardown`),
+which are generic enough to be imported by accident from another plane and would resolve. The count
+is not load-bearing anywhere: the guard reads the names from the layer table, which is why
+`membership_index` arriving after this spec was drafted cost nothing.
 
 #### Acceptance Criteria:
 
 - [ ] An AST sweep over `lambdas/` asserts that no function outside the shared-space plane imports
-      any of those nine names as a top-level module.
+      any of those names as a top-level module. The swept population is the **function**
+      directories, not every directory under `lambdas/` — `shared-space-common` is the layer's own
+      source and its modules import each other, so sweeping it reports offenders whose only
+      available repair is to exempt a directory that is not a function.
 - [ ] The sweep counts attribute-style usage too — `import x` followed by `x.y()` — not only
       `from x import y`, since a submodule-path scan alone undercounts consumers.
 - [ ] The exemption list is by **exact directory path**, and a test asserts every exempted path
@@ -194,7 +221,8 @@ Not applicable — this spec produces an artifact, not a type. The image's contr
 ```
 /opt/python/                 # what a layer provides today
   cpcommon/  tbcommon/  tscommon/  dqcommon/  fscommon/  focommon/  arcommon/
-  config.py auth.py registry.py cache.py notify.py messages.py membership.py casio.py teardown.py
+  config.py auth.py registry.py cache.py notify.py messages.py membership.py
+  membership_index.py casio.py teardown.py
 /var/task/                   # ${LAMBDA_TASK_ROOT} — what a zip provides today
   pre_signup.py  post_confirmation.py  … one flat module per function
 ```

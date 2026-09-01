@@ -1,0 +1,49 @@
+# Checkov check IDs held at ZERO failures on lambdas/Dockerfile (the dockerfile-framework scan in
+# security.yml).
+#
+# THIS FILE IS THE GATE, and it is the same shape as .github/checkov-enforced.txt for the same
+# reason: a gate blocks on a NARROWED count, never a total. `GATE_CHECKOV=block` fails the job
+# when any check listed here reports a failure; every other dockerfile finding is published and
+# does not block. The reasoning is in .github/scripts/checkov-enforced.sh, which evaluates both
+# lists.
+#
+# THE CRITERION IS "PASSES TODAY", NOT "MATTERS MOST" — the rule the terraform list states, kept
+# here so the two are not argued separately. Every ID below was measured at zero failures against
+# checkov 3.3.9 on 2026-09-01 (38 passed / 2 failed on this Dockerfile). Turning them on cost no
+# remediation.
+#
+# THE TWO FAILURES ARE NOT SUPPRESSED. Both are dispositioned in docs/security-baseline.md, and
+# both are properties of what a Lambda container IS rather than of how this one is written:
+#   * CKV_DOCKER_2 (no HEALTHCHECK) — Lambda never runs a Docker health check. The Runtime API
+#     contract is the health signal, and an image declaring one would be declaring something
+#     nothing reads.
+#   * CKV_DOCKER_3 (no USER)        — the AWS-published base image sets none, and Lambda's
+#     isolation boundary is the execution environment rather than the container user.
+#
+# SCOPED TO THIS DOCKERFILE. apps/portal/Dockerfile is scanned by nothing, here or elsewhere, and
+# that gap is recorded in docs/security-baseline.md rather than closed here: it PASSES
+# CKV_DOCKER_3 (it sets USER 101) while this image cannot, so one shared list would have to drop
+# that check and could never enforce it for the SPA. Covering both wants a list per Dockerfile,
+# which is a widening this spec deliberately did not take on.
+
+CKV_DOCKER_5    # Ensure update instructions are not used alone in the Dockerfile
+CKV_DOCKER_7    # Ensure the base image uses a non-latest version tag
+CKV_DOCKER_9    # Ensure that APT is not used
+CKV_DOCKER_11   # Ensure that base images use a non-latest, digest-pinned reference
+CKV2_DOCKER_1   # Ensure that sudo is not used
+CKV2_DOCKER_2   # Ensure that certificate validation is not disabled with wget
+CKV2_DOCKER_3   # Ensure that certificate validation is not disabled with curl
+CKV2_DOCKER_4   # Ensure that certificate validation is not disabled with pip
+CKV2_DOCKER_5   # Ensure that certificate validation is not disabled with npm
+CKV2_DOCKER_6   # Ensure that certificate validation is not disabled with yum
+CKV2_DOCKER_7   # Ensure that certificate validation is not disabled with apt-get
+CKV2_DOCKER_8   # Ensure that certificate validation is not disabled with rpm
+CKV2_DOCKER_9   # Ensure that GPG check is not disabled with yum
+CKV2_DOCKER_10  # Ensure that GPG check is not disabled with rpm
+CKV2_DOCKER_11  # Ensure that GPG check is not disabled with dnf
+CKV2_DOCKER_12  # Ensure that certificate validation is not disabled with dnf
+CKV2_DOCKER_13  # Ensure that certificate validation is not disabled with apk
+CKV2_DOCKER_14  # Ensure that certificate validation is not disabled with gem
+CKV2_DOCKER_15  # Ensure that certificate validation is not disabled with composer
+CKV2_DOCKER_16  # Ensure that certificate validation is not disabled with go
+CKV2_DOCKER_17  # Ensure that certificate validation is not disabled with cargo

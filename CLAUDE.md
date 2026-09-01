@@ -99,6 +99,10 @@ recorded nowhere else** — when a spec closes, prune here rather than appending
   `SenderId` boundary**, which still names the portal role it retires (`UNTRUSTED_SENDER_ID` empty
   refuses *every* notification `create`), and until it lands the browser still calls
   `cognito-identity`, so arc-b §4's "no AWS calls" negative does not pass.
+- **Container Lambdas (212 → 213 → 214, 212 done)** — an image exists in ECR and **runs nothing**;
+  the fleet still ships zips with layers. 213 cuts over and **CI must point every function**, or
+  all 86 keep working on the old image with nothing red. 214 deletes the tables and must repoint
+  the matrix's count expectation rather than dropping it. Narrative in `ARCS.md`.
 
 
 ## Key Decisions (settled — don't re-litigate)
@@ -434,7 +438,7 @@ only reads; the API enqueues on its behalf.
   tag is the commit sha (`IMMUTABLE` ECR, no `:latest`), `task_definition` is ignored while
   `desired_count` is not — so **CI must point the service**, and a pipeline that only registers a
   revision leaves a `CannotPullContainerError` **indistinguishable from the endpoint failure the
-  platform is tested for**. A Fargate task volume arrives empty and root-owned and does **not**
+  platform is tested for** (the Lambda fleet's registry rides the same rule). A Fargate task volume arrives empty and root-owned and does **not**
   initialise from the image: writable paths are `linuxParameters.tmpfs`, one uid feeding both `user`
   and every mount option.
 - **The SPA image reproduces every CloudFront job; three are DIVERGENCES** — `Server: nginx`, no
@@ -442,6 +446,14 @@ only reads; the API enqueues on its behalf.
   (hence one snippet per location, `always` throughout, and a server-level floor for errors raised
   before a location resolves); assert on **responses**, never config text; `/healthz` is
   exact-match, or a probe falls through and a broken container reads healthy.
+- **ONE image for all 86 Lambdas, deployed nowhere yet** — shared code on `/opt/python`, function
+  modules flat at the task root, **dependencies deliberately in site-packages** so the layout
+  guard is a real set equality. One shared task root is the new hazard: a duplicate name does not
+  collide, it **silently wins** for the whole fleet, so collisions and shadowing are asserted
+  **against the built image**. The import sweep runs through the runtime's **own bootstrap** —
+  `--entrypoint python` omits `/opt/python`, and a reconstructed path that is a superset passes
+  what production fails — and its expected count comes from the deploy table, never from the same
+  rule the sweep uses, or renaming a handler drops **both** sides and agrees.
 - **Configuration is a RUNTIME document** (`/config.json`, `no-store`, refused whole on version)
   with **no production fallback**. Its key set is wired in six places, asserted across all, and the
   container **refuses to start** on a required one unset or empty. **The deploy READS the values

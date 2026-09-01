@@ -21,6 +21,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SECURITY_WORKFLOW = ROOT / ".github" / "workflows" / "security.yml"
 INFRA_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-infra.yml"
 ENFORCED_LIST = ROOT / ".github" / "checkov-enforced.txt"
+DOCKERFILE_ENFORCED_LIST = ROOT / ".github" / "checkov-dockerfile-enforced.txt"
 ACCEPTED_LIST = ROOT / ".github" / "checkov-plan-accepted.txt"
 
 #: The Semgrep rule excluded from the Lambdas scan. A Flask template-injection check, pulled in
@@ -36,6 +37,11 @@ CHECK_ID = re.compile(r"^CKV[0-9]*_[A-Z]+_[0-9]+$")
 #: newly-passing IDs with them; no ID was removed, and the measurement is in
 #: docs/security-baseline.md under the dated section for that spec.
 ENFORCED_COUNT = 88
+
+#: The same pin for the dockerfile framework's list, for the same reason. Measured at 38 passed /
+#: 2 failed against checkov 3.3.9 on lambdas/Dockerfile; the two failures — no HEALTHCHECK and no
+#: USER — are dispositioned in docs/security-baseline.md rather than enforced.
+DOCKERFILE_ENFORCED_COUNT = 21
 
 #: The gate steps must default to a NON-NUMERIC sentinel. `${VAR:-0}` substitutes on empty as
 #: well as unset, so a numeric default turns "the narrowing step wrote nothing" into "clean".
@@ -176,3 +182,58 @@ def test_the_enforced_gate_is_wired_to_the_list_and_blocks():
     assert "checkov-enforced.sh" in text, "security.yml does not call the enforced-count script"
     assert ".github/checkov-enforced.txt" in text, "security.yml does not name the enforced list"
     assert _gate_value(SECURITY_WORKFLOW, "CHECKOV") == "block"
+
+
+def test_the_checkov_dockerfile_enforced_list_parses_to_real_check_ids():
+    """The dockerfile enforce list must parse to exactly the number of IDs the docs claim.
+
+    Equality, not a floor, for the reason the terraform list gives: deleting an entry is how this
+    gate gets quietly weakened, and an ID that starts failing can be made to go away by removing
+    the line. Trimming the list to one ID otherwise passes the entire suite.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: On a count mismatch or a malformed row.
+    """
+    entries = _list_entries(DOCKERFILE_ENFORCED_LIST)
+    assert len(entries) == DOCKERFILE_ENFORCED_COUNT, (
+        f"{len(entries)} enforced dockerfile check ID(s), expected {DOCKERFILE_ENFORCED_COUNT}. "
+        "If the change is deliberate, update DOCKERFILE_ENFORCED_COUNT here and the measurement "
+        "in docs/security-baseline.md — removing an ID is a decision that belongs in that file."
+    )
+    for row in entries:
+        assert len(row) == 1, f"enforced list rows carry one check ID, got {row!r}"
+        assert CHECK_ID.match(row[0]), f"{row[0]!r} is not a checkov check ID"
+
+
+def test_the_checkov_dockerfile_scan_does_not_pass_quiet():
+    """`--quiet` strips `passed_checks`, and the enforced gate needs them.
+
+    Without them `checkov-enforced.sh` cannot tell "this check passed" from "this check never
+    ran", and those two must never look alike. The terraform scan carries the same constraint and
+    the same pin; this is the second invocation, which would otherwise be unguarded.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the invocation passes `--quiet`.
+    """
+    invocation = _invocation(SECURITY_WORKFLOW, "checkov -f lambdas/Dockerfile")
+    assert "--quiet" not in invocation, (
+        "the dockerfile scan passes --quiet, which strips passed_checks — the enforced gate then "
+        "cannot tell a check that passed from one that never ran, and hard-errors on every ID."
+    )
+    assert "--soft-fail" in invocation, (
+        "the dockerfile scan must pass --soft-fail; checkov exits 1 merely because checks failed, "
+        "which under a report-mode gate is not a job failure. The count comes from the JSON."
+    )
+

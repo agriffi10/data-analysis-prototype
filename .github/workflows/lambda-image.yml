@@ -1,0 +1,69 @@
+name: Lambda image
+
+# The Lambda image's behaviour gate, on PULL REQUESTS.
+#
+# It asserts the one thing no other suite in this repository can: that every function's handler
+# module IMPORTS, inside the built artefact, under the runtime that will run it. pytest puts every
+# layer root on sys.path by design, so an import that would fail in Lambda succeeds under test;
+# `update-function-code` succeeds against a function that raises ModuleNotFoundError at cold
+# start. Both were green while sign-up was broken for nine days.
+#
+# IT RUNS BEFORE MERGE, deliberately, exactly as spa-image.yml does. The push workflow runs the
+# same script against the same image before it pushes, but a gate that only runs after merge
+# cannot block anything — it can only redden main and tell you afterwards.
+#
+# PATH-FILTERED, unlike the deploy workflow. This job only proves the image, so a commit that
+# changes no input to it has nothing to prove.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'lambdas/**'
+      # The layer table decides what lands on /opt/python, so a change to it changes the image
+      # even when no Python file moves. The source-side guard in the pytest job would catch a
+      # divergence, but the image-side set-equality check would not run at all without this line.
+      - '.github/lambda-layers.json'
+      # The function table is where the matrix's EXPECTED handler count comes from — deliberately
+      # a different derivation from the image's own, so that renaming a handler is visible.
+      - '.github/lambda-functions.json'
+      - '.github/scripts/lambda-image-matrix.sh'
+      - '.github/scripts/lambda-image-sweep.py'
+      - '.github/workflows/lambda-image.yml'
+      - '.github/workflows/deploy-lambda-image.yml'
+
+concurrency:
+  group: lambda-image-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    name: Build the image and assert its behaviour
+    runs-on: ubuntu-latest
+    # The dependency install is ~4s and the assemble ~1s on a warm cache; the matrix walks 86
+    # imports in ~16s. Fifteen bounds a cold pull and a hung run well clear of that without
+    # sitting against GitHub's six-hour default.
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # linux/amd64 EXPLICITLY, matching every function's current architecture. The runner is
+      # amd64 today; stating it keeps that from being load-bearing and unwritten.
+      #
+      # THE CONTEXT IS THE REPOSITORY ROOT and the ignore file is lambdas/Dockerfile.dockerignore,
+      # which BuildKit reads in preference to the root .dockerignore. The root file excludes
+      # `lambdas` on purpose, to keep it out of the SPA image's context.
+      - name: Build
+        run: |
+          docker build --platform linux/amd64 \
+            -f lambdas/Dockerfile \
+            -t "lambda-fleet:${GITHUB_SHA}" .
+
+      # No AWS credentials and no id-token permission: this job pushes nothing.
+      - name: Assert the behaviour matrix
+        run: .github/scripts/lambda-image-matrix.sh "lambda-fleet:${GITHUB_SHA}"
