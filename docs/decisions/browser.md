@@ -45,6 +45,8 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [There is no progress percentage, and there cannot be one (SPEC-190)](#there-is-no-progress-percentage-and-there-cannot-be-one-spec-190)
 - [The kill switch is a flag key, and it is the sixth (SPEC-190)](#the-kill-switch-is-a-flag-key-and-it-is-the-sixth-spec-190)
 - [Help is read where the work is, and a gated page's help is gated by derivation (SPEC-207)](#help-is-read-where-the-work-is-and-a-gated-pages-help-is-gated-by-derivation-spec-207)
+- [One split, two clamp domains, and the pair has to agree (SPEC-209)](#one-split-two-clamp-domains-and-the-pair-has-to-agree-spec-209)
+- [The divider needs a click path, because a drag is not an alternative to itself (SPEC-209)](#the-divider-needs-a-click-path-because-a-drag-is-not-an-alternative-to-itself-spec-209)
 
 ## State
 
@@ -868,3 +870,59 @@ state, so a hash change with the page still mounted would otherwise do nothing �
 each card in an anchor `div` rather than changing that component. The scroll effect is declared
 **after** the existing scroll-to-top: both run on a hash-driven mount, the later one wins, and
 jsdom has no layout, so no test can catch a reordering.
+## One split, two clamp domains, and the pair has to agree (SPEC-209)
+
+The editor/results split is stored as a **fraction** and rendered as **pixels**, so it is clamped
+twice: `splitBounds` gives the fraction bounds the separator reports as `aria-valuemin`/`max` and
+that `Home`/`End` land on, and `clampEditorHeight` gives the pane's pixel height. Two clamps over one
+value can describe **different splits**, and the divergence is silent — the pane looks right while
+the value a screen reader announces is wrong. A swept test pins the agreement over a grid of
+fractions and column heights, and it caught two real cases while it was being written.
+
+What makes them agree is that the **pixel floors are the whole clamp on a measured column**. Mixing
+the hard fraction bounds in — a 5% floor that is *looser* than 96px on a 1946px column, a 95% ceiling
+that is *tighter* than the results floor on a 3000px one — is exactly what pulled them apart. Those
+two constants describe an **unmeasured** column and nothing else: the column measures 0 on the first
+render of every mount, `MIN_EDITOR_HEIGHT / 0` is `Infinity`, and axe rejects `"Infinity"` in a
+`decimal`-typed `aria-value*`, so a bound that never divides by the measurement is not a nicety.
+
+The divider's own **24px is inside the results cap**, not beside it. A cap that ignores the element
+between the two panes is wrong by exactly its height, which is the kind of error that reads as a
+rounding artefact and never gets found. It is one constant, applied as an inline style rather than a
+Tailwind class, so the number the clamp uses and the number the browser lays out cannot drift.
+
+## The divider needs a click path, because a drag is not an alternative to itself (SPEC-209)
+
+The separator is a focusable widget with arrow/`Home`/`End` operation, so **2.1.1 Keyboard** holds,
+and the step buttons are drawn at the **2.5.8 Target Size** minimum. That minimum is in **CSS px and
+the app's root font-size is 14px**, so Tailwind's rem spacing lies about it: `h-6` is 21px, not 24,
+and the buttons shipped that way until it was measured in a browser. They are sized in px now and the
+band is tall enough to hold them. jsdom reports axe's `target-size` rule as a **pass** because it has
+no layout, so the rule is enabled and carries no information — nothing in CI can catch this, and the
+live guide asks for it to be measured instead. Be exact about what that rule is: it is not a
+limitation, it is a **vacuous guard** — an enabled rule advertising coverage it cannot provide, which
+is worse than a disabled one, because the suite reads as checking something it never checks.
+
+Neither of those answers **2.5.7 Dragging
+Movements**, which asks for a *single-pointer, non-dragging* alternative specifically — keyboard
+support is not one, and no axe rule detects the absence, so nothing in CI would have said so.
+
+**The retired `EditorLayoutControl` was that alternative:** three `onClick` buttons setting the split
+three ways. So this surface met 2.5.7 before the spec, and a drag-only divider would have *caused* a
+regression rather than inherited one. That distinction is the whole reason the divider carries a pair
+of step buttons — they were added mid-build, on a user decision, and they are the only new product
+surface in the spec.
+
+**`ColumnResizeHandle` is the other case and stays open.** It has never offered a non-drag pointer
+path, so the result grids are a standing gap this spec neither widens nor closes. Do not read the two
+as one finding: one was a regression to prevent, the other is somebody else's spec.
+
+**The buttons are the separator's SIBLINGS, not its descendants — and both of the obvious
+alternatives fail in ways that look fine.** Nesting them inside is invalid: a focusable separator is
+a widget, and a widget may not contain focusable content. Nothing about the rendered result says so;
+axe's `nested-interactive` failing the route check is what caught it. Filtering instead — guarding
+the separator's handlers with `e.target !== e.currentTarget` so a button click cannot start a drag —
+is *worse* than invalid, because it is wrong at exactly the point users aim: the visible grip is a
+**child** of the separator, so the guard ignores a grab on the grip while every test that grabs the
+band still passes. Siblings in a plain wrapper band answer both at once, and need no filtering at
+all.

@@ -2,17 +2,13 @@ import {Button} from '../../components/Button';
 import {Menu} from '../../components/Menu';
 import {cx} from '../../lib/cx';
 import {EyeIcon, PlayIcon, SaveIcon, TrashLidIcon} from '../../components/icons';
-import {EditorLayoutControl} from './EditorLayoutControl';
 import {FeatureGate} from '../feature-flags';
-import type {EditorLayoutPreset} from './query.constants';
 
 // The editor toolbar is icon-only in the tablet band so its
 // actions fit the narrower main column; each button keeps its `aria-label`.
 const TOOLBAR_LABEL = 'hidden desktop:inline';
 
 type Props = {
-  preset: EditorLayoutPreset;
-  onPresetChange: (next: EditorLayoutPreset) => void;
   /** The batch hasn't reached a terminal state — the run split button becomes Stop. */
   isInFlight: boolean;
   canRun: boolean;
@@ -28,13 +24,12 @@ type Props = {
 };
 
 /**
- * The editor toolbar: the layout preset on the left, then Clear, Save
- * and Create view, and the run split button — which is replaced by a
- * single Stop while a batch is in flight.
+ * The editor toolbar: Clear, Save and Create view, and the run split
+ * button — which is replaced by a single Stop while a batch is in flight. The
+ * actions sit to the right; the editor/results split is dragged at its own
+ * divider, not chosen here.
  */
 export function QueryToolbar({
-  preset,
-  onPresetChange,
   isInFlight,
   canRun,
   canClear,
@@ -48,10 +43,6 @@ export function QueryToolbar({
 }: Props) {
   return (
     <div className="flex min-h-[52px] flex-none flex-wrap items-center gap-3 border-b border-border bg-surface px-5 py-2">
-      <EditorLayoutControl
-        preset={preset}
-        onChange={onPresetChange}
-      />
       <div className="flex-1" />
       <Button
         variant="ghost"

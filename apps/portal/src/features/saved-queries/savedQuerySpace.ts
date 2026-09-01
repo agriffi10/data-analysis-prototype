@@ -1,7 +1,7 @@
 import {QUERY_SAVED_QUERY_SPACE_STORAGE_PREFIX} from './savedQueries.constants';
 
 // The last space the user loaded saved queries from, remembered for the session only.
-// Degrade-safe on the same pattern as `useResultsPageSize` and `useEditorLayout`: a
+// Degrade-safe on the same pattern as `useResultsPageSize` and `useEditorSplit`: a
 // sessionStorage that is disabled, full or throwing degrades to "not remembered" rather
 // than breaking the drawer. Nothing here validates the id against the current space
 // list — that is `useSavedQuerySpace`'s job, because a stored space the user has since

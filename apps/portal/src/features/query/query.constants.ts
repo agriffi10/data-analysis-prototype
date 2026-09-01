@@ -48,29 +48,35 @@ export const QUERY_TABS_STORAGE_PREFIX = 's3portal.query.tabs.';
  */
 export const QUERY_TABS_MAX = 10;
 
+/** Editor share of the editor+results column when nothing is stored. */
+export const DEFAULT_EDITOR_FRACTION = 0.5;
+
+/** Keyboard step, as a fraction of the column, per arrow press. */
+export const EDITOR_SPLIT_KEY_STEP = 0.05;
+
+// The bounds an UNMEASURED column reports. The pixel floors below are the real
+// clamps, but they only exist once the column has been measured, and a split has
+// to be a usable number in (0, 1) before then — a stored 0 or 1 reads as invalid.
+export const MIN_EDITOR_FRACTION = 0.05;
+export const MAX_EDITOR_FRACTION = 0.95;
+
 /**
- * Editor/results layout presets: the vertical split snaps to one of
- * three fixed proportions — no continuous drag.
+ * The divider band's laid-out border-box height in px, subtracted from the
+ * results floor so the clamp enforces the arithmetic the column actually lays
+ * out. Sized so its content box clears the 24px WCAG minimum pointer target its
+ * step buttons are drawn at, with the 1px rule above and below it. Those buttons
+ * are sized in PX, not in Tailwind's rem spacing: the root font-size here is
+ * 14px, so `h-6` is 21px and would miss the minimum silently.
  */
-export type EditorLayoutPreset = 'editor' | 'even' | 'results';
+export const EDITOR_SPLIT_DIVIDER_HEIGHT = 28;
 
-export const DEFAULT_LAYOUT_PRESET: EditorLayoutPreset = 'even';
+// Minimum-height floors so a drag never collapses a pane to an unusable size.
+// When a short viewport can't honor both, the editor floor wins.
+export const MIN_EDITOR_HEIGHT = 96; // px — editor floor
+export const MIN_RESULTS_HEIGHT = 120; // px — results-region floor
 
-/** Editor-pane share of the editor+results column height, per preset. */
-export const LAYOUT_PRESET_EDITOR_FRACTION: Record<EditorLayoutPreset, number> = {
-  editor: 0.9,
-  even: 0.5,
-  results: 0.1
-};
-
-// Minimum-height floors so the extreme presets never collapse a pane to an
-// unusable size. When a short viewport can't honor both,
-// the editor floor wins (see useEditorLayout).
-export const MIN_EDITOR_HEIGHT = 96; // px — editor floor (Results preset clamp)
-export const MIN_RESULTS_HEIGHT = 120; // px — results-region floor (Editor preset clamp)
-
-/** sessionStorage key prefix for the per-user layout preset (full key: prefix + username). */
-export const QUERY_EDITOR_LAYOUT_STORAGE_PREFIX = 's3portal.query.editorLayout.';
+/** sessionStorage key prefix for the per-user split (full key: prefix + username). */
+export const QUERY_EDITOR_SPLIT_STORAGE_PREFIX = 's3portal.query.editorSplit.';
 
 /**
  * The boilerplate a brand-new first tab opens with (a `+` blank tab opens

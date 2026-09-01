@@ -606,8 +606,6 @@ const RECIPES: Record<string, Recipe> = {
     render: () => {
       renderWithProviders(
         <QueryToolbar
-          preset="even"
-          onPresetChange={vi.fn()}
           isInFlight={false}
           canRun
           canClear

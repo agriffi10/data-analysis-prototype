@@ -11,14 +11,17 @@ import {
 } from './query.sql';
 import {initialTabsState, migrateDraftToTabs, readTabsState, writeTabsState} from './queryTabs';
 import {
-  DEFAULT_LAYOUT_PRESET,
+  DEFAULT_EDITOR_FRACTION,
   DEFAULT_RESULTS_PAGE_SIZE,
   DEFAULT_SQL,
+  EDITOR_SPLIT_DIVIDER_HEIGHT,
+  EDITOR_SPLIT_KEY_STEP,
   MAX_RESULTS_PAGE_SIZE,
+  MIN_EDITOR_HEIGHT,
   MIN_RESULTS_HEIGHT,
   MIN_RESULTS_PAGE_SIZE,
   QUERY_DRAFT_STORAGE_PREFIX,
-  QUERY_EDITOR_LAYOUT_STORAGE_PREFIX,
+  QUERY_EDITOR_SPLIT_STORAGE_PREFIX,
   QUERY_RESULTS_PAGE_SIZE_STORAGE_PREFIX,
   QUERY_TABS_MAX,
   QUERY_TABS_STORAGE_PREFIX
@@ -27,7 +30,7 @@ import {partitionSchema} from './schema.partition';
 import {buildSqlCompletions, createSqlCompletionProvider} from './sqlCompletions';
 import type {DatabaseSchema} from '../catalog/catalog.types';
 import {act, renderHook} from '@testing-library/react';
-import {clampEditorHeight, useEditorLayout} from './useEditorLayout';
+import {clampEditorHeight, clampFraction, splitBounds, useEditorSplit} from './useEditorSplit';
 import {useQueryTabs} from './useQueryTabs';
 import {clampPageSize, useResultsPageSize} from './useResultsPageSize';
 import type {QueryTabsState} from './query.types';
@@ -280,7 +283,7 @@ describe('queryTabs', () => {
 
     it('is a no-op for an empty username', () => {
       writeTabsState('', sample());
-      expect(sessionStorage.length).toBe(0);
+      expect(Object.keys(sessionStorage)).toEqual([]);
       expect(readTabsState('')).toBeNull();
     });
 
@@ -412,57 +415,200 @@ describe('sqlCompletions', () => {
   });
 });
 
-// ─── from useEditorLayout.test.ts ───
-describe('useEditorLayout', () => {
+// ─── from useEditorSplit.test.ts ───
+describe('useEditorSplit', () => {
   const USER = 'alice';
-  const KEY = `${QUERY_EDITOR_LAYOUT_STORAGE_PREFIX}${USER}`;
+  const KEY = `${QUERY_EDITOR_SPLIT_STORAGE_PREFIX}${USER}`;
+  // The retired preset key, spelled out because its constant is gone. A value
+  // written under it ('even') is not a number, so reading it would poison the
+  // split; the guard is that it is never read at all.
+  const OLD_KEY = 's3portal.query.editorLayout.alice';
 
   beforeEach(() => {
     sessionStorage.clear();
   });
 
   describe('clampEditorHeight', () => {
-    it('maps each preset to its proportion of a tall container', () => {
-      // 1000px is tall enough that no floor kicks in except the results cap at 90%.
-      expect(clampEditorHeight('even', 1000)).toBe(500);
-      expect(clampEditorHeight('results', 1000)).toBe(100);
-      // editor 90% of 1000 = 900 > 1000 - MIN_RESULTS_HEIGHT → capped.
-      expect(clampEditorHeight('editor', 1000)).toBe(1000 - MIN_RESULTS_HEIGHT);
+    it('maps a fraction to its share of a tall column', () => {
+      expect(clampEditorHeight(0.5, 1000)).toBe(500);
+      expect(clampEditorHeight(0.1, 1000)).toBe(100);
     });
 
-    it('gives the editor its full 90% once the results floor is satisfied', () => {
-      const h = MIN_RESULTS_HEIGHT * 10; // 90% leaves exactly the results floor
-      expect(clampEditorHeight('editor', h)).toBe(h - MIN_RESULTS_HEIGHT);
-      // Taller than that, 90% is below the cap → pure proportion.
-      expect(clampEditorHeight('editor', 2000)).toBe(1800);
+    it('caps the editor so the results keep their floor and the divider', () => {
+      // 0.9 of 400 = 360, but the results floor plus the divider need 144.
+      expect(clampEditorHeight(0.9, 400)).toBe(400 - MIN_RESULTS_HEIGHT - EDITOR_SPLIT_DIVIDER_HEIGHT);
+      // Tall enough that 0.9 sits below the cap → pure proportion.
+      expect(clampEditorHeight(0.9, 2000)).toBe(1800);
     });
 
-    it('caps the editor so the results region keeps MIN_RESULTS_HEIGHT on the Editor preset', () => {
-      // 90% of 400 = 360 > 400 - 120 = 280 → capped.
-      expect(clampEditorHeight('editor', 400)).toBe(400 - MIN_RESULTS_HEIGHT);
+    it('gives the editor its floor on a column too short for both floors', () => {
+      // 96 + 120 + 24 = 240 is the shortest column that honours both.
+      expect(clampEditorHeight(0.5, 200)).toBe(MIN_EDITOR_HEIGHT);
+      expect(200 - clampEditorHeight(0.5, 200) - EDITOR_SPLIT_DIVIDER_HEIGHT).toBeGreaterThanOrEqual(0);
+      // And on a column shorter than the floor itself, the editor takes what is
+      // left rather than overrunning it.
+      expect(50 - clampEditorHeight(0.5, 50) - EDITOR_SPLIT_DIVIDER_HEIGHT).toBeGreaterThanOrEqual(0);
+    });
+
+    it('never lets the two panes and the divider exceed the column, and agrees with the bounds', () => {
+      // jsdom lays nothing out, so the property FR-001 states about the rendered
+      // column — editor + divider + results == column — is asserted as arithmetic.
+      // The sweep starts one pixel above the divider's own height, which is where
+      // a column stops counting as measured; below that both functions answer from
+      // the unmeasured branch and there is no column to contain anything.
+      for (let height = EDITOR_SPLIT_DIVIDER_HEIGHT + 1; height <= 4000; height += 37) {
+        for (const fraction of [0.001, 0.01, 0.1, 0.5, 0.9, 0.99, 0.999]) {
+          const editor = clampEditorHeight(fraction, height);
+          const results = height - editor - EDITOR_SPLIT_DIVIDER_HEIGHT;
+          // 96 + 120 + 24 is the shortest column that can honour both floors;
+          // under it the editor floor wins, but never past the column itself.
+          expect(results).toBeGreaterThanOrEqual(
+            height >= MIN_EDITOR_HEIGHT + MIN_RESULTS_HEIGHT + EDITOR_SPLIT_DIVIDER_HEIGHT ? MIN_RESULTS_HEIGHT : 0
+          );
+          // The ARIA value the divider reports is derived from the clamped
+          // fraction while the pane height comes from the pixel clamp; the two
+          // describing different splits is the defect this pins.
+          expect(editor).toBe(Math.round(height * clampFraction(fraction, height)));
+        }
+      }
     });
   });
 
-  describe('useEditorLayout', () => {
-    it('defaults to the even preset with no stored value', () => {
-      const {result} = renderHook(() => useEditorLayout(USER, 1000));
-      expect(result.current.preset).toBe(DEFAULT_LAYOUT_PRESET);
+  describe('useEditorSplit', () => {
+    it('defaults to an even split and persists a set fraction under the new key', () => {
+      const {result} = renderHook(() => useEditorSplit(USER, 1000));
+
+      expect(result.current.fraction).toBe(DEFAULT_EDITOR_FRACTION);
       expect(result.current.editorHeight).toBe(500);
+
+      act(() => result.current.setFraction(0.3));
+      expect(result.current.editorHeight).toBe(300);
+      expect(sessionStorage.getItem(KEY)).toBe('0.3');
+      expect(sessionStorage.getItem(OLD_KEY)).toBeNull();
     });
 
-    it('setPreset applies the new proportion and persists it per user', () => {
-      const {result} = renderHook(() => useEditorLayout(USER, 1000));
-      act(() => result.current.setPreset('results'));
-      expect(result.current.preset).toBe('results');
-      expect(result.current.editorHeight).toBe(100);
-      expect(sessionStorage.getItem(KEY)).toBe('results');
+    it('never READS the retired preset key', () => {
+      // The old key holds the string 'even', which is not a number — reading it
+      // would send the split to the default on every mount of an existing
+      // session. Recording through a stubbed global, NOT a Storage.prototype
+      // spy: a prototype spy records zero calls here (measured), so a guard
+      // built on one is `[].every(...)` and passes whatever the hook read.
+      const reads: string[] = [];
+      const store: Record<string, string> = {[OLD_KEY]: 'even'};
+      vi.stubGlobal('sessionStorage', {
+        getItem: (key: string) => {
+          reads.push(key);
+          return store[key] ?? null;
+        },
+        setItem: (key: string, value: string) => {
+          store[key] = value;
+        }
+      });
+      // The recorder is really in place — otherwise `reads` stays empty and the
+      // assertion below holds vacuously.
+      sessionStorage.getItem('probe');
+      expect(reads).toEqual(['probe']);
+
+      renderHook(() => useEditorSplit(USER, 1000));
+
+      expect(reads).toContain(KEY);
+      expect(reads).not.toContain(OLD_KEY);
+      vi.unstubAllGlobals();
     });
 
-    it('ignores a corrupt stored value and falls back to the default', () => {
-      sessionStorage.setItem(KEY, 'sideways');
-      const {result} = renderHook(() => useEditorLayout(USER, 1000));
-      expect(result.current.preset).toBe(DEFAULT_LAYOUT_PRESET);
+    it('reads a stored fraction back, and ignores one that is not a finite fraction', () => {
+      sessionStorage.setItem(KEY, '0.25');
+      expect(renderHook(() => useEditorSplit(USER, 1000)).result.current.editorHeight).toBe(250);
+
+      for (const junk of ['even', '', '2', '-1', 'NaN', 'Infinity']) {
+        sessionStorage.setItem(KEY, junk);
+        const {result} = renderHook(() => useEditorSplit(USER, 1000));
+        expect(result.current.fraction).toBe(DEFAULT_EDITOR_FRACTION);
+      }
     });
+
+    it('still drags with storage throwing', () => {
+      vi.stubGlobal('sessionStorage', {
+        getItem: () => {
+          throw new Error('storage disabled');
+        },
+        setItem: () => {
+          throw new Error('quota exceeded');
+        }
+      });
+      // The stub is really in place — a spy on Storage.prototype is NOT, because
+      // jsdom's storage does not dispatch through it, and the degrade path then
+      // never runs while the test still passes.
+      expect(() => sessionStorage.getItem('x')).toThrow();
+
+      const {result} = renderHook(() => useEditorSplit(USER, 1000));
+      expect(result.current.fraction).toBe(DEFAULT_EDITOR_FRACTION);
+      act(() => result.current.setFraction(0.3));
+      expect(result.current.editorHeight).toBe(300); // applied, just not persisted
+
+      vi.unstubAllGlobals();
+    });
+
+    it('reads nor writes anything without a username', () => {
+      sessionStorage.setItem(KEY, '0.8'); // another user's split is not this one's
+      const {result} = renderHook(() => useEditorSplit(null, 1000));
+
+      expect(result.current.fraction).toBe(DEFAULT_EDITOR_FRACTION);
+      act(() => result.current.setFraction(0.3));
+      expect(result.current.editorHeight).toBe(300);
+      // Exactly the seeded key, so a write to a `…editorSplit.null` key is caught
+      // rather than passing because it landed somewhere nobody looked.
+      expect(Object.keys(sessionStorage)).toEqual([KEY]);
+      expect(sessionStorage.getItem(KEY)).toBe('0.8');
+    });
+
+    it('re-clamps a stored fraction against a shrinking column without rewriting it', () => {
+      const {result, rerender} = renderHook(({h}) => useEditorSplit(USER, h), {initialProps: {h: 1000}});
+      act(() => result.current.setFraction(0.8));
+      expect(result.current.editorHeight).toBe(800);
+
+      // 0.8 of 400 would leave the results region 6px under the divider.
+      rerender({h: 400});
+      expect(result.current.editorHeight).toBe(400 - MIN_RESULTS_HEIGHT - EDITOR_SPLIT_DIVIDER_HEIGHT);
+      expect(sessionStorage.getItem(KEY)).toBe('0.8');
+
+      // …and the column growing back restores the split the user chose.
+      rerender({h: 1000});
+      expect(result.current.editorHeight).toBe(800);
+    });
+
+    it('bounds the split by the pixel floors once the column is measured, and by the hard bounds before', () => {
+      // An unmeasured column has no pixel floors to express, and dividing by it
+      // would put Infinity in an aria-value attribute.
+      expect(splitBounds(0)).toEqual({min: 0.05, max: 0.95});
+      const {min, max} = splitBounds(1000);
+      expect(Math.round(min * 1000)).toBe(MIN_EDITOR_HEIGHT);
+      expect(Math.round(max * 1000)).toBe(1000 - MIN_RESULTS_HEIGHT - EDITOR_SPLIT_DIVIDER_HEIGHT);
+      expect(EDITOR_SPLIT_KEY_STEP).toBeGreaterThan(0);
+    });
+  });
+});
+
+describe('the retired layout presets', () => {
+  // A removal's risk is what stops being checked, so this enumerates the
+  // population rather than sampling it: the directory listing, and the two
+  // modules' real export sets.
+  it('leaves no file, and no export, behind', async () => {
+    const files = Object.keys(import.meta.glob('./*.{ts,tsx}'));
+    expect(files).not.toContain('./EditorLayoutControl.tsx');
+    expect(files).not.toContain('./useEditorLayout.ts');
+    // The glob is only evidence if it can see the files that ARE there.
+    expect(files).toContain('./useEditorSplit.ts');
+    expect(files).toContain('./EditorSplitDivider.tsx');
+
+    const retired = ['DEFAULT_LAYOUT_PRESET', 'LAYOUT_PRESET_EDITOR_FRACTION', 'QUERY_EDITOR_LAYOUT_STORAGE_PREFIX'];
+    const constants = Object.keys(await import('./query.constants'));
+    const barrel = Object.keys(await import('./index'));
+    for (const name of retired) {
+      expect(constants).not.toContain(name);
+      expect(barrel).not.toContain(name);
+    }
+    expect(constants).toContain('QUERY_EDITOR_SPLIT_STORAGE_PREFIX');
   });
 });
 

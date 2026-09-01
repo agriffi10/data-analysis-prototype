@@ -320,7 +320,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Use <b>Prev</b> and <b>Next</b> to page through large result sets.',
           'Choose how many rows show at once with <b>Rows per page</b> above the table — any number from 1 to 1000 (the default is 100). One setting covers every result tab, and it sticks for the session.',
           'Ran a script with <b>Run Multiple Queries</b>? Each row-returning statement gets its own result tab above the table — switch tabs to compare outputs, and each keeps its own page position and column widths.',
-          'Want more room? The <b>Default / Query Editor / Results</b> control in the toolbar snaps the split between the editor and the results — grow whichever you’re working in. Your choice sticks for the session.'
+          'Want more room? Drag the divider between the editor and the results to any split you like — or, if you would rather not drag, use the small <b>▲</b> and <b>▼</b> buttons on the divider to nudge it a step at a time. Click the divider (or tab to it — it sits just after the editor) and the arrow keys, <b>Home</b> and <b>End</b> move it too. Double-click it to go back to an even split. Where you leave it sticks for the session.'
         ]
       },
       {

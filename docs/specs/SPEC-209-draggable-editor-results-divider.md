@@ -1,8 +1,8 @@
 # Spec: The Draggable Editor/Results Divider
 
 **ID:** SPEC-209
-**Status:** Draft
-**Last Updated:** 2026-08-28
+**Status:** Completed
+**Last Updated:** 2026-09-01
 **Depends On:** SPEC-079 (the layout presets this replaces), SPEC-035 (the query workspace), SPEC-100 (Query workspace responsive), SPEC-045 (axe assertions), SPEC-064 (resizable result columns — the precedent for a pointer-driven resize in this workspace)
 
 ## Overview
@@ -41,6 +41,12 @@ splitting them, so there is no divider to drag and nothing there to replace.
 - **Mobile.** The mobile surface keeps its existing editor/results switching, and renders no divider.
 - **A reset control in the toolbar.** Double-clicking the divider is the reset; adding a button back
   to the toolbar would reintroduce what this spec removes.
+
+> **Scope added during the build (user decision, 2026-09-01).** The divider carries a pair of step
+> buttons. Removing the preset control took away the only single-pointer, non-dragging way to choose
+> a split, which loses WCAG 2.5.7 on a surface that met it — a regression this spec causes rather
+> than inherits. The buttons sit on the divider, not in the toolbar, so the exclusion above still
+> holds. See FR-002 AC6.
 
 ---
 
@@ -85,6 +91,11 @@ The divider is a focusable `separator` with a value, and arrow keys move it.
 - [ ] A focus ring is visible on the divider when it is focused by keyboard.
 - [ ] `expectNoA11yViolations` runs against the driven container with the workspace rendered at
       `tablet` width.
+- [ ] **AC6 (added during the build).** A pair of step buttons on the divider moves the split by the
+      same step the arrow keys use, so every position the keyboard can reach — the current split ±
+      multiples of the step, and both clamps — is reachable by pointer without dragging (WCAG 2.5.7,
+      which asks for an alternative, not for equal granularity). They are the separator's siblings inside its band, not its
+      descendants — a focusable widget may not contain focusable content, and axe enforces it.
 
 ### FR-003: The clamps hold, on drag and on container resize
 
@@ -144,8 +155,12 @@ enumerated, not sampled.
       exports none of them. The storage prefix belongs in this list: its only consumers are
       `useEditorLayout.ts` and `queryPure.test.ts`, both of which this spec deletes, so leaving it
       behind would strand the one constant that still names the old key.
-- [ ] A test renders the query workspace and asserts no control named `Editor`, `Even` or `Results`
-      is present in the toolbar.
+- [ ] A test renders the query workspace and asserts the preset control is gone, by the accessible
+      names it actually shipped with: the group `Editor and results layout`, and the three buttons
+      `Default layout: split editor and results evenly`, `Query Editor layout: grow the editor` and
+      `Results layout: grow the results`. (Amended during the build: the control's visible labels
+      were `Default` / `Query Editor` / `Results`, so an assertion on `Editor` / `Even` / `Results`
+      matched nothing *before* the removal either, and would have passed vacuously.)
 - [ ] `npm run build` passes — every call site of the removed exports is gone, which `tsc -b` is the
       only gate that proves.
 - [ ] The tests that covered the presets are **replaced, not deleted**: each behaviour they asserted
@@ -177,6 +192,18 @@ export const EDITOR_SPLIT_KEY_STEP = 0.05;
 
 /** sessionStorage key prefix for the per-user split (full key: prefix + username). */
 export const QUERY_EDITOR_SPLIT_STORAGE_PREFIX = 's3portal.query.editorSplit.';
+
+// Added during the build. The divider's own height has to be in the results cap, or
+// the clamp and the laid-out column disagree by exactly that much; 24 is also the
+// WCAG minimum pointer target, and height is the divider's only short dimension.
+export const EDITOR_SPLIT_DIVIDER_HEIGHT = 24;
+
+// Added during the build. The pixel floors are the whole clamp on a MEASURED column;
+// these are what an unmeasured one reports, because MIN_EDITOR_HEIGHT / 0 is Infinity
+// and an aria-valuemin may not carry it. They also keep Home/End inside (0, 1), which
+// is what FR-004's validation accepts back.
+export const MIN_EDITOR_FRACTION = 0.05;
+export const MAX_EDITOR_FRACTION = 0.95;
 
 // MIN_EDITOR_HEIGHT and MIN_RESULTS_HEIGHT are unchanged and become the drag clamps.
 ```
