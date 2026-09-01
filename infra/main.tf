@@ -629,6 +629,21 @@ module "lambda_artifacts" {
   depends_on = [module.base]
 }
 
+# The Lambda container image's registry. Nothing is deployed from it yet — the fleet still ships
+# as zips with layers — so this creates a repository and stops. The image, its behaviour matrix
+# and the pipeline that fills this are the rest of the arc.
+module "lambda_image" {
+  source = "./modules/lambda-image"
+
+  project_name = var.project_name
+  environment  = var.environment
+
+  # Same ordering as lambda-artifacts and for the same reason: the deploy role grants itself this
+  # registry's management in modules/base, and a first apply that races that grant hits
+  # AccessDenied. The grant itself landed in an earlier, separate apply.
+  depends_on = [module.base]
+}
+
 # Analytics foundation: shared Athena workgroup + admin-only results
 # bucket. Phase 1 is this additive infrastructure; Phase 2 adds Lake Formation
 # bootstrap, hybrid-mode registration of the user-space bucket, and the portal
