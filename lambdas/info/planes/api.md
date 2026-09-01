@@ -87,7 +87,14 @@ sibling template rather than fail.
   diff, and the type vocabulary is **closed and never falls back**.
 - **`$default` matches OPTIONS**, so API Gateway's own CORS responder never sees a preflight and the
   router must answer one **before authentication**. Only a browser enforces CORS, so `curl` cannot
-  see this failing.
+  see this failing. The gateway then overlays its configured CORS headers onto the integration's own
+  `OPTIONS` 200 — the router itself emits none (`envelope._headers` returns `content-type` and
+  `cache-control` only), so the `access-control-*` headers on a live preflight can only be the
+  gateway's. **No offline test asserts that overlay**; it is read from AWS's documentation and
+  confirmed only by a live browser run — `testing/sessions.md`, in Chromium, with Safari still owed.
+  If it ever stops holding, the failure is **silent on this side**: the router keeps answering 200,
+  no preflight carries CORS headers, and every cross-origin request fails the way they all did on
+  2026-08-27.
 - **`@traced` is outermost everywhere EXCEPT here**: one decorator sits outside it, to turn an
   unpredicted fault into a declared code. A catch *inside* the span ends every failed request
   successfully and records the fault nowhere.
@@ -104,7 +111,9 @@ sibling template rather than fail.
   containment rules.
 - **No route waits, sleeps or polls.** A five-minute query against a 30-second gateway ceiling does
   not fail at the margin, it fails always — so the four loops that poll an execution and page its
-  results stay in the browser, and the API makes exactly one AWS call per request.
+  results stay in the browser, and the API makes exactly one AWS call per request — with one
+  deliberate exception, SPEC-198's free-name probe, which heads up to `FREE_NAME_MAX_ATTEMPTS`
+  candidates because the alternative was that many browser round trips.
 - **Neither the SQL statement nor Athena's `stateChangeReason` may be a log field.** Both routinely
   quote a user's own cell values back, so the span carries `sql_bytes`, `state`, `row_count` and
   `column_count` instead. The reason still travels on the response body, where the browser's

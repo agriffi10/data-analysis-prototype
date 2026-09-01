@@ -1008,8 +1008,12 @@ regression rather than inherited one. That distinction is the whole reason the d
 of step buttons — they were added mid-build, on a user decision, and they are the only new product
 surface in the spec.
 
-**`ColumnResizeHandle` is the other case and stays open.** It has never offered a non-drag pointer
-path, so the result grids are a standing gap this spec neither widens nor closes. Do not read the two
+**`ColumnResizeHandle` is the other case and stays open.** Be exact about what it does offer, because
+"no pointer path at all" is wrong and was asserted here before it was checked: a **double-click
+resets** the width to its default (`onDoubleClick` → `onReset`, wired in both grids since SPEC-064).
+That is a single-pointer, non-dragging action, but it restores a default rather than *choosing* a
+width — so it is not an alternative to the drag's functionality, 2.5.7 is still unmet, and the result
+grids are a standing gap this spec neither widens nor closes. Do not read the two
 as one finding: one was a regression to prevent, the other is somebody else's spec.
 
 **The buttons are the separator's SIBLINGS, not its descendants — and both of the obvious

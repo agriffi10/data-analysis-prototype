@@ -29,21 +29,42 @@ Attributes:
     ratchet at the measured level, and the unit is the PLANE: four specs build one control
     plane, and a script each would be four files sharing a token, a queue URL, a group digest
     and an envelope builder. A spec that owes a CLI check adds a SECTION to its plane's script.
-  CLAUDE_MAX_BYTES: The always-loaded file's budget. It was 121,098 bytes before the first cut and
+  CLAUDE_MAX_BYTES: The always-loaded file's budget. It was 121,098 bytes before the first cut,
     51,995 before the second, which replaced a Key Decisions list of 105 one-per-spec lines with
-    eight blocks grouped by AREA. The list had stopped being a reminder and become a changelog:
-    every closing spec appended one, and the file hit its own ratchet exactly when a spec tried to
-    close. Group into the existing blocks; do not start a new line per spec.
+    eight blocks grouped by AREA, and 49,972 before the third (2026-09-01), which cut the Identity
+    block's API fences back to a pointer once they were carried in full by both
+    ``docs/decisions/identity-and-access.md`` and ``lambdas/info/planes/api.md``. The list had
+    stopped being a reminder and become a changelog: every closing spec appended one, and the file
+    hit its own ratchet exactly when a spec tried to close. Group into the existing blocks; do not
+    start a new line per spec.
 
     **Raised from 34,000 to 50,000 (user decision, 2026-08-27), and this is the ONE budget here
     deliberately not held at the measured level.** A ratchet at the measured level assumes the file
     only grows by accretion, and after the second cut that stopped being true: what remains is
-    fences, and the completion ritual REQUIRES every closing spec to fold in a clause. At 34,000
-    with 161 bytes free, SPEC-195 could not close without pruning another area's fences to pay for
-    its own — which is the gate causing the damage it exists to prevent. The anti-regrowth rules
-    that actually bind are the shape ones (group by area, no per-spec line, DIGEST_MAX_CHARS), and
-    they are unchanged. If this file approaches 50,000 the answer is still a cut, not another
-    raise: two cuts have already been needed, and both were structural.
+    fences, and a spec that settles a genuinely new architectural decision folds a clause in beside
+    them.
+
+    **That is NOT a per-spec requirement, and reading it as one has already done damage.** The
+    ritual gates the fold on a new *architectural* decision — a rule or a per-feature choice is a
+    register entry and nothing more — so most closing specs add nothing here, and several close by
+    replacing a clause they falsified at no net cost. Nothing in this file checks for a clause
+    either: what it holds CLAUDE.md to is a byte budget, area grouping, ``DIGEST_MAX_CHARS``, its
+    markdown links and its ``@`` pointers.
+
+    The sentence this replaces asserted the requirement, and it shipped in SPEC-195's OWN closing
+    PR (#531) — so SPEC-195 cannot be the spec it damaged, and an earlier draft of this correction
+    said it was. SPEC-203's close is the one: it read the requirement as licence and spent the
+    Identity block's API fences to buy room for its own clause, in that same block. #568 is titled
+    for the prune it forced. Its clause was genuinely owed; the prune was not, and deferring an
+    ADDITION under byte pressure was always available. Replacing a clause a spec has falsified is
+    the case that cannot be deferred.
+
+    At 34,000 with 161 bytes free, SPEC-195 could not close without pruning another area's fences
+    to pay for its own — which is the gate causing the damage it exists to prevent. The
+    anti-regrowth rules that actually bind are the shape ones — group by area and
+    ``DIGEST_MAX_CHARS``, both checked here, and they are unchanged. "No per-spec line" is
+    doctrine and is NOT machine-checked: nothing counts bullets or recognises a per-spec one. If this file approaches 50,000 the answer is still a
+    cut, not another raise: three cuts have already been needed, and all three were structural.
   DIGEST_MAX_CHARS: The longest a single Key Decisions bullet may be, measured on the LOGICAL
     bullet — continuation lines joined. It was measured per physical line until 2026-08-26, which
     stopped meaning anything the moment the section was rewritten as wrapped prose: the longest
@@ -670,6 +691,42 @@ def check_section_pointers() -> list[str]:
     return errors
 
 
+def check_always_loaded_pointers() -> list[str]:
+    """Refuse an ``@doc/path.md`` pointer in CLAUDE.md that resolves to nothing.
+
+    CLAUDE.md is a router: it carries pointers instead of the detail it points at, and the third
+    cut deepened that reliance by trading a block of API fences for one pointer to the page
+    carrying them. A pointer is only a cut worth making while it resolves, and nothing else here
+    reads it — ``check_links`` matches ``[text](target)`` markdown links, and
+    ``check_doc_paths_everywhere`` walks code suffixes, so a bare ``@`` pointer in a ``.md`` file
+    falls between them. Verified by planting a broken one, which passed the whole suite.
+
+    Args:
+      None.
+
+    Returns:
+      One message per ``@`` pointer in CLAUDE.md that names a ``.md`` file under ``DOC_TREES`` and
+      does not resolve. Deliberately narrow, and the gaps are real: a pointer to a DIRECTORY
+      (``@docs/testing/``), to a tree outside ``DOC_TREES`` (``@scripts/…``), or with the tree
+      itself misspelt (``@doc/process.md``) is invisible to this, and CLAUDE.md carries live
+      pointers of the first kind. Widening it needs the glob placeholders
+      (``@docs/specs/SPEC-XXX-*.md``, ``@docs/decisions/<area>.md``) handled deliberately rather
+      than by accident of this character class.
+
+    Raises:
+      None.
+    """
+    pattern = re.compile(
+        r"@((?:" + "|".join(re.escape(tree) for tree in DOC_TREES) + r")/[A-Za-z0-9_./-]+\.md)"
+    )
+    text = (ROOT / "CLAUDE.md").read_text()
+    return [
+        f"CLAUDE.md: points at a missing doc -> @{target}"
+        for target in sorted(set(pattern.findall(text)))
+        if not (ROOT / target).exists()
+    ]
+
+
 def check_doc_paths_everywhere() -> list[str]:
     """Refuse a reference to a missing ``docs/`` file from ANY tracked source file.
 
@@ -738,6 +795,7 @@ def main() -> int:
         check_links,
         check_section_pointers,
         check_doc_paths_everywhere,
+        check_always_loaded_pointers,
     ):
         errors.extend(check())
     if errors:
