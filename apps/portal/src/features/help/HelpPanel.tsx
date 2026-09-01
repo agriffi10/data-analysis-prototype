@@ -42,9 +42,16 @@ export function HelpPanel({sectionId, open, onClose}: HelpPanelProps) {
       bodyClassName="gap-2.5"
       footer={
         <div className="shrink-0 border-t border-border px-5 py-3">
+          {/* A standalone link has no height of its own: as a bare inline element its box is
+              the font's content area — 15.5px here — not the 18px line box, which applies
+              once it is no longer a bare inline box. Nothing sits next to it, so spacing
+              alone already made that conformant; this is comfort rather than a fix. The 24
+              is an accessibility THRESHOLD, not a spacing step, so it is written absolutely
+              — a rem-derived step reads as 24.5px today and would fall under the threshold
+              if the root ever shrank. */}
           <Link
             to={`/help#${section.id}`}
-            className="text-sm font-medium text-accent-text underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+            className="inline-flex min-h-[24px] items-center text-sm font-medium text-accent-text underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
             Open the full guide
           </Link>
         </div>
