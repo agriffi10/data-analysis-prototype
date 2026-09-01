@@ -49,6 +49,13 @@ Attributes:
   EXPIRED_CREDENTIAL_CODES: The service codes meaning "these credentials are past their expiry",
     which is the one downstream failure worth a forced re-assume.
   S3_SERVICE: The one service whose endpoint style is pinned rather than left to the default.
+  S3_SIGNATURE_VERSION: Forces SigV4 presigning. botocore's S3 default still presigns the legacy
+    SigV2 query form — ``AWSAccessKeyId``/``Signature``/``Expires`` rather than
+    ``X-Amz-Signature``/``X-Amz-Expires`` — and a SigV2 URL is redeemed happily by a
+    grandfathered bucket, so nothing goes red. It is pinned because the properties this
+    application needs from a presigned URL are SigV4's: AWS is retiring SigV2 for S3, a bucket
+    requiring SSE-KMS under a customer-managed key refuses it, and credentials vended for a
+    scoped grant are signed as SigV4 or not at all.
   S3_ENDPOINT_CONFIG: Forces the regional S3 endpoint. A presigned URL is redeemed by the SPA,
     whose ``connect-src`` names ``<bucket>.s3.<region>.amazonaws.com``; botocore presigns against
     the legacy global ``<bucket>.s3.amazonaws.com`` in EVERY region by default, so without this
@@ -101,6 +108,7 @@ ABSENT_OBJECT_CODES = frozenset({"NoSuchKey", "NotFound", "404"})
 EXPIRED_CREDENTIAL_CODES = frozenset({"ExpiredToken", "ExpiredTokenException"})
 
 S3_SERVICE = "s3"
+S3_SIGNATURE_VERSION = "s3v4"
 S3_ENDPOINT_CONFIG = types.MappingProxyType(
     {"us_east_1_regional_endpoint": "regional", "addressing_style": "virtual"}
 )
@@ -291,6 +299,11 @@ def _client(service: str, credentials: AssumedCredentials | None = None) -> Any:
     path is exactly what this door exists to prevent. It is passed as a fresh ``dict`` because
     botocore keeps the mapping and writes into it under a dualstack endpoint.
 
+    **The signature version is pinned for the same reason and fails the same quiet way.** Left to
+    botocore's S3 default a presigned URL carries the SigV2 query form, which a grandfathered
+    bucket redeems without complaint — so the wrong signing version is invisible from every
+    surface this repo has, including a browser that fetches the object successfully.
+
     Args:
       service: The AWS service name.
       credentials: The caller's assumed session, or None for the execution role.
@@ -312,7 +325,9 @@ def _client(service: str, credentials: AssumedCredentials | None = None) -> Any:
             "aws_session_token": credentials.session_token,
         }
     if service == S3_SERVICE:
-        session["config"] = Config(s3=dict(S3_ENDPOINT_CONFIG))
+        session["config"] = Config(
+            signature_version=S3_SIGNATURE_VERSION, s3=dict(S3_ENDPOINT_CONFIG)
+        )
     return boto3.client(service, **session)
 
 

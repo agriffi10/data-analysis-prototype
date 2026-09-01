@@ -802,25 +802,52 @@ not match either. Anything this filter shows is an AWS host the browser reached 
 3. **Each S3 request must be *presigned*.** A *header*-signed S3 request is the browser holding
    credentials — the exact thing this arc removes — and it is indistinguishable from a presigned one
    at the host level. For each S3 request in the panel:
-   - **Expected:** the query string carries the signature. **This deployment mints SigV2**, measured
-     2026-08-31: `AWSAccessKeyId`, a 28-character `Signature`, `Expires` (an absolute epoch) and
-     `x-amz-security-token`. It carries **no `X-Amz-Signature` and no `X-Amz-Expires`** — an earlier
-     draft of this step asserted exactly those two and would have failed against a healthy system.
-     Nothing pins the version, so assert *a* signature in the query rather than a spelling: check
-     for `Signature=` **and** an expiry parameter, and record which shape you saw.
+   - **Expected:** the query string carries the signature. **The version is now pinned to SigV4 in
+     code** — `identity.S3_SIGNATURE_VERSION`, with a test asserting the client is built with it —
+     so expect `X-Amz-Algorithm`, `X-Amz-Credential`, `X-Amz-Date`, `X-Amz-Expires`,
+     `X-Amz-SignedHeaders`, `X-Amz-Security-Token` and `X-Amz-Signature`.
+
+     **This row has been wrong in BOTH directions, which is why it now says to record the shape
+     rather than trust this paragraph.** It first asserted the SigV4 spelling against a deployment
+     that minted SigV2 (botocore's S3 default, unpinned); it was then rewritten to assert the SigV2
+     spelling, which the pin has just invalidated. Assert *a* signature and *an* expiry parameter in
+     the query, **record which family you saw**, and treat a mismatch with this paragraph as a
+     question about the deployed image before it is a failure — step 4's sweep depends on the
+     answer.
    - **Expected:** the request *headers* contain **no** `Authorization` and **no**
      `x-amz-security-token`. The token riding in the **query** is normal for a URL presigned by an
      assumed session; the header is what would mean the browser holds credentials.
    - [x] **Pass, 2026-08-31** — 2 requests inspected (one `PUT`, one `GET`), both with an empty
      request-header set and both signed in the query. Upload and download windows were both 900 s,
      unclamped, so the credential had more than that left and the clamp did not bite.
+   - [ ] **Re-run OWED against the SigV4 pin.** The pass above measured SigV2 URLs, which is a
+     different artifact from the one now deployed. The property it proves — signature in the query,
+     nothing in a header — is version-independent and is expected to hold; the row is re-owed
+     because it was measured on a system that no longer exists, not because it is doubted.
 4. **The presigned URL never appears in a log.** Spot-check `logs/service=api/` for the day: no record
    contains a presigned URL's signature, a bearer token, or an email address. A presigned URL is a
-   bearer token. **Sweep for `AWSAccessKeyId=`, `x-amz-security-token=` and `Signature=`** — NOT for
-   `X-Amz-Signature`, which this deployment never emits and which therefore made the 2026-08-30
-   sweep of 470 records unfailable.
+   bearer token.
+
+   **Sweep for BOTH families, always, and the reason is that this sweep has already been unfailable
+   once.** The 2026-08-30 run swept 470 records for `X-Amz-Signature` against a deployment that
+   minted SigV2 and could not have failed; the fix was to sweep for the SigV2 spelling instead, and
+   the SigV4 pin has now made *that* the half that matches nothing. A sweep naming only the family
+   currently deployed goes unfailable on the next change to a line of code in a different tree. So
+   sweep for all of:
+
+   ```
+   X-Amz-Signature   X-Amz-Credential   X-Amz-Security-Token
+   AWSAccessKeyId    x-amz-security-token   Signature=
+   ```
+
+   `Signature=` matches inside `X-Amz-Signature=` as well, so it is the backstop for a family
+   nobody has thought of. **A run reporting zero across all six needs its positive control** — the
+   window must contain at least one real presign mint, evidenced by the `key_length` records — or
+   zero means the window was empty, not that nothing leaked.
    - [x] **Pass, 2026-08-31** — all six patterns zero across 1,605 records, with the positive
      control that the window held two real presign mints (six `key_length` records).
+   - [ ] **Re-run OWED against the SigV4 pin**, for the same reason as step 3: the sweep that passed
+     ran against SigV2 URLs, and the six patterns above are what make it valid for either family.
 
 ## 5. Every ported surface, exercised once — BLOCKING
 

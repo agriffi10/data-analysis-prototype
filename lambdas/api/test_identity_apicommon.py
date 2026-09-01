@@ -202,3 +202,58 @@ def test_a_username_that_cannot_be_represented_is_refused_never_repaired() -> No
     ):
         with pytest.raises(identity.IdentityUnavailableError):
             identity.role_session_name(username)
+
+
+def test_the_s3_client_is_pinned_to_sigv4_and_to_the_regional_endpoint(monkeypatch) -> None:
+    """Both S3 pins, asserted at the one construction site, because both fail invisibly.
+
+    **The signature version.** Left to botocore's S3 default the client presigns the legacy
+    SigV2 query form — ``AWSAccessKeyId``/``Signature``/``Expires`` in place of
+    ``X-Amz-Signature``/``X-Amz-Expires``. A bucket old enough to still accept SigV2 redeems
+    such a URL without complaint, so the browser fetches the object, the upload succeeds, every
+    offline test passes and nothing anywhere goes red. Measured shipped that way on 2026-09-01
+    against a real upload. What it costs is not tidiness: AWS is retiring SigV2 for S3, a bucket
+    requiring SSE-KMS under a customer-managed key refuses a SigV2 URL outright, and credentials
+    vended for a scoped grant are signed as SigV4 or not at all — so the transition's storage
+    plane inherits a signing version that cannot carry it.
+
+    **The endpoint style**, which had no test at all despite a docstring calling it load-bearing:
+    botocore presigns against the legacy global host in every region by default, which the SPA's
+    ``connect-src`` does not name, so an upload fails as a generic network error while every
+    download keeps working.
+
+    The assertion is on the kwargs handed to ``boto3.client`` rather than on a built client,
+    because a built client resolves defaults and would agree with either setting.
+
+    Args:
+      monkeypatch: Intercepts the client construction.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If either pin is absent, or if a non-S3 service is given a config.
+    """
+    import boto3
+
+    captured: dict[str, object] = {}
+
+    def _capture(service, **kwargs):
+        captured["service"] = service
+        captured["kwargs"] = kwargs
+        return object()
+
+    monkeypatch.setattr(boto3, "client", _capture)
+
+    identity._client(identity.S3_SERVICE, None)
+    built = captured["kwargs"]["config"]
+
+    assert built.signature_version == "s3v4", (
+        "botocore's S3 default presigns SigV2, which a grandfathered bucket redeems happily"
+    )
+    assert built.s3["addressing_style"] == "virtual"
+    assert built.s3["us_east_1_regional_endpoint"] == "regional"
+
+    captured.clear()
+    identity._client("sts", None)
+    assert "config" not in captured["kwargs"], "the pins are S3's, not every service's"
