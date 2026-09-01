@@ -551,17 +551,22 @@ because one that silently passes everything is indistinguishable from one that w
   stylesheet) and sweeps hexes, Tailwind's numbered scales, and `white`/`black` separately, the last
   exempted per file with a reason.
 
-**The preference is a module store read through `useSyncExternalStore`, not a Context provider** —
-three states (`light`/`dark`/`system`, anything else read as `system`), `localStorage`, per browser.
-**Not because a provider would remount its subtree — it would not**, and that claim was in this
-entry until a reviewer built the provider and measured it: a Context value change re-renders
-consumers and unmounts nothing, the controlled input keeps its value, and the DOM node is the same
-one. FR-004's no-remount criterion is satisfied by either shape. The store earns its place for
-three other reasons: the preference **resolves before React mounts**, which is what lets it share
-`theme-init.js`'s resolution rather than race it; the setter is callable without a render; and the
-two consumers are in disjoint subtrees — the app shell, and the landing route, which suppresses
-that shell — so a provider would have to sit above the router to serve one of them. Worth keeping
-as a shape: the *plausible* justification was wrong, and only building the alternative found it.
+**The preference is a module store read through `useSyncExternalStore`** — three states
+(`light`/`dark`/`system`, anything else read as `system`), `localStorage`, per browser. **A Context
+provider would work equally well, and the entry says so because two justifications for preferring
+the store were written here and both were false.** The first: a provider would remount its subtree.
+It would not — a reviewer built one and measured it; consumers re-render, the controlled input keeps
+its value, the DOM node is identical, and FR-004's no-remount criterion is met by either shape. The
+second, written to replace the first: the consumers sit in disjoint subtrees, so a provider would
+have to sit above the router. Also false — `RootLayout` renders the header and the `Outlet` as
+siblings and already hosts `NavRailProvider` in the exact position a theme provider would occupy.
+
+The one real asymmetry is small: the state lives outside React, so the setter is callable without a
+render and the module resolves the preference the same way `theme-init.js` does, with no provider to
+thread. **The lesson is not about theming.** A design choice that is genuinely a preference attracts
+a justification anyway, each one plausible and each one written with more confidence than the last;
+both of these were caught only by someone building the alternative rather than reading the argument
+for it. When the honest answer is "either would do", write that.
 `public/theme-init.js` stamps `data-theme` before the first paint and is **external, not inline**:
 the CSP is `script-src 'self'` with no nonce and no hash, so an inline initialiser would work in dev
 and be refused in production. It throws on nothing, because it blocks the module script behind it.

@@ -774,6 +774,12 @@ whole app actually looks right.
    out; the landing page's indigo call-to-action strip is deliberately unchanged by the theme.
 6. **Shadows.** A modal and the Menu popover must still read as raised against the dark page. If
    they look flat, the `--shadow-tint-*` override is not landing.
+7. **Target size, in the browser and not in the suite.** The root font-size is **14px**, so every
+   rem-named size is 12.5% smaller than it reads: `h-8` is 28px and `h-7` is 24.5px, both over
+   WCAG 2.5.8's 24px, and `h-6` would be 21px and fail. Measure the header's theme button and the
+   drawer's three options with the inspector. axe's `target-size` rule is enabled in the suite and
+   reports a **pass it cannot make** — jsdom has no layout engine — so this is the only place the
+   number is real.
 
 ### The container platform — what a signed-in session CANNOT reach
 

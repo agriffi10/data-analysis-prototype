@@ -49,10 +49,10 @@ describe('the theme control', () => {
   });
 
   it('switches the theme without re-mounting what is on the page', async () => {
-    // FR-004's requirement, not an argument for the store's shape: a Context provider would
-    // pass this too, because a value change re-renders consumers and unmounts nothing. What it
-    // does catch is a switch implemented by remounting — a `key` on a subtree, a router
-    // navigation — which is a real way to lose what the user had typed.
+    // FR-004's requirement, and nothing more: a Context provider would pass this too, because a
+    // value change re-renders consumers and unmounts nothing. What it does catch is a switch
+    // implemented by REMOUNTING — a `key` on a subtree, a router navigation — which is a real way
+    // to lose what the user had typed.
     function Typed() {
       const [value, setValue] = useState('');
       return (

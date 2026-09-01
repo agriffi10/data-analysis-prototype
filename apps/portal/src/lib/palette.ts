@@ -148,10 +148,11 @@ export const CONTRAST_PAIRS: readonly ContrastPair[] = [
   {kind: 'token', fg: 'on-danger', bg: 'danger', min: 4.5},
 
   // The focus ring is a non-text indicator: WCAG 1.4.11, 3:1. It lands on the soft fills too —
-  // every hoverable row, chip and menu item that takes focus is filled with one — and those four
-  // are the tightest pairings in the dark palette at 3.25–3.34. They are declared rather than
-  // left out precisely because the margin is thin: a token nudged by a few points reddens here
-  // instead of quietly dropping the one indicator a keyboard user has.
+  // every hoverable row, chip and menu item that takes focus is filled with one — and the ring is
+  // every one of the five tightest pairings in the dark palette, 3.25–3.34, the soft fills
+  // interleaved with `surface-2`. They are declared rather than left out precisely because the
+  // margin is thin: a token nudged by a few points reddens here instead of quietly dropping the
+  // one indicator a keyboard user has.
   ...([...TEXT_SURFACES, 'accent-soft', 'success-soft', 'warning-soft', 'danger-soft'] as const).map(
     (bg): ContrastPair => ({kind: 'token', fg: 'accent', bg, min: 3})
   ),

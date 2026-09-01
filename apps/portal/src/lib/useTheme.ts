@@ -115,14 +115,17 @@ export function setThemePreference(next: ThemePreference): void {
 /**
  * The current theme preference, what it resolves to, and how to change it.
  *
- * A module store read through `useSyncExternalStore` rather than a Context provider, for three
- * reasons — none of which is "a provider would remount its subtree". It would not: a Context
- * value change re-renders consumers and unmounts nothing, so the no-remount requirement is met
- * either way. What the store actually buys: the preference RESOLVES BEFORE REACT MOUNTS, which
- * is what lets it share `public/theme-init.js`'s exact resolution rather than racing it;
- * {@link setThemePreference} is callable without a render; and the two consumers sit in
- * disjoint subtrees — the app shell, and the landing route, which suppresses that shell — so a
- * provider would have to be threaded above the router to serve one of them.
+ * A module store read through `useSyncExternalStore`. **A Context provider would also work, and
+ * the honest reason this is not one is preference, not necessity** — said plainly because two
+ * confident justifications for it have now been written and both were false. The first claimed a
+ * provider would remount its subtree; it would not, a value change re-renders consumers and
+ * unmounts nothing. The second claimed the consumers sit in disjoint subtrees needing a provider
+ * above the router; they do not — `RootLayout` renders the header and the `Outlet` as siblings
+ * and already hosts `NavRailProvider` in exactly the position a theme provider would take.
+ *
+ * The one real asymmetry, and it is small: the state lives outside React, so
+ * {@link setThemePreference} is callable without a render and the module resolves the preference
+ * the same way `public/theme-init.js` does, with no provider to thread or to forget.
  *
  * It does NOT listen for `storage`, so a second tab's choice is not picked up until this one
  * reloads. Deliberate: the theme is a per-tab reading comfort as much as a stored preference,

@@ -125,8 +125,9 @@
 
 /* The dark theme. Every value is derived under `lib/contrast.test.ts` rather than
    chosen: the harness measures each declared pairing in both themes, and these
-   are what passes it. Ratios run 3.3–16.2, the lowest being the focus ring
-   against the lightest surface (floor 3:1, WCAG 1.4.11). */
+   are what passes it. Ratios run 3.25–16.2, and the five tightest are all the
+   focus ring — against `warning-soft`, `success-soft`, `surface-2`,
+   `accent-soft` and `danger-soft`, in that order (floor 3:1, WCAG 1.4.11). */
 :root[data-theme='dark'] {
   --color-bg: #0d1014;
   --color-surface: #14181e;

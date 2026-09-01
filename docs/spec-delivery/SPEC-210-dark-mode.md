@@ -12,8 +12,9 @@
   store read through `useSyncExternalStore` (`lib/useTheme.ts`, `lib/theme.types.ts`), plus
   `public/theme-init.js`, loaded blocking from `<head>` so nothing flashes light. The store is
   chosen because the preference resolves **before React mounts** and so can share the
-  initialiser's resolution, not because a Context provider would remount anything — it would not,
-  and a reviewer built one to prove it.
+  initialiser's resolution. **A Context provider would have worked too** — two successive
+  justifications for preferring the store were written and both were false (see the register
+  entry); the honest difference is that the state is reachable without a render.
 - **The control**: `components/ThemeMenu.tsx` — an `IconButton` + `Menu` in the header, and the same
   three choices as a `SegmentedFilter` group in `AppNavDrawer`. `Menu`'s items gained an optional
   `selected`, which makes one a `menuitemradio` with `aria-checked` and a tick.
@@ -65,7 +66,7 @@
 
 ### Raised, not fixed
 
-- **`text-danger/80` over `danger-soft` measures 4.19 in light and 4.27 in dark** (the metadata
+- **`text-danger/80` over `danger-soft` measures 4.19 in light and 4.42 in dark** (the metadata
   panel's error detail). Pre-existing, sub-AA in **both** themes, and dark is the better of the
   two — so it is not something this spec introduced or worsened. Out of Scope says a light pairing
   that fails is "a finding to raise, and the fix is its own decision", so it is raised here. The

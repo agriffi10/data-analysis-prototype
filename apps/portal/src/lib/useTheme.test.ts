@@ -130,6 +130,11 @@ describe('the pre-paint initialiser', () => {
     delete window.matchMedia;
     try {
       expect(() => runInitialiser()).not.toThrow();
+      // …and it still PAINTS. Asserting only that nothing threw is satisfied by an initialiser
+      // that reaches neither of its two writes: the outer catch swallows the TypeError, `<html>`
+      // gets no attribute at all, and the page is unthemed until React mounts.
+      expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+      expect(document.documentElement.style.colorScheme).toBe('light');
     } finally {
       window.matchMedia = matchMedia;
     }

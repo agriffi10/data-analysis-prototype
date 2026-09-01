@@ -315,6 +315,9 @@ describe('the editor follows the app theme', () => {
     );
 
     for (const [name, theme] of h.monacoMock.editor.defineTheme.mock.calls as [string, MonacoTheme][]) {
+      // A loop over an empty rule set passes by finding nothing to disagree with — the same shape
+      // the stylesheet check guards with its own size assertion.
+      expect(theme.rules.length, `${name} defines no syntax rules at all`).toBeGreaterThan(5);
       const palette = PALETTE[name.endsWith('-dark') ? 'dark' : 'light'];
       for (const rule of theme.rules) {
         // One value can belong to more than one token (light `accent-text` and `accent-hover`
