@@ -1,8 +1,9 @@
 # `spa` — the container delivery path
 
 The SPA served from a Fargate container behind an internet-facing ALB, with its own ECR
-repository. **CloudFront (`modules/app`) is still production and still the rollback**; this path
-reproduces every job it does, with three deliberate divergences.
+repository. **This is the only delivery path**: the CloudFront distribution it was built to
+reproduce is retired, and with it the rollback. It reproduced every job that distribution did, with
+three deliberate divergences, and those divergences are now simply what the portal serves.
 
 | File | Holds |
 |---|---|

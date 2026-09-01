@@ -163,9 +163,9 @@ locals {
   # {project}-*-archive-* pattern). Overridable via the root archive_bucket_name variable
   # (S3 names are globally unique).
   #
-  # NOT IN modules/app's CSP INPUTS, and that absence is a requirement rather than an
+  # NOT IN THE CSP's connect-src, and that absence is a requirement rather than an
   # oversight: the browser never reads this bucket, so its host must not appear in
-  # the enumerated connect-src. A reviewer should be able to read that list and see no
+  # the enumerated list. A reviewer should be able to read that list and see no
   # archive host.
   archive_bucket_name = var.archive_bucket_name != "" ? var.archive_bucket_name : "${var.project_name}-prod-archive"
 
@@ -175,8 +175,8 @@ locals {
   # PLAN time for its compact() LF-Tag grant, so neither can come from module.verification's
   # own outputs without a cycle.
   #
-  # The trail bucket is NOT in modules/app's CSP inputs, for the archive bucket's reason: the
-  # browser has no relationship with either.
+  # The trail bucket is NOT in the CSP's connect-src either, for the archive bucket's reason:
+  # the browser has no relationship with either.
   verification_trail_bucket_name = "${var.project_name}-${var.environment}-archive-audit"
   # EMPTY when no principal has been named, because the role is then not created — and
   # analytics' compact() must drop it rather than granting Lake Formation DESCRIBE to a role

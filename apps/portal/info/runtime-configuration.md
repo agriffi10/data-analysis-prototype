@@ -57,7 +57,7 @@ Adding one means touching all five, and a test compares them:
 
 It was six until the CloudFront delivery path was retired: `deploy-app.yml` carried a build env
 and a render step, each its own site. **The count went DOWN by a deletion, which is the direction
-that hides a gap** — so the entrypoint's two lists gained a real comparison in the same change,
+that hides a gap** — so the entrypoint's two lists gained a real comparison in merge 1 of the same spec,
 rather than inheriting a claim that a deleted workflow's tests had been covering them.
 
 Site 3 survives the retirement and had to be **edited** by it. The map named `cloudfront_domain`
@@ -73,15 +73,15 @@ variable interpolated to the empty string, which satisfies a required Terraform 
 overrides its default. `.github/scripts/resolve-config.sh` reads the outputs once per job and fails
 the deploy on an absent or empty one, naming the key and the output. What decides which half of site
 3 a key belongs to is not convenience: **an input cannot be read from the thing it configures.**
-`appUrl` shows both halves at once — the document resolves it from an output, while `TF_VAR_app_url`
-stays a variable because Cognito's callback list is built *from* it, and `deploy-app.yml` compares
-the two rather than letting them drift into a broken sign-in.
+`appUrl` no longer has two halves. `TF_VAR_app_url` is deleted along with `variable "app_url"`, and
+Cognito's callback and logout lists are built from `local.spa_origin` directly — so there is nothing
+left for a deploy to compare, and nothing left to drift. `.github/config-outputs.json` resolves
+`appUrl` from the `spa_origin` output, which is the same local.
 
-`infra/main.tf`'s `spa_runtime_config` is the same relation stated for the container path, in
-Terraform's own terms. The two agree key for key, and diverge on exactly one value on purpose:
-`appUrl` is the CloudFront origin for the bundle and `local.spa_origin` for the container, because a
-container serving the CloudFront origin sends a sign-in started on the container to an address that
-never receives the `?code=`.
+`infra/main.tf`'s `spa_runtime_config` states the same relation in Terraform's own terms, and the
+two now agree on every value including this one. They diverged on `appUrl` only while a second
+delivery path existed: a container serving the other origin sends a sign-in started on the container
+to an address that never receives the `?code=`.
 
 ## What is deliberately not in it
 
