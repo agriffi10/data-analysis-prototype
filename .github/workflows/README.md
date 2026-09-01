@@ -4,7 +4,7 @@ This directory contains five workflows:
 
 | File | Trigger | Purpose |
 |---|---|---|
-| `ci.yml` | Push to any branch; PR → `main` | Web app: lint + unit/component tests + production build. Lambdas: `ruff` lint + `pytest` (separate `lambdas` job) |
+| `ci.yml` | PR → `main` | Web app: lint + format + `tsc -b` build + unit/component tests. Those steps are **scoped**: a pull request touching none of `apps/portal/**`, the root manifests, `.nvmrc` or this workflow skips them and the job costs one billed minute instead of six. The scoping is per-STEP, not a workflow-level `paths:` filter, so the job always runs and always reports — a required check by that name can never sit pending. An unreachable base runs everything. Lambdas: `ruff` + `mypy` + `pytest` + the doc, contract and feature-flag validators (separate `lambdas` job, never scoped) |
 | `deploy-app.yml` | Push to `main` | Build SPA with env vars, sync to S3, invalidate CloudFront |
 | `deploy-infra.yml` | PR → `main` (paths: `infra/**`, own workflow file); push to `main` (same); manual dispatch (optional `skip_refresh` recovery input) | `tofu fmt -check` + `tofu plan` on PRs (posts plan as PR comment); `tofu plan` + `tofu apply` on merge |
 | `security.yml` | PR → `main`; weekly (Mon 06:17 UTC); manual dispatch | Security scanning: Semgrep SAST, `npm audit` (runtime + full), `pip-audit`, gitleaks, Checkov, OWASP ZAP baseline. All **report-only** — see the `GATE_*` block in the workflow and `docs/security-baseline.md` (SPEC-138) |

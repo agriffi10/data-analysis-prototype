@@ -78,20 +78,70 @@ env:
   GITLEAKS_VERSION: '8.30.1'
 
 jobs:
-  # Fails the run before any scanner burns a minute if a GATE_* value is not one this
-  # workflow understands. Every scanner `needs: gates`, so a typo cannot reach a state
-  # where the workflow is green and enforcing nothing.
-  gates:
-    name: Validate gate configuration
+  # ── SAST ─────────────────────────────────────────────────────────────────────────
+  # Semgrep OSS. Registry rulesets rather than hand-written rules: p/owasp-top-ten is the
+  # OWASP coverage this spec was asked for, and the per-language sets carry the framework
+  # idioms. No account or token is needed for registry rulesets.
+  # ── Every scanner, in ONE job ────────────────────────────────────────────────
+  # These were five separate jobs. Each finished in 12-71 seconds and GitHub bills a
+  # whole minute per job, so the five cost five billed minutes for about three minutes
+  # of scanning — 55% of this workflow's bill was rounding, on every PR.
+  #
+  # Merging them changes NO coverage: the same five scanners, the same versions, the
+  # same gates, the same artifacts. What it changes is that they now share one checkout
+  # and one toolchain setup instead of repeating both five times.
+  #
+  # ── The gate validation was the SIXTH such job, and is now this job's first step ──
+  # It ran for a measured 5-11 seconds and was billed a whole minute on every pull
+  # request: 49 billed minutes for 6 minutes of work over 2026-08-30..09-01, the worst
+  # rounding ratio in the repository.
+  #
+  # It was a separate job for a real reason, and that reason is answered rather than
+  # dropped. The argument was that `needs: gates` is a hard ordering no arrangement of
+  # steps reproduces, because every step here is `if: always()` and would run straight
+  # through a failed validation. What reproduces it is naming the validation's own
+  # outcome: it carries `id: gates` and NO `if:`, so it runs under the default
+  # `success()`, and every step below is `always() && steps.gates.outcome == 'success'`.
+  # A bad GATE_* value therefore skips all five scanners exactly as a failed `needs` did,
+  # and the run still cannot be green while enforcing nothing.
+  #
+  # `dast` no longer needs it either — it validates the same six values itself, so a
+  # failing scanner cannot stop the DAST baseline from reporting, which a `needs: scan`
+  # would have introduced.
+  #
+  # EVERY scanner step is `if: always()`. In five separate jobs no scanner could be
+  # skipped by another's failure; merged, the default `success()` would let one broken
+  # scanner silently skip the four after it, and this workflow's rule is that "did not
+  # run" is never "clean" (SPEC-138). A failing scanner still fails the job — and now the
+  # four that follow it still report.
+  scan:
+    name: Scanners (Semgrep, npm audit, pip-audit, gitleaks, Checkov)
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # NOT the sum of the five it replaces (85). Serialising them means a single hung
+    # scanner now burns the whole budget as BILLED minutes, where before it burned its
+    # own job's 20 and the other four still finished — so the merge has to bring the
+    # ceiling down, not carry it over. The five together measure ~3 minutes at p90;
+    # 30 is ten times that, and a scanner that genuinely needs more should fail here
+    # and be looked at rather than quietly costing half an hour a run.
+    timeout-minutes: 30
     permissions:
       contents: read
+
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        # gitleaks scans the branch's FULL HISTORY, so its checkout must not be shallow.
+        # It had its own job and its own checkout before; sharing one now means this
+        # setting is load-bearing for the whole job.
+        with:
+          fetch-depth: 0
 
+      # FIRST, and deliberately WITHOUT `if:` — the default `success()` is what makes this
+      # a gate rather than a report. Every scanner below tests `steps.gates.outcome`, so a
+      # GATE_* value this workflow does not understand skips all five instead of letting
+      # the run go green while enforcing nothing.
       - name: Validate every gate value
+        id: gates
         run: |
           chmod +x .github/scripts/apply-gate.sh
           for name in SEMGREP NPM_AUDIT PIP_AUDIT GITLEAKS CHECKOV ZAP; do
@@ -117,52 +167,6 @@ jobs:
             echo
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # ── SAST ─────────────────────────────────────────────────────────────────────────
-  # Semgrep OSS. Registry rulesets rather than hand-written rules: p/owasp-top-ten is the
-  # OWASP coverage this spec was asked for, and the per-language sets carry the framework
-  # idioms. No account or token is needed for registry rulesets.
-  # ── Every scanner, in ONE job ────────────────────────────────────────────────
-  # These were five separate jobs. Each finished in 12-71 seconds and GitHub bills a
-  # whole minute per job, so the five cost five billed minutes for about three minutes
-  # of scanning — 55% of this workflow's bill was rounding, on every PR.
-  #
-  # Merging them changes NO coverage: the same five scanners, the same versions, the
-  # same gates, the same artifacts. What it changes is that they now share one checkout
-  # and one toolchain setup instead of repeating both five times.
-  #
-  # `gates` deliberately stays a separate job. It is the one thing that must be known
-  # good BEFORE any scanner runs, and `needs: gates` is a hard ordering that no
-  # arrangement of steps inside a single job reproduces — every step here is
-  # `if: always()`, which would run them straight through a failed validation.
-  #
-  # EVERY step is `if: always()`. In five separate jobs no scanner could be skipped by
-  # another's failure; merged, the default `success()` would let one broken scanner
-  # silently skip the four after it, and this workflow's rule is that "did not run" is
-  # never "clean" (SPEC-138). A failing scanner still fails the job — and now the four
-  # that follow it still report.
-  scan:
-    name: Scanners (Semgrep, npm audit, pip-audit, gitleaks, Checkov)
-    needs: gates
-    runs-on: ubuntu-latest
-    # NOT the sum of the five it replaces (85). Serialising them means a single hung
-    # scanner now burns the whole budget as BILLED minutes, where before it burned its
-    # own job's 20 and the other four still finished — so the merge has to bring the
-    # ceiling down, not carry it over. The five together measure ~3 minutes at p90;
-    # 30 is ten times that, and a scanner that genuinely needs more should fail here
-    # and be looked at rather than quietly costing half an hour a run.
-    timeout-minutes: 30
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        # gitleaks scans the branch's FULL HISTORY, so its checkout must not be shallow.
-        # It had its own job and its own checkout before; sharing one now means this
-        # setting is load-bearing for the whole job.
-        with:
-          fetch-depth: 0
-
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
@@ -177,11 +181,11 @@ jobs:
 
       # ── Semgrep ─────────────────────────────────────────────────────
       - name: Install Semgrep
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         run: pip install "semgrep==${SEMGREP_VERSION}"
 
       - name: Scan the SPA
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         # --metrics=off: semgrep's default ("auto") phones home when registry rules are
         # used. This is a private repository; its file paths and rule hits are not usage
         # telemetry we are choosing to send.
@@ -216,7 +220,7 @@ jobs:
           fi
 
       - name: Scan the Lambdas
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         # --exclude-rule: the one accepted false positive, and the reason GATE_SEMGREP can be
         # `block`. `p/owasp-top-ten` pulls Flask's rules in as part of its Python set, and
         # `directly-returned-format-string` is a template-injection check about returning a
@@ -245,7 +249,7 @@ jobs:
           fi
 
       - name: Summarize (Semgrep)
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         run: |
           total=0
           for pair in "SPA:semgrep-portal.json" "Lambdas:semgrep-lambdas.json"; do
@@ -289,7 +293,7 @@ jobs:
           echo "SEMGREP_FINDINGS=$total" >> "$GITHUB_ENV"
 
       - name: Upload raw output (Semgrep)
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
           name: semgrep
@@ -298,7 +302,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Apply gate (Semgrep)
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         run: .github/scripts/apply-gate.sh Semgrep "$GATE_SEMGREP" "${SEMGREP_FINDINGS:-0}"
 
   # ── DEPENDENCIES (npm) ───────────────────────────────────────────────────────────
@@ -312,11 +316,11 @@ jobs:
 
       # ── npm audit ───────────────────────────────────────────────────
       - name: Install dependencies
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         run: npm ci
 
       - name: Audit (npm audit)
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         run: |
           set +e
           npm audit --json --omit=dev > npm-audit-runtime.json
@@ -333,7 +337,7 @@ jobs:
           done
 
       - name: Summarize (npm audit)
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         run: |
           total=0
           for pair in "Runtime (--omit=dev — ships to the browser):npm-audit-runtime.json" \
@@ -364,7 +368,7 @@ jobs:
           echo "NPM_FINDINGS=$(jq '.metadata.vulnerabilities.total' npm-audit-runtime.json)" >> "$GITHUB_ENV"
 
       - name: Upload raw output (npm audit)
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
           name: npm-audit
@@ -373,18 +377,18 @@ jobs:
           if-no-files-found: warn
 
       - name: Apply gate (npm audit)
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         run: .github/scripts/apply-gate.sh "npm audit" "$GATE_NPM_AUDIT" "${NPM_FINDINGS:-0}"
 
   # ── DEPENDENCIES (Python) ────────────────────────────────────────────────────────
 
       # ── pip-audit ───────────────────────────────────────────────────
       - name: Install pip-audit
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         run: pip install "pip-audit==${PIP_AUDIT_VERSION}"
 
       - name: Audit every requirements file
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         # DISCOVERED BY GLOB, never listed. A new layer's requirements.txt must be audited
         # the day it is added — this fleet grows a layer per control plane, and a list here
         # would silently stop covering the newest one. That is how ci.yml's install block
@@ -409,7 +413,7 @@ jobs:
           fi
 
       - name: Summarize (pip-audit)
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         run: |
           count=$(jq '[.dependencies[] | select(.vulns | length > 0)] | length' pip-audit.json)
           audited=$(jq '.dependencies | length' pip-audit.json)
@@ -428,7 +432,7 @@ jobs:
           echo "PIP_FINDINGS=$count" >> "$GITHUB_ENV"
 
       - name: Upload raw output (pip-audit)
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
           name: pip-audit
@@ -437,14 +441,14 @@ jobs:
           if-no-files-found: warn
 
       - name: Apply gate (pip-audit)
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         run: .github/scripts/apply-gate.sh pip-audit "$GATE_PIP_AUDIT" "${PIP_FINDINGS:-0}"
 
   # ── SECRETS ──────────────────────────────────────────────────────────────────────
 
       # ── gitleaks ────────────────────────────────────────────────────
       - name: Install gitleaks
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         # The binary directly, not gitleaks-action: that action requires a GITLEAKS_LICENSE
         # for organization accounts. This repo is on a personal account today, and coupling
         # the secret scan to that fact would break it the day the repo moves to an org.
@@ -455,7 +459,7 @@ jobs:
           ./gitleaks version
 
       - name: Scan (gitleaks)
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         # --redact: a secret scanner that prints the secret into a CI log has widened the
         # exposure, not closed it. The repo's own field rule (docs/decisions/control-planes.md — tokens and
         # emails never leave the process) applies to CI output for the same reason.
@@ -471,7 +475,7 @@ jobs:
           fi
 
       - name: Summarize (gitleaks)
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         run: |
           count=0
           [ -f gitleaks.json ] && count=$(jq 'length' gitleaks.json)
@@ -489,7 +493,7 @@ jobs:
           echo "GITLEAKS_FINDINGS=$count" >> "$GITHUB_ENV"
 
       - name: Upload raw output (gitleaks)
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
           name: gitleaks
@@ -498,7 +502,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Apply gate (gitleaks)
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         run: .github/scripts/apply-gate.sh gitleaks "$GATE_GITLEAKS" "${GITLEAKS_FINDINGS:-0}"
 
   # ── IaC ──────────────────────────────────────────────────────────────────────────
@@ -523,11 +527,11 @@ jobs:
 
       # ── Checkov ─────────────────────────────────────────────────────
       - name: Install Checkov
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         run: pip install "checkov==${CHECKOV_VERSION}"
 
       - name: Scan infra/
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         # --soft-fail: checkov exits 1 merely because checks failed, which under
         # gate=report is not a job failure. The count comes from the JSON instead, and the
         # "did it actually run" question is answered by the JSON being parseable — not by
@@ -550,7 +554,7 @@ jobs:
           fi
 
       - name: Summarize (Checkov)
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         run: |
           norm='(if type=="array" then .[0] else . end)'
           count=$(jq "$norm | .summary.failed" checkov.json)
@@ -605,13 +609,13 @@ jobs:
       # hard error this script raises reached the gate as a silent green until this changed.
 
       - name: Narrow to the enforced checks
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         run: |
           findings=$(.github/scripts/checkov-enforced.sh checkov.json .github/checkov-enforced.txt)
           echo "CHECKOV_FINDINGS=$findings" >> "$GITHUB_ENV"
 
       - name: Upload raw output (Checkov)
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
           name: checkov
@@ -620,7 +624,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Apply gate (Checkov)
-        if: always()
+        if: always() && steps.gates.outcome == 'success'
         # `no-count`, not `0`. `:-` substitutes on empty as well as unset, so a default of 0
         # turns "the narrowing step never wrote a number" into "clean" — the exact shape this
         # workflow exists to refuse. apply-gate.sh rejects a non-numeric count as a hard
@@ -641,7 +645,11 @@ jobs:
 
   dast:
     name: DAST (OWASP ZAP baseline)
-    needs: gates
+    # No `needs:`. It used to depend on the `gates` job; now that the validation is a step
+    # rather than a job, `needs: scan` would be the only way to inherit it — and that is a
+    # DIFFERENT guarantee: it would let a failing scanner stop this baseline from running
+    # at all, in a workflow whose rule is that "did not run" is never "clean". Validating
+    # the same six values here costs one second and keeps the two jobs independent.
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -650,6 +658,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      # The same six values `scan` validates, for the same reason and by the same script:
+      # GATE_ZAP is read below, and a value this workflow does not understand must fail the
+      # run rather than be treated as `report`.
+      - name: Validate every gate value
+        run: |
+          chmod +x .github/scripts/apply-gate.sh
+          for name in SEMGREP NPM_AUDIT PIP_AUDIT GITLEAKS CHECKOV ZAP; do
+            var="GATE_${name}"
+            .github/scripts/apply-gate.sh "$name" "${!var}" 0
+          done
 
       - name: Resolve the target
         id: target
