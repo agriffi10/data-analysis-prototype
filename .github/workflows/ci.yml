@@ -50,11 +50,12 @@ jobs:
       # pull request touching none of the app's inputs costs one billed minute instead of
       # seven — the Test step alone is 294 of this job's 366 seconds.
       #
-      # Replayed against the last 60 merges to main: 30 skip, 30 run, so the average pull
-      # request costs 4 minutes instead of 7. It is NOT the 73% that counting `apps/portal/`
-      # alone suggests — the suite's out-of-tree reads below, the IAM templates especially,
-      # buy a third of the saving back. That is the honest number and the cheaper one was
-      # wrong rather than optimistic.
+      # Replayed against the last 60 merges to main: 29 skip, 31 run, so the average pull
+      # request costs 4 minutes instead of 7. It is NOT the 67% that counting `apps/portal/`
+      # alone gives — the suite's out-of-tree reads below, the 88 IAM templates especially,
+      # buy a third of the saving back. That is the honest number, and the cheaper one was
+      # wrong rather than optimistic: it was measured before anyone checked what the suite
+      # actually reads.
       #
       # The job still RUNS and still reports under the same check name — this is a step-level
       # skip, not a workflow-level `paths:` filter, precisely so that a required check by that

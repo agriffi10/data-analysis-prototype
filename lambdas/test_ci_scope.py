@@ -3,24 +3,38 @@
 Both hold a condition that was structural until it became textual, which is the point at
 which a guard starts needing one of its own.
 
-``ci.yml``'s ``ci`` job skips its lint, build and test steps when a pull request touches
-none of the app's inputs. That set is not "the app's source": the suite reads 94 files from
-OUTSIDE ``apps/portal/`` through ``?raw`` and ``import.meta.glob`` — every IAM policy
-template among them — in order to assert that the browser agrees with the infrastructure and
-the planes. A read that is missing from the workflow's pattern list does not make the saving
+``ci.yml``'s ``ci`` job skips its lint, build and test steps when a pull request touches none
+of the app's inputs. That set is not "the app's source": the suite reads 93 files from OUTSIDE
+``apps/portal/`` through ``?raw`` and ``import.meta.glob`` — all 88 IAM policy templates among
+them, reached by one glob — in order to assert that the browser agrees with the infrastructure
+and the planes. A read missing from the workflow's pattern list does not make the saving
 smaller, it makes it dishonest: the coupled file changes, the guard that would have caught it
 never runs, and the job is green. The first test sweeps for those reads rather than restating
 them, so a new import cannot be added without the workflow learning about it.
 
-``security.yml``'s scanners were ordered after gate validation by ``needs: gates`` while it
-was a separate job. It is now a step, and the ordering is a string repeated on every scanner
-step. YAML enforced the old form; nothing enforces the new one, so a scanner added without
-the condition would run under a failed gate and report as if the gate had held.
+``security.yml``'s scanners were ordered after gate validation by ``needs: gates`` while it was
+a separate job. It is now a step, and the ordering is a string repeated on every scanner step.
+YAML enforced the old form; nothing enforces the new one, so a scanner added without the
+condition would run under a failed gate and report as if the gate had held.
+
+The sweep covers every ``.ts``/``.tsx`` under ``src/``, not only ``*.test.ts``. A coupled read
+moved one file sideways into a ``src/test/`` helper is the shape this repository already uses
+— ``cssTokens.ts`` reads from disk — and a test-file-only sweep is blind to it while looking
+exactly as green.
+
+Specifiers are RESOLVED against the file holding them, never string-stripped. Dropping the
+``../`` prefixes and testing the remainder at the repository root reads ``../../package.json``
+from ``src/lib/`` as the ROOT manifest when it is the portal's own, and turns a ``./*`` inside
+a comment into a glob of the whole repository — which then demands scope patterns for
+``README.md`` and for untracked files CI does not even have.
 
 The shape is ``test_security_gates.py``'s: assert the coupling, then assert the parse did not
-go trivial. A sweep that finds nothing must fail rather than pass vacuously.
+go trivial. A sweep that finds nothing must fail rather than pass vacuously — and a floor alone
+is a weak control here, because 88 of the reads arrive through a single glob and would mask the
+disappearance of any individual one. The five that do not come from that glob are named.
 """
 
+import os
 import pathlib
 import re
 
@@ -29,21 +43,21 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 SECURITY_WORKFLOW = ROOT / ".github" / "workflows" / "security.yml"
-PORTAL_SRC = ROOT / "apps" / "portal" / "src"
+PORTAL = ROOT / "apps" / "portal"
+PORTAL_SRC = PORTAL / "src"
 
-#: A quoted specifier that is path-shaped — it starts with ``.`` or ``/`` and contains a
-#: separator. Deliberately NOT filtered by extension: the reads this sweep exists to find are
-#: whatever the suite happens to reach for, and an extension allowlist is a second place to
-#: forget one. A trailing Vite query (``?raw``) is stripped, and ``*`` is expanded, because
-#: both forms are in use and a literal-path-only regex silently found half the set.
+#: A quoted specifier that is path-shaped — it starts with ``.`` or ``/`` and holds a separator.
+#: Deliberately NOT filtered by extension: the reads this exists to find are whatever the suite
+#: reaches for, and an allowlist is a second place to forget one. A trailing Vite query
+#: (``?raw``) is stripped; ``*`` is expanded after resolution, never before.
 PATH_SPECIFIER = re.compile(r"""['"]([./][A-Za-z0-9_.*/-]*/[A-Za-z0-9_.*/-]+?)(\?[a-z]+)?['"]""")
 
 #: The condition every scanner step in ``scan`` must carry now that gate validation is a step.
 GATE_CONDITION = "always() && steps.gates.outcome == 'success'"
 
-#: Steps in ``scan`` that are deliberately NOT gated: the checkout that fetches the script,
-#: the validation itself, and the toolchain setup. None is a scanner, and each runs under the
-#: default ``success()`` — which a failed validation already skips.
+#: Steps in ``scan`` deliberately NOT gated: the checkout that fetches the script, the
+#: validation itself, its summary, and the toolchain setup. None is a scanner, and each runs
+#: under the default ``success()`` — which a failed validation already skips.
 UNGATED_SCAN_STEPS = frozenset(
     {
         "Checkout",
@@ -54,23 +68,37 @@ UNGATED_SCAN_STEPS = frozenset(
     }
 )
 
-#: The floor the sweep below must clear. 94 out-of-tree reads exist today — 89 of them IAM
-#: templates reached by one glob. A lower bound lets one be added without editing this file, while
-#: still failing if the specifier regex stops matching after a reformat.
-MINIMUM_OUT_OF_TREE_READS = 90
+#: Every out-of-tree read that does NOT arrive through the IAM-template glob, named rather than
+#: counted. A floor cannot protect these: 88 of the 93 reads come from that one glob, so any of
+#: these five could stop being swept while the total still cleared any plausible threshold.
+NAMED_OUT_OF_TREE_READS = frozenset(
+    {
+        ".github/workflows/deploy-app.yml",
+        "config/feature-flags.json",
+        "infra/main.tf",
+        "lambdas/api/routes/feature_flags.py",
+        "lambdas/archive-common/arcommon/config.py",
+    }
+)
+
+#: The floor for the glob-derived half. 88 templates exist; a lower bound lets one be added or
+#: removed without editing this file, while still failing if the glob stops being swept at all.
+MINIMUM_IAM_TEMPLATE_READS = 80
 
 
 def _scope_patterns() -> list[str]:
     """Read the ``ci`` job's scope pattern list out of the workflow.
 
-    Taken from the step's ``env`` rather than from its shell body, so the test reads the same
-    string the step passes to ``grep -f`` instead of a copy that can drift from it.
+    Taken from the step's ``env`` rather than from its shell body, so this reads the same string
+    the step hands to ``grep -f`` instead of a copy that can drift from it. Split on lines, not
+    on whitespace: ``grep -f`` reads one pattern per LINE, and splitting on whitespace would
+    hide both a blank line and a pattern containing a space.
 
     Args:
         None.
 
     Returns:
-        One compiled-shape pattern per line, in workflow order.
+        One pattern per line of the block scalar, in workflow order, with blanks preserved.
 
     Raises:
         AssertionError: If the workflow holds no step with ``id: scope``.
@@ -78,39 +106,39 @@ def _scope_patterns() -> list[str]:
     document = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
     steps = [step for step in document["jobs"]["ci"]["steps"] if step.get("id") == "scope"]
     assert steps, "ci.yml no longer has a step with `id: scope` — the scoping guard reads that step"
-    return steps[0]["env"]["SCOPE_PATTERNS"].split()
+    return steps[0]["env"]["SCOPE_PATTERNS"].splitlines()
 
 
 def _out_of_tree_reads() -> set[str]:
-    """Sweep the portal suite for files it reads from outside ``apps/portal/``.
+    """Sweep the portal's sources for files they read from outside ``apps/portal/``.
 
-    Each specifier is reduced to a repository-relative tail by dropping the leading ``/`` and
-    every ``../`` — the bundler's own resolution differs between a relative import and a
-    root-anchored ``import.meta.glob``, and what this sweep needs is only which repository
-    paths are NAMED. A tail that does not exist at the repository root is an in-tree import
-    and is dropped; one containing ``*`` is expanded against the root.
+    A specifier beginning with ``/`` is root-anchored and resolves against ``apps/portal``; one
+    beginning with ``.`` resolves against the directory of the file holding it. Both are then
+    normalised, and anything landing inside the portal or outside the repository is dropped —
+    which is what keeps in-tree imports and comment fragments out of the result.
 
     Args:
         None.
 
     Returns:
-        Repository-relative paths the suite reads from outside ``apps/portal/``.
+        Repository-relative POSIX paths read from outside ``apps/portal/``.
 
     Raises:
         None.
     """
-    portal = PORTAL_SRC.parent
     found: set[str] = set()
-    for test in [*PORTAL_SRC.rglob("*.test.ts"), *PORTAL_SRC.rglob("*.test.tsx")]:
-        for specifier, _query in PATH_SPECIFIER.findall(test.read_text(encoding="utf-8")):
-            tail = re.sub(r"^(?:/|\.\./|\./)+", "", specifier)
-            if not tail:
+    for source in [*PORTAL_SRC.rglob("*.ts"), *PORTAL_SRC.rglob("*.tsx")]:
+        for specifier, _query in PATH_SPECIFIER.findall(source.read_text(encoding="utf-8")):
+            base = PORTAL if specifier.startswith("/") else source.parent
+            resolved = pathlib.Path(os.path.normpath(base / specifier.lstrip("/")))
+            try:
+                relative = resolved.relative_to(ROOT).as_posix()
+            except ValueError:
                 continue
-            targets = sorted(ROOT.glob(tail)) if "*" in tail else [ROOT / tail]
-            for target in targets:
-                if not target.is_file() or portal in target.parents:
-                    continue
-                found.add(target.relative_to(ROOT).as_posix())
+            matches = sorted(ROOT.glob(relative)) if "*" in relative else [resolved]
+            for match in matches:
+                if match.is_file() and PORTAL not in match.parents:
+                    found.add(match.relative_to(ROOT).as_posix())
     return found
 
 
@@ -118,8 +146,8 @@ def test_every_file_the_suite_reads_from_outside_the_portal_is_in_ci_scope():
     """A coupled file outside ``apps/portal/`` must re-run the suite that asserts the coupling.
 
     The failure this holds off is silent: the file changes, the set-equality assertion that
-    would have caught it is skipped, and the job reports green. Two were reproduced by
-    planting — ``arcommon/config.py`` and ``infra/main.tf`` — before the list covered them.
+    would have caught it is skipped, and the job reports green. Two were reproduced by planting
+    — ``arcommon/config.py`` and ``infra/main.tf`` — before the pattern list covered them.
 
     Args:
         None.
@@ -128,22 +156,67 @@ def test_every_file_the_suite_reads_from_outside_the_portal_is_in_ci_scope():
         None.
 
     Raises:
-        AssertionError: If the sweep goes trivial, or a swept path matches no scope pattern.
+        AssertionError: If the sweep loses a named read or the IAM glob, or if a swept path
+            matches no scope pattern.
     """
     reads = _out_of_tree_reads()
 
-    assert len(reads) >= MINIMUM_OUT_OF_TREE_READS, (
-        f"the sweep found only {len(reads)} out-of-tree reads ({sorted(reads)}); it found "
-        f"{MINIMUM_OUT_OF_TREE_READS} when written, so the specifier regex has stopped matching "
-        "and this test is now asserting nothing"
+    lost = sorted(NAMED_OUT_OF_TREE_READS - reads)
+    assert not lost, (
+        f"the sweep no longer finds these known out-of-tree reads: {lost}. Either the read moved "
+        "to a file shape the sweep does not cover, or the specifier regex stopped matching — "
+        "both leave this test passing while covering nothing"
     )
 
-    patterns = [re.compile(pattern) for pattern in _scope_patterns()]
+    templates = {path for path in reads if path.startswith("infra/modules/")}
+    assert len(templates) >= MINIMUM_IAM_TEMPLATE_READS, (
+        f"the sweep found only {len(templates)} IAM policy templates; there are 88 and the glob "
+        "in policyTemplates.guard.test.ts reaches all of them, so the glob has stopped resolving"
+    )
+
+    patterns = [re.compile(pattern) for pattern in _scope_patterns() if pattern.strip()]
     uncovered = sorted(path for path in reads if not any(pattern.search(path) for pattern in patterns))
 
     assert not uncovered, (
         "the portal suite reads these files from outside apps/portal, and ci.yml's SCOPE_PATTERNS "
         f"does not cover them, so a pull request changing one skips the suite and reports green: {uncovered}"
+    )
+
+
+def test_no_scope_pattern_matches_every_path():
+    """``grep -f`` reads a blank line as a pattern matching everything.
+
+    One stray empty line in the block scalar makes the scope step answer ``app=true`` for every
+    pull request — the whole saving gone, silently and in the expensive direction, with the
+    coverage test above still green because a blank pattern covers all of its paths.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If a pattern is blank, holds whitespace, or matches an unrelated path.
+    """
+    patterns = _scope_patterns()
+
+    assert patterns, "SCOPE_PATTERNS is empty; the scope step would skip every pull request"
+
+    blank = [index for index, pattern in enumerate(patterns) if not pattern.strip()]
+    assert not blank, (
+        f"SCOPE_PATTERNS has a blank line at index {blank}; `grep -f` reads it as a "
+        "match-everything pattern and the scoping stops scoping"
+    )
+
+    spaced = [pattern for pattern in patterns if " " in pattern.strip()]
+    assert not spaced, f"these patterns contain whitespace and would not mean what they look like: {spaced}"
+
+    unrelated = "docs/process.md"
+    matching = [pattern for pattern in patterns if re.search(pattern, unrelated)]
+    assert not matching, (
+        f"these patterns match {unrelated}, so a documentation-only pull request would still run "
+        f"the full suite: {matching}"
     )
 
 
@@ -160,27 +233,25 @@ def test_every_scanner_step_is_ordered_after_the_gate_validation():
         None.
 
     Raises:
-        AssertionError: If ``scan`` holds no scanner steps, if the validation step is not first
-            among the gated ones, or if a scanner step is missing the condition.
+        AssertionError: If ``scan`` holds no scanner steps, if the validation does not precede
+            them, or if a scanner step is missing the condition.
     """
     document = yaml.safe_load(SECURITY_WORKFLOW.read_text(encoding="utf-8"))
     steps = document["jobs"]["scan"]["steps"]
     names = [step.get("name", "") for step in steps]
 
     assert "Validate every gate value" in names, "scan no longer validates the gate values"
+
+    gated = [index for index, step in enumerate(steps) if step.get("name") not in UNGATED_SCAN_STEPS]
+    assert gated, (
+        "no gated steps found in `scan`; the step list has stopped parsing, or every step is now "
+        "named in UNGATED_SCAN_STEPS, and this test is asserting nothing"
+    )
     assert names.index("Validate every gate value") < min(
-        index for index, step in enumerate(steps) if step.get("name") not in UNGATED_SCAN_STEPS
+        gated
     ), "the gate validation must come before every step that depends on it"
 
-    scanner_steps = [step for step in steps if step.get("name") not in UNGATED_SCAN_STEPS]
-
-    assert len(scanner_steps) >= 20, (
-        f"only {len(scanner_steps)} scanner steps found in `scan`; there were 27 when this was "
-        "written, so the step list has stopped parsing and this test is asserting nothing"
-    )
-
-    missing = sorted(step.get("name", "") for step in scanner_steps if step.get("if") != GATE_CONDITION)
-
+    missing = sorted(names[index] for index in gated if steps[index].get("if") != GATE_CONDITION)
     assert not missing, (
         "these steps in `scan` do not carry the gate condition, so they would run even after the "
         f"gate validation failed: {missing}"
