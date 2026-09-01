@@ -66,27 +66,44 @@ function withoutComments(source: string): string {
  */
 function hasWholeClass(classString: string, cls: string): boolean {
   const escaped = cls.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(?<![\\w-])${escaped}(?![\\w-])`).test(classString);
+  // `:` is in the lookbehind, matching `lib/targetSize.test.ts`'s `MIN_SIZE_CLASS`. Without it a
+  // VARIANT satisfies a pin for the unprefixed class: `tablet:min-h-[24px]` reads as `min-h-[24px]`
+  // while flooring nothing below 900px — the phone, which is the width these targets are for.
+  // Planted: prefixing both crumb floors with `tablet:` left this file AND the sweep green.
+  return new RegExp(`(?<![\\w:-])${escaped}(?![\\w\\-/])`).test(classString);
 }
 
 /**
- * Files where a SINGLE string literal carries every one of `classes`.
+ * Files where one QUOTE-FREE RUN of the source carries every one of `classes`.
  *
- * Three properties, and each is a way a weaker version of this failed. Order-independent, because
- * class order is meaningless in Tailwind and a guard that reddens on a reorder gets deleted.
- * Whole-class, per `hasWholeClass`. And same-literal, because looking for each class separately
- * passes when a file keeps the height on one element and the width on another — precisely the
- * half-fix these pins exist for, and the one that leaves a 7px-wide target behind. Any string
- * literal counts rather than a `className=` attribute, since a class can be assembled in `cx(…)`.
+ * Splitting on quote characters rather than matching quoted literals is deliberate, and it is the
+ * third attempt at this. Pairing quotes with a regex is not lexing: one stray quote inside a regex
+ * literal — `etag.replace(/"/g, '')` ships at `features/file-browser/MetadataPanel.tsx` — inverts
+ * the pairing for the rest of the file, and the pin then reddens on a file whose classes are
+ * untouched. A class string contains no quotes, so it always survives the split whole, whatever
+ * else in the file does not. Comments are stripped first because they quote class names as prose.
+ *
+ * Order-independent, because class order is meaningless in Tailwind and a guard that reddens on a
+ * reorder gets deleted. Whole-class and variant-aware, per `hasWholeClass`. Together in one run,
+ * because looking for each class separately passes when a file keeps the height on one element and
+ * the width on another.
+ *
+ * WHAT IT DOES NOT COVER, so its silence is not read as more than it is. It is FILE-scoped, not
+ * element-scoped: moving a pinned pair together onto a non-target sibling in the same file still
+ * passes. And it wants the pair in ONE run, so splitting a class across two `cx(…)` arguments
+ * reddens correct code — write the pair in a single string. Neither is a size regression the
+ * sweep in `lib/targetSize.test.ts` would miss; this file only ever covered the sideways edit, a
+ * normalisation from `h-[24px]` back onto the rem scale, which the sweep cannot see because 24.5
+ * clears the floor.
  *
  * @param classes - The classes that must appear together.
  * @returns The src-relative paths, so a failure names the offender.
  */
 function filesSizedAbsolutely(classes: string[]): string[] {
   return FILES.filter(([, source]) =>
-    [...withoutComments(source).matchAll(/(['"`])((?:\\.|(?!\1)[^\\])*)\1/g)].some((m) =>
-      classes.every((c) => hasWholeClass(m[2], c))
-    )
+    withoutComments(source)
+      .split(/['"`]/)
+      .some((run) => classes.every((c) => hasWholeClass(run, c)))
   ).map(([path]) => path);
 }
 
@@ -125,6 +142,34 @@ describe('shared primitives are not re-implemented (SPEC-186)', () => {
     for (const {needle, owner} of OWNED) {
       expect(filesContaining(needle)).toEqual([owner]);
     }
+  });
+
+  // Everything the 24px pins assert is `toContain`, so a matcher that returned EVERY file would
+  // satisfy all of them, and so would one with no whole-class boundary at all. Both were planted
+  // and both passed the suite. These are the controls that make the pins mean something: the
+  // matcher has to be able to say no, and it has to say no to the three near-misses that would
+  // otherwise read as a pin holding — a variant that only applies above 900px, a floor where a
+  // size is pinned, and a ceiling.
+  it('the 24px matcher can say NO — variants, floors and ceilings are not the pinned class', () => {
+    expect(filesSizedAbsolutely(['zz-[99px]'])).toEqual([]);
+    expect(filesSizedAbsolutely(['h-[24px]', 'w-[24px]'])).not.toContain('components/Badge.tsx');
+
+    expect(hasWholeClass('grid h-[24px] w-[24px]', 'h-[24px]')).toBe(true);
+    expect(hasWholeClass('grid w-[24px] h-[24px]', 'h-[24px]')).toBe(true);
+    // A variant floors nothing at the width these targets are for.
+    expect(hasWholeClass('tablet:h-[24px]', 'h-[24px]')).toBe(false);
+    expect(hasWholeClass('dark:min-h-[24px]', 'min-h-[24px]')).toBe(false);
+    // A floor is not a size and a ceiling is not either, in both directions.
+    expect(hasWholeClass('min-h-[24px]', 'h-[24px]')).toBe(false);
+    expect(hasWholeClass('max-w-[24px]', 'w-[24px]')).toBe(false);
+    expect(hasWholeClass('h-[24px]', 'min-h-[24px]')).toBe(false);
+
+    // A stray quote in a regex literal must not desync the scan for the rest of the file — this
+    // exact expression ships in `features/file-browser/MetadataPanel.tsx`.
+    const withStrayQuote = `const e = etag.replace(/"/g, ''); const c = "grid h-[24px] w-[24px]";`;
+    expect(
+      withStrayQuote.split(/['"`]/).some((run) => ['h-[24px]', 'w-[24px]'].every((c) => hasWholeClass(run, c)))
+    ).toBe(true);
   });
 
   it.each(OWNED)('has exactly one copy of $what', ({needle, owner}) => {
