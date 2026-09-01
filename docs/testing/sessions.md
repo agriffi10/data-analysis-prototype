@@ -10,6 +10,160 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-01 (SPEC-210 dark mode, SPEC-211 feedback, SPEC-209 divider, and the undersized-target register)
+
+Run against deployed prod (`d1kbh4bnvh1je8.cloudfront.net`) signed in as **`agriffith`** in
+**Chromium** via the agent's browser, at **1512px** desktop width and **700px** for the drawer
+rows. `main` at **`8a3992b4`**, with Deploy App / Deploy SPA image / Deploy Lambdas all green for
+that sha, and `api.dataquarry.app/healthz` reporting `8a3992b4` — see the healthz finding below,
+because that agreement is itself a correction to `e2e.md`.
+
+**Instruments:** `document.visibilityState` pinned `visible`; the `fetch` wrapper counting `/v1/`
+calls by method and path, extended once to capture the feedback **response** body; and a
+purpose-built SC 2.5.8 measurer (below) used for every target-size number here.
+
+**The target-size measurer, because every number below depends on it.** It collects each visible,
+enabled, on-screen interactive element, then for every target under 24×24 finds the neighbour with
+the least slack, applying the two halves of the spacing exception separately: against a neighbour
+that is itself ≥24 the test is a 12px radius from the target's centre not reaching that
+neighbour's **box**; against a neighbour that is **also** undersized it is centre-to-centre ≥24.
+It carries one guard that changed a result: an `elementFromPoint` hit test, so an element lying
+**behind** an overlay is not counted as a crowding neighbour. Without it the Colours panel
+reported a violation against the `Generated SQL` row underneath it — see *Findings*.
+
+### SPEC-210 — dark mode
+
+| Check | Result |
+|---|---|
+| `/theme-init.js`, the pre-paint initialiser, **on the deployed origin** | **200**, `Cache-Control: no-cache`, `text/javascript`, 1391 bytes. It is **external** (not inline), render-blocking (no `defer`/`async`), in `<head>`, **script index 0**, ahead of the module script at index 1, and **no `<script>` in the production document has a body**. That last one is the half only a deployed page can prove: an inline initialiser works in dev and is refused by `script-src 'self'`. No console errors and no CSP refusal on load. Storage key is `portal-theme`. |
+| A hard-reloaded deep link arrives dark | `/query` reloaded with **Dark** stored: `data-theme="dark"` and `rgb(13, 16, 20)` already applied. |
+| **No flash of light before the first paint** | **NOT RUN, and not runnable from this tab** — see *Findings*. |
+| The switch and where it lives | Desktop: the half-circle **Change theme** button is in the header, the menu marks the current choice with `aria-checked` on a `menuitemradio`. At **700px signed in** the header button is **gone** and the three choices are in the ☰ drawer, in a `role="group"` labelled *Theme*, marking the current choice with **`aria-pressed="true"`** rather than `aria-checked` — a different but valid pattern, and the current choice is conveyed either way. Signed **out** at 700px the header button is back, as designed. |
+| **Monaco keeps its place** (the half `SqlEditor.test.tsx` cannot assert) | **Discharged.** 25 lines typed, cursor put mid-line on line 21, editor scrolled. Switching Dark → Light moved the editor's own class `vs-dark` → `vs`, and: the editor **DOM node is identical** (not re-created), `lines-content` scroll offset **`-146px` → `-146px`**, cursor **top 412px / left 77px** unchanged, rendered text identical, 18 lines both sides. The cursor's computed `visibility` went `visible` → `hidden`, which is **blur, not a lost cursor**: refocusing the edit context *without clicking* restored it at exactly 412px/77px with the scroll still `-146px`. |
+| Target size, the three numbers §4.16 step 7 names | Header theme button **28×28**; each drawer option **24.5×(51.9–67.4)**, the half-pixel margin the ledger flagged; and the theme **menu row 175×32** — the one the static sweep is structurally blind to, since it has no height class. All three clear 24. |
+| Surfaces in dark | Landing page signed out (indigo call-to-action strip unchanged by the theme, as intended), Files list, Query workspace with Monaco, Data Explorer grid, the Columns drawer, the Send to… and Give feedback dialogs, the ☰ drawer. Nothing washed out. Contrast measured on the dark landing page: secondary **Sign in** 8.5:1 and 15.2:1, white-on-indigo call to action 5.06:1. |
+
+**Not reached:** step 3 (System follows the OS) needs the macOS Appearance toggle flipped by hand;
+step 6's shadow judgement is a visual call left to a human eye.
+
+### SPEC-211 — Give feedback, the whole browser half of §4.17
+
+Every row of §4.17's browser table ran and passed.
+
+| Check | Result |
+|---|---|
+| Placement | **Give feedback** at x=1252, immediately right of **Help for this page** at x=1214. At 700px it is **gone from the header** and present in the ☰ drawer **below** the Theme group. |
+| Opening state | No category preselected (`select.value === ""`), message empty, Send **disabled**, and the line *"The page you were on (/query) is included with your message."* Four categories: `bug`, `idea`, `question`, `other`. Textarea `maxLength` is **4000**. |
+| The disabled gate | Category chosen + empty message → still disabled. Message of **two spaces** → **still disabled**, so the trim is real. A real message → enabled. |
+| Enter inside the message | Inserts a **newline** (2 lines), dialog stays open, and **no `POST /v1/feedback` is issued**. |
+| Enter from the focused category select | **Submits.** |
+| The request | Exactly **one** `POST /v1/feedback`. Body carries `category`, `message`, `route` and **no username of any kind** — the delegated-actor claim, observed. |
+| The response | **200**, body **39 bytes**, exactly one key: `{"submittedAt": "2026-09-01T20:22:52Z"}`, ISO-8601. |
+| The toast, and reopening | Dialog closes, toast reads *"Thanks — your feedback has been sent."* Reopened: category reset to none, message **empty**, Send disabled. |
+| `route` is where the dialog was **opened** | Opened on `/query`, navigated to `/files` with it open (the dialog survived the nav and kept naming `/query`), then sent: the body carried **`"route": "/query"`**, not `/files`. |
+
+**Three submissions were made today, deliberately, to leave the CLI half a fixture it can read in
+one command:** `bug` from `/query`, `idea` opened on `/query` and sent from `/files`, and `other`
+from `/files` at **`2026-09-01T20:22:52Z`**. All three carry *"Please ignore"* and name themselves
+as live checks. Whoever runs `aws s3 cp "s3://$ADMIN_BUCKET/feedback/2026/09/01.json" -` now has
+the three-in-one-object, in-order assertion available without staging anything.
+
+### SPEC-209 — the editor/results divider, the non-drag pointer path
+
+| Check | Result |
+|---|---|
+| The ▲/▼ buttons step the split, **by click only** | `aria-valuenow` **50 → 55 → 60** on two clicks of *Give the editor more room*, then **60 → 55** on one click of *Give the results more room*. The layout moved with it — the Monaco element measured **298 → 328 → 358 → 328 px** — so this asserts the effect, not the affordance. Range is `aria-valuemin` 16 / `aria-valuemax` 75. |
+| Both buttons are at least 24×24 | **Exactly 24×24**, not 24.5 — the absolute `h-[24px] w-[24px]` pin holding, which is what a restyle back to `h-7` would break. |
+| The split sticks | Persisted to `sessionStorage` as `s3portal.query.editorSplit.agriffith`, username-scoped. |
+
+### The undersized-target register — the first broad measurement pass
+
+**Two entries are confirmed SC 2.5.8 failures.** Both are pairs of *mutually* undersized targets,
+so the verdict does not depend on the contested enclosing-target reading at all.
+
+| Surface | Measured | Verdict |
+|---|---|---|
+| **Data Explorer column header** | Every column pairs a `Column options` trigger at **18.55 × 21** with a `Resize column` handle at **10.5 × 39**, centres **9.32px** apart where 24 is required — **14.68px short, on all four columns**. The enclosing `<th>` is 347.01 × 40, so it is not itself undersized, but both children are, which is what makes the spacing exception unavailable. | **FAILS** |
+| **CalcPanel aggregate checkboxes** | Ten `13 × 13` checkboxes; the aggregate list (*Count, Count distinct, Count nulls, Sum, Average, Minimum, …*) is stacked at exactly **19.5px** vertical pitch, all at the same x. **4.5px short**, nine adjacent pairs. | **FAILS** |
+| **Data Explorer tab-strip close** | The ✕ is a **21 × 21** `span`, `tabindex="-1"` by design, **inside** a `role="tab"` measuring 112.52 × 24.5. Its centre lies inside the enclosing target's box, so the exception cannot apply. Confirms the ledger's own reading, now with numbers. | **overlap confirmed** (design decision, deliberately left alone) |
+| `OrderFilterDialog` | Eight `13 × 13` checkboxes, **56px** row pitch. | exempt, **+24.41** slack |
+| `RowColoursDialog` (Colours) | Five `13 × 13`, worst pair 63.59px apart. | exempt, **+39.59** |
+| `GroupingPanel` | Two `13 × 13`. | exempt, **+6.50** |
+| `TransformersDialog` | **Zero** undersized targets in its default state. | clear |
+| Columns drawer | Move-earlier / move-later **32.16 × 28**, close **28 × 28**. | clear |
+| `FileListTable` header + rows | Row select checkboxes **14 × 14** at **42px** vertical pitch; *Select all* **14 × 14**. The binding neighbour turns out to be the **adjacent row's checkbox**, not the enclosing row link — the half that was previously computed rather than measured. | exempt, **+18** (rows), **+34.5** (select all) |
+| `SelectionToolbar` | *Check quality / Send to… / Archive / Copy / Move / Delete* all **28px** tall, ≥75 wide. | clear |
+| `SendFilesDialog` | Two `14 × 14` radios (*Users* / *Shared spaces*) **69.1px** apart, verified by direct measurement as well as by the sweep. | exempt |
+| `Chip` remove ✕ | **Exactly 24 × 24** on both chips, **153.71px** apart on one row. With the 31.75px wrapped-row figure from the earlier session, both axes are now measured. | clear, pin holding |
+| Breadcrumb trail (`FileBrowser`) | `agriffith` **47.65 × 18** and `arcb_files` **58.84 × 18**, centres **68.44px** apart on one line. | exempt **horizontally** — see note |
+
+**The breadcrumb entry needs restating rather than deciding.** The trail's buttons are 18px tall,
+but on a single line they sit 68.44px apart, so the horizontal axis is not in question at all. The
+ledger's 22.56px figure is the **wrapped** trail's line pitch, so only a trail long enough to wrap
+puts the Inline-exception judgement in play. This run could not produce one: the deepest path
+available was three crumbs.
+
+**Not measured, and why:** `AdvancedCopyDialog` — *Copy…* carries `aria-disabled="true"` without a
+cell selection, and an early probe recorded it as "0 undersized" when the dialog had simply never
+opened; `StripingControl`, not separately locatable from the Options menu; `Toast` and
+`TableActionsMenu`; `RefreshTableDialog` and `TableShareDialog`; `FileListRowMobile`, which needs a
+width below 900px on a surface this pass reached only on `/query`.
+
+### Findings
+
+**1. The no-flash check cannot be discharged from the agent's browser tab, and that is a better
+answer than "not yet run".** The MCP tab is backgrounded, so Chrome never paints it:
+`performance.getEntriesByType('paint')` returns an **empty array** after load, and on one run
+reported first-paint at **12,512 ms**. There is no frame sequence to observe and no timing to
+compare against, so the perceptual half needs a foreground tab — a human watching, or a screen
+recording. Everything *structural* about the initialiser is discharged above; it is only the
+"was there a white frame" half that is out of reach. Recorded in `owed.md` with this reason.
+
+**2. `e2e.md`'s healthz note is wrong today, in the direction that causes the false alarm it was
+written to prevent.** It says the sha "is the last commit that changed `lambdas/api/`, **not**
+HEAD". The last commit touching `lambdas/api/` is `7c9345a6`, but healthz reports **`8a3992b4`**,
+which is HEAD — because `8a3992b4` changed `lambdas/control-plane-common/cpcommon/config.py`, a
+**layer the API packages**, so the deploy did not skip the function. A reader following the note as
+written expects `7c9345a6`, sees `8a3992b4`, and concludes the API is mis-deployed. Corrected in
+place: the sha is the last commit that changed the function **or any layer it packages**, which is
+usually HEAD.
+
+**3. `resize_window` is not inert — a backgrounded tab reports a stale viewport.** The trap table
+says the call "reports success and changes nothing", and mid-session it looked exactly that way:
+two resizes reported success while `innerWidth` stayed 1512 and `outerWidth` read **0**. The window
+had in fact resized both times; the *tab* could not see it until it was brought to the foreground,
+at which point `innerWidth` read **700** and the 900px media query flipped correctly. So sub-900px
+checks are reachable after all — this session ran the drawer rows at 700px — and the real rule is
+narrower than the trap table's: **assert on `matchMedia`, and do not trust a reading taken while
+the tab is backgrounded.** The 400px floor (Chrome's 606px minimum window) is unaffected and still
+needs the device toolbar.
+
+**4. An overlay panel makes elements behind it look like crowding neighbours.** Before the hit-test
+guard, the Colours panel measured one SC 2.5.8 violation against the `Generated SQL` disclosure row
+sitting underneath it. With `elementFromPoint` filtering to what is actually on top, Colours has
+**zero** candidates. Any future target-size sweep needs this guard or it will invent violations on
+every surface that overlays another.
+
+**5. A panel that never opened is indistinguishable from a clean result.** *Copy…* and *Value*
+first reported "0 undersized", which read as a pass; *Copy…* is `aria-disabled` without a
+selection and its dialog had never appeared. The Columns drawer reported 0 as well and **was**
+genuine — confirmed by a screenshot and by measuring its controls at 28–32px. Take a positive
+control before recording any zero.
+
+**6. A stale pre-migration token set is still sitting in `localStorage`.** `localStorage` holds a
+complete Cognito set — `idToken`, `accessToken`, `refreshToken`, `clockDrift`, `oauthMetadata`,
+`LastAuthUser` — for **`agriffith_three`**, left behind by the 2026-08-27 move to `sessionStorage`.
+It is inert: the app reads `sessionStorage`, a fresh tab renders signed out with those keys
+present, and this session signed in as `agriffith` alongside them without interference. But nothing
+clears them, so a refresh token for another principal persists in browser storage indefinitely.
+Raised rather than fixed — the disposition is Andrew's.
+
+### Fixtures created
+
+Three feedback submissions on 2026-09-01 (above), readable only with admin-bucket credentials.
+Nothing else was created; the *Send to…* dialog was **cancelled**, not sent, and no file, table or
+space was added, moved or deleted.
+
 ## Live-check session — 2026-08-30 (SPEC-201 step one: the planes stop verifying tokens, §H.1–H.3)
 
 Run against **`https://portal.dataquarry.app`**, the deployed load balancer, signed in as

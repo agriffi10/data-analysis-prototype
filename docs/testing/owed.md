@@ -126,14 +126,14 @@ recipe anywhere** — write one when you run it.
 | **Fresh sign-in end to end, from a private window** (SPEC-192) — proves Amplify is configured before the first render | A warm session cannot exercise it: the browser arrives already authenticated, and a bootstrap that configured Amplify too late looks identical. Same shape as the omitted Hosted UI host that broke fresh sign-in for a day. | §A.4 |
 | **Everything the container owns about `/config.json`** — the entrypoint rendering it from the task environment, nginx's `no-store`, image promotion itself | No container exists yet; the document is a static object until SPEC-194. | SPEC-194's own checks |
 
-### SPEC-210's two dark-mode checks that jsdom cannot reach
+### SPEC-210's dark-mode checks — ONE DISCHARGED 2026-09-01, one now owed for a NAMED reason
 
 | Check | Why the suite cannot settle it | What it takes |
 |---|---|---|
-| **Monaco keeps the cursor and the scroll position across a theme switch** | `SqlEditor.test.tsx` stubs the editor, so it can assert the buffer and that the editor was not re-created — a **count**, mutation-tested — but there is no cursor and no scrollable viewport in jsdom to lose. The mechanism is `@monaco-editor/react` applying a changed `theme` through `editor.setTheme` in an effect, read out of its `dist`; that is a settled premise, not a run check. | `e2e.md` §4.16 step 4. |
-| **No flash of the light theme before the first paint** | The pre-paint initialiser is asserted three ways offline — it is loaded blocking in `<head>`, it precedes the module script, and no `<script>` in `index.html` has a body — but "the first paint is dark" is a property of a real render. The production half is also unreachable locally: an INLINE initialiser would work in dev and be refused by `script-src 'self'`, so only a deployed page proves the shape that ships. | `e2e.md` §4.16 step 1, on the deployed origin, not `npm run dev`. |
+| ~~**Monaco keeps the cursor and the scroll position across a theme switch**~~ **DISCHARGED 2026-09-01.** Dark → Light with 25 lines, the cursor mid-line on line 21 and the editor scrolled: the **DOM node was identical** (not re-created), scroll `-146px` → `-146px`, cursor top **412px** / left **77px** unchanged, text identical. The cursor's `visibility` went `hidden` on blur — refocusing the edit context *without clicking* restored it at exactly 412px/77px. | `SqlEditor.test.tsx` stubs the editor, so it can assert the buffer and that the editor was not re-created — a **count**, mutation-tested — but there is no cursor and no scrollable viewport in jsdom to lose. | Ran: `e2e.md` §4.16 step 4. |
+| **No flash of the light theme before the first paint** — **the STRUCTURAL half is discharged (2026-09-01); only the perceptual half is owed, and NOT from an agent tab** | The pre-paint initialiser is asserted three ways offline, and all three were then confirmed **on the deployed origin**: `/theme-init.js` is a **200** with `Cache-Control: no-cache`, external and render-blocking at **script index 0** ahead of the module script, and **no `<script>` in the production document has a body** — the half only a deployed page proves, since an inline initialiser works in dev and is refused by `script-src 'self'`. A hard-reloaded `/query` arrives with `data-theme="dark"` already applied, no console error, no CSP refusal. What remains is only *"there was no white frame"*. | **Not runnable from the agent's browser tab**: it is backgrounded, so Chrome never paints it — `performance.getEntriesByType('paint')` returns an **empty array**, and one run reported first-paint at **12,512 ms**. There is no frame sequence to observe. Needs a **foreground** tab: a human watching a hard reload, or a screen recording. |
 
-### The undersized-target register, of which one entry has been measured (2026-09-01)
+### The undersized-target register — SWEPT 2026-09-01, and TWO ENTRIES FAIL
 
 `src/lib/targetSize.test.ts`'s `ACCEPTED_UNDERSIZED` names every interactive control whose own size
 class — or, for a checkbox or radio, its ABSENCE of one — puts it under WCAG 2.2 SC 2.5.8's 24×24
@@ -145,22 +145,62 @@ comes within a 24px-diameter circle of, and that is geometry no suite here can d
 list of *candidates* and this is the check that resolves them. The recipe is `e2e.md` §4.13; measure
 the **centre-to-centre** distance to the nearest other target, not just the box.
 
-| Check | Why the suite cannot settle it | What it takes |
+**How the 2026-09-01 sweep measured it, because the numbers below depend on it.** For each target
+under 24×24, find the neighbour with the least slack, applying the exception's two halves
+separately: against a neighbour that is itself ≥24, a 12px radius from the target's centre must not
+reach that neighbour's **box**; against a neighbour that is **also** undersized, centres must be
+≥24 apart. One guard is not optional — an `elementFromPoint` hit test excluding elements lying
+**behind** an overlay. Without it the Colours panel reported a violation against the `Generated SQL`
+row underneath it, and any future sweep will invent the same class of phantom.
+
+#### Confirmed failures — fix or accept, but they are no longer open questions
+
+Both are pairs of **mutually** undersized targets, so neither verdict turns on the contested
+enclosing-target reading.
+
+| Surface | Measured 2026-09-01 | Shortfall |
 |---|---|---|
-| **The unsized checkboxes and radios across the Data Explorer's dialogs and panels** — `AdvancedCopyDialog`, `CalcPanel`, `GroupingPanel`, `OrderFilterDialog`, `RowColoursDialog`, `StripingControl`, `TransformersDialog` | They carry no size class at all, so they render at the user agent's intrinsic **13×13** — measured in headless Chrome against the built stylesheet, and *smaller* than the `h-4 w-4` ones elsewhere. Several stack one per row or one per column, which is the arrangement the spacing exception is least likely to rescue. | Open each dialog and run §4.13's one-liner. These are the first to measure. |
-| **The sized 14×14 checkboxes and radios** — `FileListTable` (header + per row), `FileListRowMobile`, `SelectionToolbar`, `RefreshTableDialog`, `TableShareDialog`, `SendFilesDialog` | The file-list rows are `h-12`, so 42px of vertical pitch, but the horizontal neighbour and the enclosing double-clickable row are **computed, not measured**. | `/files` on a folder holding ≥3 files, plus each dialog. |
-| **The 21×21 icon controls** — `Chip`, `Toast`, `ColumnFilterMenu`, `TableActionsMenu` | Only `Chip` has been measured (31.75px between the remove buttons of two wrapped rows, the tight axis, comfortably clear). The other three are arithmetic from source at best. | Same one-liner, on a toast, a Data Explorer column header and a query schema rail row. |
-| **`ColumnResizeHandle` is the smallest target in the app at 10.5px** | A focusable `role="separator"` span that drags rather than clicks. Whether the exception covers it depends on how close the neighbouring header controls sit, which is per-column. | Widen a Data Explorer column, then measure the handle and its distance to the column menu trigger beside it. |
-| **The breadcrumb trails turn on the Inline exception, which is a judgement call** — `DestinationPicker.tsx:282`, `FileBrowser.tsx:265` | Bare buttons at 18px with 22.56px centre-to-centre in the wrapping trail — under the 24 the spacing exception needs, so it comes down to whether SC 2.5.8's **Inline** exception (a target in a sentence or block of text, sized by the line) applies to a breadcrumb. Measured by another session and deliberately left undecided. Invisible to the sweep: no size class, text-derived height. | Decide whether a breadcrumb trail is "inline text". If it is not, the trail needs padding, which is a visual change to two surfaces. |
-| **The Data Explorer column header has three mutually-crowding targets** — `ExplorationGridHeader.tsx:78` | The `<th>` itself carries an `onClick`, with `ColumnFilterMenu`'s 21px trigger and a `role="separator"` resize handle inside it. Every pair has to be checked, and two of the three are already in the register separately. The enclosing-target case again, and the arrangement the exception is least able to help. | Measure all three boxes and both gaps in one pass, on a Data Explorer result with several columns. |
-| **The two tab-strip closes are the case the exception CANNOT rescue** — `ExplorationTabStrip`, `QueryTabStrip` | The 21×21 ✕ sits **inside** the clickable tab, so a 24px circle centred on it necessarily intersects another target's box. A design decision, not a resize, and deliberately left alone. Not a keyboard defect: the span is non-focusable on purpose (a button inside `role="tab"` is nested-interactive) and the tab closes on **Delete** — `dataExplorerUi.test.tsx` covers that for the Data Explorer, and `QueryTabStrip`'s equivalent has no test. | Confirm the overlap in the inspector, then decide. While there, close a query tab with Delete on the focused tab — the untested half. |
+| **The Data Explorer column header** — `ExplorationGridHeader.tsx:78` | Every column pairs a `Column options` trigger at **18.55 × 21** with a `Resize column` handle at **10.5 × 39**, centres **9.32px** apart. Both undersized, so the spacing exception cannot apply to either. The enclosing `<th>` is 347.01 × 40 and is *not* itself undersized, so it is not what decides this. Reproduced on **all four** columns of a four-column result. | **−14.68px** |
+| **`CalcPanel`'s aggregate checkboxes** | Ten **13 × 13** checkboxes; the aggregate list (*Count, Count distinct, Count nulls, Sum, Average, Minimum, …*) stacks at exactly **19.5px** vertical pitch, all sharing an x. **Nine** adjacent pairs fail. | **−4.5px** |
+
+#### Confirmed overlap, already a settled design decision
+
+| Surface | Measured 2026-09-01 |
+|---|---|
+| **The tab-strip closes** — `ExplorationTabStrip`, `QueryTabStrip` | The ✕ is a **21 × 21** `span`, `tabindex="-1"` by design, sitting **inside** a `role="tab"` of **112.52 × 24.5**. Its centre lies within the enclosing target's box, so the exception cannot rescue it — exactly as this ledger already read it, now with numbers. Left alone deliberately; a design decision, not a resize. Only one tab was open, so tab-to-tab spacing is still unmeasured. |
+
+#### Measured and exempt — resolved, do not re-open
+
+| Surface | Measured 2026-09-01 | Slack |
+|---|---|---|
+| `OrderFilterDialog` | Eight **13 × 13** checkboxes, **56px** row pitch | +24.41 |
+| `RowColoursDialog` | Five **13 × 13**, worst pair 63.59px apart | +39.59 |
+| `GroupingPanel` | Two **13 × 13** | +6.50 |
+| `TransformersDialog` | **Zero** undersized targets in its default state | — |
+| Columns drawer | Move-earlier / move-later **32.16 × 28**, close **28 × 28** | — |
+| `FileListTable` header + rows | Row checkboxes **14 × 14** at **42px** pitch; *Select all* **14 × 14**. The binding neighbour is the **adjacent row's checkbox**, not the enclosing row link — the half previously computed rather than measured | +18 / +34.5 |
+| `SelectionToolbar` | All buttons **28px** tall, ≥75 wide | — |
+| `SendFilesDialog` | Two **14 × 14** radios **69.1px** apart, confirmed by direct measurement as well as by the sweep | — |
+| `Chip` remove ✕ | **Exactly 24 × 24**, **153.71px** apart on a row; with the earlier 31.75px wrapped figure, both axes are now measured | pin holding |
+| Divider ▲/▼ (SPEC-209) | **Exactly 24 × 24** each — the absolute pin, not the 24.5 a `h-7` restyle would give | — |
+| Theme controls (SPEC-210) | Header button **28 × 28**, drawer options **24.5**, menu row **32** — the menu row has no height class and the static sweep cannot see it | — |
+
+#### Still owed
+
+| Check | Why it did not run |
+|---|---|
+| **`AdvancedCopyDialog`** | *Copy…* carries `aria-disabled="true"` without a cell selection. An early probe recorded it as "0 undersized" when the dialog had simply never opened — **take a positive control before recording any zero here.** |
+| **`StripingControl`** | Not separately locatable from the Options menu; it may live inside Colours. Identify the surface first. |
+| **`Toast`, `TableActionsMenu`, `RefreshTableDialog`, `TableShareDialog`** | Not reached this pass. Arithmetic from source at best. |
+| **`FileListRowMobile`** | Needs a width below 900px on `/files`. Reachable now — see the corrected `resize_window` trap in `e2e.md` §1 — just not run. |
+| **The breadcrumb trails** — `DestinationPicker.tsx:282`, `FileBrowser.tsx:265` | **Restated, not decided.** The buttons are **18px** tall, but on one line they sit **68.44px** apart (`agriffith` 47.65 × 18, `arcb_files` 58.84 × 18), so the horizontal axis is not in question at all. The 22.56px figure is the **wrapped** trail's line pitch, so only a trail long enough to wrap puts SC 2.5.8's Inline exception in play. The 2026-09-01 pass could not produce one — the deepest path available was three crumbs. Get a wrapping trail before deciding whether a breadcrumb is "inline text". |
 
 ### Needs Safari, or 400px
 
 | Check | Note |
 |---|---|
 | **The whole CSS list** (`e2e.md` §4.15) | A Chromium run **corroborates and cannot discharge** rendering. Andrew browses in Safari. |
-| **The 400px pass** | Not reachable by window resize on macOS — Chrome's floor is 606px, and `resize_window` reports success while changing nothing the page sees. Use DevTools device toolbar (⌘⇧M) and assert on `matchMedia`. |
+| **The 400px pass** | Not reachable by window resize on macOS — Chrome's floor is 606px. Use DevTools device toolbar (⌘⇧M) and assert on `matchMedia`. **Corrected 2026-09-01:** `resize_window` is *not* inert — the window really resizes, but a **backgrounded tab reports a stale `innerWidth`** (and `outerWidth` 0), which is what earlier passes read as "changes nothing". Widths between 606px and desktop ARE reachable, and the 700px drawer rows were run that way; only the sub-606px band still needs the device toolbar. |
 
 ### SPEC-196's live verification — PARTLY RUN 2026-08-27, the rest owed
 
@@ -297,6 +337,8 @@ rows 14 and 15, and the Data Explorer surfaces generally, were **not** reached.
 |---|---|---|
 | **A browser holding another user's execution id can read that execution** | unowned — **owed a spec** | Athena authorizes `GetQueryExecution` / `GetQueryResults` / `StopQueryExecution` by **workgroup**, and this deployment has one shared workgroup. SPEC-199's port **preserved this exactly** — the API adds no ownership check and removes none — because a real fix needs an execution→owner record that does not exist. The whole mitigation shipped is `actor` and `execution_id` on every catalog span, so a cross-user read is at least attributable in `logs/service=api/`. |
 | **The API is internet-facing and unthrottled** | SPEC-196 | `api.dataquarry.app` answers `GET /healthz` without a credential and **401s everything else**, identified or not — it now verifies a bearer token (SPEC-195), so "unauthenticated" is stale, but it still makes no AWS call and holds no data. One new exposure comes with the verification: an unknown `kid` makes a JWKS refetch, so a stream of random `kid`s is an amplification vector against the provider **from unauthenticated requests** — bounded by a per-container cooldown, and the bound is asserted offline only (see *Not observable at all*). A rate limit is **deliberately deferred by the arc**, so the account default (10,000 rps / 5,000 burst) applies and every request is a billed invocation. CORS restrains browsers, not `curl`. Reviewed and accepted 2026-08-26; the exposure is billing, not disclosure. Revisit if the placeholder is still there when a route with a body lands. |
+
+| **The pre-migration Cognito token set is still in `localStorage`** | unowned — **raised 2026-09-01, disposition open** | The 2026-08-27 move to `sessionStorage` left the old keys behind and nothing clears them. Observed live: `localStorage` holds a complete set — `idToken`, `accessToken`, `refreshToken`, `clockDrift`, `oauthMetadata`, `LastAuthUser` — for **`agriffith_three`**, while a fresh tab renders signed **out** and this session signed in as `agriffith` alongside them with no interference. So it is **inert**, which is why no test or check would ever surface it: the app reads `sessionStorage` and the stale set is invisible to every code path. The exposure is that a refresh token for another principal persists in browser storage indefinitely on any machine used before the migration. A one-time cleanup on boot is the obvious remedy; whether it is worth a change is Andrew's call. |
 
 ### Dated, and nothing in CI will raise it
 
@@ -708,14 +750,29 @@ rest is still offline reasoning. The steps are written in full at `arc-b-api-con
 | ~~§G.5 — the IAM simulation against both DEPLOYED roles~~ **DISCHARGED 2026-08-30** — portal role `implicitDeny` on all eight request queues with an `allowed` control (`s3:GetObject` under the caller's own prefix); API role `allowed` on all eight. **Simulate one resource per call** — `--output text` over a multi-resource simulate prints the decision on the first row only. | The only evidence the browser's grants are actually gone rather than merely absent from the templates. |
 | A shared space where the submitter is a non-owner member | Needs a second account. |
 
-## SPEC-211 — Give feedback (2026-09-01)
+## SPEC-211 — Give feedback (2026-09-01) — BROWSER HALF RUN, the CLI half still owed
 
-The browser half of `e2e.md` §4.17 is runnable from a signed-in session. **The half that proves a
-submission actually landed is not**, and the reason is structural rather than an omission: the
-feature is write-only by design, so the only way to see the record is to read
-`<admin-bucket>/feedback/YYYY/MM/DD.json` with the CLI — and the local CLI identity is an IAM
-user on no data bucket's policy allowlist, so it reads that bucket as absent. One session cannot
-hold both halves.
+**The browser half of `e2e.md` §4.17 ran in full on 2026-09-01 and every row passed** — placement
+beside the help control and its move into the ☰ drawer below 900px, the unselected/empty opening
+state, the disabled gate including a whitespace-only message, Enter making a newline in the message
+and Enter from the category select submitting, exactly **one** `POST /v1/feedback` carrying
+`category`/`message`/`route` and **no username of any kind**, a **200** whose body is exactly
+`{submittedAt}`, the thank-you toast, an empty message on reopen, and `route` naming the page the
+dialog was **opened** on rather than the one it was sent from. Evidence in [`sessions.md`](sessions.md).
+
+**The half that proves a submission actually landed is still owed**, and the reason is structural
+rather than an omission: the feature is write-only by design, so the only way to see the record is
+to read `<admin-bucket>/feedback/YYYY/MM/DD.json` with the CLI — and the local CLI identity is an
+IAM user on no data bucket's policy allowlist, so it reads that bucket as absent. One session
+cannot hold both halves.
+
+**A fixture is waiting, so the CLI half is now one command.** Three submissions were made on
+**2026-09-01** specifically to satisfy the three-in-one-object row without staging anything:
+`bug` from `/query`, `idea` opened on `/query` and sent from `/files`, and `other` from `/files` at
+**`2026-09-01T20:22:52Z`**. All three say *"Please ignore"* and name themselves as live checks.
+Read `feedback/2026/09/01.json` and the ordering, `version`, attribution and CAS-append rows below
+can all be settled at once — but note the date is fixed, so this shortcut expires if the object is
+ever pruned.
 
 | Owed | Why it matters |
 |---|---|
