@@ -762,17 +762,22 @@ Confirm a one-character folder crumb is at least 24×24, and that a long folder 
 ellipsis: the fix deliberately does **not** use `inline-flex`, which makes the label an anonymous
 flex item and stops `truncate` rendering its `…` while still clipping, so the regression looks like
 a slightly shorter name rather than a broken one. The two tab strips' ✕ closes are `h-[24px]
-w-[24px]` inside an `h-8` tab. The tab went up one step for CLEARANCE, not for fit, and the
-distinction is worth keeping straight: `h-7` is 24.5px BORDER box over a 22.5px CONTENT box, so a
-24px ✕ does stay inside the tab's outer bounds (measured: 0.25px to spare) but overhangs the
-content box by 0.75px each side and lands on the 1px border — which the ✕'s own hover fill then
-paints over. `h-8` gives it 1px of real clearance. The strip's own bar is `h-10` and did not move. A 24×24 target needs **no**
+w-[24px]` inside a tab whose own `h-7` did **not** change. That was tried and reverted, and the
+reasoning is worth keeping: `h-7` is a 24.5px BORDER box over a 22.5px CONTENT box, so a 24px ✕
+stays inside the tab's outer bounds (measured: 0.25px to spare) but overhangs the content box by
+0.75px a side onto the 1px border, where its own hover fill paints over it. Raising the tab to
+`h-8` removes that 0.75px artifact and costs a visible 3.5px mismatch against the `+` button, the
+bar buttons and `ResultTabs`, all of which are `h-7`. The artifact is invisible below about 8x
+magnification; the mismatch is not. Nothing about the ✕'s conformance depends on the tab. A 24×24 target needs **no**
 exception, which is what makes the ✕ fixable at all: the exception could never rescue it, since it
 sits inside the tab's own box, and that was misread for a while as "unfixable" rather than "not
 rescuable". `Toast`'s dismiss and the schema rail's `TableActionsMenu` trigger are also 24×24 now;
 both already conformed via spacing (37.8px and a 14px centre-to-box against the row button), so
-those two are robustness rather than fixes — the menu trigger in particular was clearing the
-requirement by 2px, which a single `gap-0.5` would have taken away.
+those two are robustness rather than fixes — the menu trigger was clearing the requirement by
+2px, on a `gap-1` rail row. Do not repeat the claim that a `gap-0.5` there would have broken it:
+1.75px + half the 21px trigger is 12.25px, which still clears the 12 the exception needs. Only
+`gap-0` would have, and the honest statement is that it was the app's tightest pass, not that a
+named edit would have ended it.
 
 ### 4.14 Feature flags
 

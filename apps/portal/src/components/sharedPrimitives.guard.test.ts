@@ -113,21 +113,23 @@ describe('shared primitives are not re-implemented (SPEC-186)', () => {
   // threshold to a root font size that is 14px only by convention. That is the exact edit that
   // hid the chip's 21px target for months, so the absolute spelling is pinned by name.
   it('pins every target measured out of the register to an absolute 24px', () => {
-    const square = filesContaining('h-[24px] w-[24px]');
-    for (const owner of [
-      'components/Toast.tsx',
-      'features/data-explorer/ExplorationTabStrip.tsx',
-      'features/query/QueryTabStrip.tsx',
-      'features/query/TableActionsMenu.tsx'
-    ]) {
-      expect(square, owner).toContain(owner);
-    }
-
-    // The breadcrumb crumbs are floored rather than sized: a crumb has to grow with its label,
-    // and BOTH axes are load-bearing — a one-character folder name draws a 7px-wide box.
-    const floored = filesContaining('min-h-[24px] min-w-[24px]');
-    for (const owner of ['features/file-browser/DestinationPicker.tsx', 'features/file-browser/FileBrowser.tsx']) {
-      expect(floored, owner).toContain(owner);
+    // Each class is looked for SEPARATELY rather than as one literal pair. Class order carries no
+    // meaning in Tailwind, so pinning `h-[24px] w-[24px]` as a string reddens on a reorder that
+    // changes nothing — a guard failing on a correct edit teaches people to delete the guard.
+    const pins: [string, string[]][] = [
+      ['h-[24px]', ['components/Toast.tsx', 'features/query/TableActionsMenu.tsx']],
+      ['w-[24px]', ['components/Toast.tsx', 'features/query/TableActionsMenu.tsx']],
+      // The tab closes: sized absolutely so a 24px pointer target survives a restyle of the tab.
+      ['h-[24px]', ['features/data-explorer/ExplorationTabStrip.tsx', 'features/query/QueryTabStrip.tsx']],
+      ['w-[24px]', ['features/data-explorer/ExplorationTabStrip.tsx', 'features/query/QueryTabStrip.tsx']],
+      // The crumbs are FLOORED rather than sized — a crumb grows with its label — and both axes
+      // are load-bearing, because a one-character folder name draws a 7px-wide box.
+      ['min-h-[24px]', ['features/file-browser/DestinationPicker.tsx', 'features/file-browser/FileBrowser.tsx']],
+      ['min-w-[24px]', ['features/file-browser/DestinationPicker.tsx', 'features/file-browser/FileBrowser.tsx']]
+    ];
+    for (const [needle, owners] of pins) {
+      const found = filesContaining(needle);
+      for (const owner of owners) expect(found, `${owner} must keep ${needle}`).toContain(owner);
     }
   });
 });

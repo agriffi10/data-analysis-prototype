@@ -110,11 +110,12 @@ export function QueryTabStrip({
               onClick={() => onSelect(tab.id)}
               onKeyDown={(e) => onTabKeyDown(e, index)}
               className={cx(
-                // A scale step taller than it looks like it needs, for CLEARANCE rather than fit:
-                // the ✕ inside is a 24 CSS px pointer target, and the step down is 24.5px of BORDER
-                // box over a 22.5px CONTENT box — so the ✕ would stay inside the tab but overhang
-                // onto its 1px border, where its own hover fill then paints over it.
-                'inline-flex h-8 flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border pl-3 text-sm',
+                // Height is the scale step every control in this bar shares; do not raise it to
+                // give the ✕ room. The ✕ is a 24 CSS px pointer target inside a 22.5px content
+                // box, so its hover fill overhangs onto the tab's 1px border by 0.75px a side —
+                // measured, and invisible below about 8x. A step up fixes that and puts the tab
+                // 3.5px out of line with the +, the bar buttons and the result tabs.
+                'inline-flex h-7 flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border pl-3 text-sm',
                 // The tight right padding assumes the ✕ box sits at the end; with no ✕ the
                 // tab pads symmetrically instead of reserving a dead 24px slot.
                 solo ? 'pr-3' : 'pr-1',

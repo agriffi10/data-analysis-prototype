@@ -241,7 +241,11 @@ function FileBrowserContent({
         <nav
           aria-label="breadcrumb"
           className="min-w-0 flex-1">
-          <ol className="flex items-center gap-1 text-sm">
+          {/* Wraps because the crumbs are floored at 24px: without it a deep path at 375px
+              overflows this nav by ~38px and the folder you are standing in is clipped at the
+              screen edge, taking the document into a horizontal scroll. The destination picker's
+              trail has always wrapped for the same reason. */}
+          <ol className="flex flex-wrap items-center gap-1 text-sm">
             {breadcrumbs.map((crumb, i) => {
               const isLast = i === breadcrumbs.length - 1;
               return (
