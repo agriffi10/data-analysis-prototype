@@ -3,12 +3,18 @@
 The access model here is identity-based and nothing else: there is no ``aws_sqs_queue_policy``
 anywhere in the tree, so "only the API may write" is achieved by adding one grant and removing
 eight. That makes the enumeration below the whole guard — a hand-kept list is exactly what would
-miss the ninth plane.
+miss the next one — which is not hypothetical: feedback IS that queue, and it arrived without
+being a plane.
 
 Attributes:
   REPO: The repository root.
   INFRA: The IaC tree.
-  QUEUE_MODULES: The eight modules that own a request queue, enumerated from the filesystem.
+  QUEUE_MODULES: The modules that own a request queue, enumerated from the filesystem. Eight
+    control planes plus feedback, which is not a plane — it has one verb and no state machine —
+    but which owns a request queue on exactly these terms.
+  EXPECTED_QUEUE_MODULES: The count measured when feedback landed, as a tripwire on the glob
+    rather than as the list itself. A glob that found nothing would make every sweep here
+    vacuously clean.
   NOTIFYING_ROLES: Every execution role that sends a notification, which this change must leave
     holding its grant.
 """
@@ -24,6 +30,8 @@ QUEUE_MODULES = sorted(
     for path in INFRA.glob("modules/*/sqs.tf")
     if "requests" in path.read_text()
 )
+
+EXPECTED_QUEUE_MODULES = 9
 
 NOTIFYING_ROLES = (
     "shared-spaces",
@@ -49,7 +57,7 @@ def _portal_templates() -> list[pathlib.Path]:
     return sorted(INFRA.glob("modules/*/policies/portal-role-*.json.tftpl"))
 
 
-def test_the_enumeration_reaches_the_eight_queues_it_claims_to():
+def test_the_enumeration_reaches_every_queue_it_claims_to():
     """A glob that found nothing would make every sweep below vacuously clean.
 
     Args:
@@ -59,9 +67,10 @@ def test_the_enumeration_reaches_the_eight_queues_it_claims_to():
       None.
 
     Raises:
-      AssertionError: If the queue modules are not the eight this arc knows about.
+      AssertionError: If the queue modules are not the ones this arc knows about.
     """
-    assert len(QUEUE_MODULES) == 8, QUEUE_MODULES
+    assert len(QUEUE_MODULES) == EXPECTED_QUEUE_MODULES, QUEUE_MODULES
+    assert "feedback" in QUEUE_MODULES
     assert _portal_templates(), "no portal-role templates found — the glob is broken"
 
 
@@ -128,8 +137,8 @@ def test_every_execution_role_that_notifies_still_holds_its_grant():
     assert missing == [], f"these roles can no longer notify: {missing}"
 
 
-def test_the_api_grant_names_the_eight_queues_and_no_wildcard():
-    """One grant, eight ARNs, rendered from a list the module refuses at any other length.
+def test_the_api_grant_names_every_queue_and_no_wildcard():
+    """One grant, one ARN per queue, rendered from a list the module refuses at any other length.
 
     Args:
       None.
@@ -147,9 +156,11 @@ def test_the_api_grant_names_the_eight_queues_and_no_wildcard():
 
     assert '"Sid": "EnqueueControlPlaneRequests"' in policy
     assert "${request_queue_arns_json}" in policy
-    assert re.search(r"length\(var\.request_queue_arns\) == 8", variables), (
-        "the module must refuse a list that is not the eight — a shorter one is a plane that "
-        "lost its route, and the grant would simply be smaller"
+    assert re.search(
+        rf"length\(var\.request_queue_arns\) == {EXPECTED_QUEUE_MODULES}", variables
+    ), (
+        "the module must refuse a list of any other length — a shorter one is a queue that lost "
+        "its route, and the grant would simply be smaller"
     )
 
     # The ARNs arrive through the variable, so the only thing to assert about the TEMPLATE is
@@ -161,7 +172,9 @@ def test_the_api_grant_names_the_eight_queues_and_no_wildcard():
     block = block[: block.index("]")]
     arns = re.findall(r"module\.([a-z_]+)\.([a-z_]+)", block)
 
-    assert len(arns) == 8, f"the wiring names {len(arns)} queues, not eight"
+    assert len(arns) == EXPECTED_QUEUE_MODULES, (
+        f"the wiring names {len(arns)} queues, not {EXPECTED_QUEUE_MODULES}"
+    )
     assert all(not output.endswith("dlq_arn") for _module, output in arns), (
         f"the grant names a dead-letter queue: {arns}"
     )
@@ -170,7 +183,7 @@ def test_the_api_grant_names_the_eight_queues_and_no_wildcard():
 
 
 def test_the_lambda_environment_and_the_wiring_agree_with_the_contract_registry():
-    """Three places name the eight queues, and two of the three disagreements are silent.
+    """Three places name the queues, and two of the three disagreements are silent.
 
     The contract's registry says which variable each queue's URL arrives in; the module's
     environment block sets those variables; the root wiring says which module's output each one

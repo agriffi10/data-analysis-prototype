@@ -87,6 +87,7 @@ resource "aws_lambda_function" "api" {
       FILE_SEND_QUEUE_URL     = var.file_send_queue_url
       ARCHIVE_QUEUE_URL       = var.archive_queue_url
       FILE_OPS_QUEUE_URL      = var.file_ops_queue_url
+      FEEDBACK_QUEUE_URL      = var.feedback_queue_url
 
       # The identity layer. Same role the Identity Pool vends for, and the same variables that
       # size its tag map — so the two key sets cannot drift by transcription.

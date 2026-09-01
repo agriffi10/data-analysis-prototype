@@ -818,6 +818,35 @@ module "notifications" {
   depends_on = [module.base, module.data]
 }
 
+# Feedback: a FIFO queue and one writer Lambda, the same standalone shape as notifications
+# above. No Pipe and no state machine — there is one verb, and it appends one event to one object.
+#
+# The queue's ONLY writer is module.api's execution role. The portal role has no statement naming
+# it, which is what makes a feedback record attributable: on the user plane the browser could
+# write one directly, under whatever username it chose.
+module "feedback" {
+  source = "./modules/feedback"
+
+  project_name = var.project_name
+  environment  = var.environment
+  aws_region   = var.aws_region
+  account_id   = data.aws_caller_identity.current.account_id
+
+  # The writer appends one object per day under this bucket's `feedback/` prefix. No lifecycle
+  # rule expires it, and a test asserts no expiring rule's prefix could ever match it.
+  admin_bucket_name = local.athena_admin_bucket_name
+
+  # The writer attaches the cpcommon layer for `observability` and emits under service="feedback".
+  # A real reference is safe here (module.observability consumes nothing from this module), so it
+  # also orders the logs queue's creation before the grant that scopes to it.
+  logs_queue_arn = module.observability.logs_queue_arn
+  logs_queue_url = module.observability.logs_queue_url
+
+  # base grants the deploy role its SQS/Lambda/event-source-mapping/IAM/logs perms for this
+  # module — applied in its own PR, ahead of these resources.
+  depends_on = [module.base]
+}
+
 # Table-builder control plane: a DEDICATED FIFO SQS → EventBridge Pipe →
 # Step Function pipeline orchestrating five single-task verb Lambdas
 # (validate-authorize → check-table-absent → inspect-source → infer-schema →
@@ -1310,9 +1339,12 @@ module "verification" {
 module "api" {
   source = "./modules/api"
 
-  # The eight FIFO request queues this function is now the only writer of. Their URLs go in the
-  # environment and their ARNs into the one grant; the browser's eight grants come off in the
-  # same change, so there is never a window with two writers and nothing asserting it.
+  # The FIFO request queues this function is the only writer of. Their URLs go in the environment
+  # and their ARNs into the one grant; the browser's eight grants came off in the same change that
+  # added the first eight, so there was never a window with two writers and nothing asserting it.
+  #
+  # Feedback is the ninth and was never one of the eight: it is the first queue the browser has
+  # had no relationship with at all, rather than one whose grant was taken away.
   shared_space_queue_url  = module.shared_spaces.request_queue_url
   notifications_queue_url = module.notifications.notifications_queue_url
   table_build_queue_url   = module.table_builder.table_build_queue_url
@@ -1321,6 +1353,7 @@ module "api" {
   file_send_queue_url     = module.file_send.file_send_queue_url
   archive_queue_url       = module.archive.archive_queue_url
   file_ops_queue_url      = module.file_ops.file_ops_queue_url
+  feedback_queue_url      = module.feedback.feedback_queue_url
 
   request_queue_arns = [
     module.shared_spaces.request_queue_arn,
@@ -1331,6 +1364,7 @@ module "api" {
     module.file_send.file_send_queue_arn,
     module.archive.archive_queue_arn,
     module.file_ops.file_ops_queue_arn,
+    module.feedback.feedback_queue_arn,
   ]
 
   project_name = var.project_name
