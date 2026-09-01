@@ -354,23 +354,41 @@ class TestTheUrlNeverOutlivesTheSessionThatSignedIt:
         )
         assert fake.signed[0][2] == 900
 
-    def test_there_is_exactly_one_clamp_definition(self) -> None:
+    def test_there_is_exactly_one_clamp_definition_in_the_whole_api(self) -> None:
         """Two copies of one arithmetic is how one of them stops being clamped.
+
+        **Swept over every API module, not over the presign one.** Scoped to a single file this
+        guard could not see the copy it most needed to: the second presigning surface arrives in
+        a DIFFERENT module, so a duplicated clamp would have been invisible while this stayed
+        green. The clamp now lives in ``routes/_presign.py`` and both surfaces call it.
 
         Counted on the parsed module rather than on raw source: a string count treats a docstring
         mention as a call site and reddens for a comment, which is a guard that cries wolf. What
         proves the clamp is USED is the parametrized test above, which drives both routes.
+
+        Args:
+          None.
+
+        Returns:
+          None.
+
+        Raises:
+          AssertionError: If the clamp is defined anywhere other than exactly once.
         """
         import ast
         import pathlib
 
-        tree = ast.parse(pathlib.Path(objects_presign.__file__ or "").read_text())
+        root = pathlib.Path(objects_presign.__file__ or "").parent.parent
+        modules = sorted(root.rglob("*.py"))
+        assert modules, "the sweep found no modules, so an empty population would pass"
+
         definitions = [
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.FunctionDef) and node.name == "_clamped"
+            f"{module.relative_to(root)}::{node.name}"
+            for module in modules
+            for node in ast.walk(ast.parse(module.read_text()))
+            if isinstance(node, ast.FunctionDef) and node.name in {"clamped", "_clamped"}
         ]
-        assert len(definitions) == 1
+        assert definitions == ["routes/_presign.py::clamped"]
 
 
 class TestAUrlIsABearerToken:

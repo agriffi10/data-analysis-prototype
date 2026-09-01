@@ -13,22 +13,19 @@ clamp reads the credentials that actually signed, handed back by the same call t
 client; asking the identity layer a second time can return a fresher session than the one that
 signed, and the URL then advertises an expiry a quarter of an hour past its real one.
 
-**The clamp is written against the credential, never against the configured duration.** They agree
-today and will not later — the successor environment signs from vended credentials with a
-different maximum, and a clamp computed from a constant passes every test here and mints dead URLs
-there.
+The clamp and the mint-shaping themselves live in ``_presign``, shared with the multipart routes:
+two copies of the rule deciding how long a capability lives is the pair that agrees on the day it
+is written and diverges in the environment nobody tests in.
 """
 
-import datetime
 from typing import Any
 from urllib.parse import quote
 
 from apicommon import identity, protected, s3_config
 from apicommon.context import RequestContext
 from apicommon.envelope import ApiError
-from cpcommon import observability
 
-from . import _objects
+from . import _objects, _presign
 
 
 def upload_url(context: RequestContext) -> dict[str, Any]:
@@ -74,7 +71,7 @@ def upload_url(context: RequestContext) -> dict[str, Any]:
                 "Conflict", "destination is occupied", {"name": key.rsplit("/", 1)[-1]}
             )
 
-    seconds = _clamped(s3_config.UPLOAD_URL_EXPIRY_SECONDS, credentials)
+    seconds = _presign.clamped(s3_config.UPLOAD_URL_EXPIRY_SECONDS, credentials)
     url = client.generate_presigned_url(
         "put_object",
         Params={
@@ -84,7 +81,7 @@ def upload_url(context: RequestContext) -> dict[str, Any]:
         },
         ExpiresIn=seconds,
     )
-    return _minted(url, seconds, key)
+    return _presign.minted(url, seconds, key, space_kind=space.kind)
 
 
 def download_url(context: RequestContext) -> dict[str, Any]:
@@ -107,7 +104,7 @@ def download_url(context: RequestContext) -> dict[str, Any]:
     client, credentials = identity.signing_client(
         "s3", context.acting_as, covering=s3_config.DOWNLOAD_URL_EXPIRY_SECONDS
     )
-    seconds = _clamped(s3_config.DOWNLOAD_URL_EXPIRY_SECONDS, credentials)
+    seconds = _presign.clamped(s3_config.DOWNLOAD_URL_EXPIRY_SECONDS, credentials)
 
     params: dict[str, Any] = {"Bucket": space.bucket, "Key": key}
     file_name = body.get("fileName")
@@ -115,7 +112,7 @@ def download_url(context: RequestContext) -> dict[str, Any]:
         params["ResponseContentDisposition"] = content_disposition(file_name)
 
     url = client.generate_presigned_url("get_object", Params=params, ExpiresIn=seconds)
-    return _minted(url, seconds, key)
+    return _presign.minted(url, seconds, key, space_kind=space.kind)
 
 
 def content_disposition(file_name: str) -> str:
@@ -136,43 +133,3 @@ def content_disposition(file_name: str) -> str:
     """
     escaped = file_name.replace("\\", "\\\\").replace('"', '\\"')
     return f"attachment; filename=\"{escaped}\"; filename*=UTF-8''{quote(file_name, safe='')}"
-
-
-def _clamped(requested: int, credentials: Any) -> int:
-    """Clamps a requested lifetime to what the signing session has left.
-
-    Args:
-      requested: The window this route would like.
-      credentials: The credentials that will sign — read for their own expiry, never for the
-        configured duration, which is a different number in the successor environment.
-
-    Returns:
-      The seconds to sign for, at least one.
-
-    Raises:
-      None.
-    """
-    remaining = credentials.expires_at - datetime.datetime.now(datetime.UTC)
-    return max(1, min(requested, int(remaining.total_seconds())))
-
-
-def _minted(url: str, seconds: int, key: str) -> dict[str, Any]:
-    """Shapes a minted URL, and records the mint WITHOUT the URL.
-
-    The span carries the key's length rather than the key, and nothing carries the URL or its query
-    string. A signed URL in the log store is a credential in the log store.
-
-    Args:
-      url: The signed URL.
-      seconds: The window it was signed for.
-      key: The object key, for its length alone.
-
-    Returns:
-      The wire shape.
-
-    Raises:
-      None.
-    """
-    expires_at = datetime.datetime.now(datetime.UTC) + datetime.timedelta(seconds=seconds)
-    observability.stamp(presign_expires_in=seconds, key_length=len(key))
-    return {"url": url, "expiresAt": expires_at.isoformat()}

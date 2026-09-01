@@ -434,6 +434,151 @@ class UploadUrlRequest(TypedDict):
     overwrite: bool
 
 
+class CreateUploadRequest(TypedDict):
+    """A request to begin an upload, whichever shape it turns out to take.
+
+    Its route is **not** idempotent: a retried create leaks an upload id nobody will abort, which
+    costs storage until the bucket's lifecycle rule reaps it. Every route in this lifecycle sits
+    on the **user** plane, so the caller's own assumed session both authorizes and signs — and
+    each id keeps the ``objects.`` prefix, which is load-bearing because the user-plane sweep
+    selects its population by exactly that prefix.
+
+    Attributes:
+      space: The space.
+      key: The object key.
+      contentType: The content type the upload will carry, which is signed into the URL.
+      overwrite: Whether an occupied key may be replaced. With false and the key occupied the
+        route creates NOTHING — no url and no upload.
+      size: The object's byte length. A **PLANNING input, not a limit**: it is the caller's own
+        number and nothing verifies it, so a client that under-declares gets a plan with too few
+        parts and fails at ``UploadPart`` 10,001 or at complete. The real ceiling is the
+        browser's ``maxUploadBytes()`` and S3's own part limits. No S3 call can supply it,
+        because the object does not exist yet. The route refuses an unservable declared size as
+        a courtesy, not as enforcement.
+    """
+
+    space: SpaceRef
+    key: str
+    contentType: str
+    overwrite: bool
+    size: int
+
+
+class CreateUploadResponse(TypedDict):
+    """How an upload should be performed, decided by the SERVER.
+
+    **Optional members plus a discriminant, and it does not narrow in TypeScript.** The type
+    vocabulary is closed and carries no union other than ``X | None``, so this emits one object
+    type with optional members rather than a discriminated union. The browser therefore checks
+    each member its chosen branch needs at runtime and answers a named code when a member is
+    absent — the alternative is widening the vocabulary, which is the thing the closed-vocabulary
+    rule exists to refuse.
+
+    The browser never learns the threshold. A second copy of a policy number in the SPA would
+    drift, and a drifted copy sends files down the wrong path with nothing failing.
+
+    Attributes:
+      mode: Which path this upload takes.
+      url: Single only — the presigned PUT.
+      expiresAt: Single only — when that URL dies.
+      uploadId: Multipart only. A **CAPABILITY**, so it appears in no emitted record.
+      partSize: Multipart only — every part but the last is exactly this many bytes.
+      partCount: Multipart only — how many parts the plan has.
+    """
+
+    mode: Literal["single", "multipart"]
+    url: NotRequired[str]
+    expiresAt: NotRequired[str]
+    uploadId: NotRequired[str]
+    partSize: NotRequired[int]
+    partCount: NotRequired[int]
+
+
+class SignPartRequest(TypedDict):
+    """A request for one part's presigned URL.
+
+    One part per call rather than a batch: a batch ages while the parts ahead of it upload, so
+    its last URL is signed long before it is redeemed.
+
+    **The one idempotent route of the four.** Signing is a local SigV4 operation that changes
+    nothing at S3, so a retry costs nothing and risks nothing. Declared per route rather than
+    derived from the method — and stated as declaration hygiene rather than as protection, since
+    the flag is consumed only by the browser's retry policy and the uploader calls the transport
+    imperatively.
+
+    Attributes:
+      space: The space.
+      key: The object key.
+      uploadId: The upload this part belongs to. Not evidence of anything — every route
+        re-authorizes from claims.
+      partNumber: 1-based, as S3 numbers them.
+    """
+
+    space: SpaceRef
+    key: str
+    uploadId: str
+    partNumber: int
+
+
+class UploadedPart(TypedDict):
+    """One part, as the browser observed it.
+
+    Attributes:
+      partNumber: 1-based.
+      etag: What S3 returned for that part, read from the ``ETag`` response header.
+    """
+
+    partNumber: int
+    etag: str
+
+
+class CompleteUploadRequest(TypedDict):
+    """A request to assemble the parts into the object.
+
+    **The part list is the browser's, and that is safe for a stated reason.** S3 validates every
+    ETag, so a wrong list fails the assembly rather than assembling the wrong object; a caller
+    completing with a subset truncates their own object in their own prefix, which they could do
+    by uploading a shorter file. A server-side audit would cost a ``ListParts`` per upload and
+    buy nothing.
+
+    Not idempotent: a retried complete answers against an upload that is already finished, which
+    would surface as a failure for an operation that succeeded.
+
+    Attributes:
+      space: The space.
+      key: The object key.
+      uploadId: The upload to assemble.
+      parts: Every part, in order.
+      overwrite: Whether an occupied key may be replaced. **Carried here rather than remembered
+        from create**, because the API keeps no record of an upload — and because the create-time
+        check answers about a moment that can be hours before the object is assembled, so
+        completing over what arrived in between would report success while destroying it.
+    """
+
+    space: SpaceRef
+    key: str
+    uploadId: str
+    parts: list[UploadedPart]
+    overwrite: bool
+
+
+class AbortUploadRequest(TypedDict):
+    """A request to abandon an upload and let S3 discard its parts.
+
+    Not idempotent: a retried abort answers ``NoSuchUpload``, which would surface as a failure
+    for an operation that succeeded.
+
+    Attributes:
+      space: The space.
+      key: The object key.
+      uploadId: The upload to abandon.
+    """
+
+    space: SpaceRef
+    key: str
+    uploadId: str
+
+
 class DownloadUrlRequest(TypedDict):
     """A request for a presigned GET.
 
@@ -1282,6 +1427,46 @@ ROUTES: Final[tuple[Route, ...]] = (
         request=UploadUrlRequest,
         query=None,
         response=PresignedUrlResponse,
+    ),
+    Route(
+        id="objects.upload",
+        method="POST",
+        path="/v1/objects/upload",
+        idempotent=False,
+        plane="user",
+        request=CreateUploadRequest,
+        query=None,
+        response=CreateUploadResponse,
+    ),
+    Route(
+        id="objects.uploadPart",
+        method="POST",
+        path="/v1/objects/upload/part",
+        idempotent=True,
+        plane="user",
+        request=SignPartRequest,
+        query=None,
+        response=PresignedUrlResponse,
+    ),
+    Route(
+        id="objects.uploadComplete",
+        method="POST",
+        path="/v1/objects/upload/complete",
+        idempotent=False,
+        plane="user",
+        request=CompleteUploadRequest,
+        query=None,
+        response=ObjectWrittenResponse,
+    ),
+    Route(
+        id="objects.uploadAbort",
+        method="POST",
+        path="/v1/objects/upload/abort",
+        idempotent=False,
+        plane="user",
+        request=AbortUploadRequest,
+        query=None,
+        response=ObjectDeletedResponse,
     ),
     Route(
         id="objects.downloadUrl",
