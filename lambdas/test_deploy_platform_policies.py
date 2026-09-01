@@ -16,6 +16,17 @@ Attributes:
   PLANNED_RESOURCES: The ARN each platform resource will have, keyed by what it is. The grant is
     written against these names, so a module that names one differently is denied. One row is an
     authorization-context ARN rather than a resource that will exist — it is labelled as such.
+    The Lambda container image's registry is a SECOND repository behind the SAME two registry
+    statements rather than a second pair of them, because that document has a few hundred
+    characters of its budget left and a policy of its own would also spend an attachment against
+    a ceiling of twenty. Its scoping was measured with ``simulate-custom-policy`` before the
+    statement was written, and the two legs are worth stating exactly, because the loose version
+    of the sentence is false. Against a policy carrying the image repository's pattern ALONE, all
+    22 registry actions read back ``allowed`` for the image repository and ``implicitDeny`` for
+    the SPA's, which is what shows the pattern narrows rather than merely matching. Under the
+    document that ships BOTH read ``allowed`` — and they must, since the SPA's grant is what the
+    container pipeline pushes with every day. A simulate also caps its policy input at 2,000
+    characters, so the shipped document cannot be handed to one whole.
   NON_SCOPABLE: Every action IAM defines no resource type for, and therefore the only actions
     a ``Resource: "*"`` statement in those two templates may hold.
   SERVICE_LINKED_ROLE_TRIGGERS: Resource types whose creation makes AWS create a service-linked
@@ -94,6 +105,10 @@ PLANNED_RESOURCES = {
     ),
     "ECR repository": "arn:aws:ecr:us-east-1:696000197480:repository/dat-prod-spa",
     "ECR repository, kind-suffixed": "arn:aws:ecr:us-east-1:696000197480:repository/dat-prod-spa-repo",
+    "Lambda image repository": "arn:aws:ecr:us-east-1:696000197480:repository/dat-prod-lambda",
+    "Lambda image repository, kind-suffixed": (
+        "arn:aws:ecr:us-east-1:696000197480:repository/dat-prod-lambda-image"
+    ),
     "API function": "arn:aws:lambda:us-east-1:696000197480:function:dat-prod-api",
     "API function role": "arn:aws:iam::696000197480:role/dat-prod-api-role",
     "SPA task role": "arn:aws:iam::696000197480:role/dat-prod-spa-task-role",
@@ -405,7 +420,7 @@ def test_a_wildcard_resource_holds_only_non_scopable_actions(path: pathlib.Path)
       AssertionError: When a wildcard statement holds an action that accepts an ARN.
     """
     for statement in _statements(path):
-        if statement["Resource"] != "*":
+        if "*" not in _resources(statement):
             continue
         scopable = [a for a in _actions(statement) if a not in NON_SCOPABLE]
         assert not scopable, (
@@ -432,13 +447,35 @@ def test_a_scoped_statement_holds_no_non_scopable_action() -> None:
     """
     for path in PLATFORM_POLICIES:
         for statement in _statements(path):
-            if statement["Resource"] == "*":
+            if "*" in _resources(statement):
                 continue
             dead = [a for a in _actions(statement) if a in NON_SCOPABLE]
             assert not dead, (
                 f"{path.name} statement {statement['Sid']!r} scopes {dead} to an ARN, but IAM "
                 "defines no resource type for them — the grant is an implicit deny."
             )
+
+
+def _resources(statement: dict) -> list[str]:
+    """Normalises a statement's ``Resource`` to a list.
+
+    A statement may declare one resource or many, and until the Lambda image's registry joined
+    the SPA's there were only single strings here. Three checks in this file decide whether a
+    statement is a wildcard one by comparing that field, and a bare ``==`` against ``"*"`` reads
+    a LIST holding ``"*"`` as scoped — so a wildcard hidden in a one-element list would skip the
+    rule that exists to forbid it, and would read in a diff exactly like a narrowing.
+
+    Args:
+      statement: One policy statement.
+
+    Returns:
+      The statement's resources, whether it declared one or many.
+
+    Raises:
+      None.
+    """
+    resource = statement["Resource"]
+    return resource if isinstance(resource, list) else [resource]
 
 
 def _iam_match(pattern: str, arn: str) -> bool:
@@ -492,12 +529,8 @@ def test_the_grant_covers_every_resource_the_platform_will_create() -> None:
         (statement["Sid"], pattern)
         for path in PLATFORM_POLICIES
         for statement in _statements(path)
-        if statement["Resource"] != "*"
-        for pattern in (
-            statement["Resource"]
-            if isinstance(statement["Resource"], list)
-            else [statement["Resource"]]
-        )
+        if "*" not in _resources(statement)
+        for pattern in _resources(statement)
     ]
     assert scoped, "No scoped statements found — the templates did not parse."
 
@@ -581,3 +614,167 @@ def test_every_resource_that_needs_a_service_linked_role_can_create_one() -> Non
                 f"service-linked role, but the deploy role may not create one for "
                 f"{service_name}. This applies green at plan and 403s at apply."
             )
+
+
+def _registry_statements() -> dict[tuple[str, str], list[str]]:
+    """Finds every repository-scoped statement in BOTH platform documents, by its content.
+
+    DERIVED FROM THE DOCUMENTS, never from a list of names, and that is the difference between a
+    guard and a pair of guards. A hand-written tuple of ``Sid``s constrains the statements it
+    names and says nothing about a THIRD one — so a new registry statement, which is exactly what
+    a pull path would add, could grant ``repository/*`` and leave every test here green. A tuple
+    that was emptied or shortened does the same silently, because an empty parametrize is a skip
+    rather than a failure.
+
+    BOTH documents are walked, not only the one holding the grants today. The registry statements
+    are in the platform document, which has the least budget left of the two, so the natural home
+    for the next registry grant is the document a one-file derivation could not see.
+
+    Args:
+      None.
+
+    Returns:
+      ``(document name, Sid)`` to resource patterns, for every statement whose resources are all
+      ECR repository ARNs. Keyed by both, because a ``Sid`` is unique within a document rather
+      than across them.
+
+    Raises:
+      AssertionError: When no such statement is found anywhere. A derived set that came back
+        empty must not read as "nothing to check".
+    """
+    found = {
+        (document.name, statement["Sid"]): _resources(statement)
+        for document in PLATFORM_POLICIES
+        for statement in _statements(document)
+        if _resources(statement)
+        and all(resource.startswith("arn:aws:ecr:") for resource in _resources(statement))
+    }
+    assert found, (
+        "no repository-scoped statement found in either platform document. The registry grants "
+        "are what the tests below are about, and a derived set that comes back empty would make "
+        "every one of them pass without checking anything."
+    )
+    return found
+
+
+#: The statements that must reach BOTH repositories, as opposed to merely being narrow. Named
+#: because it is a claim about these two specifically: they are the create-and-push pair the SPA's
+#: pipeline and the Lambda image's share. A statement added later — a pull path scoped to one
+#: repository, say — is correctly narrow and correctly NOT here, and the narrowing test covers it
+#: without this one demanding it be widened.
+BOTH_REPOSITORY_STATEMENTS = ("PlatformRegistryManage", "PlatformRegistryPush")
+
+
+def test_the_both_repository_statements_are_still_the_pair_this_file_names() -> None:
+    """The named pair must exist, and must still be repository-scoped statements.
+
+    Without this, trimming ``BOTH_REPOSITORY_STATEMENTS`` — the obvious response to the test
+    below failing on a correctly-narrow new statement — silently removes a grant's only
+    coverage. Measured: dropping one entry and then deleting the SPA's pattern from both shipped
+    statements left the whole suite green.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the pair has been shortened or renamed away.
+    """
+    named = {sid for (_, sid) in _registry_statements()}
+    missing = [sid for sid in BOTH_REPOSITORY_STATEMENTS if sid not in named]
+    assert not missing, (
+        f"{missing} are named as the statements that must reach both repositories, but no "
+        "platform document holds them. Either they were renamed, or this list was trimmed to "
+        "silence a failure — and trimming it removes a grant's only coverage."
+    )
+    assert len(BOTH_REPOSITORY_STATEMENTS) == 2, (
+        "the create-and-push pair is two statements. A shorter list here is a grant nothing "
+        "checks reaches the repositories it is for."
+    )
+
+
+@pytest.mark.parametrize("sid", BOTH_REPOSITORY_STATEMENTS)
+def test_the_registry_grants_reach_both_repositories(sid: str) -> None:
+    """The create-and-push pair must cover the Lambda image's repository and the SPA's.
+
+    The Lambda image rides these two statements rather than getting a pair of its own, so the
+    thing that can go wrong is a pattern that stops matching one of the two while the document
+    still renders, plans and applies. IAM matches ARNs literally, so a repository renamed on one
+    side of that pattern is a grant that authorizes nothing, and the symptom is a `docker push`
+    denied for a reason the policy visibly appears to allow.
+
+    The SPA leg is asserted for the reason the trust template is asserted whole elsewhere: a
+    change that edits a statement needs its own baseline, or "the existing grant is untouched"
+    has nothing to compare against.
+
+    Args:
+      sid: The registry statement under test.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When either repository is unmatched.
+    """
+    matches = [
+        patterns for (_, found), patterns in _registry_statements().items() if found == sid
+    ]
+    assert len(matches) == 1, (
+        f"expected exactly one registry statement named {sid!r} across the platform documents, "
+        f"found {len(matches)}."
+    )
+    for label in (
+        "ECR repository",
+        "Lambda image repository",
+        "Lambda image repository, kind-suffixed",
+    ):
+        arn = PLANNED_RESOURCES[label]
+        assert any(_iam_match(pattern, arn) for pattern in matches[0]), (
+            f"{sid} does not authorize {label} ({arn}). Its patterns are {matches[0]}."
+        )
+
+
+@pytest.mark.parametrize(
+    "key", sorted(_registry_statements()), ids=lambda k: f"{k[0]}:{k[1]}"
+)
+def test_the_registry_grants_narrow_rather_than_merely_match(key: tuple[str, str]) -> None:
+    """A registry statement must REFUSE a repository outside the two it is for.
+
+    This is the negative control, and without it the test above is close to tautological: a
+    pattern of ``*`` matches every ARN handed to it, so a statement widened to the whole registry
+    would satisfy every positive assertion here while granting the deploy role push access to
+    repositories nobody has reviewed. The pair mirrors how the non-scopable set was measured —
+    the ``allowed`` leg alone proves nothing, and the refusal is what makes it evidence.
+
+    It runs over EVERY repository-scoped statement, including ones this file does not name, which
+    is the half of the guard that survives the arc adding a pull path.
+
+    TWO strangers, and the second is the one that matters. A name inside the project prefix
+    catches a widening to ``dat-*``; it does not catch one to ``*-lambda*``, which reaches every
+    account's Lambda image repository and reads almost identical in a diff. Measured: that
+    widening passed with one stranger.
+
+    Args:
+      key: The document name and ``Sid`` of the statement under test.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When an unrelated repository ARN matches.
+    """
+    document, sid = key
+    patterns = _registry_statements()[key]
+    for stranger in (
+        "arn:aws:ecr:us-east-1:696000197480:repository/dat-prod-unreviewed",
+        "arn:aws:ecr:us-east-1:696000197480:repository/otherproject-prod-lambda",
+    ):
+        matched = [p for p in patterns if _iam_match(p, stranger)]
+        assert not matched, (
+            f"{document}:{sid} authorizes {stranger} through {matched}. The registry grants are "
+            "scoped to this project's SPA repository and its Lambda image's; a pattern reaching "
+            "anything else is a widening nobody asked for."
+        )
+
