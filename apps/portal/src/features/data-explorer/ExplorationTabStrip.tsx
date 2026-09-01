@@ -94,7 +94,9 @@ export function ExplorationTabStrip({tabs, activeTabId, onSelect, onClose, onNew
               onClick={() => onSelect(tab.id)}
               onKeyDown={(e) => onTabKeyDown(e, index)}
               className={cx(
-                'inline-flex h-7 flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border pl-3 pr-1 text-sm',
+                // Taller than it looks like it needs: the ✕ inside is a 24 CSS px pointer target,
+                // and the next step down leaves a border box of 22.5.
+                'inline-flex h-8 flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border pl-3 pr-1 text-sm',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
                 active
                   ? 'border-border bg-surface font-semibold text-text shadow-sm'
@@ -113,7 +115,7 @@ export function ExplorationTabStrip({tabs, activeTabId, onSelect, onClose, onNew
                   e.stopPropagation();
                   onClose(tab.id);
                 }}
-                className="grid h-6 w-6 flex-none cursor-pointer place-items-center rounded-sm text-text-3 hover:bg-danger-soft hover:text-danger">
+                className="grid h-[24px] w-[24px] flex-none cursor-pointer place-items-center rounded-sm text-text-3 hover:bg-danger-soft hover:text-danger">
                 <svg
                   viewBox="0 0 24 24"
                   fill="none"

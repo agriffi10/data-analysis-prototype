@@ -110,7 +110,9 @@ export function QueryTabStrip({
               onClick={() => onSelect(tab.id)}
               onKeyDown={(e) => onTabKeyDown(e, index)}
               className={cx(
-                'inline-flex h-7 flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border pl-3 text-sm',
+                // The tab is a scale step taller than it looks like it needs: the ✕ inside it is
+                // a 24 CSS px pointer target, and the next step down leaves a border box of 22.5.
+                'inline-flex h-8 flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border pl-3 text-sm',
                 // The tight right padding assumes the ✕ box sits at the end; with no ✕ the
                 // tab pads symmetrically instead of reserving a dead 24px slot.
                 solo ? 'pr-3' : 'pr-1',
@@ -134,7 +136,7 @@ export function QueryTabStrip({
                 on the focused tab (onTabKeyDown), so the same action stays fully
                 operable without this control (WCAG 2.1.1).
                 The last remaining tab renders no ✕ and no placeholder — the tab
-                shrinks to its label rather than holding an empty 21px slot. */}
+                shrinks to its label rather than holding an empty 24px slot. */}
               {!solo && (
                 <span
                   role="presentation"
@@ -143,7 +145,7 @@ export function QueryTabStrip({
                     e.stopPropagation();
                     onClose(tab.id);
                   }}
-                  className="grid h-6 w-6 flex-none cursor-pointer place-items-center rounded-sm text-text-3 hover:bg-danger-soft hover:text-danger">
+                  className="grid h-[24px] w-[24px] flex-none cursor-pointer place-items-center rounded-sm text-text-3 hover:bg-danger-soft hover:text-danger">
                   <svg
                     viewBox="0 0 24 24"
                     fill="none"

@@ -141,9 +141,17 @@ CSS px floor. **Read the register for the population; it is deliberately not cou
 a number in prose goes stale on the first correct fix with nothing to catch it.
 
 **Being under the floor is not a violation.** The spacing exception exempts a target nothing else
-comes within a 24px-diameter circle of, and that is geometry no suite here can do. The register is a
-list of *candidates* and this is the check that resolves them. The recipe is `e2e.md` §4.13; measure
-the **centre-to-centre** distance to the nearest other target, not just the box.
+comes within a 24px-diameter circle of, and that is geometry no suite here can do. The recipe is
+`e2e.md` §4.13; measure the **centre-to-centre** distance to the nearest other target, not just the
+box.
+
+**What was measured, and what that measurement is worth.** A pass over the register was run in a
+browser at the 14px root, against the built stylesheet, on markup **reproduced from source** — not
+on the running app. That is enough to settle geometry that depends only on a control and its own
+container, and it is *not* the live check: a parent the reproduction did not include could change a
+distance. Every figure below is from that pass. **The residual owed against each one is the same and
+is stated once here** — confirm it in the deployed app rather than in a harness. An entry's `why` in
+the register carries its number, so the two do not drift.
 
 **How the 2026-09-01 sweep measured it, because the numbers below depend on it.** For each target
 under 24×24, find the neighbour with the least slack, applying the exception's two halves
@@ -167,7 +175,7 @@ enclosing-target reading.
 
 | Surface | Measured 2026-09-01 |
 |---|---|
-| **The tab-strip closes** — `ExplorationTabStrip`, `QueryTabStrip` | The ✕ is a **21 × 21** `span`, `tabindex="-1"` by design, sitting **inside** a `role="tab"` of **112.52 × 24.5**. Its centre lies within the enclosing target's box, so the exception cannot rescue it — exactly as this ledger already read it, now with numbers. Left alone deliberately; a design decision, not a resize. Only one tab was open, so tab-to-tab spacing is still unmeasured. |
+| **The tab-strip closes** — `ExplorationTabStrip`, `QueryTabStrip` | **FIXED, and the earlier reading of this entry was wrong.** The measurement stands — a **21 × 21** `span` inside a `role="tab"`, so the spacing exception cannot rescue it — but "cannot be rescued by the exception" is not "cannot be fixed": a target that IS 24 × 24 needs no exception, whatever encloses it. Both ✕ are now `h-[24px] w-[24px]` and conform outright, with the tab left at `h-7`. Raising the tab to `h-8` was tried and reverted: it removes a 0.75px overhang where the ✕'s hover fill paints onto the tab's 1px border, and costs a visible 3.5px mismatch against the `+`, the bar buttons and `ResultTabs`. Still owed from this pass: tab-to-tab spacing, since only one tab was open. |
 
 #### Measured and exempt — resolved, do not re-open
 
@@ -178,7 +186,7 @@ enclosing-target reading.
 | `GroupingPanel` | Two **13 × 13** | +6.50 |
 | `TransformersDialog` | **Zero** undersized targets in its default state | — |
 | Columns drawer | Move-earlier / move-later **32.16 × 28**, close **28 × 28** | — |
-| `FileListTable` header + rows | Row checkboxes **14 × 14** at **42px** pitch; *Select all* **14 × 14**. The binding neighbour is the **adjacent row's checkbox**, not the enclosing row link — the half previously computed rather than measured | +18 / +34.5 |
+| `FileListTable` header + rows | Row checkboxes **14 × 14** at **42px** pitch; *Select all* **14 × 14**. The binding neighbour is the **adjacent row's checkbox**, not the enclosing row link — the half previously computed rather than measured | +18 / +34.5  **One open disagreement, recorded rather than resolved:** the enclosing `<li>` carries `onDoubleClick` to download and measures 876 × 42, so under the enclosing-target reading the row checkbox has centre-to-box 0 and fails. This pass deliberately does not lean on that reading, calling it contested, and settles the entry on the adjacent-row pitch instead. Both are written down because the register should not look settled while the reading it turns on is not. Either way the static sweep is blind to the row: `POINTER_HANDLER` matches `onClick`/`onPointerDown`/`onMouseDown`, not `onDoubleClick`. |
 | `SelectionToolbar` | All buttons **28px** tall, ≥75 wide | — |
 | `SendFilesDialog` | Two **14 × 14** radios **69.1px** apart, confirmed by direct measurement as well as by the sweep | — |
 | `Chip` remove ✕ | **Exactly 24 × 24**, **153.71px** apart on a row; with the earlier 31.75px wrapped figure, both axes are now measured | pin holding |
@@ -190,10 +198,10 @@ enclosing-target reading.
 | Check | Why it did not run |
 |---|---|
 | **`AdvancedCopyDialog`** | *Copy…* carries `aria-disabled="true"` without a cell selection. An early probe recorded it as "0 undersized" when the dialog had simply never opened — **take a positive control before recording any zero here.** |
-| **`StripingControl`** | Not separately locatable from the Options menu; it may live inside Colours. Identify the surface first. |
-| **`Toast`, `TableActionsMenu`, `RefreshTableDialog`, `TableShareDialog`** | Not reached this pass. Arithmetic from source at best. |
+| **`StripingControl`** | Not separately locatable from the Options menu; it may live inside Colours. Identify the surface first. A HARNESS — reproduced markup, not the running app — puts it at **19.5px** centre-to-centre between wrapped `gap-y-1` rows, which would make it a failure. Treat that as a reason to go and find the surface, not as the measurement. |
+| **`RefreshTableDialog`, `TableShareDialog`** | Not reached this pass. Arithmetic from source at best. (`Toast` and `TableActionsMenu` were on this row and have left the register: both are `h-[24px] w-[24px]` now. Neither was failing — a harness put them at 37.8px and a 14px centre-to-box — so those two are robustness, not fixes.) |
 | **`FileListRowMobile`** | Needs a width below 900px on `/files`. Reachable now — see the corrected `resize_window` trap in `e2e.md` §1 — just not run. |
-| **The breadcrumb trails** — `DestinationPicker.tsx:282`, `FileBrowser.tsx:265` | **Restated, not decided.** The buttons are **18px** tall, but on one line they sit **68.44px** apart (`agriffith` 47.65 × 18, `arcb_files` 58.84 × 18), so the horizontal axis is not in question at all. The 22.56px figure is the **wrapped** trail's line pitch, so only a trail long enough to wrap puts SC 2.5.8's Inline exception in play. The 2026-09-01 pass could not produce one — the deepest path available was three crumbs. Get a wrapping trail before deciding whether a breadcrumb is "inline text". |
+| **The breadcrumb trails** — `DestinationPicker.tsx:282`, `FileBrowser.tsx:265` | **DECIDED and FIXED.** The Inline exception does **not** apply: a trail is not a sentence, and its size is not constrained by the line-height of non-target text — measured, flooring a crumb takes it 18 → 24px while the `/` beside it stays at its own 18px line-height and the row simply grows. A constraint you can lift by editing one class is not a constraint. This pass's own point is preserved and was right: with ordinary folder names the horizontal axis is not in question (68.44px apart), and 22.56px is the **wrapped** trail's line pitch. The two axes fail for different reasons — the vertical whenever the trail wraps, the horizontal only with very short names, where a one-character folder (legal: `validateLeafName` forbids only empty, untrimmed, `/` and control characters) draws a **7.3px-wide** box with 22.82px between two of them. `min-h-[24px] min-w-[24px]` covers both. **Still owed:** confirm on a wrapping trail in the live app, which this pass could not produce — the deepest path available was three crumbs. |
 
 ### Needs Safari, or 400px
 

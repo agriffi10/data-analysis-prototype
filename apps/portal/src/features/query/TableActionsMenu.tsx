@@ -49,7 +49,7 @@ export function TableActionsMenu({tableName, items}: Props) {
             toggle();
           }}
           className={cx(
-            'grid h-6 w-6 place-items-center rounded-sm text-text-3 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+            'grid h-[24px] w-[24px] place-items-center rounded-sm text-text-3 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
             open && 'bg-surface-2 text-text'
           )}>
           <svg

@@ -105,4 +105,29 @@ describe('shared primitives are not re-implemented (SPEC-186)', () => {
   it('pins the chip remove target to an absolute 24px', () => {
     expect(filesContaining('h-[24px] w-[24px]')).toContain('components/Chip.tsx');
   });
+
+  // The same tripwire for the controls measured out of `lib/targetSize.test.ts`'s register.
+  // The sweep there already catches a SHRINK — `h-6` is 21px and would reappear as an offence
+  // with no entry. What it cannot catch is a normalisation SIDEWAYS onto the scale: `h-7` is
+  // 24.5px, clears the floor today, and reddens nothing, while quietly re-coupling an absolute
+  // threshold to a root font size that is 14px only by convention. That is the exact edit that
+  // hid the chip's 21px target for months, so the absolute spelling is pinned by name.
+  it('pins every target measured out of the register to an absolute 24px', () => {
+    const square = filesContaining('h-[24px] w-[24px]');
+    for (const owner of [
+      'components/Toast.tsx',
+      'features/data-explorer/ExplorationTabStrip.tsx',
+      'features/query/QueryTabStrip.tsx',
+      'features/query/TableActionsMenu.tsx'
+    ]) {
+      expect(square, owner).toContain(owner);
+    }
+
+    // The breadcrumb crumbs are floored rather than sized: a crumb has to grow with its label,
+    // and BOTH axes are load-bearing — a one-character folder name draws a 7px-wide box.
+    const floored = filesContaining('min-h-[24px] min-w-[24px]');
+    for (const owner of ['features/file-browser/DestinationPicker.tsx', 'features/file-browser/FileBrowser.tsx']) {
+      expect(floored, owner).toContain(owner);
+    }
+  });
 });

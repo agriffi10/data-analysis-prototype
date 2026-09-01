@@ -713,6 +713,36 @@ trail answers it — `owed.md` carries the query and the `IsLogging` preconditio
   undersized control a violation; an isolated small target is conformant and still worth fixing for
   comfort.
 
+**The Inline exception does NOT cover a breadcrumb trail — settled 2026-09-01, and what would
+re-open it.** SC 2.5.8's Inline exception reads "the target is in a sentence or its size is
+otherwise constrained by the line-height of non-target text", and the W3C Understanding text gives
+one example, a link inside a paragraph, with the rationale that reflowing prose makes a link's
+position unpredictable to the author. A crumb trail is neither half of that. It is not a sentence —
+it is a `<nav>` holding an `<ol>` of controls, with `/` separators as the only non-target text. And
+its size is not *constrained* by that text's line-height, which was settled by measuring rather than
+arguing: the crumbs are flex items, so flooring one at `min-h-[24px]` takes it from 18px to 24px
+while the separator beside it stays at its own 18px line-height, and the row simply grows. A
+constraint you can lift by editing one class is not a constraint. **What would re-open this:** laying
+the crumbs out as inline text inside a real sentence, where raising one would change the leading of
+the text around it. The trail being visually compact is not the test.
+
+**The controls measured out of the register, and what to spot-check.** All were measured at the 14px
+root against the built stylesheet. Both crumb trails (`/files`, and the destination picker in a
+copy/move dialog) now carry `min-h-[24px] min-w-[24px]` — **both axes**, because a one-character
+folder name draws a 7px-wide box and two of those sit 22.8px apart, inside each other's circle.
+Confirm a one-character folder crumb is at least 24×24, and that a long folder name still shows an
+ellipsis: the fix deliberately does **not** use `inline-flex`, which makes the label an anonymous
+flex item and stops `truncate` rendering its `…` while still clipping, so the regression looks like
+a slightly shorter name rather than a broken one. The two tab strips' ✕ closes are `h-[24px]
+w-[24px]` inside an `h-8` tab — the tab went up one step because a 24px child does not fit an `h-7`
+tab's 22.5px border box; the strip's own bar is `h-10` and did not move. A 24×24 target needs **no**
+exception, which is what makes the ✕ fixable at all: the exception could never rescue it, since it
+sits inside the tab's own box, and that was misread for a while as "unfixable" rather than "not
+rescuable". `Toast`'s dismiss and the schema rail's `TableActionsMenu` trigger are also 24×24 now;
+both already conformed via spacing (37.8px and a 14px centre-to-box against the row button), so
+those two are robustness rather than fixes — the menu trigger in particular was clearing the
+requirement by 2px, which a single `gap-0.5` would have taken away.
+
   Three numbers make this easy to get wrong here, all measured rather than read off class names.
   The spacing scale is **3.5px to the unit** (a 14px root against `0.25rem`), so `h-6` is 21px and
   only `h-7` (24.5) and up clear 24. The **type scale is authored in px** and does not scale with

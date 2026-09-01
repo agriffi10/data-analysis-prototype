@@ -263,7 +263,11 @@ function FileBrowserContent({
                     </span>
                   ) : (
                     <button
-                      className="max-w-[160px] truncate text-text-2 hover:text-text hover:underline"
+                      // Both floors are the 24 CSS px pointer-target threshold, absolute because
+                      // it is a threshold and not a step on the rem-derived scale. Width matters
+                      // too: a one-character folder draws a 7px box, and two sit 22.8px apart.
+                      // NOT `inline-flex` — that stops `truncate` rendering its ellipsis.
+                      className="min-h-[24px] min-w-[24px] max-w-[160px] truncate text-text-2 hover:text-text hover:underline"
                       onClick={() => setPrefix(crumb.prefix)}>
                       {crumb.label}
                     </button>
