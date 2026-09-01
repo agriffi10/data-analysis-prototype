@@ -393,9 +393,11 @@ resource "time_sleep" "wait_for_verification_grant" {
 }
 
 # ── The container platform: network, compute, and the front door ──────────
-# TWO policies, not one: the halves measure 5,095 and 3,985 stripped, and ONE DOCUMENT WOULD
-# NOT HAVE FITTED the 6,144-char budget. `deploy_platform` keeps its name because the scanner
-# accept list names it.
+# TWO policies, not one: ONE DOCUMENT WOULD NOT HAVE FITTED the 6,144-char per-policy budget,
+# and the larger half is still the one under pressure. The sizes are not repeated here because a
+# number in a comment rots — `lambdas/test_deploy_platform_policies.py` measures every managed
+# policy against the ceiling on every run, and names the measurement when it fails. `deploy_platform` keeps its name
+# because the scanner accept list names it.
 #
 # ⚠ EVERY `Resource: "*"` STATEMENT HOLDS ONLY ACTIONS IAM DEFINES NO RESOURCE TYPE FOR, each
 # checked with simulate-custom-policy: 37 actions, each reading implicitDeny under a scoped ARN

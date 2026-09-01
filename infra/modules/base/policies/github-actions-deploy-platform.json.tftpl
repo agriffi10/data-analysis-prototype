@@ -189,7 +189,10 @@
         "ecr:UntagResource",
         "ecr:ListTagsForResource"
       ],
-      "Resource": "arn:aws:ecr:${aws_region}:*:repository/${project_name}-*-spa*"
+      "Resource": [
+        "arn:aws:ecr:${aws_region}:*:repository/${project_name}-*-spa*",
+        "arn:aws:ecr:${aws_region}:*:repository/${project_name}-*-lambda*"
+      ]
     },
     {
       "Sid": "PlatformRegistryPush",
@@ -204,7 +207,10 @@
         "ecr:DescribeImages",
         "ecr:ListImages"
       ],
-      "Resource": "arn:aws:ecr:${aws_region}:*:repository/${project_name}-*-spa*"
+      "Resource": [
+        "arn:aws:ecr:${aws_region}:*:repository/${project_name}-*-spa*",
+        "arn:aws:ecr:${aws_region}:*:repository/${project_name}-*-lambda*"
+      ]
     },
     {
       "Sid": "PlatformRegistryAuth",

@@ -26,10 +26,13 @@ inline aggregate.** So every new resource family gets its own managed policy. Th
 down here — it moves with the resource families, and the only ceiling it has to clear is IAM's cap of
 twenty managed policies attached to one role.
 
-That budget is also why the container platform is **two** files rather than one: the halves measure
-5,659 and 4,007 stripped, and **one document would not have fitted**. The split is by what the
-resources *are* — network and container runtime in one, the API's front door and the roles beside it
-in the other — and `deploy_platform` keeps its name **because the scanner accept list names it**.
+That budget is also why the container platform is **two** files rather than one: **one document
+would not have fitted**, and the larger half is still the one under pressure. The sizes are
+deliberately not written down here — a number in prose rots, and
+`lambdas/test_deploy_platform_policies.py` measures **every** managed policy against the ceiling on
+every run. The split is by what the resources *are* — network and container runtime in one, the
+API's front door and the roles beside it in the other — and `deploy_platform` keeps its name
+**because the scanner accept list names it**.
 
 ## ⚠ Grants land in their own PR, before the resources that need them
 
@@ -163,5 +166,6 @@ The recurring non-scopable actions, each isolated in its own wildcard statement:
 
 The deploy role creates the ECR registry **and writes to it**, because the image pipeline runs as that
 role. **A registry token with no layer-upload actions beside it would authorize nothing at all**, so
-`ecr:GetAuthorizationToken` and the layer/manifest actions travel together, the latter scoped to this
-project's SPA repository.
+`ecr:GetAuthorizationToken` and the layer/manifest actions travel together, the latter scoped to
+this project's **two** repositories — the SPA's and the Lambda container image's, which ride the
+same two statements rather than a second pair of them.
