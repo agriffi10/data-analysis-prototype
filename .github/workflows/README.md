@@ -1,15 +1,20 @@
 # GitHub Actions Workflows
 
-This directory contains five workflows:
+Every workflow in this directory, and what it is for. A count would rot — the row is the
+record, so a workflow without one is a workflow nobody has described:
 
 | File | Trigger | Purpose |
 |---|---|---|
 | `ci.yml` | PR → `main` | Web app: lint + format + `tsc -b` build + unit/component tests. Those steps are **scoped**: a pull request touching none of `apps/portal/**`, the root manifests, `.nvmrc` or this workflow skips them and the job costs one billed minute instead of six. The scoping is per-STEP, not a workflow-level `paths:` filter, so the job always runs and always reports — a required check by that name can never sit pending. An unreachable base runs everything. Lambdas: `ruff` + `mypy` + `pytest` + the doc, contract and feature-flag validators (separate `lambdas` job, never scoped) |
-| `deploy-app.yml` | Push to `main` | Build SPA with env vars, sync to S3, invalidate CloudFront |
+| `deploy-app.yml` | Push to `main` | Resolve the configuration from Terraform state, build the SPA, render `/config.json`, sync to S3, invalidate CloudFront. The derived values are read by `tofu output -json` through [`config-outputs.json`](../config-outputs.json); only the genuine inputs are still repository variables |
+| `deploy-config.yml` | Push to `main` (paths: `config/**`, its own file, the flag validator, the configuration map and the resolver); manual dispatch | Validate the feature-flag document, then publish it to the user-space bucket — whose name it resolves from Terraform state through the same map |
 | `deploy-infra.yml` | PR → `main` (paths: `infra/**`, own workflow file); push to `main` (same); manual dispatch (optional `skip_refresh` recovery input) | `tofu fmt -check` + `tofu plan` on PRs (posts plan as PR comment); `tofu plan` + `tofu apply` on merge |
 | `security.yml` | PR → `main`; weekly (Mon 06:17 UTC); manual dispatch | Security scanning: Semgrep SAST, `npm audit` (runtime + full), `pip-audit`, gitleaks, Checkov, OWASP ZAP baseline. All **report-only** — see the `GATE_*` block in the workflow and `docs/security-baseline.md` (SPEC-138) |
 | `deploy-lambdas.yml` | Push to `main` (paths: `lambdas/**`, the two `.github/lambda-*.json` tables, the two deploy scripts); manual dispatch | Build each Python Lambda package, upload to the artifacts bucket, `update-function-code` (SPEC-012) |
 | `spa-image.yml` | PR → `main` (paths: `apps/portal/**`, the root manifests, `.dockerignore`, the matrix script, both image workflows) | Builds the SPA image and runs the behaviour matrix — every response header, status and cache class, against a container started the way ECS starts it. **Before merge**, because a gate that runs after cannot block anything |
+| `lambda-image.yml` | PR → `main` (paths: `lambdas/**`, both deploy tables, the matrix script and its sweep, both image workflows) | Builds the Lambda fleet's container image and runs its behaviour matrix — every function's handler module imported inside the built image, through the real runtime bootstrap. **Before merge**, for the reason `spa-image.yml` gives |
+| `deploy-lambda-image.yml` | Push to `main` (**no path filter**, deliberately — the image tracks `main` exactly, or "which commit is in the registry" has no answer); manual dispatch (`image_tag` reports an existing tag rather than rebuilding it) | Builds the Lambda fleet's image, proves it with the same matrix, and pushes it to ECR tagged by commit sha. **Deploys nothing** — no function runs this image yet, and the workflow ends at the push; the cutover is a later spec |
+| `backfill-ever-active.yml` | Manual dispatch only | One-shot backfill of the durable `everActive` field (SPEC-205) |
 | `deploy-spa-image.yml` | Push to `main` (**no path filter**, deliberately — the container tracks `main` exactly as the bundle does, or "which commit is in production" has no answer); manual dispatch (`image_tag` re-points at an existing image without rebuilding) | Build → matrix → push to ECR tagged by commit sha → register a task-definition revision → point the service → wait → **assert it settled on this run's revision and image**. `update-service` returns before anything runs, so waiting is what makes a bad image able to fail a deploy |
 
 All deploy workflows authenticate to AWS via GitHub OIDC — no long-lived credentials are stored.

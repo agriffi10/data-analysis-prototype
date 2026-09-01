@@ -629,6 +629,66 @@ def check_source_citations() -> list[str]:
     return errors
 
 
+def check_workflow_table() -> list[str]:
+    """Every workflow has a row in the workflows README, and every row a workflow.
+
+    The table opened with "This directory contains five workflows" while eleven existed —
+    a hand-maintained list nothing compared, so it rotted the way they do, silently and in
+    the one direction that matters: a workflow nobody has described reads as one that does
+    not exist. The count is gone; this is what replaces it.
+
+    Both directions are checked. A missing row is an undocumented workflow; a row with no
+    file is a workflow someone deleted while leaving its description behind, which sends the
+    next reader looking for something that is not there.
+
+    ``.yaml`` counts as much as ``.yml``: GitHub Actions accepts both, so matching only one
+    would leave a workflow added under the other spelling invisible to exactly the check
+    written to notice it.
+
+    Args:
+      None.
+
+    Returns:
+      One message per drift, in either direction.
+
+    Raises:
+      None.
+    """
+    readme = ROOT / ".github" / "workflows" / "README.md"
+    if not readme.exists():
+        return [f"{readme.relative_to(ROOT)} is missing — the workflow table lives there"]
+
+    text = readme.read_text()
+    header = "| File | Trigger | Purpose |"
+    if header not in text:
+        return [f"{readme.relative_to(ROOT)} has no workflow table — this check has no subject"]
+
+    start = text.index(header)
+    end = text.find("\n\n", start)
+    body = text[start : end if end != -1 else len(text)]
+    described = set(re.findall(r"^\| `([^`]+\.ya?ml)`", body, re.MULTILINE))
+
+    workflows = ROOT / ".github" / "workflows"
+    on_disk = {path.name for path in workflows.glob("*.yml")} | {
+        path.name for path in workflows.glob("*.yaml")
+    }
+    if not on_disk:
+        return ["no workflows found on disk — this comparison would pass vacuously"]
+
+    errors = []
+    for name in sorted(on_disk - described):
+        errors.append(
+            f".github/workflows/README.md describes no `{name}` — every workflow gets a row, "
+            "or it is one nobody has described"
+        )
+    for name in sorted(described - on_disk):
+        errors.append(
+            f".github/workflows/README.md describes `{name}`, which does not exist — a row "
+            "outliving its workflow sends a reader after something that is not there"
+        )
+    return errors
+
+
 def check_links() -> list[str]:
     """Refuse a relative markdown link that points at nothing.
 
@@ -792,6 +852,7 @@ def main() -> int:
         check_spec_size,
         check_delivery_size,
         check_source_citations,
+        check_workflow_table,
         check_links,
         check_section_pointers,
         check_doc_paths_everywhere,
