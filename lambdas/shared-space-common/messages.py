@@ -39,6 +39,10 @@ Attributes:
     marker. The create phrase reads without an article on purpose, copied from the verb that
     already emits it — matching what users already receive beats an internal tidiness they will
     never see.
+  _TRANSFER_REFUSALS: Reason code to the sentence a REFUSED transfer is reported with. Separate
+    from the table above because these name the target, which the failure path cannot: the
+    notifier's input carries an action and a space and nothing else, so a refusal that has to say
+    WHICH member is not a member must arrive with its sentence already composed.
   _UNKNOWN_ACTION: What an unrecognised or absent action reads as. It is reachable: a failure
     before the validator has bound the context has no action at all, and an envelope from a
     producer newer than this layer can carry one this table has never heard of. Naming nothing
@@ -47,7 +51,7 @@ Attributes:
 
 from cpcommon import messages as _cpmessages
 
-__all__ = ["failure_message"]
+__all__ = ["failure_message", "refusal_message", "transfer_notifications"]
 
 _ACTION_PHRASES = {
     "create": "create shared workspace",
@@ -57,6 +61,7 @@ _ACTION_PHRASES = {
     "delete": "delete the shared workspace",
     "forget": "dismiss the shared workspace",
     "acknowledge_membership": "confirm your membership of the shared workspace",
+    "transfer_ownership": "transfer the shared workspace",
 }
 
 _UNKNOWN_ACTION = "complete that shared workspace request"
@@ -68,9 +73,93 @@ _DOMAIN_REASONS = {
     "RegistryRecordMissing": "we couldn't find that workspace",
     "MembersRemainAfterEmpty": "some members' access could not be removed, so please try again",
     "RegistryRecordResurrected": "someone changed that workspace while it was being removed, so please try again",
+    "OwnerChanged": "that workspace changed hands while your request was being processed",
+}
+
+_TRANSFER_REFUSALS = {
+    "TransferSpaceUnknown": 'We couldn\'t find a shared workspace called "{space}".',
+    "TransferTargetMissing": 'That request to transfer "{space}" named nobody to transfer it to.',
+    "TransferNotOwner": 'Only the owner of "{space}" can transfer it.',
+    "TransferTargetNotMember": (
+        '{target} is not a member of "{space}", so it cannot be transferred to them. '
+        "Add them to the workspace first."
+    ),
+    "TransferTargetIsOwner": '{target} already owns "{space}", so there is nothing to transfer.',
+    "TransferSpaceNotActive": 'The shared workspace "{space}" is still being set up, so it cannot be transferred yet.',
+    "TransferSpaceEmptied": 'The shared workspace "{space}" has been deleted, so it cannot be transferred.',
+    "TransferOriginUntrusted": 'That request to transfer "{space}" did not come from a trusted sender, so it was refused.',
+    "TransferOriginNotConfigured": (
+        'That request to transfer "{space}" could not be checked, so it was refused. '
+        "Please contact the Administrator."
+    ),
+    "TransferOriginBothCredentials": (
+        'That request to transfer "{space}" carried two conflicting identities, so it was refused.'
+    ),
+    "TransferOriginActionNotAllowed": (
+        'That request against "{space}" is not one an operator may make, so it was refused.'
+    ),
+    "TransferOriginUnknown": 'That request against "{space}" declared an origin this service does not accept.',
 }
 
 _resolver = _cpmessages.register(_DOMAIN_REASONS)
+
+
+def refusal_message(code: str, space: str = "", target: str = "") -> str:
+    """Composes the sentence a refused shared-space request is reported with.
+
+    Separate from ``failure_message`` because a refusal and a fault answer different questions. A
+    fault says which action could not be completed and offers a generic clause; a refusal has to
+    name the thing that was wrong, and for a transfer that is usually the TARGET — "that person
+    is not a member" is useless without saying which person, and the failure path cannot say it
+    because the notifier's input carries the action and the space and nothing else.
+
+    An unregistered code degrades to the generic transfer sentence rather than rendering the code
+    itself: a reason code is operator text and this string is read by a user.
+
+    Args:
+      code: The refusal's reason code.
+      space: The space name. Coerced to empty rather than interpolated as given: a message from a
+        producer this service does not control can omit it, and a Python ``None`` rendered into a
+        sentence a user reads is worse than a blank pair of quotes.
+      target: The named member, where the refusal has one. Coerced for the same reason.
+
+    Returns:
+      The full sentence.
+
+    Raises:
+      None.
+    """
+    space = space or ""
+    target = target or ""
+    template = _TRANSFER_REFUSALS.get(code)
+    if template is None:
+        return f'We couldn\'t transfer the shared workspace "{space}".'
+    return template.format(space=space, target=target)
+
+
+def transfer_notifications(space: str, outgoing: str, incoming: str) -> tuple[str, str]:
+    """The pair of sentences a completed transfer sends, outgoing owner first.
+
+    Both are literals here rather than f-strings at the verb, so the two halves of one event are
+    worded together and a later edit cannot leave them disagreeing about what happened. Only the
+    two people whose role changed are told, so neither sentence is written to be readable by a
+    bystander.
+
+    Args:
+      space: The space name.
+      outgoing: The owner handing the space on.
+      incoming: The member taking it.
+
+    Returns:
+      A ``(to_outgoing, to_incoming)`` pair.
+
+    Raises:
+      None.
+    """
+    return (
+        f'You transferred the shared workspace "{space}" to {incoming}. You are still a member of it.',
+        f'{outgoing} transferred the shared workspace "{space}" to you. You are now its owner.',
+    )
 
 
 def failure_message(action: str = "", space: str = "", reason: str = "") -> str:

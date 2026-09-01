@@ -37,6 +37,8 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [A delete removes people, not things — and retention keys on a durable fact, never live status (SPEC-205)](#a-delete-removes-people-not-things--and-retention-keys-on-a-durable-fact-never-live-status-spec-205)
 - [One predicate decides who may be destroyed and who may be added (SPEC-205)](#one-predicate-decides-who-may-be-destroyed-and-who-may-be-added-spec-205)
 - [The emptied record is inert because the `owner` FIELD is cleared (SPEC-205)](#the-emptied-record-is-inert-because-the-owner-field-is-cleared-spec-205)
+- [A control-plane queue may have a second producer, admitted by SenderId (SPEC-208)](#a-control-plane-queue-may-have-a-second-producer-admitted-by-senderid-spec-208)
+- [A transfer's refusals are RETURN VALUES, because a raise in the validator reaches nobody (SPEC-208)](#a-transfers-refusals-are-return-values-because-a-raise-in-the-validator-reaches-nobody-spec-208)
 
 ## Everything unbounded on the state travels by pointer — including the definition (SPEC-161, extending SPEC-090/160)
 
@@ -869,3 +871,95 @@ qualified `database.table` straight from the editor: a removed member holding a 
 refuses them through `is_active_member`. Recorded rather than fixed, because the fix is the
 transition's — an entitlement checked at query time rather than a tag minted an hour earlier — and
 because it is the one path by which the thing retention exists to preserve can still be destroyed.
+
+## A control-plane queue may have a second producer, admitted by SenderId (SPEC-208)
+
+Until now one sentence covered the whole fleet: only the API writes a request queue, and every
+plane's trust in the `identity` block rests on that. The shared-space queue now has two writers.
+The second is `shared-space-transfer-reader`, a scheduled Lambda that turns an operator's CSV of
+ownership transfers into ordinary requests — the path for the case the UI cannot serve, an owner
+who has already left.
+
+**The reuse is the point, and it is what forces the fence.** An operator-driven transfer and a
+user-driven one are the same verb, the same authorization and the same notifications; only the
+door differs. But an operator has no bearer to present, so their message carries **no identity
+block** and declares `origin: 'operator'` instead — and the only attributable fact left is the
+`SenderId` SQS stamps on the record, a message SYSTEM attribute a `SendMessage` cannot set. That
+comparison is the boundary. It is the mechanism SPEC-206 established, inverted: that one refuses a
+sender it recognises, this one accepts *only* a sender it recognises.
+
+**What makes the comparison mean anything is that the reader has its OWN execution role.** The
+plane's verb Lambdas are a Terraform `for_each` whose `role` is hard-coded to the orchestrator, and
+a reader riding that map would make the boundary read "any verb on this plane may forge an operator
+request" — true of the running system, and invisible to every test, because a test supplies the
+`SenderId` itself. So the reader is a separate resource with its own role, its own environment and
+its own log group, and a test asserts it is not in that map.
+
+**`origin` is undeclarable through the API, and that is the first fence rather than a detail.** The
+contract refuses a body key it does not declare, so a signed-in caller cannot put `origin` on the
+wire at all. Adding it to `SharedSpaceEnqueueRequest` — the obvious way to satisfy the envelope
+sweep, which asserts a plane reads nothing the API refuses — would delete that property to make a
+test pass, leaving the runtime comparison as the sole fence. The sweep is answered instead by a
+named exemption asserting the shape that makes it safe: the plane reads **exactly one** field the
+API cannot send, that field is undeclarable, and everything else is still a subset. Same repair the
+notifications writer already carries, for the same reason.
+
+**Rejected: a queue resource policy.** It is the obvious way to say "these two principals and no
+others" and it is the trap the notifications queue already documents — a blanket `Deny` there
+silences seven notifying roles, invisibly. The access model here stays identity-based.
+
+**Rejected: an in-app admin surface.** The operator path is a file in a bucket and a scheduled
+reader precisely so that *no admin group, admin role or admin route* is created. `CLAUDE.md`'s
+*no admin UI* fence is unmoved.
+
+**One residual, named rather than left to be found:** an operator gets no notification. Both parties
+to the transfer do, and neither names the operator — but the operator themselves has no inbox in
+this product, so their only feedback channel is the reader's structured log, one line per enqueued
+row. That is recorded in `docs/testing/owed.md` rather than solved.
+
+## A transfer's refusals are RETURN VALUES, because a raise in the validator reaches nobody (SPEC-208)
+
+Every other refusal on this plane raises `AuthorizationError` from `shared-space-validate`. That is
+correct for them and would be silently wrong for a transfer, for a reason that is a property of the
+state machine rather than of the code: the validator's `Catch` carries **no `ResultPath`** — you
+cannot merge a key into the raw SQS array it was handed — so the state is *replaced* by the error,
+and `ValidateFailureSeed` seeds `actor: null` and `space: null`. The notifier treats a null actor as
+no trustworthy recipient and stays silent. **A raised transfer refusal is a refusal nobody is ever
+told about.**
+
+A transfer's refusals also have to name things the composed failure wording cannot reach. The
+notifier is handed an action and a space; "that person is not a member" is useless without saying
+*which* person. So the refusal travels as a `(code, message)` pair on the validated context, its
+sentence composed in the domain layer at the point that has the name to hand, and a new first
+`Choice` branch routes it to a seed that reaches `NotifyFailure` before `Fail`.
+
+**Three traps in that branch, each of which ships green:**
+
+- **`IsPresent` is TRUE for a field that is present and null.** This plane's own
+  `ValidateFailureSeed` teaches the opposite habit — "a null VALUE is fine; a missing key is fatal"
+  — so seeding `refusal: None` is the natural thing to write, and it would route *every* request on
+  the plane into the refusal branch. The validator sets the key only when there is a refusal, the
+  rule pairs `IsPresent` with `IsNull: false` so it is right either way, and the happy-path test
+  asserts the key is absent. `file-ops` had already paid for this exact trap.
+- **The seed cannot go through `RecordFailure`.** That state projects a fixed six-key shape shared
+  by all seven verb `Catch` arms, and a `Pass` state's JSONPath hard-fails on an absent key — so
+  adding `message` there would raise an uncatchable `States.Runtime` on every one of them.
+- **The verb refuses a context carrying a refusal, and the router is not the only fence.** The
+  compare-and-swap's expected-owner check is a *lost-update* guard: it asks whether the owner
+  changed since authorization, and for a forged operator message nothing about the owner has
+  changed, so it passes. Without a check in the verb, any failure of the `Choice` to select the
+  refusal branch completes a real transfer. That is this project's named failure shape — the
+  failure fails **open**.
+
+**Who the refusal names, and why it is not the operator.** The context's `actor` decides who is
+notified, and `notifications-writer` builds an S3 key straight out of it with no validation — while
+`"operator"` satisfies the catalog rule that would otherwise catch it. A sentinel there would
+address a prefix a real user could own. So an operator-origin request carries the space's **current
+owner** as `actor`, with `origin: "operator"` recorded beside it: for a forged message they are the
+named victim, and for a fault mid-transfer it is their space. A space with no owner yields no
+recipient, which is honest — there is nobody to tell.
+
+**The owner check is skipped by passing `requester=None`, not by a flag.** Written as a flag it
+would be untestable: the acting identity for an operator IS the owner, so the check would pass
+anyway and the skip could be deleted with every test still green. `None` equals no owner, so
+removing the guard makes every operator transfer refuse — loudly.

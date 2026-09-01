@@ -13,6 +13,7 @@ import {toUserText} from '../../lib/errorMessages';
 import {CreateSharedConnectionDialog} from './CreateSharedConnectionDialog';
 import {useCreateSharedConnection} from './useCreateSharedConnection';
 import {useManageMembers} from './useManageMembers';
+import {useTransferOwnership} from './useTransferOwnership';
 import {useLeaveOrDeleteSharedSpace} from './useLeaveOrDeleteSharedSpace';
 import {ManageMembersDrawer} from './ManageMembersDrawer';
 import {MemberRosterDrawer} from './MemberRosterDrawer';
@@ -54,6 +55,7 @@ export function ConnectionsPage() {
   const {connections, isLoading, error, refresh, isRefreshing, reconcile} = useConnections(username);
   const {create, busy, pending} = useCreateSharedConnection(username);
   const {addMembers, removeMembers, busy: membersBusy} = useManageMembers(username);
+  const {transfer, busy: transferBusy} = useTransferOwnership(username);
   const {leave, remove, forget, busy: lifecycleBusy} = useLeaveOrDeleteSharedSpace(username);
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -172,6 +174,19 @@ export function ConnectionsPage() {
         variant: 'success',
         message: `Removing ${toRemove.join(', ')} from “${space}”…`
       });
+      void reconcile();
+    } else {
+      toast.push({variant: 'danger', message: toUserText(result.error)});
+    }
+  };
+
+  const handleTransferOwnership = async (space: string, newOwner: string) => {
+    const result = await transfer(space, newOwner);
+    if (result.success) {
+      toast.push({variant: 'success', message: `Transferring “${space}” to ${newOwner}…`});
+      // No optimistic role flip: the pipeline can still refuse this after accepting it, and a
+      // card that had already demoted the owner would have to be un-demoted by a refusal
+      // notification nobody is watching for.
       void reconcile();
     } else {
       toast.push({variant: 'danger', message: toUserText(result.error)});
@@ -327,11 +342,12 @@ export function ConnectionsPage() {
           owner={username}
           members={managing.members ?? [{username, status: 'active'}]}
           unavailable={managing.members === undefined}
-          busy={membersBusy}
+          busy={membersBusy || transferBusy}
           onRefresh={handleRefresh}
           refreshing={isRefreshing}
           onAddMembers={(toAdd) => void handleAddMembers(managing.name, toAdd)}
           onRemoveMembers={(toRemove) => void handleRemoveMembers(managing.name, toRemove)}
+          onTransferOwnership={(newOwner) => void handleTransferOwnership(managing.name, newOwner)}
         />
       )}
       {viewing && username && (

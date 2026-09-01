@@ -1,0 +1,47 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "OwnershipTransferInboxObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "${admin_bucket_arn}/ownership-transfers/*"
+    },
+    {
+      "Sid": "OwnershipTransferInboxList",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "${admin_bucket_arn}",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "ownership-transfers/*"
+        }
+      }
+    },
+    {
+      "Sid": "EnqueueSharedSpaceRequests",
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": "${requests_queue_arn}"
+    },
+    {
+      "Sid": "NotifyLogsQueue",
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": "${logs_queue_arn}"
+    },
+    {
+      "Sid": "WriteOwnLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "${log_group_arn}"
+    }
+  ]
+}

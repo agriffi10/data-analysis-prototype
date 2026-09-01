@@ -55,6 +55,8 @@ Orchestration, layer and traps: [`planes/shared-spaces.md`](planes/shared-spaces
 | `shared-space-leave/` | `leave.py` | leave verb: a member revokes only their own access. |
 | `shared-space-notify-failure/` | `ss_notify_failure.py` | shared-space notify-failure — the terminal failure notification of last resort. |
 | `shared-space-remove-members/` | `remove_members.py` | remove-members verb: removes each member from the space. |
+| `shared-space-transfer-ownership/` | `transfer_ownership.py` | transfer-ownership verb: the owner hands the space to an existing member and stays on as one. |
+| `shared-space-transfer-reader/` | `transfer_reader.py` | not a verb and not on the orchestrator role: a scheduled reader that turns an operator's CSV into requests on this plane's own queue. |
 | `shared-space-validate/` | `validate.py` | validate-authorize — the Step Function's first task, run once before any verb. |
 
 ### Table builder

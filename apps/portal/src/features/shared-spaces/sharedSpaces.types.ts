@@ -68,18 +68,27 @@ export type SharedSpaceAction =
   | 'leave'
   | 'delete'
   | 'forget'
-  | 'acknowledge_membership';
+  | 'acknowledge_membership'
+  | 'transfer_ownership';
 
 /**
- * The SQS message body. `actor` is advisory — the Lambda derives the trusted actor
- * from the verified `idToken` (cognito:username), never the body.
+ * The payload for a transfer. `newOwner` must already be in the space's roster — transfer is
+ * not an invitation, and the pipeline refuses a target who is not a member.
+ */
+export type TransferOwnershipPayload = {
+  newOwner: string;
+};
+
+/**
+ * The SQS message body, as the API assembles it. The browser builds none of this: it posts a
+ * request id, an action, a space and a payload, and the API stamps the schema version and the
+ * identity block it derived from the verified bearer. Neither `actor` nor a token appears —
+ * the body carried both once, and a body supplying either is refused at the door now.
  */
 export type SharedSpaceRequest = {
   schemaVersion: 1;
   requestId: string;
   action: SharedSpaceAction;
-  actor: string;
   space: string;
   payload: Record<string, unknown>;
-  idToken: string;
 };

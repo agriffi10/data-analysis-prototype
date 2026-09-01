@@ -1,8 +1,8 @@
 # Spec: Shared-Space Ownership Transfer
 
 **ID:** SPEC-208
-**Status:** Draft
-**Last Updated:** 2026-08-28
+**Status:** Completed
+**Last Updated:** 2026-09-01
 **Depends On:** SPEC-051/053 (the shared-space control plane, `create` and member management), SPEC-062 (single-task verb Lambdas), SPEC-073 (join status is display-only; access is granted at add time), SPEC-075 (the roster fan-out), SPEC-082 (registry CAS), SPEC-125 (`shared-space-common`), SPEC-152 (a pre-verb failure notifies), SPEC-206 (the `SenderId` role-id boundary — the mechanism the operator path reuses), SPEC-106 (`toUserMessage`), SPEC-155 (`ConfirmDialog`), SPEC-074 (Help content)
 
 **Interacts with:** SPEC-205 empties a space rather than destroying it. Transfer is the other exit —
@@ -241,6 +241,15 @@ request per data row, then moves the object aside.
       rows per invocation, derived in the test from the queue's send rate and the function timeout,
       naming the budget it was derived from. If the cap is reached the function **logs how many rows
       it did not process** and leaves the file in the inbox for the next tick.
+
+      > **Corrected at build time.** "Leaves it for the next tick" is right for a file bigger than
+      > what is LEFT of an invocation's budget, and wrong for one bigger than the WHOLE cap: no
+      > tick could ever take that file, so deferring it leaves it in a prefix with no expiry rule
+      > forever, behind a log line nobody is alerted on. It is **rejected** instead, with a reason
+      > naming the cap, because splitting the file is the fix and only the operator can do it. The
+      > sweep also **stops** at a deferral rather than skipping it — carrying on lets a smaller
+      > later file overtake an earlier one, which breaks the listing order this same criterion
+      > requires. Found by review, reproduced before it was changed.
 - [ ] The reader never reads or writes the registry directly; a test asserts its only S3 calls are
       against the `ownership-transfers/` prefix.
 - [ ] `ownership-transfers/` gains its **own** admin-bucket lifecycle rule expiring
@@ -253,17 +262,29 @@ request per data row, then moves the object aside.
 
 #### Description:
 
-A UI request carries a verified ID token and the plane derives the actor from it. An operator has no
-token. So an operator message declares `origin: 'operator'` and carries **no** `idToken`, and
+A UI request carries a verified identity and the plane derives the actor from it. An operator has
+none. So an operator message declares `origin: 'operator'` and carries **no identity**, and
 `shared-space-validate` accepts it only when the SQS record's `attributes.SenderId` role-id half
 matches the reader's role — the same runtime comparison SPEC-206 established, and for the same
 reason: no SQS condition key reaches a message body, so nothing but the sender's identity can be
 trusted.
 
+> **Corrected at build time.** This FR was authored against a wire that carried an `idToken` in the
+> message body. SPEC-201 retired it: the API verifies the bearer at the edge and stamps a nested
+> `identity` block, which `cpcommon.actor` reads. Every criterion below therefore reads "identity
+> block" where it said "ID token" — the SenderId half is unchanged, and it was always the half that
+> mattered. Two further corrections the build made, both recorded in
+> `docs/decisions/control-planes.md`: `origin` is **not** declared on the API's request type (the
+> contract refuses an undeclared key, which is what stops a signed-in caller claiming operator
+> origin at all), and the acting identity is recorded as `origin` on the context while `actor`
+> carries the space's current owner — `operator` is a catalog-valid username and would address a
+> real user's notification prefix.
+
 #### Acceptance Criteria:
 
 - [ ] A message with `origin: 'operator'` and a `SenderId` whose role-id half matches the configured
-      reader role id is accepted, and the acting identity recorded on the execution is `operator`.
+      reader role id is accepted, and the acting identity recorded on the execution is `operator`
+      (as the context's `origin` — see the correction above).
 - [ ] A message with `origin: 'operator'` sent by any other principal is **refused**, and the
       refusal is a return value that reaches `NotifyFailure` — not a silent drop, because unlike the
       notifications boundary this queue is drained and a forged request here has a named victim.
@@ -273,8 +294,8 @@ trusted.
 - [ ] An operator-origin transfer skips the FR-002 owner check (that is its purpose) and enforces
       every other check in FR-002 unchanged — target is a member, target is not the current owner,
       space is `active`. A test asserts each of those still refuses.
-- [ ] A message carrying **both** `origin: 'operator'` and an `idToken` is refused rather than
-      resolved to one of them.
+- [ ] A message carrying **both** `origin: 'operator'` and an identity block is refused rather
+      than resolved to one of them.
 - [ ] The reader's role id is read from configuration; a test asserts the comparison is against the
       role-**id** half of `SenderId` and not against a role name or ARN, neither of which `SenderId`
       carries.

@@ -10,8 +10,23 @@ at call time rather than importing the names, so a test patch takes effect.
 
 Attributes:
   SCHEMA_VERSION: The registry record's schema version.
-  OWNER_ONLY_ACTIONS: Actions the authorizer restricts to the space's owner.
+  OWNER_ONLY_ACTIONS: Actions the authorizer restricts to the space's owner. Transfer is not one
+    of them: those raise, and a raise in the validator loses the actor and the space, so the
+    refusal reaches nobody. Transfer returns its refusal instead.
   VALID_ACTIONS: Every action the authorizer recognises.
+  OPERATOR_ACTIONS: The actions an operator-origin message may ask for. Every other action is
+    refused on that origin even though the queue accepts it from the API, because the operator
+    door exists for the one case the UI cannot serve and widening it later should be a decision
+    rather than an oversight.
+  OPERATOR_ORIGIN: The origin value an operator message declares. A message carrying any other
+    value is refused rather than treated as a UI request, so an unknown origin fails closed the
+    way an unknown assurance does.
+  TRANSFER_READER_ROLE_ID: The reader role's IAM unique ID, which is the half of the SQS
+    ``SenderId`` before the colon. Read lazily at call time rather than through ``require`` at
+    import: the two deploy workflows race, so there is a window in which this code is live and
+    the variable is not, and a module-level requirement would fail EVERY verb on this plane at
+    cold start during it. Empty is refused at the comparison, which is the safe direction —
+    an operator message is refused, and no UI request consults it at all.
   PORTAL_ROLE_ARN: The portal role Lake Formation grants are made to. Domain-specific — no
     other control plane grants to it — so it keeps the same import-time fail-fast the shared
     config uses: a missing variable surfaces as a named cold-start error rather than an opaque
@@ -31,8 +46,21 @@ from cpcommon.config import require
 SCHEMA_VERSION = 1
 OWNER_ONLY_ACTIONS = frozenset({"add_members", "remove_members", "delete"})
 VALID_ACTIONS = frozenset(
-    {"create", "add_members", "remove_members", "leave", "delete", "forget", "acknowledge_membership"}
+    {
+        "create",
+        "add_members",
+        "remove_members",
+        "leave",
+        "delete",
+        "forget",
+        "acknowledge_membership",
+        "transfer_ownership",
+    }
 )
+
+OPERATOR_ACTIONS = frozenset({"transfer_ownership"})
+OPERATOR_ORIGIN = "operator"
+TRANSFER_READER_ROLE_ID = os.environ.get("SHARED_SPACE_TRANSFER_READER_ROLE_ID", "")
 
 PORTAL_ROLE_ARN = require("PORTAL_ROLE_ARN")
 MAX_SHARED_MEMBERSHIPS = int(os.environ.get("MAX_SHARED_MEMBERSHIPS", "10"))

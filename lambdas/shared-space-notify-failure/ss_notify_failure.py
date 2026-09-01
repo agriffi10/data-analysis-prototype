@@ -66,9 +66,16 @@ def handler(event, context) -> dict:
     ``@traced`` is the only decorator on this plane, and here it is also the only one that could
     be: a failure decorator on the notification of last resort would be circular.
 
-    Every message ends on the generic clause, deliberately: every reason that can reach this path
-    is a raw engine name and none may be shown to a user. What carries the information is the
-    action, not the reason.
+    Every COMPOSED message ends on the generic clause, deliberately: every reason that can reach
+    this path by way of a fault is a raw engine name and none may be shown to a user. What carries
+    the information is the action, not the reason.
+
+    **An expected refusal arrives with its sentence already written**, in ``message``, and that one
+    is used verbatim. The two cases differ in what they are able to say: a fault knows the action
+    and the space, while a refusal usually has to name the MEMBER it is about, and a composer
+    holding only an action and a space cannot. The wording is still a literal in the domain layer
+    — the refusal is composed there, at a point that has the name to hand — so this is not a
+    second place messages are written.
 
     A failure with no verified actor is a logged no-op rather than a lost message: the body's own
     username is attacker-controlled, and notifying it would let anyone deliver text to any inbox.
@@ -113,7 +120,7 @@ def handler(event, context) -> dict:
 
     emit_notification(
         actor,
-        messages.failure_message(action, space, reason),
+        request.get("message") or messages.failure_message(action, space, reason),
         dedup_id=_dedup(request_id, action, actor),
     )
     observability.info(

@@ -30,6 +30,34 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+describe('a transfer request (SPEC-208 FR-006)', () => {
+  it('sends exactly one message, naming the action and the target in the payload', async () => {
+    const api = mockApi(vi.mocked(apiRequest));
+    api.on('sharedSpace.enqueue', {success: true, data: {requestId: 'echoed'}});
+
+    const result = await enqueueSharedSpaceRequest({
+      action: 'transfer_ownership',
+      actor: 'alice',
+      space: 'salesdata',
+      payload: {newOwner: 'bob'}
+    });
+
+    expect(apiRequest).toHaveBeenCalledTimes(1);
+    const [route, options] = vi.mocked(apiRequest).mock.calls[0];
+    expect(route).toBe('sharedSpace.enqueue');
+    expect(options?.body).toMatchObject({
+      action: 'transfer_ownership',
+      space: 'salesdata',
+      payload: {newOwner: 'bob'}
+    });
+    // The browser sends no actor and no token: the API stamps the identity it verified, and a
+    // body supplying one is refused at the door.
+    expect(options?.body).not.toHaveProperty('actor');
+    expect(options?.body).not.toHaveProperty('idToken');
+    expect(result.success).toBe(true);
+  });
+});
+
 describe('enqueueSharedSpaceRequest', () => {
   // The envelope's server-side half — the verified actor, the advisory `actor` username, the
   // schema version and the constant FIFO group — is asserted in `lambdas/api/test_enqueue_routes.py`

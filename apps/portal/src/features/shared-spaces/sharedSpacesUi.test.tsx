@@ -164,10 +164,16 @@ describe('MemberRosterDrawer', () => {
       expect(within(screen.getByText('bob').closest('li')!).getByText('Pending')).toBeInTheDocument();
     });
 
-    it('is read-only — no Add and no per-member Remove', () => {
+    it('is read-only — no Add, no per-member Remove, and no way to transfer the space', () => {
       setup();
       expect(screen.queryByRole('button', {name: /Add members/})).not.toBeInTheDocument();
       expect(screen.queryByRole('button', {name: /Remove/})).not.toBeInTheDocument();
+      // Holds by construction — `onTransfer` is an optional prop this drawer never passes — but
+      // the owner controls live on a roster SHARED with the owner's Manage view, so "read-only"
+      // is a claim about a component that can render them, not one that cannot.
+      // By the ACCESSIBLE name, which the control's aria-label sets — a query for its visible
+      // text ("Make owner") can never match and would assert nothing at all.
+      expect(screen.queryByRole('button', {name: /Transfer ownership/})).not.toBeInTheDocument();
     });
 
     it('offers a Refresh control that re-reads connection state', () => {

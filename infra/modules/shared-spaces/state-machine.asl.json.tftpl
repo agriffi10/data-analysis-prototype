@@ -37,6 +37,14 @@
       "Comment": "The router — one branch per action (not an in-Lambda action-switch).",
       "Choices": [
         {
+          "Comment": "The refusal branch, and it is FIRST because a refused request must never reach a verb whatever action it names. IsPresent is paired with IsNull because IsPresent is TRUE for a field that is PRESENT AND NULL — the trap this repo already documents on file-ops' NeedsDestinationGuard, and one this plane sets for itself, since its own ValidateFailureSeed teaches that a null value is fine where a missing key is fatal. The validator sets `refusal` only when there IS one; the pair is what keeps this branch right if that ever changes, instead of routing every request on the plane into a refusal.",
+          "And": [
+            { "Variable": "$.refusal", "IsPresent": true },
+            { "Variable": "$.refusal", "IsNull": false }
+          ],
+          "Next": "RefusedSeed"
+        },
+        {
           "Variable": "$.action",
           "StringEquals": "create",
           "Next": "CreateSpace"
@@ -70,6 +78,11 @@
           "Variable": "$.action",
           "StringEquals": "acknowledge_membership",
           "Next": "AcknowledgeMembership"
+        },
+        {
+          "Variable": "$.action",
+          "StringEquals": "transfer_ownership",
+          "Next": "TransferOwnership"
         }
       ],
       "Default": "UnknownActionSeed"
@@ -284,6 +297,52 @@
         }
       ],
       "Next": "Succeeded"
+    },
+    "TransferOwnership": {
+      "Type": "Task",
+      "Comment": "The owner hands the space to an existing member. Nothing about the space's resources changes and no grant moves, because access here is membership and the roster is untouched — what changes is the registry's owner, the acknowledged list derived from it, and every member's cached copy of both.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${transfer_ownership_function_arn}",
+        "Payload.$": "$"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RecordFailure"
+        }
+      ],
+      "Next": "Succeeded"
+    },
+    "RefusedSeed": {
+      "Type": "Pass",
+      "Comment": "An expected refusal, carrying its own sentence. It does NOT go through RecordFailure, and that is not a shortcut: RecordFailure projects a fixed six-key shape shared by every verb's Catch, a Pass state's JSONPath hard-fails on an ABSENT key, and adding `message` there would raise an uncatchable States.Runtime on all seven of the existing arms. A refusal has to name the space AND the member it is about — 'that person is not a member' is useless without saying which person — and the notifier's composed wording holds only an action and a space, so the sentence arrives already written. The reason code rides as $.error so the run still records WHICH refusal it was; without it every refusal decodes as an unexpected error. The actor is the verified requester, or for an operator-origin request the space's own owner, who is the named victim of a forgery and the right person to tell.",
+      "Parameters": {
+        "requestId.$": "$.requestId",
+        "actor.$": "$.actor",
+        "action.$": "$.action",
+        "space.$": "$.space",
+        "status": "refused",
+        "message.$": "$.refusal.message",
+        "error": {
+          "Error.$": "$.refusal.code"
+        }
+      },
+      "Next": "NotifyFailure"
     },
     "ValidateFailureSeed": {
       "Type": "Pass",

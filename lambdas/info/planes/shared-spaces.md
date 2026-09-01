@@ -13,14 +13,22 @@ creator-only** — members are added after the fact.
 
 This plane is a `Choice`-routed fan-out rather than a pipeline — one verb runs per request.
 
+**Its queue has TWO producers**, which is true of no other plane. The API is one. The other is
+`shared-space-transfer-reader`, a scheduled Lambda that reads an operator's CSV of ownership
+transfers out of the admin bucket and enqueues one request per row — the door for the one case the
+UI cannot serve, an owner who has already left. It runs under its **own** execution role, because
+the boundary that admits its messages compares the `SenderId` against exactly that role.
+
 ## The machine
 
 `infra/modules/shared-spaces/state-machine.asl.json.tftpl`
 
 `Validate → Route → { CreateSpace | AddMembers | RemoveMembers | Leave | DeleteSpace | ForgetSpace |
-AcknowledgeMembership }`
+AcknowledgeMembership | TransferOwnership }`
 
-`UnknownActionSeed` is the arm for an action the router does not recognise.
+`UnknownActionSeed` is the arm for an action the router does not recognise. **`RefusedSeed` is the
+arm for an expected refusal**, and it is the router's FIRST branch so a refused request reaches no
+verb whatever action it names — see *A transfer's refusals are return values* below.
 `AcknowledgeMembership` flips the member's chip from pending to active and is display and
 bookkeeping only — access is granted at add time. One shared **`orchestrator`** role covers the state
 machine and every verb.
@@ -146,3 +154,31 @@ list and kept the defect.
 unconditionally, which let a membership write racing a delete return a `deleting` space to
 `active` — the cascade would then run against a record claiming to be healthy. Only a
 `setdefault` remains, to heal a record written before the field existed.
+
+### The transfer verb — why its refusals return where every other one raises
+
+`shared-space-transfer-ownership` is the only verb on this plane whose refusals travel as a value
+on the validated context rather than as a raised `AuthorizationError`. That is not a style choice
+and it is not optional.
+
+The validator's `Catch` carries no `ResultPath` — you cannot merge a key into the raw SQS array it
+was handed — so a raise there **replaces** the state, and `ValidateFailureSeed` seeds `actor: null`.
+The notifier reads a null actor as no trustworthy recipient and stays silent. Every other refusal on
+this plane can afford that; a transfer cannot, because a refusal that says "that person is not a
+member" is useless without naming the person, and the composed failure wording is handed only an
+action and a space.
+
+**Two things an implementer will get wrong here**, both of which ship green:
+
+- **`IsPresent` is TRUE for a present-and-null field.** Seeding `refusal: None` on the happy path —
+  which this plane's own `ValidateFailureSeed` comment actively encourages, since a null value is
+  safe there where a missing key is fatal — routes *every* request on the plane into the refusal
+  branch. The key is set only when there is a refusal, and the Choice rule pairs `IsPresent` with
+  `IsNull: false` so it is correct either way.
+- **The Choice is not the only fence.** `set_owner`'s expected-owner check is a *lost-update*
+  guard, and for a forged operator message nothing about the owner has changed — so it passes. The
+  verb refuses a context carrying a refusal for that reason: without it, any failure of the routing
+  completes a real transfer.
+
+The full reasoning, and the rejected alternatives, are in
+[`../../../docs/decisions/control-planes.md`](../../../docs/decisions/control-planes.md).

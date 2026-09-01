@@ -55,6 +55,18 @@ class SpaceAlreadyEmptied(MembershipRefused):
     """The space carries an emptied stamp, so its members were deliberately revoked."""
 
 
+class OwnerChanged(MembershipRefused):
+    """The space changed hands between authorization and the write. Terminal.
+
+    A transfer is authorization-carrying in a way a status write is not, which is why this
+    exists and ``set_status`` needs no equivalent. Alice is authorized while she owns the space;
+    a concurrent transfer moves it to carol; alice's compare-and-swap re-reads the fresh record
+    and would re-apply her change to it, taking the space away from carol. That is a lost
+    authorization wearing the shape of a correct retry, and only a check inside the transform
+    can see it.
+    """
+
+
 class RegistryRecordMissing(Exception):
     """A verb's fresh read found no record where one is required. Terminal.
 
@@ -612,6 +624,89 @@ def set_status(registry: dict, status: str, request_id: str, reason: str | None 
         return record
 
     casio.cas_mutate(
+        read=lambda: _read(name),
+        apply=apply,
+        write=lambda record, etag: _put(name, record, etag),
+        label=f"registry/{name}",
+    )
+
+
+def set_owner(registry: dict, expected_owner: str, new_owner: str, request_id: str) -> dict:
+    """Hands a space to another member under compare-and-swap, refusing if it already moved.
+
+    Beside ``set_status`` and shaped like it, with two differences that are the whole of why it
+    is a separate function.
+
+    **It takes the expected current owner and re-checks it on the freshly-read record.**
+    ``set_status`` may retry unconditionally because a status is not authorization-carrying. A
+    transfer is: without the check, a retry that lands after a concurrent transfer re-applies a
+    decision that was authorized against a record which no longer exists.
+
+    **It corrects ``acknowledged`` in the same write**, and that is not tidying. The cache's
+    roster projection reads ``"active" if (m == owner or m in ack) else "pending"``, and the
+    acknowledged list excludes the owner on the grounds that an owner is always active. So a
+    write touching only ``owner`` would leave the outgoing owner in the roster, absent from the
+    list, and rendering as *pending* to every member — someone who has used the space for months
+    shown as not having picked it up yet. The list is materialised rather than left absent,
+    because the fan-out reads the stored field and not this module's absence-tolerant reader: a
+    legacy record that kept an absent field would fan out an empty list and show every member
+    pending.
+
+    Args:
+      registry: The registry record, used for the space name and as the fallback base.
+      expected_owner: The owner the request was authorized against.
+      new_owner: The member taking the space, who must already be in the roster.
+      request_id: The run's request id.
+
+    Returns:
+      The committed record.
+
+    Raises:
+      RegistryRecordMissing: When the record is gone. Without this the create-if-absent write
+        would resurrect a deleted space under a new owner, and the expected-owner check would
+        pass because it had read the caller's stale copy.
+      SpaceAlreadyEmptied: When a delete emptied the space after the request was authorized.
+      OwnerChanged: When the space changed hands after the request was authorized.
+      CasExhausted: When the attempts are exhausted.
+      ClientError: On any non-precondition S3 fault.
+    """
+    name = registry["name"]
+
+    def apply(existing):
+        """Rewrites the owner on the freshly-read record, refusing if it is no longer the one authorized.
+
+        Args:
+          existing: The freshly-read record, or None.
+
+        Returns:
+          The record to write.
+
+        Raises:
+          RegistryRecordMissing: When there is no record to rewrite.
+          SpaceAlreadyEmptied: When the space carries an emptied stamp.
+          OwnerChanged: When the current owner is not the expected one.
+        """
+        if existing is None:
+            raise RegistryRecordMissing(f"space {name!r} has no registry record to transfer")
+        record = dict(existing)
+        if record.get("emptiedAt"):
+            raise SpaceAlreadyEmptied(f"space {name!r} was emptied and cannot be transferred")
+        current = record.get("owner")
+        if current != expected_owner:
+            raise OwnerChanged(
+                f"space {name!r} is owned by {current!r}, not {expected_owner!r}, so the transfer is refused"
+            )
+        members = list(record.get("members", []))
+        ack = [a for a in effective_acknowledged(record) if a != new_owner]
+        if expected_owner in members and expected_owner not in ack:
+            ack.append(expected_owner)
+        record["owner"] = new_owner
+        record["acknowledged"] = ack
+        record["lastRequestId"] = request_id
+        record["updatedAt"] = now_iso()
+        return record
+
+    return casio.cas_mutate(
         read=lambda: _read(name),
         apply=apply,
         write=lambda record, etag: _put(name, record, etag),

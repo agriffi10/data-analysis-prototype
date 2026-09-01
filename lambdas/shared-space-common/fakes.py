@@ -114,6 +114,9 @@ class FakeS3:
     Attributes:
       store: Object bytes keyed by bucket and key.
       etags: Entity tags keyed the same way, for conditional-write tests.
+      operations: Copies and single-object deletes, in the order they happened. Ordering is a
+        requirement somewhere a snapshot of the store cannot show it: a copy confirmed before a
+        delete and a delete that ran first leave identical stores and lose the file in one case.
       undeletable: Keys the batch delete reports as failed instead of deleting.
       page_size: Keys per listing page. Deliberately tiny so ordinary fixtures paginate and the
         continuation branches in the teardown helpers execute in every test that tears a space
@@ -135,6 +138,7 @@ class FakeS3:
         """
         self.store = {}
         self.etags = {}
+        self.operations = []
         self.undeletable = set()
         self.page_size = 2
         self._seq = 0
@@ -262,6 +266,34 @@ class FakeS3:
             self.etags.pop((Bucket, key), None)
         return {"Errors": errors} if errors else {}
 
+    def copy_object(self, Bucket, Key, CopySource, **kw):
+        """Copies one object, recording the order copies and deletes happened in.
+
+        The order is the point of recording it. A reader that deleted its source before confirming
+        the copy would lose an operator's file with nothing to recover it from, and the loss is
+        silent — the next sweep simply finds an empty inbox. A test can only see that by watching
+        the sequence, so the sequence is what this keeps.
+
+        Args:
+          Bucket: The destination bucket.
+          Key: The destination key.
+          CopySource: The source, as the mapping boto3 accepts.
+          **kw: Other parameters, accepted and ignored.
+
+        Returns:
+          An empty response.
+
+        Raises:
+          FakeNoSuchKey: When the source is absent.
+        """
+        source = (CopySource["Bucket"], CopySource["Key"])
+        if source not in self.store:
+            raise FakeNoSuchKey()
+        self.store[(Bucket, Key)] = self.store[source]
+        self.etags[(Bucket, Key)] = self._next_etag()
+        self.operations.append(("copy", CopySource["Key"], Key))
+        return {}
+
     def delete_object(self, Bucket, Key):
         """Deletes one object.
 
@@ -277,6 +309,7 @@ class FakeS3:
         """
         self.store.pop((Bucket, Key), None)
         self.etags.pop((Bucket, Key), None)
+        self.operations.append(("delete", Key, None))
         return {}
 
 

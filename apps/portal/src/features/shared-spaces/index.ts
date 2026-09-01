@@ -2,6 +2,7 @@ export {enqueueSharedSpaceRequest, readSharedConnectionsCache} from './sharedSpa
 export type {EnqueueInput} from './sharedSpaces.service';
 export {useCreateSharedConnection} from './useCreateSharedConnection';
 export {useManageMembers} from './useManageMembers';
+export {useTransferOwnership} from './useTransferOwnership';
 export {useAcknowledgeMembership} from './useAcknowledgeMembership';
 export {useSpaceSuggestions} from './useSpaceSuggestions';
 export {useLeaveOrDeleteSharedSpace} from './useLeaveOrDeleteSharedSpace';
@@ -12,6 +13,7 @@ export {MembersList} from './MembersList';
 export {AddMembersDialog} from './AddMembersDialog';
 export {LeaveSharedSpaceDialog} from './LeaveSharedSpaceDialog';
 export {DeleteSharedSpaceDialog} from './DeleteSharedSpaceDialog';
+export {TransferOwnershipDialog} from './TransferOwnershipDialog';
 export {parseMemberInput, parseMemberInputDetailed} from './memberInput';
 export {ConnectionsPage} from './ConnectionsPage';
 export type {
@@ -22,5 +24,6 @@ export type {
   SharedConnectionRole,
   SharedConnectionStatus,
   SharedSpaceAction,
-  SharedSpaceRequest
+  SharedSpaceRequest,
+  TransferOwnershipPayload
 } from './sharedSpaces.types';

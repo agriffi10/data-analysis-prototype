@@ -284,6 +284,7 @@ describe('ManageMembersDrawer', () => {
       onRefresh: vi.fn(),
       onAddMembers: vi.fn(),
       onRemoveMembers: vi.fn(),
+      onTransferOwnership: vi.fn(),
       ...overrides
     };
     const {user} = renderWithProviders(<ManageMembersDrawer {...props} />);
@@ -341,6 +342,61 @@ describe('ManageMembersDrawer', () => {
       const {onRefresh} = setup();
       fireEvent.click(screen.getByRole('button', {name: 'Refresh connections'}));
       expect(onRefresh).toHaveBeenCalled();
+    });
+  });
+
+  describe('transferring ownership (SPEC-208 FR-006)', () => {
+    it('offers a per-member transfer control, named for the member, and none for the owner', () => {
+      setup();
+      // The visible text repeats on every row, so the accessible name is what tells a
+      // screen-reader user which member each control hands the space to.
+      expect(screen.getByRole('button', {name: 'Transfer ownership to bob'})).toBeInTheDocument();
+      expect(screen.queryByRole('button', {name: 'Transfer ownership to alice'})).not.toBeInTheDocument();
+    });
+
+    it('enqueues exactly one transfer, naming the member, once confirmed', async () => {
+      const {onTransferOwnership, user} = setup();
+
+      await user.click(screen.getByRole('button', {name: 'Transfer ownership to bob'}));
+      await user.click(screen.getByRole('button', {name: 'Transfer'}));
+
+      expect(onTransferOwnership).toHaveBeenCalledTimes(1);
+      expect(onTransferOwnership).toHaveBeenCalledWith('bob');
+    });
+
+    it("names the space and the new owner, and says the transfer is not the user's to undo", async () => {
+      const {user} = setup();
+      await user.click(screen.getByRole('button', {name: 'Transfer ownership to bob'}));
+
+      const dialog = screen.getByRole('alertdialog', {name: 'Transfer ownership of salesdata to bob'});
+      expect(within(dialog).getByText(/salesdata/)).toBeInTheDocument();
+      expect(within(dialog).getByText(/stay a member/)).toBeInTheDocument();
+      expect(within(dialog).getByText(/only bob can transfer it back/)).toBeInTheDocument();
+    });
+
+    it('enqueues nothing on cancel and returns focus to the control that opened it', async () => {
+      const {onTransferOwnership, user} = setup();
+      const opener = screen.getByRole('button', {name: 'Transfer ownership to bob'});
+
+      await user.click(opener);
+      await user.click(screen.getByRole('button', {name: 'Cancel'}));
+
+      expect(onTransferOwnership).not.toHaveBeenCalled();
+      await waitFor(() => expect(screen.getByRole('button', {name: 'Transfer ownership to bob'})).toHaveFocus());
+    });
+
+    it('disables the control while a request is in flight', () => {
+      setup({busy: true});
+      expect(screen.getByRole('button', {name: 'Transfer ownership to bob'})).toBeDisabled();
+    });
+
+    it('has no axe violations with the dialog open', async () => {
+      const {user} = setup();
+      await user.click(screen.getByRole('button', {name: 'Transfer ownership to bob'}));
+
+      // The DRIVEN container: `expectNoA11yViolations` re-renders from the element and would
+      // silently check the closed drawer, where axe never sees the dialog at all.
+      await expectContainerHasNoA11yViolations(document.body, COMPONENT_AXE_OPTIONS);
     });
   });
 });

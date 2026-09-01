@@ -639,6 +639,7 @@ const RECIPES: Record<string, Recipe> = {
           onRefresh={vi.fn()}
           onAddMembers={vi.fn()}
           onRemoveMembers={vi.fn()}
+          onTransferOwnership={vi.fn()}
         />,
         {auth: authenticated('alice'), seedFeatureFlags: false}
       );

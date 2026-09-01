@@ -601,6 +601,22 @@ export const HELP_SECTIONS: HelpSection[] = [
         ]
       },
       {
+        id: 'transfer-ownership',
+        title: 'Hand a space to someone else',
+        subtitle: 'Make another member the owner.',
+        intro:
+          'A space belongs to whoever created it — until you hand it on. If a project changes hands, or you’re moving on, you can make any existing member the owner instead. Nothing about the space itself changes: same files, same tables, same members.',
+        steps: [
+          'On a space you own, open <b>Manage</b> to see its members.',
+          'Click <b>Make owner</b> next to the person you want to hand it to, and confirm.',
+          'They become the owner. You stay a member, keeping access to everything in the space — you just can’t add or remove members, or delete it, any more.'
+        ],
+        callout: {
+          kind: 'tip',
+          text: 'You can only transfer to someone who is already a member, so add them first if you need to. Once it’s done, only the new owner can transfer it back.'
+        }
+      },
+      {
         id: 'leave-space',
         title: 'Leave a space',
         subtitle: 'Step out of a space you belong to.',

@@ -132,7 +132,13 @@ print("IMPORT_OK", file=sys.stderr)
 SINGLETON_CPCOMMON_ALLOWLIST = {
     "pre-signup": {"observability"},
     "post-confirmation": {"observability"},
-    "notifications-writer": {"observability", "actor", "clients", "errors"},
+    # `events` was added when the SenderId reader moved into it, so two control-plane boundaries
+    # could share one reader rather than keep two copies of the field that decides who is trusted.
+    # Widening this is a decision with a cost, and here the cost is nil and checkable: `events`
+    # imports `clients` and `errors` and nothing else, both of which this function is already
+    # granted, so it reaches no configuration variable this Lambda does not set. The behavioural
+    # half — importing it for real with none of them set — is the test below, and it passes.
+    "notifications-writer": {"observability", "actor", "clients", "errors", "events"},
 }
 
 
