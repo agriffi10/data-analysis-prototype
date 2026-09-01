@@ -160,6 +160,21 @@ def test_a_malformed_row_rejects_the_whole_file_rather_than_part_of_it():
     assert _keys(s3, reader.REJECTED)
 
 
+def test_a_file_saved_by_excel_parses_rather_than_being_rejected_whole():
+    """Excel writes a UTF-8 BOM by default, and an operator's CSV is exactly the file Excel makes.
+
+    Left in, the first column reads `\ufeffspace`, the header comparison fails and the whole file
+    is refused — for a reason invisible in the operator's own editor. `str.strip()` does not remove
+    it either: U+FEFF is not whitespace.
+    """
+    s3 = _setup({"excel.csv": "\ufeffspace,new_owner\nfinance,bcarter\n"})
+
+    reader.handler({}, None)
+
+    assert [m["space"] for m in _sent()] == ["finance"]
+    assert _keys(s3, reader.REJECTED) == []
+
+
 def test_files_are_processed_in_listing_order():
     """FR-007: lexicographic, which is what makes a sequence of operator files replayable."""
     _setup(
@@ -233,15 +248,26 @@ def test_a_spent_budget_STOPS_the_sweep_so_a_later_file_cannot_overtake_an_earli
     a large earlier one — and listing order is the whole of what makes a sequence of operator
     files replayable.
     """
+    # c.csv is DELIBERATELY small enough to fit what is left after a.csv. With three equal files
+    # the budget excludes b and c alike, so `break` and `continue` behave identically and the test
+    # asserts nothing — which is exactly what the first version of it did.
     half = reader.MAX_ROWS_PER_INVOCATION // 2 + 10
-    s3 = _setup({name: _rows_for(name[0], half) for name in ("a.csv", "b.csv", "c.csv")})
+    s3 = _setup(
+        {
+            "a.csv": _rows_for("a", half),
+            "b.csv": _rows_for("b", half),
+            "c.csv": _rows_for("c", 5),
+        }
+    )
 
     result = reader.handler({}, None)
 
     assert result["filesHandled"] == 1, "the count must not include a file it did not handle"
     assert _keys(s3, reader.INBOX) == [f"{reader.INBOX}b.csv", f"{reader.INBOX}c.csv"]
     spaces = [json.loads(m["MessageBody"])["space"] for m in clients._sqs.sent]
-    assert all(s.startswith("a") for s in spaces), f"a later file overtook b.csv: {sorted(set(spaces))}"
+    assert all(s.startswith("a") for s in spaces), (
+        f"c.csv fits the remaining budget and overtook b.csv: {sorted(set(spaces))}"
+    )
 
 
 def test_the_shortfall_is_logged_rather_than_dropped_silently(captured_events):

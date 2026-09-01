@@ -349,6 +349,52 @@ def test_an_unrecognised_origin_fails_closed():
     assert ctx["origin"] == "cron"
 
 
+def test_every_operator_refusal_names_the_space_it_is_about(captured_events):
+    """All five reach the same notifier and the same named victim — the space's own owner.
+
+    Enumerated rather than sampled: two of the five had rendered-text assertions and three did
+    not, so reverting those three to an empty space left the suite green while the owner received
+    `That request to transfer "" ...`. The reason codes are identical either way, which is exactly
+    why asserting them is not enough.
+
+    The trace assertion rides here because it is a DIFFERENT SINK from the context's `origin`
+    field: a test reading the context cannot see what the span recorded.
+    """
+    s3, *_ = install()
+    config.TRANSFER_READER_ROLE_ID = _READER_ROLE
+    _seed_reg(s3, owner="alice", members=["alice", "bob"])
+
+    cases = [
+        ("TransferOriginUntrusted", _operator_event(new_owner="bob", sender="AROAOTHER:s")),
+        ("TransferOriginActionNotAllowed", _operator_event(action="delete")),
+        ("TransferOriginBothCredentials",
+         _event("transfer_ownership", actor="alice", identity=True, origin="operator",
+                new_owner="bob", sender=f"{_READER_ROLE}:s")),
+        ("TransferOriginUnknown",
+         _event("transfer_ownership", identity=False, origin="cron", new_owner="bob", sender="x:y")),
+    ]
+    for code, event in cases:
+        ctx = v.handler(event, None)
+        assert ctx["refusal"]["code"] == code
+        assert "sales" in ctx["refusal"]["message"], f"{code} names no space: {ctx['refusal']['message']}"
+
+    config.TRANSFER_READER_ROLE_ID = ""
+    ctx = v.handler(_operator_event(new_owner="bob", sender=""), None)
+    assert ctx["refusal"]["code"] == "TransferOriginNotConfigured"
+    assert "sales" in ctx["refusal"]["message"]
+
+    origins = {
+        event["fields"]["origin"]
+        for event in captured_events.events
+        if "origin" in (event.get("fields") or {})
+    }
+    assert origins == {"operator", "cron"}, (
+        f"the span recorded {origins}: it must carry the origin that was DECLARED, not the one "
+        "this service accepts — a refused `cron` message logged as `operator` describes a request "
+        "that never happened"
+    )
+
+
 def test_the_operator_door_is_open_for_transfer_ONLY_enumerated_over_every_action():
     """Enumerated from the action vocabulary itself, so an action added later arrives here without
     anyone remembering to add it — and arrives refused, which is the safe default."""

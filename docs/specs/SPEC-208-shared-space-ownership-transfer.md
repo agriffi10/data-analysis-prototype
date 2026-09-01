@@ -241,6 +241,15 @@ request per data row, then moves the object aside.
       rows per invocation, derived in the test from the queue's send rate and the function timeout,
       naming the budget it was derived from. If the cap is reached the function **logs how many rows
       it did not process** and leaves the file in the inbox for the next tick.
+
+      > **Corrected at build time.** "Leaves it for the next tick" is right for a file bigger than
+      > what is LEFT of an invocation's budget, and wrong for one bigger than the WHOLE cap: no
+      > tick could ever take that file, so deferring it leaves it in a prefix with no expiry rule
+      > forever, behind a log line nobody is alerted on. It is **rejected** instead, with a reason
+      > naming the cap, because splitting the file is the fix and only the operator can do it. The
+      > sweep also **stops** at a deferral rather than skipping it — carrying on lets a smaller
+      > later file overtake an earlier one, which breaks the listing order this same criterion
+      > requires. Found by review, reproduced before it was changed.
 - [ ] The reader never reads or writes the registry directly; a test asserts its only S3 calls are
       against the `ownership-transfers/` prefix.
 - [ ] `ownership-transfers/` gains its **own** admin-bucket lifecycle rule expiring

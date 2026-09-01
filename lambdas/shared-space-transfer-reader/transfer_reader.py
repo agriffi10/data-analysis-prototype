@@ -39,6 +39,8 @@ Attributes:
     LEFT of this invocation's budget is deferred, and the sweep stops there rather than skipping
     it, because a later smaller file overtaking it would break the listing order that makes a
     sequence of operator files replayable. Neither is silent.
+  DONE: A file that is out of the inbox — enqueued, or rejected.
+  DEFERRED: A file this invocation had no budget left for, which stops the sweep.
   MESSAGE_GROUP_ID: The queue's single constant group, so operator and UI requests are one strictly
     ordered stream rather than two racing ones.
   SCHEMA_VERSION: The envelope version the validator accepts.
@@ -70,6 +72,13 @@ TIMEOUT_SECONDS = 60
 SEND_BUDGET_FRACTION = 0.5
 SEND_MILLISECONDS = 50
 MAX_ROWS_PER_INVOCATION = int(TIMEOUT_SECONDS * SEND_BUDGET_FRACTION * 1000 / SEND_MILLISECONDS)
+
+#: The two things a file can be after one pass, as constants rather than bare literals at five
+#: call sites. A typo in one of those would compare unequal to "deferred" and fall through to the
+#: skip — which is precisely the overtaking behaviour this function was corrected for, and it
+#: would be silent.
+DONE = "done"
+DEFERRED = "deferred"
 
 MESSAGE_GROUP_ID = "shared-space"
 SCHEMA_VERSION = 1
@@ -278,8 +287,8 @@ def _process(key, stamp, budget):
       budget: How many rows this invocation may still send.
 
     Returns:
-      A ``(rows_sent, disposition)`` pair. ``done`` means the file is out of the inbox one way or
-      another; ``deferred`` means this invocation ran out of budget and the sweep must stop, so
+      A ``(rows_sent, disposition)`` pair. ``DONE`` means the file is out of the inbox one way or
+      another; ``DEFERRED`` means this invocation ran out of budget and the sweep must stop, so
       the remaining files keep their place in listing order.
 
     Raises:
@@ -294,7 +303,7 @@ def _process(key, stamp, budget):
         _move(key, REJECTED, stamp, reason=str(exc))
         logger.warning("rejected %s: %s", key, exc)
         observability.warning("rejected an ownership-transfer file", object_key=key, outcome="rejected")
-        return 0, "done"
+        return 0, DONE
 
     if len(rows) > MAX_ROWS_PER_INVOCATION:
         # It does not fit in a whole invocation, so no later tick can process it either. Deferring
@@ -315,7 +324,7 @@ def _process(key, stamp, budget):
             cap=MAX_ROWS_PER_INVOCATION,
             outcome="rejected",
         )
-        return 0, "done"
+        return 0, DONE
 
     if len(rows) > budget:
         observability.warning(
@@ -329,7 +338,7 @@ def _process(key, stamp, budget):
             "%s carries %d rows and only %d remain in this invocation's budget; leaving it",
             key, len(rows), budget,
         )
-        return 0, "deferred"
+        return 0, DEFERRED
 
     for index, (space, new_owner) in enumerate(rows, start=2):
         _send(space, new_owner, _request_id(key, index))
@@ -342,7 +351,7 @@ def _process(key, stamp, budget):
         rows_enqueued=len(rows),
         outcome="processed",
     )
-    return len(rows), "done"
+    return len(rows), DONE
 
 
 @observability.traced("transfer-reader")
@@ -370,8 +379,8 @@ def handler(event, context):
 
     for key in keys:
         budget = MAX_ROWS_PER_INVOCATION - sent
-        rows_sent, disposition = (0, "deferred") if budget <= 0 else _process(key, stamp, budget)
-        if disposition == "deferred":
+        rows_sent, disposition = (0, DEFERRED) if budget <= 0 else _process(key, stamp, budget)
+        if disposition == DEFERRED:
             # STOP rather than skip: carrying on would let a later, smaller file overtake this one,
             # and listing order is what makes a sequence of operator files replayable.
             observability.warning(
