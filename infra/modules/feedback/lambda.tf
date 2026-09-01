@@ -23,10 +23,33 @@ resource "aws_lambda_function" "writer" {
   role          = aws_iam_role.writer.arn
   runtime       = "python3.12"
   handler       = "feedback_writer.handler"
-  timeout       = 30
+
+  # One append, not a drain loop — so 30s, matching notifications rather than log-sweep's 300.
+  # It stays under the queue's 60s visibility timeout, and breaking that inequality writes a
+  # submission twice.
+  timeout = 30
+
+  # 512, NOT the 128 default, and this is the one place feedback must NOT copy notifications.
+  # That writer's document is capped (NOTIFICATIONS_MAX, MAX_PAYLOAD_BYTES); this one's grows
+  # all day with no cap, because the spec declines a per-user quota. The right analogue is
+  # log-sweep, the fleet's other unbounded read-modify-write over a day object, which is 512 for
+  # exactly this reason: the whole object is read back, parsed, re-serialised and encoded before
+  # the PUT, so peak resident is several times the object's own size.
+  #
+  # An OOM here is worse than an ordinary failure and that is why it is sized rather than
+  # watched: SIGKILL skips observability's flush, so the ONE durable operator signal is absent
+  # for precisely this failure, and every later submission that day fails the same way into a
+  # DLQ nobody drains. A test computes the entry ceiling this budget buys; the writer's own
+  # size warning, which makes the growth visible long before it is fatal, arrives with its code.
+  memory_size = 512
 
   environment {
     variables = {
+      # The one variable the writer requires. The rest of `cpcommon.config`'s required union is
+      # deliberately absent, as it is on notifications-writer: this function imports `cas`,
+      # `clients` and `observability`, none of which reads the config module. A probe imports it
+      # under exactly this environment — see `test_layer_import_safety.py`'s singleton set, which
+      # feedback-writer joins with the code it probes.
       ADMIN_BUCKET = var.admin_bucket_name
       # Optional BY CONSTRUCTION — observability reads it with os.environ.get, so a writer
       # without it logs to stdout rather than failing at cold start. Passed so it is set in

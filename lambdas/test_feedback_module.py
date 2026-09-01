@@ -253,8 +253,20 @@ def test_every_request_dlq_is_either_drained_or_deliberately_not() -> None:
     import dlq_drain
 
     declared = _declared_dlq_segments()
-
-    assert len(declared) >= 9, f"the sweep found only {sorted(declared)}"
+    # The population is checked against the modules that OWN a request queue, not against a
+    # floor. A floor is a hand-kept list in derived clothing: a tenth module whose DLQ local is
+    # spelled differently drops out of the regex and still satisfies `>= 9`, which is the exact
+    # rot the derivation exists to avoid.
+    owners = {
+        path.parent.name
+        for path in INFRA.glob("modules/*/sqs.tf")
+        if "requests_dlq" in path.read_text(encoding="utf-8")
+    }
+    missing = {o.rstrip("s") for o in owners} - {d.replace("-", "-").rstrip("s") for d in declared}
+    assert not missing, (
+        f"these modules own a request DLQ but their name did not parse out of locals.tf: "
+        f"{sorted(missing)} (parsed: {sorted(declared)})"
+    )
     assert "feedback" in declared
     unaccounted = declared - set(dlq_drain.SOURCES) - dlq_drain.UNDRAINED_QUEUES
     assert not unaccounted, (
@@ -346,5 +358,87 @@ def test_the_list_that_actually_attaches_the_drain_agrees_with_its_source_table(
     )
     assert not attached & dlq_drain.UNDRAINED_QUEUES, (
         "a queue named as deliberately undrained is wired to the drain anyway"
+    )
+
+
+def test_the_writer_is_sized_for_an_UNBOUNDED_document_and_the_ceiling_is_computed() -> None:
+    """The memory budget, and the number of submissions in one day it actually buys.
+
+    A cap is computed against the budget that sized it, never written down: a hard-coded number
+    hides a wrong model. The model here is what the writer does — read the day's bytes, parse
+    them, append, re-serialise, encode — so peak resident is several multiples of the object,
+    and the object grows all day because the spec declines a per-user quota.
+
+    128 MB (the Lambda default, and what notifications-writer runs on) buys the low thousands of
+    maximum-length submissions before an OOM. That matters more than an ordinary crash: SIGKILL
+    skips observability's flush, so the failure leaves no structured record, and every later
+    submission that day fails identically into a DLQ nobody drains.
+
+    The assertion is that the budget is log-sweep's rather than notifications' — those are the
+    fleet's uncapped and capped day-object writers respectively — and that the warning threshold
+    sits comfortably under the ceiling the budget buys.
+    """
+    import re as _re
+
+    lambda_tf = (MODULE / "lambda.tf").read_text(encoding="utf-8")
+    sweep_tf = (INFRA / "modules" / "observability" / "lambda.tf").read_text(encoding="utf-8")
+
+    mine = int(_re.search(r"^\s*memory_size\s*=\s*(\d+)$", lambda_tf, _re.MULTILINE).group(1))
+    sweep = int(_re.search(r"^\s*memory_size\s*=\s*(\d+)$", sweep_tf, _re.MULTILINE).group(1))
+
+    assert mine == sweep, (
+        f"the feedback writer runs on {mine} MB and log-sweep on {sweep}. Both do an unbounded "
+        "read-modify-write over a day object; the 128 MB default belongs to the writer whose "
+        "document is capped, which this one is not"
+    )
+
+    # What the budget buys, derived from FR-002's own message cap rather than assumed.
+    max_message = _python_cap_from_route("MAX_MESSAGE_CHARS")
+    per_entry = max_message + 220  # the six declared fields' keys, ids, stamps and JSON overhead
+    peak_multiple = 4  # raw bytes + parsed objects + re-serialised string + encoded bytes
+    ceiling = (mine * 1024 * 1024) // (per_entry * peak_multiple)
+
+    assert ceiling > 10_000, (
+        f"{mine} MB buys about {ceiling} maximum-length submissions in one UTC day before the "
+        "read-modify-write cannot complete; that is inside reach of a single signed-in caller"
+    )
+
+
+def _python_cap_from_route(name: str) -> int:
+    """Reads a module-level integer constant out of the feedback route.
+
+    Args:
+      name: The constant's name.
+
+    Returns:
+      Its value, or the spec's own figure when the route has not landed yet — this module ships
+      one PR ahead of it, and a default that matched nothing would make the ceiling above a
+      fiction.
+
+    Raises:
+      None.
+    """
+    route = REPO / "lambdas" / "api" / "routes" / "feedback.py"
+    if not route.is_file():
+        return 4000
+    found = re.search(rf"^{name} = (\d+)$", route.read_text(encoding="utf-8"), re.MULTILINE)
+    return int(found.group(1)) if found else 4000
+
+
+def test_the_one_variable_the_writer_requires_is_set() -> None:
+    """Deleting it goes unnoticed otherwise — measured, with the writer in place.
+
+    `cpcommon.config`'s required union is four variables and this function sets one, on
+    notifications-writer's precedent: it imports `cas`, `clients` and `observability`, none of
+    which reads the config module. Nothing in the repo compares that union against any Lambda's
+    Terraform environment, so the thin environment is only safe while the import probe covers
+    this function — which it does from the PR that adds the code it probes. This assertion
+    covers the one variable the writer genuinely reads, from now.
+    """
+    lambda_tf = (MODULE / "lambda.tf").read_text(encoding="utf-8")
+
+    assert re.search(r"^\s*ADMIN_BUCKET\s*=\s*var\.admin_bucket_name$", lambda_tf, re.MULTILINE), (
+        "the writer's only required variable is unset; every submission would raise at the first "
+        "read and dead-letter into the undrained queue"
     )
 
