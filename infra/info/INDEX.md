@@ -33,6 +33,7 @@ keys with em dashes are rejected at `CreatePolicy`, invisible to `tofu validate`
 | `analytics` | the Athena workgroup, the **admin bucket**, and the **Lake Formation** bootstrap | [README](../modules/analytics/README.md) |
 | `lambda-artifacts` | the bucket CI stages Lambda zips in | [README](../modules/lambda-artifacts/README.md) |
 | `observability` | the structured-logging queue and its scheduled sweep | [README](../modules/observability/README.md) |
+| `lambda-image` | the registry CI pushes the Lambda container image to | [README](../modules/lambda-image/README.md) |
 
 ## Delivery
 

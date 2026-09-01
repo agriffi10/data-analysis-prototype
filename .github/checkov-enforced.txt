@@ -102,8 +102,8 @@ CKV_AWS_36     # Ensure CloudTrail log file validation is enabled (1)
 CKV_AWS_66     # Ensure that CloudWatch Log Group specifies retention days (45)
 
 # aws_ecr_repository
-CKV_AWS_163    # Ensure ECR image scanning on push is enabled (1)
-CKV_AWS_51     # Ensure ECR Image Tags are immutable (1)
+CKV_AWS_163    # Ensure ECR image scanning on push is enabled (2)
+CKV_AWS_51     # Ensure ECR Image Tags are immutable (2)
 
 # aws_ecs_cluster
 CKV_AWS_223    # Ensure ECS Cluster enables logging of ECS Exec (1)

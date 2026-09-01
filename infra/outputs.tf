@@ -210,3 +210,8 @@ output "alb_dns_name" {
   description = "The SPA load balancer's own DNS name, which the spa_host alias record must resolve to."
   value       = module.spa.alb_dns_name
 }
+
+output "lambda_image_repository_url" {
+  description = "The Lambda image's registry URI. CI pushes a commit-sha tag here; nothing runs it yet."
+  value       = module.lambda_image.repository_url
+}
