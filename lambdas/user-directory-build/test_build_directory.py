@@ -27,7 +27,7 @@ sys.path.insert(
 
 import build_directory
 from cpcommon import clients, config
-from tf_blocks import blocks
+from tf_blocks import blocks, span, strip_noise
 
 HERE = pathlib.Path(__file__).resolve().parent
 LAMBDAS = HERE.parent
@@ -141,27 +141,27 @@ UNDECLARED_BY_CONFIG = {"LOGS_QUEUE_URL", "ENV_NAME"}
 def _terraform_environment_variables():
     """The names assigned inside lambda.tf's `environment { variables = { … } }` block.
 
-    The same read `test_api_module.py` uses, through the shared `tf_blocks` splitter rather
-    than a second brace counter — its own docstring says why a copy of that scanner is the
-    thing that drifts. Isolating the resource first is what keeps the non-greedy terminator
-    honest: it ends at this function's `environment` block and cannot run into another
-    resource's.
+    Read through the shared `tf_blocks` scanner end to end — the resource by `blocks`, the block
+    by `span`, the names with comments and strings blanked first. The non-greedy regex this
+    replaced worked only because the block happens to close at a particular indent, and it read
+    a variable name out of a comment as readily as out of an assignment; both are the drift that
+    module's docstring exists to warn about.
     """
     source = LAMBDA_TF.read_text(encoding="utf-8")
     function = blocks(source, "aws_lambda_function")["build"]
-    body = re.search(r"environment\s*\{(.*?)\n  \}", function, re.DOTALL)
-    assert body, "lambda.tf's environment block did not parse"
+    opening = re.search(r"^\s{2}environment\s*\{", function, re.MULTILINE)
+    assert opening, "lambda.tf's environment block did not parse"
 
-    names = re.compile(r"^\s*([A-Z_][A-Z0-9_]*)\s*=", re.MULTILINE)
-    captured = set(names.findall(body.group(1)))
-    everywhere = set(names.findall(function))
+    names = re.compile(r"([A-Z_][A-Z0-9_]*)\s*=(?!=)")
+    captured = set(names.findall(strip_noise(span(function, opening.start()))))
+    everywhere = set(names.findall(strip_noise(function)))
     assert captured == everywhere, (
         f"the environment slice captured {sorted(captured)}, but the resource assigns "
         f"{sorted(everywhere)}. Every SHOUTING assignment in this resource is an environment "
-        "variable, so a difference means either the slice stopped before the block closed, or "
-        "this resource grew a SHOUTING assignment outside it. A slice anchored to a position "
-        "rather than to the close is the failure worth spending an assertion on: it looks "
-        "exhaustive while measuring less, and stays green the entire time"
+        "variable, so a difference means this resource grew one outside the block. The slice "
+        "itself is brace-counted rather than anchored to an indent, which is what retired the "
+        "other half of this assertion: a slice that looks exhaustive while measuring less, and "
+        "stays green the entire time"
     )
     return captured
 

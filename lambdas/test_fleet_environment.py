@@ -5,7 +5,9 @@ absent from a function's ``environment`` block therefore raises ``RuntimeError``
 on whichever branch happens to read it, and nothing else in this repository can see it: ``tofu
 apply`` is green against a thin environment, ``update-function-code`` is green against it, and
 the whole pytest suite is green because ``lambdas/conftest.py`` stamps every variable before
-collection. This reads the deployed Terraform and joins it against the code.
+collection. Two functions were already checked one at a time — the API's front door against a
+hand-kept copy of the set, and the directory builder against the declaration itself — and the
+other eighty-four were not. This reads the deployed Terraform and joins it against the code.
 
 **The demand is COMPUTED per function, never assumed to be the whole set.** A blanket "every
 plane sets all four" would be false in both directions. It is too weak for the API, whose own
@@ -24,8 +26,7 @@ read that made the exemption false. Here they are exempt only because the scan f
 nothing, and a test below pins that the two agree — so the exemption cannot outlive its reason.
 
 The guard is a SUPERSET, not set equality. Several planes deliberately set the layer's whole
-union so a verb that grows a read does not need a Terraform change to go with it, and each
-plane's own lambda.tf says so beside the block. That leaves one blind spot, which a second assertion below covers: a name added
+union so a verb that grows a read does not need a Terraform change to go with it. That leaves one blind spot, which a second assertion below covers: a name added
 to ``_REQUIRED_VARS`` that nothing reads YET is demanded by no function, so the reachability
 comparison stays green while the fleet contract has silently widened. The declaration is
 therefore pinned separately. ``user-directory-build`` keeps a stricter per-plane mirror beside
@@ -42,6 +43,8 @@ Attributes:
     yields the ``lambdas/`` directory, which is the contract the deploy matrix already rests on.
   FAIL_FAST_READERS: The canonical spellings of the shared fail-fast reader. A module's own
     aliases for it are resolved per module, because a domain layer imports it under a third name.
+  DEPLOYED: Every function name in the deploy manifest, sorted, and the parametrisation of the
+    guard below — so a function added to the fleet is covered by having been deployed.
 """
 
 import ast
@@ -52,7 +55,7 @@ import re
 
 import pytest
 from cpcommon import config
-from tf_blocks import blocks, span
+from tf_blocks import blocks, map_entries, span, strip_noise
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 LAMBDAS = ROOT / "lambdas"
@@ -110,6 +113,29 @@ def _locals_source(module: pathlib.Path) -> str:
     return "\n".join(found)
 
 
+def _assigned(body: str) -> set[str]:
+    """The upper-case names assigned anywhere in one Terraform fragment.
+
+    Comments and string contents are blanked first. Without that a comment mentioning a variable
+    reads as the block setting it, which on the shadow check below produces a failure sentence
+    accusing an override of replacing a name it never mentions — and this tree comments heavily
+    inside exactly these blocks.
+
+    Not depth-restricted, deliberately: the merge form nests the variables one level inside
+    ``merge({…})``, and the only assignments in either form are the variables themselves.
+
+    Args:
+      body: The fragment to scan.
+
+    Returns:
+      The names assigned in it.
+
+    Raises:
+      None.
+    """
+    return set(re.findall(r"([A-Z][A-Z0-9_]*)\s*=(?!=)", strip_noise(body)))
+
+
 def _map_entries(source: str, name: str) -> dict[str, str]:
     """The quoted keys of a Terraform map local, mapped to their entry bodies.
 
@@ -117,11 +143,10 @@ def _map_entries(source: str, name: str) -> dict[str, str]:
     named entry. That earlier shape is what let a plane's last-declared verbs sit outside a
     guard that looked exhaustive.
 
-    A key is found after an opening brace or a comma as readily as at the start of a line. Every
-    map in the tree today is written one entry per line, so anchoring to the line start looked
-    equivalent and was not: a single-line map — which is how this repository already writes the
-    short ones — parsed as having no entries at all, and a check over those entries then passed
-    by having nothing to look at.
+    Locating the local is all this does; the entries themselves are read by the shared scanner,
+    which tracks depth. Two regexes were tried here first and both were wrong in opposite
+    directions — one anchored to the line start and could not see a single-line map, the other
+    read a nested map's keys as though they were entries of this one.
 
     Args:
       source: The concatenated locals source.
@@ -136,15 +161,10 @@ def _map_entries(source: str, name: str) -> dict[str, str]:
     match = re.search(rf"^\s*{re.escape(name)}\s*=\s*\{{", source, re.MULTILINE)
     if not match:
         return {}
-    body = span(source, match.start())
-    entries = {}
-    for entry in re.finditer(r'(?:^|[{,])\s*"([a-z0-9-]+)"\s*=\s*', body, re.MULTILINE):
-        tail = body[entry.end() :]
-        entries[entry.group(1)] = span(body, entry.end()) if tail.startswith("{") else ""
-    return entries
+    return map_entries(span(source, match.start()))
 
 
-def _directories(function_name: str, source: str) -> list[tuple[str, str]]:
+def _directories(function_name: str, source: str, where: str) -> list[tuple[str, str]]:
     """The ``lambdas/`` directories one Terraform resource deploys.
 
     The deployed name is ``<project>-<environment>-<suffix>`` and the suffix IS the source
@@ -155,6 +175,8 @@ def _directories(function_name: str, source: str) -> list[tuple[str, str]]:
     Args:
       function_name: The resource's ``function_name`` expression.
       source: The module's concatenated locals source.
+      where: The module being read, so a failure names it. Without it a renamed local surfaces
+        as eighty-odd identical errors citing a local and no file.
 
     Returns:
       One ``(directory, key)`` pair per function the resource deploys. The key is the ``each.key``
@@ -172,12 +194,12 @@ def _directories(function_name: str, source: str) -> list[tuple[str, str]]:
     if keyed:
         names = re.search(rf"^\s*{keyed.group(1)}\s*=\s*\{{", source, re.MULTILINE)
         if not names:
-            raise ValueError(f"cannot resolve local.{keyed.group(1)}")
+            raise ValueError(f"{where}: cannot resolve local.{keyed.group(1)}")
         body = span(source, names.start())
         over = re.search(r"for\s+\w+,\s*\w+\s+in\s+local\.([a-z_]+)", body)
         template = re.search(r'=>\s*"([^"]+)"', body)
         if not over or not template:
-            raise ValueError(f"local.{keyed.group(1)} is not a name comprehension")
+            raise ValueError(f"{where}: local.{keyed.group(1)} is not a name comprehension")
         stem = template.group(1).replace(NAME_PREFIX, "")
         return sorted(
             (re.sub(r"\$\{\w+\}", key, stem), key) for key in _map_entries(source, over.group(1))
@@ -185,10 +207,10 @@ def _directories(function_name: str, source: str) -> list[tuple[str, str]]:
 
     plain = re.match(r"local\.([a-z_]+)$", function_name)
     if not plain:
-        raise ValueError(f"unrecognised function_name expression: {function_name!r}")
+        raise ValueError(f"{where}: unrecognised function_name expression: {function_name!r}")
     literal = re.search(rf'^\s*{plain.group(1)}\s*=\s*"([^"]+)"', source, re.MULTILINE)
     if not literal:
-        raise ValueError(f"cannot resolve local.{plain.group(1)}")
+        raise ValueError(f"{where}: cannot resolve local.{plain.group(1)}")
     return [(literal.group(1).replace(NAME_PREFIX, ""), "")]
 
 
@@ -221,10 +243,8 @@ def _resources() -> tuple[tuple[str, str, tuple[tuple[str, str], ...], frozenset
                 (
                     path.parent.name,
                     name,
-                    tuple(_directories(expression.group(1).strip(), source)),
-                    frozenset(
-                        re.findall(r"^\s*([A-Z][A-Z0-9_]*)\s*=", environment, re.MULTILINE)
-                    ),
+                    tuple(_directories(expression.group(1).strip(), source, str(path))),
+                    frozenset(_assigned(environment)),
                     override.group(1) if override else "",
                 )
             )
@@ -261,8 +281,10 @@ def _supply() -> dict[str, tuple[str, frozenset[str]]]:
     for module, resource, directories, names, override in _resources():
         entries = _map_entries(_locals_source(MODULES / module), override) if override else {}
         for directory, key in directories:
-            extra = re.findall(r"([A-Z][A-Z0-9_]*)\s*=", entries.get(key, ""))
-            supply[directory] = (f"{module}/{resource}", names | frozenset(extra))
+            supply[directory] = (
+                f"{module}/{resource}",
+                names | frozenset(_assigned(entries.get(key, ""))),
+            )
     return supply
 
 
@@ -402,13 +424,18 @@ def _reader_names(tree: ast.Module) -> set[str]:
 def _demanded_by(tree: ast.Module) -> set[str]:
     """The environment names one module can demand through a fail-fast read.
 
-    Four shapes, because the fleet has four, and three of them were missing from the first
-    version of this file. An attribute read of the lazily resolved config raises through its
-    ``__getattr__``; ``getattr`` with a literal does the same thing past a checker; an explicit
-    reader call raises directly, whether passed a literal or an entry from the caller's own map;
-    and a subscript of ``os.environ`` raises ``KeyError`` on its own. Importing a required name
-    FROM the config module is counted too, and is the worst of them — it resolves at import, so
-    it fails at cold start rather than on a branch.
+Four shapes. Two of them occur in the tree today: an attribute read of the lazily resolved
+    config, which raises through its ``__getattr__``, and an explicit reader call, which raises
+    directly whether passed a literal or an entry from the caller's own map. The reader call was
+    being missed whenever the reader had been imported under an alias, which is how one domain
+    layer writes it.
+
+    The other two are counted prospectively, and are cheap to count. ``getattr`` with a literal
+    reaches the same ``__getattr__`` while looking like nothing to a checker; a subscript of
+    ``os.environ`` raises ``KeyError`` on its own. Importing a required name FROM the config
+    module is counted for the same reason and is the worst of the four — it resolves at import,
+    so it fails at COLD START rather than on a branch, and the config module's own docstring
+    warns against writing it with nothing enforcing that.
 
     Args:
       tree: The parsed module.
@@ -606,15 +633,20 @@ def test_no_per_verb_override_can_shadow_a_required_variable():
             continue
         source = _locals_source(MODULES / module)
         for key, body in _map_entries(source, override).items():
-            shadowed = set(re.findall(r"([A-Z][A-Z0-9_]*)\s*=", body)) & _required_names()
+            shadowed = _assigned(body) & _required_names()
             if shadowed:
                 offenders[f"{module}:{key}"] = sorted(shadowed)
 
     assert not offenders, f"per-verb overrides shadow required variables: {offenders}"
 
 
-def test_the_functions_exempt_from_the_set_are_exactly_the_ones_that_demand_nothing():
+def test_every_function_exempt_from_the_required_set_demands_nothing():
     """The exemption is DERIVED, and this is what stops it outliving its reason.
+
+    One direction only, deliberately. Thirty-one of the eighty-six functions demand nothing —
+    every verb that neither authorises nor reads a registry — so "demands nothing" does not pick
+    out the exempt four, and the converse would be false. What is asserted is the half that can
+    go wrong: an exempt function must not have grown a demand.
 
     The functions that attach the layer for its logging alone set almost none of the required
     set. Naming them in a list here would be a coupling that keeps passing after one of them
@@ -657,8 +689,14 @@ def test_the_demand_scan_reaches_through_a_layer_and_through_a_lookup_table():
         "the API's own config indexes its required map rather than passing a literal; losing "
         "that shape makes the API demand nothing and its whole environment unchecked"
     )
-    assert "ATHENA_WORKGROUP" in demand("table-builder-execute-ddl")
-    assert demand("archive-validate-authorize") >= {"ADMIN_BUCKET", "USER_SPACE_BUCKET"}
+    assert "ATHENA_WORKGROUP" in demand("table-builder-execute-ddl"), (
+        "the workgroup read in the DDL verb is no longer seen — the one plane whose demand "
+        "differs from its neighbours is now indistinguishable from them"
+    )
+    assert demand("archive-validate-authorize") >= {"ADMIN_BUCKET", "USER_SPACE_BUCKET"}, (
+        "the archive layer's reads are no longer seen. This is the reach that was missed once "
+        "already, when the layer imported the shared reader under an alias"
+    )
 
 
 def test_the_terraform_side_is_actually_being_parsed():
