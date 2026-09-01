@@ -178,11 +178,14 @@ def handler(event, context):
     is_operator = origin is not None
 
     refusal = auth.operator_refusal(
-        origin, action, "identity" in req, events.sender_id(_record(event))
+        origin, action, space, "identity" in req, events.sender_id(_record(event))
     )
 
     if is_operator:
-        observability.stamp(origin=config.OPERATOR_ORIGIN)
+        # The DECLARED value, not the one this service accepts. A message claiming some other
+        # origin is refused below, and a span recording it as an operator request would describe
+        # something that never happened.
+        observability.stamp(origin=origin)
         requester = None
     else:
         who = cpactor.trusted_actor(req, exc=auth.AuthorizationError)
@@ -215,7 +218,7 @@ def handler(event, context):
         "requestId": req.get("requestId"),
     }
     if is_operator:
-        validated["origin"] = config.OPERATOR_ORIGIN
+        validated["origin"] = origin
     if refusal is not None:
         validated["refusal"] = {"code": refusal[0], "message": refusal[1]}
 

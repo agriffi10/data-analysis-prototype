@@ -2,6 +2,8 @@
 
 import json
 import os
+import pathlib
+import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
@@ -45,6 +47,22 @@ def _sent():
       None.
     """
     return [json.loads(m["MessageBody"]) for m in clients._sqs.sent]
+
+
+def _rows_for(tag, count):
+    """Builds a CSV whose every space name starts with one tag, so its rows are identifiable.
+
+    Args:
+      tag: The prefix every space name in this file carries.
+      count: How many data rows to write.
+
+    Returns:
+      The file body.
+
+    Raises:
+      None.
+    """
+    return "space,new_owner\n" + "\n".join(f"{tag}{i},o{i}" for i in range(count))
 
 
 def _keys(s3, prefix):
@@ -169,20 +187,84 @@ def test_the_row_cap_is_computed_from_the_budget_it_is_derived_from():
         reader.TIMEOUT_SECONDS * reader.SEND_BUDGET_FRACTION * 1000 / reader.SEND_MILLISECONDS
     )
     assert expected == reader.MAX_ROWS_PER_INVOCATION
-    assert reader.TIMEOUT_SECONDS == 60, "the Terraform timeout this is derived from"
+
+    # Recomputing the same expression can only agree with itself. The half with teeth is the
+    # budget's own source: the timeout TERRAFORM sets, read out of the resource block rather than
+    # pinned to a literal here — otherwise the two drift and the function budgets for an
+    # invocation it no longer has.
+    module = pathlib.Path(__file__).resolve().parents[2] / "infra" / "modules" / "shared-spaces"
+    block = (module / "lambda.tf").read_text().split(
+        'resource "aws_lambda_function" "transfer_reader"'
+    )[1].split("\n}")[0]
+    declared = int(re.search(r"timeout\s*=\s*(\d+)", block).group(1))
+    assert declared == reader.TIMEOUT_SECONDS, (
+        f"the reader budgets for {reader.TIMEOUT_SECONDS}s and Terraform gives it {declared}s"
+    )
 
 
-def test_a_file_over_the_cap_is_left_in_the_inbox_and_the_shortfall_is_logged():
-    """FR-007: no silent cap. The file stays put and the next tick continues it."""
+def test_a_file_bigger_than_the_WHOLE_cap_is_refused_rather_than_deferred_forever():
+    """FR-007, and the distinction the first draft of this function got wrong.
+
+    A file of more rows than one invocation can ever send cannot be processed by ANY tick. Leaving
+    it in the inbox is not "waiting for the next tick", it is waiting forever — in a prefix that
+    deliberately has no expiry rule, behind a log line nobody is alerted on. So it is refused with
+    a reason naming the cap, which is something the operator can act on by splitting the file.
+    """
     rows = "\n".join(f"space{i},owner{i}" for i in range(reader.MAX_ROWS_PER_INVOCATION + 1))
     s3 = _setup({"big.csv": f"space,new_owner\n{rows}\n"})
 
     result = reader.handler({}, None)
 
     assert clients._sqs.sent == [], "an over-cap file is not partly enqueued"
-    assert _keys(s3, reader.INBOX) == [f"{reader.INBOX}big.csv"], "it is still there for next time"
+    assert _keys(s3, reader.INBOX) == [], "and it does not sit in the inbox forever"
     assert _keys(s3, reader.PROCESSED) == []
     assert result["rowsEnqueued"] == 0
+
+    reason_key = next(k for k in _keys(s3, reader.REJECTED) if k.endswith(".reason.txt"))
+    reason = s3.store[(_BUCKET, reason_key)].decode()
+    assert str(reader.MAX_ROWS_PER_INVOCATION) in reason, "the operator is told the cap"
+    assert "Split it" in reason, "and what to do about it"
+
+
+def test_a_spent_budget_STOPS_the_sweep_so_a_later_file_cannot_overtake_an_earlier_one():
+    """FR-007: processed in listing order, and the cap is where that is easiest to lose.
+
+    Skipping the file that does not fit and carrying on would let a small later file jump ahead of
+    a large earlier one — and listing order is the whole of what makes a sequence of operator
+    files replayable.
+    """
+    half = reader.MAX_ROWS_PER_INVOCATION // 2 + 10
+    s3 = _setup({name: _rows_for(name[0], half) for name in ("a.csv", "b.csv", "c.csv")})
+
+    result = reader.handler({}, None)
+
+    assert result["filesHandled"] == 1, "the count must not include a file it did not handle"
+    assert _keys(s3, reader.INBOX) == [f"{reader.INBOX}b.csv", f"{reader.INBOX}c.csv"]
+    spaces = [json.loads(m["MessageBody"])["space"] for m in clients._sqs.sent]
+    assert all(s.startswith("a") for s in spaces), f"a later file overtook b.csv: {sorted(set(spaces))}"
+
+
+def test_the_shortfall_is_logged_rather_than_dropped_silently(captured_events):
+    """CLAUDE.md's "no silent caps": if a check bounds coverage, it says what was dropped.
+
+    Asserted on the emitted event rather than on the absence of work, because "nothing was
+    enqueued and the file is still there" is equally true of a reader that says nothing at all.
+    """
+    half = reader.MAX_ROWS_PER_INVOCATION // 2 + 10
+    _setup({name: _rows_for(name[0], half) for name in ("a.csv", "b.csv")})
+
+    reader.handler({}, None)
+
+    # Through the shared sink rather than by reading stdout: the plain-text line beside the event
+    # says the same thing, so a stream scan passes while the structured field is gone.
+    deferred = [
+        event
+        for event in captured_events.events
+        if (event.get("fields") or {}).get("rows_not_processed")
+    ]
+    assert deferred, f"the rows it did not process were never reported: {captured_events.events}"
+    assert deferred[0]["fields"]["rows_not_processed"] == half
+    assert deferred[0]["fields"]["cap"] == reader.MAX_ROWS_PER_INVOCATION
 
 
 def test_the_reader_touches_only_the_ownership_transfers_prefix():

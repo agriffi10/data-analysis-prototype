@@ -243,6 +243,38 @@ def test_an_operator_driven_transfer_notifies_both_parties_and_names_no_operator
     assert not any("operator" in m["message"].lower() for m in sent)
 
 
+def test_a_pending_member_transferred_to_and_back_reads_ACTIVE_although_they_never_signed_in():
+    """FR-003 pins today's outcome so it is a decision rather than a drift.
+
+    bob has been added and has never signed in, so he reads `pending`. Transferring to him makes
+    him the owner, which is always active; transferring back puts him in `acknowledged`, and
+    nothing ever takes him out. So he now reads `active` on a sign-in that never happened.
+
+    The alternative is remembering a pre-transfer join status — state kept solely to re-create a
+    chip — and it is declined. What the chip means afterwards is "has picked up the space", and a
+    round trip through ownership is a reasonable thing to call that.
+    """
+    s3, *_ = install()
+    record = _record(acknowledged=[])  # bob and carol both pending
+    s3.store[_REG] = json.dumps(record).encode()
+    cpconfig.NOTIFICATIONS_QUEUE_URL = "https://sqs.test/notifications.fifo"
+
+    verb.handler(_event(record, new_owner="bob"), None)
+    there = json.loads(s3.store[_REG])
+    assert there["owner"] == "bob"
+
+    verb.handler(_event(there, new_owner="alice"), None)
+    back = json.loads(s3.store[_REG])
+
+    assert back["owner"] == "alice"
+    assert "bob" in back["acknowledged"], "the round trip acknowledged him and nothing removes it"
+    assert _status_of(_cache(s3, "alice"), "bob") == "active"
+    assert _status_of(_cache(s3, "alice"), "carol") == "pending", (
+        "carol took no part in either transfer and must be untouched — otherwise this is not the "
+        "round trip acknowledging bob, it is the write acknowledging everybody"
+    )
+
+
 def test_the_verb_refuses_a_context_carrying_a_refusal():
     """The fence behind the router, and the reason it is not belt and braces.
 
@@ -258,6 +290,7 @@ def test_the_verb_refuses_a_context_carrying_a_refusal():
             _event(record, refusal={"code": "TransferOriginUntrusted", "message": "no"}), None
         )
 
+    assert raised.value.reason == "unauthorized"
     assert "TransferOriginUntrusted" in str(raised.value)
     assert json.loads(s3.store[_REG])["owner"] == "alice", "the space did not move"
     assert clients._sqs.sent == [], "and nobody was told it had"
@@ -267,9 +300,12 @@ def test_a_transfer_naming_nobody_is_refused_rather_than_writing_an_empty_owner(
     """The payload field is optional on the wire, so the verb cannot assume it is there."""
     s3, record = _setup()
 
-    with pytest.raises(TerminalError):
+    with pytest.raises(TerminalError) as raised:
         verb.handler(_event(record, payload={}), None)
 
+    # By reason, not by type: the refusal one line above in the same handler is also a
+    # TerminalError, so a bare type assertion is answered by either.
+    assert raised.value.reason == "malformed_event"
     assert json.loads(s3.store[_REG])["owner"] == "alice"
 
 

@@ -260,6 +260,10 @@ def test_an_operator_message_from_any_other_principal_is_refused_not_dropped():
 
     assert ctx["refusal"]["code"] == "TransferOriginUntrusted"
     assert ctx["actor"] == "alice", "the owner is told somebody tried"
+    # The whole justification for routing this to the notifier rather than dropping it is that the
+    # forgery has a NAMED victim. A sentence that names no space tells them nothing they can act
+    # on, and only an assertion on the rendered text catches that — the code is right either way.
+    assert "sales" in ctx["refusal"]["message"], ctx["refusal"]["message"]
 
 
 def test_an_operator_message_with_no_sender_at_all_is_refused():
@@ -339,6 +343,10 @@ def test_an_unrecognised_origin_fails_closed():
     )
 
     assert ctx["refusal"]["code"] == "TransferOriginUnknown"
+    assert "sales" in ctx["refusal"]["message"]
+    # The trace records the origin that was DECLARED. Recording it as `operator` would describe an
+    # operator request that never happened.
+    assert ctx["origin"] == "cron"
 
 
 def test_the_operator_door_is_open_for_transfer_ONLY_enumerated_over_every_action():

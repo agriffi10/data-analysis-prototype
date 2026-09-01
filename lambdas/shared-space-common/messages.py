@@ -118,8 +118,10 @@ def refusal_message(code: str, space: str = "", target: str = "") -> str:
 
     Args:
       code: The refusal's reason code.
-      space: The space name.
-      target: The named member, where the refusal has one.
+      space: The space name. Coerced to empty rather than interpolated as given: a message from a
+        producer this service does not control can omit it, and a Python ``None`` rendered into a
+        sentence a user reads is worse than a blank pair of quotes.
+      target: The named member, where the refusal has one. Coerced for the same reason.
 
     Returns:
       The full sentence.
@@ -127,6 +129,8 @@ def refusal_message(code: str, space: str = "", target: str = "") -> str:
     Raises:
       None.
     """
+    space = space or ""
+    target = target or ""
     template = _TRANSFER_REFUSALS.get(code)
     if template is None:
         return f'We couldn\'t transfer the shared workspace "{space}".'

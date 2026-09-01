@@ -32,9 +32,13 @@ Attributes:
     listing, the reads, the copies and the deletes.
   SEND_MILLISECONDS: A conservative round trip for one ``SendMessage``, the same figure this plane's
     one-shot backfill sizes its own walk with.
-  MAX_ROWS_PER_INVOCATION: The computed cap. Reaching it is not a failure — the file stays in the
-    inbox and the next tick continues it, and the count not processed is logged rather than dropped
-    silently.
+  MAX_ROWS_PER_INVOCATION: The computed cap, and it separates two cases that look alike. A file
+    larger than the WHOLE cap can never be processed by any tick, so it is refused with a reason
+    telling the operator to split it — deferring it would leave it in an inbox that deliberately
+    has no expiry, forever, behind a log line nobody is alerted on. A file larger than what is
+    LEFT of this invocation's budget is deferred, and the sweep stops there rather than skipping
+    it, because a later smaller file overtaking it would break the listing order that makes a
+    sequence of operator files replayable. Neither is silent.
   MESSAGE_GROUP_ID: The queue's single constant group, so operator and UI requests are one strictly
     ordered stream rather than two racing ones.
   SCHEMA_VERSION: The envelope version the validator accepts.
@@ -143,7 +147,10 @@ def _rows(body, key):
     except UnicodeDecodeError as exc:
         raise RejectedFile(f"{key} is not UTF-8 text: {exc}") from exc
 
-    reader = csv.reader(io.StringIO(text))
+    # Excel writes a BOM by default, and an operator's CSV is exactly the file Excel produces.
+    # Left in, it makes the first column read `\ufeffspace` and rejects the whole file for a
+    # reason the operator cannot see in their own editor.
+    reader = csv.reader(io.StringIO(text.lstrip("\ufeff")))
     try:
         header = next(reader)
     except StopIteration:
@@ -271,7 +278,9 @@ def _process(key, stamp, budget):
       budget: How many rows this invocation may still send.
 
     Returns:
-      The number of rows sent. A file left for the next tick returns what it managed.
+      A ``(rows_sent, disposition)`` pair. ``done`` means the file is out of the inbox one way or
+      another; ``deferred`` means this invocation ran out of budget and the sweep must stop, so
+      the remaining files keep their place in listing order.
 
     Raises:
       ClientError: On any S3 or SQS fault.
@@ -285,11 +294,32 @@ def _process(key, stamp, budget):
         _move(key, REJECTED, stamp, reason=str(exc))
         logger.warning("rejected %s: %s", key, exc)
         observability.warning("rejected an ownership-transfer file", object_key=key, outcome="rejected")
-        return 0
+        return 0, "done"
+
+    if len(rows) > MAX_ROWS_PER_INVOCATION:
+        # It does not fit in a whole invocation, so no later tick can process it either. Deferring
+        # would leave it in the inbox forever behind a log line nobody is alerted on, and the
+        # inbox deliberately has no expiry — so it is refused, with a reason the operator can act
+        # on. Splitting the file is the fix, and only they can do it.
+        reason = (
+            f"{key} carries {len(rows)} rows; at most {MAX_ROWS_PER_INVOCATION} can be processed "
+            f"in one run, so this file could never be handled. Split it and re-upload."
+        )
+        _move(key, REJECTED, stamp, reason=reason)
+        logger.warning("rejected %s: %s", key, reason)
+        observability.warning(
+            "rejected an ownership-transfer file larger than one invocation",
+            object_key=key,
+            rows_in_file=len(rows),
+            rows_not_processed=len(rows),
+            cap=MAX_ROWS_PER_INVOCATION,
+            outcome="rejected",
+        )
+        return 0, "done"
 
     if len(rows) > budget:
         observability.warning(
-            "row cap reached; the file stays in the inbox for the next tick",
+            "row budget spent; the file stays in the inbox for the next tick",
             object_key=key,
             rows_in_file=len(rows),
             rows_not_processed=len(rows),
@@ -299,7 +329,7 @@ def _process(key, stamp, budget):
             "%s carries %d rows and only %d remain in this invocation's budget; leaving it",
             key, len(rows), budget,
         )
-        return 0
+        return 0, "deferred"
 
     for index, (space, new_owner) in enumerate(rows, start=2):
         _send(space, new_owner, _request_id(key, index))
@@ -312,7 +342,7 @@ def _process(key, stamp, budget):
         rows_enqueued=len(rows),
         outcome="processed",
     )
-    return len(rows)
+    return len(rows), "done"
 
 
 @observability.traced("transfer-reader")
@@ -340,14 +370,17 @@ def handler(event, context):
 
     for key in keys:
         budget = MAX_ROWS_PER_INVOCATION - sent
-        if budget <= 0:
+        rows_sent, disposition = (0, "deferred") if budget <= 0 else _process(key, stamp, budget)
+        if disposition == "deferred":
+            # STOP rather than skip: carrying on would let a later, smaller file overtake this one,
+            # and listing order is what makes a sequence of operator files replayable.
             observability.warning(
-                "row cap reached; files remain in the inbox for the next tick",
+                "row budget spent; the rest of the inbox waits for the next tick",
                 files_not_processed=len(keys) - files,
                 cap=MAX_ROWS_PER_INVOCATION,
             )
             break
-        sent += _process(key, stamp, budget)
+        sent += rows_sent
         files += 1
 
     logger.info("transfer-reader: %d files, %d rows enqueued", files, sent)

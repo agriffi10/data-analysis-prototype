@@ -44,3 +44,15 @@ def test_the_two_transfer_notifications_each_name_the_other_party():
     assert "bcarter" in to_outgoing and "finance" in to_outgoing
     assert "alice" in to_incoming and "finance" in to_incoming
     assert "still a member" in to_outgoing, "the outgoing owner's chief question is what they keep"
+
+
+def test_a_missing_space_or_target_renders_blank_rather_than_the_word_None():
+    """This plane now takes messages from a producer outside the API's contract, so a field the
+    contract would have refused can be absent. A Python ``None`` interpolated into a sentence a
+    user reads is a worse outcome than an empty pair of quotes."""
+    for rendered in (
+        messages.refusal_message("TransferSpaceUnknown", None, None),
+        messages.refusal_message("TransferTargetNotMember", None, None),
+        messages.refusal_message("SomethingUnregistered", None, None),
+    ):
+        assert "None" not in rendered, rendered

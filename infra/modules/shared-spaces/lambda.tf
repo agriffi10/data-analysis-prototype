@@ -129,9 +129,10 @@ resource "aws_lambda_function" "transfer_reader" {
   runtime       = "python3.12"
   handler       = "transfer_reader.handler"
 
-  # The row cap in transfer_reader.py is DERIVED from this number. Changing it here without
-  # changing it there leaves the function budgeting for an invocation it no longer has; a test
-  # recomputes the cap from the same three inputs, so the pair cannot drift silently.
+  # The row cap in transfer_reader.py is DERIVED from this number, and a test reads THIS LINE and
+  # asserts the two agree. Recomputing the cap from the module's own constants would only agree
+  # with itself; what can actually drift is the pair, leaving the function budgeting for an
+  # invocation it no longer has.
   timeout = 60
 
   environment {

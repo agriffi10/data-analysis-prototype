@@ -170,6 +170,27 @@ def test_a_retry_that_finds_the_space_already_transferred_refuses_rather_than_ta
     assert _stored(s3)["owner"] == "carol", "carol keeps the space"
 
 
+def test_a_transfer_authorized_against_a_record_that_has_already_moved_refuses_on_the_FIRST_read():
+    """The ordinary shape of the race, which the retry test above reaches only the long way round.
+
+    Nothing has to lose a compare-and-swap for this: the request was authorized while alice owned
+    the space, carol took it before this execution read anything, and the very first read already
+    disagrees with what was authorized. Covering only the retry path would leave the guard's
+    commonest entry untested — and it is the guard whose failure is silent, because re-applying a
+    stale authorization looks exactly like a correct write.
+    """
+    s3, *_ = install()
+    stale = _seed(s3)
+    _seed(s3, owner="carol", acknowledged=["alice", "bob"])
+
+    with pytest.raises(reg.OwnerChanged) as raised:
+        reg.set_owner(stale, "alice", "bob", "r1")
+
+    assert "carol" in str(raised.value)
+    assert _stored(s3)["owner"] == "carol", "carol still holds it and nothing was written"
+    assert _stored(s3)["lastRequestId"] == "r0", "not even a timestamp was stamped"
+
+
 def test_a_transfer_against_a_deleted_record_refuses_instead_of_resurrecting_it():
     """The write is create-if-absent when the tag is None, so an unguarded transform would
     re-create a space whose name had been freed — under a new owner, and with the expected-owner

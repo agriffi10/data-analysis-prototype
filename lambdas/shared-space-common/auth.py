@@ -133,7 +133,7 @@ def transfer_refusal(requester, space, target, registry):
     return None
 
 
-def operator_refusal(origin, action, has_identity, sender_id):
+def operator_refusal(origin, action, space, has_identity, sender_id):
     """Decides whether a message declaring an operator origin may be trusted. Pure.
 
     The queue's other producer. A UI request reaches the plane through the API, which verifies a
@@ -155,6 +155,9 @@ def operator_refusal(origin, action, has_identity, sender_id):
       origin: The message's declared origin. None means an ordinary UI request and is accepted
         here without further checks, because the identity block is what authenticates that one.
       action: The requested action.
+      space: The space named, so the refusal can say which one. It reaches the space's OWNER —
+        the named victim of a forgery — and a sentence that names no space tells them nothing
+        they can act on.
       has_identity: Whether the message also carries an identity block.
       sender_id: The ``SenderId`` SQS stamped on the record, empty when it carried none.
 
@@ -167,17 +170,17 @@ def operator_refusal(origin, action, has_identity, sender_id):
     if origin is None:
         return None
     if origin != config.OPERATOR_ORIGIN:
-        return _refusal("TransferOriginUnknown", "")
+        return _refusal("TransferOriginUnknown", space)
     if has_identity:
-        return _refusal("TransferOriginBothCredentials", "")
+        return _refusal("TransferOriginBothCredentials", space)
     if action not in config.OPERATOR_ACTIONS:
-        return _refusal("TransferOriginActionNotAllowed", "")
+        return _refusal("TransferOriginActionNotAllowed", space)
     configured = config.TRANSFER_READER_ROLE_ID
     if not configured:
-        return _refusal("TransferOriginNotConfigured", "")
+        return _refusal("TransferOriginNotConfigured", space)
     role_id = (sender_id or "").split(":", 1)[0]
     if not role_id or role_id != configured:
-        return _refusal("TransferOriginUntrusted", "")
+        return _refusal("TransferOriginUntrusted", space)
     return None
 
 
