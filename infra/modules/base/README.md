@@ -5,7 +5,7 @@ the repo can be created until the grant for it lands here first.
 
 | File | Holds |
 |---|---|
-| `iam.tf` | the provider, the role, one inline policy, **one customer-managed policy per resource family**, and three propagation guards |
+| `iam.tf` | the provider, the role, one inline policy, **one customer-managed policy per resource family**, and the propagation guards |
 | `outputs.tf` / `variables.tf` | the module interface |
 | `policies/` | one `.tftpl` per policy |
 
