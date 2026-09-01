@@ -47,9 +47,14 @@ jobs:
           fetch-depth: 0
 
       # WHAT THIS JOB CAN POSSIBLY LEARN. Every step after it is scoped to this answer, so a
-      # pull request touching only docs/ or only lambdas/ costs one billed minute instead of
-      # six: measured over 2026-08-30..09-01, 27 of 37 merges touched none of these paths,
-      # and the Test step alone is 294 of this job's 366 seconds.
+      # pull request touching none of the app's inputs costs one billed minute instead of
+      # seven — the Test step alone is 294 of this job's 366 seconds.
+      #
+      # Replayed against the last 60 merges to main: 30 skip, 30 run, so the average pull
+      # request costs 4 minutes instead of 7. It is NOT the 73% that counting `apps/portal/`
+      # alone suggests — the suite's out-of-tree reads below, the IAM templates especially,
+      # buy a third of the saving back. That is the honest number and the cheaper one was
+      # wrong rather than optimistic.
       #
       # The job still RUNS and still reports under the same check name — this is a step-level
       # skip, not a workflow-level `paths:` filter, precisely so that a required check by that
@@ -63,6 +68,30 @@ jobs:
         id: scope
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
+          # EVERY input this job's steps read — which is NOT the same as "the app's source".
+          # The first four lines are the build; the rest are files OUTSIDE apps/portal that
+          # the suite itself reads, through `?raw` and `import.meta.glob`, to assert the
+          # browser agrees with the infrastructure and the planes. Leaving them out is not a
+          # smaller saving, it is a silent one: a change to `arcommon/config.py` or to
+          # `infra/main.tf` breaks a real set-equality guard and the job reports green. Both
+          # were reproduced by planting the change and watching the suite redden while this
+          # step said `app=false`, and both appear in the last two merges to main.
+          #
+          # `lambdas/test_ci_scope.py` sweeps the suite for out-of-tree reads and fails if
+          # one is not covered here, so the list cannot drift as a ninth import is added.
+          SCOPE_PATTERNS: |
+            ^apps/portal/
+            ^packages/
+            ^package\.json$
+            ^package-lock\.json$
+            ^\.nvmrc$
+            ^\.github/workflows/ci\.yml$
+            ^\.github/workflows/deploy-app\.yml$
+            ^config/feature-flags\.json$
+            ^infra/main\.tf$
+            ^infra/modules/[^/]+/policies/[^/]+\.json\.tftpl$
+            ^lambdas/api/routes/feature_flags\.py$
+            ^lambdas/archive-common/arcommon/config\.py$
         run: |
           set -euo pipefail
 
@@ -75,13 +104,18 @@ jobs:
           # Assigned rather than piped straight into grep: `git diff` failing must kill the
           # job, and inside an `if` condition its exit status is swallowed — which would read
           # a broken diff as "nothing changed" and skip the suite.
-          CHANGED=$(git diff --name-only "$BASE" HEAD)
+          #
+          # --no-renames because `--name-only` reports only a rename's DESTINATION. Moving a
+          # file out of apps/portal would otherwise show up as the destination alone, answer
+          # `app=false`, and break `tsc -b` on main with a green PR.
+          CHANGED=$(git diff --name-only --no-renames "$BASE" HEAD)
 
-          # The build's inputs, and nothing else. `npm ci` runs off the ROOT manifests, so a
-          # lockfile bump changes this job's result without touching apps/portal. The workflow
-          # file is in the set for the reason deploy-infra.yml states about its own: without
-          # it, this scoping can be edited and merged having never once gated anything.
-          if printf '%s\n' "$CHANGED" | grep -qE '^(apps/portal/|package\.json$|package-lock\.json$|\.nvmrc$|\.github/workflows/ci\.yml$)'; then
+          # A here-string, NOT `printf ... | grep -q`. Under `pipefail` grep exits at the
+          # first match, printf takes SIGPIPE, and the pipeline reports 141 — so the `if`
+          # takes the else branch and answers `app=false` for a pull request that DID touch
+          # the app. It inverts once the change set passes the 64 KiB pipe buffer: measured
+          # correct at 45 KB and inverted at 75 KB, in the cheap direction, silently.
+          if grep -qE -f <(printf '%s' "$SCOPE_PATTERNS") <<<"$CHANGED"; then
             echo 'app=true' >> "$GITHUB_OUTPUT"
           else
             echo 'app=false' >> "$GITHUB_OUTPUT"
