@@ -1,0 +1,191 @@
+name: Deploy Lambda image
+
+# Builds the Lambda fleet's container image on every push to main, proves it, and pushes it to the
+# registry tagged by commit sha.
+#
+# IT DEPLOYS NOTHING. No function runs this image yet — the fleet still ships as zips with layers —
+# so this workflow ends at the push. The cutover, and the `update-function-code` loop that has to
+# point every function at a new image, is a later change. Read the absence of a deploy step as
+# deliberate rather than unfinished.
+#
+# NO `paths:` FILTER, deliberately, and it is not an oversight. The image has to track main exactly,
+# the same way deploy-app.yml and deploy-spa-image.yml do: a filter means the newest image and HEAD
+# diverge on any commit the filter misses, and "which commit is in the registry" stops having an
+# answer — which is the question the sha tagging exists to answer. The PR-side gate
+# (lambda-image.yml) IS filtered, because it only proves the image.
+#
+# THE DISPATCH PATH IS NOT A CONVENIENCE. If this pipeline lands broken, the registry is IMMUTABLE:
+# the failing sha cannot be re-pushed, and no local identity may write to production. A dispatch
+# naming an existing tag reports what is already there rather than rebuilding it — and a dispatch
+# naming a tag that does NOT exist is refused, because building under an arbitrary string would
+# put a permanent non-sha tag in an immutable registry.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Tag to build and push. Empty means this commit. An EXISTING tag is reported and not rebuilt.'
+        required: false
+        default: ''
+
+# Two overlapping pushes of one repository is wasted work at best, and cancelling one mid-push
+# leaves a partial upload the registry has to garbage-collect. Runs queue rather than race, and
+# none is cancelled — the same reasoning deploy-spa-image.yml carries.
+concurrency:
+  group: deploy-lambda-image
+  cancel-in-progress: false
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    # Build, matrix and push. Twenty bounds a cold pull and a slow upload clear of GitHub's
+    # six-hour default.
+    timeout-minutes: 20
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          # Cap the OIDC assume-role retries. The default is 12, and a connect timeout to STS once
+          # cost ~7 minutes per attempt — one job spent 82 minutes failing.
+          retry-max-attempts: 3
+
+      - name: Resolve the registry and the tag
+        id: names
+        env:
+          PROJECT: ${{ vars.TF_VAR_project_name || 'dat' }}
+          ENVIRONMENT: ${{ vars.TF_VAR_environment || 'prod' }}
+          TAG_INPUT: ${{ inputs.image_tag }}
+        run: |
+          set -euo pipefail
+
+          # CONSTRUCTED FROM THE SAME TWO VARIABLES TERRAFORM BUILDS IT FROM, then confirmed with a
+          # describe that NAMES it. An unfiltered describe-repositories authorizes against
+          # `repository/*` while the deploy role is scoped to this repository and the SPA's — so
+          # asking the registry "which one ends in -lambda" needs a strictly WIDER grant than
+          # constructing the name does. deploy-spa-image.yml records that being tried and refused.
+          NAME="${PROJECT}-${ENVIRONMENT}-lambda"
+          if ! REPO=$(aws ecr describe-repositories --repository-names "$NAME" \
+                        --query 'repositories[0].repositoryUri' --output text 2>/dev/null); then
+            echo "::error title=Registry::no repository named $NAME. Terraform builds it from project_name and environment; run Deploy Infrastructure, or set TF_VAR_project_name / TF_VAR_environment if this deployment does not use the defaults."
+            exit 1
+          fi
+
+          # THE INPUT IS REFUSED BEFORE IT IS USED, not escaped as it is written. Everything below
+          # sends values to $GITHUB_OUTPUT one per line, and a value carrying a newline sets a
+          # SECOND output — including `repo`, which the push step uses as the registry host. An
+          # image tag is a restricted character set anyway (ECR allows letters, digits and
+          # `_.-`), so refusing anything else costs nothing and closes the injection rather than
+          # quoting around it.
+          # A WHOLE-STRING TEST, never `grep`. grep is line-oriented, so a value whose FIRST
+          # line is a valid tag matches — which is exactly the injected value this refuses, and
+          # the first version of this check accepted it. Bash's `=~` anchors against the whole
+          # string. It still allows a trailing newline, so that case is refused on its own line.
+          TAG_PATTERN='^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$'
+          BAD_TAG=""
+          if [ -n "$TAG_INPUT" ]; then
+            [[ "$TAG_INPUT" =~ $TAG_PATTERN ]] || BAD_TAG="shape"
+            [ "$TAG_INPUT" = "${TAG_INPUT%$'\n'}" ] || BAD_TAG="newline"
+          fi
+          if [ -n "$BAD_TAG" ]; then
+            echo "::error title=Bad tag::the image_tag input is not a valid ECR tag ($BAD_TAG). Letters, digits, underscore, dot and hyphen only, starting with a letter or digit."
+            exit 1
+          fi
+
+          TAG="${TAG_INPUT:-$GITHUB_SHA}"
+
+          # A DISPATCH NAMES AN IMAGE THAT ALREADY EXISTS; it does not mint a new name. Building
+          # under an arbitrary string would push it into an IMMUTABLE repository under a
+          # permanent non-sha tag, which makes "the tag is the commit that produced the image"
+          # false for that image — and that claim is the whole reason for tagging by sha.
+          if [ -n "$TAG_INPUT" ] && [ "$TAG_INPUT" != "$GITHUB_SHA" ] \
+             && ! aws ecr describe-images --repository-name "$NAME" --image-ids imageTag="$TAG_INPUT" >/dev/null 2>&1; then
+            echo "::error title=Unknown tag::$TAG_INPUT is not in the registry. This input reports on an image that already exists; leave it empty to build this commit."
+            exit 1
+          fi
+
+          {
+            echo "repo=$REPO"
+            echo "name=$NAME"
+            echo "tag=$TAG"
+          } >> "$GITHUB_OUTPUT"
+
+          # An existing tag means this run has nothing to do. The repository is IMMUTABLE, so a
+          # tag cannot be overwritten — treating that as a failure would make the workflow
+          # unrunnable exactly when someone is checking what is already there.
+          if aws ecr describe-images --repository-name "$NAME" --image-ids imageTag="$TAG" >/dev/null 2>&1; then
+            echo "build=skip" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Already present::$NAME:$TAG is in the registry; nothing to build."
+          else
+            echo "build=run" >> "$GITHUB_OUTPUT"
+          fi
+
+      # linux/amd64 EXPLICITLY, matching every function's current architecture. An arm64 image
+      # fails at function start with a manifest error that reads nothing like the mismatch it is.
+      #
+      # Values reach `run:` through `env:`, never interpolated: the tag can originate in a dispatch
+      # input, and a value interpolated straight into `run:` is a command-injection sink.
+      - name: Build
+        if: steps.names.outputs.build == 'run'
+        env:
+          TAG: ${{ steps.names.outputs.tag }}
+        run: |
+          set -euo pipefail
+          docker build --platform linux/amd64 \
+            -f lambdas/Dockerfile \
+            -t "lambda-fleet:${TAG}" .
+
+      # BEFORE THE PUSH, so a broken image never reaches a registry it cannot be deleted from.
+      # This is the same script the pull-request gate runs, against the same image. It is invoked
+      # directly rather than guarded, so a matrix that cannot run fails the job: "did not run" is
+      # never "clean".
+      - name: Assert the behaviour matrix
+        if: steps.names.outputs.build == 'run'
+        env:
+          TAG: ${{ steps.names.outputs.tag }}
+        run: .github/scripts/lambda-image-matrix.sh "lambda-fleet:${TAG}"
+
+      - name: Push
+        if: steps.names.outputs.build == 'run'
+        env:
+          REPO: ${{ steps.names.outputs.repo }}
+          TAG: ${{ steps.names.outputs.tag }}
+          REGION: ${{ vars.AWS_REGION }}
+        run: |
+          set -euo pipefail
+          aws ecr get-login-password --region "$REGION" \
+            | docker login --username AWS --password-stdin "${REPO%%/*}"
+          docker tag "lambda-fleet:${TAG}" "${REPO}:${TAG}"
+          docker push "${REPO}:${TAG}"
+
+      # `docker push` reporting success is not the same as the registry holding the image, and
+      # this is the only place that difference is observable — nothing downstream consumes the
+      # image yet, so a push that silently did nothing would go unnoticed until the cutover.
+      - name: Assert the registry holds this tag
+        if: steps.names.outputs.build == 'run'
+        env:
+          NAME: ${{ steps.names.outputs.name }}
+          TAG: ${{ steps.names.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! DIGEST=$(aws ecr describe-images --repository-name "$NAME" \
+                          --image-ids imageTag="$TAG" \
+                          --query 'imageDetails[0].imageDigest' --output text 2>/dev/null); then
+            echo "::error title=Not pushed::$NAME:$TAG is not in the registry after a push that reported success."
+            exit 1
+          fi
+          if [ -z "$DIGEST" ] || [ "$DIGEST" = "None" ]; then
+            echo "::error title=Not pushed::the registry returned no digest for $NAME:$TAG."
+            exit 1
+          fi
+          echo "::notice title=Pushed::${NAME}:${TAG} is ${DIGEST}"

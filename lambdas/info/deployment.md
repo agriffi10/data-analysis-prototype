@@ -73,6 +73,32 @@ artifacts bucket have to exist before code can be pushed into them.
   The layer's config runs on any import chain, so a verb missing one fails on whichever branch reads
   it — at cold start, in production, with a green suite behind it.
 
+## There is a Dockerfile here, and nothing deploys from it yet
+
+`lambdas/Dockerfile` builds **one container image for the whole fleet** — dependencies installed
+once, shared code copied once, every function running the same image with a different command. It
+is built and proved on every pull request that touches `lambdas/`, pushed to ECR by commit sha on
+every push to `main`, and **run by no function**. Everything above this section is still how a
+Lambda gets deployed.
+
+What it is for: the split described above means what a function can import is decided at deploy
+time by a join between two tables, and is observable nowhere else. The image makes it a property of
+an artefact — `.github/scripts/lambda-image-matrix.sh` imports every function's handler module
+inside the built image, through the real runtime bootstrap, which is the check that would have
+caught the nine-day sign-up outage.
+
+Two things to know before changing anything under `lambdas/`:
+
+- **A new top-level module in a function directory shares one task root with all 85 others.** Two
+  directories cannot contribute the same path, and no top-level name there may match a name on
+  `/opt/python` — the runtime searches the task root first, so a duplicate does not collide, it
+  wins. Both are asserted against the built image.
+- **The image's layout is one module**, `lambdas/docker/assemble.py`, which the build runs and the
+  layout tests import. Change the layout there, not in the Dockerfile.
+
+Full reasoning: [`../../docs/decisions/infrastructure.md`](../../docs/decisions/infrastructure.md)
+→ *One image for the whole Lambda fleet*.
+
 ## Related
 
 - [`INDEX.md`](INDEX.md) — every function, grouped by control plane

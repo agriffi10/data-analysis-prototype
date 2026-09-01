@@ -1,6 +1,11 @@
-# Read from the CONTEXT ROOT, which is this directory — the build needs the workspace's manifests,
-# so it cannot be scoped to apps/portal/, and an ignore file placed beside the Dockerfile would be
-# consulted by nothing.
+# Read from the CONTEXT ROOT, which is this directory — the SPA build needs the workspace's
+# manifests, so it cannot be scoped to apps/portal/.
+#
+# THIS FILE IS THE FALLBACK, NOT THE ONLY ONE. BuildKit reads `<dockerfile-path>.dockerignore`
+# when one exists beside the Dockerfile, and only falls back here otherwise. `apps/portal/` has no
+# such file, so the SPA build reads this one — which is what the `lambdas` and `infra` exclusions
+# below are for, and what the SPA build's own `test ! -d lambdas` assertion rests on. The Lambda
+# image DOES have one, because those same exclusions would leave its build with no source at all.
 #
 # A .env reaching the build context is a secret leak that no test of the built image can see: the
 # runtime stage copies only dist/, so anything that leaks in is invisible downstream and permanent

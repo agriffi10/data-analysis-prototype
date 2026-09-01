@@ -23,6 +23,7 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [`connect-src` comes from the task definition; every other CSP directive is a property of the bundle (SPEC-194)](#connect-src-comes-from-the-task-definition-every-other-csp-directive-is-a-property-of-the-bundle-spec-194)
 - [A role that cannot list a bucket cannot be told an object is absent](#a-role-that-cannot-list-a-bucket-cannot-be-told-an-object-is-absent)
 - [A value Terraform computes is read from state, never copied into a settings page (SPEC-215)](#a-value-terraform-computes-is-read-from-state-never-copied-into-a-settings-page-spec-215)
+- [One image for the whole Lambda fleet, and the sweep that pays for it (SPEC-212)](#one-image-for-the-whole-lambda-fleet-and-the-sweep-that-pays-for-it-spec-212)
 
 ## IaC
 
@@ -212,6 +213,13 @@ Detail: `spec-delivery/SPEC-193`.
 The ECR repository is `IMMUTABLE`. An image is therefore what its tag says it is for as long as the
 revision referencing it exists, and a re-push under an existing sha cannot silently change what a
 rolled-back task definition starts.
+
+> **Extended by SPEC-212 (2026-09-01).** There are now **two** registries on this rule — the SPA's
+> and the Lambda fleet's — and everything below still holds for both. What differs is the
+> retention bound: the SPA's is thirty images, a rollback window measured in deploys, while the
+> fleet's is computed from the merge rate against a window measured in days, because the failure it
+> rolls back from surfaces at a cold start rather than at a deploy. Full entry: *One image for the
+> whole Lambda fleet*.
 
 **The consequences are not cosmetic.** There is no `:latest` to point a task definition at, so the tag
 is a **variable** (`spa_image_tag`) rather than a constant — a fixed placeholder tag could be pushed
@@ -410,3 +418,75 @@ A workflow can read an output through the resolver without an init of its own �
 that — so an init-based predicate would exclude the consumer the derivation was widened for. The
 assertion compares the constraint strings **as declared**, because `~1.8` is a constraint and not a
 version, and "they resolve to one version" is not something a workflow file can state.
+## One image for the whole Lambda fleet, and the sweep that pays for it (SPEC-212)
+
+Eighty-six functions ship as zips with ten shared layers attached in a literal order. Everything
+hard about that arrangement is hard for one reason: **what a function can import is decided at
+deploy time, by a join between two JSON tables, and is observable nowhere else.** A missing layer is
+a `ModuleNotFoundError` at the next cold start, in production, behind a green suite — which
+happened, and lasted nine days.
+
+The image replaces the join with an artefact. Dependencies installed once, shared code copied once,
+every function running the same image with a different command. What a function can import becomes
+a property of something you can pull and run.
+
+**The layout reproduces the zip and the layer exactly, and that is measurable rather than hopeful.**
+Shared code lands on `/opt/python`, function modules at `${LAMBDA_TASK_ROOT}` with the function
+directory's own level stripped. Measured against the base image through its bundled Runtime
+Interface Emulator: the container runtime's bootstrap puts `/var/task`,
+`/opt/python/lib/python3.12/site-packages` and `/opt/python` on `sys.path` **with no `PYTHONPATH`
+involved**, so both a package and a flat module resolve and no import statement changes.
+
+**Dependencies are NOT on `/opt/python`, and that is the one deliberate divergence.** A layer today
+mixes its package with its pip-installed dependencies in one directory; reproducing that would make
+"the set of packages under `/opt/python` equals the set the layer table declares" false by
+construction, and the guard would decay into a hand-maintained dependency list. The cost is that
+repository code now sits **ahead** of the dependencies on the search path, which a layer never did —
+so a third guard asserts no repository module shadows an installed one.
+
+**One task root for eighty-six functions is a hazard no zip had.** Every function's modules share
+`/var/task`, and the runtime searches it before `/opt/python`. Two directories contributing the same
+path do not collide — one silently wins, for the whole fleet. A module named `config.py` would
+shadow the shared-space layer's `config` for eleven verbs. Both are measured empty today and both
+are asserted **against the built image**: an absence asserted against a source tree proves nothing
+about an artefact, which is the same reason the arc exists at all.
+
+**The image is strictly wider than the zip, and the sweep is what pays for it — not the packaging.**
+Stated rather than glossed: every function can now import every shared-space flat module. An AST
+sweep over the **function** directories forbids it outside that plane, counting attribute-style
+usage as well as `from x import y`, with an exemption list of exact paths. The population is
+function directories rather than every directory under `lambdas/`, because the layer's own source
+imports its own modules and sweeping it invites the wrong repair.
+
+**Two things the matrix had to get right, both measured rather than reasoned.**
+
+**It runs the imports through the runtime's own bootstrap.** `docker run --entrypoint python` gives
+a `sys.path` with neither `/opt/python` nor its site-packages on it, so a sweep taken that way must
+rebuild the path — and a rebuilt path that is a **superset** of the real one passes an import that
+production fails. That is this arc's own failure mode, rebuilt by the tool meant to prevent it. The
+sweep is instead invoked as a handler through the emulator, reads its own live `sys.path`, and hands
+it to one subprocess per module; the subprocess path comes back **identical**, so there is nothing
+to reconstruct and nothing to police.
+
+**A count compared with itself is not a guard.** The first version derived the expected number of
+handlers the same way the image-side sweep did — a module defining a top-level `handler`. Renaming
+one removed it from **both** sides, the two numbers agreed at 85, and a planted mutation that broke
+a function's entry point passed the whole matrix. The expectation now comes from the deploy table,
+which is maintained separately. SPEC-214 deletes that table; when it does, this expectation
+repoints at whatever replaces it and does **not** fall back to the sweep.
+
+**The fences.**
+
+- **The container runs `--read-only` with a tmpfs `/tmp`**, which is the filesystem Lambda gives it.
+  Not only fidelity: importing eighty-six modules writes bytecode beside every one of them, so on a
+  writable root the sweep manufactures the `__pycache__` offenders it then reports.
+- **The emulator serves one invocation at a time.** A readiness probe that posts to the invocation
+  endpoint starts the real sweep and the retry collides with it — `ReserveFailed`, and the emulator
+  panics. Wait for any HTTP response on any path instead.
+- **The base image has no `find` and no `xargs`.** A `RUN find … -delete` prune exits 127. The
+  assembler is Python, which is the one tool a Python runtime image is guaranteed to have — and
+  being a module rather than a shell line is what lets the layout tests import the same definition
+  the build uses.
+- **The build context is the repository root with `lambdas/Dockerfile.dockerignore`.** BuildKit
+  reads a Dockerfile-specific ignore file in preference to the context root's; the root file
+  excludes `lambdas` on purpose, so that the SPA's build — which asserts its absence — keeps working.

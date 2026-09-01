@@ -2607,7 +2607,7 @@ no copy anywhere may claim the data was destroyed, which is what FR-006's sweep 
 
 ## Container-lambdas arc (SPEC-212 → 213 → 214)
 
-Eighty-two functions, ten layers, two JSON tables and a literal attach-order loop. The arrangement
+Eighty-six functions, ten layers, two JSON tables and a literal attach-order loop. The arrangement
 works. What is wrong with it is that **what a function can import is decided at deploy time, by a
 join between two tables, and is observable nowhere else** — so a missing layer is a
 `ModuleNotFoundError` at the next cold start, in production, behind a green suite. That is not
@@ -2634,7 +2634,7 @@ rather than a leap.
 **213 is where the risk is, and it has a known shape.** Terraform keeps owning the function and CI
 keeps owning the code, so `image_uri` carries `ignore_changes`, so **CI must point every function at
 the new image on every deploy.** A pipeline that builds and pushes and never calls
-`update-function-code` leaves all 82 functions on the previous image and every one of them keeps
+`update-function-code` leaves every function on the previous image and each of them keeps
 working. Nothing goes red. This is not a new lesson: SPEC-193/194 hit exactly this with the SPA's
 ECS service, where a pipeline that only registered a task-definition revision left a
 `CannotPullContainerError` indistinguishable from the endpoint failure the platform was tested for.
@@ -2662,9 +2662,9 @@ fixture captured from the pre-cutover plan, rather than making it in prose.
 ### The one thing the arc makes worse, stated rather than glossed
 
 Today a function can import only the layers attached to it. In one image every function can import
-everything — including `shared-space-common`'s nine flat top-level modules, whose names (`config`,
-`auth`, `registry`, `cache`, `notify`, `messages`, `membership`, `casio`, `teardown`) are generic
-enough to be imported from another plane by accident and would resolve. The image gives every
+everything — including `shared-space-common`'s ten flat top-level modules, whose names (`config`,
+`auth`, `registry`, `cache`, `notify`, `messages`, `membership`, `membership_index`, `casio`,
+`teardown`) are generic enough to be imported from another plane by accident and would resolve. The image gives every
 function a strictly larger import surface than its zip has. What keeps that from mattering is an AST
 sweep, not the packaging — and the sweep has to count attribute-style usage (`import x` then
 `x.y()`), because a submodule-path scan alone undercounts consumers.

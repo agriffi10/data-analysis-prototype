@@ -614,12 +614,80 @@ jobs:
           findings=$(.github/scripts/checkov-enforced.sh checkov.json .github/checkov-enforced.txt)
           echo "CHECKOV_FINDINGS=$findings" >> "$GITHUB_ENV"
 
+      # ── Checkov, dockerfile framework ───────────────────────────────
+      # THE SAME PINNED SCANNER, A SECOND FRAMEWORK. Nothing is added, removed or re-pinned:
+      # `CHECKOV_VERSION` above installs one binary and this asks it a second question, about
+      # the Lambda fleet's container image. Before this, no scanner in this repository looked
+      # at any Dockerfile.
+      #
+      # SCOPED TO ONE FILE, and that is a decision rather than an oversight.
+      # `apps/portal/Dockerfile` is also unscanned, and it PASSES `CKV_DOCKER_3` (it sets
+      # `USER 101`) where a Lambda image cannot — so a single shared enforce list would have to
+      # drop that check and could then never enforce it for the SPA. Covering both properly
+      # wants a list per Dockerfile; the gap is recorded in docs/security-baseline.md rather
+      # than half-closed here.
+      #
+      # `--soft-fail` and the parse check for the same reasons the terraform scan gives: the
+      # exit code means two different things, and "did not run" is never "clean".
+      - name: Scan lambdas/Dockerfile
+        if: always() && steps.gates.outcome == 'success'
+        run: |
+          checkov -f lambdas/Dockerfile \
+            --framework dockerfile \
+            --output json --compact --soft-fail > checkov-dockerfile.json || true
+          if ! jq -e '(if type=="array" then .[0] else . end) | .summary.failed' checkov-dockerfile.json >/dev/null 2>&1; then
+            echo "::error title=Checkov (dockerfile)::output is not valid — the scan did not complete."
+            exit 1
+          fi
+
+      # Its findings ADD to the gate's numerator rather than replacing it, so one number still
+      # decides the job and a regression in either framework blocks. Assign-then-echo, never
+      # `echo "VAR=$(script)"`, for the reason stated above the terraform narrowing.
+      # ITS FINDINGS ADD TO THE GATE'S NUMERATOR, so one number still decides the job and a
+      # regression in either framework blocks. Assign-then-echo, never `echo "VAR=$(script)"`,
+      # for the reason stated above the terraform narrowing.
+      #
+      # NO NUMERIC DEFAULT ON THE RUNNING TOTAL. `${CHECKOV_FINDINGS:-0}` would substitute on
+      # EMPTY as well as unset, so a terraform narrowing that hard-errored — leaving the variable
+      # unwritten — would become "clean" here, which is precisely the shape apply-gate.sh's
+      # `no-count` sentinel exists to refuse. If the terraform half did not produce a number,
+      # this leaves it unproduced and the gate hard-errors on it.
+      - name: Narrow the dockerfile scan to its enforced checks
+        if: always() && steps.gates.outcome == 'success'
+        run: |
+          findings=$(.github/scripts/checkov-enforced.sh checkov-dockerfile.json .github/checkov-dockerfile-enforced.txt)
+          echo "CHECKOV_DOCKERFILE_FINDINGS=$findings" >> "$GITHUB_ENV"
+          if [ -z "${CHECKOV_FINDINGS:-}" ]; then
+            echo "::error title=Checkov::the terraform narrowing produced no count, so the two frameworks cannot be totalled. Refusing to substitute a zero."
+            exit 1
+          fi
+          echo "CHECKOV_FINDINGS=$(( CHECKOV_FINDINGS + findings ))" >> "$GITHUB_ENV"
+
+      - name: Summarize (Checkov, dockerfile)
+        if: always() && steps.gates.outcome == 'success'
+        run: |
+          norm='(if type=="array" then .[0] else . end)'
+          passed=$(jq "$norm | .summary.passed" checkov-dockerfile.json)
+          failed=$(jq "$norm | .summary.failed" checkov-dockerfile.json)
+          : > docker-body.md
+          {
+            echo "\`lambdas/Dockerfile\`: ${passed} passed, ${failed} failed;"
+            echo "**${CHECKOV_DOCKERFILE_FINDINGS:-?}** on an enforced check."
+            echo
+            echo "> The two standing failures — no \`HEALTHCHECK\` and no \`USER\` — are properties of"
+            echo "> a Lambda container rather than of this one, and are dispositioned in"
+            echo "> \`docs/security-baseline.md\`. \`apps/portal/Dockerfile\` is not scanned; see the same file."
+          } >> docker-body.md
+          .github/scripts/summary-section.sh "Checkov — lambdas/Dockerfile" "$failed" docker-body.md
+
       - name: Upload raw output (Checkov)
         if: always() && steps.gates.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
           name: checkov
-          path: checkov.json
+          path: |
+            checkov.json
+            checkov-dockerfile.json
           retention-days: 30
           if-no-files-found: warn
 

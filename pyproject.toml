@@ -146,6 +146,14 @@ files = [
     # Lambdas a push deploys, so it is the last place in the fleet that should be the one
     # the type checker cannot see.
     ".github/scripts/plan_deploy.py",
+    # The single definition of the container image's layout, imported by both layout test
+    # modules and run by the build. It joins the ratchet WITH the change that creates it, on the
+    # precedent above and for its reason: it decides what a function can import, so it is the
+    # last place in the fleet that should be invisible to the type checker. It entered at one
+    # error — a `list[Path]` returned where `list[PurePath]` was declared — which was free to fix
+    # now and an argument later.
+    "lambdas/docker/assemble.py",
+    ".github/scripts/lambda-image-sweep.py",
     # New code with no legacy to ratchet through, so it joins the BLOCKING list rather than
     # the report-only one — and it enters at zero, which is only free while it is new.
     "lambdas/api",

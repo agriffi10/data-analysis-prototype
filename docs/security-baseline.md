@@ -831,3 +831,36 @@ key. Naming the principal IS a scopable alternative, so accepting would have bee
 fixable finding, which that file's own header warns against. `verification_principal_arns` is now a
 root variable, empty by default, and the role is not created until it is set. IAM findings on the
 rendered plan stay at **2 accepted, 0 unaccepted**.
+
+## Checkov (`Dockerfile`) — a second framework, one file, two dispositions
+
+Until the Lambda fleet's container image landed, **no scanner in this repository looked at any
+Dockerfile**. Checkov parsed `.tf` only, Semgrep's Lambda scan found no Dockerfile under `lambdas/`
+because there was none, and its SPA scan is scoped to `apps/portal/src`. The image adds one, so the
+already-pinned Checkov is now asked a second question about it. **No scanner is added, removed or
+re-pinned** — `CHECKOV_VERSION` installs one binary and `--framework dockerfile` is a second
+invocation of it.
+
+The gate is the same shape as the `.tf` one and shares its script: an **enforce list** measured at
+zero (`.github/checkov-dockerfile-enforced.txt`, 21 IDs against checkov 3.3.9 on 2026-09-01,
+38 passed / 2 failed), narrowed rather than totalled, with an ID that evaluates against nothing
+treated as a hard error. Its findings are **added to** the Checkov numerator rather than gated
+separately, so one number still decides the job.
+
+| Count | Check | Disposition |
+|---|---|---|
+| 1 | `CKV_DOCKER_2` | **Accept — the check does not apply to this runtime.** Lambda never runs a Docker `HEALTHCHECK`; the Runtime API contract is the health signal, and the service decides an execution environment is unhealthy by the runtime failing to respond, not by an instruction in the image. Declaring one would declare something nothing reads, which is worse than declaring nothing. The SPA image has **no** disposition for this check because it is not scanned at all (see below); its health is read by the load balancer's target group rather than by a Docker instruction, so the two images would reach the same answer by different routes. |
+| 1 | `CKV_DOCKER_3` | **Accept for now, and it is a real gap rather than an inapplicable check.** The AWS-published `public.ecr.aws/lambda/python` base image sets no `USER`, `/var/task` and `/opt` are root-owned, and Lambda's isolation boundary is the per-execution environment rather than the container user — the process is not network-reachable and the root filesystem is read-only in the deployed runtime (asserted: the behaviour matrix runs the container `--read-only`). Adding a `USER` means re-owning both trees and is a change to how the runtime starts, which is not something to do inside a packaging spec and prove nowhere. **Revisit if AWS's base image adopts one**, or with any change that already touches the image's startup. |
+
+**`apps/portal/Dockerfile` is still scanned by nothing, and that is recorded rather than closed.**
+It **passes** `CKV_DOCKER_3` (it sets `USER 101`) where the Lambda image cannot, so a single shared
+enforce list would have to drop that check — and the SPA would then be unable to enforce a check it
+currently satisfies. Covering both wants an enforce list per Dockerfile, which is a widening the
+packaging spec deliberately declined mid-review rather than adding late and unexamined. The cost of
+the gap is that the SPA image is where it already was: unscanned. Closing it is a small change and
+wants its own.
+
+**Semgrep was checked against the new file rather than assumed clean**, because `security.yml`
+scans the path `lambdas` with `p/owasp-top-ten` + `p/python` and `GATE_SEMGREP` is `block` — so the
+first Dockerfile under that path could have reddened a blocking gate. Measured with the pinned
+1.172.0: **1 path scanned, 0 findings, 0 errors.**
