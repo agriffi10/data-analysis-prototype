@@ -100,9 +100,12 @@ export function UploadQueueProvider({children}: {children: ReactNode}) {
 
   // Abort everything in flight when the provider unmounts. Mounted at the app shell, that happens
   // only when the session ends (sign-out) — so in-flight uploads survive navigation and run for the
-  // whole session. An upload is one `PUT` now, so aborting it leaves nothing behind at all: S3
-  // materialises an object only on a complete request, where the multipart upload this replaced
-  // could leave orphaned parts if it was not aborted properly.
+  // whole session. A single `PUT` leaves nothing behind when aborted, because S3 materialises an
+  // object only once it completes. A MULTIPART upload does leave parts, so aborting fires an API
+  // request to discard them — best effort, and deliberately NOT carrying the aborted signal, or it
+  // would cancel its own discard. Whether that request lands while the session is being torn down
+  // is not something an offline test can settle; `testing/owed.md` carries the row. The bucket's
+  // seven-day sweep is the backstop either way.
   useEffect(() => {
     const map = controllers.current;
     return () => {

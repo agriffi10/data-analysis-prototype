@@ -46,7 +46,8 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Click <b>Upload</b> to open the upload panel.',
           'Drag files onto the drop zone, or click it to pick files from your computer.',
           'Each file uploads into the current folder, and the panel tracks its progress until it’s done.',
-          'An upload is one continuous transfer. If your connection drops partway, the panel marks that file <b>Failed</b> — nothing partial is left behind, and dropping it in again starts it from the beginning.'
+          'Small files upload in one go. Large ones are sent in pieces, so if your connection drops partway only the piece in flight is sent again rather than the whole file — you may see the progress bar pause while it catches up.',
+          'If a file does fail, the panel marks it <b>Failed</b> and nothing is saved: an upload that never finishes leaves no file behind for you to find or tidy up. Drop it in again to retry. Pieces from an interrupted upload are cleaned up automatically within a few days.'
         ],
         callout: {
           kind: 'tip',

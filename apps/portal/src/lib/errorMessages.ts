@@ -223,8 +223,9 @@ const CODE_RULES: readonly ErrorRule[] = [
   // Trigger: scoped credentials denied the S3/Athena/Glue call. Almost always a
   // config/permission issue the user can't fix. ──
   // Trigger: S3 refused a presigned PUT whose window had already closed. Routine rather than
-  // exceptional — the window is clamped to the signing session's remaining life, there is no
-  // part-level retry, and a large file can simply outlast it. It is user-fixable and the fix is one
+  // exceptional — the window is clamped to the signing session's remaining life, and a large file
+  // can simply outlast it. Reachable on both upload paths: a single PUT has no retry at all, and a
+  // multipart part re-mints on each attempt but can still exhaust them. It is user-fixable and the fix is one
   // sentence; the generic "contact the Administrator" would be wrong twice, because nothing is
   // misconfigured and the thing that helps goes unsaid.
   {
@@ -240,6 +241,36 @@ const CODE_RULES: readonly ErrorRule[] = [
     code: 'UploadFailed',
     message: 'That file could not be uploaded. Nothing was saved — try again.',
     userFixable: true
+  },
+
+  // Trigger: every attempt at one part of a multipart upload failed. The wording says nothing was
+  // saved, and that is TRUE of multipart in a way it is not of a single PUT: an upload that never
+  // completes assembles no object at all, so there is no partial file to find or clean up.
+  {
+    code: 'UploadPartsExhausted',
+    message: 'That file could not be uploaded, and nothing was saved. Try again.',
+    userFixable: true
+  },
+
+  // Trigger: a part uploaded but its `ETag` response header was unreadable, which in practice means
+  // the bucket's CORS stopped exposing it. NOT retryable — the bytes would go again and the header
+  // would be absent again — and NOT completable, because an assembly request carrying nulls fails
+  // at S3 with an error naming none of this. A deploy fault wearing a user-facing sentence, so it
+  // says what happened to their file rather than blaming them.
+  {
+    code: 'UploadUnverifiable',
+    message: `That upload could not be verified, so nothing was saved. ${CONTACT_ADMIN}`,
+    userFixable: false
+  },
+
+  // Trigger: the upload route answered a shape the chosen branch cannot use — a plan with no
+  // upload id, or a single-PUT answer with no url. Only a deploy skew or a contract change reaches
+  // it. Named rather than left to fall through, because the generic sentence for a stalled upload
+  // row tells the user nothing about a file they can simply try again.
+  {
+    code: 'UploadPlanUnusable',
+    message: `That upload could not be started. ${CONTACT_ADMIN}`,
+    userFixable: false
   },
 
   {code: 'AccessDenied', message: `You don't have permission to do that. ${CONTACT_ADMIN}`, userFixable: false},
