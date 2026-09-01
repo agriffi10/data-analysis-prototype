@@ -411,7 +411,7 @@ is a smell.
 ### Infrastructure, IAM and delivery
 
 OpenTofu, bounded-context modules under `infra/modules/`, IAM policies as `.tftpl` rendered by
-`templatefile()`. Notifications are a **single-writer** FIFO queue → writer Lambda; the browser only
+`templatefile()`. Notifications are a **single-writer** FIFO queue → writer Lambda; the browser
 only reads; the API enqueues on its behalf.
 
 - **Deploy-role IAM is in-scope work for any spec that provisions new infra**, and **grants land in

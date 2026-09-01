@@ -4,7 +4,7 @@ import {ErrorBanner} from '../../components/ErrorBanner';
 import {FIELD_HINT, FIELD_LABEL, SELECT_CLASS} from '../../components/fieldStyles';
 import {FormDialog} from '../../components/FormDialog';
 import {useToast} from '../../components/toastContext';
-import {FEEDBACK_CATEGORIES, MAX_FEEDBACK_MESSAGE_CHARS} from './feedback.constants';
+import {FEEDBACK_CATEGORIES, MAX_FEEDBACK_MESSAGE_CHARS, MAX_FEEDBACK_ROUTE_CHARS} from './feedback.constants';
 import type {FeedbackCategory} from './feedback.types';
 import {useSubmitFeedback} from './useSubmitFeedback';
 
@@ -35,7 +35,11 @@ type FeedbackDialogProps = {
  */
 export function FeedbackDialog({onClose}: FeedbackDialogProps) {
   const {pathname} = useLocation();
-  const [capturedRoute] = useState(pathname);
+  // Clipped to the route's own cap. The `*` 404 route renders inside the shell, so the header —
+  // and this control — appear on any garbage URL, which is precisely when somebody wants to
+  // report something. Unclipped, the server refuses the submission and the user reads
+  // "Something went wrong" for a path they did not type.
+  const [capturedRoute] = useState(() => pathname.slice(0, MAX_FEEDBACK_ROUTE_CHARS));
   const [category, setCategory] = useState<FeedbackCategory | ''>('');
   const [message, setMessage] = useState('');
   const [failure, setFailure] = useState<unknown>(null);
@@ -49,13 +53,21 @@ export function FeedbackDialog({onClose}: FeedbackDialogProps) {
   const ready = category !== '' && message.trim() !== '';
 
   const send = async () => {
+    // Defence in depth, not the enforcement: `FormDialog` already refuses to submit while
+    // `submitDisabled` or `busy` is set, so neither arm is reachable from the dialog's own
+    // controls. It is here for a caller that invokes this directly.
     if (!ready || submit.isPending) return;
     setFailure(null);
-    const result = await submit.mutateAsync({
-      category,
-      message: message.trim(),
-      route: capturedRoute
-    });
+    const result = await submit
+      .mutateAsync({category, message: message.trim(), route: capturedRoute})
+      // `apiRequest` returns a result on every path and never throws, so this arm is unreachable
+      // today. It is here because the alternative to an unreachable arm is an unhandled
+      // rejection: a click that clears the busy state, renders nothing, and loses the message.
+      //
+      // It carries a CODE like every other authored failure. Without one the dialog would reach
+      // the generic sentence by accident rather than by decision, which is the distinction
+      // `errorMessages` exists to keep.
+      .catch(() => ({success: false, error: {message: '', code: 'InternalError'}}) as const);
     if (!result.success) {
       setFailure(result.error);
       return;
@@ -84,7 +96,7 @@ export function FeedbackDialog({onClose}: FeedbackDialogProps) {
       onSubmit={() => void send()}
       onCancel={onClose}>
       <p className="mt-3 text-sm text-text-2">
-        Tell us what is on your mind. We read everything, though we cannot always reply.
+        Tell us what is on your mind. We read everything that comes through, though we cannot reply here.
       </p>
 
       <div className="mt-4">
@@ -96,6 +108,8 @@ export function FeedbackDialog({onClose}: FeedbackDialogProps) {
         <select
           id={categoryId}
           ref={categoryRef}
+          required
+          aria-required="true"
           value={category}
           disabled={submit.isPending}
           onChange={(e) => setCategory(e.target.value as FeedbackCategory | '')}
@@ -119,6 +133,8 @@ export function FeedbackDialog({onClose}: FeedbackDialogProps) {
         </label>
         <textarea
           id={messageId}
+          required
+          aria-required="true"
           value={message}
           rows={6}
           maxLength={MAX_FEEDBACK_MESSAGE_CHARS}

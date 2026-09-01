@@ -40,7 +40,7 @@ import pytest
 LAYER_ROOT = pathlib.Path(__file__).resolve().parent
 LAMBDAS = LAYER_ROOT.parent
 
-#: The three functions that attach the layer for `observability` alone (SPEC-137 FR-001).
+#: The functions that attach the layer for `observability` alone (SPEC-137 FR-001).
 SINGLETONS = ("pre-signup", "post-confirmation", "notifications-writer", "feedback-writer")
 
 #: What a scrubbed environment keeps: enough to find the interpreter and its site-packages, and
@@ -69,7 +69,7 @@ def test_observability_imports_and_emits_with_no_environment_at_all():
 
     If this fails with ``required environment variable … is unset``, something in the
     ``cpcommon`` import chain now reaches ``config`` — do not fix it by setting the variable on
-    the three functions. Fix the import, or the three lose the property that lets them attach the
+    the functions. Fix the import, or the three lose the property that lets them attach the
     layer at all.
     """
     result = subprocess.run(  # noqa: S603 - fixed argv, no shell

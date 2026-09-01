@@ -149,23 +149,6 @@ export function CheckIcon({className}: IconProps) {
  * @example
  * <HelpCircleIcon className="h-5 w-5" />
  */
-/** Speech bubble — the Give feedback control, and the Help section for it. */
-export function FeedbackIcon({className}: IconProps) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true">
-      <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.9 9.9 0 0 1-3.9-.8L3 21l1.9-4.6A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4z" />
-    </svg>
-  );
-}
-
 export function HelpCircleIcon({className}: IconProps) {
   return (
     <svg
@@ -184,6 +167,23 @@ export function HelpCircleIcon({className}: IconProps) {
       />
       <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3" />
       <path d="M12 17h.01" />
+    </svg>
+  );
+}
+
+/** Speech bubble — the Give feedback control, and the Help section for it. */
+export function FeedbackIcon({className}: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true">
+      <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.9 9.9 0 0 1-3.9-.8L3 21l1.9-4.6A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4z" />
     </svg>
   );
 }

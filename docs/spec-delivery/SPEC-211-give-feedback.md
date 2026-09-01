@@ -37,6 +37,21 @@ admin bucket. Nothing is read back — feedback is write-only from the browser's
   control count is unchanged at mobile width; jsdom loads no Tailwind, so a `tablet:` class would
   make that test pass over a header that gained a control.
 
+### Known behaviours, decided rather than overlooked
+
+- **A scrim click discards the message with no confirmation.** `Modal` dismisses on backdrop
+  click, as it does for every dialog in the app — but this is the only field whose content exists
+  nowhere else. Left as-is to match the rest of the app; raising it would be a product change, not
+  a fix.
+- **The `send()` guards are defence in depth.** `FormDialog` already refuses to submit while
+  `submitDisabled` or `busy` is set, so neither arm in the handler is reachable from the dialog's
+  own controls. Measured, and stated in the code, so the next reader does not take them for the
+  enforcement.
+- **`FeedbackDialog`'s reset of its own state is unreachable today** — the host unmounts the
+  dialog on close. It stays because it is what keeps FR-007's "reopening does not show the last
+  submission" true if the dialog is ever kept mounted, and the test says plainly that it cannot
+  see the difference.
+
 ## What changed from earlier specs?
 
 - `apicommon/enqueue.py` is no longer "the one path to `SendMessage`" — its classifier moved to

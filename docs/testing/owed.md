@@ -701,7 +701,7 @@ hold both halves.
 | Three submissions in one day land in ONE object, in order | The compare-and-swap append preserving what is there. The unit tests drive a fake S3 with real precondition semantics; only S3 itself proves the real one. |
 | The `MessageGroupId` the API stamps and the key the writer derives agree | They are derived from the same `submittedAt` in two languages. Disagreement is silent — two groups writing one object, and the serialization guarantee gone. |
 | The writer's structured record carries `message_chars` and **no message text** | Asserted in both suites, but the suites read a captured sink; the live check reads the log store a wider audience can. |
-| A submission over 4000 characters is refused with `InvalidRequest`, and nothing is sent | The refusal half, which coverage is close to blind to. |
+| A submission over 4000 characters is refused with `InvalidRequest`, and nothing is sent | The refusal half, which coverage is close to blind to. **Not reachable from the browser** — the textarea's `maxLength` caps typing and trimming only shortens — so this one needs a hand-rolled `curl` carrying a bearer, not a click. |
 | The DLQ stays empty through all of the above | It is undrained and unalarmed by decision, so its depth is the only signal that anything died. |
 
 **What it would take:** an operator session with `s3:GetObject` on the admin bucket's `feedback/`

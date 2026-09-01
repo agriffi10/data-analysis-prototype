@@ -7,8 +7,8 @@ import {NotificationsBell, useNotifications} from '../features/notifications';
 import {useIsMobile} from '../lib/useBreakpoint';
 import {AppNavDrawer} from './AppNavDrawer';
 import {BrandMark} from './BrandMark';
-import {FeedbackIcon} from './icons';
 import {Button} from './Button';
+import {FeedbackIcon} from './icons';
 import {useNavRailContent} from './navRailContext';
 import {PrimaryNav} from './PrimaryNav';
 import {ThemeMenu} from './ThemeMenu';
@@ -156,7 +156,10 @@ export function Header() {
           actions={
             <button
               type="button"
-              onClick={() => setFeedbackOpen(true)}
+              onClick={() => {
+                setNavOpen(false);
+                setFeedbackOpen(true);
+              }}
               className="flex min-h-11 items-center gap-3 rounded-md px-3 py-2 text-base font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
               <FeedbackIcon className="h-[18px] w-[18px] flex-none" />
               Give feedback

@@ -1,4 +1,8 @@
-"""The feedback caps the browser mirrors, held against the ones the route enforces.
+"""The two feedback values that are written in one language and read in another.
+
+The caps the browser mirrors, held against the ones the route enforces — and the timestamp the
+route STAMPS, fed through the writer that parses it. Both are cross-language joins with no
+compiler and no shared module behind them.
 
 The route is the control and the dialog's checks are a courtesy — but a courtesy that disagrees
 is worse than none. A browser cap ABOVE the route's lets a user write four thousand and one
@@ -105,3 +109,61 @@ def test_the_dialog_stops_typing_at_the_cap_rather_than_only_checking_it() -> No
     assert "maxLength={MAX_FEEDBACK_MESSAGE_CHARS}" in dialog, (
         "the message field does not bound typing at the mirrored cap"
     )
+
+
+def test_the_stamp_the_route_writes_is_one_the_writer_can_read() -> None:
+    """The one join FR-005 makes load-bearing, and the one nothing else could see.
+
+    The route derives ``MessageGroupId`` from its own stamp and the writer derives the object KEY
+    from the same field — in two languages, through two format strings, with no shared module and
+    no compiler between them. Measured before this test existed: changing the route's format to
+    ``%d-%m-%YT%H:%M:%SZ`` left the entire suite green, because the route's tests assert the group
+    id equals its own first ten characters (still true) and the writer's tests feed their own
+    literal fixture. In production every submission would then answer 200 and dead-letter at
+    ``fromisoformat`` — into the queue that is undrained and unalarmed by decision.
+
+    So the route's REAL stamp is generated here and handed to the writer's REAL parser. Neither
+    side supplies the fixture.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the writer cannot parse what the route stamps, or resolves it to a
+        different day from the one the route groups by.
+    """
+    import datetime
+    import sys
+
+    sys.path.insert(0, str(REPO / "lambdas" / "feedback-writer"))
+    sys.path.insert(0, str(REPO / "lambdas" / "control-plane-common"))
+    import feedback_writer
+
+    stamp_format = re.search(
+        r'submitted_at = datetime\.now\(UTC\)\.strftime\("([^"]+)"\)',
+        ROUTE.read_text(encoding="utf-8"),
+    )
+    assert stamp_format, "the route no longer stamps with a literal format; this join reads nothing"
+
+    for moment in (
+        datetime.datetime(2026, 8, 28, 14, 3, 11, tzinfo=datetime.UTC),
+        datetime.datetime(2026, 1, 2, 0, 0, 0, tzinfo=datetime.UTC),
+        datetime.datetime(2026, 12, 31, 23, 59, 59, tzinfo=datetime.UTC),
+    ):
+        stamped = moment.strftime(stamp_format.group(1))
+
+        day = feedback_writer.submitted_day(stamped)
+
+        assert day == moment.date(), (
+            f"the route stamps {stamped!r} and the writer reads it as {day}, not {moment.date()}"
+        )
+        # The group id the route sends is the stamp's first ten characters; the key the writer
+        # builds comes from the parsed day. A submission is only serialized behind its own day if
+        # those two agree.
+        assert feedback_writer.day_key(day) == (
+            f"feedback/{stamped[:10].replace('-', '/')}.json"
+        ), f"the group id {stamped[:10]!r} does not name the object the writer would write"
+

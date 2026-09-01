@@ -29,6 +29,10 @@ export type AppNavDrawerProps = {
    * such control is one — `Header` composes them and passes the node down. It is deliberately
    * generic: the mobile header is over budget at 375px before anything is added, so this is where
    * the next one goes too.
+   *
+   * The slot does NOT close the drawer. A launcher wants to, a toggle does not, and a wrapper
+   * that decided for both would make the next control here quietly wrong — so each action closes
+   * the drawer itself if that is what it means.
    */
   actions?: ReactNode;
 };
@@ -225,13 +229,7 @@ export function AppNavDrawer({open, onClose, id, contextualRail, isPathEnabled, 
             <ThemeChoiceGroup />
           </div>
 
-          {actions && (
-            <div
-              className="flex flex-col gap-0.5 border-t border-border p-3"
-              onClick={onClose}>
-              {actions}
-            </div>
-          )}
+          {actions && <div className="flex flex-col gap-0.5 border-t border-border p-3">{actions}</div>}
 
           {contextualRail && (
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto border-t border-border">{contextualRail}</div>

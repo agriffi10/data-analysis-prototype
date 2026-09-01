@@ -68,16 +68,16 @@ One route, declared in `apicommon/contract.py`'s `ROUTES`, handled by a module u
 
 #### Acceptance Criteria:
 
-- [ ] The route is `id: "feedback.submit"`, `method: "POST"`, `path: "/v1/feedback"`,
+- [x] The route is `id: "feedback.submit"`, `method: "POST"`, `path: "/v1/feedback"`,
       `idempotent: false`, `plane: "api"`.
-- [ ] `plane` is `api` and not `user`: the enqueue is the API's own act, and the user plane would
+- [x] `plane` is `api` and not `user`: the enqueue is the API's own act, and the user plane would
       require granting the portal role `sqs:SendMessage` on this queue — which would let the browser
       write feedback records directly, attributed to whatever username it chose.
-- [ ] The route is not in `PUBLIC_ROUTES`; an unauthenticated request is refused with the same
+- [x] The route is not in `PUBLIC_ROUTES`; an unauthenticated request is refused with the same
       byte-identical refusal every authenticated route gives.
-- [ ] `scripts/generate_api_contract.py` is re-run and the generated TypeScript is committed; CI's
+- [x] `scripts/generate_api_contract.py` is re-run and the generated TypeScript is committed; CI's
       regeneration-diff gate passes.
-- [ ] The browser calls it through `apiRequest('feedback.submit')` — never a URL — and takes its
+- [x] The browser calls it through `apiRequest('feedback.submit')` — never a URL — and takes its
       retry policy from `apiRetryPolicy`, which yields no retry.
 
 ### FR-002: What the route accepts, and what it refuses
@@ -88,15 +88,15 @@ Validation is server-side. The client's own checks are a courtesy, not a control
 
 #### Acceptance Criteria:
 
-- [ ] `category` must be one of `bug`, `idea`, `question`, `other`; anything else is `InvalidRequest`.
-- [ ] `message` must be a non-empty string after trimming, at most 4000 characters; empty, whitespace-
+- [x] `category` must be one of `bug`, `idea`, `question`, `other`; anything else is `InvalidRequest`.
+- [x] `message` must be a non-empty string after trimming, at most 4000 characters; empty, whitespace-
       only or longer is `InvalidRequest`. A test asserts the boundary at 4000 and at 4001.
-- [ ] `route` is optional, at most 200 characters, and is stored verbatim without interpretation.
-- [ ] An unknown key in the body is refused by the existing request validator; no new leniency is
+- [x] `route` is optional, at most 200 characters, and is stored verbatim without interpretation.
+- [x] An unknown key in the body is refused by the existing request validator; no new leniency is
       introduced for this route.
-- [ ] Every refusal's `detail` is operator text and the browser renders wording chosen from the
+- [x] Every refusal's `detail` is operator text and the browser renders wording chosen from the
       **code**, never from the response.
-- [ ] The route returns 200 with `{submittedAt}` only after `SendMessage` has succeeded. A queue
+- [x] The route returns 200 with `{submittedAt}` only after `SendMessage` has succeeded. A queue
       failure is a fault, and the caller is told the submission did not happen.
 
 ### FR-003: The event, and who it is attributed to
@@ -108,27 +108,27 @@ there is no username field in the request.
 
 #### Acceptance Criteria:
 
-- [ ] The request type has no username, userId or email field; a test asserts the declared request
+- [x] The request type has no username, userId or email field; a test asserts the declared request
       shape carries only `category`, `message` and optional `route`.
-- [ ] The enqueued event's `username` is the verified `cognito:username` claim.
-- [ ] `submittedAt` is stamped by the API in UTC, ISO 8601.
-- [ ] `eventId` is a UUID minted by the API and used as the SQS `MessageDeduplicationId`, so a
+- [x] The enqueued event's `username` is the verified `cognito:username` claim.
+- [x] `submittedAt` is stamped by the API in UTC, ISO 8601.
+- [x] `eventId` is a UUID minted by the API and used as the SQS `MessageDeduplicationId`, so a
       transport-level duplicate lands once.
-- [ ] The event carries **no token, and no email address**. A test asserts the serialized body
+- [x] The event carries **no token, and no email address**. A test asserts the serialized body
       contains neither an `idToken` field nor the `@` of an address.
 
 ### FR-004: The queue
 
 #### Acceptance Criteria:
 
-- [ ] A FIFO queue with its **own** DLQ. It does not share another plane's DLQ — a malformed
+- [x] A FIFO queue with its **own** DLQ. It does not share another plane's DLQ — a malformed
       feedback submission must not dead-letter somebody's file operation.
-- [ ] `MessageGroupId` is the UTC date, `YYYY-MM-DD`, taken from the API's `submittedAt`. That makes
+- [x] `MessageGroupId` is the UTC date, `YYYY-MM-DD`, taken from the API's `submittedAt`. That makes
       every message destined for one day's object serialize behind the previous one, which is
       precisely the contention the CAS append would otherwise have to retry through.
-- [ ] The queue's send permission is granted to the API's execution role and to nothing else; a test
+- [x] The queue's send permission is granted to the API's execution role and to nothing else; a test
       asserts the portal role's policies grant no action on this queue.
-- [ ] The event source mapping's batch size is 1 — the writer handles one event at a time.
+- [x] The event source mapping's batch size is 1 — the writer handles one event at a time.
 
 ### FR-005: The writer and the daily document
 
@@ -139,27 +139,27 @@ compare-and-swap. An absent object is created with `If-None-Match: *`.
 
 #### Acceptance Criteria:
 
-- [ ] The key is `feedback/<YYYY>/<MM>/<DD>.json`, derived from the event's `submittedAt`, not from
+- [x] The key is `feedback/<YYYY>/<MM>/<DD>.json`, derived from the event's `submittedAt`, not from
       the writer's own clock — so the object a message lands in was decided when it was submitted,
       and agrees with the `MessageGroupId` that serialized it.
-- [ ] With no object for the day, the writer creates one containing exactly the one event, using
+- [x] With no object for the day, the writer creates one containing exactly the one event, using
       `If-None-Match: *`.
-- [ ] With an object already present, the writer appends and preserves every existing entry; a test
+- [x] With an object already present, the writer appends and preserves every existing entry; a test
       writes three events and asserts all three, in submission order.
-- [ ] A precondition failure re-reads and retries against the fresh ETag, up to a bounded number of
+- [x] A precondition failure re-reads and retries against the fresh ETag, up to a bounded number of
       attempts; exhausting them raises so the message dead-letters rather than being silently lost.
-- [ ] An existing object that will not parse is **not** overwritten: the writer raises, leaving the
+- [x] An existing object that will not parse is **not** overwritten: the writer raises, leaving the
       day's records intact for an operator, in the manner SPEC-159 established for an unreadable
       settings document.
-- [ ] The writer never deletes an object and holds no `s3:DeleteObject` grant.
-- [ ] All logging goes through `cpcommon.observability`, and the feedback **message text is never
+- [x] The writer never deletes an object and holds no `s3:DeleteObject` grant.
+- [x] All logging goes through `cpcommon.observability`, and the feedback **message text is never
       logged** — a test asserts the message body does not appear in any emitted record.
 
 ### FR-006: The document survives
 
 #### Acceptance Criteria:
 
-- [ ] `feedback/` has no admin-bucket lifecycle rule that expires it, and a test asserts that no
+- [x] `feedback/` has no admin-bucket lifecycle rule that expires it, and a test asserts that no
       expiring rule's prefix is a prefix of `feedback/`. The existing
       `admin_lifecycle_rules_are_prefix_scoped` check proves every expiring rule *has* a prefix; it
       cannot prove that none of them matches this one.
@@ -173,7 +173,7 @@ compare-and-swap. An absent object is created with `If-None-Match: *`.
 
 #### Acceptance Criteria:
 
-- [ ] At `tablet` and above, the header renders one control named `Give feedback` immediately beside
+- [x] At `tablet` and above, the header renders one control named `Give feedback` immediately beside
       the help control, for authenticated users only.
 - [x] **Below `tablet` the control lives in `AppNavDrawer`, not the header**, and the header gains no
       element at mobile width. The measurement, made once here because three specs depend on it —
@@ -189,22 +189,22 @@ compare-and-swap. An absent object is created with `If-None-Match: *`.
       reason, and SPEC-207 adds no element — so the mobile header is unchanged by all three **for
       a signed-in user**. (Signed out there is no drawer, which is why SPEC-210's control is
       header-rendered in that state; Give feedback is authenticated-only and never reaches it.)
-- [ ] A test at mobile width asserts the header's control count is unchanged and the drawer offers
+- [x] A test at mobile width asserts the header's control count is unchanged and the drawer offers
       `Give feedback`.
-- [ ] It opens a dialog with a required category and a required multi-line message. **No category
+- [x] It opens a dialog with a required category and a required multi-line message. **No category
       is preselected** — a default would be the modal answer to every submission, and the field
       exists to record a choice the user made.
-- [ ] The current route path is captured when the dialog opens and sent with the submission; it is
+- [x] The current route path is captured when the dialog opens and sent with the submission; it is
       not shown as an editable field, and the dialog states that the page you were on is included.
-- [ ] Submit is disabled until both required fields are filled, and while a submission is in flight.
-- [ ] Enter submits from the **category** field only — the message is a textarea and Enter inside it
+- [x] Submit is disabled until both required fields are filled, and while a submission is in flight.
+- [x] Enter submits from the **category** field only — the message is a textarea and Enter inside it
       inserts a newline. Never implicit submission from any field.
-- [ ] On success the dialog closes and a toast reads a thank-you; the message is cleared, so
+- [x] On success the dialog closes and a toast reads a thank-you; the message is cleared, so
       reopening the dialog does not show the last submission.
-- [ ] On failure the dialog stays open with the message intact and renders wording from
+- [x] On failure the dialog stays open with the message intact and renders wording from
       `lib/errorMessages.ts` chosen by the error code.
-- [ ] Escape dispatches at the dialog's tree depth, and a submission in flight swallows it.
-- [ ] `expectNoA11yViolations` runs against the driven container with the dialog open.
+- [x] Escape dispatches at the dialog's tree depth, and a submission in flight swallows it.
+- [x] `expectNoA11yViolations` runs against the driven container with the dialog open.
 
 ### FR-008: The DLQ is not drained, and that is written down
 
@@ -214,12 +214,12 @@ Every other request DLQ is swept into a notification. This one is not.
 
 #### Acceptance Criteria:
 
-- [ ] `feedback` is added to `dlq_drain.UNDRAINED_QUEUES` alongside `notifications`, with its reason
+- [x] `feedback` is added to `dlq_drain.UNDRAINED_QUEUES` alongside `notifications`, with its reason
       in the module's docstring: the drain notifies from a **verified token** in the message body,
       and this body carries no token by design — the API verified the caller and the browser never
       touches this queue. Draining it would mean notifying from an untrusted body field, which is the
       exact inversion the drain exists to prevent.
-- [ ] A test asserts every request DLQ Terraform declares is either wired in `SOURCES` or named in
+- [x] A test asserts every request DLQ Terraform declares is either wired in `SOURCES` or named in
       `UNDRAINED_QUEUES`, so a future queue cannot be silently undrained.
 - [x] The user's guarantee is stated in the spec and holds in the code: the 200 means the submission
       was accepted onto the queue. Nothing after that point is something the user can act on, which
@@ -234,9 +234,9 @@ Every other request DLQ is swept into a notification. This one is not.
 
 #### Acceptance Criteria:
 
-- [ ] A guide covers where the button is, what the categories mean, and that the page you were on is
+- [x] A guide covers where the button is, what the categories mean, and that the page you were on is
       included with the message.
-- [ ] The guide does not promise a reply, because there is no reply path.
+- [x] The guide does not promise a reply, because there is no reply path.
 
 ---
 

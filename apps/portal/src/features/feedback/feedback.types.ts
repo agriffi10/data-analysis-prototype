@@ -8,9 +8,3 @@ import type {FeedbackSubmitRequest} from '../../types/apiContract.generated';
  * automatically, and one removed there fails `tsc -b` at the picker rather than at runtime.
  */
 export type FeedbackCategory = FeedbackSubmitRequest['category'];
-
-/** What the dialog collects. The username is never here — the API takes it from the token. */
-export type FeedbackDraft = {
-  category: FeedbackCategory | '';
-  message: string;
-};

@@ -5,7 +5,7 @@ import {renderWithProviders} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {apiFailure, mockApi, type ApiMock} from '../../test/apiMock';
 import {expectContainerHasNoA11yViolations, COMPONENT_AXE_OPTIONS} from '../../test/axe';
-import {MAX_FEEDBACK_MESSAGE_CHARS} from './feedback.constants';
+import {MAX_FEEDBACK_MESSAGE_CHARS, MAX_FEEDBACK_ROUTE_CHARS} from './feedback.constants';
 import type {FeedbackSubmitRequest} from '../../types/apiContract.generated';
 
 vi.mock('../../lib/apiClient', async (importOriginal) => ({
@@ -119,9 +119,75 @@ describe('Give feedback', () => {
     expect(screen.getByLabelText('Your feedback')).toHaveValue('line one\nline two');
     expect(api.countOf('feedback.submit')).toBe(0);
 
+    // Enter on the category with the message still empty must submit NOTHING. What enforces that
+    // is `FormDialog`'s own `submitDisabled` gate rather than the handler's guard — measured, by
+    // deleting the handler's and watching this still pass — so the assertion is on the outcome a
+    // user gets, which is true whichever of the two is doing the work.
+    await user.clear(screen.getByLabelText('Your feedback'));
     await user.selectOptions(screen.getByLabelText('What is this about?'), 'bug');
     await user.type(screen.getByLabelText('What is this about?'), '{Enter}');
+    expect(api.countOf('feedback.submit')).toBe(0);
+
+    await user.type(screen.getByLabelText('Your feedback'), 'now it has one');
+    await user.type(screen.getByLabelText('What is this about?'), '{Enter}');
     expect(api.countOf('feedback.submit')).toBe(1);
+  });
+
+  it('locks the form while the submission is in flight, and swallows Escape', async () => {
+    // The api mock resolves synchronously, so nothing else in this file ever observes the
+    // in-flight state — and `busy` is what wires BOTH of FR-007's in-flight criteria: Send is
+    // disabled, and `FormDialog` passes `dismissible={!busy}` so a busy modal eats Escape.
+    let release!: (r: {success: true; data: {submittedAt: string}}) => void;
+    api.on('feedback.submit', new Promise((resolve) => (release = resolve)) as never);
+    const {user} = renderHeader();
+
+    await user.click(screen.getByRole('button', {name: 'Give feedback'}));
+    await user.selectOptions(screen.getByLabelText('What is this about?'), 'bug');
+    await user.type(screen.getByLabelText('Your feedback'), 'Stuck at 0%.');
+    await user.click(screen.getByRole('button', {name: 'Send'}));
+
+    const dialog = await screen.findByRole('dialog', {name: 'Give feedback'});
+    expect(within(dialog).getByRole('button', {name: 'Sending…'})).toBeDisabled();
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('dialog', {name: 'Give feedback'})).toBeInTheDocument();
+    expect(api.countOf('feedback.submit')).toBe(1);
+
+    release({success: true, data: {submittedAt: '2026-08-28T14:03:11Z'}});
+    await screen.findByText('Thanks — your feedback has been sent.');
+  });
+
+  it('clears the message, so reopening does not show the last submission', async () => {
+    // What this pins is the USER-VISIBLE criterion, and it is worth being exact about what it
+    // cannot see: the host unmounts the dialog on close, so a reopened dialog starts empty even
+    // with the explicit reset deleted — measured. The reset stays because it is what keeps the
+    // criterion true if the dialog is ever kept mounted, and nothing here can prove that.
+    const {user} = renderHeader();
+
+    await user.click(screen.getByRole('button', {name: 'Give feedback'}));
+    await user.selectOptions(screen.getByLabelText('What is this about?'), 'idea');
+    await user.type(screen.getByLabelText('Your feedback'), 'The first one.');
+    await user.click(screen.getByRole('button', {name: 'Send'}));
+    await screen.findByText('Thanks — your feedback has been sent.');
+
+    await user.click(screen.getByRole('button', {name: 'Give feedback'}));
+    expect(screen.getByLabelText('Your feedback')).toHaveValue('');
+    expect(screen.getByLabelText('What is this about?')).toHaveValue('');
+  });
+
+  it('clips a pathological pathname rather than losing the whole submission to it', async () => {
+    // The `*` 404 route renders the shell, so the header and this control appear on any garbage
+    // URL — which is when somebody most wants to report something. Unclipped, the route refuses
+    // the submission over a path the user never typed.
+    const {user} = renderHeader(`/${'x'.repeat(400)}`);
+
+    await user.click(screen.getByRole('button', {name: 'Give feedback'}));
+    await user.selectOptions(screen.getByLabelText('What is this about?'), 'bug');
+    await user.type(screen.getByLabelText('Your feedback'), 'This page is broken.');
+    await user.click(screen.getByRole('button', {name: 'Send'}));
+
+    const sent = api.bodyFor('feedback.submit') as {route: string};
+    expect(sent.route.length).toBe(MAX_FEEDBACK_ROUTE_CHARS);
+    await screen.findByText('Thanks — your feedback has been sent.');
   });
 
   it('caps the message at the same length the route does', () => {

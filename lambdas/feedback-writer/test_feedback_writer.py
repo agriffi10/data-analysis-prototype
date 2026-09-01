@@ -524,3 +524,40 @@ def test_the_warning_threshold_is_under_what_the_function_can_rewrite():
         "fire after the kill it exists to pre-empt"
     )
 
+
+def test_a_submission_with_no_route_is_stored_without_one(s3):
+    """``route`` is optional on the wire and the API omits the key entirely when it has none.
+
+    Measured: adding ``"route"`` to ``REQUIRED_FIELDS`` passes every other test in this file, and
+    would dead-letter every routeless submission into a queue nobody drains.
+    """
+    fake = s3()
+
+    result = w.handler(_event(_submission(route=None)), None)
+
+    assert result["entries"] == 1
+    entry = fake.document(KEY)["entries"][0]
+    assert "route" not in entry
+    assert entry["username"] == "acarter"
+
+
+def test_only_the_declared_fields_are_persisted(s3):
+    """The writer's half of "no token, no email address" — an allowlist, not a passthrough.
+
+    The API is the only producer today, so a field it started sending would land in the day's file
+    without anybody choosing that. Measured: replacing the projection with ``dict(event)`` passes
+    every other test here, because every other fixture happens to send exactly the declared set.
+    """
+    fake = s3()
+    smuggled = _submission()
+    smuggled["idToken"] = "eyJhbGciOi.THIS_IS_A_TOKEN.sig"
+    smuggled["email"] = "acarter@example.com"
+    smuggled["internalScore"] = 7
+
+    w.handler(_event(smuggled), None)
+
+    entry = fake.document(KEY)["entries"][0]
+    assert set(entry) == {*w.ENTRY_FIELDS, "schemaVersion"}
+    assert "idToken" not in entry and "email" not in entry and "internalScore" not in entry
+    assert "@" not in json.dumps(fake.document(KEY)), "an address reached the day's document"
+

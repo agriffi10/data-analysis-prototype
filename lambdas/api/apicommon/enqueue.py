@@ -52,6 +52,7 @@ MAX_MESSAGE_BYTES = SQS_MAX_MESSAGE_BYTES - MAX_IDENTITY_BLOCK_BYTES
 
 MAX_LOGGED_REQUEST_ID = 128
 
+
 def _clipped(request_id) -> str | None:
     """Bounds the caller's own request id before it becomes a log field.
 

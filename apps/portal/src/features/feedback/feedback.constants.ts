@@ -23,3 +23,13 @@ export const FEEDBACK_CATEGORIES: readonly {value: FeedbackCategory; label: stri
  * together.
  */
 export const MAX_FEEDBACK_MESSAGE_CHARS = 4000;
+
+/**
+ * The longest captured path the dialog will send.
+ *
+ * Mirrors `routes/feedback.py`'s own cap, and unlike the message cap this one is not a courtesy:
+ * the app renders its shell on the `*` 404 route, so an arbitrarily long URL reaches the header
+ * and the control. Unclipped, the route refuses the whole submission over a path the user never
+ * typed and could not shorten.
+ */
+export const MAX_FEEDBACK_ROUTE_CHARS = 200;

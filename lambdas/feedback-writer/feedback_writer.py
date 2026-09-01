@@ -268,8 +268,10 @@ def append(event):
     wrote. Exhaustion RAISES, so the message redelivers and eventually dead-letters — a submission
     dropped here would be gone with nothing recording that it ever arrived.
 
-    ``skip_no_op=False`` because an append always produces a new value; resting on inequality
-    would make a duplicate submission silently stop writing rather than write a second entry.
+    ``skip_no_op=False`` matches the two sibling callers rather than resting on inequality. It
+    changes nothing here — the loop compares the raw bytes it read against the dict this builds,
+    so they can never be equal — and that is exactly why it is set explicitly: a caller whose
+    read and apply types ever line up would otherwise stop writing silently.
 
     Args:
       event: The parsed submission.

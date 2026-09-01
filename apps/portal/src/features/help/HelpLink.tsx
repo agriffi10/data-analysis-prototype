@@ -14,7 +14,7 @@ const ACTIVE = 'bg-surface-2 text-accent-text';
 const IDLE = 'text-text-3 hover:bg-surface-2 hover:text-text';
 
 /**
- * Header help control — styled like the notifications bell (32px hit target, 20px icon),
+ * Header help control — styled like the notifications bell (an `h-8` target, an `h-5` icon),
  * sitting left of it in the authenticated user-zone.
  *
  * It does one of two things. On a route the guide panel covers it opens that panel over the
