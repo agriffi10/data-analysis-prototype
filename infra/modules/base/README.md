@@ -27,7 +27,7 @@ down here — it moves with the resource families, and the only ceiling it has t
 twenty managed policies attached to one role.
 
 That budget is also why the container platform is **two** files rather than one: the halves measure
-5,095 and 3,985 stripped, and **one document would not have fitted**. The split is by what the
+5,659 and 4,007 stripped, and **one document would not have fitted**. The split is by what the
 resources *are* — network and container runtime in one, the API's front door and the roles beside it
 in the other — and `deploy_platform` keeps its name **because the scanner accept list names it**.
 
