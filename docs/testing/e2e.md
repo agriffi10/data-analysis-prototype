@@ -681,10 +681,14 @@ trail answers it — `owed.md` carries the query and the `IsLogging` preconditio
 - While you are there: the panel on `/data-quality` is headed **Files** by design, and
   `/help#delete-space` opens the Help page at Shared connections with that one card expanded and
   scrolled to.
-- **Measure the panel's targets, because no suite can.** axe's `target-size` rule is enabled (it is
-  tagged `wcag22aa`) and jsdom has no layout, so a probe through the project's own axe config puts
-  it in `passes` — a pass it never evaluated. The rule *running* is the hazard: asking "do we assert
-  target size here" gets yes. In the browser console with the panel open:
+- **Measure the panel's targets, because no suite can.** axe's `target-size` rule was enabled (it
+  is tagged `wcag22aa`), and with no layout in jsdom a probe through the project's own axe config
+  put it in `passes` — a pass it never evaluated. It is **disabled** now, in
+  `RULES_JSDOM_CANNOT_DECIDE`, because the rule *running* was the hazard: asking "do we assert
+  target size here" got yes. What replaced it, `src/lib/targetSize.test.ts`, sees only a control
+  sized from the spacing scale — nothing with a text-derived height, and never the spacing
+  exception. So this measurement is still the only one that is real. In the browser console with
+  the panel open:
   `[...document.querySelector('[role=dialog]').querySelectorAll('a,button')].map(e => [(e.textContent.trim() || e.getAttribute('aria-label')).slice(0,24), e.getBoundingClientRect().height])`
   (the `aria-label` fallback is not optional — the close button is icon-only and prints an empty
   name without it). Anything under **24** is a *candidate*, not yet a finding: SC 2.5.8 exempts an
@@ -832,8 +836,9 @@ whole app actually looks right.
    restyled; and a theme menu row, which has **no height class at all** — 18px line box plus
    `py-2` (2 × 3.5px, twice) → **32px**. axe's `target-size` rule is **disabled** in the suite,
    because with no layout engine jsdom made it report a pass it could not make; the static sweep
-   that replaced it sees the two `h-*` controls and is blind to the menu row, so a browser is
-   still the only place that last number is real. Mechanisms:
+   that replaced it sees the drawer option's `h-7` directly and the header button's size through
+   `IconButton`'s pinned `SIZES` map, and is blind to the menu row — so a browser is still the only
+   place that last number is real. §4.13 carries the rule; the coding side is
    `apps/portal/info/best-practices/accessibility/accessibility.md` → *Target size in this app*.
 
 ### The container platform — what a signed-in session CANNOT reach

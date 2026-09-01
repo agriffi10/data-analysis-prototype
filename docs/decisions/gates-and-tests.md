@@ -246,17 +246,28 @@ stated in the file so its silence is not read as coverage:
   ~15.5px content-area box and a `px-3 py-2 text-sm` menu row is 32px; neither carries an `h-*`,
   and only layout separates them. A rule demanding `min-h-[24px]` from text-only controls would
   fire on the correct one, so none was written.
-- **A guard against this class of defect must be planted against.** All four assertions here were
+- **A guard against this class of defect must be planted against.** Every assertion here was
   broken deliberately and watched go red before being reverted, because a check for a vacuous
-  guard that is itself vacuous is worse than none. One of them found a real fail-open while being
-  written: an apostrophe in a source comment (`SC 2.5.8's`) read as an opening quote to the
-  attribute scanner, and two of the twelve controls were invisible until comments were stripped
-  first.
+  guard that is itself vacuous is worse than none. Planting found three holes that reasoning had
+  not: an apostrophe in a source comment (`SC 2.5.8's`) read as an opening quote to the attribute
+  scanner and hid one control entirely; taking the **first** `className` on a tag read a
+  decorative icon's size as the control's whenever JSX attribute order put the icon prop first
+  (depth, not position, is what distinguishes them); and the register, keyed by FILE, exempted
+  twelve whole files — a registered control could shrink from 21px to 7px, or be half-fixed,
+  with nothing going red. It is keyed by the **measured offences** now, so a change to any of
+  them is a change to the list.
+
+  Two more were self-referential, and both are the same mistake: an assertion that derives its
+  expectations from the thing it guards cannot see that thing shrink. The loop checking the
+  disabled rules iterated the constant's own keys, so DELETING `target-size` — restoring the
+  vacuous rule across all 41 axe specs — shrank the loop and passed. The set is spelled out now.
 
 **Encode an absolute threshold in an absolute unit.** `min-h-[24px]` is 24px under any root;
 `min-h-7` is 24.5px under this one and 21px under a 12px one, and nothing would catch the change.
 A rem step expresses visual rhythm, and rhythm is not what this value is for.
 
-> Twelve controls sit in the register at 21×21 or 14×14 — six icon buttons and six checkboxes or
-> radios. **None has been measured in a browser**, and the file-list checkboxes are the ones worth
-> measuring first: they repeat one per row. `docs/testing/owed.md` carries the check.
+> Thirteen controls sit in the register at 21×21 or 14×14, across twelve files — six icon
+> controls and seven checkboxes or radios. Only the chip's has been measured in a browser
+> (31.75px between wrapped rows, comfortably clear). Two of them, the tab-strip closes, sit
+> INSIDE a clickable tab, which is the one geometry the spacing exception cannot rescue — they
+> need a design decision rather than a resize. `docs/testing/owed.md` carries all of it.

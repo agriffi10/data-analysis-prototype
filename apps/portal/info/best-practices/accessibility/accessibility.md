@@ -210,15 +210,18 @@ browser is the only thing that settles it. Also skipped, and said so in the file
 rather than left to be inferred: a class string built somewhere other than the
 tag, an inline style, and an arbitrary value in a unit other than px.
 
-**2. The live checks** — `docs/testing/e2e.md` §4.13 (a console one-liner over
-every control in a panel) and §4.16 (the theme controls, both mechanisms named).
-Reference those; do not write a third.
+**2. The live checks** — `docs/testing/e2e.md` **§4.13** owns the browser recipe:
+the console one-liner, the `aria-label` fallback it needs, and the
+circle-to-circle form of the spacing exception. §4.16 measures the theme
+controls. Reference those; do not write a third.
 
 ### Writing one
 
-- **Reach for `IconButton`** for an icon-only control. It is already sized around
-  this rule: `sm` is `h-7` (24.5px, one step over the floor) and `md` is `h-8`
-  (28px). That is why most icon controls in the app are not in the register.
+- **Reach for `IconButton` or `Button`** rather than a hand-rolled `<button>`.
+  Both are already sized around this rule — `IconButton`'s `sm` is `h-7`, the
+  first scale step that clears the floor, and it clears by half a pixel. That is
+  why most controls in the app are not in the register, and both `SIZES` maps are
+  pinned by the sweep.
 - **Encode the threshold in an absolute unit.** `min-h-[24px]` is 24px under any
   root; `min-h-7` is 24.5px under this one and 21px under a 12px one. A rem step
   expresses visual rhythm, and rhythm is not what this value is for.
@@ -228,22 +231,23 @@ Reference those; do not write a third.
 
 ### Measuring one
 
-**Never derive a px figure from a class name.** Read what the browser will apply:
+**Never derive a px figure from a class name.** Read what the browser will apply.
+The two scales come out of the built stylesheet, so run `npm run build -w
+apps/portal` first:
 
 ```bash
 grep -o -- "--spacing:[^;]*;" apps/portal/dist/assets/index-*.css
 ```
 
 ```bash
-grep -o -- "--text-sm[^;]*;" apps/portal/dist/assets/index-*.css
+grep -o -- "--text-sm[^;)]*;" apps/portal/dist/assets/index-*.css
 ```
 
-…and for a real control, measure it in a running browser (a `file://` preview
-cannot: `script-src 'none'` means `getBoundingClientRect` never runs):
-
-```js
-[...document.querySelectorAll('button,a,input,select,[role="button"]')].map((el) => [el.getBoundingClientRect(), el.ariaLabel ?? el.textContent?.trim()]).filter(([r]) => r.width < 24 || r.height < 24)
-```
+A **control** needs a running browser — a `file://` preview cannot do it, because
+`script-src 'none'` means `getBoundingClientRect` never runs. Use §4.13's
+one-liner. Measure the **centre-to-centre distance to the nearest other target**,
+not just the box: that is what the spacing exception turns on, and it is the half
+a quick check drops.
 
 **Do not change `html { font-size: 14px }` or the px type scale** to fix a target
 size. Both are load-bearing for the whole product and moving either silently

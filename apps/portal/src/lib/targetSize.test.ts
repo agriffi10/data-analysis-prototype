@@ -1,7 +1,9 @@
 import {readFileSync} from 'node:fs';
 import {describe, expect, it} from 'vitest';
 import {configureAxe} from 'vitest-axe';
-import {COMPONENT_AXE_OPTIONS, ROUTE_AXE_OPTIONS, RULES_JSDOM_CANNOT_DECIDE} from '../test/axe';
+import type {RunOptions} from 'axe-core';
+import * as axeConfig from '../test/axe';
+import {RULES_JSDOM_CANNOT_DECIDE} from '../test/axe';
 import {readCss} from '../test/cssTokens';
 
 // WCAG 2.2 SC 2.5.8 asks for a pointer target of at least 24×24 CSS px, or enough space around a
@@ -66,8 +68,8 @@ function withoutComments(css: string): string {
  *
  * Not tidiness — correctness, and the sweep FAILED OPEN without it. An apostrophe in a comment
  * ("SC 2.5.8's minimum") reads as an opening quote to the attribute scanner below, which then
- * treats the class string that follows as being inside it and finds no classes at all. Two of the
- * controls in the register were invisible until this was added.
+ * treats the class string that follows as being inside it and finds nothing. Measured by turning
+ * this off: one control in the register goes invisible, and the file goes quiet rather than red.
  *
  * A `//` preceded by `:` is left alone — that is the `https://` in a URL, and cutting there would
  * drop the rest of a real line of code with it.
@@ -170,19 +172,48 @@ function attributesFrom(source: string, start: number): string | null {
 }
 
 /**
- * The tag's OWN `className` value — the first one in its attributes.
+ * Where the tag's own `class`/`className` value starts, or `null` when it sets none.
  *
- * First rather than all: a prop holding a JSX element (`trigger={<Icon className="h-4 w-4" />}`)
- * puts a second `className` inside the same attribute region, and reading both reports the
- * decorative icon's size as the control's.
+ * @param attributes - One tag's attribute text.
+ * @returns The index just past the `=`, counted only outside any `{…}` or string.
+ */
+function classNameAtTopLevel(attributes: string): number | null {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = 0; i < attributes.length; i += 1) {
+    const c = attributes[i];
+    if (quote) {
+      if (c === quote && attributes[i - 1] !== '\\') quote = null;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') quote = c;
+    else if (c === '{') depth += 1;
+    else if (c === '}') depth -= 1;
+    else if (depth === 0 && c === 'c') {
+      const at = /^class(?:Name)?=/.exec(attributes.slice(i));
+      if (at) return i + at[0].length;
+    }
+  }
+  return null;
+}
+
+/**
+ * The tag's OWN `className` value.
+ *
+ * Found at brace depth ZERO, not simply first: a prop holding a JSX element
+ * (`trigger={<Icon className="h-4 w-4" />}`) puts a second `className` inside the same attribute
+ * region, and JSX attribute order is arbitrary — Prettier does not normalise it. Taking the first
+ * match reports the decorative icon's size as the control's whenever the element-valued prop
+ * happens to be written before `className`, which flags a correct control and names a class it
+ * does not carry. Depth is the property that actually distinguishes them.
  *
  * @param attributes - One tag's attribute text.
  * @returns The class string, expression braces and all, or `''` when the tag sets none.
  */
 function ownClassName(attributes: string): string {
-  const at = /class(?:Name)?=/.exec(attributes);
-  if (!at) return '';
-  const i = at.index + at[0].length;
+  const at = classNameAtTopLevel(attributes);
+  if (at === null) return '';
+  const i = at;
   const opener = attributes[i];
   if (opener === '"' || opener === "'") {
     const end = attributes.indexOf(opener, i + 1);
@@ -237,33 +268,64 @@ function undersizedControls(source: string): string[] {
  * Every control under the floor today, and what it is.
  *
  * A tripwire, not a clean bill of health: each of these is a CANDIDATE that the spacing exception
- * may or may not cover, and the geometry has not been measured in a browser for any of them. The
- * notes say what a control is and where it sits, never that it conforms. Revisit the decision —
- * measure them and move them out — rather than deleting the entry.
+ * may or may not cover, and only the chip has had its geometry measured at all. The notes say what
+ * a control is and where it sits, never that it conforms. Revisit the decision — measure them and
+ * move them out — rather than deleting the entry.
  *
- * A new entry is a deliberate edit, which is the point.
+ * `controls` is what makes this a guard rather than a blanket. Keyed by FILE ALONE it exempted
+ * whole files: the app's most control-dense ones are in here, and inside them a control could be
+ * added, shrink from 21px to 7px, or be half-fixed with nothing going red. Naming the measured
+ * offences means a change to any of them is a change to this list.
  */
-const ACCEPTED_UNDERSIZED: Record<string, string> = {
-  '/src/components/Chip.tsx':
-    'the chip remove button, 21×21, in a wrapping row of chips. The one whose geometry has been worked out — 42px between adjacent remove buttons, 29.75px between wrapped rows, both computed from the source values and neither measured',
-  '/src/components/Toast.tsx':
-    'the toast dismiss button, 21×21, beside an optional underlined text action in the same bar',
-  '/src/features/data-explorer/ColumnFilterMenu.tsx':
-    'the column sort/filter menu trigger, 21px tall with its width coming from padding, one per column header',
-  '/src/features/data-explorer/ExplorationTabStrip.tsx':
-    'the tab close control, 21×21, inside the tab it closes and next to the neighbouring tab. It is a span with an onClick and role="presentation", so it is also unreachable by keyboard — a separate defect, recorded here because this is where it was found',
-  '/src/features/file-browser/FileListRowMobile.tsx':
-    'the row selection checkbox, 14×14, centred in a fixed-width cell at the row edge',
-  '/src/features/file-browser/FileListTable.tsx':
-    'the select-all header checkbox and the per-row selection checkbox, both 14×14, stacked one per row',
-  '/src/features/file-browser/SelectionToolbar.tsx': 'the select-all checkbox in the selection toolbar, 14×14',
-  '/src/features/file-send/SendFilesDialog.tsx': 'the recipient-kind radios, 14×14, each inside its own label',
-  '/src/features/query/QueryTabStrip.tsx':
-    'the tab close control, 21×21 — the same shape as the Data Explorer strip above, including the role',
-  '/src/features/query/TableActionsMenu.tsx':
-    'the table row actions menu trigger, 21×21, at the end of a schema rail row',
-  '/src/features/table-builder/RefreshTableDialog.tsx': 'the "allow removals" checkbox, 14×14, alone in its row',
-  '/src/features/table-share/TableShareDialog.tsx': 'the share-kind radios, 14×14, each inside its own label'
+const ACCEPTED_UNDERSIZED: Record<string, {why: string; controls: string[]}> = {
+  '/src/components/Chip.tsx': {
+    why: 'the chip remove button, in a wrapping row of chips. The only one measured in a browser: 31.75px between the centres of two remove buttons on wrapped rows, which is the tight axis — across a row they are further apart still, and further the longer the neighbouring name is',
+    controls: ['<button> h-6 = 21px', '<button> w-6 = 21px']
+  },
+  '/src/components/Toast.tsx': {
+    why: 'the toast dismiss button, beside an optional underlined text action in the same bar',
+    controls: ['<button> h-6 = 21px', '<button> w-6 = 21px']
+  },
+  '/src/features/data-explorer/ColumnFilterMenu.tsx': {
+    why: 'the column sort/filter menu trigger, one per column header, its width coming from padding',
+    controls: ['<button> h-6 = 21px']
+  },
+  '/src/features/data-explorer/ExplorationTabStrip.tsx': {
+    why: 'the tab close affordance, and the one place in the app the spacing exception CANNOT rescue — it sits INSIDE the clickable tab, so a 24px circle centred on it necessarily intersects the tab\u2019s own box. It needs a design decision rather than a resize, and it is deliberately left alone. Keyboard is not the issue: the span is a non-focusable presentation node on purpose (a button inside `role="tab"` is nested-interactive) and the tab closes on Delete',
+    controls: ['<span> h-6 = 21px', '<span> w-6 = 21px']
+  },
+  '/src/features/file-browser/FileListRowMobile.tsx': {
+    why: 'the row selection checkbox, centred in a fixed-width cell at the row edge',
+    controls: ['<input> h-4 = 14px', '<input> w-4 = 14px']
+  },
+  '/src/features/file-browser/FileListTable.tsx': {
+    why: 'the select-all header checkbox and the per-row selection checkbox, stacked one per 42px row',
+    controls: ['<input> h-4 = 14px', '<input> w-4 = 14px', '<input> h-4 = 14px', '<input> w-4 = 14px']
+  },
+  '/src/features/file-browser/SelectionToolbar.tsx': {
+    why: 'the select-all checkbox in the selection toolbar',
+    controls: ['<input> h-4 = 14px', '<input> w-4 = 14px']
+  },
+  '/src/features/file-send/SendFilesDialog.tsx': {
+    why: 'the recipient-kind radios, each inside its own label',
+    controls: ['<input> h-4 = 14px', '<input> w-4 = 14px']
+  },
+  '/src/features/query/QueryTabStrip.tsx': {
+    why: 'the tab close affordance — the same shape, and the same unrescuable geometry, as the Data Explorer strip above',
+    controls: ['<span> h-6 = 21px', '<span> w-6 = 21px']
+  },
+  '/src/features/query/TableActionsMenu.tsx': {
+    why: 'the table row actions menu trigger, at the end of a schema rail row',
+    controls: ['<button> h-6 = 21px', '<button> w-6 = 21px']
+  },
+  '/src/features/table-builder/RefreshTableDialog.tsx': {
+    why: 'the "allow removals" checkbox, alone in its row',
+    controls: ['<input> h-4 = 14px', '<input> w-4 = 14px']
+  },
+  '/src/features/table-share/TableShareDialog.tsx': {
+    why: 'the share-kind radios, each inside its own label',
+    controls: ['<input> h-4 = 14px', '<input> w-4 = 14px']
+  }
 };
 
 const offenders: Record<string, string[]> = {};
@@ -305,10 +367,16 @@ describe('a control sized from the spacing scale reaches the target floor', () =
     // do not fix a height; a fraction is a proportion of the parent.
     expect(undersizedControls('<button className="min-h-6 max-w-4 w-1/2">x</button>')).toEqual([]);
 
-    // …and a decorative icon passed as a prop is not the control's own size.
-    expect(undersizedControls('<button className="h-8 w-8" title={<Icon className="h-4 w-4" />}>x</button>')).toEqual(
-      []
-    );
+    // …and a decorative icon passed as a prop is not the control's own size — in EITHER attribute
+    // order, which is what "the tag's own className" has to mean. JSX order is arbitrary and
+    // Prettier does not normalise it, so reading the first `className` reported a correct 28px
+    // button as a 14px one and named a class it does not carry.
+    for (const tag of [
+      '<button className="h-8 w-8" title={<Icon className="h-4 w-4" />}>x</button>',
+      '<button title={<Icon className="h-4 w-4" />} className="h-8 w-8">x</button>'
+    ]) {
+      expect(undersizedControls(tag), tag).toEqual([]);
+    }
 
     // The apostrophe that made this sweep fail open. Comments are stripped before the scan; if
     // they stop being, this control disappears and the whole file goes quiet rather than red.
@@ -317,30 +385,39 @@ describe('a control sized from the spacing scale reaches the target floor', () =
     ]);
   });
 
-  it('flags an undersized interactive control that carries no accepted entry', () => {
-    const unaccepted = Object.fromEntries(Object.entries(offenders).filter(([path]) => !(path in ACCEPTED_UNDERSIZED)));
-    expect(unaccepted).toEqual({});
+  it('finds exactly the controls the register names, and no others', () => {
+    // One equality rather than a subset check, because a subset is what let a whole FILE be
+    // exempted: it catches a new offender, a new one inside a file already listed, an existing one
+    // shrinking further, and an entry left behind after a fix — the last of which fires on a
+    // CORRECT change, and the message is the mitigation.
+    const named = Object.fromEntries(Object.entries(ACCEPTED_UNDERSIZED).map(([path, e]) => [path, e.controls]));
+    expect(
+      offenders,
+      'add a new undersized control to ACCEPTED_UNDERSIZED with a note, or delete the entry for one you have fixed'
+    ).toEqual(named);
+    for (const [path, entry] of Object.entries(ACCEPTED_UNDERSIZED)) expect(entry.why.length, path).toBeGreaterThan(20);
   });
 
-  it('holds no accepted entry for a control that has stopped being undersized', () => {
-    // This fires on a CORRECT change — resize one of the controls above and its entry goes stale.
-    // The message is the whole mitigation: delete the entry in the same commit as the resize.
-    const stale = Object.keys(ACCEPTED_UNDERSIZED).filter((path) => !(path in offenders));
-    expect(stale, 'these now clear the floor — delete their ACCEPTED_UNDERSIZED entries here').toEqual([]);
-    for (const [path, why] of Object.entries(ACCEPTED_UNDERSIZED)) expect(why.length, path).toBeGreaterThan(20);
-  });
+  it('keeps both button primitives clear of the floor at their smallest size', () => {
+    // The two primitives already sized around this rule, and the reason most controls in the app
+    // are not in the register above. `IconButton`'s `sm` is the tightest at 24.5px, so a tidy-up
+    // that normalised it down one scale step would cost every one of its call sites at once.
+    for (const primitive of ['/src/components/IconButton.tsx', '/src/components/Button.tsx']) {
+      const sizes = /const SIZES[^=]*= \{[^}]*}/.exec(SOURCES[primitive])?.[0] ?? '';
+      const measured = [...sizes.matchAll(SIZE_CLASS)].map(([size, cls]) => ({size, px: sizeClassPx(cls)}));
 
-  it('keeps the shared icon button clear of the floor at its smallest size', () => {
-    // The one primitive already sized around this rule, and the reason most icon controls in the
-    // app are not in the register above. Its `sm` sits one step over the floor, so a tidy-up that
-    // normalised it down a step would cost every one of its call sites at once.
-    const sizes = /const SIZES = \{[^}]*}/.exec(SOURCES['/src/components/IconButton.tsx'])?.[0] ?? '';
-    const measured = [...sizes.matchAll(SIZE_CLASS)].map(([size, cls]) => ({size, px: sizeClassPx(cls)}));
-
-    // The map holds two sizes, a height and a width each. Counted before anything is filtered,
-    // because an empty list satisfies every assertion made about one.
-    expect(measured, 'the SIZES map was not read — the check below would pass on nothing').toHaveLength(4);
-    expect(measured.filter((size) => size.px === null || size.px < MIN_TARGET_PX)).toEqual([]);
+      // Counted before anything is filtered, because an empty list satisfies every assertion made
+      // about one. A count rather than a named class, so moving a size to `size-7` or to the
+      // absolute `h-[24px]` — both correct — does not redden this.
+      expect(
+        measured.length,
+        `${primitive}: the SIZES map was not read, so the check below sees nothing`
+      ).toBeGreaterThan(0);
+      expect(
+        measured.filter((size) => size.px === null || size.px < MIN_TARGET_PX),
+        primitive
+      ).toEqual([]);
+    }
   });
 
   it('cannot see a control whose height comes from its text, and does not pretend to', () => {
@@ -380,12 +457,27 @@ describe('axe cannot decide target size in jsdom, and says otherwise', () => {
     }
   });
 
-  it('carries the undecidable rules into every options bag', () => {
-    // The bags deep-merge over the base rather than replacing it, so this is belt to that braces —
-    // and it is the half that catches a bag added later which spells its own rules and forgets one.
-    for (const rule of Object.keys(RULES_JSDOM_CANNOT_DECIDE)) {
-      expect(ROUTE_AXE_OPTIONS.rules?.[rule], rule).toEqual({enabled: false});
-      expect(COMPONENT_AXE_OPTIONS.rules?.[rule], rule).toEqual({enabled: false});
+  it('keeps both undecidable rules off, in the constant and in every options bag', () => {
+    // The set is spelled out rather than derived from the constant. Deriving it made the loop
+    // below iterate whatever the constant happened to hold, so DELETING an entry — restoring the
+    // vacuous rule across all 41 axe specs — shrank the loop and passed. That is the one
+    // regression this whole change exists to prevent.
+    expect(
+      Object.keys(RULES_JSDOM_CANNOT_DECIDE).sort(),
+      'a rule left this set — either jsdom can now decide it, or the disable was dropped'
+    ).toEqual(['color-contrast', 'target-size']);
+
+    // Every EXPORTED bag, found by name rather than listed, so a third one added later is covered.
+    // The bags deep-merge over the base rather than replacing it, so carrying the rules is belt to
+    // that braces; what this catches is a bag that spells its own `rules` and forgets one.
+    const bags = Object.entries(axeConfig).filter((entry): entry is [string, RunOptions] =>
+      entry[0].endsWith('_AXE_OPTIONS')
+    );
+    expect(bags.length, 'no options bags were found — the check below would pass on nothing').toBeGreaterThan(1);
+    for (const [name, bag] of bags) {
+      for (const rule of ['color-contrast', 'target-size']) {
+        expect(bag.rules?.[rule], `${name} does not disable ${rule}`).toEqual({enabled: false});
+      }
     }
   });
 });
