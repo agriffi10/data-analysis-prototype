@@ -66,6 +66,13 @@ class FakeSigner:
     def generate_presigned_url(self, operation, Params, ExpiresIn):
         """Records and returns a URL.
 
+        **Every parameter botocore emits is present, and that is the point.** A fake that emits
+        only the two parameters an assertion happens to name cannot fail that assertion for the
+        right reason: the guard below asks whether a presigned URL reached a log record, and a
+        URL missing the fields a real one carries is not the artifact being guarded. This fake
+        was previously two parameters wide while the client shipped SigV2, so the guard could
+        not have caught a real leak.
+
         Args:
           operation: The operation being signed.
           Params: The signed parameters.
@@ -73,13 +80,6 @@ class FakeSigner:
 
         Returns:
           A URL carrying the query string a real SigV4 presign carries.
-
-        **Every parameter botocore emits is present, and that is the point.** A fake that emits
-        only the two parameters an assertion happens to name cannot fail that assertion for the
-        right reason: the guard below asks whether a presigned URL reached a log record, and a
-        URL missing the fields a real one carries is not the artifact being guarded. This fake
-        was previously two parameters wide while the client shipped SigV2, so the guard could
-        not have caught a real leak.
 
         Raises:
           None.
@@ -397,8 +397,9 @@ class TestAUrlIsABearerToken:
             "X-Amz-Signature",
             "X-Amz-Credential",
             "X-Amz-Security-Token",
-            "Signature=",
             "AWSAccessKeyId",
+            "x-amz-security-token",
+            "Signature=",
         ):
             assert parameter not in blob, f"{parameter} reached an emitted record"
         assert "secret.csv" not in blob, "the key itself is not a field either"

@@ -844,6 +844,14 @@ not match either. Anything this filter shows is an AWS host the browser reached 
    nobody has thought of. **A run reporting zero across all six needs its positive control** — the
    window must contain at least one real presign mint, evidenced by the `key_length` records — or
    zero means the window was empty, not that nothing leaked.
+
+   **And a HIT is not automatically a leak.** `error.stack` is built by
+   `traceback.format_exception`, which carries the SOURCE LINES of every frame, and
+   `botocore/auth.py` contains all six of these tokens as string literals. An exception raised
+   inside signing — a vanished session raising `NoCredentialsError` is the realistic one — puts
+   those frames in a traceback that matches every pattern while containing no credential at all.
+   Read the matching record before escalating: a real leak carries a signature *value*, a
+   traceback carries the parameter *name*.
    - [x] **Pass, 2026-08-31** — all six patterns zero across 1,605 records, with the positive
      control that the window held two real presign mints (six `key_length` records).
    - [ ] **Re-run OWED against the SigV4 pin**, for the same reason as step 3: the sweep that passed

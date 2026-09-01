@@ -251,8 +251,12 @@ def test_the_s3_client_is_pinned_to_sigv4_and_to_the_regional_endpoint(monkeypat
     assert built.signature_version == "s3v4", (
         "botocore's S3 default presigns SigV2, which a grandfathered bucket redeems happily"
     )
-    assert built.s3["addressing_style"] == "virtual"
-    assert built.s3["us_east_1_regional_endpoint"] == "regional"
+    assert built.s3.get("addressing_style") == "virtual", (
+        "botocore presigns against the legacy global host, which the SPA's connect-src omits"
+    )
+    assert built.s3.get("us_east_1_regional_endpoint") == "regional", (
+        "addressing_style alone fixes every region except us-east-1"
+    )
 
     captured.clear()
     identity._client("sts", None)
