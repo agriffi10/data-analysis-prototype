@@ -12,7 +12,7 @@ Public barrel: `features/file-browser/index.ts`.
 |---|---|
 | `listFiles(bucket, prefix?, continuationToken?, abortSignal?)` | One page of folders + files, through `objects.list`. The route delimits and bounds the page; the signal stops the browser **waiting**, not the request on the wire (a Lambda invocation cannot be cancelled). |
 | `getDownloadUrl({ bucket, key, fileName? })` | Presigned `GetObject` minted by `objects.downloadUrl`, signed by the caller's own assumed session and clamped to it. Returns `{url, expiresAt}` — the expiry is what tells an expired link from a denial. |
-| `uploadFile({ bucket, key, body, contentType, overwrite?, onProgress?, signal? })` | One presigned `PUT`, sent over **`XMLHttpRequest`** — `fetch` fires no upload-progress event, so it is the transport that keeps the progress bar alive. The mint is INSIDE this call, which is what makes "one URL per file" structural. |
+| `uploadFile({ bucket, key, body, contentType, overwrite?, onProgress?, signal? })` | Uploads one file by whichever path the **server** chose — `objects.upload` answers a single presigned `PUT` or a multipart plan, and the browser holds no threshold. Bytes go over **`XMLHttpRequest`** (`fetch` fires no upload-progress event), and every URL is minted immediately before it is redeemed. `onProgress` is the AGGREGATE across parts and is monotonic across a retry. |
 | `createFolder({ bucket, prefix, name, overwrite? })` | Zero-byte `{prefix}{name}/` marker (`application/x-directory`), in ONE call — the collision check is the write route's own `Conflict`. |
 | `deleteObject({ bucket, key, username })` | Single-object delete; refuses the prefix marker with no request at all. |
 | `copyObject({ bucket, sourceKey, destKey, username, destBucket?, overwrite? })` | `objects.copy`; the collision `HeadObject` moved inside the route, so a copy costs one call. `destBucket` defaults to `bucket`; each end resolves to its own space. `ServiceResult<{ destKey }>`. |
@@ -24,6 +24,16 @@ Public barrel: `features/file-browser/index.ts`.
 | `isPrefixMarkerKey(key, username)` | Is this exact key the user's root marker? |
 | `validateLeafName(name, label)` / `validateFolderName(name)` | One path-LEAF rule (non-empty, no surrounding spaces, no `/`, no control chars) with the caller's own noun; `validateFolderName` is it with `Folder name` (SPEC-173). |
 | `uploadPercent(loaded, total)` | Clamp loaded/total to a 0–100 whole percent (zero-byte → 100). |
+
+
+### Upload internals — `multipartUpload.ts` + `xhrUpload.ts`
+
+Behind `uploadFile`, which is the only entry point a feature should call.
+
+| Symbol | Purpose |
+|---|---|
+| `uploadParts(...)`, `PART_CONCURRENCY`, `PART_RETRIES` (`multipartUpload.ts`) | The part loop behind `uploadFile`'s multipart branch: per-part minting, per-part retry with a re-mint, a monotonic aggregate progress that never falls across a retry, and a best-effort abort on cancel that deliberately does **not** carry the caller's signal. `PART_CONCURRENCY` × `UPLOAD_CONCURRENCY` is budgeted against the browser's per-origin connection limit, so neither is readable alone. |
+| `putBytes`, `uploadCancelled`, `uploadRejection`, `UploadFailure` (`xhrUpload.ts`) | The **one** module permitted to name `XMLHttpRequest`, shared by both upload paths and enforced by a named-list guard with a positive control. Reads a part's `ETag` (absent ⇒ `null`, never a throw) and tells an expired link from a denial — which is what stops a 403 at the tail of a long upload reading as a permissions fault. |
 
 ### Hooks
 
@@ -78,7 +88,6 @@ Public barrel: `features/file-browser/index.ts`.
 | `ObjectMetadata`, `DownloadUrl`, `UploadResult`, `CreateFolderResult`, `DeleteResult`, `MoveResult`, `CopyResult` | `fileBrowser.types.ts` | Feature result/data types. |
 | `SelectableItem`, `SelectionContextValue`, `itemId` | `selectionContext.ts` | Multi-select item shape (file key \| folder prefix), context value, id helper. |
 | `BulkOperationState` / `BulkOperationError` | `fileBrowser.types.ts` | The ONE shape delete, move and copy report: `{count, errors[{item, message}], isBusy, progress?, error?, …}`. Replaces `DeleteSummary`/`MoveSummary`/`CopySummary` and their `deletedCount`/`movedCount`/`copiedCount` + `key`-vs-`item` divergence (SPEC-155 FR-003). |
-| `MULTIPART_PART_SIZE`, `PART_CONCURRENCY` | `fileBrowser.types.ts` | Managed-upload tuning constants. The ceiling is not here — it is `maxUploadBytes()` below, read from the runtime document. |
 | `UploadItem`, `UploadStatus`, `UPLOAD_CONCURRENCY`, `TERMINAL_STATUSES` | `upload.types.ts` | Upload-queue item shape, lifecycle status (`queued`→`uploading`→`collision`→`done`/`failed`/`cancelled`), file-concurrency limit (SPEC-020). |
 | `prefixMarkerKey(username)`, `isMarkerName(key)`, `PREFIX_MARKER_FILENAME`, `PREFIX_MARKER_BODY`, `SAVED_QUERIES_FOLDER`, `SAVED_QUERIES_MARKER_BODY` | `fileBrowser.constants.ts` | Prefix-marker (`DO_NOT_DELETE.txt`) helpers — `isMarkerName` matches by basename, which is what the two bucket policies deny deletion on — plus the saved-queries folder's name and its own marker text (SPEC-173). |
 | `OperationFeedback` | `OperationFeedback.tsx` | `<OperationFeedback op={…} pastVerb=… failVerb=… progressVerb?=…>` — the four-block stanza (dismissible error `Banner`, `OperationSummaryBanner`, a `role="status"` progress line, `BatchOverwritePrompt`) that delete, move and copy each rendered separately. Every message a user saw is preserved verbatim (SPEC-155 FR-003). |

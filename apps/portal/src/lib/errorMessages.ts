@@ -223,8 +223,9 @@ const CODE_RULES: readonly ErrorRule[] = [
   // Trigger: scoped credentials denied the S3/Athena/Glue call. Almost always a
   // config/permission issue the user can't fix. ──
   // Trigger: S3 refused a presigned PUT whose window had already closed. Routine rather than
-  // exceptional — the window is clamped to the signing session's remaining life, there is no
-  // part-level retry, and a large file can simply outlast it. It is user-fixable and the fix is one
+  // exceptional — the window is clamped to the signing session's remaining life, and a large file
+  // can simply outlast it. Reachable on both upload paths: a single PUT has no retry at all, and a
+  // multipart part re-mints on each attempt but can still exhaust them. It is user-fixable and the fix is one
   // sentence; the generic "contact the Administrator" would be wrong twice, because nothing is
   // misconfigured and the thing that helps goes unsaid.
   {

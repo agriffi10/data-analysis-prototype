@@ -486,6 +486,17 @@ export async function uploadFile(params: {
     if (plan.uploadId === undefined || plan.partSize === undefined || plan.partCount === undefined) {
       return unusablePlan();
     }
+    // **Checked as ARITHMETIC, not merely as presence.** A plan whose parts cannot cover the file
+    // is the one bad answer that fails SILENTLY and SUCCESSFULLY: the parts upload, the assembly
+    // succeeds because every ETag is genuine, and the user is told their file is saved while what
+    // is stored is a prefix of it. The progress bar cannot show it either — the aggregate clamps
+    // to the file's size and the queue then pins a finished row to 100%. Refused instead, on the
+    // same named code as a missing member, because a truncated file reported as success is worse
+    // than an upload that did not start.
+    if (plan.partSize < 1 || plan.partCount < 1 || plan.partSize * plan.partCount < body.size) {
+      return unusablePlan();
+    }
+
     return uploadParts({
       space,
       key,
@@ -560,7 +571,7 @@ async function sendBytes(params: TransferParams): Promise<ServiceResult<UploadRe
     onProgress: onProgress ? (loaded) => onProgress(loaded, body.size) : undefined,
     signal
   });
-  if (!sent.success) return sent as ServiceResult<never>;
+  if (!sent.success) return sent;
 
   const {status} = sent.data;
   if (status >= 200 && status < 300) return ok({key});

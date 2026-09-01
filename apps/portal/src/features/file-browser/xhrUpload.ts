@@ -15,6 +15,15 @@ import type {ServiceResult} from '../../types/service.types';
  * written twice, and the copies diverge in the path nobody is testing.
  */
 
+/**
+ * The failure arm on its own.
+ *
+ * Both helpers below only ever fail, and saying so in the type is what lets a caller hold onto one
+ * without re-narrowing it — the alternative was a cast at every call site, and a cast is where a
+ * success arm would slip through unnoticed.
+ */
+export type UploadFailure = {success: false; error: {message: string; code?: string}};
+
 /** What one `PUT` of bytes reports back. `etag` is absent when the response withheld the header. */
 export type PutOutcome = {status: number; etag?: string};
 
@@ -28,7 +37,7 @@ export type PutParams = {
 };
 
 /** The one wording for an upload the user stopped, wherever the stop was noticed. */
-export function uploadCancelled(): ServiceResult<never> {
+export function uploadCancelled(): UploadFailure {
   return {success: false, error: {message: 'Upload cancelled.', code: 'Cancelled'}};
 }
 
@@ -44,7 +53,7 @@ export function uploadCancelled(): ServiceResult<never> {
  * @param expiresAt - When the URL the transfer used was due to die.
  * @returns The service failure, with a code `errorMessages.ts` has a sentence for.
  */
-export function uploadRejection(status: number, expiresAt: string): ServiceResult<never> {
+export function uploadRejection(status: number, expiresAt: string): UploadFailure {
   if (status === 403 && Date.parse(expiresAt) <= Date.now()) {
     return {
       success: false,
@@ -76,9 +85,7 @@ export function uploadRejection(status: number, expiresAt: string): ServiceResul
  * @returns The status and the `ETag` header, or a failure. A `status` of 0 means the request never
  *   completed: `aborted` says which kind.
  */
-export function putBytes(
-  params: PutParams
-): Promise<ServiceResult<PutOutcome> | {success: false; error: {message: string; code: string}}> {
+export function putBytes(params: PutParams): Promise<ServiceResult<PutOutcome>> {
   return new Promise((resolve) => {
     try {
       send(params, resolve);
@@ -93,11 +100,16 @@ export function putBytes(
 
 // Separated only so the executor above is nothing but its own guard — a `try` wrapping thirty lines
 // is a `try` whose scope nobody re-reads.
-function send(
-  params: PutParams,
-  resolve: (result: ServiceResult<PutOutcome> | {success: false; error: {message: string; code: string}}) => void
-): void {
+function send(params: PutParams, resolve: (result: ServiceResult<PutOutcome>) => void): void {
   const {url, body, contentType, onProgress, signal} = params;
+
+  // Checked as well as listened for, and BEFORE anything is sent. `addEventListener('abort')` on a
+  // signal that has already fired never runs, so a cancel landing while this part's URL was being
+  // minted would attach a listener to a spent signal and upload a whole part anyway — and, because
+  // nothing would ever call `xhr.abort()`, the user's `Cancelled` would wait for that transfer to
+  // finish. Both upload paths reach this line, so one check covers them.
+  if (signal?.aborted) return resolve(uploadCancelled());
+
   const xhr = new XMLHttpRequest();
 
   // Listening on `xhr.upload`, not on `xhr`: the request's own progress events describe the
@@ -111,7 +123,7 @@ function send(
   const onAbort = () => xhr.abort();
   // Removed on every path, not left to `{once: true}`: that fires the listener at most once but does
   // not detach it, so a long-lived queue signal accumulates one closure per completed transfer.
-  const settle = (result: ServiceResult<PutOutcome> | {success: false; error: {message: string; code: string}}) => {
+  const settle = (result: ServiceResult<PutOutcome>) => {
     signal?.removeEventListener('abort', onAbort);
     resolve(result);
   };
@@ -131,11 +143,22 @@ function send(
   );
   xhr.addEventListener('abort', () => settle(uploadCancelled()));
 
-  signal?.addEventListener('abort', onAbort);
-
   xhr.open('PUT', url);
   // The SIGNED content type, byte for byte. A different one here fails the signature check at S3
   // and returns a 403 that reads as a permissions problem.
   xhr.setRequestHeader('Content-Type', contentType);
-  xhr.send(body);
+
+  // Attached AFTER the two calls that can throw. `open` throws on a malformed URL and
+  // `setRequestHeader` on an invalid header value; a throw unwinds past `settle`, so a listener
+  // attached earlier is never removed — the accumulation `{once: true}` is rejected above to
+  // prevent, on a signal that lives as long as the session.
+  signal?.addEventListener('abort', onAbort);
+  try {
+    xhr.send(body);
+  } catch (err) {
+    // `send` can throw too, and by this line the listener is attached — so the throw would unwind
+    // past `settle` and leave one closure per failed transfer on a session-lifetime signal.
+    signal?.removeEventListener('abort', onAbort);
+    throw err;
+  }
 }

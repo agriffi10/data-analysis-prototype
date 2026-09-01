@@ -5,6 +5,7 @@ import type {ServiceResult} from '../../types/service.types';
 import type {SpaceRef, UploadedPart} from '../../types/apiContract.generated';
 import type {UploadResult} from './fileBrowser.types';
 import {putBytes, uploadCancelled, uploadRejection} from './xhrUpload';
+import type {UploadFailure} from './xhrUpload';
 
 /**
  * The part loop: what turns a plan from `objects.upload` into an assembled object.
@@ -22,9 +23,6 @@ import {putBytes, uploadCancelled, uploadRejection} from './xhrUpload';
  * `UPLOAD_CONCURRENCY` (3) × this (2) = 6, exactly HTTP/1.1's per-origin ceiling — so this constant
  * cannot be read or changed without reading that one.
  */
-/** The failure arm alone, so a held-onto failure can be read without re-narrowing it. */
-type Failure = {success: false; error: {message: string; code?: string}};
-
 export const PART_CONCURRENCY = 2;
 
 /**
@@ -37,6 +35,20 @@ export const PART_CONCURRENCY = 2;
  * succeed while adding half again to that number.
  */
 export const PART_RETRIES = 2;
+
+/**
+ * Failure codes that survive the retry loop instead of collapsing into the generic one.
+ *
+ * Each names something the user can act on, and each already has an authored sentence that the
+ * single-`PUT` path has always shown for the same condition. Flattening them would make the
+ * multipart path strictly less informative than the one it replaces.
+ *
+ * **A denial reaches this list only from a failed MINT**, because a denial on the bytes returns
+ * immediately. That asymmetry is deliberate and it is about cost: retrying a mint spends one small
+ * API call, where retrying a `PUT` spends a whole part — hundreds of megabytes at the server's part
+ * size — to be refused again.
+ */
+export const KEEP_SPECIFIC_CODES = ['AccessDenied', 'UploadLinkExpired', 'Cancelled', 'SessionExpired'];
 
 /** What `uploadParts` needs that only the caller knows. */
 export type MultipartParams = {
@@ -64,7 +76,7 @@ export async function uploadParts(params: MultipartParams): Promise<ServiceResul
   const progress = new AggregateProgress(body.size, onProgress);
   const parts: UploadedPart[] = new Array(partCount);
   const queue = Array.from({length: partCount}, (_, index) => index + 1);
-  let failure: Failure | null = null;
+  let failure: UploadFailure | null = null;
 
   const worker = async (): Promise<void> => {
     for (;;) {
@@ -85,11 +97,16 @@ export async function uploadParts(params: MultipartParams): Promise<ServiceResul
   await Promise.all(Array.from({length: Math.min(PART_CONCURRENCY, partCount)}, worker));
 
   if (signal?.aborted) {
-    await abandon(space, key, uploadId);
+    // NOT awaited. The user gets `Cancelled` immediately; the abort is best effort, carries no
+    // signal, and a slow one must not hold the queue row on "Uploading" — a stalled connection is
+    // a leading reason someone cancels in the first place, and `abandon` would then wait out the
+    // client's full timeout. A cancel that can be made to wait is a control that fails when it is
+    // most wanted.
+    void abandon(space, key, uploadId);
     return uploadCancelled();
   }
   if (failure) {
-    await abandon(space, key, uploadId);
+    void abandon(space, key, uploadId);
     return failure;
   }
 
@@ -98,6 +115,24 @@ export async function uploadParts(params: MultipartParams): Promise<ServiceResul
     signal
   });
   if (!completed.success) {
+    // A cancel landing HERE arrives as the client's own abort code rather than as a refusal, so
+    // it has to be recognised before anything else — otherwise the user is told their cancel
+    // timed out.
+    if (signal?.aborted) {
+      void abandon(space, key, uploadId);
+      return uploadCancelled();
+    }
+    // **Every failed assembly abandons the upload**, and the collision arm is the one that
+    // matters: the user is about to be offered Overwrite or Rename, and both re-enter with a NEW
+    // upload id. Without this the first attempt's parts are stranded — a whole file's worth of
+    // multipart storage, billed until the bucket's seven-day sweep, for an interruption the user
+    // never saw.
+    //
+    // Not awaited, for the same reason the cancel is not: the queue holds the row on "Uploading"
+    // until this call resolves, and the collision prompt only appears afterwards — so awaiting a
+    // discard that cannot answer would leave the user staring at a progress bar for the client's
+    // full timeout, on the arm they meet most often.
+    void abandon(space, key, uploadId);
     if (completed.error.code === 'Conflict') {
       return {success: false, error: {message: `"${key}" already exists.`, code: 'Collision'}};
     }
@@ -121,7 +156,7 @@ async function sendOnePart(
 
   const start = (partNumber - 1) * partSize;
   const slice = body.slice(start, Math.min(start + partSize, body.size));
-  let last: Failure = {
+  let last: UploadFailure = {
     success: false,
     error: {message: 'Failed to upload file.', code: 'UploadFailed'}
   };
@@ -149,14 +184,19 @@ async function sendOnePart(
     if (!sent.success) {
       // A cancel is not a failure to retry against — the user asked for it, and retrying twice
       // more against an aborted signal just delays the answer they are waiting for.
-      if (sent.error.code === 'Cancelled') return sent as Failure;
-      last = sent as Failure;
+      if (sent.error.code === 'Cancelled') return sent;
+      last = sent;
       continue;
     }
 
     const {status, etag} = sent.data;
     if (status < 200 || status >= 300) {
-      last = uploadRejection(status, minted.data.expiresAt) as Failure;
+      last = uploadRejection(status, minted.data.expiresAt);
+      // **A denial is terminal; an expiry is not.** `uploadRejection` is what separates them, and
+      // retrying past a denial spends a whole part's bytes per attempt to be refused again — at
+      // the server's part size that is hundreds of megabytes of the user's uplink. An expired URL
+      // is the opposite: the next attempt re-mints, so it is exactly what a retry fixes.
+      if (last.error.code === 'AccessDenied') return last;
       continue;
     }
     if (etag === undefined) {
@@ -175,13 +215,16 @@ async function sendOnePart(
     return ok({partNumber, etag});
   }
 
-  // Every attempt is spent. The wording says nothing was saved, which is true of multipart: an
-  // upload that never completes assembles no object at all.
+  // Every attempt is spent. A reason the single-`PUT` path would have named is KEPT rather than
+  // flattened — telling someone whose link expired, or who lacks permission, only that "the file
+  // could not be uploaded" throws away the one sentence that tells them what to do. The generic
+  // exhausted code is for the failures that have no better name.
+  if (last.error.code && KEEP_SPECIFIC_CODES.includes(last.error.code)) return last;
   return {
     success: false,
     error: {
       message: 'That file could not be uploaded, and nothing was saved. Try again.',
-      code: last.error.code === 'Cancelled' ? 'Cancelled' : 'UploadPartsExhausted'
+      code: 'UploadPartsExhausted'
     }
   };
 }
@@ -199,7 +242,11 @@ async function sendOnePart(
  * nothing in the browser will ever abort it. The lifecycle rule is the only sweep there is.
  */
 async function abandon(space: SpaceRef, key: string, uploadId: string): Promise<void> {
-  await apiRequest('objects.uploadAbort', {body: {space, key, uploadId}});
+  // Swallowed rather than propagated: every caller fires this WITHOUT awaiting, so a rejection
+  // would surface as an unhandled one — which fails a test run while the test itself passes.
+  // `apiRequest` resolves on every path today, so this is a guard against a future where it does
+  // not, not a live catch.
+  await apiRequest('objects.uploadAbort', {body: {space, key, uploadId}}).catch(() => undefined);
 }
 
 /**
