@@ -769,7 +769,7 @@ path six or more folders deep ran its content past the nav, clipped the folder y
 at the screen edge, and put the whole document into a horizontal scroll, which is an SC 1.4.10
 Reflow failure traded for an SC 2.5.8 one. Narrow to **375px**, then to **320px**, and walk into a
 deep folder: the trail must wrap onto a second row with the current folder fully visible, and the
-page must not scroll sideways — drag horizontally and confirm nothing moves. At 320px with nine
+page must not scroll sideways — drag horizontally and confirm nothing moves. **Confirm `innerWidth` actually changed before believing any of this** — §1's stale-viewport trap is exactly this shape, and a resize that silently did nothing leaves a desktop-width trail that wraps at no width and passes. At 320px with nine
 segments it takes three rows and pushes the file list down about 47px, which is the accepted cost.
 The refresh button beside the trail is centred against the whole block, so it sits lower than the
 first crumb row once wrapped; that is expected, not a bug. The two tab strips' ✕ closes are `h-[24px]
