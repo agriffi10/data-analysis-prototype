@@ -111,7 +111,9 @@ sibling template rather than fail.
   containment rules.
 - **No route waits, sleeps or polls.** A five-minute query against a 30-second gateway ceiling does
   not fail at the margin, it fails always — so the four loops that poll an execution and page its
-  results stay in the browser, and the API makes exactly one AWS call per request.
+  results stay in the browser, and the API makes exactly one AWS call per request — with one
+  deliberate exception, SPEC-198's free-name probe, which heads up to `FREE_NAME_MAX_ATTEMPTS`
+  candidates because the alternative was that many browser round trips.
 - **Neither the SQL statement nor Athena's `stateChangeReason` may be a log field.** Both routinely
   quote a user's own cell values back, so the span carries `sql_bytes`, `state`, `row_count` and
   `column_count` instead. The reason still travels on the response body, where the browser's

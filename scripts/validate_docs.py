@@ -48,15 +48,22 @@ Attributes:
     ritual gates the fold on a new *architectural* decision — a rule or a per-feature choice is a
     register entry and nothing more — so most closing specs add nothing here, and several close by
     replacing a clause they falsified at no net cost. Nothing in this file checks for a clause
-    either: what it holds CLAUDE.md to is a byte budget, area grouping and ``DIGEST_MAX_CHARS``. An
-    earlier version of this docstring asserted the requirement, and a closing spec acted on it by
-    carving another area's fences to pay for a clause it did not owe.
+    either: what it holds CLAUDE.md to is a byte budget, area grouping, ``DIGEST_MAX_CHARS``, its
+    markdown links and its ``@`` pointers.
+
+    The sentence this replaces asserted the requirement, and it shipped in SPEC-195's OWN closing
+    PR (#531) — so SPEC-195 cannot be the spec it damaged, and an earlier draft of this correction
+    said it was. SPEC-203's close is the one: it read the requirement as licence and spent the
+    Identity block's API fences to buy room for its own clause, in that same block. #568 is titled
+    for the prune it forced. Its clause was genuinely owed; the prune was not, and deferring an
+    ADDITION under byte pressure was always available. Replacing a clause a spec has falsified is
+    the case that cannot be deferred.
 
     At 34,000 with 161 bytes free, SPEC-195 could not close without pruning another area's fences
     to pay for its own — which is the gate causing the damage it exists to prevent. The
     anti-regrowth rules that actually bind are the shape ones — group by area and
-    ``DIGEST_MAX_CHARS``, both checked here, and they are unchanged. "No per-spec line" is doctrine
-    and is NOT machine-checked: nothing counts bullets or recognises a per-spec one. If this file approaches 50,000 the answer is still a
+    ``DIGEST_MAX_CHARS``, both checked here, and they are unchanged. "No per-spec line" is
+    doctrine and is NOT machine-checked: nothing counts bullets or recognises a per-spec one. If this file approaches 50,000 the answer is still a
     cut, not another raise: three cuts have already been needed, and all three were structural.
   DIGEST_MAX_CHARS: The longest a single Key Decisions bullet may be, measured on the LOGICAL
     bullet — continuation lines joined. It was measured per physical line until 2026-08-26, which
@@ -698,7 +705,13 @@ def check_always_loaded_pointers() -> list[str]:
       None.
 
     Returns:
-      One message per ``@`` pointer in CLAUDE.md whose target does not exist.
+      One message per ``@`` pointer in CLAUDE.md that names a ``.md`` file under ``DOC_TREES`` and
+      does not resolve. Deliberately narrow, and the gaps are real: a pointer to a DIRECTORY
+      (``@docs/testing/``), to a tree outside ``DOC_TREES`` (``@scripts/…``), or with the tree
+      itself misspelt (``@doc/process.md``) is invisible to this, and CLAUDE.md carries live
+      pointers of the first kind. Widening it needs the glob placeholders
+      (``@docs/specs/SPEC-XXX-*.md``, ``@docs/decisions/<area>.md``) handled deliberately rather
+      than by accident of this character class.
 
     Raises:
       None.
