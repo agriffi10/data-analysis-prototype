@@ -9,10 +9,10 @@ layer's import-time failure surfaces at COLD START, where no test and no deploy 
 ``archive_bucket()`` is the one env-derived value, and it is a FUNCTION for exactly that reason.
 It does **not** belong in ``cpcommon.config._REQUIRED_VARS``: that set is a fleet-wide contract
 every plane's Lambda environment must satisfy, so putting a variable only THIS plane sets into it
-breaks every other plane. A per-plane guard caught exactly that mistake while this change was
-being written. It covered table-builder alone, despite a name that suggested the fleet, and it has
-since been retired. Another one-plane guard stands in its place: adding a name here still reddens,
-but only through ``user-directory-build``'s environment test. Nothing on THIS plane checks it.
+breaks every other plane. A guard caught exactly that mistake while this change was being
+written — though only on table-builder, despite a name that suggested the fleet, and it was later
+retired. ``test_fleet_environment.py`` now holds the contract across every deployed function,
+refusing any required name a function's own code can reach and its Terraform does not set.
 
 Every cap below is a whole-request terminal in validate-authorize, raised before any AWS call
 that costs anything, so a refused archive leaves nothing behind.
