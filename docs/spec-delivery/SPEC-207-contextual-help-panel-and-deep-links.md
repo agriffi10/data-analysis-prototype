@@ -44,6 +44,11 @@
   `docs/testing/e2e.md` §4.13.
 - **`/data-quality/:space/:requestId` gets no panel.** Matching is on the whole pathname; the report
   view falls back to navigation. Permitted by FR-003 and left deliberate rather than silent.
+- **`/data-quality` is the one row whose panel outlives its feature.** FR-007's derivation works
+  because a gated route's *section* is filtered out — and there is no data-quality section, so with
+  the flag off the panel still opens (headed Files) over the unavailable page. It discloses nothing
+  and closing it would mean declaring the gate twice. Named in the register entry rather than left
+  as a silent counterexample.
 - **Nothing was added to `features/help/index.ts`.** Every new symbol is consumed inside the folder.
 
 ## What changed from earlier specs?
@@ -58,10 +63,12 @@
 
 ## Verification
 
-Locally green: `format:check`, `lint`, `test` (141 files / 2211 tests) and `npm run build`
-(`tsc -b`), plus `scripts/validate_docs.py`. Five guards were mutation-tested and each reddened a
+Locally green: `format:check`, `lint`, `test` (141 files / 2212 tests) and `npm run build`
+(`tsc -b`), plus `scripts/validate_docs.py`. Six guards were mutation-tested and each reddened a
 named test: the route-change reset, the pathname-keyed alternative the spec names as insufficient,
-the FR-007 visibility conjunct, the card key that carries the addressed guide, and the panel reading
-`HELP_SECTIONS` instead of the filtered set. Two criteria are deferred to a signed-in browser
-session and recorded in `docs/testing/e2e.md` §4.13: the panel's real first↔last tab wrap, and no
-horizontal scroll on the page beneath at mobile width.
+the FR-007 visibility conjunct, the card key that carries the addressed guide, the panel reading
+`HELP_SECTIONS` instead of the filtered set, and — added after the diff review — an inline duplicate
+of the filter inside `HelpPanel`, which agrees with the original today and is therefore caught by a
+source sweep rather than by behaviour. Two criteria are deferred to a signed-in browser session and
+recorded in `docs/testing/e2e.md` §4.13: the panel's real first↔last tab wrap, and no horizontal
+scroll on the page beneath at mobile width.

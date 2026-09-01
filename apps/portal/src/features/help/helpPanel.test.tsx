@@ -92,14 +92,43 @@ describe('HelpPanel', () => {
   });
 
   it('drops a guide the flags hide, exactly as the full page does', () => {
+    const hidden = 'When a move or copy is refused';
+    const shown = 'Upload files';
+
     const {unmount} = renderPanel('files', {asyncFileOperations: false});
-    expect(screen.queryByRole('button', byTitle('When a move or copy is refused'))).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', byTitle(hidden))).not.toBeInTheDocument();
     // A neighbour in the same section, so the absence above cannot be an empty panel.
-    expect(screen.getByRole('button', byTitle('Upload files'))).toBeInTheDocument();
+    expect(screen.getByRole('button', byTitle(shown))).toBeInTheDocument();
     unmount();
 
+    // THE FULL PAGE, under the SAME non-default flags — the criterion is that the two agree,
+    // and every panel-only assertion above is satisfied by a panel that filters on its own.
+    const page = renderWithProviders(<HelpPage />, {
+      route: '/help#files',
+      queryClient: clientWithFlags({asyncFileOperations: false}),
+      seedFeatureFlags: false
+    });
+    expect(screen.queryByRole('button', byTitle(hidden))).not.toBeInTheDocument();
+    expect(screen.getByRole('button', byTitle(shown))).toBeInTheDocument();
+    page.unmount();
+
     renderPanel('files');
-    expect(screen.getByRole('button', byTitle('When a move or copy is refused'))).toBeInTheDocument();
+    expect(screen.getByRole('button', byTitle(hidden))).toBeInTheDocument();
+  });
+
+  it('reaches the guide→flag registry from exactly ONE module in this feature', () => {
+    // Agreement is the property; a single call site is the mechanism the criterion names, and
+    // the two are different claims — a duplicated filter agrees with the original right up
+    // until one of them changes.
+    const sources = import.meta.glob('./*.{ts,tsx}', {query: '?raw', import: 'default', eager: true}) as Record<
+      string,
+      string
+    >;
+    const modules = Object.entries(sources).filter(([path]) => !path.includes('.test.'));
+    expect(modules.length, 'the source sweep matched nothing').toBeGreaterThan(5);
+
+    const callers = modules.filter(([, source]) => source.includes('hiddenHelpIds')).map(([path]) => path);
+    expect(callers).toEqual(['./visibleSections.ts']);
   });
 
   it('renders the same guide card markup the full page renders', () => {
@@ -132,12 +161,14 @@ describe('HelpPanel', () => {
 
   // ─── FR-008: full-height sheet on mobile, right-hand sheet above it ──────────
 
-  it('is a full-width sheet below tablet and a capped right-hand sheet above, with the close control outside the scroll area', () => {
+  it('takes the drawer’s full-height variant, and keeps the close control out of the scroll area', () => {
+    // Class assertions, because jsdom has no layout: what they pin is that the panel asks for
+    // the full-height variant (full width and height below tablet, capped right-hand sheet
+    // above) rather than the docked bottom sheet. That it LOOKS right at each width, and that
+    // the page beneath does not scroll sideways, are live checks.
     renderPanel('files');
 
     const dialog = screen.getByRole('dialog', {name: 'Files'});
-    // Full width and height at mobile; the shared drawer caps it at ≥ tablet, so the page
-    // beneath stays visible there and nothing overflows horizontally here.
     expect(dialog).toHaveClass('w-full', 'h-full', 'tablet:max-w-[440px]');
 
     const close = screen.getByRole('button', {name: 'Close help'});
@@ -246,7 +277,6 @@ describe('the panel’s dismissal and focus behaviour', () => {
       <>
         <Header />
         <div>
-          <input aria-label="Note" />
           <Link to="/notifications">To notifications</Link>
           <Link to="/files">To files</Link>
           <button
@@ -255,6 +285,12 @@ describe('the panel’s dismissal and focus behaviour', () => {
             Back
           </button>
           <Routes>
+            {/* The field lives on the ROUTE, so "what was typed survives" is a statement about
+                the route staying mounted and not about a sibling of the drawer. */}
+            <Route
+              path="/files"
+              element={<input aria-label="Note" />}
+            />
             <Route
               path="/help"
               element={<HelpPage />}

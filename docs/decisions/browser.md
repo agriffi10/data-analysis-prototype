@@ -828,7 +828,7 @@ registry maps a route path to a section id, and that is **all** it maps: no flag
 by a test that sweeps its import list.
 
 **No control was added.** The one already in the bar is repointed, so the mobile header's width
-budget is untouched — which is what let three header specs land in the same window. The guard is
+budget is untouched, which is what lets a sibling spec spend that budget instead. The guard is
 **route invariance** (the control count on a route with a row equals the count on a route without
 one), never a pinned number, because a pinned number is exactly what a sibling spec adding a header
 control legitimately breaks.
@@ -838,6 +838,13 @@ control legitimately breaks.
 `/explore` resolves to no section and the control falls back to navigating. `GATED_SURFACES` gains
 no row — the registry's per-flag set-equality over row names would fail on one anyway, which is the
 mechanism that keeps this honest.
+
+**One row is an exception, and it is the one this spec introduced.** `/data-quality` maps to the
+`files` section because that is where its two guides were authored, and there is no data-quality
+section to filter out — so with the flag off the panel still opens, over the unavailable page. It
+discloses nothing (the two guides are hidden with the flag, and the rest is Files content the user
+has anyway), and closing it would mean declaring the gate a second time, which is the thing this
+entry is against. Stated rather than left as a silent counterexample to the sentence above.
 
 The two fences that would otherwise fork:
 

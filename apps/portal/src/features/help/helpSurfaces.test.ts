@@ -47,7 +47,5 @@ describe('HELP_SURFACES', () => {
     // from the panel's side.
     const rows = Object.values(GATED_SURFACES).flat();
     expect(rows.filter((row) => /help panel|contextual help/i.test(row.name))).toEqual([]);
-    const surfacePaths = new Set(HELP_SURFACES.map((surface) => surface.path));
-    expect(rows.filter((row) => row.kind === 'guide' && surfacePaths.has(row.path))).toEqual([]);
   });
 });

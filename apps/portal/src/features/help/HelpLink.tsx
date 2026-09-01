@@ -44,6 +44,7 @@ export function HelpLink() {
       <button
         type="button"
         aria-label="Help for this page"
+        aria-haspopup="dialog"
         aria-expanded={open}
         onClick={openPanel}
         className={cx(CONTROL, open ? ACTIVE : IDLE)}>
