@@ -155,6 +155,42 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
     }
   }
 
+  # The operator's processed ownership-transfer files. A separate rule from the rejected ones
+  # below for the reason the file-send comment gives: S3 lifecycle takes ONE PREFIX PER RULE, and
+  # the prefix covering both — `ownership-transfers/` — would also match `inbox/`.
+  rule {
+    id     = "expire-ownership-transfers-processed"
+    status = "Enabled"
+
+    filter {
+      prefix = "ownership-transfers/processed/"
+    }
+
+    expiration {
+      days = var.admin_results_retention_days
+    }
+  }
+
+  # The rejected ones, and their sibling reason files.
+  #
+  # ⚠ `ownership-transfers/inbox/` GETS NO RULE AT ALL, and that absence is the decision. A file
+  # sitting in the inbox is one the reader has not managed to process — a tick that timed out, a
+  # row cap it hit, a queue it could not reach — and expiring it would delete an operator's
+  # request out from under the function whose next tick is going to retry it. Silently: the tick
+  # after that finds an empty inbox, which is indistinguishable from success.
+  rule {
+    id     = "expire-ownership-transfers-rejected"
+    status = "Enabled"
+
+    filter {
+      prefix = "ownership-transfers/rejected/"
+    }
+
+    expiration {
+      days = var.admin_results_retention_days
+    }
+  }
+
   # Bucket-wide and deliberately UNFILTERED (CKV_AWS_300) — orphaned parts can appear
   # anywhere, so scoping to today's prefixes would leave a new one unprotected.
   #

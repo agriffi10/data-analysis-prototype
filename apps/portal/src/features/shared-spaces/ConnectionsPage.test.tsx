@@ -506,3 +506,56 @@ describe('ConnectionsPage — a delete that stopped (SPEC-205)', () => {
     expect(row).not.toHaveTextContent(/Not finished removing/);
   });
 });
+
+describe('ConnectionsPage — transferring ownership (SPEC-208 FR-006)', () => {
+  const OWNED = [
+    {
+      name: 'owned',
+      role: 'owner' as const,
+      status: 'active' as const,
+      members: [
+        {username: 'alice', status: 'active' as const},
+        {username: 'bob', status: 'active' as const}
+      ]
+    }
+  ];
+
+  it('enqueues one transfer naming the target, and does not flip the roles optimistically', async () => {
+    mockRead.mockResolvedValue(cache(OWNED));
+    mockEnqueue.mockResolvedValue({success: true, data: {requestId: 'r1'}});
+    const {user} = renderPage();
+
+    await user.click(within(await rowFor('owned')).getByRole('button', {name: 'Manage'}));
+    await user.click(await screen.findByRole('button', {name: 'Transfer ownership to bob'}));
+    await user.click(screen.getByRole('button', {name: 'Transfer'}));
+
+    await waitFor(() => expect(mockEnqueue).toHaveBeenCalledTimes(1));
+    expect(mockEnqueue).toHaveBeenCalledWith(
+      expect.objectContaining({action: 'transfer_ownership', space: 'owned', payload: {newOwner: 'bob'}})
+    );
+    // The roster still marks alice. The pipeline can refuse this after accepting it, and a
+    // drawer that had already demoted her would need un-demoting by a notification nobody
+    // watches — so the roles move when the fan-out says so, not when the click happens.
+    const drawer = screen.getByRole('dialog', {name: 'Manage members'});
+    expect(within(within(drawer).getByText('alice').closest('li')!).getByText('Owner')).toBeInTheDocument();
+    expect(within(drawer).getByRole('button', {name: 'Transfer ownership to bob'})).toBeInTheDocument();
+  });
+
+  it('renders our own wording on a failure, never the service’s', async () => {
+    mockRead.mockResolvedValue(cache(OWNED));
+    mockEnqueue.mockResolvedValue({
+      success: false,
+      error: {message: 'AccessDenied: User is not authorized to perform sqs:SendMessage', code: 'Forbidden'}
+    });
+    const {user} = renderPage();
+
+    await user.click(within(await rowFor('owned')).getByRole('button', {name: 'Manage'}));
+    await user.click(await screen.findByRole('button', {name: 'Transfer ownership to bob'}));
+    await user.click(screen.getByRole('button', {name: 'Transfer'}));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).not.toHaveTextContent(/AccessDenied/);
+    expect(alert).not.toHaveTextContent(/sqs:SendMessage/);
+    expect(alert.textContent?.length).toBeGreaterThan(0);
+  });
+});

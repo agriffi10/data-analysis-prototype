@@ -24,6 +24,7 @@ locals {
     "delete"                 = "delete_space.handler"
     "forget"                 = "forget_space.handler"
     "acknowledge-membership" = "acknowledge_membership.handler" # join-status ack
+    "transfer-ownership"     = "transfer_ownership.handler"     # hand a space to a member
     "notify-failure"         = "ss_notify_failure.handler"      # last-resort notify
     "backfill-ever-active"   = "backfill_ever_active.handler"   # one-shot, not a verb
   }
@@ -46,6 +47,19 @@ locals {
     for suffix, name in local.shared_space_function_names :
     "arn:aws:lambda:${var.aws_region}:${var.account_id}:function:${name}"
   ]
+
+  # The operator's CSV reader. NOT in the map above, and the reason is the whole boundary: that
+  # map's for_each hard-codes the orchestrator role, and a reader sharing it would make the
+  # SenderId comparison on the other side admit every verb in the fleet — while every test stayed
+  # green, because the tests supply the SenderId. It gets its own role, its own environment and
+  # its own log group for that reason alone.
+  #
+  # The name carries `shared-space-` because that is what the deploy policy scopes to, for the
+  # function, its role and its log group alike. A name outside the pattern fails at CreateRole,
+  # not at plan.
+  transfer_reader_name      = "${var.project_name}-${var.environment}-shared-space-transfer-reader"
+  transfer_reader_role_name = "${var.project_name}-${var.environment}-shared-space-transfer-reader-role"
+  transfer_schedule_name    = "${local.transfer_reader_name}-schedule"
 
   # CI builds, publishes and attaches this. Named to match the deploy-role wildcard.
   common_layer_name = "${var.project_name}-${var.environment}-shared-space-common"

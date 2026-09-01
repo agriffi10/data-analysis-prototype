@@ -71,3 +71,35 @@ resource "aws_iam_role_policy" "pipe" {
     state_machine_arn = local.state_machine_arn
   })
 }
+
+# ── Transfer-reader role (the operator's CSV door) ───────────────────────────
+# The THIRD role on this plane, and the one that has to be separate. The plane accepts a message
+# declaring `origin: operator` only when the SenderId SQS stamped on it names this role, so a
+# reader running under the orchestrator would turn that comparison into "any verb on this plane
+# may forge an operator request" — true of the running system while every test stayed green,
+# because a test supplies the SenderId itself.
+#
+# It reaches ONE prefix and ONE queue. It holds nothing on the registry: whether a space exists,
+# whether the named member belongs to it and whether the caller may transfer it are all the
+# validator's questions, and a reader that could answer them is a second authority that will
+# eventually disagree with the first. The ListBucket is conditioned to the same prefix its
+# objects live under — a role that cannot list a bucket is told AccessDenied rather than
+# NoSuchKey, so an absent inbox would read as a fault instead of an empty sweep.
+resource "aws_iam_role" "transfer_reader" {
+  name               = local.transfer_reader_role_name
+  assume_role_policy = templatefile("${path.module}/policies/transfer-reader-trust.json.tftpl", {})
+
+  depends_on = [time_sleep.wait_for_deploy_policy]
+}
+
+resource "aws_iam_role_policy" "transfer_reader" {
+  name = "transfer-reader"
+  role = aws_iam_role.transfer_reader.id
+
+  policy = templatefile("${path.module}/policies/transfer-reader-permissions.json.tftpl", {
+    admin_bucket_arn   = local.admin_bucket_arn
+    requests_queue_arn = aws_sqs_queue.requests.arn
+    logs_queue_arn     = var.logs_queue_arn
+    log_group_arn      = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/lambda/${local.transfer_reader_name}:*"
+  })
+}

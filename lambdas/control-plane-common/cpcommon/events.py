@@ -72,6 +72,39 @@ def parse_sqs_request(event: Any, *, reason: str, exc: Any = None) -> Any:
         raise fail(f"body is not valid JSON: {err}") from err
 
 
+def sender_id(record: Any) -> str:
+    """Reads the sender identity SQS stamped on one record.
+
+    ``SenderId`` is a message SYSTEM attribute: the service sets it and a ``SendMessage`` cannot,
+    which is what makes it the one attributable fact a queued message carries about who sent it.
+    It is delivered for FIFO queues with no configuration, by an event-source mapping and by an
+    EventBridge Pipe alike — the Pipe forwards the record whole, which is the same property that
+    lets ``parse_sqs_request`` above read ``body`` off it.
+
+    It lives here rather than beside either caller because two control-plane boundaries now read
+    it, and a field reader that decides who is trusted is the last thing that should exist twice:
+    this fleet's own history is five copies of one verification drifting apart.
+
+    What each boundary DOES with the value is domain policy and stays with the domain — one
+    refuses a sender it recognises, the other accepts only a sender it recognises.
+
+    Args:
+      record: The SQS record, as the mapping or the Pipe delivers it.
+
+    Returns:
+      The stamped value, or an empty string when the record carries no usable one. Absent is
+      never treated as trusted; every caller refuses on it.
+
+    Raises:
+      None.
+    """
+    attributes = record.get("attributes") if isinstance(record, dict) else None
+    if not isinstance(attributes, dict):
+        return ""
+    value = attributes.get("SenderId")
+    return value if isinstance(value, str) else ""
+
+
 def require(event: Any, *path: str, reason: str = MALFORMED) -> Any:
     """Reads a required value out of a task input by dotted path, or fails terminally.
 

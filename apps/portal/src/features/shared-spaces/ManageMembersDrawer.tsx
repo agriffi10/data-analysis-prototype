@@ -4,6 +4,7 @@ import {Button} from '../../components/Button';
 import {Banner} from '../../components/Banner';
 import {ConfirmDialog} from '../../components/ConfirmDialog';
 import {AddMembersDialog} from './AddMembersDialog';
+import {TransferOwnershipDialog} from './TransferOwnershipDialog';
 import {MembersList} from './MembersList';
 import {RefreshConnectionsButton} from './RefreshConnectionsButton';
 import {FeatureGate} from '../feature-flags';
@@ -24,11 +25,12 @@ type Props = {
   refreshing?: boolean;
   onAddMembers: (members: string[]) => void;
   onRemoveMembers: (members: string[]) => void;
+  onTransferOwnership: (newOwner: string) => void;
 };
 
 /**
  * Owner-only Manage-members drawer: lists current members (owner marked, never
- * removable) with Add + per-member Remove. All changes are async pipeline requests
+ * removable) with Add, per-member Remove, and per-member Make-owner. All changes are async pipeline requests
  * (the parent enqueues via `useManageMembers`) that apply after a
  * Refresh-connections — the inline note sets that expectation.
  */
@@ -43,14 +45,23 @@ export function ManageMembersDrawer({
   onRefresh,
   refreshing = false,
   onAddMembers,
-  onRemoveMembers
+  onRemoveMembers,
+  onTransferOwnership
 }: Props) {
   const [addOpen, setAddOpen] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
+  const [transferring, setTransferring] = useState<string | null>(null);
 
   const handleAdd = (toAdd: string[]) => {
     setAddOpen(false);
     onAddMembers(toAdd);
+  };
+
+  const confirmTransfer = () => {
+    if (!transferring) return;
+    const target = transferring;
+    setTransferring(null);
+    onTransferOwnership(target);
   };
 
   const confirmRemove = () => {
@@ -100,6 +111,7 @@ export function ManageMembersDrawer({
         owner={owner}
         members={members}
         onRemove={setRemoving}
+        onTransfer={setTransferring}
         busy={busy}
       />
 
@@ -115,6 +127,15 @@ export function ManageMembersDrawer({
           existing={members.map((m) => m.username)}
           onAdd={handleAdd}
           onCancel={() => setAddOpen(false)}
+        />
+      )}
+      {transferring && (
+        <TransferOwnershipDialog
+          space={space}
+          newOwner={transferring}
+          busy={busy}
+          onConfirm={confirmTransfer}
+          onCancel={() => setTransferring(null)}
         />
       )}
       {removing && (

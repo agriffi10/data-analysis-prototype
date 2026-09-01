@@ -678,9 +678,13 @@ class SharedSpacePayload(TypedDict, total=False):
 
     Attributes:
       members: The usernames an add or remove names.
+      newOwner: The member a transfer hands the space to. They must already be in the roster —
+        transfer is not an invitation, and making it one would let a single action grant a
+        stranger access.
     """
 
     members: list[str]
+    newOwner: str
 
 
 class SharedSpaceEnqueueRequest(TypedDict):
@@ -702,6 +706,7 @@ class SharedSpaceEnqueueRequest(TypedDict):
         "delete",
         "forget",
         "acknowledge_membership",
+        "transfer_ownership",
     ]
     space: str
     payload: SharedSpacePayload

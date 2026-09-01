@@ -279,8 +279,8 @@ DLQ lets one malformed request dead-letter someone else's work.
   `is_destroyable`, routes the delete AND refuses the add; complements written twice drift silently
   both ways. Inert because the `owner` **field** is cleared — so test it **as the original owner**.
   A name is never reusable.
-- **The planes do not verify — they read the API's `identity` block**, trusted because only the API
-  may write these queues (`.tftpl` sweep). Dropping a verification is NOT dropping an authorization:
+- **The planes do not verify — they read the API's `identity` block**, whose writers are
+  enumerated: the API, and one reader by `SenderId`. Dropping a verification is NOT dropping an authorization:
   `authorize`/`authorize_source` have **zero diff**. `cpcommon.actor` **cannot verify** (no `jwt`,
   `auth`, network or env — import sweep), and the flat `actor` is **never** read: it carried a raw
   JWT, and a JWT and a username are both non-empty, so the guard is the **shape rule**.

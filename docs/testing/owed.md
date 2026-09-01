@@ -90,6 +90,13 @@ recipe anywhere** — write one when you run it.
 | **A forged or expired `idToken`** | Fails in `Validate` (Catch → `Failed`) with no side effect — auth is server-side, and this is the only check that says so live. |
 | **A stale membership tag reads as `AccessDenied`** | Sign the member out and in again before concluding anything about a membership check. Without the token refresh a correct system looks broken. |
 
+### Needs an admin-bucket write no browser session can make
+
+| Check | Why one signed-in session cannot do it |
+|---|---|
+| **The operator ownership-transfer path** (SPEC-208 FR-007/FR-008) — drop a `space,new_owner` CSV in `<admin-bucket>/ownership-transfers/inbox/`, wait a tick, and see the transfer land, the file move to `processed/`, and both parties notified | The inbox is in the **admin** bucket, which the portal role can read but not write, so the file cannot be put there from a signed-in session or from my own upload path. It needs the CLI under a credential that can write that prefix. Three sub-checks ride with it and are owed for the same reason: a **wrong header** rejects the whole file to `rejected/` with a `.reason.txt` beside it; a message with `origin: operator` from any **other** principal is refused and the space's owner is notified; and the row cap leaves an over-size file in the inbox for the next tick. The offline suite drives all four against fakes — what is owed is the real `SenderId`, which no fake can produce. |
+| **The operator's own feedback channel** (SPEC-208) | An operator gets no notification: both parties to the transfer do, and neither names them. Their only channel is the reader's structured log, one line per enqueued row. Confirming that means reading the logs queue's output for a real run, which needs the CLI check above to have happened first. |
+
 ### Needs infrastructure that is deliberately not created
 
 | Check | Blocker |

@@ -79,7 +79,7 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 from cpcommon import actor as cpactor
-from cpcommon import clients, observability
+from cpcommon import clients, events, observability
 
 observability.init(service="notifications")
 
@@ -316,25 +316,21 @@ def _parse_record(record):
 def sender_id(record):
     """Reads the sender identity SQS stamped on one record.
 
-    ``SenderId`` is a message SYSTEM attribute: the service sets it and a ``SendMessage``
-    cannot, which is what makes it the one attributable fact a queued message carries. The
-    event-source mapping delivers it for FIFO queues with no configuration.
+    A thin name over ``cpcommon.events.sender_id``, kept because this module's call sites and its
+    suite both name it. The reader moved to the shared layer when a second control-plane boundary
+    came to need it: what it extracts is the SQS record's shape, which is not this domain's to
+    own, while the decision below — which senders are refused — is.
 
     Args:
       record: The SQS record.
 
     Returns:
-      The stamped value, or an empty string when the record carries no usable one. Absent is
-      not treated as trusted anywhere — the caller refuses on it.
+      The stamped value, or an empty string when the record carries no usable one.
 
     Raises:
       None.
     """
-    attributes = record.get("attributes") if isinstance(record, dict) else None
-    if not isinstance(attributes, dict):
-        return ""
-    value = attributes.get("SenderId")
-    return value if isinstance(value, str) else ""
+    return events.sender_id(record)
 
 
 def _create_sender_refusal(sender):

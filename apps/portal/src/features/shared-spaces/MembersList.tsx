@@ -14,6 +14,12 @@ type MembersListProps = {
    * Omit for the read-only member roster.
    */
   onRemove?: (username: string) => void;
+  /**
+   * When provided, each non-owner member shows a Transfer-ownership button. Passed only by the
+   * owner's Manage view, so the read-only roster gets none by construction rather than by a
+   * flag someone has to remember to set false.
+   */
+  onTransfer?: (username: string) => void;
   busy?: boolean;
   /**
    * The signed-in user reading this list, when known.
@@ -30,14 +36,14 @@ type MembersListProps = {
 /**
  * Shared presentational roster: the owner first (tagged, never removable), then the
  * other members A–Z, each with a join-status chip. Read-only by default; pass
- * `onRemove` to expose per-member Remove (the owner's Manage drawer). Used by both
- * `ManageMembersDrawer` (read-write) and `MemberRosterDrawer` (read-only).
+ * `onRemove` and/or `onTransfer` to expose the per-member owner controls (the owner's Manage
+ * drawer). Used by both `ManageMembersDrawer` (read-write) and `MemberRosterDrawer` (read-only).
  *
  * @example
  * <MembersList owner="alice" members={members} />                 // read-only
- * <MembersList owner="alice" members={members} onRemove={remove} /> // owner: read-write
+ * <MembersList owner="alice" members={members} onRemove={remove} onTransfer={hand} /> // owner
  */
-export function MembersList({owner, members, onRemove, busy = false, viewer}: MembersListProps) {
+export function MembersList({owner, members, onRemove, onTransfer, busy = false, viewer}: MembersListProps) {
   const others = members.filter((m) => m.username !== owner).sort((a, b) => a.username.localeCompare(b.username));
 
   return (
@@ -58,6 +64,19 @@ export function MembersList({owner, members, onRemove, busy = false, viewer}: Me
           <span className="min-w-0 truncate font-medium text-text">{member.username}</span>
           <MemberStatusBadge status={displayedMemberStatus(member, viewer)} />
           <div className="flex-1" />
+          {onTransfer && (
+            <Button
+              variant="ghost"
+              size="sm"
+              // Named for the same reason Remove is: the visible text repeats on every row, so
+              // a screen-reader user hearing the list of controls would get N identical buttons
+              // with no way to tell which member each one hands the space to.
+              aria-label={`Transfer ownership to ${member.username}`}
+              onClick={() => onTransfer(member.username)}
+              disabled={busy}>
+              Make owner
+            </Button>
+          )}
           {onRemove && (
             <Button
               variant="ghost"

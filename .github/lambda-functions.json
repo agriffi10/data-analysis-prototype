@@ -80,6 +80,13 @@
     ]
   },
   {
+    "name": "shared-space-transfer-ownership",
+    "layers": [
+      "cpcommon",
+      "layer"
+    ]
+  },
+  {
     "name": "shared-space-notify-failure",
     "layers": [
       "cpcommon",
@@ -91,6 +98,12 @@
     "layers": [
       "cpcommon",
       "layer"
+    ]
+  },
+  {
+    "name": "shared-space-transfer-reader",
+    "layers": [
+      "cpcommon"
     ]
   },
   {

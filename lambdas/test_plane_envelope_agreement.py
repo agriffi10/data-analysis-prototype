@@ -46,7 +46,6 @@ _ALLOWLIST_PLANES = {
 }
 
 _NO_ALLOWLIST_VERBS = {
-    "shared-space": "shared-space-validate/validate.py",
     "table-builder": "table-builder-validate-authorize/validate_authorize.py",
     "table-share": "table-share-validate-authorize/table_share_validate_authorize.py",
     "data-quality": "data-quality-validate-authorize/dq_validate_authorize.py",
@@ -63,6 +62,16 @@ _UNDRAINED_BY_DESIGN = {
         "message carries none by design — draining it would notify from an untrusted field"
     ),
 }
+
+#: The shared-space validator, which cannot be a plain subset of the API's declaration because the
+#: API is no longer its only producer. Held out by NAME, with the property that makes the exemption
+#: safe asserted below rather than achieved by leaving a row out of a table.
+_SHARED_SPACE_VERB = "shared-space-validate/validate.py"
+
+#: The fields the shared-space plane reads that the API cannot send. Exactly one, and the count is
+#: the guard: an exemption that grows silently is a hole, so this is set equality rather than a
+#: subset test.
+_OPERATOR_ONLY_FIELDS = frozenset({"origin"})
 
 _NOTIFICATIONS_USER_ACTIONS = frozenset({"markRead", "markAllRead"})
 
@@ -435,3 +444,44 @@ def test_every_allowlist_plane_is_pinned():
       AssertionError: If the pin and the plane map disagree.
     """
     assert set(LEGACY_ADMITTED_TODAY) == set(_ALLOWLIST_PLANES)
+
+
+def test_the_shared_space_verb_is_exempt_by_NAME_and_here_is_why():
+    """A second producer, and declaring its field on the API would hand the browser the door.
+
+    This plane now takes requests from two places. The API is one, and everything it may send is
+    declared. The other is the scheduled reader that turns an operator's CSV of ownership
+    transfers into requests, and it marks its messages with a top-level ``origin`` the API has no
+    way to produce.
+
+    So the verb's read set can never be a subset of one producer's declared fields, exactly as the
+    notifications writer's cannot. And the repair a build session reaches for — adding ``origin``
+    to ``SharedSpaceEnqueueRequest`` so the subset test passes — would be the worst available
+    outcome: the API refuses an undeclared body key, which is the ONLY reason a signed-in caller
+    cannot post ``origin: operator`` today, and declaring it would delete that property to satisfy
+    a test. The runtime ``SenderId`` comparison would then be the sole fence rather than the second
+    one.
+
+    What is asserted instead is the shape that makes the exemption safe:
+
+    1. the plane reads EXACTLY one field the API cannot send, so the hole cannot widen unnoticed;
+    2. that field is undeclarable through the API, so the browser cannot put it on the wire;
+    3. everything else it reads is still a subset of what the API sends, which is the original
+       property, unweakened.
+    """
+    read = _keys_read_by(_SHARED_SPACE_VERB)
+    declared = _declared_keys("shared-space")
+
+    assert read - declared == set(_OPERATOR_ONLY_FIELDS), (
+        f"shared-space reads {sorted(read - declared)} that the API cannot send; the exemption "
+        f"covers {sorted(_OPERATOR_ONLY_FIELDS)} and nothing else. A new one is a new producer, "
+        "or a field the API should have declared."
+    )
+    assert _OPERATOR_ONLY_FIELDS.isdisjoint(declared), (
+        f"{sorted(_OPERATOR_ONLY_FIELDS & declared)} is declared on the API's shared-space "
+        "request, so a signed-in caller can now put it on the wire. The operator origin is "
+        "trusted on the strength of the SenderId alone once that is true."
+    )
+    assert read - _OPERATOR_ONLY_FIELDS <= declared, (
+        "shared-space reads something the API refuses at the door that is not the operator field"
+    )
