@@ -641,6 +641,10 @@ def check_workflow_table() -> list[str]:
     file is a workflow someone deleted while leaving its description behind, which sends the
     next reader looking for something that is not there.
 
+    ``.yaml`` counts as much as ``.yml``: GitHub Actions accepts both, so matching only one
+    would leave a workflow added under the other spelling invisible to exactly the check
+    written to notice it.
+
     Args:
       None.
 
@@ -662,9 +666,12 @@ def check_workflow_table() -> list[str]:
     start = text.index(header)
     end = text.find("\n\n", start)
     body = text[start : end if end != -1 else len(text)]
-    described = set(re.findall(r"^\| `([^`]+\.yml)`", body, re.MULTILINE))
+    described = set(re.findall(r"^\| `([^`]+\.ya?ml)`", body, re.MULTILINE))
 
-    on_disk = {path.name for path in (ROOT / ".github" / "workflows").glob("*.yml")}
+    workflows = ROOT / ".github" / "workflows"
+    on_disk = {path.name for path in workflows.glob("*.yml")} | {
+        path.name for path in workflows.glob("*.yaml")
+    }
     if not on_disk:
         return ["no workflows found on disk — this comparison would pass vacuously"]
 
