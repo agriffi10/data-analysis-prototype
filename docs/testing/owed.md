@@ -804,9 +804,12 @@ were already unread before it (the eight queue URLs, `VITE_ATHENA_WORKGROUP`,
 revert falls back to. To discharge: delete the sixteen, then re-run both workflows and confirm the
 served `/config.json` is unchanged.
 
-**The eleven survivors are not up for deletion** — each is a genuine input, with its reason tabled
-in [`.github/workflows/README.md`](../../.github/workflows/README.md). `VITE_APP_URL` is the one
-that reads like a leftover and is not: Cognito's callback list is built from it.
+**The survivors are not up for deletion** — each is a genuine input, with its reason tabled in
+[`.github/workflows/README.md`](../../.github/workflows/README.md). Fourteen `vars.*` names are
+referenced after this change, of which **eleven are actually set**; the other three
+(`TF_VAR_project_name`, `TF_VAR_environment`, `TF_VAR_verification_principal_arns`) are deliberately
+unset and every reference supplies a `||` fallback. `VITE_APP_URL` is the one that reads like a
+leftover and is not: Cognito's callback list is built from it.
 
 ## 3. Discharged, and worth not re-litigating
 

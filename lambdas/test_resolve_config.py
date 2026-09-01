@@ -171,6 +171,67 @@ def test_it_reports_every_missing_value_at_once(tmp_path: pathlib.Path) -> None:
     assert "cognitoDomain" in completed.stderr
 
 
+def _run_with_mapping(tmp_path: pathlib.Path, mapping_text: str) -> subprocess.CompletedProcess:
+    """Runs the resolver against an arbitrary mapping file and an empty outputs document.
+
+    Args:
+      tmp_path: pytest's temporary directory.
+      mapping_text: The exact text to write as the mapping.
+
+    Returns:
+      The completed process.
+
+    Raises:
+      None.
+    """
+    mapping = tmp_path / "mapping.json"
+    mapping.write_text(mapping_text)
+    outputs = tmp_path / "outputs.json"
+    outputs.write_text("{}")
+    step_output = tmp_path / "step-output"
+    step_output.touch()
+
+    return subprocess.run(  # noqa: S603
+        [str(SCRIPT), "--mapping", str(mapping), "--outputs", str(outputs)],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={"PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", "GITHUB_OUTPUT": str(step_output)},
+    )
+
+
+def test_a_mapping_that_is_not_a_json_object_is_refused(tmp_path: pathlib.Path) -> None:
+    """The shape of "resolved nothing and reported success" that shell makes easy to ship.
+
+    Checking the entry COUNT rather than the read looks equivalent and is not: on malformed
+    JSON ``jq`` prints nothing, the numeric comparison errors with status 2, and ``set -e``
+    does not fire on that inside an ``if``. The loop then read from a process substitution
+    whose failure neither ``set -e`` nor ``pipefail`` covers, so the script exited 0 having
+    resolved nothing at all. Measured before the fix, in both shapes below.
+
+    It matters most for ``deploy-config.yml``, which deleted its own empty-bucket guard in
+    favour of this script: an unresolved destination there becomes
+    ``aws s3 cp … "s3:///_config/feature-flags.json"``, the far-from-its-cause failure this
+    whole arrangement exists to eliminate.
+
+    Args:
+      tmp_path: pytest's temporary directory.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If either malformed shape is accepted.
+    """
+    malformed = _run_with_mapping(tmp_path, "{not json at all")
+    assert malformed.returncode != 0
+    assert "not a readable JSON object" in malformed.stderr
+
+    not_an_object = _run_with_mapping(tmp_path, '"a string"')
+    assert not_an_object.returncode != 0
+    assert "not a readable JSON object" in not_an_object.stderr
+
+
 def test_an_empty_map_is_refused(tmp_path: pathlib.Path) -> None:
     """A map that parsed to nothing would resolve nothing and report success.
 

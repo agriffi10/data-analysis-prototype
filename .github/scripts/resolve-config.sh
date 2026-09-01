@@ -53,10 +53,25 @@ if [ ! -f "$MAPPING" ]; then
   exit 1
 fi
 
-# A map that parsed to nothing would resolve nothing and report success, which is the one
-# failure this script must never have: the deploy would carry on and publish a document
-# built entirely from empty values.
-if [ "$(jq 'length' "$MAPPING")" -eq 0 ]; then
+# A map that resolves nothing must FAIL, not report success — the one failure this script
+# cannot have, because the deploy would carry on and publish a document built entirely from
+# empty values.
+#
+# The entries are read once, here, and the read is what is checked. Testing `jq 'length'`
+# instead looks equivalent and is not: on malformed JSON `jq` prints nothing, so the
+# comparison errors with status 2, which `set -e` does not fire on inside an `if`, and the
+# loop below would then read from a process substitution whose failure `set -e` and
+# `pipefail` do not cover either. Measured: the script exited 0 having resolved nothing.
+#
+# Plain `-r`, never `-e`: with `-e` an empty object exits non-zero too, and the two refusals
+# collapse into one message. They are different faults — a map nobody filled in, and a map
+# that is not a map — and a reader fixing one must not be sent after the other.
+if ! ENTRIES="$(jq -r 'to_entries[] | "\(.key)\t\(.value)"' "$MAPPING" 2>/dev/null)"; then
+  echo "::error::resolve-config.sh: $MAPPING is not a readable JSON object of entries" >&2
+  exit 1
+fi
+
+if [ -z "$ENTRIES" ]; then
   echo "::error::resolve-config.sh: $MAPPING declares no entries" >&2
   exit 1
 fi
@@ -96,7 +111,7 @@ while IFS=$'\t' read -r output_name config_key; do
     printf '%s\n' "$value"
     printf '__RESOLVE_CONFIG_EOF__\n'
   } >> "${GITHUB_OUTPUT:?GITHUB_OUTPUT is not set}"
-done < <(jq -r 'to_entries[] | "\(.key)\t\(.value)"' "$MAPPING")
+done <<< "$ENTRIES"
 
 if [ -n "$missing" ]; then
   echo "::error::the deploy cannot resolve its configuration from Terraform state:${missing}" >&2

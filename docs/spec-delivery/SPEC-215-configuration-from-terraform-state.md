@@ -82,8 +82,10 @@ Already dead before this change — they mirror an output and no workflow reads 
 `VITE_TABLE_SHARE_QUEUE_URL`.
 
 **Delete only after the post-merge Deploy App and Publish Config runs are green** — deleting them
-first would break the deploy they precede. The eleven survivors and the reason each is an input
-rather than an output are tabled in `.github/workflows/README.md`.
+first would break the deploy they precede, and until then they are what a revert falls back to. The
+survivors and the reason each is an input rather than an output are tabled in
+`.github/workflows/README.md`: fourteen `vars.*` names are still referenced, eleven of them set,
+the other three deliberately unset behind `||` fallbacks.
 
 ## Verification
 

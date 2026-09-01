@@ -75,15 +75,22 @@ Go to **Settings → Secrets and variables → Actions → Variables**.
 | `TF_VAR_github_repo` | Scopes the OIDC trust policy | `owner/repo-name`; must match exactly |
 | `TF_VAR_parent_domain`, `TF_VAR_spa_subdomain`, `TF_VAR_api_subdomain`, `TF_VAR_route53_zone_id` | The names and the zone you chose | Terraform builds the origins from them |
 | `TF_VAR_spa_desired_count`, `TF_VAR_spa_image_tag` | Deployment knobs | Both carry `validation` blocks and a `|| 'default'` in the workflow |
-| `TF_VAR_verification_principal_arns` | Principals you nominate | Empty (the default) means the verification role is not created |
+| `TF_VAR_verification_principal_arns` | Principals you nominate | **Unset by design.** Empty (the default) means the verification role is not created; every reference supplies `|| '[]'` |
+| `TF_VAR_project_name`, `TF_VAR_environment` | The resource-name prefix and the environment segment | **Unset by design.** Every reference supplies `|| 'dat'` / `|| 'prod'`; set them only if this deployment does not use the defaults |
 
-**A variable with no reason in that middle column should not exist.** The derived values that used
-to sit here — `API_BASE_URL`, the four Cognito ids and domains, the two bucket names — are resolved
-from Terraform state now and were deleted from the settings page. So were ten variables that had
-already stopped being read at all when the browser's control-plane enqueues moved behind the API:
-the eight queue URLs, the Athena workgroup and the Identity Pool id. The queue URLs are wired
-straight from each module's output onto the API function by Terraform, with no repository variable
-and no build env in between.
+That table is the whole set of `vars.*` any workflow reads — **fourteen names, of which eleven are
+actually set**; the last three rows are deliberately absent, each with an explicit `||` fallback at
+every reference. **A variable with no reason in the middle column should not exist.**
+
+**Sixteen retired names are still set and are waiting to be deleted. This is an outstanding action,
+not a completed one.** Six were retired by the move to Terraform state: `API_BASE_URL`, the three
+`VITE_COGNITO_*` values, and the two `VITE_S3_*` bucket names. Ten more had already stopped being
+read when the browser's control-plane enqueues moved behind the API: the eight queue URLs,
+`VITE_ATHENA_WORKGROUP` and `VITE_COGNITO_IDENTITY_POOL_ID`. The list and the ordering are in
+[`docs/testing/owed.md`](../../docs/testing/owed.md) — **delete them only after a green post-merge
+`Deploy App` and `Publish Config`**, because until then they are what a revert falls back to. The
+queue URLs are wired straight from each module's output onto the API function by Terraform, with no
+repository variable and no build env in between.
 
 > **Chicken-and-egg note for `VITE_APP_URL`:** on the very first deploy the CloudFront domain is not
 > known yet. Set it to a placeholder (or empty), let the first deploy complete, then set it to

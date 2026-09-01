@@ -93,9 +93,9 @@ jobs:
         run: ../.github/scripts/resolve-config.sh --mapping ../.github/config-outputs.json
 
       # THE ONE VALUE TERRAFORM COMPUTES AND ALSO CONSUMES. `appUrl` is resolved from the
-      # distribution here, while `TF_VAR_app_url` — still a repository variable, because an
-      # input cannot be read from the thing it configures — is what builds Cognito's callback
-      # and logout lists. Before this change both came from that one variable and could not
+      # distribution here, while `vars.VITE_APP_URL` — still a repository variable, because
+      # `deploy-infra.yml` feeds it to `TF_VAR_app_url` and an input cannot be read from the
+      # thing it configures — is what builds Cognito's callback and logout lists. Before this change both came from that one variable and could not
       # disagree; now they are two statements of one origin, and a divergence would send a
       # sign-in started on the portal back to an origin Cognito does not allow. That failure
       # is a broken sign-in with nothing red anywhere, so it is compared here rather than

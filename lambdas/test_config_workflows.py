@@ -8,7 +8,7 @@ coming, and a check that counted to three would keep passing while the fourth dr
 Attributes:
   ROOT: The repository root.
   WORKFLOWS: The directory every assertion here derives its subject from.
-  DEPLOY_APP: The workflow whose step order decides what a failed resolve leaves behind.
+  RESOLVE_STEP: The resolve step's name, used to find every workflow that has one.
   RETIRED_VARIABLES: Repository variables this spec replaced with Terraform outputs. A
     reference to one that survives in any workflow is reading a value nobody maintains.
   SURVIVING_VARIABLE: A variable that is still a genuine input, used as the positive
@@ -20,7 +20,7 @@ import re
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 WORKFLOWS = ROOT / ".github" / "workflows"
-DEPLOY_APP = WORKFLOWS / "deploy-app.yml"
+RESOLVE_STEP = "- name: Resolve the configuration from Terraform state"
 
 RETIRED_VARIABLES = (
     "API_BASE_URL",
@@ -153,11 +153,17 @@ def test_no_workflow_reads_a_retired_repository_variable() -> None:
 
 
 def test_the_resolve_refusal_lands_before_any_aws_write() -> None:
-    """A failed resolve must leave the live site exactly as it was.
+    """A failed resolve must leave every live surface exactly as it was.
 
     The credentials step moved above the resolve because reading remote state is an AWS
     call, and that is safe only because it is a READ. If a write ever preceded the resolve,
-    a job could half-update the bucket and then fail on a value it could have checked first.
+    a job could half-update a bucket and then fail on a value it could have checked first.
+
+    Derived over EVERY workflow that resolves, not written against one. Both deploy
+    workflows resolve now and a third is expected, and the one that most needs this is
+    ``deploy-config.yml``: it deleted its own empty-bucket guard in favour of the resolver,
+    so it has no second line of defence between an unresolved destination and an
+    ``aws s3 cp``.
 
     Args:
       None.
@@ -166,17 +172,28 @@ def test_the_resolve_refusal_lands_before_any_aws_write() -> None:
       None.
 
     Raises:
-      AssertionError: If the resolve step is absent, or any AWS write precedes it.
+      AssertionError: If no workflow resolves, if one has no AWS write to order against,
+        or if any write precedes its resolve.
     """
-    text = DEPLOY_APP.read_text()
-    resolve_at = text.find("- name: Resolve the configuration from Terraform state")
-    assert resolve_at > -1, "deploy-app.yml has no resolve step — this has no subject"
+    resolvers = {path.name: path.read_text() for path in _workflows() if RESOLVE_STEP in path.read_text()}
 
-    writes = [
-        (match.start(), match.group(0).strip())
-        for match in re.finditer(r"^\s+aws (?:s3 (?:cp|sync)|cloudfront create-invalidation)[^\n]*", text, re.MULTILINE)
-    ]
-    assert writes, "no AWS writes found in deploy-app.yml — the ordering claim has no subject"
+    assert resolvers.keys() >= {"deploy-app.yml", "deploy-config.yml"}, (
+        f"expected both deploy workflows to resolve, found {sorted(resolvers)}"
+    )
 
-    early = [command for position, command in writes if position < resolve_at]
-    assert early == [], f"AWS writes precede the configuration resolve: {early}"
+    early: dict[str, list[str]] = {}
+    for name, text in resolvers.items():
+        resolve_at = text.find(RESOLVE_STEP)
+        writes = [
+            (match.start(), match.group(0).strip())
+            for match in re.finditer(
+                r"^\s+aws (?:s3 (?:cp|sync)|cloudfront create-invalidation)[^\n]*", text, re.MULTILINE
+            )
+        ]
+        assert writes, f"no AWS writes found in {name} — the ordering claim has no subject there"
+
+        preceding = [command for position, command in writes if position < resolve_at]
+        if preceding:
+            early[name] = preceding
+
+    assert early == {}, f"AWS writes precede the configuration resolve: {early}"

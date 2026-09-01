@@ -339,12 +339,15 @@ describe('runtimeConfig — every key has a source in every environment', () => 
     expect(renderSource.size).toBeGreaterThan(0);
 
     for (const key of ALL_KEYS) {
+      // EVERY key must have matched, not just some. Comparing two `undefined`s passes, so a
+      // key whose expression stopped matching both regexes would drop silently out of the
+      // comparison — reachable, because `(\S+)` cannot match a spaced expression and this
+      // repo already writes `${{ vars.X || 'default' }}` elsewhere.
+      expect(renderSource.get(key)).toBeTruthy();
+
       const viteName = VITE_NAME[key];
-      if (viteName === null) {
-        // The one key with no browser fallback still needs a source of its own.
-        expect(renderSource.get(key)).toBeTruthy();
-        continue;
-      }
+      if (viteName === null) continue;
+      expect(buildSource.get(viteName)).toBeTruthy();
       expect(renderSource.get(key)).toBe(buildSource.get(viteName));
     }
   });
