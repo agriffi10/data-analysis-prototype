@@ -121,7 +121,7 @@ The most-used flow in the app has one UI-level test whose only assertion is `exp
 - [ ] **Previous** returns to page 1.
 - [ ] Changing **rows per page** re-fetches and renders the new size, and the setting persists across result tabs within the session.
 - [ ] A column width set on one tab survives a switch away and back.
-- [ ] An editor layout preset applies and persists per its spec.
+- [ ] An editor layout preset applies and persists per its spec. *(Subject retired by SPEC-209 — the presets are gone; the equivalent guard is now the divider's drag-and-remount case.)*
 - [ ] Where an existing hook test now duplicates one of these, it is reduced to the state derivation it uniquely covers rather than left asserting the same thing twice (§21: don't test the same logic at two levels).
 
 ### FR-006: The remaining unwired flows

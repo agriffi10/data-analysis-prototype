@@ -5,8 +5,9 @@
 export {getQueryHistory, appendQueryHistory, updateQueryHistoryEntry} from './queryHistory.service';
 export {useResultsPageSize, clampPageSize} from './useResultsPageSize';
 export type {UseResultsPageSizeResult} from './useResultsPageSize';
-export {useEditorLayout} from './useEditorLayout';
-export type {UseEditorLayoutResult} from './useEditorLayout';
+export {useEditorSplit, clampEditorHeight, clampFraction, splitBounds} from './useEditorSplit';
+export type {UseEditorSplitResult} from './useEditorSplit';
+export {EditorSplitDivider} from './EditorSplitDivider';
 export {useQueryHistory} from './useQueryHistory';
 export type {UseQueryHistoryResult} from './useQueryHistory';
 export {useQueryTabs} from './useQueryTabs';
@@ -20,10 +21,12 @@ export {
   QUERY_TABS_MAX,
   QUERY_HISTORY_PAGE_SIZE,
   DEFAULT_SQL,
-  DEFAULT_LAYOUT_PRESET,
-  LAYOUT_PRESET_EDITOR_FRACTION,
+  DEFAULT_EDITOR_FRACTION,
+  EDITOR_SPLIT_KEY_STEP,
+  EDITOR_SPLIT_DIVIDER_HEIGHT,
+  MIN_EDITOR_FRACTION,
+  MAX_EDITOR_FRACTION,
   MIN_EDITOR_HEIGHT,
   MIN_RESULTS_HEIGHT
 } from './query.constants';
-export type {EditorLayoutPreset} from './query.constants';
 export type {QueryHistoryEntry, QueryHistory, QueryTab, QueryTabsState} from './query.types';

@@ -1,7 +1,6 @@
 import {Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {useLocation, useSearchParams} from 'react-router';
 import {useAuth} from '../auth';
-import {cx} from '../../lib/cx';
 import {useQueryResults} from '../catalog/useQueryResults';
 import {useResultsPageSize} from './useResultsPageSize';
 import {useResultRowCount} from '../catalog/useResultRowCount';
@@ -15,7 +14,8 @@ import {sqlDdlIdentifier} from '../../lib/sql';
 import {useMobileQuerySurface} from './useMobileQuerySurface';
 import {useSaveResults} from '../catalog/useSaveResults';
 import {useTableActions} from './useTableActions';
-import {useEditorLayout} from './useEditorLayout';
+import {useEditorSplit} from './useEditorSplit';
+import {EditorSplitDivider} from './EditorSplitDivider';
 import {useSavedQueries} from '../saved-queries/useSavedQueries';
 import {useSavedQuerySpace} from '../saved-queries/useSavedQuerySpace';
 import {useQuerySpaces} from '../catalog/useQuerySpaces';
@@ -109,9 +109,9 @@ export function QueryWorkspace() {
   const tabs = useQueryTabs(username);
   const {activeTab, activeTabId} = tabs;
 
-  // The editor/results layout preset. The editor+results column is
-  // measured (ResizeObserver, guarded for environments without one) and the
-  // hook derives the editor pane's clamped pixel height from the preset.
+  // The editor+results column is measured (ResizeObserver, guarded for
+  // environments without one) and the hook derives the editor pane's clamped
+  // pixel height from the dragged fraction.
   const layoutColumnRef = useRef<HTMLDivElement>(null);
   const [layoutColumnHeight, setLayoutColumnHeight] = useState(0);
   useLayoutEffect(() => {
@@ -122,19 +122,11 @@ export function QueryWorkspace() {
     const observer = new ResizeObserver(() => setLayoutColumnHeight(el.clientHeight));
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
-  const layout = useEditorLayout(username || null, layoutColumnHeight);
-  // Ease the editor/results split only when the user picks a preset — never on
-  // the ResizeObserver-driven height changes from window resize, which would
-  // otherwise make the panes lag behind the viewport.
-  const [animateSplit, setAnimateSplit] = useState(false);
-  const handleLayoutChange = useCallback(
-    (next: Parameters<typeof layout.setPreset>[0]) => {
-      setAnimateSplit(true);
-      layout.setPreset(next);
-    },
-    [layout]
-  );
+    // The column only exists above `tablet`, so a session that starts narrow and
+    // widens has to re-measure — a mount-only effect finds no element, returns,
+    // and leaves the split permanently unmeasured with no way to move it.
+  }, [isMobile]);
+  const split = useEditorSplit(username || null, layoutColumnHeight);
 
   // Drawers are mutually exclusive: opening one closes the other.
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -202,6 +194,11 @@ export function QueryWorkspace() {
   const [createViewOpen, setCreateViewOpen] = useState(false);
   const [createViewDb, setCreateViewDb] = useState('');
   const editorRef = useRef<SqlEditorHandle>(null);
+  // Monaco carries its own automatic layout, which reacts a frame late; a drag
+  // is continuous, so re-measure it as the pane height lands instead.
+  useEffect(() => {
+    editorRef.current?.layout();
+  }, [split.editorHeight]);
   // The list fields feed the mobile browse-first home; the
   // desktop drawer subscribes to the same cache key, so this adds no fetch.
   const {
@@ -711,8 +708,6 @@ export function QueryWorkspace() {
               aria-labelledby={`query-tab-${activeTabId}`}
               className="flex min-h-0 min-w-0 flex-1 flex-col">
               <QueryToolbar
-                preset={layout.preset}
-                onPresetChange={handleLayoutChange}
                 isInFlight={activeIsInFlight}
                 canRun={canRun}
                 canClear={canClear}
@@ -725,21 +720,16 @@ export function QueryWorkspace() {
                 onRunScript={handleRunScript}
               />
 
-              {/* the measured editor+results column. The editor pane takes
-              the preset's clamped height; everything below it (status bar +
-              results) flexes into the remainder and keeps scrolling internally. */}
+              {/* the measured editor+results column, and exactly three flex
+              children: the editor pane at the split's clamped height, the
+              divider, and the results region taking the remainder and
+              scrolling internally. */}
               <div
                 ref={layoutColumnRef}
                 className="flex min-h-0 min-w-0 flex-1 flex-col">
                 <div
-                  className={cx(
-                    'flex-none border-b border-border',
-                    animateSplit && 'transition-[height] duration-200 ease-out motion-reduce:transition-none'
-                  )}
-                  style={{height: layout.editorHeight}}
-                  onTransitionEnd={(e) => {
-                    if (e.target === e.currentTarget && e.propertyName === 'height') setAnimateSplit(false);
-                  }}>
+                  className="flex-none"
+                  style={{height: split.editorHeight}}>
                   <Suspense
                     fallback={
                       <div className="flex h-full items-center justify-center bg-surface-2 text-sm text-text-3">
@@ -758,28 +748,35 @@ export function QueryWorkspace() {
                   </Suspense>
                 </div>
 
-                <QueryResultsRegion
-                  run={activeRun}
-                  status={activeStatus}
-                  isInFlight={activeIsInFlight}
-                  batchDone={activeBatchDone}
-                  editorOwnsRun={editorOwnsRun}
-                  editorExecutionId={editorExecutionId}
-                  editorDisplayExecutionId={editorDisplayExecutionId}
-                  displayExecutionId={displayExecutionId}
-                  hasResultSet={hasResultSet}
-                  totalRowCount={rowCount.total}
-                  results={results}
-                  pageSize={resultsPageSize}
-                  colWidths={colWidths}
-                  showResultTabs={showResultTabs}
-                  showError={showError}
-                  errorMessage={errorMessage}
-                  onDismissError={() => dismissError(activeTabId)}
-                  onSelectResultTab={(index) => selectResultTab(activeTabId, index)}
-                  canSaveResults={canSaveResults}
-                  onSaveResults={saveResults.openDialog}
+                <EditorSplitDivider
+                  {...split.dividerProps}
+                  onStep={split.step}
                 />
+
+                <div className="flex min-h-0 flex-1 flex-col">
+                  <QueryResultsRegion
+                    run={activeRun}
+                    status={activeStatus}
+                    isInFlight={activeIsInFlight}
+                    batchDone={activeBatchDone}
+                    editorOwnsRun={editorOwnsRun}
+                    editorExecutionId={editorExecutionId}
+                    editorDisplayExecutionId={editorDisplayExecutionId}
+                    displayExecutionId={displayExecutionId}
+                    hasResultSet={hasResultSet}
+                    totalRowCount={rowCount.total}
+                    results={results}
+                    pageSize={resultsPageSize}
+                    colWidths={colWidths}
+                    showResultTabs={showResultTabs}
+                    showError={showError}
+                    errorMessage={errorMessage}
+                    onDismissError={() => dismissError(activeTabId)}
+                    onSelectResultTab={(index) => selectResultTab(activeTabId, index)}
+                    canSaveResults={canSaveResults}
+                    onSaveResults={saveResults.openDialog}
+                  />
+                </div>
               </div>
             </div>
           </>

@@ -214,7 +214,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 206 — The Notifications `create` Boundary | Completed |
 | 207 — Contextual Help: the Guide Panel, Deep Links & Per-Page Help Buttons | Completed |
 | 208 — Shared-Space Ownership Transfer | Draft |
-| 209 — The Draggable Editor/Results Divider | Draft |
+| 209 — The Draggable Editor/Results Divider | Completed |
 | 210 — Dark Mode: the Measured Dark Palette, the Theme Switch and Monaco | Draft |
 | 211 — Give Feedback: the API Route, the Writer Queue and the Daily Document | Draft |
 | 212 — Container Lambdas: the Base Image, ECR and the Build Pipeline | Draft |

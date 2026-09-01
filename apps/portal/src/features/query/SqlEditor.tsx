@@ -81,6 +81,8 @@ function releaseSqlCompletions() {
 export type SqlEditorHandle = {
   /** Focuses the editor (used after re-opening a history entry / a table action). */
   focus: () => void;
+  /** Re-measures the editor against its container, after the pane is resized. */
+  layout: () => void;
   /** The selection as buffer offsets, or null when empty. */
   getSelectionRange: () => {start: number; end: number} | null;
   /** The cursor position as a buffer offset. */
@@ -138,6 +140,9 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
   useImperativeHandle(ref, () => ({
     focus() {
       editorRef.current?.focus();
+    },
+    layout() {
+      editorRef.current?.layout();
     },
     getSelectionRange() {
       const editor = editorRef.current;

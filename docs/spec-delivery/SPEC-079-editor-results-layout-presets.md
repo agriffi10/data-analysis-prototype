@@ -1,5 +1,9 @@
 # Completed Spec — SPEC-079: Editor / Results Layout Presets
 
+> **Retired by SPEC-209 (2026-09-01).** The three-preset control described below no longer exists —
+> the split is dragged at a divider. The clamp order and the two height floors survive; everything
+> else here is history. See `docs/spec-delivery/SPEC-209-draggable-editor-results-divider.md`.
+
 ## What was completed?
 
 The query workspace's frozen `h-[200px]` editor / `flex-1` results split is now user-controlled via a

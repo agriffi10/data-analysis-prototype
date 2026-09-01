@@ -43,7 +43,7 @@ SPEC-173 made a saved query a `.sql` file in a space's `saved_queries/` folder, 
 
 The saved-queries drawer opens on a space selector listing `useQuerySpaces()` — the user's own space first (labelled *My files*), then each active shared space by name. Choosing one loads that space's saved queries. The chosen space is the drawer's state, not the workspace's: it does not change which database a query runs against, and it does not affect the schema rail.
 
-The last space chosen is remembered per user in `sessionStorage`, on the same degrade-safe pattern as `useResultsPageSize` and `useEditorLayout` — a read that throws or returns junk falls back to the personal space rather than breaking the drawer. A remembered space the user no longer belongs to also falls back to personal.
+The last space chosen is remembered per user in `sessionStorage`, on the same degrade-safe pattern as `useResultsPageSize` and `useEditorSplit` — a read that throws or returns junk falls back to the personal space rather than breaking the drawer. A remembered space the user no longer belongs to also falls back to personal.
 
 #### Acceptance Criteria:
 

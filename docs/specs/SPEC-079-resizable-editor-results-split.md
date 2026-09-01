@@ -5,6 +5,12 @@
 **Last Updated:** 2026-07-03
 **Depends On:** SPEC-035 (query workspace layout)
 
+> **The presets this spec shipped were retired by SPEC-209 (2026-09-01).** The split is dragged at a
+> divider now; `EditorLayoutControl`, `useEditorLayout`, the three-preset type and its storage key are
+> all deleted. The status stays Completed because this spec *was* delivered — what follows is the
+> record of that, not a description of the product. `MIN_EDITOR_HEIGHT` / `MIN_RESULTS_HEIGHT` and the
+> clamp order survive. Full entry: `docs/decisions/browser.md` → *One split, two clamp domains*.
+
 ## Overview
 
 The query workspace stacks a **fixed-height** editor (`h-[200px]`) above a
