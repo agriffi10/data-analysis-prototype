@@ -66,20 +66,36 @@ class FakeSigner:
     def generate_presigned_url(self, operation, Params, ExpiresIn):
         """Records and returns a URL.
 
+        **Every parameter botocore emits is present, and that is the point.** A fake that emits
+        only the two parameters an assertion happens to name cannot fail that assertion for the
+        right reason: the guard below asks whether a presigned URL reached a log record, and a
+        URL missing the fields a real one carries is not the artifact being guarded. This fake
+        was previously two parameters wide while the client shipped SigV2, so the guard could
+        not have caught a real leak.
+
         Args:
           operation: The operation being signed.
           Params: The signed parameters.
           ExpiresIn: The window.
 
         Returns:
-          A URL carrying a signature-shaped query string.
+          A URL carrying the query string a real SigV4 presign carries.
 
         Raises:
           None.
         """
         self.calls.append("generate_presigned_url")
         self.signed.append((operation, Params, ExpiresIn))
-        return f"https://s3.example/{Params['Key']}?X-Amz-Signature=deadbeef&X-Amz-Expires={ExpiresIn}"
+        return (
+            f"https://s3.example/{Params['Key']}"
+            "?X-Amz-Algorithm=AWS4-HMAC-SHA256"
+            "&X-Amz-Credential=test-credential%2F20260901%2Fus-east-1%2Fs3%2Faws4_request"
+            "&X-Amz-Date=20260901T000000Z"
+            f"&X-Amz-Expires={ExpiresIn}"
+            "&X-Amz-SignedHeaders=host"
+            "&X-Amz-Security-Token=test-session-token"
+            "&X-Amz-Signature=deadbeef"
+        )
 
 
 class _Missing(Exception):
@@ -377,7 +393,15 @@ class TestAUrlIsABearerToken:
             None,
         )
         blob = json.dumps(emitted)
-        assert "X-Amz-Signature" not in blob
+        for parameter in (
+            "X-Amz-Signature",
+            "X-Amz-Credential",
+            "X-Amz-Security-Token",
+            "AWSAccessKeyId",
+            "x-amz-security-token",
+            "Signature=",
+        ):
+            assert parameter not in blob, f"{parameter} reached an emitted record"
         assert "secret.csv" not in blob, "the key itself is not a field either"
 
     def test_an_occupied_key_mints_NO_url(self, monkeypatch) -> None:
