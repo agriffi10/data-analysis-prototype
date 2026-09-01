@@ -8,12 +8,32 @@ const SOURCE = import.meta.glob('./helpSurfaces.ts', {query: '?raw', import: 'de
   string
 >;
 
+const APP_SOURCE = import.meta.glob('../../App.tsx', {query: '?raw', import: 'default', eager: true}) as Record<
+  string,
+  string
+>;
+
 describe('HELP_SURFACES', () => {
   it('names a section that exists, for every row', () => {
     const known = new Set(HELP_SECTIONS.map((section) => section.id));
     expect(HELP_SURFACES.length).toBeGreaterThan(0);
     for (const surface of HELP_SURFACES) {
       expect(known.has(surface.sectionId), `${surface.path} → ${surface.sectionId}`).toBe(true);
+    }
+  });
+
+  it('names a path the app actually routes, for every row', () => {
+    // Rendering the header at a path proves the control resolves — it does NOT prove the path
+    // is a route, because the header renders the same either way. So a row left behind by a
+    // route rename would silently revert that page's control to plain navigation, which is the
+    // failure a registry with a walking test exists to stop.
+    const appSource = Object.values(APP_SOURCE)[0];
+    expect(appSource, 'the App.tsx sweep matched nothing').toBeDefined();
+    const routed = new Set([...appSource!.matchAll(/path="([^"]+)"/g)].map((m) => m[1]));
+    expect(routed.size, 'no route paths were extracted').toBeGreaterThan(5);
+
+    for (const surface of HELP_SURFACES) {
+      expect(routed.has(surface.path), `${surface.path} is in no <Route path=…>`).toBe(true);
     }
   });
 

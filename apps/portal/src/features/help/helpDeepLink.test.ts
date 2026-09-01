@@ -2,6 +2,7 @@ import {describe, expect, it} from 'vitest';
 import {resolveHelpHash} from './helpDeepLink';
 import {HELP_SECTIONS} from './helpContent';
 import {visibleHelpSections} from './visibleSections';
+import type {HelpSection} from './help.types';
 
 const ALL_ON = visibleHelpSections(() => true);
 
@@ -19,6 +20,23 @@ describe('resolveHelpHash', () => {
       sectionId: 'shared-connections',
       guideId: 'delete-space'
     });
+  });
+
+  it('prefers the SECTION when an id could be read as either', () => {
+    // Unreachable with the shipped content — the uniqueness test below is what keeps it that
+    // way — so the ordering is pinned on a fixture instead of left as a docstring claim.
+    const collided: HelpSection[] = [
+      {id: 'notifications', label: 'Notifications', subtitle: '', icon: 'notifications', guides: []},
+      {
+        id: 'files',
+        label: 'Files',
+        subtitle: '',
+        icon: 'files',
+        guides: [{id: 'notifications', title: 'A guide wearing a section id', subtitle: '', steps: ['x']}]
+      }
+    ];
+
+    expect(resolveHelpHash('#notifications', collided)).toEqual({sectionId: 'notifications', guideId: null});
   });
 
   it('falls back to the first visible section for a hash that is neither', () => {

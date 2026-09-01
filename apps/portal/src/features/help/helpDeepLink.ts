@@ -12,8 +12,9 @@ export type HelpHashTarget = {
  *
  * Sections are matched first, so `#query` keeps meaning exactly what it always has. A guide
  * id resolves to its owning section — which is what makes a single guide linkable — and the
- * lookup is by bare id, which is why guide ids must be unique across sections and distinct
- * from every section id.
+ * lookup is by bare id. The ordering is not what keeps the two apart, though: what does is
+ * that no guide id equals a section id, asserted over the shipped content. Swap the two
+ * lookups and today's content behaves identically.
  *
  * `sections` must already be flag-filtered: a guide the flags hide is then simply not found,
  * so an anchor into it falls back rather than promising to expand a card nobody rendered.

@@ -1,5 +1,5 @@
-import {afterEach, describe, expect, it, vi} from 'vitest';
-import {cleanup, screen, within} from '@testing-library/react';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {act, cleanup, screen, waitFor, within} from '@testing-library/react';
 import {Link, Route, Routes, useLocation, useNavigate} from 'react-router';
 import {QueryClient} from '@tanstack/react-query';
 import {Header} from '../../components/Header';
@@ -11,6 +11,7 @@ import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../t
 import {createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {FEATURE_FLAG_DEFAULTS, featureFlagKeys} from '../feature-flags';
+import {getFeatureFlags} from '../feature-flags/featureFlags.service';
 import type {FeatureFlags} from '../feature-flags';
 import {configValue} from '../../lib/runtimeConfig';
 import type {HelpSectionId} from './help.types';
@@ -21,6 +22,17 @@ vi.mock('../notifications/notifications.service', () => ({
   getNotifications: vi.fn().mockResolvedValue({success: true, data: []}),
   enqueueNotificationAction: vi.fn().mockResolvedValue({success: true, data: undefined})
 }));
+
+// One test republishes the flag document mid-session; every other test here pre-seeds the cache
+// and never lets this run.
+vi.mock('../feature-flags/featureFlags.service', async (importActual) => ({
+  ...(await importActual<typeof import('../feature-flags/featureFlags.service')>()),
+  getFeatureFlags: vi.fn()
+}));
+
+beforeEach(() => {
+  vi.mocked(getFeatureFlags).mockResolvedValue({success: true, data: FEATURE_FLAG_DEFAULTS});
+});
 
 /** A client answering the flags query with the compiled-in defaults plus `overrides`. */
 function clientWithFlags(overrides: Partial<FeatureFlags> = {}): QueryClient {
@@ -255,6 +267,43 @@ describe('the header help control', () => {
 
     expect(screen.getByRole('link', {name: 'Help & guides'})).toHaveAttribute('href', '/help');
     expect(screen.queryByRole('button', {name: 'Help for this page'})).not.toBeInTheDocument();
+  });
+
+  it('does not re-open itself when a hidden feature comes back', async () => {
+    // The flag document is re-read within a long session. Hiding the section only makes an
+    // open panel invisible, so publishing the feature back would bring it up again with no
+    // user action — `aria-expanded="true"` over a page nobody asked for it on.
+    //
+    // Republished through the SERVICE, not by writing the cache: a `setQueryData` on this
+    // client reaches the cache and never reaches `useFeature`, so a test built on it asserts
+    // nothing. The `waitFor`s are not decoration either — TanStack notifies observers on a
+    // timer that neither form of `act` drains.
+    const client = clientWithFlags();
+    const publish = async (flags: FeatureFlags) => {
+      vi.mocked(getFeatureFlags).mockResolvedValue({success: true, data: flags});
+      await act(async () => {
+        await client.invalidateQueries({queryKey: featureFlagKeys.all});
+      });
+    };
+    const {user} = renderWithProviders(
+      <>
+        <Header />
+        <LocationProbe />
+      </>,
+      {route: '/files', auth: authenticated('alice'), queryClient: client, seedFeatureFlags: false}
+    );
+
+    await user.click(screen.getByRole('button', {name: 'Help for this page'}));
+    expect(screen.getByRole('dialog', {name: 'Files'})).toBeInTheDocument();
+
+    await publish({...FEATURE_FLAG_DEFAULTS, files: false});
+    await waitFor(() => expect(screen.getByRole('link', {name: 'Help & guides'})).toBeInTheDocument());
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    await publish(FEATURE_FLAG_DEFAULTS);
+    await waitFor(() => expect(screen.getByRole('button', {name: 'Help for this page'})).toBeInTheDocument());
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Help for this page'})).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('is the link, not a dead button, while the flags are still loading', () => {

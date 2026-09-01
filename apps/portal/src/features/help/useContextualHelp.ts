@@ -30,6 +30,12 @@ export function useContextualHelp(): UseContextualHelpResult {
   const [open, setOpen] = useState(false);
   const [openedAt, setOpenedAt] = useState(pathname);
 
+  const sectionId = useMemo(() => {
+    const surface = HELP_SURFACES.find((candidate) => candidate.path === pathname);
+    if (!surface) return null;
+    return sections.some((section) => section.id === surface.sectionId) ? surface.sectionId : null;
+  }, [pathname, sections]);
+
   // Closed on the pathname CHANGING, not on first paint. Two failures otherwise, both of
   // which pass a mount-only test: leave a route and come back and the panel is still up, and
   // pressing Back swaps a different section's content into a live modal. Adjusted during
@@ -39,18 +45,15 @@ export function useContextualHelp(): UseContextualHelpResult {
   if (openedAt !== pathname) {
     setOpenedAt(pathname);
     setOpen(false);
+  } else if (open && sectionId === null) {
+    // A section that vanishes under an open panel closes it for GOOD. Without this the flag
+    // only hides it: publish the feature back inside the same session and the panel returns,
+    // with `aria-expanded="true"` and no user action.
+    setOpen(false);
   }
-
-  const sectionId = useMemo(() => {
-    const surface = HELP_SURFACES.find((candidate) => candidate.path === pathname);
-    if (!surface) return null;
-    return sections.some((section) => section.id === surface.sectionId) ? surface.sectionId : null;
-  }, [pathname, sections]);
 
   const openPanel = useCallback(() => setOpen(true), []);
   const closePanel = useCallback(() => setOpen(false), []);
 
-  // Reported closed when there is no section to show, so a flag resolving under an open panel
-  // cannot leave a modal with nothing in it.
-  return {sectionId, open: open && sectionId !== null, openPanel, closePanel};
+  return {sectionId, open, openPanel, closePanel};
 }
