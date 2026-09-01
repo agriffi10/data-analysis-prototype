@@ -2574,7 +2574,8 @@ with versioning off.
 **What it buys §3.11 is a whole failure class.** SPEC-151 exists because a partial teardown could
 free a name while resources survived under it, and FR-011 was originally a teardown protocol
 descending from that. On a route that releases no record the hazard is *unreachable*, so FR-011 is
-three criteria and `TeardownIncompleteError` does not apply to it.
+three criteria and `TeardownIncompleteError` does not apply **on the emptying route**. It is
+still reachable on the destroying one, which lives in `delete` as well as in `forget`.
 
 **The seam is a durable field, and the obvious version of it was unsafe.** Retention keys on
 `everActive`, stamped at `finalize` and never cleared — **not** on live `status`, which the first

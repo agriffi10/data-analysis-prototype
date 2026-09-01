@@ -25,6 +25,13 @@ rewriting an existing ``Resource`` list, and a slice keyed on one ``Sid`` cannot
 same reason the action sweep refuses a **wildcarded** Glue action as well as the two spelled-out
 ones: ``glue:*Database`` grants both while matching neither literally.
 
+**Both sweeps are Effect-blind, and that cuts both ways.** They read the template as text, so a
+``Deny`` carrying a Glue ARN, or a ``Deny`` on ``glue:*Database``, reddens them as though it were a
+grant — and the failure message would describe the opposite of what the author did. Nothing in any
+portal-role template does this today. It is stated because the hardening this file argues for is
+exactly the edit that would trip it: if you add such a ``Deny``, teach these two sweeps about
+``Effect`` rather than deleting the assertion.
+
 What it does NOT cover: a narrowing supplied by some third mechanism (an SCP, a permissions
 boundary, a Lake Formation LF-Tag policy) would be invisible to it, and personal-space isolation
 is the same shape in ``portal-role-analytics.json.tftpl`` but is asserted only by the action sweep

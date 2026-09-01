@@ -1057,12 +1057,15 @@ least privileged first. With the space's data location registered with Lake Form
 (§6.2), an LF grant alone is enough for Athena to read the whole space through LF credential vending,
 while the Access Grant is what the file browser needs; LF-first therefore hands a member the ability
 to query everything while the UI still looks empty. The Access Grant is issued at **`READWRITE`** on
-the space prefix.
+the space prefix, mirroring the `s3:PutObject`/`s3:DeleteObject` the tag-scoped statement grants a
+member today — a member writes to a shared space, so a read-only grant would be a regression.
 
 **The pair is expressed once, in `shared-space-common`, and every trigger calls it** — not in
 `cpcommon`, which owns algorithms rather than a domain's wording. A test asserts no verb issues a
 `grant_permissions` or a `CreateAccessGrant` of its own, and the reason it matters here is that
-revocation must mirror the grant exactly. **The space prefix is derived by the existing path builder,
+revocation must mirror the grant exactly. **That test needs a carve-out between cutover steps 1 and
+3**, because `create_space` issues the role-level grant until step 3 removes it — the two
+requirements are opposite for exactly as long as the interim plane runs. **The space prefix is derived by the existing path builder,
 never reconstructed:** a grant scoped one segment wrong is a grant on somebody else's data.
 
 **The member's Lake Formation set is DERIVED, and reusing the role's constants is a privilege
@@ -1082,8 +1085,10 @@ use different forms, and the personal-prefix decision does not have to wait for 
 names exactly one space prefix — no wildcard, no grant covering two spaces.
 
 **Principal resolution is the one place this touches a directory we do not own.** The portal username
-resolves through `identitystore:GetUserId` on the configured attribute, cached per container with a
-bounded TTL. An **unresolvable member is a refusal, not a skip** — skipping produces a member the
+resolves through `identitystore:GetUserId` on the configured attribute, cached per container. The
+TTL is bounded by how quickly a directory change must be honoured, not by cost: the mapping is stable
+for the life of a user, so the bound exists to stop a warm container serving a stale principal after
+a rename, and it is stated where it is built. An **unresolvable member is a refusal, not a skip** — skipping produces a member the
 registry lists with no entitlement and no error anywhere. A member absent from Identity Center and a
 resolution *fault* get different reason tokens: the first means provisioning has not run for them,
 the second means the directory is unhealthy, and they look identical in a generic error. The resolved
@@ -1104,8 +1109,12 @@ at add time, so making it one would deny an added member until they signed in. C
 runs **after** `reg.finalize(..., "active")`, not among the provisioning steps — `reserve` writes
 `status: "provisioning"`, for which `is_active_member` is false, so a projection placed with the
 other create steps entitles nobody. Projection always runs **after** the registry write commits.
-Revocation belongs in `teardown.py` rather than at a verb's call site, so both deletion routes
-inherit it by construction. It is a verb on the existing shared-space state machine under the
+Revocation belongs beside **`membership.clear_slot`** — the one call every membership-ending path
+already makes, in `delete`'s `_revoke`, in `forget` on both its paths, in `leave` and in
+`remove-members` — and **not** in `teardown.py`, which only the *destroying* branch of a delete
+reaches. Placed there it would never run on the ordinary emptying delete, and every member of an
+emptied space would keep live grants on live data until the sweep noticed. `_revoke`'s own docstring
+already calls the Cognito slot "the S3 and Glue grant", which is the seam this replaces. It is a verb on the existing shared-space state machine under the
 existing execution role, reusing the plane's FIFO queue, its DLQ and the DLQ drain — no new plane —
 and it does **not** inherit the roster fan-out's best-effort posture: a stale roster is cosmetic, a
 missing entitlement is total loss of access.
@@ -1118,8 +1127,10 @@ differs on a non-active space), read the current set, grant the difference, **re
 revocation lost by a failed event is a member who still reaches a space they left, and a grant-only
 reconcile never repairs it. A space whose `status` is not `active` has no desired entitlements. The
 sweep reports corrected drift at `warn` with per-space counts — silent correction hides a broken
-event path indefinitely — and it reconciles the SPEC-203 membership index on the same pass, which is
-what closes that index's stated staleness residual.
+event path indefinitely — and it reconciles the SPEC-203 membership index on the same pass, under the
+same re-read rule: for each space it compares the index's member list against the registry's, writes
+the registry's version where they differ, and reports the correction as drift. That is what closes
+that index's stated staleness residual, and it is the reason two other documents defer here.
 
 **The sweep re-reads each registry record immediately before acting and abandons that space if the
 ETag moved.** Without it its authority runs backwards: it reads `finance_space`, computes a desired
