@@ -24,3 +24,14 @@ export const FIELD_HINT = 'mt-1.5 text-xs text-text-3';
  * is the defect, not the fix.
  */
 export const SECTION_CAPTION = 'text-xs font-semibold uppercase tracking-wide text-text-3';
+
+/**
+ * The chrome for a bare `<select>`.
+ *
+ * There is still no `Select` primitive in `components/`, so this is the same "one string until a
+ * primitive exists" arrangement the Data Explorer had — moved down a layer at its first consumer
+ * outside that feature, because a second copy is how two surfaces come to disagree about a focus
+ * ring, and a class string owned by one feature is not somewhere another feature may reach.
+ */
+export const SELECT_CLASS =
+  'h-9 rounded-md border border-border bg-surface px-2 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent';

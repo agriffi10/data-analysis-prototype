@@ -1,8 +1,14 @@
-"""The one path to ``SendMessage``. No credential passes through it any more.
+"""The one path the TEN ENQUEUE ROUTES take to ``SendMessage``. No credential passes through it.
 
 Every enqueue route hands its validated payload here. This module stamps what the caller may not —
 the identity block and the route's own literals — derives the FIFO keys, checks the result against
 what the queue will accept, and sends.
+
+It is not the API's only ``SendMessage`` any more, and the distinction is worth keeping straight:
+the feedback route builds its own message because its wire shape is not this family's — a
+top-level username rather than a nested identity block, a stamped event id rather than an echoed
+request id. What the two do share is what a failed send MEANS, and that lives in
+``queue_faults`` so there is one answer to it.
 
 **The caller's raw bearer used to be stamped in beside the block**, because the control planes
 verified a token out of the message body. They read the identity block now, so the token has no
@@ -34,7 +40,7 @@ from typing import Any
 
 from cpcommon import observability
 
-from . import fifo, identity, identity_block
+from . import fifo, identity, identity_block, queue_faults
 from .config import queue_url
 from .context import RequestContext
 from .contract import EnqueueRoute
@@ -45,19 +51,6 @@ MAX_IDENTITY_BLOCK_BYTES = 512
 MAX_MESSAGE_BYTES = SQS_MAX_MESSAGE_BYTES - MAX_IDENTITY_BLOCK_BYTES
 
 MAX_LOGGED_REQUEST_ID = 128
-
-_THROTTLE_CODES = frozenset(
-    {
-        "ThrottlingException",
-        "Throttling",
-        "RequestThrottled",
-        "TooManyRequestsException",
-    }
-)
-_UNAVAILABLE_CODES = frozenset(
-    {"ServiceUnavailable", "InternalError", "InternalFailure"}
-)
-
 
 def _clipped(request_id) -> str | None:
     """Bounds the caller's own request id before it becomes a log field.
@@ -153,38 +146,6 @@ def _refuse_if_oversized(body: str) -> None:
         raise ApiError("PayloadTooLarge", "the request is too large to enqueue")
 
 
-def _refuse_for(error: BaseException) -> ApiError:
-    """Maps a failed send onto the answer the caller should get.
-
-    An ``AccessDenied`` here is NOT a denial. On this plane the credential is this function's own
-    execution role, so a 403 would tell a user they may not do something when the deployment is
-    misconfigured — and it would read as isolation working, which is the opposite of the truth.
-
-    The error code is read by duck-typing rather than by catching a botocore class, matching how
-    the identity layer already reads one: this package's sweep keeps every module but that layer
-    away from the AWS SDK, and reading a field off an exception is not a reason to import it.
-
-    Only reached for a failure that carries an AWS error code. Anything else rises untouched, so
-    a bug in this service is recorded as a fault with its stack rather than reported to the caller
-    as an unreachable queue.
-
-    Args:
-      error: The failure the send raised, which carries an AWS error code.
-
-    Returns:
-      The refusal to raise.
-
-    Raises:
-      None.
-    """
-    code = identity.aws_error_code(error)
-    if code in _THROTTLE_CODES:
-        return ApiError("RateLimited", "the queue is throttling")
-    if code in _UNAVAILABLE_CODES:
-        return ApiError("ApiUnavailable", "the queue is unavailable")
-    return ApiError("InternalError", "the request could not be enqueued")
-
-
 def enqueue(
     ctx: RequestContext, route: EnqueueRoute, payload: Mapping[str, Any]
 ) -> dict:
@@ -245,6 +206,6 @@ def enqueue(
     except Exception as error:
         if not identity.aws_error_code(error):
             raise
-        raise _refuse_for(error) from error
+        raise queue_faults.refuse_for(error) from error
 
     return {"requestId": payload.get("requestId")}

@@ -21,6 +21,16 @@ export type AppNavDrawerProps = {
    * topbar is a feature that is still one hamburger away on a phone.
    */
   isPathEnabled: (to: string) => boolean;
+  /**
+   * Chrome ACTIONS that live in the header at `tablet` and above and have nowhere to go below it.
+   * Rendered under the destinations, after a divider.
+   *
+   * A slot rather than a prop per control, because this file may not import `features/` and every
+   * such control is one — `Header` composes them and passes the node down. It is deliberately
+   * generic: the mobile header is over budget at 375px before anything is added, so this is where
+   * the next one goes too.
+   */
+  actions?: ReactNode;
 };
 
 type NavDest = {to: string; label: string; icon: ReactNode};
@@ -119,7 +129,8 @@ const DESTS: NavDest[] = [
 /**
  * Mobile off-canvas navigation: a 300px left sheet over a scrim listing the primary
  * destinations (Files / Query / Data Explorer / Connections / Data quality / Notifications / Help) with
- * active state, then a divider and a page-supplied contextual rail. Reuses the
+ * active state, then any header actions that do not fit a phone's top bar, then a divider and a
+ * page-supplied contextual rail. Reuses the
  * `Drawer` mechanics (focus trap + Escape/scrim dismiss) plus a background
  * scroll lock; activating a link navigates and closes. Header mounts this only
  * on mobile.
@@ -127,7 +138,7 @@ const DESTS: NavDest[] = [
  * @example
  * <AppNavDrawer open={navOpen} onClose={() => setNavOpen(false)} contextualRail={rail} />
  */
-export function AppNavDrawer({open, onClose, id, contextualRail, isPathEnabled}: AppNavDrawerProps) {
+export function AppNavDrawer({open, onClose, id, contextualRail, isPathEnabled, actions}: AppNavDrawerProps) {
   useEscapeKey(onClose, open);
   const panelRef = useRef<HTMLElement>(null);
 
@@ -213,6 +224,14 @@ export function AppNavDrawer({open, onClose, id, contextualRail, isPathEnabled}:
             <span className={SECTION_CAPTION}>Theme</span>
             <ThemeChoiceGroup />
           </div>
+
+          {actions && (
+            <div
+              className="flex flex-col gap-0.5 border-t border-border p-3"
+              onClick={onClose}>
+              {actions}
+            </div>
+          )}
 
           {contextualRail && (
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto border-t border-border">{contextualRail}</div>

@@ -53,7 +53,7 @@ production users yet.
 | Layer | Tech |
 |---|---|
 | Frontend | React 19 + Vite, TypeScript (strict), TailwindCSS; `focus-trap-react` (focus trapping for Modal/Drawer) |
-| AWS | `aws-amplify` v6 for Cognito, and nothing else. **No `@aws-sdk/*` package may be added** — an ESLint `no-restricted-imports` clause forbids the import (tests included) and a test over `package.json` forbids the dependency; objects, bytes, the catalog and the eight queues go through the API |
+| AWS | `aws-amplify` v6 for Cognito, and nothing else. **No `@aws-sdk/*` package may be added** — an ESLint `no-restricted-imports` clause forbids the import (tests included) and a test over `package.json` forbids the dependency; objects, bytes, the catalog and the queues go through the API |
 | Editor | `@monaco-editor/react` + `monaco-editor` (self-hosted workers; lazy-loaded on the Query route only, SPEC-035) |
 | Routing / state | `react-router` v8 (**not** `react-router-dom` — that package is gone in v8; import everything from `react-router`); TanStack Query (server state) + Context/`useReducer` (UI state); no Redux |
 | Testing / lint | Vitest + React Testing Library + `@testing-library/user-event`; `@vitest/coverage-v8` (`npm run test:coverage`); `vitest-axe` (axe-core a11y assertions, SPEC-045); ESLint + Prettier. Tests are **integration-style** — **import only the component under test**, render real hooks/children, mock only the service boundary (`*.service.ts` / `lib/apiClient`); **1–3 scenarios each** (4–5 where earned; a dozen means the unit is scoped wrong), **arrange/act/assert**, happy path and failure path first; shared harness `src/test/renderWithProviders.tsx`. Rules: `apps/portal/info/best-practices/react/react.md` §21, `lambdas/info/best-practices/lambdas/lambdas.md` §11 |
@@ -287,9 +287,9 @@ DLQ lets one malformed request dead-letter someone else's work.
   `assurance` fails closed on an unknown value **including an absent one**. Do **NOT** add a queue resource policy — notifications has eight writers and a blanket
   `Deny` silences seven notifying roles, invisibly. A pre-cutover message is `unauthorized` and
   does **not** dead-letter (`FIRE_AND_FORGET`), so plane allowed-field sets stay untightened.
-- **The DLQ drain** sweeps all request DLQs on a schedule and notifies from **`identity.actor`**;
-  its redaction blanks the two LEGACY token fields, since a stale message still carries one. The
-  notifications DLQ stays undrained: circular.
+- **The DLQ drain** sweeps request DLQs and notifies from **`identity.actor`**; its redaction
+  blanks the two LEGACY token fields, since a stale message still carries one. Two are undrained:
+  notifications (circular), feedback (no identity in its body).
 - **File operations are synchronous IFF exactly one file**; the lock is per **space** and its loser
   **waits** (cross-space takes both in digest order or neither); the **space root is refused** as an
   item; the collision unit is the derived destination **key**, and a **403 counts as occupied**; the
@@ -305,7 +305,7 @@ DLQ lets one malformed request dead-letter someone else's work.
   at add time.
 - **The notifications `create` boundary is a RUNTIME check**, because no SQS condition key reaches a
   message body. It compares the **role-id half** of the `SenderId`, and a refusal **logs and drops,
-  never raises** — dead-lettering per forged request would drown the one undrained DLQ. The actor
+  never raises** — dead-lettering per forged request would drown its undrained DLQ. The actor
   reader replaces the `USER_ACTIONS` arm **only**: `create` is the trusted producer (body username,
   no actor, no token), and hoisting the reader above that branch refuses **every notification the
   fleet produces**, silently.

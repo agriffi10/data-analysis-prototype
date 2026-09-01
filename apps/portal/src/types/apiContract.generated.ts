@@ -33,6 +33,8 @@ export type TablesQuery = {nextToken?: string};
 export type GlueColumnWire = {name: string; type: string};
 export type GlueTableWire = {name: string; columns: GlueColumnWire[]; tableType: string | null; location: string | null};
 export type TablesResponse = {items: GlueTableWire[]; nextToken: string | null};
+export type FeedbackSubmitRequest = {category: 'bug' | 'idea' | 'question' | 'other'; message: string; route?: string};
+export type FeedbackSubmitResponse = {submittedAt: string};
 export type SharedSpacePayload = {members?: string[]; newOwner?: string};
 export type SharedSpaceEnqueueRequest = {requestId: string; action: 'create' | 'add_members' | 'remove_members' | 'leave' | 'delete' | 'forget' | 'acknowledge_membership' | 'transfer_ownership'; space: string; payload: SharedSpacePayload};
 export type EnqueueAccepted = {requestId: string | null};
@@ -82,6 +84,7 @@ export const API_ROUTES = {
   'athena.stop': {method: 'POST', path: '/v1/queries/{queryExecutionId}/stop', idempotent: true, params: ['queryExecutionId']},
   'catalog.database.get': {method: 'GET', path: '/v1/catalog/databases/{database}', idempotent: true, params: ['database']},
   'catalog.tables.list': {method: 'GET', path: '/v1/catalog/databases/{database}/tables', idempotent: true, params: ['database']},
+  'feedback.submit': {method: 'POST', path: '/v1/feedback', idempotent: false, params: []},
   'sharedSpace.enqueue': {method: 'POST', path: '/v1/enqueue/shared-space', idempotent: false, params: []},
   'notifications.enqueue': {method: 'POST', path: '/v1/enqueue/notifications', idempotent: false, params: []},
   'tableBuild.create': {method: 'POST', path: '/v1/enqueue/table-build', idempotent: false, params: []},
@@ -118,6 +121,7 @@ type RouteBodies = {
   'athena.stop': {request: null; query: null; response: StopQueryResponse};
   'catalog.database.get': {request: null; query: null; response: DatabaseResponse};
   'catalog.tables.list': {request: null; query: TablesQuery; response: TablesResponse};
+  'feedback.submit': {request: FeedbackSubmitRequest; query: null; response: FeedbackSubmitResponse};
   'sharedSpace.enqueue': {request: SharedSpaceEnqueueRequest; query: null; response: EnqueueAccepted};
   'notifications.enqueue': {request: NotificationsEnqueueRequest; query: null; response: EnqueueAccepted};
   'tableBuild.create': {request: TableBuildCreateRequest; query: null; response: EnqueueAccepted};

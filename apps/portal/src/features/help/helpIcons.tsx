@@ -1,5 +1,13 @@
 import type {ComponentType} from 'react';
-import {BellIcon, ConnectionsIcon, DatabaseIcon, EyeIcon, FolderIcon, TableIcon} from '../../components/icons';
+import {
+  BellIcon,
+  ConnectionsIcon,
+  DatabaseIcon,
+  EyeIcon,
+  FeedbackIcon,
+  FolderIcon,
+  TableIcon
+} from '../../components/icons';
 import type {HelpIconName} from './help.types';
 
 /** Maps a section/guide's `HelpIconName` to its inline SVG icon component. */
@@ -9,5 +17,6 @@ export const helpIcons: Record<HelpIconName, ComponentType<{className?: string}>
   tables: TableIcon,
   explore: EyeIcon,
   connections: ConnectionsIcon,
-  notifications: BellIcon
+  notifications: BellIcon,
+  feedback: FeedbackIcon
 };

@@ -41,7 +41,7 @@ LAYER_ROOT = pathlib.Path(__file__).resolve().parent
 LAMBDAS = LAYER_ROOT.parent
 
 #: The three functions that attach the layer for `observability` alone (SPEC-137 FR-001).
-SINGLETONS = ("pre-signup", "post-confirmation", "notifications-writer")
+SINGLETONS = ("pre-signup", "post-confirmation", "notifications-writer", "feedback-writer")
 
 #: What a scrubbed environment keeps: enough to find the interpreter and its site-packages, and
 #: nothing that `cpcommon.config` would accept. PYTHONPATH stands in for the layer's /opt/python.
@@ -99,6 +99,7 @@ SINGLETON_OWN_ENV = {
     "pre-signup": {},
     "post-confirmation": {"PORTAL_ROLE_ARN": "arn:aws:iam::000000000000:role/probe"},
     "notifications-writer": {},
+    "feedback-writer": {},
 }
 
 #: boto3 IS STUBBED, and stays stubbed now that the test job installs a real one. The Lambda
@@ -139,6 +140,7 @@ SINGLETON_CPCOMMON_ALLOWLIST = {
     # granted, so it reaches no configuration variable this Lambda does not set. The behavioural
     # half — importing it for real with none of them set — is the test below, and it passes.
     "notifications-writer": {"observability", "actor", "clients", "errors", "events"},
+    "feedback-writer": {"observability", "cas", "clients"},
 }
 
 

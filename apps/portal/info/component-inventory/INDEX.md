@@ -53,6 +53,7 @@ wired in six places and a missed one stops the container starting:
 | User directory | [`user-directory-feature.md`](user-directory-feature.md) |
 | Table share | [`table-share-feature.md`](table-share-feature.md) |
 | Feature flags | [`feature-flags-feature.md`](feature-flags-feature.md) |
+| Feedback | [`feedback-feature.md`](feedback-feature.md) |
 
 Sibling tree: [`../best-practices/INDEX.md`](../best-practices/INDEX.md) for the React and
 accessibility rulebooks — consult those *before* writing a component, this index for what already

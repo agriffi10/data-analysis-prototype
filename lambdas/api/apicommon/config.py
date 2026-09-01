@@ -275,6 +275,32 @@ def shared_space_bucket() -> str:
     return _require(_IDENTITY_VARS["SHARED_SPACE_BUCKET"])
 
 
+def feedback_queue_url() -> str:
+    """Returns the URL of the feedback FIFO queue.
+
+    Read here rather than through the queue registry, and that is the decision worth stating.
+    ``QUEUES`` is the registry the ten ENQUEUE ROUTES resolve against, guarded for set equality
+    with them in both directions, so a queue with no enqueue route and an enqueue route naming no
+    queue both fail. The feedback queue has a route and is not one of those ten: its message shape
+    is not the family's, so it is served by its own handler rather than by the shared sender.
+    Registering it would mean loosening that guard with a hand-maintained exemption, which is a
+    worse trade than one more accessor. What the registry gave the eight and this gives feedback is
+    identical in the part that matters — an unset variable is a fault, raised here, at first read.
+
+    Args:
+      None.
+
+    Returns:
+      The queue's URL.
+
+    Raises:
+      ConfigError: If the variable is unset or empty. An unset repo variable renders as the empty
+        string, so an unconfigured queue is an operator fault answered as a fault, never as a
+        refusal the caller could act on.
+    """
+    return _require("FEEDBACK_QUEUE_URL")
+
+
 def queue_url(queue_id: str) -> str:
     """Returns the URL of one FIFO request queue.
 

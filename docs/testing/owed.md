@@ -686,6 +686,28 @@ rest is still offline reasoning. The steps are written in full at `arc-b-api-con
 | ~~§G.5 — the IAM simulation against both DEPLOYED roles~~ **DISCHARGED 2026-08-30** — portal role `implicitDeny` on all eight request queues with an `allowed` control (`s3:GetObject` under the caller's own prefix); API role `allowed` on all eight. **Simulate one resource per call** — `--output text` over a multi-resource simulate prints the decision on the first row only. | The only evidence the browser's grants are actually gone rather than merely absent from the templates. |
 | A shared space where the submitter is a non-owner member | Needs a second account. |
 
+## SPEC-211 — Give feedback (2026-09-01)
+
+The browser half of `e2e.md` §4.17 is runnable from a signed-in session. **The half that proves a
+submission actually landed is not**, and the reason is structural rather than an omission: the
+feature is write-only by design, so the only way to see the record is to read
+`<admin-bucket>/feedback/YYYY/MM/DD.json` with the CLI — and the local CLI identity is an IAM
+user on no data bucket's policy allowlist, so it reads that bucket as absent. One session cannot
+hold both halves.
+
+| Owed | Why it matters |
+|---|---|
+| The day's object exists after a real submission, with `version` 1 and the entry's `username` taken from the token | The whole attribution claim. A wrong username still answers 200, and nothing in the browser would show it. |
+| Three submissions in one day land in ONE object, in order | The compare-and-swap append preserving what is there. The unit tests drive a fake S3 with real precondition semantics; only S3 itself proves the real one. |
+| The `MessageGroupId` the API stamps and the key the writer derives agree | They are derived from the same `submittedAt` in two languages. Disagreement is silent — two groups writing one object, and the serialization guarantee gone. |
+| The writer's structured record carries `message_chars` and **no message text** | Asserted in both suites, but the suites read a captured sink; the live check reads the log store a wider audience can. |
+| A submission over 4000 characters is refused with `InvalidRequest`, and nothing is sent | The refusal half, which coverage is close to blind to. |
+| The DLQ stays empty through all of the above | It is undrained and unalarmed by decision, so its depth is the only signal that anything died. |
+
+**What it would take:** an operator session with `s3:GetObject` on the admin bucket's `feedback/`
+prefix, run alongside a signed-in browser. The CLI half is three commands (`e2e.md` §4.17); the
+coupling is that they have to be the same submission.
+
 ## 3. Discharged, and worth not re-litigating
 
 Kept short on purpose — the reasoning lives in `docs/decisions/` and the delivery docs. These are

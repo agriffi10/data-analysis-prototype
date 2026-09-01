@@ -1,7 +1,7 @@
 # Spec: Give Feedback — the API Route, the Writer Queue and the Daily Document
 
 **ID:** SPEC-211
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-28
 **Interacts with:** SPEC-207 repoints the existing help control and adds none; SPEC-210 adds a theme
 control. **This spec owns the mobile header decision all three depend on** — FR-007.
@@ -163,8 +163,11 @@ compare-and-swap. An absent object is created with `If-None-Match: *`.
       expiring rule's prefix is a prefix of `feedback/`. The existing
       `admin_lifecycle_rules_are_prefix_scoped` check proves every expiring rule *has* a prefix; it
       cannot prove that none of them matches this one.
-- [ ] The admin bucket's existing versioning, encryption and public-access settings cover the prefix
-      with no per-prefix exception.
+- [x] The admin bucket's existing versioning, encryption and public-access settings cover the prefix
+      with no per-prefix exception. **Said plainly, because the sentence reads as a safety net and
+      is not one: versioning on that bucket is `Disabled`**, in common with every bucket here. What
+      actually stands between a bad write and a lost day is FR-005's refusal to overwrite a
+      document this writer cannot parse.
 
 ### FR-007: The button, the modal and the confirmation
 
@@ -172,13 +175,20 @@ compare-and-swap. An absent object is created with `If-None-Match: *`.
 
 - [ ] At `tablet` and above, the header renders one control named `Give feedback` immediately beside
       the help control, for authenticated users only.
-- [ ] **Below `tablet` the control lives in `AppNavDrawer`, not the header**, and the header gains no
-      element at mobile width. The measurement, made once here because three specs depend on it: at
-      375px the header already carries a 44px hamburger, the `BrandMark` (a 32px square plus the
-      wordmark), a 32px help control, a 32px bell, a 32px avatar and an `h-8 px-3` Sign out button,
-      inside `px-4` padding with `gap-4` outer and `gap-3` inner spacing. It is over budget before
-      anything is added. SPEC-210's theme control takes the same route into the drawer for the same
-      reason, and SPEC-207 adds nothing — so the mobile header is unchanged by all three.
+- [x] **Below `tablet` the control lives in `AppNavDrawer`, not the header**, and the header gains no
+      element at mobile width. The measurement, made once here because three specs depend on it —
+      and note the unit, because it is the trap: **`index.css` sets a 14px root**, so every
+      rem-named Tailwind size renders 12.5% under its name. At 375px the header carries a `h-11`
+      hamburger (**38.5px**, not 44), the `BrandMark` (an `h-8` square at **28px** plus its
+      `gap-2` and the wordmark), an `h-8` help control, bell and avatar (**28px** each, not 32),
+      and an `h-8 px-3` Sign out, inside `px-4` (**14px**) with `gap-4` (**14px**) outer and
+      `gap-3` (**10.5px**) inner spacing. Those fixed parts total **280px of 375**, leaving 95px
+      for the "Data Workspace" wordmark and the "Sign out" label together — the wordmark alone
+      does not fit, so it is over budget before anything is added, and a seventh control would add
+      another 38.5px. SPEC-210's theme control takes the same route into the drawer for the same
+      reason, and SPEC-207 adds no element — so the mobile header is unchanged by all three **for
+      a signed-in user**. (Signed out there is no drawer, which is why SPEC-210's control is
+      header-rendered in that state; Give feedback is authenticated-only and never reaches it.)
 - [ ] A test at mobile width asserts the header's control count is unchanged and the drawer offers
       `Give feedback`.
 - [ ] It opens a dialog with a required category and a required multi-line message. **No category
@@ -211,9 +221,14 @@ Every other request DLQ is swept into a notification. This one is not.
       exact inversion the drain exists to prevent.
 - [ ] A test asserts every request DLQ Terraform declares is either wired in `SOURCES` or named in
       `UNDRAINED_QUEUES`, so a future queue cannot be silently undrained.
-- [ ] The user's guarantee is stated in the spec and holds in the code: the 200 means the submission
+- [x] The user's guarantee is stated in the spec and holds in the code: the 200 means the submission
       was accepted onto the queue. Nothing after that point is something the user can act on, which
-      is why nothing after that point notifies them.
+      is why nothing after that point notifies them. **And the cost of that, named rather than
+      left to be discovered: FR-005 forbids logging the message text, so the durable record of a
+      failed submission carries everything except the thing that would let anyone recover it, and
+      the dead-letter copy is gone after 14 days.** A submission that dies is unrecoverable, not
+      merely unreported. That is accepted for a write-only channel with no reply path; it would
+      not be for anything a user is waiting on.
 
 ### FR-009: Help content
 
@@ -230,10 +245,12 @@ Every other request DLQ is swept into a notification. This one is not.
 ```ts
 // Generated into apps/portal/src/types/apiContract.generated.ts from the Python declaration.
 
-export type FeedbackCategory = 'bug' | 'idea' | 'question' | 'other';
-
+// The category renders INLINE. The emitter declares only TypedDicts, so a `Literal` alias has no
+// standalone form — and widening its closed vocabulary for a cosmetic alias is the one thing the
+// generator's own docstring says must not happen casually. The browser derives its own
+// `FeedbackCategory` from this request type, so there is still one source.
 export type FeedbackSubmitRequest = {
-  category: FeedbackCategory;
+  category: 'bug' | 'idea' | 'question' | 'other';
   message: string;
   route?: string;
 };

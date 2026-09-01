@@ -1,11 +1,13 @@
 import {useCallback, useId, useState} from 'react';
 import {useAuth} from '../features/auth';
+import {FeedbackButton, FeedbackDialog} from '../features/feedback';
 import {NAV_PATH_FLAGS, useFeatureSet} from '../features/feature-flags';
 import {HelpLink} from '../features/help';
 import {NotificationsBell, useNotifications} from '../features/notifications';
 import {useIsMobile} from '../lib/useBreakpoint';
 import {AppNavDrawer} from './AppNavDrawer';
 import {BrandMark} from './BrandMark';
+import {FeedbackIcon} from './icons';
 import {Button} from './Button';
 import {useNavRailContent} from './navRailContext';
 import {PrimaryNav} from './PrimaryNav';
@@ -22,6 +24,7 @@ import {ThemeMenu} from './ThemeMenu';
 export function Header() {
   const {status, user, error, signIn, signOut} = useAuth();
   const [navOpen, setNavOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const isMobile = useIsMobile();
   const navDrawerId = useId();
   const contextualRail = useNavRailContent();
@@ -116,6 +119,12 @@ export function Header() {
           {authed && (
             <>
               <HelpLink />
+              {/* MOUNT-gated, never `tablet:hidden`. The root font-size is 14px, so the header's
+                  fixed-width parts already come to 280 of a phone's 375 before either text label
+                  is drawn — there is no room for a seventh control, so on a phone this one lives
+                  in the drawer. Gated by mounting because a CSS-hidden button is still in the DOM
+                  and still in the accessibility tree, and jsdom would count it. */}
+              {!isMobile && <FeedbackButton onOpen={() => setFeedbackOpen(true)} />}
               <NotificationsBell
                 hasUnread={hasUnread}
                 unreadCount={unreadCount}
@@ -144,8 +153,19 @@ export function Header() {
           onClose={() => setNavOpen(false)}
           contextualRail={contextualRail}
           isPathEnabled={isPathEnabled}
+          actions={
+            <button
+              type="button"
+              onClick={() => setFeedbackOpen(true)}
+              className="flex min-h-11 items-center gap-3 rounded-md px-3 py-2 text-base font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+              <FeedbackIcon className="h-[18px] w-[18px] flex-none" />
+              Give feedback
+            </button>
+          }
         />
       )}
+
+      {feedbackOpen && <FeedbackDialog onClose={() => setFeedbackOpen(false)} />}
 
       {error && (
         <div

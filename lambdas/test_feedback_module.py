@@ -9,9 +9,7 @@ or until somebody goes looking for a day's records and finds them expired:
   silently undrained;
 - every expiring lifecycle rule on the admin bucket against the ``feedback/`` prefix.
 
-The third of those checks a STRING. What ties it to the key actually written is a fourth join that
-arrives with the writer, in the same file — until then the prefix is checked and its consumer is
-not.
+The third of those checks a STRING; the fourth ties it to the key the writer actually builds.
 
 Attributes:
   MODULE: The feedback module's directory.
@@ -22,6 +20,7 @@ Attributes:
     rendered and matched against a grant pattern.
 """
 
+import ast
 import fnmatch
 import json
 import pathlib
@@ -442,3 +441,21 @@ def test_the_one_variable_the_writer_requires_is_set() -> None:
         "read and dead-letter into the undrained queue"
     )
 
+
+def test_the_feedback_key_the_writer_builds_sits_under_the_prefix_that_was_checked() -> None:
+    """The check above is about a string; this is what ties it to the key actually written."""
+    writer = (REPO / "lambdas" / "feedback-writer" / "feedback_writer.py").read_text(
+        encoding="utf-8"
+    )
+    tree = ast.parse(writer)
+    prefix = next(
+        node.value.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and any(getattr(t, "id", None) == "FEEDBACK_PREFIX" for t in node.targets)
+        and isinstance(node.value, ast.Constant)
+    )
+
+    assert f"{prefix}/" == "feedback/", (
+        f"the writer files under {prefix!r}, which is not the prefix the lifecycle check covers"
+    )
