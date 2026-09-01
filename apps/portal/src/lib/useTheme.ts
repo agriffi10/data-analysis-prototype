@@ -47,8 +47,9 @@ const listeners = new Set<() => void>();
  * The snapshot object is rebuilt only when something in it changed, because
  * `useSyncExternalStore` compares by identity and a fresh object per read loops forever.
  *
- * Nothing here re-mounts anything: the theme is an attribute on `<html>` plus a re-render of
- * whoever subscribed, so a switch cannot cost a component its state.
+ * A switch is an attribute on `<html>` plus a re-render of whoever subscribed. Nothing unmounts —
+ * though note that a Context provider would not have unmounted anything either, so that is a
+ * property of React, not an argument for this shape. The argument is in {@link useTheme}.
  */
 function publish(): void {
   const effective = preference === 'system' ? systemTheme() : preference;
@@ -114,9 +115,19 @@ export function setThemePreference(next: ThemePreference): void {
 /**
  * The current theme preference, what it resolves to, and how to change it.
  *
- * A module store read through `useSyncExternalStore` rather than a Context provider, so that
- * switching the theme re-renders the subscribers and nothing else — a provider whose value
- * changed would re-render its whole subtree, and every component that had to unmount to do it.
+ * A module store read through `useSyncExternalStore` rather than a Context provider, for three
+ * reasons — none of which is "a provider would remount its subtree". It would not: a Context
+ * value change re-renders consumers and unmounts nothing, so the no-remount requirement is met
+ * either way. What the store actually buys: the preference RESOLVES BEFORE REACT MOUNTS, which
+ * is what lets it share `public/theme-init.js`'s exact resolution rather than racing it;
+ * {@link setThemePreference} is callable without a render; and the two consumers sit in
+ * disjoint subtrees — the app shell, and the landing route, which suppresses that shell — so a
+ * provider would have to be threaded above the router to serve one of them.
+ *
+ * It does NOT listen for `storage`, so a second tab's choice is not picked up until this one
+ * reloads. Deliberate: the theme is a per-tab reading comfort as much as a stored preference,
+ * and a tab repainting itself because of something the user did elsewhere is the more startling
+ * of the two behaviours. Revisit if anyone reports the disagreement as a bug.
  *
  * @returns The chosen preference, the theme actually painted, and the setter.
  *

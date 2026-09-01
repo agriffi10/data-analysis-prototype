@@ -119,8 +119,12 @@ describe('the palette agrees with the stylesheet that paints it', () => {
     // below pass by finding nothing to disagree with.
     expect(declared.size).toBeGreaterThan(10);
 
+    // Compared BOTH ways, with no filter. Discarding the tokens `palette.ts` does not know about
+    // is what made this one-directional: a `--color-*` added to the stylesheet alone then reached
+    // no pairing, no exemption and no key-set check, and every guard downstream is computed over
+    // `PALETTE`'s keys — so the token the harness exists to catch is the one it could not see.
     const expected = Object.entries(PALETTE[theme as EffectiveTheme]).sort();
-    expect([...declared].filter(([name]) => name in PALETTE.light).sort()).toEqual(expected);
+    expect([...declared].sort()).toEqual(expected);
   });
 
   it('reads only its own block, so one palette cannot overwrite the other', () => {

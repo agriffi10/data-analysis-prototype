@@ -70,15 +70,15 @@ export const PALETTE: Record<EffectiveTheme, Record<ColorToken, Hex>> = {
     'text-3': '#98a1ad',
     accent: '#615ae9',
     'accent-hover': '#4f46e5',
-    'accent-soft': '#1d1f3d',
+    'accent-soft': '#191b36',
     'accent-text': '#a5b4fc',
     'accent-border': '#383c6b',
     success: '#34d399',
-    'success-soft': '#0d2a21',
+    'success-soft': '#0a231b',
     warning: '#f0b429',
-    'warning-soft': '#2c220c',
+    'warning-soft': '#271e0a',
     danger: '#f87171',
-    'danger-soft': '#34181a',
+    'danger-soft': '#2f1517',
     'danger-border': '#4a2427',
     'on-danger': '#1a0c0c',
     'syntax-fn': '#c4b5fd'
@@ -147,8 +147,14 @@ export const CONTRAST_PAIRS: readonly ContrastPair[] = [
   {kind: 'token', fg: '#ffffff', bg: 'accent-hover', min: 4.5},
   {kind: 'token', fg: 'on-danger', bg: 'danger', min: 4.5},
 
-  // The focus ring is a non-text indicator: WCAG 1.4.11, 3:1.
-  ...TEXT_SURFACES.map((bg): ContrastPair => ({kind: 'token', fg: 'accent', bg, min: 3})),
+  // The focus ring is a non-text indicator: WCAG 1.4.11, 3:1. It lands on the soft fills too —
+  // every hoverable row, chip and menu item that takes focus is filled with one — and those four
+  // are the tightest pairings in the dark palette at 3.25–3.34. They are declared rather than
+  // left out precisely because the margin is thin: a token nudged by a few points reddens here
+  // instead of quietly dropping the one indicator a keyboard user has.
+  ...([...TEXT_SURFACES, 'accent-soft', 'success-soft', 'warning-soft', 'danger-soft'] as const).map(
+    (bg): ContrastPair => ({kind: 'token', fg: 'accent', bg, min: 3})
+  ),
 
   {
     kind: 'raw',

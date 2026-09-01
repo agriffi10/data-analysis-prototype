@@ -1,10 +1,9 @@
 import {useEffect} from 'react';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {cleanup, render, screen} from '@testing-library/react';
+import {act, cleanup, render} from '@testing-library/react';
 import type {GlueTableSummary} from '../catalog/catalog.types';
-import {PALETTE} from '../../lib/palette';
-import {resetThemeForTest} from '../../lib/useTheme';
-import {ThemeMenu} from '../../components/ThemeMenu';
+import {CONTRAST_PAIRS, PALETTE} from '../../lib/palette';
+import {resetThemeForTest, setThemePreference} from '../../lib/useTheme';
 
 // Exercise the editor's completion-provider wiring without the real Monaco
 // runtime (no worker, no DOM editor). The mocks below stand in for the three
@@ -297,24 +296,54 @@ describe('the editor follows the app theme', () => {
     }
   });
 
-  it('switches theme without re-creating the editor or losing the buffer', async () => {
-    const {default: userEvent} = await import('@testing-library/user-event');
-    const user = userEvent.setup({delay: null});
+  it('uses only tokens the contrast harness measures against the editor background', () => {
+    // FR-006 AC5. Without this the rules are merely "some palette value": pointing `comment` at
+    // `border-2` renders SQL comments at ~1.1:1 on white and every other test here stays green,
+    // because the harness measures only the pairings it is DECLARED, and a decorative token is
+    // declared against no floor at all.
+    //
+    // Read back out of what Monaco was GIVEN rather than from the module's own map, so this
+    // needs no internal exported for it and cannot drift from what the editor actually renders.
     render(
-      <>
-        <ThemeMenu />
-        <SqlEditor
-          value="select 1"
-          onChange={() => {}}
-        />
-      </>
+      <SqlEditor
+        value=""
+        onChange={() => {}}
+      />
+    );
+    const paired: Set<string> = new Set(
+      CONTRAST_PAIRS.flatMap((pair) => (pair.kind === 'token' && pair.bg === 'surface' ? [pair.fg] : []))
+    );
+
+    for (const [name, theme] of h.monacoMock.editor.defineTheme.mock.calls as [string, MonacoTheme][]) {
+      const palette = PALETTE[name.endsWith('-dark') ? 'dark' : 'light'];
+      for (const rule of theme.rules) {
+        // One value can belong to more than one token (light `accent-text` and `accent-hover`
+        // are the same hex), so any token carrying it may be the one that is measured.
+        const tokens = Object.entries(palette).filter(([, hex]) => hex.slice(1) === rule.foreground);
+        expect(tokens.length, `${name} ${rule.token}: #${rule.foreground} is in no token`).toBeGreaterThan(0);
+        expect(
+          tokens.some(([token]) => paired.has(token)),
+          `${name} ${rule.token} (${tokens.map(([t]) => t).join('/')}) is measured against no editor background`
+        ).toBe(true);
+      }
+    }
+  });
+
+  it('switches theme without re-creating the editor or losing the buffer', async () => {
+    // Driven through the store's own setter, which is what the menu item calls — the control
+    // itself is covered where it lives, and reaching for it here would import a component this
+    // test is not about.
+    render(
+      <SqlEditor
+        value="select 1"
+        onChange={() => {}}
+      />
     );
 
     expect(h.rendered.at(-1)?.theme).toBe('file-portal-sql');
     expect(h.created).toHaveBeenCalledTimes(1);
 
-    await user.click(screen.getByRole('button', {name: 'Change theme'}));
-    await user.click(screen.getByRole('menuitemradio', {name: 'Dark'}));
+    await act(async () => setThemePreference('dark'));
 
     expect(h.rendered.at(-1)?.theme).toBe('file-portal-sql-dark');
     expect(h.rendered.at(-1)?.value).toBe('select 1');

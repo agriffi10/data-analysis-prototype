@@ -10,7 +10,10 @@
   `index.css`'s comments record; the dark values are then whatever passed it.
 - **A three-state preference** — Light / Dark / System, `localStorage`, per browser — as a module
   store read through `useSyncExternalStore` (`lib/useTheme.ts`, `lib/theme.types.ts`), plus
-  `public/theme-init.js`, loaded blocking from `<head>` so nothing flashes light.
+  `public/theme-init.js`, loaded blocking from `<head>` so nothing flashes light. The store is
+  chosen because the preference resolves **before React mounts** and so can share the
+  initialiser's resolution, not because a Context provider would remount anything — it would not,
+  and a reviewer built one to prove it.
 - **The control**: `components/ThemeMenu.tsx` — an `IconButton` + `Menu` in the header, and the same
   three choices as a `SegmentedFilter` group in `AppNavDrawer`. `Menu`'s items gained an optional
   `selected`, which makes one a `menuitemradio` with `aria-checked` and a tick.
@@ -60,12 +63,26 @@
 - **SPEC-194**: one section in `.github/scripts/spa-image-matrix.sh` for `/theme-init.js`. No nginx
   change was needed — `location /` already serves root files with the shell's `no-cache`.
 
+### Raised, not fixed
+
+- **`text-danger/80` over `danger-soft` measures 4.19 in light and 4.27 in dark** (the metadata
+  panel's error detail). Pre-existing, sub-AA in **both** themes, and dark is the better of the
+  two — so it is not something this spec introduced or worsened. Out of Scope says a light pairing
+  that fails is "a finding to raise, and the fix is its own decision", so it is raised here. The
+  fix is one modifier (`/80`), but it is a light-palette decision and belongs to whoever takes it.
+  Found by building the app and measuring every rendered pairing, not by the pairing list.
+
 ## Verification
 
-`format:check`, `lint`, `build`, `test` (2213 tests), `test:coverage` (90.79% statements, floors 85)
-and `check:bundle` all exit 0 locally, plus `validate_docs.py`. Two guards were mutation-tested:
-breaking the harness's failure reporter reddens its deliberate-failure test, and adding a `key` that
-remounts the editor reddens the Monaco no-remount count. Deferred to a browser: that Monaco keeps
+`format:check`, `lint`, `build`, `test` (2217 tests), `test:coverage` (90.79% statements, floors 85)
+and `check:bundle` all exit 0 locally, plus `validate_docs.py` and `ruff`. Five guards were
+mutation-tested rather than argued: breaking the harness's failure reporter reddens its
+deliberate-failure test; a `key` that remounts the editor reddens the Monaco no-remount count; a
+`--color-*` added to `index.css` alone, and one added to the dark block alone, each redden the
+stylesheet check naming the token; inverting `theme-init.js`'s `system` resolution reddens three
+of its tests; and pointing a Monaco rule at a decorative token reddens the pairing guard naming
+the rule. The second and third of those closed holes a reviewer found — the stylesheet pin was
+one-directional, and the initialiser was pinned by substring rather than run. Deferred to a browser: that Monaco keeps
 the **cursor and scroll position** across a switch (jsdom stubs the editor, so only the buffer and
 the absence of a re-create are assertable here) and that no light flash occurs before first paint —
 both recorded in `docs/testing/owed.md`.

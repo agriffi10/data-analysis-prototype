@@ -553,8 +553,15 @@ because one that silently passes everything is indistinguishable from one that w
 
 **The preference is a module store read through `useSyncExternalStore`, not a Context provider** —
 three states (`light`/`dark`/`system`, anything else read as `system`), `localStorage`, per browser.
-A provider whose value changed would re-render its subtree, and a component that had to unmount to
-do it would lose what the user had typed; the store re-renders its subscribers and nothing else.
+**Not because a provider would remount its subtree — it would not**, and that claim was in this
+entry until a reviewer built the provider and measured it: a Context value change re-renders
+consumers and unmounts nothing, the controlled input keeps its value, and the DOM node is the same
+one. FR-004's no-remount criterion is satisfied by either shape. The store earns its place for
+three other reasons: the preference **resolves before React mounts**, which is what lets it share
+`theme-init.js`'s resolution rather than race it; the setter is callable without a render; and the
+two consumers are in disjoint subtrees — the app shell, and the landing route, which suppresses
+that shell — so a provider would have to sit above the router to serve one of them. Worth keeping
+as a shape: the *plausible* justification was wrong, and only building the alternative found it.
 `public/theme-init.js` stamps `data-theme` before the first paint and is **external, not inline**:
 the CSP is `script-src 'self'` with no nonce and no hash, so an inline initialiser would work in dev
 and be refused in production. It throws on nothing, because it blocks the module script behind it.

@@ -73,13 +73,73 @@ describe('the pre-paint initialiser', () => {
   const initialiser = readFileSync('public/theme-init.js', 'utf8');
   const html = readFileSync('index.html', 'utf8');
 
+  /**
+   * Run the initialiser the way the browser does.
+   *
+   * It is RUN, not read for substrings. A substring check cannot tell a correct resolution from
+   * an inverted one — swapping its two branches leaves every string it contains in place — and an
+   * inverted resolution is exactly the flash of the wrong theme this file exists to prevent.
+   * It is an ES5 IIFE with no imports, so executing it needs nothing but a document.
+   */
+  function runInitialiser(): void {
+    document.documentElement.removeAttribute('data-theme');
+    document.documentElement.style.colorScheme = '';
+    new Function(initialiser)();
+  }
+
+  it('resolves a stored choice, and resolves system through the OS', () => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, 'dark');
+    runInitialiser();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(document.documentElement.style.colorScheme).toBe('dark');
+
+    window.localStorage.setItem(THEME_STORAGE_KEY, 'light');
+    setPrefersDark(true);
+    runInitialiser();
+    // An explicit choice wins over the OS — the inverted-branch mutation shows up right here.
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+
+    window.localStorage.removeItem(THEME_STORAGE_KEY);
+    runInitialiser();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+
+    setPrefersDark(false);
+    runInitialiser();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+  });
+
+  it('reads an unknown stored value as system, exactly as the store does', () => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, 'auto');
+    setPrefersDark(true);
+    runInitialiser();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+  });
+
+  it('throws on nothing, because it blocks the module script behind it', () => {
+    // A failure here would stop the app booting, not just lose a preference. Both hazards: a
+    // localStorage that throws on read, and a browser with no matchMedia at all.
+    vi.spyOn(window.localStorage, 'getItem').mockImplementation(() => {
+      throw new Error('storage is disabled');
+    });
+    expect(() => runInitialiser()).not.toThrow();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    vi.restoreAllMocks();
+
+    const matchMedia = window.matchMedia;
+    // @ts-expect-error — deleting it is the case being reproduced.
+    delete window.matchMedia;
+    try {
+      expect(() => runInitialiser()).not.toThrow();
+    } finally {
+      window.matchMedia = matchMedia;
+    }
+  });
+
   it('agrees with the store on the key and the vocabulary it cannot import', () => {
+    // The behaviour above is what matters; this pins the two literals a shared VALUE has to
+    // agree on, which running the file cannot check because the store is not in its scope.
     expect(initialiser).toContain(`'${THEME_STORAGE_KEY}'`);
     expect(initialiser).toContain("'(prefers-color-scheme: dark)'");
-    expect(initialiser).toContain("setAttribute('data-theme'");
-    expect(initialiser).toContain('colorScheme');
-    // The same three-state vocabulary, read the same way.
-    expect(initialiser).toContain("stored === 'light' || stored === 'dark' ? stored : 'system'");
   });
 
   it('is loaded blocking, in <head>, before the module script', () => {

@@ -397,8 +397,8 @@ is a smell.
 - **The one irreversible surface refuses the affordance that would fire it.** The archive dialog is
   built on the confirm dialog *because* the form dialog has Enter-to-submit — focus sits on Cancel,
   Enter cancels — and it never says "this can't be undone", which would be its one false sentence.
-- **A palette is measured, not chosen** — in **both** themes; a failing colour is measured **out**,
-  and four theme traps ship green (see the register).
+- **A palette is measured, not chosen**, in **both** themes; a colour that fails is measured
+  **out**. Four theme traps ship green.
 - **Client state is computed in the browser; billed work is not.** A selection aggregate issues
   **zero** executions, and says which page it counted.
 - **A display page is not a listing page.** A pager over filtered rows keeps fetching while the

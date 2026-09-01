@@ -49,9 +49,10 @@ describe('the theme control', () => {
   });
 
   it('switches the theme without re-mounting what is on the page', async () => {
-    // The reason the store is a module + useSyncExternalStore rather than a Context provider.
-    // A provider whose value changed would re-render its subtree, and anything that had to
-    // unmount to do it would lose what the user had typed.
+    // FR-004's requirement, not an argument for the store's shape: a Context provider would
+    // pass this too, because a value change re-renders consumers and unmounts nothing. What it
+    // does catch is a switch implemented by remounting — a `key` on a subtree, a router
+    // navigation — which is a real way to lose what the user had typed.
     function Typed() {
       const [value, setValue] = useState('');
       return (

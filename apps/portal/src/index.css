@@ -145,16 +145,16 @@
      nowhere to go but down. */
   --color-accent: #615ae9;
   --color-accent-hover: #4f46e5;
-  --color-accent-soft: #1d1f3d;
+  --color-accent-soft: #191b36;
   --color-accent-text: #a5b4fc;
   --color-accent-border: #383c6b;
 
   --color-success: #34d399;
-  --color-success-soft: #0d2a21;
+  --color-success-soft: #0a231b;
   --color-warning: #f0b429;
-  --color-warning-soft: #2c220c;
+  --color-warning-soft: #271e0a;
   --color-danger: #f87171;
-  --color-danger-soft: #34181a;
+  --color-danger-soft: #2f1517;
   --color-danger-border: #4a2427;
   /* Near-black, not white: the danger fill is light here so its text inverts. */
   --color-on-danger: #1a0c0c;

@@ -3,6 +3,11 @@ import {describe, expect, it} from 'vitest';
 // The sweep that stops this one being needed again. Every colour in the app comes from a token
 // so that a theme can move it; a literal is a colour the theme cannot reach and the contrast
 // harness cannot see, and nineteen of them had accumulated before anybody counted.
+//
+// WHAT IT DOES NOT READ, stated so nobody trusts it further than it goes: `rgb()`/`hsl()`
+// functions, CSS named colours (`red`, `rebeccapurple`), and Tailwind arbitrary values that name
+// one (`bg-[red]`). None appears in the tree today. The three forms below are the ones that
+// actually accumulated, and widening the sweep is a deliberate edit here, not a rewrite.
 
 const SOURCES = import.meta.glob('/src/**/*.{ts,tsx}', {query: '?raw', import: 'default', eager: true}) as Record<
   string,

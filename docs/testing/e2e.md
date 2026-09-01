@@ -792,7 +792,6 @@ or a ported route needs them, and both are cheap:
 The platform's own verification — the no-NAT pull, the redirect, target health — is **§B of
 `arc-b-api-container-e2e.md`**, discharged 2026-08-26 and recorded in `owed.md`.
 
-
 ---
 
 ## 5. Cleanup and write-up
