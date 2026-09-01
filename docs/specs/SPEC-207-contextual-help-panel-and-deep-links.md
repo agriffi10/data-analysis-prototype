@@ -1,7 +1,7 @@
 # Spec: Contextual Help — the Guide Panel and Per-Feature Deep Links
 
 **ID:** SPEC-207
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-28
 **Depends On:** SPEC-074 (Help & guides — the sections, the guide cards, the header link, the hash-addressed section), SPEC-103 (Help responsive), SPEC-155 (`Drawer`, `IconButton`, and the Escape-by-depth registry), SPEC-162/163 (`hiddenHelpIds` and the guide→flag registry in `gatedSurfaces.ts`), SPEC-045 (the axe assertions)
 
@@ -149,7 +149,7 @@ consumes rather than reproduces.
       spec's own "It opens closed, every time"; and open it on `/notifications`, press Back to
       `/files`, and a different section's content is silently substituted into a live modal. Keying
       the open state to the pathname does **not** fix the second one, because back-navigation
-      restores the same pathname; an effect that closes on pathname change does.
+      restores the same pathname; a reset that fires on the pathname *changing* does.
 - [ ] A test drives both journeys — forward-navigate-and-return, and browser Back — and asserts the
       panel is closed on arrival.
 - [ ] Escape closes the panel and returns focus to the help control that opened it.
@@ -254,7 +254,7 @@ export const HELP_SURFACES: readonly HelpSurface[] = [
 ];
 ```
 
-> **The panel on `/data-quality` is therefore headed "Files"**, holding eleven Files guides of which
+> **The panel on `/data-quality` is therefore headed "Files"**, holding ten Files guides of which
 > two are about data quality. That is a real presentational cost of not inventing a seventh section,
 > and it is accepted rather than hidden: the alternative is content work this spec has excluded.
 >

@@ -660,6 +660,20 @@ trail answers it — `owed.md` carries the query and the `IsLogging` preconditio
 - Nothing promises a chart, cell editing, named filters, a References panel, or loading a `.sql`
   back into the Explorer.
 
+**The contextual panel (SPEC-207) — the two things jsdom cannot decide.**
+
+- On `/files`, activate the header help control (it is a *button* named `Help for this page`, not a
+  link). Put focus on the panel's `Open the full guide` link and press **Tab**: focus must return to
+  the first control inside the panel, not escape to the page behind it. jsdom reports no layout, so
+  the unit suite can only assert containment.
+- Narrow to 375px and open the panel on `/files`. It must fill the viewport, and the page beneath
+  must not scroll sideways — drag horizontally and confirm nothing moves. At ≥900px the panel is a
+  right-hand sheet with the page still visible beside it, and the close control is reachable at both
+  widths without scrolling.
+- While you are there: the panel on `/data-quality` is headed **Files** by design, and
+  `/help#delete-space` opens the Help page at Shared connections with that one card expanded and
+  scrolled to.
+
 ### 4.14 Feature flags
 
 **The whole point is that the app cannot tell you the answer.** Every compiled-in default is `true`,
