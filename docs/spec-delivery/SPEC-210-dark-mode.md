@@ -64,14 +64,22 @@
 - **SPEC-194**: one section in `.github/scripts/spa-image-matrix.sh` for `/theme-init.js`. No nginx
   change was needed — `location /` already serves root files with the shell's `no-cache`.
 
-### Raised, not fixed
+### The one failing pairing, raised and then fixed
 
-- **`text-danger/80` over `danger-soft` measures 4.19 in light and 4.42 in dark** (the metadata
-  panel's error detail). Pre-existing, sub-AA in **both** themes, and dark is the better of the
-  two — so it is not something this spec introduced or worsened. Out of Scope says a light pairing
-  that fails is "a finding to raise, and the fix is its own decision", so it is raised here. The
-  fix is one modifier (`/80`), but it is a light-palette decision and belongs to whoever takes it.
-  Found by building the app and measuring every rendered pairing, not by the pairing list.
+`text-danger/80` on `danger-soft` (the metadata panel's error detail) measured **4.19 in light**
+and 4.42 in dark — pre-existing, sub-AA in both, and invisible to everything: the literal sweep
+looks for literals, and the harness measures tokens at **full strength**, so a tint of a measured
+token is the one way to fail the pairing list while passing it. Raised under Out of Scope's "a
+finding to raise", then fixed on the user's instruction.
+
+The `/80` is gone, which lands the line on `danger` over `danger-soft` — an already-declared
+pairing at 5.66 / 5.88. It cost nothing visually: the heading beside it carries the hierarchy with
+`font-medium`, which is what was actually doing the work.
+
+**Fixed as a rule, not as a line.** `colourLiterals.test.ts` now sweeps every foreground utility
+carrying an opacity modifier and fails naming it — verified by putting the `/80` back, which
+reddens with `"text-danger/80"`. Backgrounds are deliberately not swept: `bg-black/30` is a scrim
+and `bg-danger/90` is a hover state whose foreground is measured against the result.
 
 ## Verification
 

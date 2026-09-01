@@ -231,7 +231,7 @@ export function MetadataPanel({
           role="alert"
           className="rounded-lg border border-danger-soft bg-danger-soft p-3 text-sm">
           <p className="font-medium text-danger">Couldn’t load details</p>
-          <p className="mt-1 text-danger/80">{toUserText(error)}</p>
+          <p className="mt-1 text-danger">{toUserText(error)}</p>
         </div>
       )}
 

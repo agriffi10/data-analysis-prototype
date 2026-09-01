@@ -551,6 +551,14 @@ because one that silently passes everything is indistinguishable from one that w
   stylesheet) and sweeps hexes, Tailwind's numbered scales, and `white`/`black` separately, the last
   exempted per file with a reason.
 
+**A fifth trap, found by measuring rather than by the theme boundary: a foreground carrying an
+opacity modifier.** `text-danger/80` is not `danger` — it is `danger` blended toward whatever is
+behind it, so it lands below the number the harness measured for the token, and no pairing
+describes it. One shipped at 4.19:1 on its own `danger-soft` fill and nothing could see it: the
+literal sweep looks for literals, the harness measures tokens at full strength. Swept now, and
+foregrounds only — a background modifier is a scrim or a hover state whose foreground is measured
+against the result.
+
 **The preference is a module store read through `useSyncExternalStore`** — three states
 (`light`/`dark`/`system`, anything else read as `system`), `localStorage`, per browser. **A Context
 provider would work equally well, and the entry says so because two justifications for preferring

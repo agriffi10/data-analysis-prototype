@@ -35,6 +35,15 @@ const HEX = /#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b/g;
 const STOCK_SCALE =
   /\b(?:text|bg|border|from|to|via|ring|divide|fill|stroke|placeholder|caret|accent|outline|decoration|shadow)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/g;
 
+// A foreground carrying an OPACITY modifier. `text-danger/80` is not `danger`: it is `danger`
+// blended toward whatever is behind it, so it lands below the ratio the harness measured for the
+// token and there is no pairing that describes it. One shipped at 4.19:1 on its own `danger-soft`
+// fill and no guard could see it — the sweep looks for literals, and the harness measures tokens
+// at full strength. Backgrounds are deliberately NOT swept: `bg-black/30` is a scrim and
+// `bg-danger/90` is a hover state whose foreground is measured against the result.
+const FADED_FOREGROUND =
+  /\btext-(?:text|text-2|text-3|accent|accent-text|accent-hover|success|warning|danger|on-danger|syntax-fn|white|black)\/\d+\b/g;
+
 // `white` and `black` are the two absolutes rather than a palette, so they are swept
 // separately and exempted by file with a reason — a scrim and white-on-accent are correct in
 // both themes, and a `text-white` on a themed surface is not.
@@ -107,6 +116,13 @@ describe('no colour bypasses the tokens', () => {
       // …and its surfaces and text are painted with the tokens, not with something fixed.
       expect(source, path).toMatch(/bg-surface|text-text|PALETTE|var\(--color-/);
     }
+  });
+
+  it('fades no foreground below the ratio its token was measured at', () => {
+    // Full strength or a different token — never a tint of one. A modifier here silently spends
+    // contrast the pairing list has already counted, which is the one way to fail the harness
+    // while passing it.
+    expect(offenders(FADED_FOREGROUND)).toEqual({});
   });
 
   it('reads prose about a colour as prose', () => {
