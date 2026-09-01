@@ -736,19 +736,25 @@ matches nothing here.
 | `RegisterTaskDefinition` with **tmpfs** on FARGATE | accepted; the mounts came back `drwxrwxrwt nginx nginx` |
 | `ecs:RegisterTaskDefinition` scoped by resource TYPE | works — the task definition was created on the first apply |
 
-## SPEC-212 — the Lambda image reaches the registry (2026-09-01)
+## SPEC-212 — the Lambda image reaches the registry (2026-09-01, TWO OF THREE DISCHARGED)
 
 **Not runnable from a signed-in browser session, and not runnable from a laptop either** — the
 deploy role is GitHub-OIDC-only, and the local CLI identity is on no data bucket's allowlist. Every
 claim about the image itself is settled in CI against the built artefact (86 handler imports, the
-layout set-equalities, the collision and shadowing guards), so what is owed here is only the part
-that needs the real account.
+layout set-equalities, the collision and shadowing guards), so what was owed here was only the part
+needing the real account. Two of the three settled on the merge runs, and the evidence is a read
+against the account rather than a green tick:
+
+| Was owed | Discharged by |
+|---|---|
+| The deploy role's registry grants work against the real ECR | **Settled.** `Deploy Infrastructure` applied the grant on the grants PR's merge, then created `dat-prod-lambda` on the repository PR's. `describe-repositories` reads back `IMMUTABLE`, `scanOnPush: true`, `AES256` — the three settings the module declares |
+| `docker push` actually lands an image under a commit-sha tag | **Settled.** The first `Deploy Lambda image` run on `main` pushed 234 MB under the tag `d3d8b865…`, which is `main`'s head at that commit. `describe-images` reads the tag and its digest back. The workflow asserts this itself for the same reason it is recorded here: nothing consumes the image yet, so a push that silently did nothing would go unnoticed until the cutover |
+
+**Still owed, and it belongs to the next spec:**
 
 | Owed | Why it cannot be run here | What discharges it |
 |---|---|---|
-| The deploy role's registry grants work against the real ECR | `simulate-custom-policy` answers whether a pattern matches a string, never which ARN the service passes — and no local identity may write to production | The grants PR's own green `Deploy Infrastructure` run, then the repository PR creating `dat-prod-lambda` |
-| `docker push` actually lands an image under a commit-sha tag | Needs the OIDC role and a registry that exists | The first green `Deploy Lambda image` run on `main`. The workflow asserts it itself: after the push it re-reads the tag's digest, because `docker push` reporting success is not the registry holding the image, and **nothing consumes the image yet**, so a push that silently did nothing would otherwise go unnoticed until the cutover |
-| That the image can actually be **run** by Lambda | No function points at it — deliberately, this spec deploys nothing | SPEC-213. Until then the strongest available evidence is the matrix, which runs the image through the same runtime bootstrap a deployed function uses |
+| That the image can actually be **run** by Lambda | No function points at it — deliberately; this spec deploys nothing | SPEC-213. Until then the strongest available evidence is the behaviour matrix, which runs the image through the same `/var/runtime/bootstrap` a deployed function uses, and imports every handler under it |
 
 ## SPEC-200 — the enqueue paths (2026-08-29, PARTLY RUN 2026-08-30)
 
