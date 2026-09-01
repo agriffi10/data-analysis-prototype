@@ -39,22 +39,67 @@ def blocks(text: str, kind: str) -> dict[str, str]:
     """
     found = {}
     for match in re.finditer(rf'resource\s+"{re.escape(kind)}"\s+"([^"]+)"\s*\{{', text):
-        depth, index = 1, match.end()
-        while depth and index < len(text):
-            char = text[index]
-            if char == "#" or text[index : index + 2] == "//":
-                index = text.find("\n", index)
-                if index == -1:
-                    break
-            elif char == '"':
-                index += 1
-                while index < len(text) and text[index] != '"':
-                    index += 2 if text[index] == "\\" else 1
-            else:
-                depth += {"{": 1, "}": -1}.get(char, 0)
-            index += 1
-        found[match.group(1)] = text[match.end() : index - 1]
+        found[match.group(1)] = text[match.end() : _close(text, match.end()) - 1]
     return found
+
+
+def _close(text: str, index: int) -> int:
+    """Scans from just inside an open brace to just past the one that closes it.
+
+    Strings and comments are skipped here rather than by each caller, which is the whole reason
+    this is one function: a naive count ends a block at the ``}`` inside ``tags = { Name =
+    "closes early }" }``, and an unbalanced brace inside a ``#`` comment swallows whatever
+    follows.
+
+    Args:
+      text: The Terraform source being read.
+      index: The offset immediately after the opening brace.
+
+    Returns:
+      The offset immediately after the matching closing brace, or the end of an unterminated
+      comment, matching what the block scan has always done with malformed input.
+
+    Raises:
+      None.
+    """
+    depth = 1
+    while depth and index < len(text):
+        char = text[index]
+        if char == "#" or text[index : index + 2] == "//":
+            index = text.find("\n", index)
+            if index == -1:
+                break
+        elif char == '"':
+            index += 1
+            while index < len(text) and text[index] != '"':
+                index += 2 if text[index] == "\\" else 1
+        else:
+            depth += {"{": 1, "}": -1}.get(char, 0)
+        index += 1
+    return index
+
+
+def span(text: str, start: int) -> str:
+    """Returns the braced block beginning at or after ``start``, braces included.
+
+    The counterpart to ``blocks`` for everything that is not a top-level resource — a ``locals``
+    block, a map local, one entry inside it. It exists so those reads go through the SAME
+    string-and-comment-aware counter: a second one written beside a suite is the copy that
+    drifts, and the drift shows up as a cascade of failures naming resources that are fine.
+
+    Args:
+      text: The Terraform source to read.
+      start: An offset at or before the block's opening brace.
+
+    Returns:
+      The block, including its outer braces.
+
+    Raises:
+      ValueError: If no opening brace follows ``start``, rather than returning an empty string
+        that every caller would then parse to nothing and pass over.
+    """
+    opening = text.index("{", start)
+    return text[opening : _close(text, opening + 1)]
 
 
 def join_list_items(text: str, local_name: str) -> tuple[str, str]:

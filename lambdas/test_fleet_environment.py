@@ -16,23 +16,21 @@ demand is the set of required names its import closure can actually reach throug
 reader, walked from its own modules through exactly the layers the deployment manifest attaches
 to it. What a function cannot reach, it cannot be broken by.
 
-**That computation is also what replaces an exemption list.** The four functions that attach the
-layer for ``observability`` alone set almost none of the set on purpose, and a hand-written
-exception naming them would be a hidden coupling: it would go on passing after one of them grew
-a read that made the exemption false. Here they are exempt only because the scan finds they
-demand nothing, and a test below pins that the two agree — so the exemption cannot outlive its
-reason.
+**That computation is also what replaces an exemption list.** Four functions — the ones
+``test_layer_import_safety`` calls the singletons — attach the shared layer for its logging and a
+short allowlist beside it, and set almost none of the required set on purpose. A hand-written
+exception naming them would be a hidden coupling: it would go on passing after one of them grew a
+read that made the exemption false. Here they are exempt only because the scan finds they demand
+nothing, and a test below pins that the two agree — so the exemption cannot outlive its reason.
 
 The guard is a SUPERSET, not set equality. Several planes deliberately set the layer's whole
-union so a verb that grows a read does not need a Terraform change to go with it, and their
-READMEs say so. That leaves one blind spot, which a second assertion below covers: a name added
+union so a verb that grows a read does not need a Terraform change to go with it, and each
+plane's own lambda.tf says so beside the block. That leaves one blind spot, which a second assertion below covers: a name added
 to ``_REQUIRED_VARS`` that nothing reads YET is demanded by no function, so the reachability
 comparison stays green while the fleet contract has silently widened. The declaration is
 therefore pinned separately. ``user-directory-build`` keeps a stricter per-plane mirror beside
 its verb tests, which catches the same widening from the other side; both were kept after
 checking that adding a variable reddens each of them.
-
-Runnable under pytest or directly: python3 test_fleet_environment.py.
 
 Attributes:
   ROOT: The repository root.
@@ -42,8 +40,8 @@ Attributes:
   LAYER_MANIFEST: The layer manifest, which says where each layer's importable code lives.
   NAME_PREFIX: The project/environment prefix every deployed function name carries. Stripping it
     yields the ``lambdas/`` directory, which is the contract the deploy matrix already rests on.
-  FAIL_FAST_READERS: The function names that turn an environment variable into a hard
-    requirement. Both spellings of the shared reader, since a domain layer calls the exported one.
+  FAIL_FAST_READERS: The canonical spellings of the shared fail-fast reader. A module's own
+    aliases for it are resolved per module, because a domain layer imports it under a third name.
 """
 
 import ast
@@ -51,11 +49,10 @@ import functools
 import json
 import pathlib
 import re
-import sys
 
 import pytest
 from cpcommon import config
-from tf_blocks import blocks
+from tf_blocks import blocks, span
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 LAMBDAS = ROOT / "lambdas"
@@ -85,27 +82,6 @@ def _required_names() -> frozenset[str]:
     return frozenset(config._REQUIRED_VARS.values())
 
 
-def _brace_span(text: str, start: int) -> str:
-    """Returns the braced block beginning at or after ``start``, counting nesting.
-
-    Args:
-      text: The Terraform source to read.
-      start: An offset at or before the block's opening brace.
-
-    Returns:
-      The block, including its outer braces.
-
-    Raises:
-      ValueError: If no opening brace follows ``start``.
-    """
-    opening = text.index("{", start)
-    depth, index = 1, opening + 1
-    while depth and index < len(text):
-        depth += {"{": 1, "}": -1}.get(text[index], 0)
-        index += 1
-    return text[opening:index]
-
-
 def _locals_source(module: pathlib.Path) -> str:
     """Every ``locals`` block in one Terraform module, concatenated.
 
@@ -128,7 +104,7 @@ def _locals_source(module: pathlib.Path) -> str:
     for path in sorted(module.glob("*.tf")):
         text = path.read_text(encoding="utf-8")
         found.extend(
-            _brace_span(text, match.start())
+            span(text, match.start())
             for match in re.finditer(r"^locals\s*\{", text, re.MULTILINE)
         )
     return "\n".join(found)
@@ -140,6 +116,12 @@ def _map_entries(source: str, name: str) -> dict[str, str]:
     Read to the map's own closing brace by counting braces, never to the first brace after a
     named entry. That earlier shape is what let a plane's last-declared verbs sit outside a
     guard that looked exhaustive.
+
+    A key is found after an opening brace or a comma as readily as at the start of a line. Every
+    map in the tree today is written one entry per line, so anchoring to the line start looked
+    equivalent and was not: a single-line map — which is how this repository already writes the
+    short ones — parsed as having no entries at all, and a check over those entries then passed
+    by having nothing to look at.
 
     Args:
       source: The concatenated locals source.
@@ -154,15 +136,15 @@ def _map_entries(source: str, name: str) -> dict[str, str]:
     match = re.search(rf"^\s*{re.escape(name)}\s*=\s*\{{", source, re.MULTILINE)
     if not match:
         return {}
-    body = _brace_span(source, match.start())
+    body = span(source, match.start())
     entries = {}
-    for entry in re.finditer(r'^\s*"([a-z0-9-]+)"\s*=\s*', body, re.MULTILINE):
+    for entry in re.finditer(r'(?:^|[{,])\s*"([a-z0-9-]+)"\s*=\s*', body, re.MULTILINE):
         tail = body[entry.end() :]
-        entries[entry.group(1)] = _brace_span(body, entry.end()) if tail.startswith("{") else ""
+        entries[entry.group(1)] = span(body, entry.end()) if tail.startswith("{") else ""
     return entries
 
 
-def _directories(function_name: str, local: str, source: str) -> list[str]:
+def _directories(function_name: str, source: str) -> list[tuple[str, str]]:
     """The ``lambdas/`` directories one Terraform resource deploys.
 
     The deployed name is ``<project>-<environment>-<suffix>`` and the suffix IS the source
@@ -172,33 +154,33 @@ def _directories(function_name: str, local: str, source: str) -> list[str]:
 
     Args:
       function_name: The resource's ``function_name`` expression.
-      local: The unused resource-local name, kept for symmetry with the caller.
       source: The module's concatenated locals source.
 
     Returns:
-      One directory per function the resource deploys.
+      One ``(directory, key)`` pair per function the resource deploys. The key is the ``each.key``
+      the name was built from, empty for a singleton — carried out rather than recovered later,
+      because recovering it by splitting the directory is wrong for every hyphenated plane.
 
     Raises:
       ValueError: If the expression names a local this cannot resolve, rather than resolving to
         an empty list that every assertion would then pass over.
     """
-    del local
     if function_name.startswith('"'):
-        return [function_name.strip('"').replace(NAME_PREFIX, "")]
+        return [(function_name.strip('"').replace(NAME_PREFIX, ""), "")]
 
     keyed = re.match(r"local\.([a-z_]+)\[each\.key\]", function_name)
     if keyed:
         names = re.search(rf"^\s*{keyed.group(1)}\s*=\s*\{{", source, re.MULTILINE)
         if not names:
             raise ValueError(f"cannot resolve local.{keyed.group(1)}")
-        body = _brace_span(source, names.start())
+        body = span(source, names.start())
         over = re.search(r"for\s+\w+,\s*\w+\s+in\s+local\.([a-z_]+)", body)
         template = re.search(r'=>\s*"([^"]+)"', body)
         if not over or not template:
             raise ValueError(f"local.{keyed.group(1)} is not a name comprehension")
         stem = template.group(1).replace(NAME_PREFIX, "")
         return sorted(
-            re.sub(r"\$\{\w+\}", key, stem) for key in _map_entries(source, over.group(1))
+            (re.sub(r"\$\{\w+\}", key, stem), key) for key in _map_entries(source, over.group(1))
         )
 
     plain = re.match(r"local\.([a-z_]+)$", function_name)
@@ -207,20 +189,20 @@ def _directories(function_name: str, local: str, source: str) -> list[str]:
     literal = re.search(rf'^\s*{plain.group(1)}\s*=\s*"([^"]+)"', source, re.MULTILINE)
     if not literal:
         raise ValueError(f"cannot resolve local.{plain.group(1)}")
-    return [literal.group(1).replace(NAME_PREFIX, "")]
+    return [(literal.group(1).replace(NAME_PREFIX, ""), "")]
 
 
 @functools.lru_cache(maxsize=1)
-def _resources() -> tuple[tuple[str, str, tuple[str, ...], frozenset[str], str], ...]:
+def _resources() -> tuple[tuple[str, str, tuple[tuple[str, str], ...], frozenset[str], str], ...]:
     """Every ``aws_lambda_function`` in the module tree, with what its environment supplies.
 
     Args:
       None.
 
     Returns:
-      One row per resource: its module, its resource name, the directories it deploys, the
-      variable names its base environment block sets, and the name of its per-verb override
-      local, empty when it has none.
+      One row per resource: its module, its resource name, the ``(directory, key)`` pairs it
+      deploys, the variable names its base environment block sets, and the name of its per-verb
+      override local, empty when it has none.
 
     Raises:
       ValueError: Through ``_directories``, if a resource's name cannot be resolved.
@@ -231,13 +213,15 @@ def _resources() -> tuple[tuple[str, str, tuple[str, ...], frozenset[str], str],
         for name, body in blocks(path.read_text(encoding="utf-8"), "aws_lambda_function").items():
             expression = re.search(r"^\s{2}function_name\s*=\s*(.+)$", body, re.MULTILINE)
             assert expression, f"{path}: {name} declares no function_name"
-            environment = _brace_span(body, body.index("environment"))
+            opening = re.search(r"^\s{2}environment\s*\{", body, re.MULTILINE)
+            assert opening, f"{path}: {name} declares no environment block"
+            environment = span(body, opening.start())
             override = re.search(r"lookup\(local\.([a-z_]+),", environment)
             rows.append(
                 (
                     path.parent.name,
                     name,
-                    tuple(_directories(expression.group(1).strip(), name, source)),
+                    tuple(_directories(expression.group(1).strip(), source)),
                     frozenset(
                         re.findall(r"^\s*([A-Z][A-Z0-9_]*)\s*=", environment, re.MULTILINE)
                     ),
@@ -252,8 +236,17 @@ def _supply() -> dict[str, tuple[str, frozenset[str]]]:
     """Each function directory mapped to the resource that deploys it and what it is given.
 
     A per-verb override entry is unioned in, because an override that ADDS a variable supplies
-    it as genuinely as the base block does. One that SHADOWS a required name is refused
-    separately below.
+    it as genuinely as the base block does. For a REQUIRED name that union is currently
+    unreachable, and deliberately so: the shadow check below refuses any required name in an
+    override map at all, on the grounds that an override is where one silently becomes an empty
+    string. The union is kept anyway so that what this function reports is what Terraform
+    actually merges, rather than what a second test happens to forbid — the two would otherwise
+    have to be read together to know whether either was right.
+
+    The override is looked up by the key the DIRECTORY WAS BUILT FROM, never by splitting the
+    directory name back apart. A plane whose name contains a hyphen — five of the six that have
+    an override map — makes ``file-ops-copy-objects`` split to ``ops-copy-objects``, which
+    matches no entry, so every override on those planes was silently read as absent.
 
     Args:
       None.
@@ -267,11 +260,8 @@ def _supply() -> dict[str, tuple[str, frozenset[str]]]:
     supply = {}
     for module, resource, directories, names, override in _resources():
         entries = _map_entries(_locals_source(MODULES / module), override) if override else {}
-        for directory in directories:
-            key = directory.split("-", 1)[1] if "-" in directory else directory
-            extra = re.findall(
-                r"^\s*([A-Z][A-Z0-9_]*)\s*=", entries.get(key, ""), re.MULTILINE
-            )
+        for directory, key in directories:
+            extra = re.findall(r"([A-Z][A-Z0-9_]*)\s*=", entries.get(key, ""))
             supply[directory] = (f"{module}/{resource}", names | frozenset(extra))
     return supply
 
@@ -380,12 +370,45 @@ def _literal_maps(tree: ast.Module) -> dict[str, object]:
     return maps
 
 
-def _demanded_by(tree: ast.Module) -> set[str]:
-    """The environment names one module can demand through a fail-fast reader.
+def _reader_names(tree: ast.Module) -> set[str]:
+    """The local names bound to the fleet's fail-fast reader in one module.
 
-    Two shapes, because the fleet has two. An attribute read of the lazily resolved config
-    raises through its ``__getattr__``; an explicit ``require`` call raises directly, whether it
-    is passed a literal or an entry from the caller's own map.
+    Resolved per module rather than matched against two fixed spellings, because the reader is
+    routinely imported under a third. The archive domain layer binds it as ``_require_env``, and
+    a scan keyed on the exported name alone cannot see that call at all — which is how the one
+    variable this whole rule was written for came to be invisible to the guard enforcing it.
+
+    Args:
+      tree: The parsed module.
+
+    Returns:
+      Every name a call to the reader may appear under here, including the bare spellings for
+      the attribute form.
+
+    Raises:
+      None.
+    """
+    names = set(FAIL_FAST_READERS)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            names.update(
+                alias.asname or alias.name
+                for alias in node.names
+                if alias.name in FAIL_FAST_READERS
+            )
+    return names
+
+
+def _demanded_by(tree: ast.Module) -> set[str]:
+    """The environment names one module can demand through a fail-fast read.
+
+    Four shapes, because the fleet has four, and three of them were missing from the first
+    version of this file. An attribute read of the lazily resolved config raises through its
+    ``__getattr__``; ``getattr`` with a literal does the same thing past a checker; an explicit
+    reader call raises directly, whether passed a literal or an entry from the caller's own map;
+    and a subscript of ``os.environ`` raises ``KeyError`` on its own. Importing a required name
+    FROM the config module is counted too, and is the worst of them — it resolves at import, so
+    it fails at cold start rather than on a branch.
 
     Args:
       tree: The parsed module.
@@ -403,36 +426,58 @@ def _demanded_by(tree: ast.Module) -> set[str]:
         if isinstance(node, ast.Attribute) and node.attr in required
     }
     maps = _literal_maps(tree)
+    readers = _reader_names(tree)
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not node.args:
-            continue
-        called = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", None)
-        if called not in FAIL_FAST_READERS:
-            continue
-        argument = node.args[0]
-        if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
-            names.add(argument.value)
-        elif (
-            isinstance(argument, ast.Subscript)
-            and isinstance(argument.value, ast.Name)
-            and isinstance(argument.slice, ast.Constant)
-        ):
-            entry = maps.get(argument.value.id)
-            value = entry.get(argument.slice.value) if isinstance(entry, dict) else None
-            if isinstance(value, str):
-                names.add(value)
+        if isinstance(node, ast.ImportFrom) and (node.module or "").endswith("config"):
+            names.update(alias.name for alias in node.names if alias.name in required)
+        elif isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant):
+            target = node.value
+            environ = (isinstance(target, ast.Attribute) and target.attr == "environ") or (
+                isinstance(target, ast.Name) and target.id == "environ"
+            )
+            if environ and isinstance(node.slice.value, str):
+                names.add(node.slice.value)
+        elif isinstance(node, ast.Call) and node.args:
+            called = (
+                node.func.attr
+                if isinstance(node.func, ast.Attribute)
+                else getattr(node.func, "id", None)
+            )
+            argument = node.args[0]
+            if called == "getattr" and len(node.args) > 1:
+                argument = node.args[1]
+            elif called not in readers:
+                continue
+            if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                names.add(argument.value)
+            elif (
+                isinstance(argument, ast.Subscript)
+                and isinstance(argument.value, ast.Name)
+                and isinstance(argument.slice, ast.Constant)
+            ):
+                entry = maps.get(argument.value.id)
+                value = entry.get(argument.slice.value) if isinstance(entry, dict) else None
+                if isinstance(value, str):
+                    names.add(value)
     return names
 
 
-def _imports_of(tree: ast.Module, module: str) -> set[str]:
+def _imports_of(tree: ast.Module, module: str, package: bool) -> set[str]:
     """Every module name one module imports, absolute and relative forms both.
 
     By AST over the whole file, so an import deferred into a function body counts. That shape is
     exactly the one that survives cold start and fails on the branch that runs it.
 
+    The relative form honours the DOT COUNT rather than stripping one component. The transfer
+    subpackage reaches its siblings with ``from .. import clients``, and resolving that as though
+    it were a single dot pointed at modules which do not exist — so the walk stopped there and
+    four verbs computed a demand that omitted everything reachable through it.
+
     Args:
       tree: The parsed module.
       module: Its own dotted name, for resolving a relative import.
+      package: Whether that name refers to a package's ``__init__``, whose relative imports
+        resolve from itself rather than from its parent.
 
     Returns:
       The imported module names, each also paired with its imported members so a submodule
@@ -441,14 +486,17 @@ def _imports_of(tree: ast.Module, module: str) -> set[str]:
     Raises:
       None.
     """
+    parts = module.split(".") if module else []
+    if not package:
+        parts = parts[:-1]
     found = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             found.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
             if node.level:
-                package = module.rsplit(".", 1)[0] if "." in module else ""
-                target = f"{package}.{node.module}" if node.module else package
+                base = parts[: len(parts) - (node.level - 1)] if node.level > 1 else parts
+                target = ".".join([*base, node.module] if node.module else base)
             else:
                 target = node.module or ""
             if target:
@@ -482,7 +530,10 @@ def demand(function: str) -> frozenset[str]:
         seen.add(name)
         tree = ast.parse(modules[name].read_text(encoding="utf-8"))
         needed |= _demanded_by(tree)
-        pending.extend(target for target in _imports_of(tree, name) if target in modules)
+        package = modules[name].name == "__init__.py"
+        pending.extend(
+            target for target in _imports_of(tree, name, package) if target in modules
+        )
     return frozenset(needed) & _required_names()
 
 
@@ -513,8 +564,17 @@ def test_every_deployed_function_is_claimed_by_exactly_one_terraform_resource():
     function this file never checks; a claimed name that is in no manifest means the derivation
     of a directory from a deployed name has drifted, and every demand computed through it is
     being read from the wrong source tree.
+
+    The third assertion is the one that keeps the other two from being satisfiable by a name
+    that resolves to nothing. Every step of the walk is forgiving of a missing directory — the
+    roots are filtered by existence and the seed is a directory listing — so a manifest name
+    whose source tree has been renamed computes an empty demand and satisfies every comparison
+    in this file, including both positive controls. Asserting the directory exists is what turns
+    that from silence into a failure.
     """
-    claimed = [directory for _, _, directories, _, _ in _resources() for directory in directories]
+    claimed = [
+        directory for _, _, directories, _, _ in _resources() for directory, _ in directories
+    ]
     deployed = set(DEPLOYED)
 
     assert len(claimed) == len(set(claimed)), (
@@ -524,6 +584,11 @@ def test_every_deployed_function_is_claimed_by_exactly_one_terraform_resource():
     assert set(claimed) == deployed, (
         f"deployed but unclaimed by any lambda.tf: {sorted(deployed - set(claimed))}; "
         f"claimed but in no deploy manifest: {sorted(set(claimed) - deployed)}"
+    )
+    missing = [name for name in deployed if not (LAMBDAS / name).is_dir()]
+    assert not missing, (
+        f"{missing} is deployed but has no lambdas/ directory, so its demand computes as empty "
+        f"and every assertion in this file passes over it while the function still runs"
     )
 
 
@@ -541,8 +606,7 @@ def test_no_per_verb_override_can_shadow_a_required_variable():
             continue
         source = _locals_source(MODULES / module)
         for key, body in _map_entries(source, override).items():
-            shadowed = set(re.findall(r"^\s*([A-Z][A-Z0-9_]*)\s*=", body, re.MULTILINE))
-            shadowed &= _required_names()
+            shadowed = set(re.findall(r"([A-Z][A-Z0-9_]*)\s*=", body)) & _required_names()
             if shadowed:
                 offenders[f"{module}:{key}"] = sorted(shadowed)
 
@@ -633,7 +697,3 @@ def test_the_required_set_is_still_the_four_this_file_was_measured_against():
         f"can reach the new name must set it, and the reachability guard above cannot tell you "
         f"that until something reads it — check the environment blocks before widening this"
     )
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))
