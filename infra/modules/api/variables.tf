@@ -190,12 +190,17 @@ variable "file_ops_queue_url" {
   type        = string
 }
 
+variable "feedback_queue_url" {
+  description = "URL of the feedback FIFO request queue. This function is its only writer, and unlike the eight above the browser never held a grant on it."
+  type        = string
+}
+
 variable "request_queue_arns" {
-  description = "Every FIFO request queue ARN this function may write. Exactly the eight; never a wildcard, never a DLQ, and never the notifications queue's writer path."
+  description = "Every FIFO request queue ARN this function may write. Exactly the nine — the eight control-plane request queues plus feedback; never a wildcard, never a DLQ, and never the notifications queue's writer path."
   type        = list(string)
 
   validation {
-    condition     = length(var.request_queue_arns) == 8
-    error_message = "The API writes exactly eight request queues; a shorter list means a plane lost its route."
+    condition     = length(var.request_queue_arns) == 9
+    error_message = "The API writes exactly nine request queues — eight control planes plus feedback; a shorter list means one lost its route."
   }
 }

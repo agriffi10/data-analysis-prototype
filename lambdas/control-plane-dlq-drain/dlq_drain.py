@@ -45,10 +45,16 @@ Attributes:
     that nothing changed.
   SOURCES: Keyed by the domain segment of the DLQ name, because that is the only thing about a
     queue that is stable across project and environment.
-  UNDRAINED_QUEUES: DLQs this drain deliberately does not attach to. The drain's only delivery
-    channel is the notifications queue, so draining that queue's DLQ would ask the queue that
-    just failed to deliver to deliver the news about itself. Named here rather than merely
-    omitted, so the coverage test can tell "excluded on purpose" from "someone forgot".
+  UNDRAINED_QUEUES: DLQs this drain deliberately does not attach to. Two, for two different
+    reasons, and the second is not a special case of the first. **notifications**: the drain's
+    only delivery channel IS that queue, so draining its DLQ would ask the queue that just failed
+    to deliver to deliver the news about itself. **feedback**: the recipient of every notification
+    this drain sends comes from the verified ``identity`` block inside the message body, and a
+    feedback message carries none by design — the API verified the caller and the browser never
+    touches that queue. Draining it would mean notifying whoever an untrusted body field named,
+    which is the exact inversion this drain's recipient rule exists to prevent. Named here rather
+    than merely omitted, so the coverage tests can tell "excluded on purpose" from "someone
+    forgot".
   _FALLBACK_NOUN: The generic noun for a queue whose descriptor is missing. It should be
     unreachable — the coverage test fails first — but a wrong-but-honest message beats no
     message at all.
@@ -133,7 +139,7 @@ SOURCES: dict[str, Source] = {
     "file-ops": Source("file-ops", "file operation"),
 }
 
-UNDRAINED_QUEUES = frozenset({"notifications"})
+UNDRAINED_QUEUES = frozenset({"notifications", "feedback"})
 
 _FALLBACK_NOUN = "request"
 

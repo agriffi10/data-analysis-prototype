@@ -52,7 +52,17 @@ _NO_ALLOWLIST_VERBS = {
     "data-quality": "data-quality-validate-authorize/dq_validate_authorize.py",
 }
 
-_TWO_PRODUCER_PLANES = {"notifications"}
+#: Every DLQ the drain deliberately does not attach to, and WHY each one. A mapping rather than a
+#: set, because the repair this guard invites is to widen a set named for one reason until it
+#: holds queues that are there for another — and then the constant's name is a lie and the
+#: assertion is a transcription of the production value rather than a check on it.
+_UNDRAINED_BY_DESIGN = {
+    "notifications": "the drain's only delivery channel IS this queue, so draining it is circular",
+    "feedback": (
+        "the drain notifies from the verified identity in the message body, and a feedback "
+        "message carries none by design — draining it would notify from an untrusted field"
+    ),
+}
 
 _NOTIFICATIONS_USER_ACTIONS = frozenset({"markRead", "markAllRead"})
 
@@ -318,7 +328,7 @@ def test_the_notifications_verb_is_exempt_from_the_subset_by_NAME_and_here_is_wh
     assert "create" not in action.literals
 
 
-def test_every_drained_queue_has_a_writer_and_notifications_is_not_a_row():
+def test_every_drained_queue_has_a_writer_and_the_undrained_ones_say_why():
     """Three assertions, and deliberately not set equality.
 
     Plain set equality between the routes and the drain's table fails on notifications, and the
@@ -329,7 +339,11 @@ def test_every_drained_queue_has_a_writer_and_notifications_is_not_a_row():
     column. That column is gone: the recipient comes from the one ``identity`` block every
     producer writes, so there is no per-domain disagreement left to keep the two tables honest
     about. What remains is the pairing that still has teeth — a drained queue nobody writes, a
-    written queue nobody drains, and the deliberate exclusion.
+    written queue nobody drains, and the deliberate exclusions.
+
+    This walks the enqueue ROUTES, so it is blind to a queue that has no enqueue route — feedback
+    is the first. That one is covered by ``test_feedback_module.py``, which walks what Terraform
+    declares instead. Two populations, because neither alone is "every request DLQ".
     """
     for key in dlq_drain.SOURCES:
         assert _routes_for(key), f"{key} is drained but no route writes it"
@@ -340,7 +354,10 @@ def test_every_drained_queue_has_a_writer_and_notifications_is_not_a_row():
             or route.queue in dlq_drain.UNDRAINED_QUEUES
         ), f"{route.queue} is neither drained nor deliberately undrained"
 
-    assert dlq_drain.UNDRAINED_QUEUES == _TWO_PRODUCER_PLANES
+    assert set(_UNDRAINED_BY_DESIGN) == dlq_drain.UNDRAINED_QUEUES, (
+        "a queue was added to or removed from UNDRAINED_QUEUES without a reason being written "
+        f"down beside it: {sorted(dlq_drain.UNDRAINED_QUEUES ^ set(_UNDRAINED_BY_DESIGN))}"
+    )
 
 
 #: What each allowlist plane admitted the day the API stopped sending a token, per mode where a
