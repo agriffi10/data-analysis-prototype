@@ -452,7 +452,8 @@ class FakeLF:
         """Records a grant.
 
         Args:
-          Principal: The principal, unused.
+          Principal: The principal granted to. Recorded: a grant's principal is the whole of
+            what makes it a shared-role union grant rather than a per-member one.
           Resource: The resource granted on.
           Permissions: The permissions granted.
 
@@ -462,13 +463,15 @@ class FakeLF:
         Raises:
           None.
         """
-        self.grants.append((Resource, Permissions))
+        self.grants.append(
+            {"Principal": Principal, "Resource": Resource, "Permissions": Permissions}
+        )
 
     def revoke_permissions(self, Principal, Resource, Permissions):
         """Records a revoke.
 
         Args:
-          Principal: The principal, unused.
+          Principal: The principal revoked from. Recorded for the same reason a grant's is.
           Resource: The resource revoked on.
           Permissions: The permissions revoked.
 
@@ -478,7 +481,9 @@ class FakeLF:
         Raises:
           None.
         """
-        self.revokes.append((Resource, Permissions))
+        self.revokes.append(
+            {"Principal": Principal, "Resource": Resource, "Permissions": Permissions}
+        )
 
     def add_lf_tags_to_resource(self, Resource, LFTags):
         """Records a tag assignment and reports the configured failures.

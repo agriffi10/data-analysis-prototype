@@ -122,8 +122,8 @@ its members.
 **One residual, stated rather than left to be found:** a stored `status` is stamped at write time
 and refreshed by nothing, so a `set_status` with no membership change leaves a not-yet-dropped
 member's entry reading `active` for a space the registry calls `failed`. The registry stays the
-authority on status; the index answers *which spaces*, and SPEC-204's sweep is what reconciles the
-two.
+authority on status; the index answers *which spaces*, and the sweep in `transition_plan.md` §3.11
+is what reconciles the two.
 
 ### `shared-space-common/registry.py` — why a membership write is a delta
 

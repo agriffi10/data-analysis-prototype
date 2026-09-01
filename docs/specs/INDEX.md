@@ -209,7 +209,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 201 — The Lambda Trust Boundary | Completed |
 | 202 — Retiring CloudFront & the Identity Pool, and the Arc's Live Checks | Draft |
 | 203 — The Membership Index | Completed |
-| 204 — Shared-Space Entitlements as Grants | Draft |
+| 204 — Shared-Space Entitlements as Grants | Cancelled |
 | 205 — A Delete Empties a Space and Destroys Nothing | Completed |
 | 206 — The Notifications `create` Boundary | Completed |
 | 207 — Contextual Help: the Guide Panel, Deep Links & Per-Page Help Buttons | Draft |

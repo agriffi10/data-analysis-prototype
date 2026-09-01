@@ -97,6 +97,7 @@ credential-plane split, the reconciler design and the surviving spike gates — 
    - [3.8 The reconciler](#38-the-reconciler)
    - [3.9 The storage plane — S3 Access Grants](#39-the-storage-plane--s3-access-grants)
    - [3.10 Third-party driver access — Excel, Access, Power BI and anything else on ODBC/JDBC](#310-third-party-driver-access--excel-access-power-bi-and-anything-else-on-odbcjdbc)
+   - [3.11 Shared-space entitlements — the projection that replaces the tag](#311-shared-space-entitlements--the-projection-that-replaces-the-tag)
 4. [Deployment topology](#4-deployment-topology)
    - [4.1 The constraint that still settles it](#41-the-constraint-that-still-settles-it)
    - [4.2 What first tenancy buys, and what it obliges](#42-what-first-tenancy-buys-and-what-it-obliges)
@@ -139,7 +140,9 @@ credential-plane split, the reconciler design and the surviving spike gates — 
   account-wide LF singletons) → §4.4 and §6.2 (portal-created singletons and their ownership),
   §6.3 (destructive paths during the sync-and-seed window).
 - **Touching Lake Formation re-keying** (grants moving to Identity Center principals) → §3.7 (how
-  LF enforces) and Phase 5 (the work items); §3.8 for the reconciler that projects the grants.
+  LF enforces) and Phase 5 (the work items); §3.8 for the reconciler that projects the grants,
+  §3.11 for the shared-space entitlements, which are registry-driven and per-member rather than
+  config-driven, and whose cutover ordering has a wrong answer in both directions.
 - **Wanting the end state as a picture** → `docs/target-architecture-variants.md`, a subordinate
   companion: both variants drawn, the two credential lanes below the API made explicit, and the
   **ALB-native-OIDC fork rejected on evidence**. It also carries the **live-docs validation log**
@@ -738,7 +741,9 @@ per-user narrowing that looks like a variable lives in the **location role's per
 where `${identitystore:UserId}` is an ordinary IAM policy variable — AWS's own sample role policy for
 an IdC-enabled Athena workgroup resolves `arn:aws:s3:::.../${identitystore:UserId}/*` exactly that
 way. So the shape is *one broad grant narrowed by a role policy*, or *one literal grant per user*,
-and the choice is real either way.
+and the choice is real either way. **For the shared-space bucket it is already settled — §3.11 —
+and the two buckets may differ**: membership is a relation in our registry, and no policy variable
+can consult it, so that bucket forces the literal form whatever this one decides.
 
 > **CORRECTED 2026-08-18, at review.** An earlier version of this section offered
 > `${identitystore:UserId}` as a **grant scope** and called it "one standing grant and no provisioning
@@ -772,10 +777,10 @@ and the choice is real either way.
   halves, and they are one spec**: they are written and revoked at the same moments (add member,
   remove member, leave, delete space), and splitting them across two owners is how a member ends up
   holding one and not the other. §3.8's reconciler is the **pattern** to follow — desired state,
-  read current, converge — not a second owner. **That spec is now written: SPEC-204.** Phase 3's
-  inventory sizes it; Phase 5 executes it. Read its FR-008 before planning Phase 5 — it found a
-  standing role-level Lake Formation grant that becomes a union grant on every space the moment the
-  tags retire.
+  read current, converge — not a second owner. **That design is §3.11.** Phase 3's
+  inventory sizes it; Phase 5 executes it. Read its cutover ordering before planning Phase 5 — it
+  found a standing role-level Lake Formation grant that becomes a union grant on every space the
+  moment the tags retire.
 
 **What does not change:** the seven control-plane execution roles keep their direct S3 grants and are
 untouched by any of this (§3.4).
@@ -904,7 +909,7 @@ version floor and the rollout below are a single piece of work rather than three
   population of users, which strengthens the case for deciding both surfaces at once.
 
 **What driver users do NOT get, and it is not a regression.** The Access Grants entitlements §3.9 and
-SPEC-204 issue for personal prefixes and shared-space prefixes serve the **portal's file browser**. A
+§3.11 issue for personal prefixes and shared-space prefixes serve the **portal's file browser**. A
 driver user queries the **catalog**: reaching their personal database or a shared space's database
 from Excel needs the matching Lake Formation grant, which this app already issues. Nothing here gives
 Excel a file browser and nothing in this plan proposes one.
@@ -1022,6 +1027,234 @@ freeze date is set, rather than discovering the need late.
   the console's own session is not identity-enhanced — but the studio framing is not fully reconciled.
   **Expect G7 to pass. Still run it**: a vendor driver may hold a privileged path our own code does
   not.
+
+---
+
+### 3.11 Shared-space entitlements — the projection that replaces the tag
+
+A member's access to a shared space is a **principal tag** today. `shared-space-add-members` writes
+`custom:shared_space_k` on the member, the Identity Pool stamps it, and the portal role's policy
+expands `$${aws:PrincipalTag/shared_space_k}` into the S3 prefix, the `ListBucket` condition and the
+Glue ARNs. One attribute write grants everything.
+
+On an identity-enhanced session there are no principal tags, and §3.6's allow-list denies plain S3
+outright. So a membership becomes **two grants** — an S3 Access Grant on the space prefix and a Lake
+Formation grant on the space database, per (member, space) — and something has to issue and revoke
+them at the six moments a membership changes. This section is that design. It was specified as
+SPEC-204 and moved here on 2026-09-01: it cannot be built or tested until the Access Grants instance
+exists, and a spec that cannot be built is a spec that silently rots (which it had begun to do — see
+*What the code already does*, below).
+
+**The registry stays the source of truth and the verbs stay unchanged in what they decide.** What
+changes is that a membership decision now has to be *projected* into two external systems that can
+drift from it.
+
+**The entitlement is a pair, and it is one operation.** A member holding one half and not the other
+is a support ticket that reads as a product bug: files but no tables, or tables that return
+`AccessDenied` on their own data. A partial projection therefore fails the whole operation and
+reports one outcome. Within the pair the order is **S3 Access Grant first, Lake Formation second** —
+least privileged first. With the space's data location registered with Lake Formation in hybrid mode
+(§6.2), an LF grant alone is enough for Athena to read the whole space through LF credential vending,
+while the Access Grant is what the file browser needs; LF-first therefore hands a member the ability
+to query everything while the UI still looks empty. The Access Grant is issued at **`READWRITE`** on
+the space prefix, mirroring the `s3:PutObject`/`s3:DeleteObject` the tag-scoped statement grants a
+member today — a member writes to a shared space, so a read-only grant would be a regression.
+
+**The pair is expressed once, in `shared-space-common`, and every trigger calls it** — not in
+`cpcommon`, which owns algorithms rather than a domain's wording. A test asserts no verb issues a
+`grant_permissions` or a `CreateAccessGrant` of its own, and the reason it matters here is that
+revocation must mirror the grant exactly. **That test needs a carve-out between cutover steps 1 and
+3**, because `create_space` issues the role-level grant until step 3 removes it — the two
+requirements are opposite for exactly as long as the interim plane runs. **The space prefix is derived by the existing path builder,
+never reconstructed:** a grant scoped one segment wrong is a grant on somebody else's data.
+
+**The member's Lake Formation set is DERIVED, and reusing the role's constants is a privilege
+escalation.** `shared-space-common/config.py` holds `DATABASE_PERMISSIONS`
+(`DESCRIBE`, `CREATE_TABLE`, `ALTER`, `DROP`) and `TABLE_PERMISSIONS` (`SELECT`, `INSERT`,
+`DESCRIBE`, `ALTER`, `DROP`). Those were sized for the **shared portal role**, whose effective rights
+are then narrowed by IAM: `portal-role-shared-space.json.tftpl` grants ten Glue actions and **not
+`glue:DeleteDatabase`, not `glue:UpdateDatabase`**, so today a member cannot drop or alter a shared
+space's catalog. Grant the role's LF set straight to a member's principal with that narrowing gone
+and `DROP`/`ALTER` on the **Database** become live. The member set is the intersection: **Database —
+`DESCRIBE`, `CREATE_TABLE`; Tables — `SELECT`, `INSERT`, `DESCRIBE`, `ALTER`, `DROP`**.
+
+**Shared spaces force the literal per-member grant, and that settles half of §3.9's fork.** A
+location-role policy variable narrows by properties of the *caller*; membership is a relation in our
+registry, and no IAM variable expands to "the spaces alice belongs to". The two buckets may therefore
+use different forms, and the personal-prefix decision does not have to wait for this one. Each grant
+names exactly one space prefix — no wildcard, no grant covering two spaces.
+
+**Principal resolution is the one place this touches a directory we do not own.** The portal username
+resolves through `identitystore:GetUserId` on the configured attribute, cached per container. The
+TTL is bounded by how quickly a directory change must be honoured, not by cost: the mapping is stable
+for the life of a user, so the bound exists to stop a warm container serving a stale principal after
+a rename, and it is stated where it is built. An **unresolvable member is a refusal, not a skip** — skipping produces a member the
+registry lists with no entitlement and no error anywhere. A member absent from Identity Center and a
+resolution *fault* get different reason tokens: the first means provisioning has not run for them,
+the second means the directory is unhealthy, and they look identical in a generic error. The resolved
+principal id may be logged; the claim value it was resolved from may not.
+
+> **This is the one genuinely load-bearing dependency on Phase 0, and it is a requirement on that
+> decision rather than an assumption.** The registry holds the **portal** username, which is
+> catalog-safe `^[a-z][a-z0-9_]{2,62}$` and can never be an email address, so this design requires
+> that the portal username equals exactly one Identity Store attribute value — most plausibly
+> `UserName` or `ExternalId`. §6.1 leaves open whether the portal username is *derived* rather than
+> stored; **if Phase 0 decides derived, this design needs a stored username → principal map** it
+> currently refuses on purpose.
+
+**Six triggers, and one that deliberately is not.** Projection runs on **create** (the owner),
+**add-members**, **remove-members**, **leave**, **delete** and **`shared-space-forget`**.
+`acknowledge-membership` is **not** a trigger: acknowledgement is display-only and access is granted
+at add time, so making it one would deny an added member until they signed in. Create's projection
+runs **after** `reg.finalize(..., "active")`, not among the provisioning steps — `reserve` writes
+`status: "provisioning"`, for which `is_active_member` is false, so a projection placed with the
+other create steps entitles nobody. Projection always runs **after** the registry write commits.
+Revocation belongs beside **`membership.clear_slot`** — the one call every membership-ending path
+already makes, in `delete`'s `_revoke`, in `forget` on both its paths, in `leave` and in
+`remove-members` — and **not** in `teardown.py`, which only the *destroying* branch of a delete
+reaches. Placed there it would never run on the ordinary emptying delete, and every member of an
+emptied space would keep live grants on live data until the sweep noticed. `_revoke`'s own docstring
+already calls the Cognito slot "the S3 and Glue grant", which is the seam this replaces. It is a verb on the existing shared-space state machine under the
+existing execution role, reusing the plane's FIFO queue, its DLQ and the DLQ drain — no new plane —
+and it does **not** inherit the roster fan-out's best-effort posture: a stale roster is cosmetic, a
+missing entitlement is total loss of access.
+
+**Convergence is the event plus a sweep, and the sweep must revoke.** Events drift silently — a
+failed run, a dead-lettered message, a manual registry edit — and a sweep alone is too slow for a
+member added at 09:00. §3.8's reconciler is the pattern, with the registry as this one's config. Per
+space: compute the desired set with `is_active_member` (never by reading `members` directly, which
+differs on a non-active space), read the current set, grant the difference, **revoke the surplus**. A
+revocation lost by a failed event is a member who still reaches a space they left, and a grant-only
+reconcile never repairs it. A space whose `status` is not `active` has no desired entitlements. The
+sweep reports corrected drift at `warn` with per-space counts — silent correction hides a broken
+event path indefinitely — and it reconciles the SPEC-203 membership index on the same pass, under the
+same re-read rule: for each space it compares the index's member list against the registry's, writes
+the registry's version where they differ, and reports the correction as drift. That is what closes
+that index's stated staleness residual, and it is the reason two other documents defer here.
+
+**The sweep re-reads each registry record immediately before acting and abandons that space if the
+ETag moved.** Without it its authority runs backwards: it reads `finance_space`, computes a desired
+set including `alice`, `remove-members` commits and revokes her, and the sweep — still holding the
+stale set — grants the difference and **puts her back**. A re-read plus an ETag comparison is enough
+because the sweep is idempotent and can simply skip.
+
+**Cadence is hourly, and the number is derived rather than round:** Identity Center entitlement
+changes take up to an hour to take effect (§3.5), which floors the end-to-end latency no sweep can
+beat, so a faster sweep spends API quota to beat a floor it cannot beat. The event path delivers the
+fast case; the sweep bounds how long a lost event can hide.
+
+**Idempotency in both directions, and the revoke direction carries the traps.** Granting what exists
+succeeds and creates no duplicate; revoking what does not exist succeeds. Revocation matches by
+**(principal, scope)**, never by an id this system stored — a stored id is a second source of truth
+that strands grants nothing can find. `DeleteAccessGrant` takes an `AccessGrantId`, so matching by
+scope means a paginated `ListAccessGrants` then a delete, and `lakeformation:ListPermissions` is the
+same shape: a sweep is O(spaces × members) list calls, not O(1). `identitystore:GetUserId`, the Lake
+Formation grant/revoke/list calls and `s3control:ListAccessGrants` are all low-TPS, so the sweep's
+pacing is **computed** against the tightest of them from the Phase 3 pair count. Two runs projecting
+the same pair must produce neither two grants nor a spurious failure, and that is asserted against
+genuinely concurrent runs rather than inferred from the queue — FIFO orders **delivery**, not
+executions.
+
+> **Every idempotency claim above is a claim about the behaviour of the S3 Access Grants and Lake
+> Formation APIs, and offline it can only be asserted against a stub we wrote.** A double-run test
+> against a fake programmed to be idempotent cannot fail. Offline tests are therefore **shape
+> assertions that state what they do not prove**, and each property is a **live check in this
+> phase**: grant twice, revoke twice, revoke what is absent, and two concurrent projections of one
+> pair, against the real APIs in the non-production account.
+
+**A member with no access must never be silent.** The registry commits first, so a projection failure
+leaves a durable state: the app says alice is a member, the roster shows her, and she cannot open the
+space. The run fails and notifies through the plane's existing failure path; the **actor** is told the
+change did not fully apply, naming the member and the space, in `toUserMessage` wording. The
+**affected member is told nothing** — they can do nothing about it, the actor can, and the sweep
+repairs it within the cadence; *if the repair window ever exceeds the cadence, revisit this.* The
+registry is **not** rolled back: it is correct, and the grant systems are what is behind.
+`logs/service=shared-spaces/` carries one record per failed pair: the member, the space, the half
+that failed and a stable reason token.
+
+**The grant budget.** Literal grants consume an account-wide pool of **100,000 grants** and **1,000
+locations** per instance (§3.9, §4.4), and consumption is members × spaces, which grows faster than
+either. The sweep reports the total this application holds on every run so consumption is a trend
+rather than a surprise. The threshold is **50% of the ceiling**: the instance is shared account-wide,
+this application cannot see a co-tenant's consumption and cannot shed load, so half is the only
+defensible split absent a contractual budget — **if §4.4's coordination contract ever states one, it
+replaces this number.** The arithmetic waits on the Phase 3 inventory; until then the formula is
+`pairs = Σ(members per space)`, consumption = `pairs` grants, headroom = `50,000 − pairs`. Hitting
+the ceiling is a refusal with a named reason, never an opaque AWS error.
+
+**What it needs and what it emits.** Three settings it does not have today: the Access Grants
+instance ARN, the Identity Store id, and which Identity Store attribute the portal username matches.
+One span per projection and one per sweep, through `cpcommon.observability` and no other door,
+carrying the space, the member, the operation and the outcome; the sweep's corrected-drift counts and
+the budget figure are **fields**, never interpolations into a message. The fleet-wide rules apply
+unchanged — `env` and `version` on every record, messages are literals, `echo=` prohibited.
+
+#### The cutover order, and the role grant that must not be left behind
+
+**The most consequential decision here, and it has a wrong answer in both directions.**
+`shared-space-create` grants Lake Formation `Database` and `Table` permissions to the **shared portal
+role** for every space; per-user isolation is supplied entirely by the tag conditions in
+`portal-role-shared-space.json.tftpl`. Those role-level grants appear nowhere else in this plan and
+are the thing most likely to be left in place.
+
+**The objection to answer first, because a reader will raise it to skip step 3.** On the
+identity-enhanced plane Lake Formation authorizes the **propagated identity**, so a role-level grant
+is not what governs a TIP query — which reads as a reason to leave it alone. It is not: the grant
+stays live for any **non-TIP** assumption of that role, and once the tags are gone there is nothing
+narrowing it. Left behind it is a standing union grant on every shared space.
+
+1. **Issue per-member entitlements for every space, and verify them.** Additive; nothing is removed.
+2. **Retire the principal tags and the interim plane.**
+3. **Revoke the role-level Lake Formation grants**, and stop `shared-space-create` issuing them for
+   new spaces — otherwise every space created after the cutover reintroduces the union grant one
+   space at a time.
+
+**Reversing (1) and (3) locks every member out of every shared space at once. Skipping (3) leaves
+every user entitled to every space.** Both are stated because the ordering looks like housekeeping.
+
+**The hazard's actual trigger is the POLICY REWRITE, not the tags going quiet.** The role-level LF
+grants become a union only if the role also keeps **IAM** Glue permissions on those databases, and
+the only such grant is the tag-scoped statement above. If tags simply stop being stamped and that
+policy is untouched, the ARNs resolve to nothing and the outcome is a **lockout**, not a union. The
+union materialises when this phase rewrites that statement tag-free, which it must — so step 3
+revokes the grants **and** rewrites or removes that statement **in the same change**.
+
+**Verification between (1) and (2) must exercise an identity-enhanced session.** Proving a non-owner
+reaches a space while the tags still work proves nothing, and **the tags cannot be made inert for one
+member**: under the interim plane the tag and the entitlement both derive from the same registry
+record, so removing the member removes both. Drive it with raw credentials on a session where
+principal tags do not exist by construction — not through the UI.
+
+#### What the code already does, measured 2026-09-01
+
+Four things are already true in the current account, and they change what this phase has to build.
+
+- **The six trigger points exist and are swept.** They are exactly the six verbs that write the
+  SPEC-203 membership index, and `lambdas/test_membership_index.py` already walks the verb tree and
+  fails when a seventh membership-moving verb appears without an index write. The projection hooks
+  the same six sites, and that enumeration is the guard this design asked for.
+- **The current-account half of the cutover hazard is now guarded.**
+  `lambdas/test_shared_space_isolation_coupling.py` fails if `shared-space-create` stops granting to
+  the portal role, if any Glue resource in the shared-space policy loses its tag scoping, or if any
+  portal-role template gains `glue:DeleteDatabase` or `glue:UpdateDatabase`. It is a tripwire on
+  today's coupling, not a design: when this phase deliberately replaces it, rewrite those assertions
+  with the change rather than deleting a red test.
+- **A delete has two routes, and the destroying one lives in `delete` as well as in `forget`.**
+  `delete_space.py` branches on `reg.is_destroyable(fresh)` — true only for a space that never
+  reached `active` — and on that branch it still calls `delete_shared_prefix`, `revoke_portal_role`,
+  `drop_database` and `reg.delete`, and `TeardownIncompleteError` is reachable. On the ordinary
+  (ever-active) route nothing is destroyed: the space is emptied, `owner` is cleared, and the record
+  survives `active` with no members. Both routes must revoke entitlements; only the destroying one
+  has a name to free, and SPEC-151's ordering still governs that one.
+- **`revoke_portal_role` is not called on the emptying route, deliberately.** With every member's
+  slot cleared the role-level grant reaches no user, and revoking it would leave a restored space's
+  catalog unusable for no benefit. It is still called on the destroying route, and these grants are
+  retired wholesale by step 3 above.
+
+**An emptied space is permanently `active` with no members, no owner, live data and a live catalog,
+and that state is legitimate.** Nothing here may infer membership from status: the desired set stays
+computed from `is_active_member`, so an emptied space converges to **zero** entitlements rather than
+being skipped as "not deleted".
 
 ---
 
@@ -1989,8 +2222,8 @@ shared spaces from cutover.
   one: the registry object must carry every member the manifest names, because nothing else does.
 - **Inventory the (member, space) pairs and record them as Phase 5 work.** In the end state each one
   becomes an S3 Access Grant on the space's prefix plus a Lake Formation grant on its database
-  (§3.9), issued by the shared-space control plane — **SPEC-204**. This phase is where the size of
-  that job becomes known, and the count is a direct input to its FR-009 grant budget: the Access
+  (§3.9), issued by the shared-space control plane — **§3.11**. This phase is where the size of
+  that job becomes known, and the count is a direct input to that section's grant budget: the Access
   Grants instance holds 100,000 grants and is shared account-wide.
 - Run the parity check (§6.4) against every seeded workspace before enabling any verb on it.
 
@@ -2065,10 +2298,11 @@ on any IAM role. The design is §3; the work items are here.
   decided. **Gate G9 (§5.5) must have passed** before the API presigns from these credentials.
 - **Issue the shared-space grants** the Phase 3 inventory produced — one Access Grant per (member,
   space) prefix plus the matching Lake Formation grant on the space's database, issued by the
-  shared-space control plane. **SPEC-204**, and its **FR-008 is the ordering this phase must
-  follow**: entitle every member and verify, *then* retire the tags, *then* revoke the standing
-  role-level Lake Formation grants `shared-space-create` issues today. Reversed, every member is
-  locked out; skipped, every user is entitled to every space.
+  shared-space control plane. **The design is §3.11**, and its cutover ordering is what this phase
+  must follow: entitle every member and verify, *then* retire the tags, *then* revoke the standing
+  role-level Lake Formation grants `shared-space-create` issues today — and rewrite the tag-scoped
+  Glue statement in the same change as that revocation, because the rewrite is the hazard's actual
+  trigger. Reversed, every member is locked out; skipped, every user is entitled to every space.
 - **Retire the interim plane** last, and only once storage and catalog both run on the
   identity-enhanced session: the portal role's session-tag assumption, the `username` and
   `shared_space_k` tags, and the `${aws:PrincipalTag/username}` conditions in the policies that no
@@ -2171,10 +2405,10 @@ freeze. This is the whole reason the old account survives the quiet period.
   `max_shared_memberships` and re-render the policy — the one IAM change the interim window
   otherwise promises not to make — or accept a truncated membership until Phase 5. The pair **count**
   matters separately: every pair is a grant Phase 5 has to issue.
-- ~~Who issues the per-(member, space) grants, and under which spec?~~ **Answered 2026-08-18:
-  SPEC-204**, a new verb plus a reconciling sweep on the existing shared-space control plane. What
-  remains open is an *input* to it, not a question about it: the Phase 3 pair count, which sizes its
-  FR-009 budget against the instance's 100,000-grant ceiling.
+- ~~Who issues the per-(member, space) grants, and under which spec?~~ **Answered 2026-08-18, and
+  it is no longer a spec: §3.11**, a new verb plus a reconciling sweep on the existing shared-space
+  control plane. What remains open is an *input* to it, not a question about it: the Phase 3 pair
+  count, which sizes its grant budget against the instance's 100,000-grant ceiling.
 - Are all old-account workspace names catalog-safe under `^[a-z][a-z0-9_]{2,62}$`? They become
   Glue database names in the successor account.
 

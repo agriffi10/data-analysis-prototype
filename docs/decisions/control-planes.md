@@ -852,7 +852,7 @@ gone — a fault after the emptying rewrite restores `owner` so the space stays 
 emptied space keeps `status: "active"` and the two destination validators used that predicate to
 decide whether a space may receive a table or a file send.
 
-**Do NOT call `revoke_portal_role` on the emptying route.** SPEC-204's FR-011 asked for it and this
+**Do NOT call `revoke_portal_role` on the emptying route.** The entitlement design that became `transition_plan.md` §3.11 asked for it and this
 supersedes that: with every member's slot cleared the grant reaches no user, and revoking it would
 leave a restored workspace's catalog unusable for no benefit.
 
