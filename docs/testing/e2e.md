@@ -761,7 +761,18 @@ folder name draws a 7px-wide box and two of those sit 22.8px apart, inside each 
 Confirm a one-character folder crumb is at least 24×24, and that a long folder name still shows an
 ellipsis: the fix deliberately does **not** use `inline-flex`, which makes the label an anonymous
 flex item and stops `truncate` rendering its `…` while still clipping, so the regression looks like
-a slightly shorter name rather than a broken one. The two tab strips' ✕ closes are `h-[24px]
+a slightly shorter name rather than a broken one.
+
+**Then check the trail WRAPS, which is the half a target-size check will not tell you.** Flooring
+the crumbs widens every short one, and `/files`' trail did not wrap before this — so at 375px a
+path six or more folders deep ran its content past the nav, clipped the folder you are standing in
+at the screen edge, and put the whole document into a horizontal scroll, which is an SC 1.4.10
+Reflow failure traded for an SC 2.5.8 one. Narrow to **375px**, then to **320px**, and walk into a
+deep folder: the trail must wrap onto a second row with the current folder fully visible, and the
+page must not scroll sideways — drag horizontally and confirm nothing moves. At 320px with nine
+segments it takes three rows and pushes the file list down about 47px, which is the accepted cost.
+The refresh button beside the trail is centred against the whole block, so it sits lower than the
+first crumb row once wrapped; that is expected, not a bug. The two tab strips' ✕ closes are `h-[24px]
 w-[24px]` inside a tab whose own `h-7` did **not** change. That was tried and reverted, and the
 reasoning is worth keeping: `h-7` is a 24.5px BORDER box over a 22.5px CONTENT box, so a 24px ✕
 stays inside the tab's outer bounds (measured: 0.25px to spare) but overhangs the content box by

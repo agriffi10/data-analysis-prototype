@@ -35,6 +35,61 @@ function filesContaining(needle: string, exclude: string[] = []): string[] {
 }
 
 /** Each consolidated shape, its one legitimate home, and a label for the failure message. */
+/**
+ * Source with its comments removed, so prose about a class is never read as the class.
+ *
+ * Not tidiness — correctness, and it FAILED CLOSED without it in a way that looked like a real
+ * regression: `Chip.tsx` explains its size in a comment containing `` `h-6` ``, and the backtick
+ * there opened a template literal as far as the scanner below was concerned, so the class string
+ * underneath stopped being seen as its own literal and the chip pin went red on correct code.
+ * `lib/targetSize.test.ts` carries the same rule for the same reason, with an apostrophe.
+ *
+ * A `//` preceded by `:` is left alone — that is the `https://` in a URL.
+ *
+ * @param source - One source file.
+ * @returns The source with block and line comments blanked.
+ */
+function withoutComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1');
+}
+
+/**
+ * Whether `classString` carries `cls` as a WHOLE class.
+ *
+ * A plain `includes` reads `h-[24px]` inside `min-h-[24px]`, which is a different class meaning a
+ * different thing — a size versus a floor. Measured: with `includes`, retyping a sized control as
+ * a floored one satisfied the very pin that exists to stop that drift.
+ *
+ * @param classString - One string literal from the source.
+ * @param cls - The class to look for.
+ * @returns True when the class appears on its own.
+ */
+function hasWholeClass(classString: string, cls: string): boolean {
+  const escaped = cls.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![\\w-])${escaped}(?![\\w-])`).test(classString);
+}
+
+/**
+ * Files where a SINGLE string literal carries every one of `classes`.
+ *
+ * Three properties, and each is a way a weaker version of this failed. Order-independent, because
+ * class order is meaningless in Tailwind and a guard that reddens on a reorder gets deleted.
+ * Whole-class, per `hasWholeClass`. And same-literal, because looking for each class separately
+ * passes when a file keeps the height on one element and the width on another — precisely the
+ * half-fix these pins exist for, and the one that leaves a 7px-wide target behind. Any string
+ * literal counts rather than a `className=` attribute, since a class can be assembled in `cx(…)`.
+ *
+ * @param classes - The classes that must appear together.
+ * @returns The src-relative paths, so a failure names the offender.
+ */
+function filesSizedAbsolutely(classes: string[]): string[] {
+  return FILES.filter(([, source]) =>
+    [...withoutComments(source).matchAll(/(['"`])((?:\\.|(?!\1)[^\\])*)\1/g)].some((m) =>
+      classes.every((c) => hasWholeClass(m[2], c))
+    )
+  ).map(([path]) => path);
+}
+
 const OWNED: {what: string; needle: string; owner: string}[] = [
   {what: 'the status-pill dot', needle: 'h-[7px] w-[7px]', owner: 'components/StatusPill.tsx'},
   {
@@ -103,7 +158,7 @@ describe('shared primitives are not re-implemented (SPEC-186)', () => {
   // fail here. `toContain` rather than set equality: the divider's step buttons legitimately
   // carry the same class, and a second correct user must not redden this.
   it('pins the chip remove target to an absolute 24px', () => {
-    expect(filesContaining('h-[24px] w-[24px]')).toContain('components/Chip.tsx');
+    expect(filesSizedAbsolutely(['h-[24px]', 'w-[24px]'])).toContain('components/Chip.tsx');
   });
 
   // The same tripwire for the controls measured out of `lib/targetSize.test.ts`'s register.
@@ -113,23 +168,27 @@ describe('shared primitives are not re-implemented (SPEC-186)', () => {
   // threshold to a root font size that is 14px only by convention. That is the exact edit that
   // hid the chip's 21px target for months, so the absolute spelling is pinned by name.
   it('pins every target measured out of the register to an absolute 24px', () => {
-    // Each class is looked for SEPARATELY rather than as one literal pair. Class order carries no
-    // meaning in Tailwind, so pinning `h-[24px] w-[24px]` as a string reddens on a reorder that
-    // changes nothing — a guard failing on a correct edit teaches people to delete the guard.
-    const pins: [string, string[]][] = [
-      ['h-[24px]', ['components/Toast.tsx', 'features/query/TableActionsMenu.tsx']],
-      ['w-[24px]', ['components/Toast.tsx', 'features/query/TableActionsMenu.tsx']],
-      // The tab closes: sized absolutely so a 24px pointer target survives a restyle of the tab.
-      ['h-[24px]', ['features/data-explorer/ExplorationTabStrip.tsx', 'features/query/QueryTabStrip.tsx']],
-      ['w-[24px]', ['features/data-explorer/ExplorationTabStrip.tsx', 'features/query/QueryTabStrip.tsx']],
+    const pins: [string[], string[]][] = [
+      // Sized absolutely, so a 24px pointer target survives a restyle of whatever encloses it.
+      [
+        ['h-[24px]', 'w-[24px]'],
+        [
+          'components/Toast.tsx',
+          'features/data-explorer/ExplorationTabStrip.tsx',
+          'features/query/QueryTabStrip.tsx',
+          'features/query/TableActionsMenu.tsx'
+        ]
+      ],
       // The crumbs are FLOORED rather than sized — a crumb grows with its label — and both axes
       // are load-bearing, because a one-character folder name draws a 7px-wide box.
-      ['min-h-[24px]', ['features/file-browser/DestinationPicker.tsx', 'features/file-browser/FileBrowser.tsx']],
-      ['min-w-[24px]', ['features/file-browser/DestinationPicker.tsx', 'features/file-browser/FileBrowser.tsx']]
+      [
+        ['min-h-[24px]', 'min-w-[24px]'],
+        ['features/file-browser/DestinationPicker.tsx', 'features/file-browser/FileBrowser.tsx']
+      ]
     ];
-    for (const [needle, owners] of pins) {
-      const found = filesContaining(needle);
-      for (const owner of owners) expect(found, `${owner} must keep ${needle}`).toContain(owner);
+    for (const [classes, owners] of pins) {
+      const found = filesSizedAbsolutely(classes);
+      for (const owner of owners) expect(found, `${owner} must keep ${classes.join(' + ')}`).toContain(owner);
     }
   });
 });
