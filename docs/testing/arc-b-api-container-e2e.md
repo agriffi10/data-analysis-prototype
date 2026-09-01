@@ -820,10 +820,14 @@ not match either. Anything this filter shows is an AWS host the browser reached 
    - [x] **Pass, 2026-08-31** — 2 requests inspected (one `PUT`, one `GET`), both with an empty
      request-header set and both signed in the query. Upload and download windows were both 900 s,
      unclamped, so the credential had more than that left and the clamp did not bite.
-   - [ ] **Re-run OWED against the SigV4 pin.** The pass above measured SigV2 URLs, which is a
-     different artifact from the one now deployed. The property it proves — signature in the query,
-     nothing in a header — is version-independent and is expected to hold; the row is re-owed
-     because it was measured on a system that no longer exists, not because it is doubted.
+   - [x] **Re-run PASSED 2026-09-01, against the SigV4 pin, on both mint paths.** Upload `PUT`:
+     `X-Amz-Algorithm=AWS4-HMAC-SHA256`, `X-Amz-Credential`, `X-Amz-Date`, `X-Amz-Expires=900`,
+     `X-Amz-SignedHeaders`, `X-Amz-Security-Token`, `X-Amz-Signature`; **no** `AWSAccessKeyId` and
+     no SigV2 parameter. Download `GET`: the same seven plus `response-content-disposition`, which
+     names the file. **Request headers on the `PUT` were `content-type` alone** — no
+     `Authorization`, no `x-amz-security-token` header — which is the half that says the browser
+     holds no credentials. Observed by patching `XMLHttpRequest.open` in the page, so the URL
+     recorded is the one the app was handed.
 4. **The presigned URL never appears in a log.** Spot-check `logs/service=api/` for the day: no record
    contains a presigned URL's signature, a bearer token, or an email address. A presigned URL is a
    bearer token.
@@ -854,8 +858,11 @@ not match either. Anything this filter shows is an AWS host the browser reached 
    traceback carries the parameter *name*.
    - [x] **Pass, 2026-08-31** — all six patterns zero across 1,605 records, with the positive
      control that the window held two real presign mints (six `key_length` records).
-   - [ ] **Re-run OWED against the SigV4 pin**, for the same reason as step 3: the sweep that passed
-     ran against SigV2 URLs, and the six patterns above are what make it valid for either family.
+   - [x] **Re-run PASSED 2026-09-01.** All six patterns **zero across 473 records** in
+     `logs/service=api/year=2026/month=09/day=01/`, swept from the admin bucket. The positive
+     control is strong and is the reason the zero means anything: the window carried **58**
+     `key_length` and **58** `presign_expires_in` records, so it contained real presign mints —
+     including the SigV4 ones minted minutes earlier for step 3.
 
 ## 5. Every ported surface, exercised once — BLOCKING
 
