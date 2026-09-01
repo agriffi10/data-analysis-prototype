@@ -141,12 +141,17 @@ The recurring non-scopable actions, each isolated in its own wildcard statement:
 - **No layer grant on most plane policies.** `deploy_control_plane_common` covers the shared
   `cpcommon` layer, deliberately scoped to the **layer ARN and nothing else** — so every verb that
   attaches it is covered by its own policy's function-manage grant plus that one layer grant.
-- **No `events:` statement until a plane has a `TimeoutSeconds`.** A machine that validates and stops
-  has no `TIMED_OUT` rule to manage, so the grant arrives with the transfer that adds the ceiling.
-  **`file-ops` is the exception and carries it from its first version** — not copied habit: its
-  per-space lock's **waiting loop** is in the machine before any data work is, so it ships with the
-  rule from day one, **and the grant has to be here or the first apply fails on the rule rather than
-  on anything to do with the plane's purpose**.
+- **An `events:` statement means one of two things, and they are not the same thing.** The commoner
+  is a `TIMED_OUT` rule: a machine that validates and stops has none to manage, so the grant arrives
+  with the transfer that adds the ceiling. **`file-ops` is the exception among those and carries it
+  from its first version** — not copied habit: its per-space lock's **waiting loop** is in the
+  machine before any data work is, so it ships with the rule from day one, **and the grant has to be
+  here or the first apply fails on the rule rather than on anything to do with the plane's purpose**.
+  The other is a **schedule**, which has nothing to do with a ceiling: `user-directory`,
+  `observability` and `control-plane-dlq-drain` are all schedules, and **`shared-spaces` now holds
+  one too** — for the reader that picks operator-driven ownership transfers out of the admin bucket
+  — while that plane still carries no `TimeoutSeconds` at all. Reading the grant as evidence of a
+  ceiling gets that plane exactly backwards.
 - **No data-quality workgroup grant.** Those verbs run in the **shared** portal Athena workgroup,
   because a dedicated one breaks Lake Formation — so there is no plane-specific workgroup to grant on.
 - **No S3-bucket-manage statement on most plane policies**, because most planes create no bucket. The
