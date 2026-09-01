@@ -104,9 +104,11 @@ exist there); history-row and card actions are ≥44px on a phone (they were 24p
 > **AAA**, and this project targets A + AA
 > (`apps/portal/info/best-practices/accessibility/accessibility.md`). 38.5px clears SC 2.5.8's AA
 > floor of 24 comfortably, so nothing here fails the level the project holds itself to, and raising
-> seven call sites — both history-row actions, the mobile card action, the nav drawer, the header
-> nav link and the username combobox rows — would be a visual change to buy a criterion that is not
-> a target. The AAA gap is recorded as consciously not met rather than fixed. **`MobileQueryView` is now `{kind:'home'} | {kind:'results',…}`** with the home tab
+> every site — both history-row actions, the mobile card action at each of its uses, the nav
+> drawer, the header nav link and the username combobox rows — would be a visual change to buy a
+> criterion that is not a target. (No count is given on purpose: `grep min-h-11` also returns
+> `QueryStatusBar`, which is a bar rather than a pointer target, so any number stated here is wrong
+> in one direction or the other.) The AAA gap is recorded as consciously not met rather than fixed. **`MobileQueryView` is now `{kind:'home'} | {kind:'results',…}`** with the home tab
 held beside it — the spec's shape kept the tab inside `home`, which made Back's target a second
 source of truth.
 

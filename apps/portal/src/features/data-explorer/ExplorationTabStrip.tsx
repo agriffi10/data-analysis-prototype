@@ -94,8 +94,9 @@ export function ExplorationTabStrip({tabs, activeTabId, onSelect, onClose, onNew
               onClick={() => onSelect(tab.id)}
               onKeyDown={(e) => onTabKeyDown(e, index)}
               className={cx(
-                // Taller than it looks like it needs: the ✕ inside is a 24 CSS px pointer target,
-                // and the next step down leaves a border box of 22.5.
+                // Taller than it looks like it needs, for CLEARANCE rather than fit: the ✕ inside
+                // is a 24 CSS px pointer target, and the step down is 24.5px of BORDER box over a
+                // 22.5px CONTENT box, so the ✕ would overhang onto the tab's 1px border.
                 'inline-flex h-8 flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border pl-3 pr-1 text-sm',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
                 active

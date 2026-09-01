@@ -283,6 +283,25 @@ function ownClassName(attributes: string): string {
 }
 
 /**
+ * Whether the tag's own `className` is a plain quoted string rather than an expression.
+ *
+ * `ownClassName` hands back the SOURCE of a `{…}` value, so every branch of a conditional is in
+ * the string at once and a floor that applies in one of them reads as unconditional. That is
+ * harmless where a class is evidence of a PROBLEM — a conditional `h-4` is flagged in both states,
+ * which fails closed — and unsafe where it is evidence of a FIX, which is what the floor below is.
+ * Measured: `className={compact ? 'min-h-[24px] min-w-[24px]' : 'accent-accent'}` on a checkbox
+ * read as conforming, in a file with no register entry, and the suite stayed green.
+ *
+ * @param attributes - One tag's attribute text.
+ * @returns True only when the value is a single quoted string.
+ */
+function ownClassNameIsLiteral(attributes: string): boolean {
+  const at = classNameAtTopLevel(attributes);
+  if (at === null) return false;
+  return attributes[at] === '"' || attributes[at] === "'";
+}
+
+/**
  * Every interactive tag in `source` whose own size classes put it under the floor.
  *
  * A tag counts as interactive when it is a native control, carries an interactive `role`, is one
@@ -317,7 +336,7 @@ function undersizedControls(source: string): string[] {
       !sized.length &&
       name === 'input' &&
       CHECKBOX_OR_RADIO.test(attributes) &&
-      !replacedElementMeetsFloor(classes)
+      !(ownClassNameIsLiteral(attributes) && replacedElementMeetsFloor(classes))
     ) {
       offences.push(`<input type=checkbox|radio> no size class = ${UNSIZED_INPUT_PX}px`);
     }
@@ -360,7 +379,7 @@ const ACCEPTED_UNDERSIZED: Record<string, {why: string; controls: string[]}> = {
     controls: ['<input> h-4 = 14px', '<input> w-4 = 14px']
   },
   '/src/features/file-browser/FileListTable.tsx': {
-    why: 'the select-all header checkbox and the per-row selection checkbox, stacked one per 42px row',
+    why: 'the select-all header checkbox and the per-row selection checkbox, stacked one per 42px row. MEASURED 14x14, and the per-row one is a CONFIRMED failure rather than a candidate: its `<li>` is itself a target (`onDoubleClick` downloads) measuring 876x42, so centre-to-box is 0 and the exception cannot apply. The sweep cannot see that row — `POINTER_HANDLER` does not match `onDoubleClick`',
     controls: ['<input> h-4 = 14px', '<input> w-4 = 14px', '<input> h-4 = 14px', '<input> w-4 = 14px']
   },
   '/src/features/file-browser/SelectionToolbar.tsx': {
@@ -392,7 +411,7 @@ const ACCEPTED_UNDERSIZED: Record<string, {why: string; controls: string[]}> = {
     ]
   },
   '/src/features/data-explorer/CalcPanel.tsx': {
-    why: 'the include-strings toggle and one checkbox per aggregate function, MEASURED 13x13. A CONFIRMED failure, and only just: the stacked `gap-2` labels put two function checkboxes 23px apart centre-to-centre, one short of 24',
+    why: 'the include-strings toggle and one checkbox per aggregate function, MEASURED 13x13 inputs, though the TARGET is the wrapping `<label>`, which activates the same control. A CONFIRMED failure, and only just: the stacked `gap-2` labels put two function rows 23px apart centre-to-centre, one short of 24',
     controls: ['<input type=checkbox|radio> no size class = 13px', '<input type=checkbox|radio> no size class = 13px']
   },
   '/src/features/data-explorer/GroupingPanel.tsx': {
@@ -408,7 +427,7 @@ const ACCEPTED_UNDERSIZED: Record<string, {why: string; controls: string[]}> = {
     controls: ['<input type=checkbox|radio> no size class = 13px', '<input type=checkbox|radio> no size class = 13px']
   },
   '/src/features/data-explorer/StripingControl.tsx': {
-    why: 'one checkbox per column in the striping picker, MEASURED 13x13. A CONFIRMED failure rather than a candidate: the `gap-y-1` list wraps, and two checkboxes on adjacent rows measure 19.5px centre-to-centre, inside the 24px each one needs',
+    why: 'one checkbox per column in the striping picker, MEASURED 13x13 inputs, though the TARGET is the wrapping `<label>`, which activates the same control. A CONFIRMED failure rather than a candidate either way: the `gap-y-1` list wraps, and two rows measure 19.5px centre-to-centre, inside the 24px each needs — label pitch and checkbox pitch are equal here, so the verdict does not turn on which box is measured',
     controls: ['<input type=checkbox|radio> no size class = 13px']
   },
   '/src/features/data-explorer/TransformersDialog.tsx': {
@@ -455,6 +474,22 @@ describe('a control sized from the spacing scale reaches the target floor', () =
     // Three classes that look like the ones above and mean something else. A floor and a ceiling
     // do not fix a height; a fraction is a proportion of the parent.
     expect(undersizedControls('<button className="min-h-6 max-w-4 w-1/2">x</button>')).toEqual([]);
+
+    // A REPLACED element is the one place a floor IS the size, so a checkbox floored on both axes
+    // is accepted — and only when the floor is unconditional. The three refusals are the ways it
+    // is not: one axis only, a variant that does not apply at every width, and a branch of a
+    // conditional. The last one fails CLOSED on purpose; it read as conforming before this.
+    const unsized = ['<input type=checkbox|radio> no size class = 13px'];
+    expect(undersizedControls('<input type="checkbox" className="min-h-[24px] min-w-[24px]" />')).toEqual([]);
+    expect(undersizedControls('<input type="checkbox" className="min-h-[24px]" />')).toEqual(unsized);
+    expect(undersizedControls('<input type="checkbox" className="tablet:min-h-[24px] tablet:min-w-[24px]" />')).toEqual(
+      unsized
+    );
+    expect(
+      undersizedControls(
+        '<input type="checkbox" className={compact ? "min-h-[24px] min-w-[24px]" : "accent-accent"} />'
+      )
+    ).toEqual(unsized);
 
     // …and a decorative icon passed as a prop is not the control's own size — in EITHER attribute
     // order, which is what "the tag's own className" has to mean. JSX order is arbitrary and

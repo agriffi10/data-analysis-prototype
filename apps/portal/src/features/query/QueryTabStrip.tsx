@@ -110,8 +110,10 @@ export function QueryTabStrip({
               onClick={() => onSelect(tab.id)}
               onKeyDown={(e) => onTabKeyDown(e, index)}
               className={cx(
-                // The tab is a scale step taller than it looks like it needs: the ✕ inside it is
-                // a 24 CSS px pointer target, and the next step down leaves a border box of 22.5.
+                // A scale step taller than it looks like it needs, for CLEARANCE rather than fit:
+                // the ✕ inside is a 24 CSS px pointer target, and the step down is 24.5px of BORDER
+                // box over a 22.5px CONTENT box — so the ✕ would stay inside the tab but overhang
+                // onto its 1px border, where its own hover fill then paints over it.
                 'inline-flex h-8 flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border pl-3 text-sm',
                 // The tight right padding assumes the ✕ box sits at the end; with no ✕ the
                 // tab pads symmetrically instead of reserving a dead 24px slot.
