@@ -42,3 +42,21 @@ mypy>=2.3,<2.4
 # Nothing ships it: no requirements file on a DEPLOY PATH declares boto3, because every Lambda
 # runtime already provides it. This file has one consumer, ci.yml's lambdas job.
 boto3
+
+# PyYAML, for the two workflow guards in test_ci_scope.py. They read `ci.yml`'s scope pattern
+# list and every step condition in `security.yml`'s scanner job — both of which stopped being
+# structural YAML guarantees and became strings, which is what made them need a guard at all.
+#
+# A real parser rather than the anchored regexes test_security_gates.py uses next door. Those
+# read fixed keys; these walk a step LIST and pair each step with its `if:`, and a regex that
+# silently pairs the wrong two passes while asserting nothing. The guards carry their own
+# "the parse did not go trivial" controls either way.
+#
+# Bounded to a major, not a minor: PyYAML's rule set is a file format rather than a lint
+# opinion, so it does not widen what it enforces the way ruff and mypy can. The cost noted
+# above boto3 applies here too — pip-audit BLOCKS and reads this file — and is accepted for a
+# dependency this stable.
+#
+# Absent from CI is how this was found: it is ambient on a developer machine, so the suite ran
+# green locally and the `lambdas` job failed at collection.
+PyYAML>=6,<7

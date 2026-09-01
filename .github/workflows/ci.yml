@@ -40,20 +40,106 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # The scope step below diffs against the pull request's base, and the default
+          # shallow clone does not contain it. Three seconds, the same price the lambdas
+          # job already pays for its own guard.
+          fetch-depth: 0
+
+      # WHAT THIS JOB CAN POSSIBLY LEARN. Every step after it is scoped to this answer, so a
+      # pull request touching none of the app's inputs costs one billed minute instead of
+      # seven — the Test step alone is 294 of this job's 366 seconds.
+      #
+      # Replayed against the last 60 merges to main: 29 skip, 31 run, so the average pull
+      # request costs 4 minutes instead of 7. It is NOT the 67% that counting `apps/portal/`
+      # alone gives — the suite's out-of-tree reads below, the 88 IAM templates especially,
+      # buy a third of the saving back. That is the honest number, and the cheaper one was
+      # wrong rather than optimistic: it was measured before anyone checked what the suite
+      # actually reads.
+      #
+      # The job still RUNS and still reports under the same check name — this is a step-level
+      # skip, not a workflow-level `paths:` filter, precisely so that a required check by that
+      # name can never sit pending forever.
+      #
+      # It fails in the EXPENSIVE direction on purpose. An unreachable base sets `app=true`
+      # and runs everything, and a `git diff` that cannot be computed fails the job outright
+      # rather than reporting an empty change set — a cheap green that tested nothing is
+      # indistinguishable from a real one, which is the whole failure mode being avoided.
+      - name: Work out whether this pull request can change the app
+        id: scope
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          # EVERY input this job's steps read — which is NOT the same as "the app's source".
+          # The first four lines are the build; the rest are files OUTSIDE apps/portal that
+          # the suite itself reads, through `?raw` and `import.meta.glob`, to assert the
+          # browser agrees with the infrastructure and the planes. Leaving them out is not a
+          # smaller saving, it is a silent one: a change to `arcommon/config.py` or to
+          # `infra/main.tf` breaks a real set-equality guard and the job reports green. Both
+          # were reproduced by planting the change and watching the suite redden while this
+          # step said `app=false`, and both appear in the last two merges to main.
+          #
+          # `lambdas/test_ci_scope.py` sweeps the suite for out-of-tree reads and fails if
+          # one is not covered here, so the list cannot drift as a ninth import is added.
+          SCOPE_PATTERNS: |
+            ^apps/portal/
+            ^packages/
+            ^package\.json$
+            ^package-lock\.json$
+            ^\.nvmrc$
+            ^\.github/workflows/ci\.yml$
+            ^\.github/workflows/deploy-app\.yml$
+            ^config/feature-flags\.json$
+            ^infra/main\.tf$
+            ^infra/modules/[^/]+/policies/[^/]+\.json\.tftpl$
+            ^lambdas/api/routes/feature_flags\.py$
+            ^lambdas/archive-common/arcommon/config\.py$
+        run: |
+          set -euo pipefail
+
+          if ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            echo "::notice title=Scope::base commit ${BASE} is unreachable; running every step"
+            echo 'app=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Assigned rather than piped straight into grep: `git diff` failing must kill the
+          # job, and inside an `if` condition its exit status is swallowed — which would read
+          # a broken diff as "nothing changed" and skip the suite.
+          #
+          # --no-renames because `--name-only` reports only a rename's DESTINATION. Moving a
+          # file out of apps/portal would otherwise show up as the destination alone, answer
+          # `app=false`, and break `tsc -b` on main with a green PR.
+          CHANGED=$(git diff --name-only --no-renames "$BASE" HEAD)
+
+          # A here-string, NOT `printf ... | grep -q`. Under `pipefail` grep exits at the
+          # first match, printf takes SIGPIPE, and the pipeline reports 141 — so the `if`
+          # takes the else branch and answers `app=false` for a pull request that DID touch
+          # the app. It inverts once the change set passes the 64 KiB pipe buffer: measured
+          # correct at 45 KB and inverted at 75 KB, in the cheap direction, silently.
+          if grep -qE -f <(printf '%s' "$SCOPE_PATTERNS") <<<"$CHANGED"; then
+            echo 'app=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'app=false' >> "$GITHUB_OUTPUT"
+            echo "::notice title=Scope::no app input changed; lint, build and the suite are skipped"
+          fi
 
       - name: Set up Node.js
+        if: steps.scope.outputs.app == 'true'
         uses: actions/setup-node@v7
         with:
           node-version-file: '.nvmrc'
 
       - name: Install dependencies
+        if: steps.scope.outputs.app == 'true'
         run: npm ci
 
       - name: Lint
+        if: steps.scope.outputs.app == 'true'
         working-directory: apps/portal
         run: npm run lint
 
       - name: Format check (prettier)
+        if: steps.scope.outputs.app == 'true'
         working-directory: apps/portal
         run: npm run format:check
 
@@ -63,6 +149,7 @@ jobs:
       # — every one of them is a runtime value baked into the bundle, and this job
       # discards the bundle. What is being gated is `tsc -b`.
       - name: Build (typecheck + bundle)
+        if: steps.scope.outputs.app == 'true'
         working-directory: apps/portal
         run: npm run build
 
@@ -71,10 +158,12 @@ jobs:
       # skip, and a skip reads as a pass. It proves the dev fallback was eliminated;
       # the call sites are guarded by a `?raw` sweep inside the suite.
       - name: Assert the production bundle carries no VITE_ names
+        if: steps.scope.outputs.app == 'true'
         working-directory: apps/portal
         run: npm run check:bundle
 
       - name: Test
+        if: steps.scope.outputs.app == 'true'
         working-directory: apps/portal
         run: npm run test:coverage
 
@@ -97,6 +186,21 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: '3.12'
+          # Every requirements file the install step below reads, named explicitly. The
+          # default key is the ROOT requirements.txt alone, which this repository does not
+          # have — a cache keyed on a file that does not exist restores nothing and reports
+          # success, which is the failure mode that looks like a working cache.
+          #
+          # This buys wall-clock and one less network dependency on the critical path; it
+          # does NOT move this job under the per-job billing minute (measured median 71 s,
+          # of which the install is 12 and pytest is 37).
+          cache: 'pip'
+          cache-dependency-path: |
+            lambdas/requirements.txt
+            lambdas/requirements-dev.txt
+            lambdas/control-plane-common/requirements.txt
+            lambdas/table-builder-infer-schema/requirements.txt
+            lambdas/data-quality-polars/requirements.txt
 
       # This job already owns the repo's Terraform suite — test_api_module, test_network_module,
       # test_spa_module and test_csp_policy all read infra/ as text. One of them now RUNS tofu
