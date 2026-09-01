@@ -41,7 +41,7 @@ always leaves an arc entry here holding the pair's build order, even when nothin
 - [Data Explorer arc (SPEC-176 → 185)](#data-explorer-arc-spec-176--185)
 - [File-operations control-plane arc (SPEC-187 → 191)](#file-operations-control-plane-arc-spec-187--191)
 - [API-layer & containerisation arc (SPEC-192 → 202)](#api-layer--containerisation-arc-spec-192--202)
-- [Transition identity arc (SPEC-203 → 205)](#transition-identity-arc-spec-203--205)
+- [Transition identity arc (SPEC-203 and SPEC-205)](#transition-identity-arc-spec-203-and-spec-205)
 - [Container-lambdas arc (SPEC-212 → 213 → 214)](#container-lambdas-arc-spec-212--213--214)
 
 ---
@@ -2425,20 +2425,25 @@ knowingly.
 > `Delimiter='/'` and a bounded `MaxKeys`, no module imports `get_paginator`, and a test enforces
 > both. SPEC-199 and SPEC-200 inherit it.
 
-## Transition identity arc (SPEC-203 → 205)
+## Transition identity arc (SPEC-203 and SPEC-205)
 
-Both specs exist because a fresh-context review of the identity-variant revision found the same
-gap twice: `transition_plan.md` names two obligations that **no spec owned**, and each is the kind
+These specs exist because a fresh-context review of the identity-variant revision found the same
+gap twice: `transition_plan.md` names obligations that **no spec owned**, and each is the kind
 of work that arrives as "a small change during Phase N" and is a plane's worth of design.
 
-**They are not an arc in the usual sense.** They do not compose, they ship far apart, and one cannot
-be built until the successor account has an S3 Access Grants instance. **203 is not "buildable
-today" either** — it lands after SPEC-199 and before SPEC-202, because it depends on the API
-boundary, the identity layer, the transport and the route surface. What it does have is a window:
-SPEC-202 retires the Identity **Pool**, not the User Pool, so the Cognito claims persist to the
-environment move and 203's parity assertion stays available for the whole of it. What they share is a subject — *where a shared-space membership becomes an AWS
-permission* — and a lifetime: 203 is how that works while principal tags exist, 204 is how it works
-once they do not, and 204's FR-008 is the seam between them.
+**They were never an arc in the usual sense.** They do not compose and they shipped far apart.
+**203 was not "buildable today" either** — it lands after SPEC-199 and before SPEC-202, because it
+depends on the API boundary, the identity layer, the transport and the route surface. What it had
+was a window: SPEC-202 retires the Identity **Pool**, not the User Pool, so the Cognito claims
+persist to the environment move and 203's parity assertion stays available for the whole of it.
+
+**The arc was three specs and is now two.** SPEC-204 — the projection that replaces the tag once
+principal tags are gone — was **cancelled on 2026-09-01** and its design moved to
+[`transition_plan.md` §3.11](../transition_plan.md#311-shared-space-entitlements--the-projection-that-replaces-the-tag),
+under the rule that work which can only be done in the successor account belongs in the plan rather
+than in a spec. What the three shared is a subject — *where a shared-space membership becomes an AWS
+permission* — and a lifetime: 203 is how that works while principal tags exist, §3.11 is how it works
+once they do not, and §3.11's cutover ordering is the seam between them.
 
 ### Why 203 ships before the environment moves
 
@@ -2513,30 +2518,47 @@ existing token keeps the old claim until it refreshes, which is what
 > `MEMBERSHIP_SOURCE=index`, and there is none. [`owed.md`](../testing/owed.md) carries the recipe
 > and the caveat that it cannot be re-run after the environment moves.
 
-### What 204 is, and the cliff inside it
+### What 204 was, why it was cancelled, and what validating it found
 
-Once the tags retire, a member's access becomes **two grants** — an S3 Access Grant on the space
-prefix and a Lake Formation grant on the space database, per (member, space), against the member's
-Identity Center principal. Five triggers, and `acknowledge-membership` is deliberately not one
-(SPEC-073: access is granted at add time; making it a trigger reverses that). Event-driven
-projection **plus** a sweep, because events drift silently and a sweep alone is too slow — and the
-sweep must **revoke**, which is the direction a grant-only reconcile never repairs.
+204 specified the projection: once the tags retire, a member's access becomes **two grants** — an S3
+Access Grant on the space prefix and a Lake Formation grant on the space database, per (member,
+space), against the member's Identity Center principal — issued at six triggers, converged by a sweep
+that must **revoke**, and cut over in an order with a wrong answer in both directions.
 
-**The finding worth carrying out of it**: `shared-space-create` today grants Lake Formation
-`Database` and `Table` permissions to the **shared portal role** for every space, with isolation
-supplied entirely by the IAM principal tag. Remove the tags and leave those grants and every portal
-user holds catalog access to every shared space. Remove them first and every member is locked out.
-FR-008 is the ordering, and it says both failure directions out loud because it looks like
-housekeeping.
+**It was cancelled on 2026-09-01 and the design is now `transition_plan.md` §3.11.** The reason is a
+rule rather than a judgement about the work: it could not be built or tested in the current account —
+it needs the Access Grants instance, the Identity Center association and an identity-enhanced session
+— and a spec nobody can build is a spec whose claims drift with nothing to catch them. It had already
+started to: last revised 2026-08-28, while 203 and 205 both completed on 08-31.
 
-**One thing 204 settles that the transition plan had open.** §3.9 asks whether a storage entitlement
-is a literal per-user grant or one broad grant narrowed by `${identitystore:UserId}` in the location
-role's policy. For **shared spaces the literal form is forced**: a policy variable can narrow by
-properties of the caller, and membership is a relation in our registry that no IAM variable can
-consult. The two buckets may therefore use different forms, and the personal-prefix decision does
-not have to wait for this one.
+**Validating it on the way out is what makes the cancellation worth reading.** Two of its claims were
+confirmed against the code and one was wrong:
 
-### 205 is not transition work, and it is the prerequisite for 204
+- **Confirmed — the privilege-escalation finding.** Reusing the role's `DATABASE_PERMISSIONS` for a
+  member would make `DROP` and `ALTER` on the Database live, because the only thing withholding them
+  today is that **no** portal-role template grants `glue:DeleteDatabase` or `glue:UpdateDatabase`.
+- **Confirmed — the cliff.** `shared-space-create` grants Lake Formation `Database` and `Table` to the
+  **shared portal role** for every space, and the `$${aws:PrincipalTag/shared_space_k}` expansion in
+  `portal-role-shared-space.json.tftpl` is the whole of the isolation. Remove the tags and leave the
+  grants and every portal user holds catalog access to every shared space; remove them first and every
+  member is locked out. **The current-account half of that coupling is now guarded** by
+  `lambdas/test_shared_space_isolation_coupling.py`, which fails when either artefact moves without
+  the other — the one piece of 204 that could be built here, and the one that expires once the
+  environment moves.
+- **Wrong — FR-011's delete semantics.** It said `delete_shared_prefix` and `drop_database` "stop
+  being reachable on the `delete` route". They do not: `delete_space.py` branches on
+  `reg.is_destroyable(fresh)` and on that branch calls them, plus `revoke_portal_role` and
+  `reg.delete`, with `TeardownIncompleteError` reachable. The destroying route lives in `delete` as
+  well as in `forget`, and §3.11 carries the corrected version.
+
+**One thing 204 settled that the transition plan had open, and which survives in §3.11.** §3.9 asks
+whether a storage entitlement is a literal per-user grant or one broad grant narrowed by
+`${identitystore:UserId}` in the location role's policy. For **shared spaces the literal form is
+forced**: a policy variable narrows by properties of the caller, and membership is a relation in our
+registry that no IAM variable can consult. The two buckets may therefore use different forms, and the
+personal-prefix decision does not have to wait for this one.
+
+### 205 is not transition work, and it is what §3.11 is written against
 
 `shared-space-delete` destroys a space: every object under its prefix, its Glue database, its Lake
 Formation grants, its members' slots and its registry record. **SPEC-205 makes it remove people

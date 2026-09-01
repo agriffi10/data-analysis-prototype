@@ -82,6 +82,13 @@ Specs move **Draft → In Progress → Completed** (the status in each spec's he
   not been through the gate is not Draft-ready, whatever its header says.
 - **In Progress** — exactly one spec at a time is in flight. Set when you branch to build it.
 - **Completed** — merged on green CI, delivery doc written (see §5).
+- **Cancelled** — the work is not being done, or not here. The file stays (every link to it stays
+  live) and the row stays in `INDEX.md`. A spec cancelled because its work **can only be done in
+  another environment** is reduced to a tombstone: why it was cancelled, where the design went, and
+  what validating it against the built code found. Successor-account work belongs in
+  [`transition_plan.md`](transition_plan.md), not in a spec — a spec nobody can build is a spec
+  whose claims drift with no test to catch them (SPEC-204, 2026-09-01). `validate_docs.py` skips a
+  Cancelled spec in the FR-count ratchet for that reason, and only a Cancelled one.
 
 **Arcs.** Related specs are grouped into *arcs* (file-operations, analytics, query-editor UX,
 shared-connections, notifications) with an explicit **build order** documented in

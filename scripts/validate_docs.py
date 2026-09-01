@@ -490,8 +490,12 @@ def check_spec_size() -> list[str]:
     oversize: list[tuple[str, int]] = []
     unparsed: list[str] = []
     for path in sorted((ROOT / "docs" / "specs").glob("SPEC-*.md")):
+        text = path.read_text()
+        status = re.search(r"^\**Status:?\**[:\s]*\**\s*([A-Za-z ]+)", text, re.MULTILINE)
+        if status and status.group(1).strip().lower() == "cancelled":
+            continue
         ids, in_fence, in_comment = set(), False, False
-        for raw in path.read_text().splitlines():
+        for raw in text.splitlines():
             # A comment closes before a fence opens, so a ``` quoted inside a comment
             # cannot swallow the rest of the file. A one-line <!-- ... --> is stripped
             # rather than skipped, so a heading with a trailing note still counts.
@@ -518,8 +522,10 @@ def check_spec_size() -> list[str]:
             oversize.append((path.name, len(ids)))
     # A ratchet sitting exactly at its threshold goes vacuous the moment the parse stops
     # matching: every spec reads as zero FRs, nothing is over the ceiling, and the only
-    # enforcement of \u00a74 passes forever with no signal. Every spec has FRs, so none may parse
-    # to none.
+    # enforcement of §4 passes forever with no signal. Every LIVE spec has FRs, so none may
+    # parse to none. A CANCELLED one is skipped above rather than exempted here: it carries no
+    # requirements to size, and reducing one to a tombstone pointing at where the work went is the
+    # intended shape. The vacuity guard keeps its teeth over every spec that is still work.
     errors = [
         f"{name}: no '### FR-NNN' headings — the size ratchet cannot see this spec"
         for name in unparsed
