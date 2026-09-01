@@ -787,6 +787,30 @@ ever pruned.
 prefix, run alongside a signed-in browser. The CLI half is three commands (`e2e.md` §4.17); the
 coupling is that they have to be the same submission.
 
+## SPEC-215 — deleting the retired repository variables (2026-09-01)
+
+**Not a browser check — a settings-page edit only the repository owner can make**, which is why it
+is recorded here rather than closed on the PR. The workflows no longer read these; leaving them is
+not a fault, but a stale value nobody reads is exactly what the next operator will trust.
+
+Sixteen to delete, listed by name in
+[`SPEC-215`'s delivery doc](../spec-delivery/SPEC-215-configuration-from-terraform-state.md). Six
+were retired by this spec (`API_BASE_URL`, the three `VITE_COGNITO_*`, the two bucket names); ten
+were already unread before it (the eight queue URLs, `VITE_ATHENA_WORKGROUP`,
+`VITE_COGNITO_IDENTITY_POOL_ID`).
+
+**Order matters and only one way round.** Delete them **after** a green post-merge `Deploy App` and
+`Publish Config`, never before: if the resolver were wrong about a value, the variables are what the
+revert falls back to. To discharge: delete the sixteen, then re-run both workflows and confirm the
+served `/config.json` is unchanged.
+
+**The survivors are not up for deletion** — each is a genuine input, with its reason tabled in
+[`.github/workflows/README.md`](../../.github/workflows/README.md). Fourteen `vars.*` names are
+referenced after this change, of which **eleven are actually set**; the other three
+(`TF_VAR_project_name`, `TF_VAR_environment`, `TF_VAR_verification_principal_arns`) are deliberately
+unset and every reference supplies a `||` fallback. `VITE_APP_URL` is the one that reads like a
+leftover and is not: Cognito's callback list is built from it.
+
 ## 3. Discharged, and worth not re-litigating
 
 Kept short on purpose — the reasoning lives in `docs/decisions/` and the delivery docs. These are

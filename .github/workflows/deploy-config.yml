@@ -18,6 +18,11 @@ on:
       # either of these can invalidate a document that was valid when it merged.
       - '.github/workflows/deploy-config.yml'
       - 'scripts/validate_feature_flags.py'
+      # The destination bucket is now DERIVED from these two, so an edit to either can
+      # change where this document lands. Without them a mapping or resolver change would
+      # not retrigger the publish, which is the same staleness the two lines above guard.
+      - '.github/config-outputs.json'
+      - '.github/scripts/resolve-config.sh'
   workflow_dispatch:
 
 # One publish at a time. The upload addresses a single fixed key, so two concurrent runs
@@ -44,12 +49,16 @@ jobs:
         # so does the reverse. Keep the key named `environment_name` — plain `environment:` is
         # a GitHub Actions job keyword, and the validator refuses to treat one as the other.
         #
-        # `bucket_var` names a repository VARIABLE rather than holding a bucket name, so the
-        # bucket has exactly one home (the same variable the app builds against) and cannot
-        # drift between the deploy and the document it reads.
+        # `bucket_key` names a RUNTIME CONFIGURATION KEY, resolved below from Terraform
+        # state through `.github/config-outputs.json` — the same map, and so the same value,
+        # the app's own document is built from. It named a repository variable until that
+        # variable stopped being the source of truth; a key naming no entry in the map is
+        # refused by `scripts/validate_feature_flags.py`, before any AWS call, because an
+        # unresolvable key would otherwise reach the copy below as an empty string and
+        # target `s3:///_config/...`.
         include:
           - environment_name: prod
-            bucket_var: VITE_S3_USER_SPACE_BUCKET
+            bucket_key: userSpaceBucket
 
     steps:
       - name: Checkout
@@ -62,6 +71,11 @@ jobs:
       - name: Validate the flag document
         run: python3 scripts/validate_feature_flags.py
 
+      - name: Set up OpenTofu
+        uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_version: '~1.8'
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -69,28 +83,41 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
           retry-max-attempts: 3
 
-      # An unset repository variable interpolates to the EMPTY STRING, which would make the
-      # copy below target `s3:///_config/...` — a confusing AWS-side error far from its cause.
-      # Assign, then test: `echo "B=$(...)"` never fails a step, and a numeric-or-empty default
-      # reads as success (the shell facts SPEC-138's gates were rebuilt around).
-      - name: Resolve the destination bucket
-        id: bucket
-        env:
-          BUCKET: ${{ vars[matrix.bucket_var] }}
+      # The same backend `deploy-infra.yml` inits against, and the same pinned version.
+      - name: OpenTofu init
+        working-directory: infra
         run: |
-          if [ -z "$BUCKET" ]; then
-            echo "::error::repository variable ${{ matrix.bucket_var }} is unset — ${{ matrix.environment_name }} has no destination bucket"
-            exit 1
-          fi
-          echo "name=$BUCKET" >> "$GITHUB_OUTPUT"
+          tofu init \
+            -backend-config="bucket=${{ secrets.TF_VAR_state_bucket }}" \
+            -backend-config="dynamodb_table=${{ secrets.TF_VAR_state_lock_table }}" \
+            -backend-config="region=${{ vars.AWS_REGION }}"
+
+      # THE DESTINATION COMES FROM TERRAFORM, and the hand-written empty-variable guard this
+      # replaces is gone rather than kept beside it: one refusal, in one place, for every
+      # value the deploy derives. An absent or empty output fails here, naming the key and
+      # the output — the same refusal `deploy-app.yml` gets from the same script.
+      - name: Resolve the configuration from Terraform state
+        id: config
+        working-directory: infra
+        run: ../.github/scripts/resolve-config.sh --mapping ../.github/config-outputs.json
 
       # ONE EXACT KEY. No `sync`, no `--delete`, no prefix: `_directory/usernames.json` lives
       # one prefix over in this same bucket, and a mis-scoped reconcile that removed it would
       # break username typeahead everywhere (SPEC-146/147) for a feature nothing user-facing
       # depends on yet.
+      #
+      # THROUGH `env:`, NOT SPLICED INTO THE SCRIPT. Every other consumer of a resolved value
+      # reads it as an environment variable; this was the one interpolated directly into a
+      # `run:` body, where GitHub substitutes the text BEFORE the shell sees it — so a value
+      # carrying a quote would end the argument and run whatever followed. The bucket name
+      # comes from this repo's own state and AWS constrains it to `[a-z0-9.-]`, so it cannot
+      # happen today; it is written this way because the resolver spends ten lines keeping the
+      # value newline-safe on the way out, and one spliced consumer undoes that.
       - name: Publish the flag document
+        env:
+          BUCKET: ${{ steps.config.outputs[matrix.bucket_key] }}
         run: |
           aws s3 cp config/feature-flags.json \
-            "s3://${{ steps.bucket.outputs.name }}/_config/feature-flags.json" \
+            "s3://${BUCKET}/_config/feature-flags.json" \
             --cache-control 'no-cache' \
             --content-type 'application/json'
