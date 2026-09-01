@@ -677,6 +677,30 @@ trail answers it — `owed.md` carries the query and the `IsLogging` preconditio
 - While you are there: the panel on `/data-quality` is headed **Files** by design, and
   `/help#delete-space` opens the Help page at Shared connections with that one card expanded and
   scrolled to.
+- **Measure the panel's targets, because no suite can.** axe's `target-size` rule is enabled (it is
+  tagged `wcag22aa`) and jsdom has no layout, so a probe through the project's own axe config puts
+  it in `passes` — a pass it never evaluated. The rule *running* is the hazard: asking "do we assert
+  target size here" gets yes. In the browser console with the panel open:
+  `[...document.querySelector('[role=dialog]').querySelectorAll('a,button')].map(e => [(e.textContent.trim() || e.getAttribute('aria-label')).slice(0,24), e.getBoundingClientRect().height])`
+  (the `aria-label` fallback is not optional — the close button is icon-only and prints an empty
+  name without it). Anything under **24** is a *candidate*, not yet a finding: SC 2.5.8 exempts an
+  undersized target that nothing crowds. Against a neighbour that is itself ≥24 the test is a 24px
+  circle centred on your target not reaching that neighbour's box; against a neighbour that is
+  ALSO undersized it is circle-to-circle, so the two centres must be 24px apart — the stricter
+  half, and the one a quick check drops. Report what you could not decide rather than calling every
+  undersized control a violation; an isolated small target is conformant and still worth fixing for
+  comfort.
+
+  Three numbers make this easy to get wrong here, all measured rather than read off class names.
+  The spacing scale is **3.5px to the unit** (a 14px root against `0.25rem`), so `h-6` is 21px and
+  only `h-7` (24.5) and up clear 24. The **type scale is authored in px** and does not scale with
+  the root — `text-sm` is 13px on an 18px line-height. And a **bare inline** element's box is the
+  font's content area, **not** its line box: an unpadded `text-sm` link measures 15.5px, and
+  becomes 18 once it is no longer a bare inline box (any of `inline-flex`, `inline-block`, `block`
+  — leaving bare inline is the mechanism, not becoming a flex container). So a control with no
+  height class at all can be under the minimum with no suspicious number anywhere in its markup.
+  The 15.5 is font-dependent — the system fallbacks give 15.0 — so re-measure rather than reusing
+  it.
 
 ### 4.14 Feature flags
 
@@ -778,8 +802,11 @@ whole app actually looks right.
    names: `--spacing` is `.25rem` against a **14px** root, so a spacing-derived size is 12.5%
    smaller than it reads — `h-8` is 28px, `h-7` is 24.5px, `h-6` would be 21px and fail WCAG
    2.5.8's 24px. **Type does not scale the same way**: `--text-sm` is authored as `13px` with an
-   18px line-height, so a control with no height class is whatever its line box plus padding comes
-   to, at any root size. The three to measure, and what they should be:
+   18px line-height, so a PADDED control with no height class is its line box plus padding, at any
+   root size — but one with no padding either is smaller still, because a bare inline box is the
+   font's content area rather than its line box (15.5px for `text-sm`, measured). §4.13 owns that
+   rule in full, along with SC 2.5.8's spacing exception, which is what decides whether an
+   undersized target is a violation at all. The three to measure, and what they should be:
    the header's theme button `h-8` → **28px**; each of the drawer's three options `h-7` →
    **24.5px**, which clears the floor by half a pixel and is the one to watch if any of this is
    restyled; and a theme menu row, which has **no height class at all** — 18px line box plus
