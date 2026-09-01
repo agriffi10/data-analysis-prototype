@@ -118,7 +118,7 @@ JSON.stringify({lines:t.trim().split('\n').length, head:t.split('\n')[0], last:t
 | Trap | What it looks like | What to do |
 |---|---|---|
 | **A hidden Chrome window pauses polling** | One `GetQueryExecution`, then "Running…" forever. `hasFocus()` true, `visibilityState` `hidden`. | Instrument 1. Without it you will file a hung-query bug that does not exist. |
-| **`resize_window` reports success and changes nothing** | "Successfully resized to 400x800" while `innerWidth` stays 1512 and every media query still matches desktop. | Never trust the call — assert on `matchMedia`. Chrome's minimum window width is 606px, so **400px needs DevTools device toolbar (⌘⇧M)**. |
+| **A backgrounded tab reports a STALE viewport after `resize_window`** | "Successfully resized to 700x900" while `innerWidth` stays 1512, `outerWidth` reads **0**, and every media query still matches desktop. | The window really did resize; the tab cannot see it until it is foregrounded, and then `innerWidth` reads 700 and the queries flip. **Assert on `matchMedia`, and treat any reading taken while the tab is backgrounded as unusable** — the earlier "the call changes nothing" reading was this artifact (2026-09-01). Sub-900px checks ARE reachable. Chrome's minimum window width is still 606px, so **400px needs DevTools device toolbar (⌘⇧M)**. |
 | **`role="alertdialog"` ≠ `role="dialog"`** | `querySelector('[role="dialog"]')` returns null on the refresh and delete confirms. | Query both. `Drawer` also carries `role="dialog"`, so select modals **by title**. |
 | **Page scroll desyncs click coordinates** | A click lands on a grid cell instead of a nav tab. | Derive coordinates from `getBoundingClientRect()` immediately before clicking, or use `find` → ref. |
 | **Prefilled inputs are not selected on focus** | Typing appends: `explorer-shared-destexplorer-shared-filtered`. | `cmd+a` first, or set the value and dispatch `input`. |
@@ -850,8 +850,12 @@ Two things are worth a glance whenever this guide is run, because both are invis
 or a ported route needs them, and both are cheap:
 
 - `curl -s https://api.dataquarry.app/healthz` returns `{"status": "ok", "version": "<sha>"}`. The sha
-  is the last commit that changed `lambdas/api/`, **not** HEAD — the deploy skips unchanged
-  functions, and reading it as HEAD makes a healthy API look broken.
+  is the last commit that changed the function **or any layer it packages** — so it is usually HEAD,
+  and is older only when the deploy genuinely skipped the function. Resolve it with
+  `git log -1 --format=%h -- lambdas/api/ lambdas/control-plane-common/`, never by grepping
+  `lambdas/api/` alone: on 2026-09-01 healthz reported HEAD because that commit changed
+  `cpcommon/config.py`, while `lambdas/api/` alone pointed four commits back. Reading it either way
+  round — as necessarily HEAD, or as necessarily the api-only sha — makes a healthy API look broken.
 - `curl -sSI $CLOUDFRONT_URL | grep -io 'connect-src[^;]*'` still names `https://api.dataquarry.app`.
   If it does not, a ported feature will fail in the browser and nowhere else.
 
