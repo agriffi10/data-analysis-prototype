@@ -122,7 +122,8 @@ post-signup redirect. The API verifies the browser's bearer and assumes that sam
 - **It assumes the SAME role with the SAME tags from the SAME claims** — one computation over one
   input, which is why no policy is rewritten. The role is **reused, never minted**
   (`aws:PrincipalArn` resolves to the *role's* ARN, so the hand-maintained bucket-policy allowlist
-  stays correct), `DurationSeconds` 3600 is a ceiling **both ways**, and tag-key agreement is
+  stays correct), `DurationSeconds` 3600 is a ceiling **both ways** — shorter caps every presigned
+  link, longer is refused as role chaining — and tag-key agreement is
   **asserted, not structural** — the trust statement's `sts:TagKeys` is a ceiling that **cannot
   require a tag was stamped**.
 - **Two credential planes, user by default, declared ON THE ROUTE — the failure fails OPEN.** A wrong
@@ -136,8 +137,9 @@ post-signup redirect. The API verifies the browser's bearer and assumes that sam
   presigned URL is not a request** and takes `signing_client(covering=…)`, forcing a fresh session
   rather than clamping against a near-dead one. A short window is *correctly clamped*, so no clamp
   test can see it.
-- **The API's remaining fences live beside it**, in `@lambdas/info/planes/api.md`, and they are traps
-  rather than reference: the error shape is a machine **CODE** whose wording is chosen client-side;
+- **The API's remaining fences live beside it** — `@lambdas/info/planes/api.md`, and the identity
+  register for the error-code guard — and they are traps rather than reference: it makes **one AWS
+  call per request**; the error shape is a machine **CODE** whose wording is chosen client-side;
   the wire is declared in **Python** and the TypeScript **generated** from a **closed** vocabulary
   that never falls back; **`$default` matches OPTIONS**, so the router answers a preflight **before
   authentication** and only a browser can see that fail; and **no route waits**, every poll and page
@@ -145,8 +147,8 @@ post-signup redirect. The API verifies the browser's bearer and assumes that sam
 - **Browser-side, `apiRequest` retries NOTHING**, with one exception: a 401 takes one forced refresh
   and one retry — the browser's only refresh path, so deleting it signs everyone out at the hour mark
   with a green suite. Idempotency is declared **per route**, never derived from the method, and a
-  path parameter that is not **one segment** reaches a **sibling route answering 200 with the wrong
-  shape**.
+  path parameter that is not **one segment** is **refused in the browser** — either spelling would
+  otherwise reach a **sibling route answering 200 with the wrong shape**.
 - **The tag VALUES have two sources, chosen at COLD START, no fallback** — `MEMBERSHIP_SOURCE`,
   default `claims`, in no Terraform. The other is `memberships/{username}.json`, **admin** bucket:
   an authorization input, unlike the username directory, safe only because it is
@@ -369,7 +371,8 @@ is a smell.
 - **A drag is not an alternative to itself.** WCAG 2.5.7 wants a *single-pointer, non-dragging* path;
   a keyboard is not one and **no axe rule detects the absence**, so a drag-only control regresses it
   in silence. The editor divider carries step buttons for exactly that reason, and
-  `ColumnResizeHandle` — which never had such a path — is a standing gap, not the same finding.
+  `ColumnResizeHandle` — whose only non-drag pointer path *resets* the width rather than choosing
+  one — is a standing gap, not the same finding.
   Sizing them is its own trap: the root font is **14px**, so `rem` spacing lies about the 24px
   minimum, and jsdom reports axe's `target-size` as a **pass it cannot measure**.
 - **A palette is measured, not chosen**, in **both** themes; a colour that fails is measured

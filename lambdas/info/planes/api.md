@@ -87,10 +87,14 @@ sibling template rather than fail.
   diff, and the type vocabulary is **closed and never falls back**.
 - **`$default` matches OPTIONS**, so API Gateway's own CORS responder never sees a preflight and the
   router must answer one **before authentication**. Only a browser enforces CORS, so `curl` cannot
-  see this failing. That the gateway then overlays its configured CORS headers onto the integration's
-  own `OPTIONS` 200 is **read from AWS's documentation and verified nowhere here**; if it is wrong,
-  the degraded path is **silent by design** — the router's answer stands and the headers are simply
-  not added.
+  see this failing. The gateway then overlays its configured CORS headers onto the integration's own
+  `OPTIONS` 200 — the router itself emits none (`envelope._headers` returns `content-type` and
+  `cache-control` only), so the `access-control-*` headers on a live preflight can only be the
+  gateway's. **No offline test asserts that overlay**; it is read from AWS's documentation and
+  confirmed only by a live browser run — `testing/sessions.md`, in Chromium, with Safari still owed.
+  If it ever stops holding, the failure is **silent on this side**: the router keeps answering 200,
+  no preflight carries CORS headers, and every cross-origin request fails the way they all did on
+  2026-08-27.
 - **`@traced` is outermost everywhere EXCEPT here**: one decorator sits outside it, to turn an
   unpredicted fault into a declared code. A catch *inside* the span ends every failed request
   successfully and records the fault nowhere.
