@@ -40,8 +40,8 @@ import pytest
 LAYER_ROOT = pathlib.Path(__file__).resolve().parent
 LAMBDAS = LAYER_ROOT.parent
 
-#: The three functions that attach the layer for `observability` alone (SPEC-137 FR-001).
-SINGLETONS = ("pre-signup", "post-confirmation", "notifications-writer")
+#: The functions that attach the layer for `observability` alone (SPEC-137 FR-001).
+SINGLETONS = ("pre-signup", "post-confirmation", "notifications-writer", "feedback-writer")
 
 #: What a scrubbed environment keeps: enough to find the interpreter and its site-packages, and
 #: nothing that `cpcommon.config` would accept. PYTHONPATH stands in for the layer's /opt/python.
@@ -69,7 +69,7 @@ def test_observability_imports_and_emits_with_no_environment_at_all():
 
     If this fails with ``required environment variable … is unset``, something in the
     ``cpcommon`` import chain now reaches ``config`` — do not fix it by setting the variable on
-    the three functions. Fix the import, or the three lose the property that lets them attach the
+    the functions. Fix the import, or the three lose the property that lets them attach the
     layer at all.
     """
     result = subprocess.run(  # noqa: S603 - fixed argv, no shell
@@ -99,6 +99,7 @@ SINGLETON_OWN_ENV = {
     "pre-signup": {},
     "post-confirmation": {"PORTAL_ROLE_ARN": "arn:aws:iam::000000000000:role/probe"},
     "notifications-writer": {},
+    "feedback-writer": {},
 }
 
 #: boto3 IS STUBBED, and stays stubbed now that the test job installs a real one. The Lambda
@@ -139,6 +140,7 @@ SINGLETON_CPCOMMON_ALLOWLIST = {
     # granted, so it reaches no configuration variable this Lambda does not set. The behavioural
     # half — importing it for real with none of them set — is the test below, and it passes.
     "notifications-writer": {"observability", "actor", "clients", "errors", "events"},
+    "feedback-writer": {"observability", "cas", "clients"},
 }
 
 

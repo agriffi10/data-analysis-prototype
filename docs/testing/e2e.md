@@ -837,6 +837,35 @@ The platform's own verification — the no-NAT pull, the redirect, target health
 
 ---
 
+### 4.17 Give feedback (SPEC-211)
+
+Write-only: there is no read surface, so **the only way to see whether a submission landed is the
+AWS CLI**, and the account that can read the admin bucket is not the one in the browser. That
+split is why most of this is owed rather than run — see `owed.md`.
+
+| Do | Expect |
+|---|---|
+| At desktop width, signed in | A **Give feedback** control in the top bar, immediately right of the help control. |
+| Narrow to 375px | The control is **gone from the header**, and the header carries nothing new. Open the ☰ menu: **Give feedback** is there, under the Theme block. |
+| Open it | A dialog with **no category preselected**, an empty message, and a line naming the page you were on. **Send** is disabled. |
+| Choose a category, leave the message empty | **Send** stays disabled. Type a space or two — still disabled. |
+| Type a message, press Enter inside it | A newline. It does **not** submit. |
+| Focus the category select and press Enter | It submits. |
+| Send | The dialog closes and a toast reads the thank-you. Reopen it — the message is empty, not the last one. |
+| Reopen, and watch the network panel | Exactly **one** `POST /v1/feedback`, answering 200 with `{submittedAt}`. The request body carries `category`, `message` and `route` — and **no username of any kind**. |
+| Navigate to another page with the dialog open, then send | The `route` in the body is the page you **opened** it on, not the one you ended on. |
+
+**Then, with CLI credentials that can read the admin bucket** (a different identity from the
+browser's — see `owed.md`):
+
+```bash
+aws s3 cp "s3://$ADMIN_BUCKET/feedback/$(date -u +%Y/%m/%d).json" - | python3 -m json.tool
+```
+
+Expect one object for today, `version` 1, and your submission in `entries` with the username
+taken from your token, an `eventId`, and the `route` you were on. Submit twice more and confirm
+all three are present, in order — the append preserves what is there.
+
 ## 5. Cleanup and write-up
 
 **Cleanup.** Delete the fixture folders, tables, view and saved queries you created — but leave

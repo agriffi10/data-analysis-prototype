@@ -150,6 +150,7 @@ DISPOSITIONS = {
     "lambdas/data-quality-common/dqcommon/index_store.py::append": FAIL_SAFE_CAS,
     "lambdas/file-ops-common/focommon/lock.py::_read": FAIL_SAFE_CAS,
     "lambdas/log-sweep/log_sweep.py::_read_day": FAIL_SAFE_CAS,
+    "lambdas/feedback-writer/feedback_writer.py::_read": FAIL_SAFE_CAS,
     "lambdas/table-builder-common/tbcommon/table_lock.py::_read": FAIL_SAFE_CAS,
     # The record is an optimisation, not a fact, and both docstrings say so: losing it costs one
     # re-head or one skipped cross-check. A throttle is re-raised before the tolerance applies,

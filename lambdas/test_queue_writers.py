@@ -234,3 +234,61 @@ def test_the_lambda_environment_and_the_wiring_agree_with_the_contract_registry(
         assert not output.endswith("dlq_url"), (
             f"{queue.env_var} names a dead-letter queue"
         )
+
+
+def test_the_one_queue_outside_the_contract_registry_is_wired_just_as_carefully():
+    """Feedback resolves its URL through its own accessor, so the sweep above cannot see it.
+
+    ``contract.QUEUES`` is the registry the ten ENQUEUE ROUTES resolve against, guarded for set
+    equality with them in both directions. The feedback route is not one of those ten — its
+    message shape is not the family's — so registering its queue would mean loosening that guard
+    with a hand-maintained exemption. It reads ``FEEDBACK_QUEUE_URL`` through
+    ``apicommon.config.feedback_queue_url`` instead.
+
+    That trade costs exactly one thing: the swapped-pair guard above stops covering it. This is
+    that coverage, written out. A renamed variable is a ``ConfigError`` on every submission
+    forever; a wired-to-the-wrong-module one sends every submission to another plane's queue,
+    where it dead-letters. Neither shows up in ``tofu validate``, in a plan, or anywhere else.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the variable is unset in the function's environment, unwired at the root,
+        wired to another module, or pointed at a dead-letter queue.
+    """
+    import sys
+
+    sys.path.insert(0, str(REPO / "lambdas" / "api"))
+    from apicommon import config, contract
+
+    assert "feedback" not in {queue.id for queue in contract.QUEUES}, (
+        "feedback joined the registry, so this test now duplicates the sweep above rather than "
+        "covering the gap it was written for"
+    )
+    assert "FEEDBACK_QUEUE_URL" in config.feedback_queue_url.__code__.co_consts, (
+        "the accessor no longer names FEEDBACK_QUEUE_URL, so the wiring below pins nothing"
+    )
+
+    lambda_tf = (INFRA / "modules" / "api" / "lambda.tf").read_text()
+    wiring = (INFRA / "main.tf").read_text()
+
+    assigned = re.search(
+        r"^\s*FEEDBACK_QUEUE_URL\s*=\s*var\.([a-z_]+)$", lambda_tf, re.MULTILINE
+    )
+    assert assigned, "FEEDBACK_QUEUE_URL is not set in the API function's environment"
+
+    wired = re.search(
+        rf"^\s*{assigned.group(1)}\s*=\s*module\.([a-z_]+)\.([a-z_]+)$", wiring, re.MULTILINE
+    )
+    assert wired, f"{assigned.group(1)} is not wired at the root"
+
+    module, output = wired.groups()
+    assert module == "feedback", (
+        f"FEEDBACK_QUEUE_URL takes its value from module.{module}, so every submission would go "
+        "to another plane's queue and dead-letter there"
+    )
+    assert not output.endswith("dlq_url"), "FEEDBACK_QUEUE_URL names a dead-letter queue"

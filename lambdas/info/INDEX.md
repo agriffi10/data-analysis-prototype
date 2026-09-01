@@ -178,6 +178,7 @@ directly — by Cognito, by a schedule, or by its own queue. Triggers and traps:
 | `control-plane-dlq-drain/` | `dlq_drain.py` | Drains every control plane's request DLQ into the notification the user already reads. |
 | `log-sweep/` | `log_sweep.py` | Sweeps the structured-logging queue into one NDJSON object per service per day. |
 | `notifications-writer/` | `notifications_writer.py` | The notifications queue's single writer — the only thing that appends to a user's feed. |
+| `feedback-writer/` | `feedback_writer.py` | The feedback queue's single writer — appends one submission to that day's document under compare-and-swap. Refuses to overwrite a document it cannot parse. |
 | `post-confirmation/` | `post_confirmation.py` | Cognito post-confirmation trigger: provisions the new user's Glue database and prefix. |
 | `pre-signup/` | `pre_signup.py` | Cognito pre-signup trigger: username validation and a disposable-email blocklist. |
 | `user-directory-build/` | `build_directory.py` | Publishes the username directory: every personal workspace on the user-space bucket. |

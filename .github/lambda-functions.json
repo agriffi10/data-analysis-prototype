@@ -18,6 +18,12 @@
     ]
   },
   {
+    "name": "feedback-writer",
+    "layers": [
+      "cpcommon"
+    ]
+  },
+  {
     "name": "user-directory-build",
     "layers": [
       "cpcommon"

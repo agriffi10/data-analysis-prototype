@@ -257,14 +257,13 @@ export const NUMERIC_TRANSFORMER_ERROR = '#ERR';
 export const TRUNCATION_INDICATOR = '…';
 
 /**
- * The chrome for a bare `<select>` in this feature's dialogs and panels.
+ * The chrome for a bare `<select>`, re-exported from the shared layer that now owns it.
  *
- * There is no `Select` primitive in `components/` yet, and four surfaces having their own
- * copy of the same twelve classes is how two of them come to disagree about a focus ring.
- * One string until a primitive exists to replace it.
+ * It moved to `components/fieldStyles.ts` when a feature outside this one needed the same
+ * string. Re-exported rather than re-pointed at six call sites: one definition either way, and
+ * this keeps the move to the file that made it.
  */
-export const SELECT_CLASS =
-  'h-9 rounded-md border border-border bg-surface px-2 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent';
+export {SELECT_CLASS} from '../../components/fieldStyles';
 
 /**
  * The alias a `sql` source's subquery is given: `FROM (<body>) AS t`.

@@ -1048,6 +1048,46 @@ class RestoreEnqueueRequest(TypedDict):
     archiveId: str
 
 
+class FeedbackSubmitRequest(TypedDict):
+    """One piece of feedback, as the browser sends it.
+
+    **There is no username, userId or email field, and that is the requirement rather than an
+    omission.** The submitter is the verified username claim, stamped by the route; a
+    body that could name a person would let any signed-in caller file feedback against somebody
+    else, and no amount of server-side checking makes a field the caller controls into an
+    identity.
+
+    ``category`` is a closed literal so the wire refuses a fifth value before any handler runs.
+    The browser preselects none of them — the field exists to record a choice somebody made.
+
+    Attributes:
+      category: Which kind of feedback this is.
+      message: What the user wrote. Bounded server-side; see ``routes.feedback``.
+      route: The in-app path the user was on when they opened the dialog. Optional, stored
+        verbatim, and interpreted by nothing — it is a breadcrumb for whoever reads the day's
+        file, not an instruction to any code.
+    """
+
+    category: Literal["bug", "idea", "question", "other"]
+    message: str
+    route: NotRequired[str]
+
+
+class FeedbackSubmitResponse(TypedDict):
+    """What a caller gets once the submission is on the queue.
+
+    The stamp is echoed back because it is the one fact the user's copy and ours agree on, and
+    because a 200 carrying nothing would leave the browser unable to tell a completed submission
+    from an empty body it failed to parse.
+
+    Attributes:
+      submittedAt: When the API stamped the submission, UTC, ISO 8601. Also the day whose file it
+        lands in.
+    """
+
+    submittedAt: str
+
+
 @dataclass(frozen=True)
 class Route:
     """One route, declared whole.
@@ -1322,6 +1362,16 @@ ROUTES: Final[tuple[Route, ...]] = (
         request=None,
         query=TablesQuery,
         response=TablesResponse,
+    ),
+    Route(
+        id="feedback.submit",
+        method="POST",
+        path="/v1/feedback",
+        idempotent=False,
+        plane="api",
+        request=FeedbackSubmitRequest,
+        query=None,
+        response=FeedbackSubmitResponse,
     ),
     EnqueueRoute(
         id="sharedSpace.enqueue",

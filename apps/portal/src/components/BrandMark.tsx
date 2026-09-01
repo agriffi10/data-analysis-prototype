@@ -2,7 +2,7 @@ import {cx} from '../lib/cx';
 import {DatabaseIcon} from './icons';
 
 type BrandMarkProps = {
-  /** 'sm' = 24px square + text-base; 'md' (default) = 32px square + text-md. */
+  /** 'sm' = an `h-6` square + text-base; 'md' (default) = an `h-8` square + text-md. */
   size?: 'sm' | 'md';
   /** Render the "Data Workspace" text next to the square; default true. */
   showWordmark?: boolean;
