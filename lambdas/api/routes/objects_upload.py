@@ -30,7 +30,6 @@ Attributes:
     pass with the other two unmapped.
 """
 
-import math
 from typing import Any
 
 from apicommon import identity, protected, s3_config
@@ -119,6 +118,13 @@ def sign_part(context: RequestContext) -> dict[str, Any]:
     One part per call. A batch would age while the parts ahead of it upload, so its last URL
     would be signed long before it was redeemed — which is the failure the whole design removes.
 
+    **It runs the same protected-location check ``create`` runs**, and not because a caller could
+    get anywhere without it: minting needs an ``uploadId`` that ``create`` refuses to issue for
+    these keys, and the bucket Denies the write underneath. It runs because the rule is that a
+    presigned URL is minted only after *exactly* the authorization the direct call would have had,
+    and a route that mints where its sibling refuses has already broken that rule whether or not
+    the URL is redeemable.
+
     Args:
       context: The authenticated request.
 
@@ -126,13 +132,14 @@ def sign_part(context: RequestContext) -> dict[str, Any]:
       The URL and when it expires.
 
     Raises:
-      ApiError: ``AccessDenied`` on an unauthorized space or an escaping key;
-        ``InvalidRequest`` on a part number outside S3's range.
+      ApiError: ``AccessDenied`` on an unauthorized space, an escaping key, a marker key or a
+        write-locked location; ``InvalidRequest`` on a part number outside S3's range.
       IdentityUnavailableError: If the caller's role cannot be assumed.
     """
     body = context.body if isinstance(context.body, dict) else {}
     space = _objects.space_from_body(context)
     key = _objects.contained(space, str(body.get("key", "")))
+    protected.assert_replaceable(space, key)
     upload_id = _upload_id(body)
     part_number = _part_number(body)
 
@@ -257,6 +264,20 @@ def part_plan(size: int) -> tuple[int, int]:
     is refused a ``max(constant, ceil(size / MULTIPART_MAX_PARTS))`` can only ever return the
     constant. Writing the term anyway would be a branch no input reaches and no test can cover.
 
+    **The arithmetic is integer throughout, and that is not style.** A declared size is a caller's
+    number parsed by ``json.loads``, which builds arbitrary-precision integers — so ``size / n``
+    on a 400-digit value raises ``OverflowError`` converting to float, and an expected refusal
+    becomes a 500 carrying an error stack into a store retained forever. ``-(-a // b)`` is the
+    same ceiling with no float in it.
+
+    **The ceiling refusal is a COURTESY on a declared number, not enforcement.** Nothing verifies
+    the size — the API keeps no record of an upload, so ``sign_part`` cannot bound a part number
+    by the plan's count and ``complete`` cannot check what was actually sent. A client that
+    under-declares gets a plan too small for its file and is refused by S3; a client that
+    deliberately under-declares can assemble an object above the ceiling. What this refusal buys
+    is that an honest over-size upload fails at create rather than after its bytes, and that the
+    ceiling is not silently 209 times what the product states.
+
     Args:
       size: The object's declared byte length.
 
@@ -264,16 +285,23 @@ def part_plan(size: int) -> tuple[int, int]:
       ``(part_size, part_count)``.
 
     Raises:
-      ApiError: ``PayloadTooLarge`` when no plan can both stay inside S3's part ceiling and
-        finish each part inside its window.
+      ApiError: ``PayloadTooLarge`` when the declared size exceeds the upload ceiling, or when no
+        plan can both stay inside S3's part ceiling and finish each part inside its window.
     """
-    needed = math.ceil(size / s3_config.MULTIPART_MAX_PARTS)
+    if size > s3_config.S3_SINGLE_PUT_MAX_BYTES:
+        raise ApiError(
+            "PayloadTooLarge",
+            "file is too large to upload",
+            {"limit": s3_config.S3_SINGLE_PUT_MAX_BYTES},
+        )
+
+    needed = -(-size // s3_config.MULTIPART_MAX_PARTS)
     if needed > s3_config.MULTIPART_PART_BYTES:
         limit = s3_config.MULTIPART_PART_BYTES * s3_config.MULTIPART_MAX_PARTS
         raise ApiError("PayloadTooLarge", "file is too large to upload", {"limit": limit})
 
     part_size = s3_config.MULTIPART_PART_BYTES
-    return part_size, math.ceil(size / part_size)
+    return part_size, -(-size // part_size)
 
 
 def _declared_size(body: dict[str, Any]) -> int:

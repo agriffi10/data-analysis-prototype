@@ -440,7 +440,10 @@ def test_saving_an_athena_result_into_the_users_own_space_is_accepted(s3_and_sig
 
 
 def test_an_upload_and_a_download_of_an_ordinary_file_both_mint(s3_and_signer) -> None:
-    """The two presign routes, on the path every upload and download takes.
+    """The two mint routes, on the path every upload and download takes.
+
+    The upload half is `objects.upload` now. A small `size` takes its single-`PUT` branch, which
+    is the branch that mints — so this still exercises a real presign rather than a plan.
 
     Args:
       s3_and_signer: The stubbed identity doors.
@@ -455,10 +458,16 @@ def test_an_upload_and_a_download_of_an_ordinary_file_both_mint(s3_and_signer) -
 
     up = router.route(
         "POST",
-        "/v1/objects/upload-url",
+        "/v1/objects/upload",
         bearer(),
         "rq",
-        {"space": PERSONAL, "key": ORDINARY_FILE, "contentType": "text/csv", "overwrite": False},
+        {
+            "space": PERSONAL,
+            "key": ORDINARY_FILE,
+            "contentType": "text/csv",
+            "overwrite": False,
+            "size": 1024,
+        },
     )
     down = router.route(
         "POST",

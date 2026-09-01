@@ -387,6 +387,11 @@ sends the bytes to S3 itself.
       where `lib-storage` retried one 5 MiB part. Accepted residual; the multipart route trio a later
       spec would add is `create-multipart` / `sign-part` / `complete-multipart`, named here so it is
       added rather than rediscovered;
+      **> SUPERSEDED by SPEC-216 (2026-09-01): the residual is discharged — part-level retry exists
+      > again, and the trio was built with a fourth route for abort. Consequence (1) still holds,
+      > but the ceiling is now enforced by the create route rather than by S3, which only ever
+      > enforced it for a single `PUT`. Full entry: `decisions/storage.md` → *An upload's shape is
+      > the server's decision*.**
       (3) `MULTIPART_PART_SIZE` and `PART_CONCURRENCY` become dead and are deleted.
 - [ ] `MAX_UPLOAD_BYTES` is **clamped**: `min(configured, S3_SINGLE_PUT_MAX_BYTES)` where the latter is
       5 GiB, computed by a test against the S3 `PutObject` limit that sizes it. Today an operator who

@@ -142,8 +142,8 @@ post-signup redirect. The API verifies the browser's bearer and assumes that sam
   rather than clamping against a near-dead one. A short window is *correctly clamped*, so no clamp
   test can see it.
 - **The API's remaining fences live beside it** — `@lambdas/info/planes/api.md` for the plane, the
-  identity register for the rest — and they are traps rather than reference: it makes **one AWS call
-  per request**, SPEC-198's free-name probe being the one deliberate exception; the error shape is a
+  identity register for the rest — and they are traps rather than reference: **no route waits, sleeps or
+  paginates** and no call count grows with the user's data (a small fixed number is fine); the error shape is a
   machine **CODE** whose wording is chosen client-side; the wire is declared in **Python** and the
   TypeScript is **generated** from a **closed** vocabulary
   that never falls back; **`$default` matches OPTIONS**, so the router answers a preflight **before
@@ -204,11 +204,13 @@ unrecoverable — revisit before real user data lands.
   **newer** schema is refused untouched — the parse is three-way, version checked before shape.
 - **Bytes go to S3 presigned; small text goes through the API**, and the document route's **byte cap
   is what holds the line** — without it it is a second upload path that works perfectly to 6 MB. The
-  routes never parse and never re-serialise. An upload is one `PUT` over **`XMLHttpRequest`**, which
-  is a requirement, not a preference: `fetch` fires no upload-progress event, so it uploads
-  correctly and leaves the bar at 0% — assert an **intermediate** value. The 5 GiB ceiling does not
-  move (it is the single-`PUT` cap, and `maxUploadBytes()` clamps to it); **part-level retry is
-  gone**; the URL is minted **per file**, inside `uploadFile`, never per batch.
+  routes never parse and never re-serialise. Bytes go over **`XMLHttpRequest`**, which is a
+  requirement: `fetch` fires no upload-progress event, so it uploads correctly and leaves the bar at
+  0% — assert an **intermediate** value. **The SERVER decides whether an upload is one `PUT` or
+  multipart**, so the browser holds no threshold; a URL is minted immediately before redemption,
+  **per file or per part, never batched**, and a retried part **re-mints**. Aggregate progress is
+  the per-part **maximum**, monotonic across a retry. The 5 GiB ceiling is a refusal on the
+  **declared** size — a courtesy, not enforcement, since the API keeps no record of an upload.
 - **The four folder-recursive browser functions are DELETED, not ported** — that loop belongs on the
   plane. So `asyncFileOperations` off means folder operations are **unavailable**, refused **per
   item** while the files beside them go through; and the refusal is also reachable with the flag ON,

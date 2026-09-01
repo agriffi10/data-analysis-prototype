@@ -843,29 +843,6 @@ class TestTheMarkerRuleIsAboutREMOVAL:
         assert json.loads(answer["body"])["error"]["code"] == "AccessDenied"
         assert fake.calls == []
 
-    def test_an_upload_url_is_never_minted_for_a_marker_key(self, s3) -> None:
-        """No surface uploads a marker, so the presign route takes the stricter rule at both
-        settings — and mints nothing, because a route that mints first has already handed out the
-        capability."""
-        fake = s3(RecordingS3(head=None))
-
-        answer = router.route(
-            "POST",
-            "/v1/objects/upload-url",
-            bearer(),
-            "rq",
-            {
-                "space": {"kind": "personal", "name": "alice"},
-                "key": "alice/reports/DO_NOT_DELETE.txt",
-                "contentType": "text/plain",
-                "overwrite": False,
-            },
-        )
-
-        assert answer["statusCode"] == 403
-        assert "url" not in json.loads(answer["body"])
-        assert fake.calls == []
-
     def test_deleting_a_marker_is_refused_server_side(self, s3) -> None:
         """The browser refuses it as an affordance; a disabled button is not a permission."""
         fake = s3(RecordingS3())

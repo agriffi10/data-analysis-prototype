@@ -1,7 +1,7 @@
 # Spec: Multipart Upload & Part-Level Retry
 
 **ID:** SPEC-216
-**Status:** In Progress
+**Status:** Completed
 **Last Updated:** 2026-08-29
 **Depends On:** SPEC-198 (the presigned upload this supersedes — `objects.uploadUrl`, the `XMLHttpRequest` requirement, the `expiresAt` clamp, and the accepted residual this spec discharges), SPEC-196 (the user credential plane, `signing_client(covering=…)` and the one-hour role-chaining ceiling), SPEC-197 (the route table, the **closed** error enum, the closed type vocabulary, the declared-per-route `idempotent` flag and `Route.plane`), SPEC-020 (the upload queue, which stays in the browser and gains no state), SPEC-172 (`isWriteLockedPrefix` and the archive Deny), SPEC-161 (a cap is computed by a test against the budget that sized it)
 

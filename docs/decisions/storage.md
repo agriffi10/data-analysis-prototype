@@ -29,6 +29,7 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [The commit gate is per ITEM, so the graph proves less than SPEC-169's did (SPEC-189)](#the-commit-gate-is-per-item-so-the-graph-proves-less-than-spec-169s-did-spec-189)
 - [The source deletion: what it removes, and what it is conditional on (SPEC-189)](#the-source-deletion-what-it-removes-and-what-it-is-conditional-on-spec-189)
 - [Bytes go to S3 presigned; small text goes through the API (SPEC-198)](#bytes-go-to-s3-presigned-small-text-goes-through-the-api-spec-198)
+- [An upload's shape is the server's decision, and a part is sized so the expiry premise stops mattering (SPEC-216)](#an-uploads-shape-is-the-servers-decision-and-a-part-is-sized-so-the-expiry-premise-stops-mattering-spec-216)
 - [The folder-recursive functions are deleted, not ported, and the flag stops being a fallback (SPEC-198)](#the-folder-recursive-functions-are-deleted-not-ported-and-the-flag-stops-being-a-fallback-spec-198)
 - [The free-name probe moved to the API, not to the plane (SPEC-198, amends SPEC-187)](#the-free-name-probe-moved-to-the-api-not-to-the-plane-spec-198-amends-spec-187)
 
@@ -936,7 +937,8 @@ SPEC-159's whole quarantine path out of reach, because the classifier never sees
 classify as unreadable. Re-serialising on write is the same defect from the other side: it changes
 key order and whitespace, which breaks nothing visible and breaks byte-identity.
 
-**An upload is one `PUT` over `XMLHttpRequest`, and the transport is a requirement.** `fetch` fires
+**An upload is one `PUT` over `XMLHttpRequest`, and the transport is a requirement.** *(The
+transport requirement stands; "one `PUT`" was superseded by SPEC-216 — see the note below.)* `fetch` fires
 no upload-progress event, so a `fetch` implementation uploads correctly and leaves the progress bar
 at 0% until it jumps to 100% — a shipped feature deleted by a transport choice, with every "the
 upload succeeded" test still green. The assertion is on an **intermediate** value, and
@@ -953,10 +955,70 @@ restarts the whole file. Accepted; the route trio a later spec would add is
 `create-multipart` / `sign-part` / `complete-multipart`, named here so it is added rather than
 rediscovered. (3) `MULTIPART_PART_SIZE` and `PART_CONCURRENCY` are gone.
 
+> **Superseded in part by SPEC-216 (2026-09-01).** (2) is reversed — part-level retry exists again,
+> and the route trio named above was built with a fourth for abort. (1) still holds, but for a
+> different reason and it is worth knowing which: S3 used to enforce the ceiling *unforgeably* by
+> refusing an over-size single `PUT`, and multipart has no such limit, so the ceiling is now a
+> server-side refusal in the create route. (3) still holds — the names came back in
+> `multipartUpload.ts` — only `PART_CONCURRENCY`, and meaning what it always meant, though at a
+> different value and against a different budget. `MULTIPART_PART_SIZE` did not come back; the
+> only live constant of that name is `cpcommon/transfer/copy.py`'s, which is 1 GiB and is a
+> server-side `UploadPartCopy` range, unrelated. Full entry: *An upload's shape is the server's
+> decision, and a part is sized so the expiry premise stops mattering*, below.
+
 **The URL is minted per FILE, at the moment that file starts.** A batch mint ages while the queue
 drains: with three files in flight and a 15-minute window, the fiftieth file's URL would be signed
 long before it was redeemed, pass preflight cleanly and 403 at the end. The mint therefore lives
 *inside* `uploadFile`, which is what makes "per file" structural rather than a convention.
+
+## An upload's shape is the server's decision, and a part is sized so the expiry premise stops mattering (SPEC-216)
+
+An upload is no longer one `PUT`. `objects.upload` answers **either** a presigned `PUT` **or** a
+multipart plan, and three more routes sign each part, assemble them and abandon them.
+
+**The threshold is one quantity, and the browser never learns it.** "What fits inside one presigned
+window on the slowest connection this product supports" bounds a part *and* bounds the largest
+object that can be trusted in a single `PUT` — so `MULTIPART_THRESHOLD_BYTES` **is**
+`MULTIPART_PART_BYTES`, bound by identity rather than restated. It is computed, not chosen:
+`clamp(MIN_SUPPORTED_UPLINK_BYTES_PER_SEC × PART_URL_EXPIRY_SECONDS / PART_WINDOW_SAFETY_FACTOR,
+5 MiB, 5 GiB)` = 112,500,000 bytes, and its test states that number so moving any input is visible.
+The uplink floor (2 Mbps) is a **product decision stated as one**. The generator emits types, not
+constants, so a browser-side fork would need a second copy of a policy number — and a drifted copy
+sends files down the wrong path with **nothing failing**. Rejected in favour of one decision site.
+
+**This makes the design correct under either reading of the expiry premise, which is not the same as
+settling it.** SPEC-198 accepted, unmeasured, that S3 evaluates a presigned expiry at request
+*receipt*. A part minted immediately before it is sent and sized to finish in *half* its window is
+sound either way. The premise stays owed, because it still governs a presigned **download**.
+
+**Where the design would fail silently, and what holds each one.** A part that cannot be placed by
+its number corrupts the object with S3's blessing — every ETag is genuine, the assembly succeeds,
+and the user is told it worked; parts are therefore written **by index**, and the guard needs the
+one retry shape where a later part settles first. A plan whose parts cannot cover the file
+truncates it and reports success; the browser checks the **arithmetic**, not just that the members
+are present. Aggregate progress is the per-part **maximum** — never last-value-wins, which makes the
+bar fall on a retry, and never a running sum; a failed attempt's high-water mark is deliberately
+kept. And every discard is fired **without** the caller's signal and **without** being awaited: the
+queue holds the row until the upload resolves, so an awaited discard leaves a user watching a
+progress bar for the client's whole timeout on the arm they meet most often.
+
+**Three things the retirement had to preserve rather than delete.** `UPLOAD_URL_EXPIRY_SECONDS` is
+**kept** — it stopped being the retiring route's constant the moment the create route's single
+branch used it. The marker-key refusal and the window, clamp, content-type and occupied-key
+assertions were **re-pointed** at the new route *before* the old one went, because a deletion leaves
+nothing for a reviewer to read. And `test_presign.py`'s two parameterised suites cover upload *and*
+download, so only their upload case was removed.
+
+**The ceiling is refused here, and refusing is not enforcing.** S3 used to hold it *unforgeably*
+by rejecting an over-size single `PUT`. Multipart has no such limit, and nothing replaces it: the
+declared `size` is a **planning input** that nothing verifies, `sign_part` cannot bound a part
+number by the plan's count and `complete` cannot check what was sent, because by design the API
+keeps **no record of an upload** — and a `ListParts` audit per upload was declined. So a client
+that deliberately under-declares can still assemble an object above the ceiling. What the refusal
+buys is real but narrower than enforcement: an honest over-size upload fails at create rather than
+after its bytes, and the ceiling is not silently **209×** what the product states. Closing the gap
+needs server-side upload state, which is a different decision from this one. Its arithmetic is integer throughout, because a caller's number is
+arbitrary-precision and float conversion turns an expected refusal into a 500 carrying a stack.
 
 ## The folder-recursive functions are deleted, not ported, and the flag stops being a fallback (SPEC-198)
 

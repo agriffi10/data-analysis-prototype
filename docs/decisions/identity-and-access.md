@@ -728,6 +728,14 @@ for exactly this reason, not because of the path this entry retires.
 
 ## The API makes exactly ONE AWS call per request, and every loop stays in the browser (SPEC-199)
 
+> **The heading's literal count was already false when it was written, and is kept because every
+> link and ADR row points at it (2026-09-01).** `objects.move` heads, copies and deletes on one
+> request, and SPEC-216's multipart create heads then creates. **What this entry actually settles,
+> and what `test_api_thinness.py` enforces, is the SHAPE:** no route sleeps, waits, paginates or
+> walks a continuation token, and no route's call count grows with the user's data. A small fixed
+> number is fine; free-name's is bounded rather than fixed, at `FREE_NAME_MAX_ATTEMPTS`. Read the
+> count as "not a loop", not as "not two".
+
 The shape a reader reaches for is *"the API waits for the query"*, and it is wrong twice over. **The
 ceiling is computed, not asserted:** an HTTP API's integration timeout is 30,000 ms and is **not
 raisable**, so a five-minute query is 10× the budget — the rejected design does not fail at the
