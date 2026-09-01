@@ -373,8 +373,9 @@ is a smell.
   a keyboard is not one and **no axe rule detects the absence**, so a drag-only control regresses it
   in silence — and a pointer path that only *resets* to a default is not one either, because it
   restores neither the chosen value nor the drag's functionality. Sizing the replacement is its own
-  trap: the root font is **14px**, so `rem` spacing lies about the 24px minimum, and jsdom reports
-  axe's `target-size` as a **pass it cannot measure**.
+  trap: the root font is **14px**, so `rem` spacing lies about the 24px minimum — write an absolute
+  threshold in an absolute unit. jsdom can measure no target at all, which is why `target-size` is
+  **disabled rather than trusted** and a static sweep covers what a class name can answer.
 - **A palette is measured, not chosen**, in **both** themes; a colour that fails is measured
   **out**. Four theme traps ship green.
 - **Client state is computed in the browser; billed work is not.** A selection aggregate issues
