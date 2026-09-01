@@ -1,7 +1,7 @@
 # Spec: Multipart Upload & Part-Level Retry
 
 **ID:** SPEC-216
-**Status:** Draft
+**Status:** In Progress
 **Last Updated:** 2026-08-29
 **Depends On:** SPEC-198 (the presigned upload this supersedes — `objects.uploadUrl`, the `XMLHttpRequest` requirement, the `expiresAt` clamp, and the accepted residual this spec discharges), SPEC-196 (the user credential plane, `signing_client(covering=…)` and the one-hour role-chaining ceiling), SPEC-197 (the route table, the **closed** error enum, the closed type vocabulary, the declared-per-route `idempotent` flag and `Route.plane`), SPEC-020 (the upload queue, which stays in the browser and gains no state), SPEC-172 (`isWriteLockedPrefix` and the archive Deny), SPEC-161 (a cap is computed by a test against the budget that sized it)
 
@@ -31,8 +31,8 @@ has no part to retry. One constant therefore does both jobs, and the threshold i
 words — `create-multipart` / `sign-part` / `complete-multipart` — "so it is added rather than
 rediscovered". This is that spec, with a fourth route for abort and one correction to the shape: the
 create route eventually **replaces** `objects.uploadUrl` rather than sitting beside it — but not in
-the same change, because the API deploys before the SPA and a same-change retirement breaks every
-live upload for the length of a rollout (FR-005).
+the same change, because the three deploys are **unordered** and a same-change retirement breaks
+every live upload for the length of a rollout (FR-005).
 
 ## Scope
 
@@ -206,16 +206,21 @@ A constant that cannot change the answer is the vacuous computed cap SPEC-161 ex
       `clamp(MIN_SUPPORTED_UPLINK_BYTES_PER_SEC × PART_URL_EXPIRY_SECONDS / PART_WINDOW_SAFETY_FACTOR,
       MULTIPART_MIN_PART_BYTES, MULTIPART_MAX_PART_BYTES)`. At the values above that is **107 MiB**,
       and the test states that number so a change to any input is visible as a change to it.
-- [ ] **The per-upload plan is one line and it is determinate**:
-      `partSize = max(MULTIPART_PART_BYTES, ceil(size / MULTIPART_MAX_PARTS))`, and
-      `partCount = ceil(size / partSize)`. The size term only bites for an object needing more than
-      10,000 parts at the constant size — beyond 1 TiB, unreachable while `maxUploadBytes()` clamps
-      to 5 GiB. There is **no range and no choice**: an earlier draft left the plan free between two
-      bounds, which made every boundary assertion in this FR unwritable.
+- [ ] **The per-upload plan is one line and it is determinate**: `partSize = MULTIPART_PART_BYTES`
+      and `partCount = ceil(size / partSize)`. There is **no range and no choice**: an earlier draft
+      left the plan free between two bounds, which made every boundary assertion in this FR
+      unwritable. **And there is deliberately no size term.** An earlier draft of *this* criterion
+      wrote `partSize = max(MULTIPART_PART_BYTES, ceil(size / MULTIPART_MAX_PARTS))` and explained
+      the term as biting "beyond 1 TiB" — but beyond 1 TiB the next criterion **refuses**, and it
+      runs first, so the `max` can only ever return the constant. It was a branch no input reaches
+      and no test can cover, and it was measured as one: rewriting the return to ignore `partSize`
+      entirely passed the whole suite. The two criteria covered the same region and the refusal is
+      the correct half, because a larger part is exactly what cannot finish inside its window.
 - [ ] **The one real conflict is a REFUSAL, not a tie-break.** When `ceil(size / MULTIPART_MAX_PARTS)`
       exceeds what the window allows, no plan can both stay inside S3's part ceiling and finish each
       part in time — so the route answers **413 `PayloadTooLarge`** with `params: {limit}` before any
-      S3 call. An earlier draft said "the upper bound wins", which would have produced sub-5-MiB
+      S3 call — and "before any S3 call" is asserted **by call count**, against both the S3 client
+      and the identity door, rather than left to the reading order. An earlier draft said "the upper bound wins", which would have produced sub-5-MiB
       parts that S3 refuses at complete with `EntityTooSmall`: shipping the failure rather than
       refusing it. Driven by a test that moves the **constants**, since no file size reaches it at
       the current clamp.
@@ -329,21 +334,42 @@ Multipart costs a create, N sign calls and a complete. For a small file that is 
 - [ ] **`objects.upload` ships ALONGSIDE `objects.uploadUrl`, and the retirement is a later
       change.** The two paths differ (`/v1/objects/upload` vs `/v1/objects/upload-url`), so nothing
       obstructs keeping both. Retiring in the same change would break every live upload for the
-      length of an SPA rollout: `decisions/identity-and-access.md` records as fact that **the API
-      deploys before the SPA image**, the three deploy workflows fire independently on a push to
-      `main` with no ordering between them, a Lambda `update-function-code` finishes in seconds
-      against an image build plus ECS rollout of minutes — and there are **two** live SPA surfaces,
-      because CloudFront is still production. SPEC-198 shipped its whole server surface additively
+      length of an SPA rollout, and the reason is **not** the one an earlier draft gave. It claimed
+      `decisions/identity-and-access.md`'s "the API deploys before the SPA image" as fact; measured
+      over the last real deploys that is **false in the direction that matters** — the three
+      workflows fire independently on a push to `main` with **no ordering between them**, and
+      `Deploy App` (CloudFront, a live SPA surface) finished *first* every time, beating
+      `Deploy Lambdas` by 4m28s on `8a3992b4` and by 4m51s on `696c3fdc`. Only a narrow
+      `lambdas/api/**` plan lets the API win. So skew runs in **both** directions: an old bundle can
+      meet a new code, **and a new bundle can meet an API that has not got the route yet** — which
+      is what makes the add-then-switch seam load-bearing rather than tidy. The operative reason to
+      defer the retirement is therefore **already-loaded clients**, which no deploy order fixes, and
+      there are **two** live SPA surfaces because CloudFront is still production. SPEC-198 shipped its whole server surface additively
       for exactly this reason; this spec is the arc's first removal and must inherit the discipline
       rather than rediscover it.
-- [ ] The order is therefore: **add, switch, then retire.** The retirement's own change carries the
-      blast radius, which is larger than it looks and is listed here so it is planned rather than
-      discovered — `test_presign.py`'s two parameterised suites cover upload *and* download, so
-      deleting "its tests" would take the download route's coverage with it;
-      `test_real_request_shapes.py` posts to `/v1/objects/upload-url`;
-      `UploadQueueProvider.test.tsx` hard-codes `objects.uploadUrl` strings and counts `apiRequest`
-      calls that multipart inflates; `fileBrowser.service.test.ts` has five sites; and
+- [ ] The order is therefore: **add, switch, then retire** — and the blast radius **splits by SIDE,
+      not by phase**, which an earlier draft of this criterion got wrong by filing all of it under
+      the retirement. The **browser-side** sites break the moment `uploadFile` is re-pointed, so
+      they belong to the SWITCH: `UploadQueueProvider.test.tsx` drives the *real* `uploadFile`
+      through `vi.importActual` and asserts literal `objects.uploadUrl:` route ids, and its
+      neighbour stubs `apiRequest` with a `{url, expiresAt}` carrying **no `mode`**, which the
+      switched fork refuses by design; `fileBrowser.service.test.ts` has five sites. Filing those
+      under the retirement leaves the switch's own PR red.
+      The **server-side** sites are the retirement's, and are larger than they look —
+      `test_presign.py`'s two parameterised suites cover upload *and* download, so deleting "its
+      tests" would take the download route's coverage with it; `test_real_request_shapes.py` posts
+      to `/v1/objects/upload-url`; the `ROUTES` row and the `HANDLERS` entry; and
       `UploadUrlRequest` plus `UPLOAD_URL_EXPIRY_SECONDS` each need a keep-or-drop decision.
+      **Three further server-side sites this list omitted**, found by enumeration rather than by
+      review: `test_absence_is_answerable.py`'s `objects_presign.py::upload_url` row, whose
+      set-equality reddens loudly and is merely an edit; `test_spaces_and_protection.py`'s
+      `"upload"` window entry and its two-windows-agree test, which is where the
+      `UPLOAD_URL_EXPIRY_SECONDS` decision actually lands; and — the one whose loss would be
+      **silent** — `test_objects_routes.py`'s `test_an_upload_url_is_never_minted_for_a_marker_key`,
+      the only assertion that a `DO_NOT_DELETE.txt` upload is refused **with nothing minted**. The
+      `objects.`-prefix sweep beside it checks the *plane* and not that. It is **RE-POINTED at
+      `objects.upload`, never deleted**; FR-001's `assert_replaceable` is its new home. The
+      retirement therefore opens with a grep enumeration, because the risk there is absence.
 - [ ] `objects.upload` returns `{mode: 'single' | 'multipart', url?, expiresAt?, uploadId?,
       partSize?, partCount?}`. A file at or below the threshold gets `mode: 'single'` with a
       presigned `PUT` — **one API call, exactly as today** — and a larger one gets the plan.
@@ -433,10 +459,12 @@ deliberately.
       names as deliberately generic — so the per-route raise is what makes an authored sentence
       possible at all, and that is why FR-008 exists rather than being left to the classifier.
 - [ ] **`CompleteMultipartUpload` can answer `200 OK` with an error in the body**, which is this
-      repo's `delete_objects` trap in another service. The pinned botocore converts it via
-      `_handle_200_error`, so it raises rather than reading as success — **verified against the
-      pinned version, and asserted**, because a version bump that changed it would turn a failed
-      assembly into a reported success.
+      repo's `delete_objects` trap in another service. The INSTALLED botocore converts it via
+      `_handle_200_error` — which rewrites the status to 500 rather than raising at the parse, so
+      the observable is the retried 500 surfacing as a `ClientError`. Asserted as a **tripwire
+      against whatever version is installed**, because boto3 is deliberately unpinned here
+      (`requirements-dev.txt`: it is the subject of an assertion, not the instrument), and a bump
+      that changed this would turn a failed assembly into a reported success.
 - [ ] The browser-minted codes this path adds — an absent ETag, a part that exhausted its retries,
       and a create response whose members the chosen branch cannot use (FR-005) — are added to
       `errorMessages.ts` with authored sentences **and** to `apiContract.guard.test.ts`'s
@@ -469,8 +497,12 @@ deliberately.
       check to settle that a multipart upload completes. The row carrying the part-level-retry
       residual *and* the still-live foreign-prefix residual loses only its retry clause — deleting
       the row would take the declined-probe-route reasoning with it. And the "intermediate upload
-      percentage, in a real browser" row is re-pointed at the aggregate, which is a different and
-      harder claim than the single-`PUT` one it was written for.
+      percentage, in a real browser" row is **already DISCHARGED** (2026-08-31, seven `xhr.upload`
+      events at 19–100 %), so it is **left standing and a NEW row is added** for the aggregate.
+      Re-pointing the discharged row — which an earlier draft of this criterion said to do — would
+      erase a check that was actually run, which is the discharge-what-was-run error running
+      backwards. The aggregate is a different and harder claim than the single-`PUT` one: it must
+      hold across a part boundary **and across a retry**.
 - [ ] **The expiry premise is not discharged.** FR-002's upper bound makes the design correct under
       either reading, which is not the same as knowing which reading is true — and the premise still
       governs a presigned **download** of a large object, which this spec does not touch. Rounding it
@@ -515,6 +547,9 @@ class CompleteUploadRequest(TypedDict):
     key: str
     uploadId: str
     parts: list[UploadedPart]
+    overwrite: bool                # FR-001's complete-time re-check needs its own input: the
+                                   #   API keeps NO record of the upload (FR-006 AC2), so the
+                                   #   create-time flag is not recoverable server-side
 
 class AbortUploadRequest(TypedDict):
     space: SpaceRef

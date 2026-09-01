@@ -18,6 +18,12 @@ export type DeleteRequest = {space: SpaceRef; key: string};
 export type ObjectDeletedResponse = {key: string};
 export type UploadUrlRequest = {space: SpaceRef; key: string; contentType: string; overwrite: boolean};
 export type PresignedUrlResponse = {url: string; expiresAt: string};
+export type CreateUploadRequest = {space: SpaceRef; key: string; contentType: string; overwrite: boolean; size: number};
+export type CreateUploadResponse = {mode: 'single' | 'multipart'; url?: string; expiresAt?: string; uploadId?: string; partSize?: number; partCount?: number};
+export type SignPartRequest = {space: SpaceRef; key: string; uploadId: string; partNumber: number};
+export type UploadedPart = {partNumber: number; etag: string};
+export type CompleteUploadRequest = {space: SpaceRef; key: string; uploadId: string; parts: UploadedPart[]; overwrite: boolean};
+export type AbortUploadRequest = {space: SpaceRef; key: string; uploadId: string};
 export type DownloadUrlRequest = {space: SpaceRef; key: string; fileName?: string};
 export type FreeNameRequest = {space: SpaceRef; prefix: string; baseName: string; kind: 'file' | 'folder'};
 export type FreeNameResponse = {name: string};
@@ -76,6 +82,10 @@ export const API_ROUTES = {
   'objects.move': {method: 'POST', path: '/v1/objects/move', idempotent: false, params: []},
   'objects.delete': {method: 'DELETE', path: '/v1/objects', idempotent: false, params: []},
   'objects.uploadUrl': {method: 'POST', path: '/v1/objects/upload-url', idempotent: false, params: []},
+  'objects.upload': {method: 'POST', path: '/v1/objects/upload', idempotent: false, params: []},
+  'objects.uploadPart': {method: 'POST', path: '/v1/objects/upload/part', idempotent: true, params: []},
+  'objects.uploadComplete': {method: 'POST', path: '/v1/objects/upload/complete', idempotent: false, params: []},
+  'objects.uploadAbort': {method: 'POST', path: '/v1/objects/upload/abort', idempotent: false, params: []},
   'objects.downloadUrl': {method: 'POST', path: '/v1/objects/download-url', idempotent: true, params: []},
   'objects.freeName': {method: 'POST', path: '/v1/objects/free-name', idempotent: true, params: []},
   'athena.start': {method: 'POST', path: '/v1/queries', idempotent: false, params: []},
@@ -113,6 +123,10 @@ type RouteBodies = {
   'objects.move': {request: CopyRequest; query: null; response: ObjectWrittenResponse};
   'objects.delete': {request: DeleteRequest; query: null; response: ObjectDeletedResponse};
   'objects.uploadUrl': {request: UploadUrlRequest; query: null; response: PresignedUrlResponse};
+  'objects.upload': {request: CreateUploadRequest; query: null; response: CreateUploadResponse};
+  'objects.uploadPart': {request: SignPartRequest; query: null; response: PresignedUrlResponse};
+  'objects.uploadComplete': {request: CompleteUploadRequest; query: null; response: ObjectWrittenResponse};
+  'objects.uploadAbort': {request: AbortUploadRequest; query: null; response: ObjectDeletedResponse};
   'objects.downloadUrl': {request: DownloadUrlRequest; query: null; response: PresignedUrlResponse};
   'objects.freeName': {request: FreeNameRequest; query: null; response: FreeNameResponse};
   'athena.start': {request: StartQueryRequest; query: null; response: StartQueryResponse};

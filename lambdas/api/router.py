@@ -74,6 +74,7 @@ from routes import (
     objects_list,
     objects_mutate,
     objects_presign,
+    objects_upload,
 )
 from routes import (
     enqueue as enqueue_routes,
@@ -113,6 +114,10 @@ HANDLERS: dict[str, Callable[[RequestContext], dict[str, Any]]] = {
     "objects.move": objects_mutate.move_object,
     "objects.delete": objects_mutate.delete_object,
     "objects.uploadUrl": objects_presign.upload_url,
+    "objects.upload": objects_upload.create,
+    "objects.uploadPart": objects_upload.sign_part,
+    "objects.uploadComplete": objects_upload.complete,
+    "objects.uploadAbort": objects_upload.abort,
     "objects.downloadUrl": objects_presign.download_url,
     "objects.freeName": objects_free_name.free_name,
     "athena.start": athena.start,

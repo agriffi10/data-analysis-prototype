@@ -907,3 +907,11 @@ class TestEveryObjectRouteIsOnTheUserPlane:
         assert by_id["objects.copy"] is False
         assert by_id["objects.move"] is False
         assert by_id["objects.delete"] is False
+        # The multipart lifecycle. Signing is a local SigV4 operation that changes nothing at S3,
+        # so a retried sign-part is free; a retried CREATE leaks an upload id nobody will abort,
+        # a retried complete answers against a finished upload, and a retried abort answers
+        # NoSuchUpload — the last two surfacing as a failure for an operation that succeeded.
+        assert by_id["objects.upload"] is False
+        assert by_id["objects.uploadPart"] is True
+        assert by_id["objects.uploadComplete"] is False
+        assert by_id["objects.uploadAbort"] is False

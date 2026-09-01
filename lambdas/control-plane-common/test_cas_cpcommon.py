@@ -210,6 +210,13 @@ def test_the_precondition_predicate_has_not_reappeared():
         # retryable. Binding that module to the shared predicate would give one answer to two
         # questions. Exempted by FULL PATH, and the assertion below keeps the exemption honest.
         and path != lambdas / "file-ops-common" / "focommon" / "delete.py"
+        # The multipart complete route names PreconditionFailed for the same reason delete.py
+        # does — to tell one outcome APART, not to collapse two for a retry. Its `If-None-Match:
+        # *` asks S3 to decide occupancy at the instant the object is written, and a 412 is that
+        # question's ANSWER: the destination was taken while the upload ran, which is terminal
+        # and is reported to the user as a Conflict. There is no read-modify-write and nothing
+        # retries. Exempted by FULL PATH, and the assertion below keeps it honest.
+        and path != lambdas / "api" / "routes" / "objects_upload.py"
         and any(
             code in path.read_text()
             for code in ("ConditionalRequestConflict", "PreconditionFailed")
@@ -219,6 +226,16 @@ def test_the_precondition_predicate_has_not_reappeared():
 
     # The exemption above is only safe while that module is not a compare-and-set. If it ever grows
     # a read-modify-write loop it must use the shared one, and this is what says so.
+    # The same honesty check for the multipart route: it may name the code, but the moment it
+    # grows a compare-and-set it must bind to the shared predicate like everything else.
+    multipart = (lambdas / "api" / "routes" / "objects_upload.py").read_text()
+    assert "PreconditionFailed" in multipart, (
+        "the objects_upload exemption has outlived its subject — remove it"
+    )
+    assert "cas" not in multipart.replace("case", ""), (
+        "objects_upload has started doing compare-and-set; it must bind to cpcommon.cas"
+    )
+
     conditional_delete = (lambdas / "file-ops-common" / "focommon" / "delete.py").read_text()
     assert "cas" not in conditional_delete.split('"""')[2], (
         "focommon.delete has started doing compare-and-set; it must bind to cpcommon.cas, and its "

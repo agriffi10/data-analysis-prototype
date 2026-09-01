@@ -222,6 +222,10 @@ class TestTheCapsAreSizedAgainstABudget:
         windows = {
             "upload": s3_config.UPLOAD_URL_EXPIRY_SECONDS,
             "download": s3_config.DOWNLOAD_URL_EXPIRY_SECONDS,
+            # A multipart upload mints one of these PER PART, so a window that cannot be spanned
+            # costs an AssumeRole per part rather than per file. The population is hand-written,
+            # which means a constant is only guarded because somebody added it here.
+            "part": s3_config.PART_URL_EXPIRY_SECONDS,
         }
         too_long = {
             name: seconds
