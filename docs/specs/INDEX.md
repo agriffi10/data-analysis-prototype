@@ -220,7 +220,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 212 — Container Lambdas: the Base Image, ECR and the Build Pipeline | Draft |
 | 213 — Container Lambdas: the `docker-lambda` Module and the Cutover | Draft |
 | 214 — Container Lambdas: Retiring the Layers and the Deploy Tables | Draft |
-| 215 — Configuration from Terraform State (retiring the repository variables) | Draft |
+| 215 — Configuration from Terraform State (retiring the repository variables) | Completed |
 | 216 — Multipart Upload & Part-Level Retry | In Progress |
 
 ## Arcs

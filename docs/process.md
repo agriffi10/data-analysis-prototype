@@ -608,10 +608,16 @@ These pass locally and fail later — check them as part of the work, not as an 
 - **A new configuration key is wired in SIX places, and `deploy-app.yml`'s build env is not the one
   that reaches production.** Production reads a runtime `/config.json`; a `VITE_*` value is the **dev
   fallback only**, and `npm run check:bundle` asserts the production bundle carries no `VITE_` names
-  at all. Wiring the build env and the repo variable and stopping there ships a key that exists
-  nowhere the browser can see it. The list — including the render step and the container entrypoint's
+  at all. Wiring the build env and stopping there ships a key that exists nowhere the browser can
+  see it. The list — including the render step and the container entrypoint's
   own `KEYS`/`REQUIRED`, which is what decides whether the container starts — is
   [`apps/portal/info/runtime-configuration.md`](../apps/portal/info/runtime-configuration.md).
+  **The third site is no longer "a repository variable":** a value Terraform computes is read from
+  state through `.github/config-outputs.json`, and only a genuine **input** — one Terraform is given
+  rather than derives — is still a variable. Putting a derived value back in the settings page
+  reinstates the failure the resolver exists to prevent, and it fails quietly, because an unset
+  variable interpolates to the empty string, which satisfies a required Terraform variable and
+  overrides its default.
 - **`lambdas/` has a second CI-only gate beside ruff: `mypy` is BLOCKING** at zero errors over every
   shared layer, plus the API and the contract generator. The list is `pyproject.toml`'s `[tool.mypy]`
   `files` block and nowhere else — a **new shared layer joins the ratchet with the spec that creates

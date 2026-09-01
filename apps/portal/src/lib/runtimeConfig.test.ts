@@ -315,24 +315,28 @@ describe('runtimeConfig — every key has a source in every environment', () => 
     expect(classified.filter((name) => !passed.has(name as string))).toEqual([]);
   });
 
-  it('renders each key from the same repository variable the build reads', () => {
-    // Both blocks must name ONE variable per key. Sourcing the document from a different
+  it('renders each key from the same source the build reads', () => {
+    // Both blocks must name ONE source per key. Sourcing the document from a different
     // one than the bundle is the drift this whole test exists to catch, and it is
     // invisible in every environment where both happen to be set.
+    //
+    // The WHOLE expression is captured, not its trailing name. Most keys now resolve from
+    // `steps.config.outputs.<key>` while the two genuine inputs stay on `vars.<NAME>`, and
+    // comparing trailing names alone would accept `vars.userSpaceBucket` against
+    // `steps.config.outputs.userSpaceBucket` — two different sources agreeing on a word.
     const build = stepBody('Build');
     const buildSource = new Map(
-      [...build.matchAll(/^\s+(VITE_[A-Z0-9_]+):\s*\$\{\{\s*vars\.(\w+)\s*\}\}/gm)].map(([, name, variable]) => [
-        name,
-        variable
-      ])
+      [...build.matchAll(/^\s+(VITE_[A-Z0-9_]+):\s*\$\{\{\s*(\S+)\s*\}\}/gm)].map(([, name, source]) => [name, source])
     );
     const render = stepBody('Render the runtime configuration document');
     const renderSource = new Map(
-      [...render.matchAll(/^\s+CONFIG_(\w+):\s*\$\{\{\s*vars\.(\w+)\s*\}\}/gm)].map(([, key, variable]) => [
-        key,
-        variable
-      ])
+      [...render.matchAll(/^\s+CONFIG_(\w+):\s*\$\{\{\s*(\S+)\s*\}\}/gm)].map(([, key, source]) => [key, source])
     );
+
+    // Guard-the-guard: a regex that stopped matching would make every comparison below
+    // compare undefined with undefined and pass.
+    expect(buildSource.size).toBeGreaterThan(0);
+    expect(renderSource.size).toBeGreaterThan(0);
 
     for (const key of ALL_KEYS) {
       const viteName = VITE_NAME[key];

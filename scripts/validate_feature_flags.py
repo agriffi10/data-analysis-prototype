@@ -26,9 +26,11 @@ Attributes:
   TARGET_RE: Matches one ``environment_name:`` entry in that matrix. Deliberately not
     ``environment:`` — that is a GitHub Actions job keyword, and matching it would let an
     unrelated deployment-environment block masquerade as an upload target.
-  BUCKET_VAR_RE: Matches the ``bucket_var:`` key that must accompany each target. Anchored to
-    the start of a line so the ``vars[matrix.bucket_var]`` reference in the steps below the
-    matrix cannot stand in for a missing declaration.
+  BUCKET_KEY_RE: Matches the ``bucket_key:`` key that must accompany each target. Anchored to
+    the start of a line so the ``steps.config.outputs[matrix.bucket_key]`` reference in the
+    steps below the matrix cannot stand in for a missing declaration.
+  CONFIG_OUTPUTS: The output-name to configuration-key map the publish workflow resolves its
+    destination bucket through. A ``bucket_key`` naming no entry in it resolves to nothing.
 """
 
 import json
@@ -44,8 +46,9 @@ FLAG_KEYS = frozenset(
 )
 DOCUMENT = ROOT / "config" / "feature-flags.json"
 PUBLISH_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-config.yml"
+CONFIG_OUTPUTS = ROOT / ".github" / "config-outputs.json"
 TARGET_RE = re.compile(r"^\s*-?\s*environment_name:\s*(\S+)\s*$", re.MULTILINE)
-BUCKET_VAR_RE = re.compile(r"^\s*bucket_var:\s*(\S+)\s*$", re.MULTILINE)
+BUCKET_KEY_RE = re.compile(r"^\s*bucket_key:\s*(\S+)\s*$", re.MULTILINE)
 
 
 class ValidationError(Exception):
@@ -60,10 +63,14 @@ def read_upload_targets(workflow_text: str) -> set[str]:
     would look published. A reformat that breaks this regex must fail loudly rather than
     quietly stop checking.
 
-    Each entry must also name the repository variable holding its destination bucket. An
-    entry without one is caught at publish time by the workflow's own empty-bucket guard,
-    which is a correct but late failure — an incomplete matrix is a document-time defect and
-    belongs here, where it costs a PR check rather than a red deploy.
+    Each entry must also name the configuration key its destination bucket is resolved from,
+    and that key must exist in ``.github/config-outputs.json``. Both halves matter and only
+    the first used to: the workflow carried its own empty-bucket guard until the destination
+    became a resolved Terraform output, and nothing then checked that ``bucket_key`` named a
+    key the map actually carries. A typo would resolve to the empty string and target
+    ``s3:///_config/feature-flags.json`` — the confusing, far-from-its-cause failure the
+    whole arrangement exists to prevent. Checking it here costs a PR check rather than a red
+    deploy, and runs before the publish job makes any AWS call.
 
     Args:
       workflow_text: The publish workflow's source.
@@ -72,7 +79,8 @@ def read_upload_targets(workflow_text: str) -> set[str]:
       The declared environment names.
 
     Raises:
-      ValidationError: If the matrix declares no targets at all, or an entry names no bucket.
+      ValidationError: If the matrix declares no targets at all, if an entry names no bucket
+        key, or if a named key is absent from the configuration-output map.
     """
     entries = TARGET_RE.split(workflow_text)[1:]
     targets = {name for name, _rest in zip(entries[::2], entries[1::2], strict=True)}
@@ -83,12 +91,31 @@ def read_upload_targets(workflow_text: str) -> set[str]:
         )
 
     incomplete = sorted(
-        name for name, rest in zip(entries[::2], entries[1::2], strict=True) if not BUCKET_VAR_RE.search(rest)
+        name for name, rest in zip(entries[::2], entries[1::2], strict=True) if not BUCKET_KEY_RE.search(rest)
     )
     if incomplete:
         raise ValidationError(
-            f"{PUBLISH_WORKFLOW.name} matrix entries {incomplete} name no `bucket_var:` — "
+            f"{PUBLISH_WORKFLOW.name} matrix entries {incomplete} name no `bucket_key:` — "
             "they declare a destination that does not exist"
+        )
+
+    resolvable = set(json.loads(CONFIG_OUTPUTS.read_text()).values())
+    if not resolvable:
+        raise ValidationError(
+            f"{CONFIG_OUTPUTS.name} declares no configuration keys — the destination check "
+            "below would accept anything"
+        )
+    unresolvable = sorted(
+        {
+            match.group(1)
+            for _name, rest in zip(entries[::2], entries[1::2], strict=True)
+            if (match := BUCKET_KEY_RE.search(rest)) and match.group(1) not in resolvable
+        }
+    )
+    if unresolvable:
+        raise ValidationError(
+            f"{PUBLISH_WORKFLOW.name} matrix names bucket_key {unresolvable}, absent from "
+            f"{CONFIG_OUTPUTS.name} — the destination would resolve to the empty string"
         )
     return targets
 

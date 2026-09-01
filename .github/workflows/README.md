@@ -25,14 +25,19 @@ All deploy workflows authenticate to AWS via GitHub OIDC — no long-lived crede
 
 ### Step 1 — Capture IaC outputs
 
+**Only the secrets below are captured by hand now.** The deploy workflows read every derived
+*variable* straight from Terraform state: `deploy-app.yml` and `deploy-config.yml` init the same
+backend and run one `tofu output -json`, mapping output names to configuration keys through
+[`.github/config-outputs.json`](../config-outputs.json). Copying a derived value into a settings
+page is no longer a setup step, and doing it anyway creates a second copy that nothing reconciles.
+
 From `infra/` after a successful `tofu apply`:
 
 ```bash
 tofu output github_actions_role_arn      # → AWS_DEPLOY_ROLE_ARN
 tofu output s3_static_assets_bucket_name # → S3_STATIC_BUCKET
 tofu output cloudfront_distribution_id   # → CLOUDFRONT_DISTRIBUTION_ID
-tofu output cloudfront_domain            # → VITE_APP_URL
-tofu output aws_region                   # → AWS_REGION
+tofu output cloudfront_domain            # → VITE_APP_URL (see the note below — it is an INPUT)
 ```
 
 ### Step 2 — Populate GitHub Actions Secrets
@@ -51,31 +56,39 @@ Go to **Settings → Secrets and variables → Actions → Secrets**.
 
 Go to **Settings → Secrets and variables → Actions → Variables**.
 
-> **These variables no longer reach the deployed bundle.** `deploy-app.yml` renders them into
-> `/config.json`, which the SPA fetches at startup — that is what lets one artifact be promoted
-> between environments instead of rebuilt. A variable still feeds the build as well, but only as the
-> **dev fallback**. The practical consequence is unchanged: an unset variable renders as an empty
-> string, and a required one empty makes the deploy **refuse to publish** rather than ship a portal
-> that shows every user a boot failure. Full list and classification:
-> `apps/portal/.env.example`.
+> **Every variable here is an INPUT — something Terraform is *given*, not something it computes.**
+> That is the whole test for whether a value belongs on this page. A derived value (a bucket name,
+> a queue URL, the API's origin, the Cognito identifiers) is read from state by the deploy, so a
+> variable holding one is a second copy that goes stale silently. An input cannot be read that way,
+> because it cannot be read from the thing it configures.
+>
+> An unset variable interpolates to the **empty string**, which satisfies a required Terraform
+> variable *and* overrides its default — so the guard is a `validation` block or an explicit
+> `|| 'default'` in the workflow, never the absence of a default.
 
-| Variable | Value source | Notes |
+| Variable | Why it is an input | Notes |
 |---|---|---|
-| `AWS_REGION` | e.g. `us-east-1` | Must match region of all provisioned resources |
-| `VITE_APP_URL` | `tofu output cloudfront_domain` | Set after first deploy; use `https://` URL |
-| `TF_VAR_github_repo` | `owner/repo-name` | Scopes OIDC trust; must match exactly |
-| `VITE_COGNITO_USER_POOL_ID` | `tofu output cognito_user_pool_id` | Injected into the build by `deploy-app.yml` (SPEC-007) |
-| `VITE_COGNITO_USER_POOL_CLIENT_ID` | `tofu output cognito_user_pool_client_id` | Injected into the build by `deploy-app.yml` (SPEC-007) |
-| `VITE_COGNITO_DOMAIN` | `tofu output cognito_domain` | Injected into the build by `deploy-app.yml` (SPEC-007) |
-| `VITE_S3_USER_SPACE_BUCKET` | `tofu output s3_user_space_bucket_name` | Bucket provisioned in SPEC-010; read by the file browser starting SPEC-013. Required — an unset one fails the deploy at the render step |
-| `API_BASE_URL` | `https://api.dataquarry.app` | The API's origin, no trailing slash. **Required**: the browser reads it on every ported route, and this workflow refuses to publish a document without it rather than shipping a portal that cannot boot. |
+| `AWS_REGION` | Names where the state lives, so it is needed to assume the role and read state **before** any output can be resolved | Must match the region of all provisioned resources |
+| `VITE_APP_URL` | Feeds `TF_VAR_app_url`, from which Cognito's callback and logout lists are built — Terraform consumes it | Use the `https://` origin. `deploy-app.yml` refuses to deploy if it disagrees with the resolved `appUrl`, because that divergence is a broken sign-in with nothing else red |
+| `VITE_ENVIRONMENT` | Which feature-flag block this deployment resolves; no resource can tell you which environment it is | Unset ships a bundle that ignores every per-environment override while looking healthy |
+| `VITE_MAX_UPLOAD_BYTES` | A policy number, not a resource attribute | Also feeds `TF_VAR_max_upload_bytes`, so the container and the bundle agree |
+| `TF_VAR_github_repo` | Scopes the OIDC trust policy | `owner/repo-name`; must match exactly |
+| `TF_VAR_parent_domain`, `TF_VAR_spa_subdomain`, `TF_VAR_api_subdomain`, `TF_VAR_route53_zone_id` | The names and the zone you chose | Terraform builds the origins from them |
+| `TF_VAR_spa_desired_count`, `TF_VAR_spa_image_tag` | Deployment knobs | Both carry `validation` blocks and a `|| 'default'` in the workflow |
+| `TF_VAR_verification_principal_arns` | Principals you nominate | Empty (the default) means the verification role is not created |
 
-The table above is the set an operator populates first. The control-plane queue URLs are no
-longer among them: the browser does not write a queue, so the eight URLs are wired straight from
-each module's output onto the API function by Terraform, with no repository variable and no build
-env in between.
+**A variable with no reason in that middle column should not exist.** The derived values that used
+to sit here — `API_BASE_URL`, the four Cognito ids and domains, the two bucket names — are resolved
+from Terraform state now and were deleted from the settings page. So were ten variables that had
+already stopped being read at all when the browser's control-plane enqueues moved behind the API:
+the eight queue URLs, the Athena workgroup and the Identity Pool id. The queue URLs are wired
+straight from each module's output onto the API function by Terraform, with no repository variable
+and no build env in between.
 
-> **Chicken-and-egg note for `VITE_APP_URL`:** On the very first deploy, the CloudFront domain isn't known yet. Set `VITE_APP_URL` to a placeholder (or empty string), let the first deploy complete, then update the variable to the value from `tofu output cloudfront_domain` and redeploy.
+> **Chicken-and-egg note for `VITE_APP_URL`:** on the very first deploy the CloudFront domain is not
+> known yet. Set it to a placeholder (or empty), let the first deploy complete, then set it to
+> `tofu output cloudfront_domain` and redeploy. The agreement check in `deploy-app.yml` skips an
+> empty value for exactly this reason, and enforces it once you set one.
 
 ### Step 4 — Trigger the first app deploy
 
@@ -101,8 +114,10 @@ Several workflow values are derived rather than stored as separate GitHub variab
 - `VITE_AWS_REGION` is set to `${{ vars.AWS_REGION }}` in the build step — no separate variable needed.
 - `TF_VAR_aws_region` is set to `${{ vars.AWS_REGION }}` in the plan/apply steps — no separate variable needed.
 - `TF_VAR_app_url` is set to `${{ vars.VITE_APP_URL }}` — declared in `infra/variables.tf` for Cognito OAuth callback URLs when auth IaC is added.
-- `VITE_COGNITO_USER_POOL_ID`, `VITE_COGNITO_USER_POOL_CLIENT_ID` and `VITE_COGNITO_DOMAIN` are rendered into `/config.json` by `deploy-app.yml` from GitHub Actions **variables** (SPEC-007). Populate them from `tofu output` (see the variables table above) before the next app deploy: all three are required, so the deploy refuses to publish a document without them.
-- `VITE_S3_USER_SPACE_BUCKET` is provisioned by SPEC-010 (`tofu output s3_user_space_bucket_name`) and scopes the file browser to the user-space bucket. It is required, so an unset one fails the deploy at the render step rather than reaching a user. `VITE_S3_SHARED_SPACE_BUCKET` remains a future spec.
+- The three Cognito values and the two bucket names are rendered into `/config.json` by
+  `deploy-app.yml` from **Terraform outputs**, resolved by `.github/scripts/resolve-config.sh`.
+  There is nothing to populate: an absent or empty output fails the deploy, naming both the
+  configuration key and the output it came from.
 - `VITE_IAM_ROLE_ARN` and `VITE_COGNITO_IDENTITY_POOL_ID` have both been **removed**. The first went when the Identity Pool took over credential issuance; the second went with the pool itself, once the browser stopped making AWS calls. The app handles neither a role ARN nor a pool id.
 - `TF_VAR_state_bucket` and `TF_VAR_state_lock_table` are stored as **secrets** (not variables) because they are used both as OpenTofu input variables (scoping IAM permissions in `iam.tf`) and as backend configuration passed to `tofu init`.
 

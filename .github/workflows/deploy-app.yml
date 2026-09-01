@@ -39,49 +39,130 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # THE VALUES COME FROM TERRAFORM STATE, not from a settings page. Every derived value
+      # this job renders — the API's origin, the bucket names, the Cognito identifiers — is
+      # something Terraform computes, and each one used to arrive as a repository variable a
+      # person had copied out of `tofu output` by hand. That made a repoint in infrastructure
+      # silently wrong in the browser until somebody remembered to re-copy it, and an unset
+      # variable interpolated to the EMPTY STRING, which satisfies a required Terraform
+      # variable, overrides its default, and passes every presence test there is.
+      #
+      # The four steps below replace that transport: set up OpenTofu, assume the deploy role,
+      # init the same backend `deploy-infra.yml` uses, and resolve. No grant was added —
+      # reading state is one the role has always held, and that is asserted in
+      # `lambdas/test_config_outputs.py` rather than assumed.
+      - name: Set up OpenTofu
+        uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_version: '~1.8'
+
+      # BEFORE THE RESOLVE, because the state lives in S3 and reading it is an AWS call. It is
+      # a read: the resolve's refusal still lands before anything in this job WRITES, which is
+      # what keeps a failed resolve from leaving a half-updated site behind.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          # Cap the OIDC assume-role retries. The default is 12, and on 2026-07-27 a connect
+          # timeout to STS cost ~7 minutes per attempt, so one job spent 82 minutes failing.
+          # Three still retries a fast-failing transient; the slow case is bounded by
+          # `timeout-minutes` above, because v4 has no wall-clock option of its own
+          # (`action-timeout-s` arrived after it).
+          retry-max-attempts: 3
+
+      # The same backend `deploy-infra.yml` inits against, and the same pinned version. A test
+      # DERIVES the set of workflows declaring an OpenTofu version and asserts they agree on
+      # one constraint string — derived rather than counted, because another consumer is
+      # coming and a hard-coded count would keep passing while that one drifted.
+      - name: OpenTofu init
+        working-directory: infra
+        run: |
+          tofu init \
+            -backend-config="bucket=${{ secrets.TF_VAR_state_bucket }}" \
+            -backend-config="dynamodb_table=${{ secrets.TF_VAR_state_lock_table }}" \
+            -backend-config="region=${{ vars.AWS_REGION }}"
+
+      # ONE `tofu output -json`, one step output per configuration key. An absent or empty
+      # value fails the job here, naming both the configuration key and the output it came
+      # from — the failure this replaces was an empty string that reached AWS as
+      # `s3:///_config/...`, far from its cause.
+      - name: Resolve the configuration from Terraform state
+        id: config
+        working-directory: infra
+        run: ../.github/scripts/resolve-config.sh --mapping ../.github/config-outputs.json
+
+      # THE ONE VALUE TERRAFORM COMPUTES AND ALSO CONSUMES. `appUrl` is resolved from the
+      # distribution here, while `TF_VAR_app_url` — still a repository variable, because an
+      # input cannot be read from the thing it configures — is what builds Cognito's callback
+      # and logout lists. Before this change both came from that one variable and could not
+      # disagree; now they are two statements of one origin, and a divergence would send a
+      # sign-in started on the portal back to an origin Cognito does not allow. That failure
+      # is a broken sign-in with nothing red anywhere, so it is compared here rather than
+      # left to a browser to discover.
+      #
+      # Failing HERE leaves the live document and the live app untouched, which is why the
+      # comparison is in this workflow and not a Terraform precondition: a precondition would
+      # put the same claim in front of every infrastructure apply, where being wrong costs a
+      # red pipeline instead of a skipped deploy.
+      - name: Assert the app URL agrees with the Cognito callback origin
+        env:
+          RESOLVED: ${{ steps.config.outputs.appUrl }}
+          DECLARED: ${{ vars.VITE_APP_URL }}
+        run: |
+          if [ -n "$DECLARED" ] && [ "$DECLARED" != "$RESOLVED" ]; then
+            echo "::error::appUrl drift: the document would serve '$RESOLVED' while Cognito's"
+            echo "::error::callback list is built from VITE_APP_URL='$DECLARED'. Sign-in would"
+            echo "::error::fail with nothing else reporting a fault. Reconcile them."
+            exit 1
+          fi
+
       - name: Build
         working-directory: apps/portal
         run: npm run build
         env:
-          VITE_API_BASE_URL: ${{ vars.API_BASE_URL }}
-          VITE_AWS_REGION: ${{ vars.AWS_REGION }}
-          VITE_APP_URL: ${{ vars.VITE_APP_URL }}
+          VITE_API_BASE_URL: ${{ steps.config.outputs.apiBaseUrl }}
+          VITE_AWS_REGION: ${{ steps.config.outputs.awsRegion }}
+          VITE_APP_URL: ${{ steps.config.outputs.appUrl }}
           # Which feature-flag block this build resolves (SPEC-162). Unset ships a bundle
           # that ignores every per-environment override while looking entirely healthy.
+          # A genuine INPUT — no resource can tell you which environment this is — so it
+          # stays a repository variable, as does the upload cap below.
           VITE_ENVIRONMENT: ${{ vars.VITE_ENVIRONMENT }}
-          VITE_COGNITO_USER_POOL_ID: ${{ vars.VITE_COGNITO_USER_POOL_ID }}
-          VITE_COGNITO_USER_POOL_CLIENT_ID: ${{ vars.VITE_COGNITO_USER_POOL_CLIENT_ID }}
-          VITE_COGNITO_DOMAIN: ${{ vars.VITE_COGNITO_DOMAIN }}
-          VITE_S3_USER_SPACE_BUCKET: ${{ vars.VITE_S3_USER_SPACE_BUCKET }}
-          VITE_S3_SHARED_SPACE_BUCKET: ${{ vars.VITE_S3_SHARED_SPACE_BUCKET }}
+          VITE_COGNITO_USER_POOL_ID: ${{ steps.config.outputs.cognitoUserPoolId }}
+          VITE_COGNITO_USER_POOL_CLIENT_ID: ${{ steps.config.outputs.cognitoUserPoolClientId }}
+          VITE_COGNITO_DOMAIN: ${{ steps.config.outputs.cognitoDomain }}
+          VITE_S3_USER_SPACE_BUCKET: ${{ steps.config.outputs.userSpaceBucket }}
+          VITE_S3_SHARED_SPACE_BUCKET: ${{ steps.config.outputs.sharedSpaceBucket }}
           VITE_MAX_UPLOAD_BYTES: ${{ vars.VITE_MAX_UPLOAD_BYTES }}
 
       # THE DOCUMENT PRODUCTION ACTUALLY READS. The build env above is inlined into the
       # bundle and is the DEV fallback only; every value a deployed portal resolves comes
       # from here, so a key missing in this block ships a document without it while the
       # build, `.env.example` and the classification all stay in agreement. A test asserts
-      # this block names every key, and reads each from the same repository variable the
-      # build does.
+      # this block names every key, and reads each from the same source the build does —
+      # which is now one resolved output per key rather than one repository variable, so the
+      # two blocks cannot disagree about where a value came from.
       #
       # One env var per key, `CONFIG_`-prefixed, so the rendering needs no second list of
-      # names to drift from. An unset repository variable interpolates to "", which the
-      # accessor reads as unset — the same rule the build env has always had.
+      # names to drift from. An empty value still reads as unset here, but a derived key can
+      # no longer BE empty: the resolve step above fails the job first.
       #
       # Rendered OUTSIDE dist/: SPEC-141's passes must each own a disjoint set of keys,
       # and a file under dist/ would be uploaded by the shell pass as well as by the
       # upload below, taking whichever --cache-control ran last.
       - name: Render the runtime configuration document
         env:
-          CONFIG_apiBaseUrl: ${{ vars.API_BASE_URL }}
-          CONFIG_appUrl: ${{ vars.VITE_APP_URL }}
-          CONFIG_awsRegion: ${{ vars.AWS_REGION }}
+          CONFIG_apiBaseUrl: ${{ steps.config.outputs.apiBaseUrl }}
+          CONFIG_appUrl: ${{ steps.config.outputs.appUrl }}
+          CONFIG_awsRegion: ${{ steps.config.outputs.awsRegion }}
           CONFIG_environment: ${{ vars.VITE_ENVIRONMENT }}
           CONFIG_maxUploadBytes: ${{ vars.VITE_MAX_UPLOAD_BYTES }}
-          CONFIG_cognitoUserPoolId: ${{ vars.VITE_COGNITO_USER_POOL_ID }}
-          CONFIG_cognitoUserPoolClientId: ${{ vars.VITE_COGNITO_USER_POOL_CLIENT_ID }}
-          CONFIG_cognitoDomain: ${{ vars.VITE_COGNITO_DOMAIN }}
-          CONFIG_userSpaceBucket: ${{ vars.VITE_S3_USER_SPACE_BUCKET }}
-          CONFIG_sharedSpaceBucket: ${{ vars.VITE_S3_SHARED_SPACE_BUCKET }}
+          CONFIG_cognitoUserPoolId: ${{ steps.config.outputs.cognitoUserPoolId }}
+          CONFIG_cognitoUserPoolClientId: ${{ steps.config.outputs.cognitoUserPoolClientId }}
+          CONFIG_cognitoDomain: ${{ steps.config.outputs.cognitoDomain }}
+          CONFIG_userSpaceBucket: ${{ steps.config.outputs.userSpaceBucket }}
+          CONFIG_sharedSpaceBucket: ${{ steps.config.outputs.sharedSpaceBucket }}
         run: |
           # The keys the document may carry, named rather than taken from whatever the
           # runner happens to have. A bare `startswith("CONFIG_")` scoop publishes any
@@ -103,10 +184,11 @@ jobs:
           jq -e --arg keys "$KEYS" '((keys - ["version"]) | sort) == ($keys | split(" ") | sort)' \
             "$RUNNER_TEMP/config.json" > /dev/null
 
-          # REFUSE TO PUBLISH A DOCUMENT THAT CANNOT BOOT. An unset repository variable
-          # renders as "", and a required key rendered empty is a portal that shows every
-          # user a boot failure. Failing the deploy here leaves the live document — and
-          # the live app — untouched.
+          # REFUSE TO PUBLISH A DOCUMENT THAT CANNOT BOOT. The derived keys can no longer
+          # arrive empty — the resolve step fails first — but the two genuine inputs still
+          # come from repository variables, and an unset one renders as "". A required key
+          # rendered empty is a portal that shows every user a boot failure. Failing here
+          # leaves the live document — and the live app — untouched.
           missing=$(jq -r --arg required "$REQUIRED" \
             '($required | split(" ")) - [to_entries[] | select(.value != "") | .key] | join(", ")' \
             "$RUNNER_TEMP/config.json")
@@ -114,18 +196,6 @@ jobs:
             echo "::error::config.json would ship without: $missing"
             exit 1
           fi
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          # Cap the OIDC assume-role retries. The default is 12, and on 2026-07-27 a connect
-          # timeout to STS cost ~7 minutes per attempt, so one job spent 82 minutes failing.
-          # Three still retries a fast-failing transient; the slow case is bounded by
-          # `timeout-minutes` above, because v4 has no wall-clock option of its own
-          # (`action-timeout-s` arrived after it).
-          retry-max-attempts: 3
 
       # Three passes, and the shape is load-bearing (SPEC-141).
       #

@@ -1,7 +1,7 @@
 # Spec: Configuration from Terraform State — Retiring the Repository Variables
 
 **ID:** SPEC-215
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-28
 **Depends On:** SPEC-005 (the deploy workflows), SPEC-192 (the runtime configuration document and its six wiring sites), SPEC-194 (the container entrypoint that renders the document), SPEC-162 (the flag-document publish, which resolves its bucket from a repository variable)
 
@@ -15,8 +15,8 @@ says how.
 
 ## Overview
 
-Thirty distinct repository variables reach the deploy workflows, plus one resolved dynamically, and
-most of them are not inputs to anything. They are Terraform **outputs** — bucket names, queue URLs, Cognito
+Twenty distinct repository variables reach the deploy workflows, plus one resolved dynamically, and
+ten more exist that no workflow reads at all. Most of them are not inputs to anything. They are Terraform **outputs** — bucket names, queue URLs, Cognito
 identifiers, the Athena workgroup, the API base URL — that a person read out of `tofu output` once
 and typed into a settings page. Terraform computes them, and then a human is the transport.
 
@@ -109,12 +109,20 @@ hand-maintained copy in place of the old one.
 
 - [ ] The mapping is a single committed file, read by both workflows.
 - [ ] A test asserts the mapping's config-key set equals `REQUIRED_CONFIG ∪ OPTIONAL_CONFIG` **minus
-      the genuine inputs** (`environment`, `maxUploadBytes`) — eighteen keys, exactly the Data Model
+      the genuine inputs** (`environment`, `maxUploadBytes`) — **eight** keys, exactly the Data Model
       below. A key in one and not the other fails. It is deliberately **not** `REQUIRED_CONFIG`
-      alone: that set is eight keys, and trimming the mapping to satisfy such a criterion would stop
-      rendering every queue URL into `/config.json`, silently disabling every enqueue path through
-      `enqueueFifo`'s `notConfiguredMessage` — a portal that boots, reports ready, and cannot send
-      anything.
+      alone: that set is seven keys, and trimming the mapping to satisfy such a criterion would stop
+      rendering `sharedSpaceBucket`, silently disabling every shared-space surface in a portal that
+      boots and reports ready.
+
+      > **Corrected during the build (2026-09-01), because the code had moved under the spec.** This
+      > criterion was authored saying *eighteen* keys and listing the eight control-plane queue URLs,
+      > `cognitoIdentityPoolId` and `athenaWorkgroup` among them. Arc B removed those from the
+      > browser's document before this spec was built: the browser writes no queue, so the URLs are
+      > the API function's configuration and are wired module-to-module in Terraform. The live
+      > `/config.json` carries ten keys and `version`, and the container entrypoint's `KEYS` is the
+      > same ten. **The rule was right and its enumeration was stale**, so the rule is what shipped —
+      > which is also why the criterion is written as a derivation rather than a count.
 - [ ] A test asserts every Terraform output name in the mapping exists in `infra/outputs.tf`. A
       renamed output fails at test time, not at deploy time.
 - [ ] A test asserts the mapping references no output declared `sensitive`.
@@ -196,60 +204,60 @@ Both orders are workable and they produce different work, so the spec picks one.
 - [ ] This spec's delivery doc carries that instruction explicitly, so SPEC-202 inherits it rather
       than rediscovering it as a red gate.
 
+> **Settled at build time (2026-09-01): this spec landed FIRST.** SPEC-202 was `Draft`, its two
+> branches were local-only and last committed 2026-08-31, neither was on the remote, no PR existed,
+> and the session holding them was not running. So FR-005's conditional resolves to its second
+> branch — the `VITE_*` build env **stays** and is populated from the same resolved outputs — and
+> SPEC-202 still owes the `appUrl` repoint above.
+
 ---
 
 ## Data Model
 
-```jsonc
+```json
 // .github/config-outputs.json — the one declared mapping.
 // Left: the Terraform output name. Right: the runtime configuration key.
 {
-  "api_origin":                     "apiBaseUrl",
-  "cloudfront_domain":              "appUrl",
-  "aws_region":                     "awsRegion",
-  "cognito_user_pool_id":           "cognitoUserPoolId",
-  "cognito_user_pool_client_id":    "cognitoUserPoolClientId",
-  "cognito_domain":                 "cognitoDomain",
-  "cognito_identity_pool_id":       "cognitoIdentityPoolId",
-  "s3_user_space_bucket_name":      "userSpaceBucket",
-  "shared_space_bucket_name":       "sharedSpaceBucket",
-  "athena_workgroup_name":          "athenaWorkgroup",
-  "shared_space_request_queue_url": "sharedSpaceQueueUrl",
-  "notifications_queue_url":        "notificationsQueueUrl",
-  "table_build_queue_url":          "tableBuildQueueUrl",
-  "table_share_queue_url":          "tableShareQueueUrl",
-  "data_quality_queue_url":         "dataQualityQueueUrl",
-  "file_send_queue_url":            "fileSendQueueUrl",
-  "archive_queue_url":              "archiveQueueUrl",
-  "file_ops_queue_url":             "fileOpsQueueUrl"
+  "api_origin":                  "apiBaseUrl",
+  "cloudfront_domain":           "appUrl",
+  "aws_region":                  "awsRegion",
+  "cognito_user_pool_id":        "cognitoUserPoolId",
+  "cognito_user_pool_client_id": "cognitoUserPoolClientId",
+  "cognito_domain":              "cognitoDomain",
+  "s3_user_space_bucket_name":   "userSpaceBucket",
+  "shared_space_bucket_name":    "sharedSpaceBucket"
 }
 ```
 
-> **The left column is checked against `infra/outputs.tf`, one name at a time.** **Twelve** of these
-> eighteen outputs exist today under exactly these names — including `notifications_queue_url` and
-> `shared_space_request_queue_url`, which is why the missing set is smaller than a first pass
-> assumed. `cloudfront_domain` is among the twelve and is repointed to `spa_origin` by SPEC-202
-> (FR-007). **Six** are missing and are added in Phase 1: `table_build_queue_url`,
-> `table_share_queue_url`, `data_quality_queue_url`, `file_send_queue_url`, `archive_queue_url`,
-> `file_ops_queue_url`. Three
-> names that a first draft got wrong are worth recording, because FR-002's existence test would have
-> been satisfied by adding duplicates under the wrong names rather than by correcting the mapping:
-> it is `shared_space_bucket_name` not `s3_shared_space_bucket_name`,
-> `shared_space_request_queue_url` not `shared_space_queue_url`, and `api_origin` not
-> `api_base_url`. `environment` and `maxUploadBytes` are **not** here: they are inputs, and they
-> stay repository variables.
+> **The file itself is strict JSON — the comments above are this document's, not the file's.**
+>
+> **All eight of these outputs already exist under exactly these names**, so this spec adds none.
+> An earlier draft listed eighteen entries and said six outputs had to be created; those six were
+> the per-plane queue URLs, which are not configuration keys at all (see FR-002's correction note).
+> Adding an output whose name merely duplicates an existing one under a different spelling fails
+> FR-002's existence test by design — the fix is always the mapping, never a second output. Three
+> names a first draft got wrong are worth recording for that reason: it is `shared_space_bucket_name`
+> not `s3_shared_space_bucket_name`, `s3_user_space_bucket_name` not `user_space_bucket_name`, and
+> `api_origin` not `api_base_url`.
+>
+> `cloudfront_domain` is repointed to `spa_origin` by SPEC-202 (FR-007). `environment` and
+> `maxUploadBytes` are **not** here: they are inputs, and they stay repository variables.
 
 ## File & Folder Structure
 
 ```
 .github/
 ├── config-outputs.json                 # the mapping
-├── scripts/resolve-config.sh           # tofu output -json → CONFIG_* env, with FR-003's checks
+├── scripts/resolve-config.sh           # tofu output -json → step outputs, with FR-003's checks
 └── workflows/
     ├── deploy-app.yml                  # reads outputs instead of vars
-    └── deploy-config.yml               # resolves its bucket from an output
+    ├── deploy-config.yml               # resolves its bucket from an output
+    └── README.md                       # the manual tofu-output transport this retires
 
-lambdas/test_config_outputs.py          # FR-002's three set assertions
+lambdas/test_config_outputs.py          # FR-002's set assertions, and FR-001's no-new-grant one
+lambdas/test_resolve_config.py          # FR-003, driving the real script against fixtures
+lambdas/test_config_workflows.py        # FR-001's version/backend derivations, FR-004's sweep
+scripts/validate_feature_flags.py       # bucket_key must name a key the mapping carries
 apps/portal/info/runtime-configuration.md   # the wiring sites rewritten
 docs/process.md                             # §6's copy of the same fact
 ```
@@ -258,11 +266,10 @@ docs/process.md                             # §6's copy of the same fact
 
 ### Phase 1: The mapping and its tests
 
-- `config-outputs.json`, and the three assertions binding it to `runtimeConfig.types.ts`,
-  `infra/outputs.tf` and the container entrypoint's key lists.
-- Add the six missing per-plane queue-URL outputs named in the Data Model note. Adding an output whose name merely duplicates
-  an existing one under a different spelling fails FR-002's existence test by design — the fix is
-  always the mapping, never a second output.
+- `config-outputs.json`, and the assertions binding it to `runtimeConfig.types.ts`,
+  `infra/outputs.tf` and the container entrypoint's key lists — plus one asserting the deploy role
+  already reads the state bucket, which is what FR-001's no-new-grant criterion rests on.
+- **No new Terraform outputs.** All eight the mapping names already exist; see the Data Model note.
 
 ### Phase 2: The resolver
 
