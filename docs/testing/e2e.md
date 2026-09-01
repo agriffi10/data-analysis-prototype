@@ -706,6 +706,22 @@ trail answers it — `owed.md` carries the query and the `IsLogging` preconditio
   The 15.5 is font-dependent — the system fallbacks give 15.0 — so re-measure rather than reusing
   it.
 
+- **The two targets pinned to an absolute 24, measured the same way.** On `/files`, **select an item
+  first** — the toolbar disables **Send to…** at zero selected — then open it, add a recipient, and
+  measure the chip's ✕:
+  `document.querySelector('[aria-label^="Remove"]').getBoundingClientRect()` must be **24 x 24**.
+  Not 24.5: that is what the rem scale gives, and it is what a restyle normalising `h-[24px]` back
+  to `h-7` would leave. On `/files` no other control's accessible name begins with "Remove", so the
+  bare selector is unambiguous there and nowhere else — on `/connections` it would hit the roster.
+  Then on `/query` with history showing, at ≥900px:
+  `[...document.querySelectorAll('[aria-label="Open this query in the editor"],[aria-label="Re-run this query"]')].map(e => e.getBoundingClientRect().height)`
+  — both **24**. (Below 900px the same row renders View / Run at 38.5px, which is the mobile floor,
+  not this check.) Both sites also passed SC 2.5.8 via the spacing exception *before* they were
+  pinned, so a regression here restores conformance-by-luck rather than breaking it — which is
+  exactly why no suite failure will ever tell you, and why the number is checked here. A source
+  tripwire in `sharedPrimitives.guard.test.ts` catches the textual edit; only this catches the
+  rendered size.
+
 ### 4.14 Feature flags
 
 **The whole point is that the app cannot tell you the answer.** Every compiled-in default is `true`,

@@ -48,9 +48,9 @@ type ChipProps = {
  * One removable chip — the single implementation behind the recipient lists in
  * `UsernameChipsField`, `TableShareDialog` and `SendFilesDialog`.
  *
- * The three were byte-identical `<li>`s that had begun to drift: the remove target was 24x24 in
- * one and **20x20** in the other two, below WCAG 2.2 SC 2.5.8's minimum. Consistency was
- * coincidence, and nothing was holding it.
+ * The three were byte-identical `<li>`s that had begun to drift: the remove target was `h-6 w-6`
+ * in one and `h-5 w-5` in the other two — 21px and 17.5px, both under WCAG 2.2 SC 2.5.8's 24px
+ * minimum. Consistency was coincidence, and nothing was holding it.
  *
  * WIDTH IS BOUNDED HERE, which none of the copies did. A username may be 63 characters
  * (`^[a-z][a-z0-9_]{2,62}$`), and at roughly 62px of chrome plus ~8.7px per monospaced
@@ -79,9 +79,12 @@ export function Chip({name, tag, removeLabel, onRemove, disabled = false}: ChipP
         disabled={disabled}
         onClick={onRemove}
         className={cx(
-          // 24x24 is WCAG 2.2 SC 2.5.8's minimum target size, and `flex-none` keeps it at that
-          // however long the name beside it is.
-          'grid h-6 w-6 flex-none place-items-center rounded-full text-text-3',
+          // 24 CSS px is WCAG 2.2 SC 2.5.8's minimum pointer target. It is written absolutely
+          // because it is a THRESHOLD, not a step on the spacing scale: that scale is rem-derived,
+          // so `h-6` draws 21px at this app's 14px root while reading as if it met the minimum,
+          // and `h-7` clears it by half a pixel today but falls under it if the root ever shrinks.
+          // `flex-none` keeps the target that size however long the name beside it is.
+          'grid h-[24px] w-[24px] flex-none place-items-center rounded-full text-text-3',
           'hover:bg-surface hover:text-text focus-visible:outline-none focus-visible:ring-2',
           'focus-visible:ring-accent disabled:opacity-45'
         )}>

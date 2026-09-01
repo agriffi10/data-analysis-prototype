@@ -52,7 +52,9 @@ const TABS: ReadonlyArray<{value: MobileHomeTab; label: string}> = [
   {value: 'history', label: 'History'}
 ];
 
-// ≥44px touch target on a phone.
+// The roomy mobile floor, and it does NOT reach the 44 it was written for: the spacing scale is
+// rem-derived against a 14px root, so `min-h-11` draws 38.5px. Left at that height deliberately —
+// raising it is a visual change to every card action, not a comment fix.
 const cardAction =
   'inline-flex min-h-11 items-center rounded-sm px-2 py-1 text-sm font-semibold text-accent-text hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent';
 
