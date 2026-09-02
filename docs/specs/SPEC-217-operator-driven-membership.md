@@ -53,11 +53,15 @@ predicate that is actually consulted.
 
 **The threat model widens, and that is the decision being taken.** Under SPEC-208 the operator door
 could only move ownership *between people who were already members*: it granted access to nobody. A
-row now grants a stranger live S3, Glue and Lake Formation access to a space's data, and the fences
-are the admin-bucket prefix's write IAM and the `SenderId` comparison — the same two, now guarding
-more. `shared-space-common/config.py`'s own docstring asks that widening `OPERATOR_ACTIONS` "be a
-decision rather than an oversight"; this spec is that decision, and it is recorded in the register
-rather than only here.
+row now grants a stranger live S3, Glue and Lake Formation access to a space's data, and what
+stands in front of that is **who can write the inbox** — the `SenderId` comparison is not a second
+fence against them, only against a forged message from somewhere else. That write set is wider than
+"an operator": the deploy role holds `s3:*` on the admin bucket, and its trust policy admits
+`pull_request`, so a PR-triggered job can place a file. That is pre-existing and this spec does not
+widen it; what this spec must not do is describe it as narrower than it is, and the residual is
+recorded in the register beside the decision. `shared-space-common/config.py`'s own docstring asks
+that widening `OPERATOR_ACTIONS` "be a decision rather than an oversight"; this spec is that
+decision.
 
 ### Out of Scope
 
@@ -181,15 +185,28 @@ operator origin and no identity block, in the envelope SPEC-208 established.
       whichever way they are read. (A repeated target is already refused as a duplicate triple.)
 - [ ] Every message carries `origin: "operator"`, no `identity` key, the queue's single message group
       and the schema version the validator accepts.
-- [ ] The request id is derived from the object key and the `(space, action)` pair, so a crashed tick
-      that had already sent some messages re-sends the same ids. **Replay safety rests on the verbs'
-      idempotency, not on deduplication**, and the spec says so rather than repeating SPEC-208's
-      claim: the schedule is `rate(1 hour)` and the FIFO deduplication window is five minutes, so no
-      two sweeps ever fall inside one window. A re-add of a current member is skipped, a re-removal
-      of an absent member is skipped, and a re-transfer to the current owner is refused as a no-op.
-- [ ] The residual that idempotency does **not** cover is named: a replayed `remove_members` an hour
-      later removes a member who was legitimately re-added in between. It is recorded, not solved —
-      the fix is a request ledger the plane does not have.
+- [ ] The body's `requestId` is derived from the object key and the `(space, action)` pair, so one
+      enqueued request is traceable to the line that asked for it. **Replay safety rests on the
+      verbs' idempotency, not on deduplication**: the schedule is `rate(1 hour)` and the FIFO
+      deduplication window is five minutes, so no two sweeps ever fall inside one window. A re-add
+      of a current member is skipped, a re-removal of an absent member is skipped, and a re-transfer
+      to the current owner is refused as a no-op.
+- [ ] **The `MessageDeduplicationId` is random, and is NOT the derived request id.** SPEC-208 passes
+      the derived value as both, and that is safe only while the operator is the queue's only
+      producer of these ids. The API's dedup id for this queue is `payload["requestId"]` — the
+      *caller's own*, unaltered — on the same queue and the same single message group. So a derived
+      dedup key is a value any signed-in user can compute from constants in this repository (the
+      UUID namespace is a literal in the reader; the object key is a guess) and claim first on a
+      harmless self-scoped action. SQS then accepts the operator's real row and **discards it as a
+      duplicate**, `_send` does not read the response, the file moves to `processed/`, and the log
+      reports the row as enqueued. A suppressed revocation, reported as success, to the one channel
+      the operator has. Nothing is lost by randomising it, because the criterion above already says
+      deduplication carries nothing.
+- [ ] Two replay residuals are named, in both directions. A replayed `remove` an hour later removes
+      a member who was legitimately re-added in between; a replayed `add` **re-grants** access to
+      someone the owner removed in between, because the verb skips only names already on the freshly
+      loaded roster. The second is the worse one and is the reason both are written down. Recorded,
+      not solved — the fix is a request ledger the plane does not have.
 - [ ] Files are processed in listing order, and the sweep still **stops** at a file it has no budget
       for rather than skipping past it.
 - [ ] **The rows-per-invocation cap keeps its existing inputs and its existing value**, and the test
@@ -218,6 +235,13 @@ operator origin and no identity block, in the envelope SPEC-208 established.
       assigned, the registry unwritten, and `_release_slots` never reached.
 - [ ] A `(space, action)` group larger than that cap **rejects the file**, with a reason naming the
       cap, on SPEC-208's reasoning that only the operator can split it.
+- [ ] **Two per-file ceilings bound one mistake**: a cap on distinct spaces named in one file, and a
+      cap on total `add` rows in one file. Neither is a resource budget and neither is computed —
+      they are blast-radius controls, stated as such with the number chosen and argued in one line.
+      Without them a single file is up to the row cap's worth of grants across as many spaces, with
+      no dual control, no approval and no outcome ledger; the only ceiling on any one beneficiary is
+      `MAX_SHARED_MEMBERSHIPS`, which is a per-user limit that happened to be there rather than a
+      control this spec chose. A file over either ceiling is rejected with a reason naming it.
 - [ ] The structured log names the action and the space on every enqueued message and says which
       lines went into it, so the operator's only feedback channel distinguishes an add from a
       removal. The reader's existing event messages, which say "ownership-transfer", are re-worded.
@@ -286,6 +310,21 @@ that no existing test would catch — the browser only ever sends an owner's req
 - [ ] `member_refusal` is pure: no AWS calls, and a test asserts the client fakes recorded none.
 - [ ] The predicate is the **only** authority on these two actions. A test asserts `authorize` no
       longer decides them — an owner check written in both places is the complement that drifts.
+- [ ] **`authorize` gains a terminal `raise`**, so an action that reaches the bottom is refused
+      rather than allowed. Today the function ends by falling off the end and returning `None`,
+      which means allowed; that is harmless only because every action in `VALID_ACTIONS` is caught
+      by a branch above. After this FR the two member actions are deliberately allowed *there* and
+      gated elsewhere, so the fall-through stops being unreachable and becomes the failure mode:
+      losing the `member_refusal` call is then an open door rather than a refusal. An explicit
+      `return` branch, on its own, is cosmetic — it has exactly the effect the fall-through already
+      had.
+- [ ] **`member_refusal` is called inside the same `if refusal is None:` guard `transfer_refusal`
+      sits in.** The validator sets `requester = None` for **any** non-`None` `origin`, before
+      `operator_refusal`'s verdict has been consulted — that is safe today only because the
+      transfer predicate runs under that guard. Called outside it, or with its result overwriting
+      the operator refusal, a message declaring any origin string at all skips the owner check. A
+      test drives `origin: "anything"` with a member action and asserts the refusal that survives is
+      the origin one.
 - [ ] **Every code the predicate can return renders its own sentence.** The codes are a module-level
       frozenset in `auth`, `_refusal` refuses a code outside it, and a test asserts set equality with
       the message table's keys — enumerated from that constant rather than swept from call sites, so
@@ -330,6 +369,22 @@ owner's own request would face still holds, and each refusal names what happened
       validator sets `actor` from the verified identity; an operator refusal reaches the space's
       owner, who is the named party for a forged or mistaken request. An emptied space has no owner
       and honestly nobody to tell.
+- [ ] **The refusal's CONTENT splits the same way, or the member path becomes an existence oracle.**
+      The four request-level refusals discriminate unknown space, not-owner, not-active and emptied
+      — delivered into the notification inbox of whoever asked, for any space name they care to
+      try. That is the disclosure the project already declined when it refused to publish a
+      shared-space directory. An operator refusal keeps the detail, because the owner is entitled to
+      it; a **UI** refusal collapses those four into one sentence that distinguishes nothing. A test
+      asserts the four produce byte-identical wording on the UI path. (Transfer carries the same
+      oracle today; this spec does not inherit it into two more actions, and whether transfer's own
+      is narrowed is recorded as a follow-up rather than smuggled in here.)
+- [ ] **A removal does not revoke a live session, and the spec says so where an operator will read
+      it.** The principal tag is stamped when credentials are vended, nothing in the fleet revokes a
+      token, and the pool client sets no token validity — so the ID token's Cognito default of one
+      hour is the window, plus the life of any presigned URL already minted. Revocation is this
+      spec's motivating case, so an operator reading it must not believe Friday's row took effect on
+      Friday. The verb's own docstring already records this; the spec repeats it rather than leaving
+      the honest statement only in the code.
 
 ### FR-005: The boundary, the prefix and the infrastructure
 
