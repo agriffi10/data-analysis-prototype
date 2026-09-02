@@ -388,3 +388,85 @@ def test_capture_refuses_a_plan_whose_values_are_unknown():
     }
     with pytest.raises(SystemExit):
         GUARD.capture(pending)
+
+
+# ── The committed fixture ─────────────────────────────────────────────────────
+# Everything above drives the guard over documents written by hand. These read the real capture,
+# because a fixture that has drifted from the fleet is a comparison that passes having compared the
+# wrong things — and it cannot be regenerated to fix that, by design.
+
+FIXTURE = ROOT / "lambdas" / "fixtures" / "pre_cutover_plan.json"
+DEPLOY_TABLE = ROOT / ".github" / "lambda-functions.json"
+
+
+def test_the_committed_fixture_covers_exactly_the_deployed_fleet():
+    """The fixture and the deploy table are two independent lists of one fleet.
+
+    Not self-referential: the fixture was captured from a `tofu plan` and the table is
+    hand-maintained beside the function directories, so a divergence means one of them is wrong
+    about what exists. `test_deploy_matrix.py` separately holds the table equal to the directories
+    on disk, which closes the third side.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the two disagree about the fleet.
+    """
+    fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    captured = {name.removeprefix("dat-prod-") for name in fixture["functions"]}
+    declared = {row["name"] for row in json.loads(DEPLOY_TABLE.read_text(encoding="utf-8"))}
+
+    assert captured, "the fixture names no functions"
+    assert captured == declared, (
+        f"only in the fixture: {sorted(captured - declared)}; "
+        f"only in the deploy table: {sorted(declared - captured)}"
+    )
+
+
+def test_every_captured_function_carries_a_handler_and_a_memory_tier():
+    """The two fields the cutover reads back out of the fixture rather than deriving.
+
+    The handler becomes the container's command, and the memory tier is one of the attributes a
+    replacement plan leaves unknown unless the module declares it. A null in either would make the
+    corresponding comparison silently trivial.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a captured row is missing either.
+    """
+    fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    missing_handler = sorted(n for n, r in fixture["functions"].items() if not r.get("handler"))
+    missing_memory = sorted(n for n, r in fixture["functions"].items() if not r.get("memory_size"))
+
+    assert missing_handler == [], f"captured with no handler: {missing_handler}"
+    assert missing_memory == [], f"captured with no memory tier: {missing_memory}"
+
+
+def test_the_fixture_says_in_its_own_text_that_it_is_frozen():
+    """A regenerated fixture agrees with whatever the code currently says, which is the one thing
+    it must never do — so the file carries that instruction rather than only the commit that added
+    it.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the note is missing.
+    """
+    fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    assert "FROZEN" in fixture.get("note", ""), (
+        "the fixture must say it is frozen; a reader who regenerates it destroys the only "
+        "independent record of what the fleet looked like before the cutover"
+    )

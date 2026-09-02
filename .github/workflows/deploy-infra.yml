@@ -239,6 +239,27 @@ jobs:
           path: /tmp/pre_cutover_plan.json
           retention-days: 7
 
+      # THE GATE. Invoked directly, never guarded: a missing fixture is a hard error rather than a
+      # skip, because a check that passes when its own input is absent reads as enforcement while
+      # enforcing nothing.
+      #
+      # `--package-type Zip` is the world as it is. SPEC-213's cutover flips this one word to
+      # Image, which is the whole reason this lands a PR early: the gate is proven against the
+      # fleet before it is asked to judge the change to it.
+      - name: Assert the planned Lambda fleet
+        env:
+          PROJECT: ${{ vars.TF_VAR_project_name || 'dat' }}
+          ENVIRONMENT: ${{ vars.TF_VAR_environment || 'prod' }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/lambda_plan_guard.py check \
+            --plan infra/plan.json \
+            --fixture lambdas/fixtures/pre_cutover_plan.json \
+            --package-type Zip \
+            --table .github/lambda-functions.json \
+            --project "$PROJECT" \
+            --environment "$ENVIRONMENT"
+
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
