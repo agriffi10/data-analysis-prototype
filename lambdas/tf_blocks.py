@@ -8,10 +8,46 @@ skips strings and comments is exactly the kind of helper whose two copies drift 
 one case that matters.
 
 Attributes:
-  None.
+  LAMBDA_INPUT_SPELLINGS: What one function setting is called under each packaging, module
+    spelling first. The pairs live here rather than at the call sites because more than one suite
+    reads the same pair, and a rule written twice is wrong in one copy.
 """
 
 import re
+
+
+def _declarations(text: str, blanked: str, original: str) -> dict[str, str]:
+    """Every top-level block whose header matches, keyed by the name ``original`` captures.
+
+    **Located over ``strip_noise`` and sliced from the original**, and that is not fastidiousness:
+    a commented-out ``module "x" { … }`` is an ordinary Terraform idiom, and a bare scan reads it
+    as a declaration whose body then swallows the rest of the file. Measured on the one-line form:
+    a commented `module "api" { … }` placed after the real declaration shadowed it and returned a
+    number Terraform does not deploy.
+
+    Two patterns rather than one, because ``strip_noise`` blanks string BODIES: on its output a
+    header is only recognisable by its shape, so ``blanked`` finds the offsets and ``original``
+    re-reads the header there to filter by type and capture the name.
+
+    Args:
+      text: The Terraform source to read.
+      blanked: A shape regex that matches a header in noise-blanked source, ending just after the
+        opening brace.
+      original: The same header with its literals spelled out, its one group the local name.
+
+    Returns:
+      Each block's local name mapped to its body, braces excluded.
+
+    Raises:
+      None.
+    """
+    found = {}
+    for match in re.finditer(blanked, strip_noise(text)):
+        header = re.match(original, text[match.start() : match.end()])
+        if header is None:
+            continue
+        found[header.group(1)] = text[match.end() : _close(text, match.end()) - 1]
+    return found
 
 
 def blocks(text: str, kind: str) -> dict[str, str]:
@@ -37,10 +73,34 @@ def blocks(text: str, kind: str) -> dict[str, str]:
     Raises:
       None.
     """
-    found = {}
-    for match in re.finditer(rf'resource\s+"{re.escape(kind)}"\s+"([^"]+)"\s*\{{', text):
-        found[match.group(1)] = text[match.end() : _close(text, match.end()) - 1]
-    return found
+    return _declarations(
+        text,
+        r'(?<![\w-])resource\s+"[^"]*"\s+"[^"]*"\s*\{',
+        rf'(?<![\w-])resource\s+"{re.escape(kind)}"\s+"([^"]+)"\s*\{{',
+    )
+
+
+def module_calls(text: str) -> dict[str, str]:
+    """Splits Terraform source into top-level ``module`` blocks, keyed by call name.
+
+    The counterpart to ``blocks`` for the other kind of declaration a fleet function can have. It
+    goes through the same header scan and the same brace counter for the same reason: a module
+    call's body nests, and a second scanner written beside a suite is the copy that drifts.
+
+    Args:
+      text: The Terraform source to read.
+
+    Returns:
+      Each module call's local name mapped to its body.
+
+    Raises:
+      None.
+    """
+    return _declarations(
+        text,
+        r'(?<![\w-])module\s+"[^"]*"\s*\{',
+        r'(?<![\w-])module\s+"([^"]+)"\s*\{',
+    )
 
 
 def _close(text: str, index: int) -> int:
@@ -102,7 +162,7 @@ def span(text: str, start: int) -> str:
     return text[opening : _close(text, opening + 1)]
 
 
-def join_list_items(text: str, local_name: str) -> tuple[str, str]:
+def join_list_items(text: str, local_name: str) -> tuple[str, tuple[str, ...]]:
     """Splits a ``<name> = join("<sep>", [ … ])`` local into its separator and its elements.
 
     **Quoted AND unquoted elements**, which is the whole reason this lives here rather than in
@@ -242,3 +302,167 @@ def map_entries(body: str) -> dict[str, str]:
         depth += {"{": 1, "}": -1}.get(char, 0)
         index += 1
     return entries
+
+
+_OPENERS = {"{": 1, "[": 1, "(": 1}
+_CLOSERS = {"}": 1, "]": 1, ")": 1}
+
+
+def _depths(text: str) -> list[int]:
+    """The delimiter depth immediately BEFORE each character.
+
+    Args:
+      text: Noise-blanked Terraform source.
+
+    Returns:
+      One depth per character.
+
+    Raises:
+      None.
+    """
+    depths, depth = [], 0
+    for char in text:
+        depths.append(depth)
+        depth += _OPENERS.get(char, 0)
+        depth -= _CLOSERS.get(char, 0)
+    return depths
+
+
+def argument(body: str, name: str) -> str:
+    """The value expression assigned to ``name`` at the TOP LEVEL of a block body.
+
+    The counterpart to ``span`` for a value that is not a braced block. ``span`` returns the first
+    braced run it finds, which truncates ``merge({…}, lookup(…))`` at the first map and drops the
+    override the caller was looking for — a slice that looks exhaustive while measuring less.
+
+    **Scanned over ``strip_noise``, and that is the whole reason this is not a bare delimiter
+    count.** Measured: a ``#`` comment carrying one unmatched ``}`` makes a raw count end the value
+    early and swallow the argument after it, and a string containing ``}`` truncates it. Both blank
+    to spaces here, and because ``strip_noise`` preserves length the offsets still point into the
+    original, which is what is sliced.
+
+    Args:
+      body: A block's body, outer braces excluded — so its own arguments sit at depth zero.
+      name: The argument's name.
+
+    Returns:
+      The value expression, whitespace-trimmed, exactly as written in ``body``.
+
+    Raises:
+      ValueError: If ``name`` is not assigned at the top level, rather than an empty string that
+        every caller would compare against and pass.
+    """
+    scan = strip_noise(body)
+    depths = _depths(scan)
+    pattern = re.compile(rf"(?m)^[ \t]*{re.escape(name)}[ \t]*=(?!=)")
+
+    for match in pattern.finditer(scan):
+        if depths[match.start()] != 0:
+            continue
+        index = match.end()
+        while index < len(scan) and scan[index] in " \t":
+            index += 1
+        start, depth = index, 0
+        while index < len(scan):
+            char = scan[index]
+            if char == "\n" and depth == 0:
+                break
+            depth += _OPENERS.get(char, 0)
+            depth -= _CLOSERS.get(char, 0)
+            index += 1
+        # Trimmed against the BLANKED text, which is what keeps a trailing `# …` out of the
+        # value: the comment is spaces there, so rstrip finds the value's real last character,
+        # and the same offset in the original ends the slice before the comment begins.
+        return body[start : start + len(scan[start:index].rstrip())].strip()
+
+    raise ValueError(f"no top-level `{name} = …` in this block")
+
+
+def lambda_declaration(text: str, name: str) -> str:
+    """The body of one fleet function's declaration, whichever way it is declared.
+
+    Today every deployed function is an ``aws_lambda_function`` resource; the container packaging
+    declares one as a ``module`` call instead. Both arms exist so a suite that pins a Python
+    constant to a deployed number does not have to be rewritten twice — once to move to the new
+    shape and once when the old one goes. The resource arm is deleted when nothing in ``infra/``
+    declares such a resource outside the container module itself.
+
+    The module arm is tried FIRST, so during the window where a plane has moved and its
+    neighbours have not, the shape the plane actually deploys wins.
+
+    Args:
+      text: One module's Terraform source.
+      name: The declaration's local name.
+
+    Returns:
+      The declaration's body.
+
+    Raises:
+      ValueError: If nothing of that name is declared, so a suite cannot silently assert over an
+        empty string.
+    """
+    calls = module_calls(text)
+    if name in calls:
+        return calls[name]
+    resources = blocks(text, "aws_lambda_function")
+    if name in resources:
+        return resources[name]
+    raise ValueError(f"no module call or aws_lambda_function named {name!r}")
+
+
+def lambda_environment(body: str) -> str:
+    """One function declaration's environment, whichever shape it has.
+
+    A resource nests a block (``environment { variables = {…} }``); a module call assigns a map
+    (``environment = merge({…}, lookup(…))``). Both come back as text, because every caller wants
+    the same thing out of them: the names assigned inside.
+
+    Args:
+      body: A declaration body from ``lambda_declaration``.
+
+    Returns:
+      The environment's text.
+
+    Raises:
+      ValueError: If the declaration carries no environment at all.
+    """
+    try:
+        return argument(body, "environment")
+    except ValueError:
+        opening = re.search(r"(?m)^\s*environment\s*\{", body)
+        if not opening:
+            raise ValueError("the declaration sets no environment") from None
+        return span(body, opening.start())
+
+
+LAMBDA_INPUT_SPELLINGS = {
+    "timeout": ("timeout_seconds", "timeout"),
+    "memory": ("memory_mb", "memory_size"),
+}
+
+
+def lambda_input(body: str, setting: str) -> str:
+    """One function's declared timeout, memory or role, under whichever name it carries.
+
+    The two packagings spell these differently — ``timeout``/``memory_size`` on the resource,
+    ``timeout_seconds``/``memory_mb`` on the module's inputs — and a suite pinning a Python
+    constant to the deployed number cares about the number, not the spelling.
+
+    Args:
+      body: A declaration body from ``lambda_declaration``.
+      setting: A key of ``LAMBDA_INPUT_SPELLINGS``.
+
+    Returns:
+      The value expression, often a literal a caller will ``int()``.
+
+    Raises:
+      ValueError: On an unknown setting, or when the declaration uses neither spelling.
+    """
+    if setting not in LAMBDA_INPUT_SPELLINGS:
+        raise ValueError(f"unknown setting {setting!r}")
+    for spelling in LAMBDA_INPUT_SPELLINGS[setting]:
+        try:
+            return argument(body, spelling)
+        except ValueError:
+            continue
+    raise ValueError(f"the declaration sets no {setting}")

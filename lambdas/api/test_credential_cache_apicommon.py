@@ -40,7 +40,6 @@ import datetime
 import json
 import os
 import pathlib
-import re
 import sys
 
 import pytest
@@ -52,6 +51,7 @@ from typing import TypedDict
 import router
 from apicommon import config, contract, errors, identity
 from conftest import bearer, declare_route
+from tf_blocks import lambda_declaration, lambda_input
 
 
 class _ClaimingBody(TypedDict):
@@ -277,10 +277,12 @@ def test_the_margin_is_the_life_of_one_request_computed_from_the_timeout() -> No
     infra = pathlib.Path(__file__).resolve().parent.parent.parent / "infra"
     declared = infra / "modules" / "api" / "lambda.tf"
 
-    timeout = re.search(r"^\s*timeout\s*=\s*(\d+)", declared.read_text(), re.MULTILINE)
-    assert timeout, "the API function no longer declares a timeout"
+    # Read through tf_blocks rather than by regex, because the attribute is spelled differently
+    # under the two packagings and a pattern that matches only one of them stops finding the
+    # number without ever saying so.
+    timeout = lambda_input(lambda_declaration(declared.read_text(), "api"), "timeout")
 
-    assert int(timeout.group(1)) == API_FUNCTION_TIMEOUT_SECONDS
+    assert int(timeout) == API_FUNCTION_TIMEOUT_SECONDS
     assert config.CREDENTIAL_EXPIRY_MARGIN_SECONDS == API_FUNCTION_TIMEOUT_SECONDS
 
     usable = (

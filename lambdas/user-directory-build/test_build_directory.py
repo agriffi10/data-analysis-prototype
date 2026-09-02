@@ -27,7 +27,7 @@ sys.path.insert(
 
 import build_directory
 from cpcommon import clients, config
-from tf_blocks import blocks, span, strip_noise
+from tf_blocks import lambda_declaration, lambda_environment, strip_noise
 
 HERE = pathlib.Path(__file__).resolve().parent
 LAMBDAS = HERE.parent
@@ -139,21 +139,20 @@ UNDECLARED_BY_CONFIG = {"LOGS_QUEUE_URL", "ENV_NAME"}
 
 
 def _terraform_environment_variables():
-    """The names assigned inside lambda.tf's `environment { variables = { … } }` block.
+    """The names lambda.tf assigns to the function's environment, under either packaging.
 
-    Read through the shared `tf_blocks` scanner end to end — the resource by `blocks`, the block
-    by `span`, the names with comments and strings blanked first. The non-greedy regex this
+    Read through the shared `tf_blocks` scanner end to end — the declaration and its environment
+    by name, the names with comments and strings blanked first. The non-greedy regex this
     replaced worked only because the block happens to close at a particular indent, and it read
     a variable name out of a comment as readily as out of an assignment; both are the drift that
-    module's docstring exists to warn about.
+    module's docstring exists to warn about. The accessors are packaging-agnostic for the same
+    reason: a pattern that matches one shape stops finding the block without ever saying so.
     """
     source = LAMBDA_TF.read_text(encoding="utf-8")
-    function = blocks(source, "aws_lambda_function")["build"]
-    opening = re.search(r"^\s{2}environment\s*\{", function, re.MULTILINE)
-    assert opening, "lambda.tf's environment block did not parse"
+    function = lambda_declaration(source, "build")
 
     names = re.compile(r"([A-Z_][A-Z0-9_]*)\s*=(?!=)")
-    captured = set(names.findall(strip_noise(span(function, opening.start()))))
+    captured = set(names.findall(strip_noise(lambda_environment(function))))
     everywhere = set(names.findall(strip_noise(function)))
     assert captured == everywhere, (
         f"the environment slice captured {sorted(captured)}, but the resource assigns "
