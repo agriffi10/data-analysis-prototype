@@ -139,8 +139,12 @@ several of them years old.
   cases that assert **silence** — a corpus of only-failures cannot see a false positive. Prove the
   corpus bites by defeating each check in turn and watching it redden.
   Measured here: `scripts/validate_docs.py` is the gate this repo's doc discipline rests on —
-  fifteen checks in `main()`, run unconditionally on every pull request — and it has no test of any
-  kind. Nothing shows that any of the fifteen still fires.
+  fifteen checks in `main()`, run unconditionally on every pull request — and until
+  `scripts/validate_docs_test.py` it had **no test of any kind**, so nothing showed that any of the
+  fifteen still fired. The corpus builds a fixture repository and copies the validator into it, so
+  the script's own `ROOT` resolves there and the gate needs no environment override to be testable —
+  a budget a caller can redirect is a budget CI can be told to ignore. Each case asserts a specific
+  failure message; disabling any one of the fifteen reddens it, and it restores clean.
 - **One fixture per guard is not enough when the guard has more than one exit.** A check with two
   terminating conditions is satisfied by a fixture exercising either, so the mutant that breaks the
   other survives with the suite green. Count the ways a check can stop, and write that many cases.

@@ -71,6 +71,7 @@ npm run format|format:check -w apps/portal   # Prettier (prettier.config.js); fo
 tofu -chdir=infra validate|plan|apply        # init: tofu -chdir=infra init -backend-config=backend.conf
 python3 scripts/watch_ci.py --pr <n>         # watch CI for ONE sha; exit 0 only if settled AND green
 python3 scripts/watch_ci.py --branch main    # after a merge; --once for a single poll
+python3 scripts/validate_docs_test.py        # prove the doc gate's 15 checks still fire (run when you change it)
 ```
 
 ## Specs
