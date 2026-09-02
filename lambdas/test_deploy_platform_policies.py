@@ -777,3 +777,60 @@ def test_the_registry_grants_narrow_rather_than_merely_match(key: tuple[str, str
             "anything else is a widening nobody asked for."
         )
 
+
+
+#: The four registry actions AWS requires of the principal that CREATES an image-backed Lambda.
+#: Documented under "Amazon ECR permissions" in the Lambda container-image guide, whose worked
+#: example is exactly these four scoped to a repository ARN. Three of them were already here for
+#: pushing an image; `GetDownloadUrlForLayer` arrived with the container fleet, and its absence
+#: fails at CreateFunction after a green plan — so it is pinned rather than left to look like an
+#: unused read beside BatchGetImage.
+IMAGE_CREATOR_ECR_ACTIONS = frozenset(
+    {
+        "ecr:GetRepositoryPolicy",
+        "ecr:SetRepositoryPolicy",
+        "ecr:BatchGetImage",
+        "ecr:GetDownloadUrlForLayer",
+    }
+)
+
+
+def test_the_role_holds_every_ecr_action_creating_an_image_lambda_needs() -> None:
+    """All four, on the Lambda image's repository, wherever in the document they live.
+
+    Asserted against the union of the statements that reach that repository rather than against
+    one Sid: the four are split across two statements today, and which statement holds which is
+    not the claim — that the role holds all four on that repository is.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When any of the four is missing, or no statement reaches the repository.
+    """
+    document = json.loads(_render(POLICY_DIR / "github-actions-deploy-platform.json.tftpl"))
+
+    held = set()
+    reaching = 0
+    for statement in document["Statement"]:
+        resources = statement.get("Resource", [])
+        resources = [resources] if isinstance(resources, str) else resources
+        if not any("-lambda" in resource for resource in resources):
+            continue
+        reaching += 1
+        actions = statement.get("Action", [])
+        held |= set(actions if isinstance(actions, list) else [actions])
+
+    assert reaching >= 2, (
+        "no statement in the platform policy reaches the Lambda image repository; the assertion "
+        "below would pass on an empty set"
+    )
+    missing = sorted(IMAGE_CREATOR_ECR_ACTIONS - held)
+    assert missing == [], (
+        f"the deploy role is missing {missing} on the Lambda image repository. AWS requires all "
+        f"of {sorted(IMAGE_CREATOR_ECR_ACTIONS)} on the principal that calls CreateFunction with "
+        "an image; the failure is at apply, after a green plan."
+    )

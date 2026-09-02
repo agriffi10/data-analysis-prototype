@@ -2,6 +2,12 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "DlqDrainProbeInvoke",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-control-plane-dlq-drain"
+    },
+    {
       "Sid": "DlqDrainLambdaManage",
       "Effect": "Allow",
       "Action": [

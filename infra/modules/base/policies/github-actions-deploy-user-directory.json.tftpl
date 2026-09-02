@@ -2,6 +2,12 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "UserDirectoryProbeInvoke",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-user-directory-build"
+    },
+    {
       "Sid": "UserDirectoryLambdaManage",
       "Effect": "Allow",
       "Action": [

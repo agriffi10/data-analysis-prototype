@@ -2,6 +2,12 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "FileOpsProbeInvoke",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-file-ops-validate-authorize"
+    },
+    {
       "Sid": "FileOpsQueuesManage",
       "Effect": "Allow",
       "Action": [

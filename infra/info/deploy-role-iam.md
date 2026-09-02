@@ -94,6 +94,16 @@ role already holds and why it is split across one managed policy per resource fa
   CloudWatch logs or by querying as an LF admin (only the deploy role + control-plane execution
   roles + post-confirmation exec role are LF admins).
 
+- **A container-packaged Lambda needs registry actions on the role that CREATES it, not only on
+  Lambda.** AWS requires `ecr:GetRepositoryPolicy`, `ecr:SetRepositoryPolicy`, `ecr:BatchGetImage`
+  **and `ecr:GetDownloadUrlForLayer`** on the *caller* of `CreateFunction` — the last of which this
+  role held for neither registry, because pushing an image needs `BatchGetImage` and pulling one
+  into a function needs both. Nothing in an action list says so; it is the same shape as ELB calling
+  `ec2:GetSecurityGroupsForVpc` inside `CreateLoadBalancer`. Same-account image pulls need no
+  repository policy of their own: given the two `RepositoryPolicy` actions, Lambda writes
+  `LambdaECRImageRetrievalPolicy` itself. Declaring that policy in Terraform instead is a standing
+  diff against a document Lambda wrote.
+
 ## The ForceNew data-source trap
 
 **Inside a module carrying a module-level `depends_on`, prefer a variable over a data source for

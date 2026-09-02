@@ -2,6 +2,12 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "ArchiveProbeInvoke",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-archive-validate-authorize"
+    },
+    {
       "Sid": "ArchiveBucketManage",
       "Effect": "Allow",
       "Action": "s3:*",
