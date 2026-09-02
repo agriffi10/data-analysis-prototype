@@ -20,9 +20,13 @@ import {mockApi, apiFailure} from '../../test/apiMock';
 import {toUserText} from '../../lib/errorMessages';
 
 const {mockRequest} = vi.hoisted(() => ({mockRequest: vi.fn()}));
-vi.mock('../../lib/apiClient', () => ({apiRequest: mockRequest}));
+vi.mock('../../lib/apiClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/apiClient')>()),
+  apiRequest: mockRequest
+}));
 
-vi.mock('../../lib/userSpace', () => ({
+vi.mock('../../lib/userSpace', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/userSpace')>()),
   userSpaceBucket: () => 'user-space',
   sharedSpaceBucket: () => 'shared-space'
 }));

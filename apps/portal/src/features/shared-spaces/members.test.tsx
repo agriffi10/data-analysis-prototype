@@ -341,7 +341,7 @@ describe('ManageMembersDrawer', () => {
     it('offers a Refresh control that re-reads member state (SPEC-073 FR-006)', () => {
       const {onRefresh} = setup();
       fireEvent.click(screen.getByRole('button', {name: 'Refresh connections'}));
-      expect(onRefresh).toHaveBeenCalled();
+      expect(onRefresh).toHaveBeenCalledTimes(1);
     });
   });
 

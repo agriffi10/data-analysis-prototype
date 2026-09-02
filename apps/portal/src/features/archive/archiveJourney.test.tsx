@@ -34,7 +34,10 @@ vi.mock('../file-browser/fileBrowser.service', async (importActual) => ({
   }),
   objectExists: vi.fn().mockResolvedValue({success: true, data: true})
 }));
-vi.mock('../../lib/apiClient', () => ({apiRequest: vi.fn()}));
+vi.mock('../../lib/apiClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/apiClient')>()),
+  apiRequest: vi.fn()
+}));
 import {FileOpsInFlightProvider, UploadQueueProvider} from '../file-browser';
 import {FileBrowser} from '../file-browser/FileBrowser';
 import {listFiles} from '../file-browser/fileBrowser.service';

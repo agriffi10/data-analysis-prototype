@@ -339,7 +339,9 @@ describe('useResultRowCount', () => {
 
       const {result} = renderHookWithProviders(() => useResultRowCount('q-1'));
 
-      await waitFor(() => expect(mockGetQueryResults).toHaveBeenCalled());
+      await waitFor(() =>
+        expect(mockGetQueryResults).toHaveBeenCalledWith(expect.objectContaining({queryExecutionId: 'q-1'}))
+      );
       expect(result.current.total).toBeNull();
     });
 

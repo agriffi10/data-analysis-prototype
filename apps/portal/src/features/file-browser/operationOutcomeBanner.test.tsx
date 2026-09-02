@@ -84,7 +84,7 @@ describe('OperationOutcomeBanner', () => {
     // Never a completion claim: the title is the caller's, and no verb is invented here.
     expect(screen.getByText('5 items need your attention')).toBeInTheDocument();
     await user.click(screen.getByRole('button', {name: /dismiss/i}));
-    expect(onDismiss).toHaveBeenCalled();
+    expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
   it('passes axe', async () => {

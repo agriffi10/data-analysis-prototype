@@ -11,7 +11,10 @@ import {
 } from './athena.service';
 import {getDatabase, listTables} from './glue.service';
 
-vi.mock('../../lib/apiClient', () => ({apiRequest: vi.fn()}));
+vi.mock('../../lib/apiClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/apiClient')>()),
+  apiRequest: vi.fn()
+}));
 
 /**
  * The catalog services, now over the API.

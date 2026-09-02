@@ -4,7 +4,10 @@ import type {ApiMock} from '../../test/apiMock';
 import {submitFileOperation} from './fileOps.service';
 import type {FileOpRequest} from './fileOps.types';
 
-vi.mock('../../lib/apiClient', () => ({apiRequest: vi.fn()}));
+vi.mock('../../lib/apiClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/apiClient')>()),
+  apiRequest: vi.fn()
+}));
 
 /**
  * The file-operations enqueue, now over the API.

@@ -5,7 +5,10 @@ import {getDownloadUrl} from './fileBrowser.service';
 import {triggerBrowserDownload} from './fileBrowser.download';
 import type {S3FileItem} from '../../types/s3.types';
 
-vi.mock('./fileBrowser.service', () => ({getDownloadUrl: vi.fn()}));
+vi.mock('./fileBrowser.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./fileBrowser.service')>()),
+  getDownloadUrl: vi.fn()
+}));
 vi.mock('./fileBrowser.download', () => ({triggerBrowserDownload: vi.fn()}));
 
 const mockGetUrl = vi.mocked(getDownloadUrl);

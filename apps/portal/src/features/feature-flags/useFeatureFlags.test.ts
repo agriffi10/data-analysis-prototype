@@ -6,7 +6,10 @@ import {useFeatureFlags} from './useFeatureFlags';
 import {getFeatureFlags} from './featureFlags.service';
 import {FEATURE_FLAG_DEFAULTS} from './featureFlagDefaults';
 
-vi.mock('./featureFlags.service', () => ({getFeatureFlags: vi.fn()}));
+vi.mock('./featureFlags.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./featureFlags.service')>()),
+  getFeatureFlags: vi.fn()
+}));
 
 const allOn = {
   files: true,

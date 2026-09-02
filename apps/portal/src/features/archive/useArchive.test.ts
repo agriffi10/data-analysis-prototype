@@ -3,7 +3,11 @@ import {act, renderHook} from '@testing-library/react';
 import {isArchiveId, useArchive, useRestoreArchive} from './useArchive';
 import {enqueueArchive, enqueueRestore} from './archive.service';
 
-vi.mock('./archive.service', () => ({enqueueArchive: vi.fn(), enqueueRestore: vi.fn()}));
+vi.mock('./archive.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./archive.service')>()),
+  enqueueArchive: vi.fn(),
+  enqueueRestore: vi.fn()
+}));
 
 const SPACE = {kind: 'personal' as const, name: 'alice'};
 const ITEMS = [{kind: 'folder' as const, key: 'alice/reports/'}];

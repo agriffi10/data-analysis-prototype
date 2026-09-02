@@ -416,7 +416,7 @@ describe('SavedQueriesPanel', () => {
   it('offers Retry on a failed listing', () => {
     const {onRetry} = setup({error: 'boom'});
     fireEvent.click(screen.getByRole('button', {name: 'Retry'}));
-    expect(onRetry).toHaveBeenCalled();
+    expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
   it('pages the filtered rows, not the listing’s keys', () => {

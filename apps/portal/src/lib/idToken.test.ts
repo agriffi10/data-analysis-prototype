@@ -18,7 +18,7 @@ describe('getIdToken', () => {
   it('fails when no ID token is present', async () => {
     mockSession.mockResolvedValue({tokens: {}} as never);
     const result = await getIdToken();
-    expect(result.success).toBe(false);
+    expect(result).toEqual({success: false, error: expect.objectContaining({code: 'NotAuthenticated'})});
   });
 
   it('maps a thrown error to a ServiceResult with its name as code', async () => {

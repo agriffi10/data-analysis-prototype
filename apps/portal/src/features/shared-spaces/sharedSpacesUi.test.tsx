@@ -180,7 +180,7 @@ describe('MemberRosterDrawer', () => {
     it('offers a Refresh control that re-reads connection state', () => {
       const {onRefresh} = setup();
       fireEvent.click(screen.getByRole('button', {name: 'Refresh connections'}));
-      expect(onRefresh).toHaveBeenCalled();
+      expect(onRefresh).toHaveBeenCalledTimes(1);
     });
 
     // ── SPEC-186 FR-008 ────────────────────────────────────────────────────

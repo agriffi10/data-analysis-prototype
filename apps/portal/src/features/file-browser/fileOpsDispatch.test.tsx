@@ -359,7 +359,9 @@ describe('in-flight state', () => {
     expect(screen.getByRole('button', {name: 'Move selected items'})).not.toHaveAttribute('aria-disabled');
     await user.click(screen.getByRole('button', {name: 'Delete selected items'}));
     await user.click(await screen.findByRole('button', {name: 'Delete'}));
-    await waitFor(() => expect(mock.deleteObject).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(mock.deleteObject).toHaveBeenCalledWith(expect.objectContaining({key: 'alice/notes.txt'}))
+    );
   });
 
   it('puts the selection BACK when the enqueue is refused', async () => {
@@ -575,6 +577,8 @@ describe('with the plane switched off, a shape it alone can perform is REFUSED A
     expect(del).not.toHaveAttribute('aria-disabled', 'true');
     await user.click(del);
     await user.click(await screen.findByRole('button', {name: 'Delete'}));
-    await waitFor(() => expect(mock.deleteObject).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(mock.deleteObject).toHaveBeenCalledWith(expect.objectContaining({key: 'alice/report.csv'}))
+    );
   });
 });

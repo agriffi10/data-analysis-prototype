@@ -407,9 +407,15 @@ describe('FileBrowser — move / copy / rename', () => {
     const dialog = await screen.findByRole('dialog', {name: /rename/i});
     const input = within(dialog).getByRole('textbox');
     await user.clear(input);
-    await user.type(input, 'renamed.csv');
+    // The dialog edits the STEM and keeps the extension; a bare "was called" once hid a
+    // `renamed.csv.csv` here.
+    await user.type(input, 'renamed');
     await user.click(within(dialog).getByRole('button', {name: /rename|save/i}));
-    await waitFor(() => expect(mock.moveObject).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(mock.moveObject).toHaveBeenCalledWith(
+        expect.objectContaining({sourceKey: 'alice/report.csv', destKey: 'alice/renamed.csv'})
+      )
+    );
   });
 
   it('renames a folder from its details panel — ENQUEUED, never a browser-side recursive move', async () => {

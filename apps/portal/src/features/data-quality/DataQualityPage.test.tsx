@@ -23,7 +23,10 @@ vi.mock('./dataQualityRuns.service', async (importActual) => ({
   getRunsIndex: vi.fn()
 }));
 
-vi.mock('../shared-spaces/sharedSpaces.service', () => ({readSharedConnectionsCache: vi.fn()}));
+vi.mock('../shared-spaces/sharedSpaces.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../shared-spaces/sharedSpaces.service')>()),
+  readSharedConnectionsCache: vi.fn()
+}));
 vi.mock('./dataQuality.service', () => ({enqueueQualityCheck: vi.fn()}));
 vi.mock('../file-browser/fileBrowser.service', async (importActual) => ({
   ...(await importActual<typeof fileBrowserService>()),

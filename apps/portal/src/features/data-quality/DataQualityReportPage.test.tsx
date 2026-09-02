@@ -29,7 +29,10 @@ vi.mock('./dataQualityReport.service', async (importActual) => ({
 }));
 
 vi.mock('./dataQuality.service', () => ({enqueueQualityCheck: vi.fn()}));
-vi.mock('../shared-spaces/sharedSpaces.service', () => ({readSharedConnectionsCache: vi.fn()}));
+vi.mock('../shared-spaces/sharedSpaces.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../shared-spaces/sharedSpaces.service')>()),
+  readSharedConnectionsCache: vi.fn()
+}));
 // Module scope, not inside the describe: vitest hoists `vi.mock` factories above
 // everything, so a spy the factory closes over has to be reachable from there.
 const navigateSpy = vi.fn();

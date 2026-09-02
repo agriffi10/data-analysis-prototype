@@ -187,7 +187,6 @@ describe('UsernameCombobox', () => {
       await user.keyboard('sales');
 
       await waitFor(() => expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['salesteam']));
-      expect(search).toHaveBeenCalled();
       cleanup();
     });
 

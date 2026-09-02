@@ -4,7 +4,10 @@ import {FEATURE_FLAG_DEFAULTS, FEATURE_FLAG_KEYS} from './featureFlagDefaults';
 import {apiRequest} from '../../lib/apiClient';
 import {apiFailure, documentBody, mockApi, type ApiMock} from '../../test/apiMock';
 
-vi.mock('../../lib/apiClient', () => ({apiRequest: vi.fn()}));
+vi.mock('../../lib/apiClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/apiClient')>()),
+  apiRequest: vi.fn()
+}));
 
 let api: ApiMock;
 

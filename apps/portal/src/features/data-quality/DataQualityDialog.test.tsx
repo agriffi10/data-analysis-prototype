@@ -70,8 +70,11 @@ describe('DataQualityDialog', () => {
       const {user, onClose, onStarted} = renderDialog();
       await user.click(screen.getByRole('button', {name: 'Start check'}));
 
-      await waitFor(() => expect(onClose).toHaveBeenCalled());
-      expect(onStarted).toHaveBeenCalled();
+      await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+      expect(onStarted).toHaveBeenCalledTimes(1);
+      // `onStarted` fires BEFORE `onClose`: the Files browser hangs its deselect off the first,
+      // and a close that came first would deselect nothing.
+      expect(onStarted.mock.invocationCallOrder[0]).toBeLessThan(onClose.mock.invocationCallOrder[0]);
       expect(mock.enqueueQualityCheck).toHaveBeenCalledTimes(1);
       const sent = mock.enqueueQualityCheck.mock.calls[0][0];
       expect(sent).toMatchObject({space, location: 'alice/sales/'});
@@ -94,7 +97,7 @@ describe('DataQualityDialog', () => {
       mock.enqueueQualityCheck.mockResolvedValue({success: false, error: {message: 'nope'}});
       const {user, onStarted, onClose} = renderDialog();
       await user.click(screen.getByRole('button', {name: 'Start check'}));
-      await waitFor(() => expect(onClose).toHaveBeenCalled());
+      await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
       expect(onStarted).not.toHaveBeenCalled();
     });
 
@@ -108,7 +111,7 @@ describe('DataQualityDialog', () => {
       const {user, onClose} = renderDialog();
       await user.click(screen.getByRole('button', {name: 'Start check'}));
 
-      await waitFor(() => expect(onClose).toHaveBeenCalled());
+      await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
       const alert = await screen.findByRole('alert');
       expect(alert).toHaveTextContent(/contact the administrator/i);
       expect(alert).not.toHaveTextContent(/SimpleQueueService/i);

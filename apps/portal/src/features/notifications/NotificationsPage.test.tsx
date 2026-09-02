@@ -16,7 +16,8 @@ import type {ReactElement, ReactNode} from 'react';
 import appSource from '../../App.tsx?raw';
 
 // ─── from NotificationsPage.test.tsx ───
-vi.mock('../data-quality/dataQualityReport.service', () => ({
+vi.mock('../data-quality/dataQualityReport.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../data-quality/dataQualityReport.service')>()),
   getQualityReport: vi.fn().mockResolvedValue({success: false, error: {message: 'not found'}})
 }));
 

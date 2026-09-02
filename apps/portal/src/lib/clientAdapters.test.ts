@@ -3,7 +3,10 @@ import {classifyDocument, quarantineDocument, readJsonDocument, writeJsonDocumen
 import {apiRequest} from './apiClient';
 import type {ServiceResult} from '../types/service.types';
 
-vi.mock('./apiClient', () => ({apiRequest: vi.fn()}));
+vi.mock('./apiClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./apiClient')>()),
+  apiRequest: vi.fn()
+}));
 
 describe('s3Json', () => {
   const send = vi.mocked(apiRequest);

@@ -7,7 +7,8 @@ import {useManageMembers} from './useManageMembers';
 import type {Connection} from '../connections/connection.types';
 
 // ─── from useAcknowledgeMembership.test.ts ───
-vi.mock('./sharedSpaces.service', () => ({
+vi.mock('./sharedSpaces.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./sharedSpaces.service')>()),
   enqueueSharedSpaceRequest: vi.fn()
 }));
 
@@ -98,11 +99,11 @@ describe('useManageMembers', () => {
     it('does not enqueue when not signed in or when the list is empty', async () => {
       const signedOut = renderHook(() => useManageMembers(null));
       const a = await signedOut.result.current.addMembers('s', ['bob']);
-      expect(a.success).toBe(false);
+      expect(a).toEqual({success: false, error: expect.objectContaining({code: 'NotAuthenticated'})});
 
       const signedIn = renderHook(() => useManageMembers('alice'));
       const b = await signedIn.result.current.addMembers('s', []);
-      expect(b.success).toBe(false);
+      expect(b).toEqual({success: false, error: expect.objectContaining({code: 'InvalidRequest'})});
       expect(mockEnqueue).not.toHaveBeenCalled();
     });
   });

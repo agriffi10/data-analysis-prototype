@@ -3,7 +3,10 @@ import {apiRequest} from '../../lib/apiClient';
 import {appendQueryHistory, getQueryHistory, updateQueryHistoryEntry} from './queryHistory.service';
 import type {QueryHistory, QueryHistoryEntry} from './query.types';
 
-vi.mock('../../lib/apiClient', () => ({apiRequest: vi.fn()}));
+vi.mock('../../lib/apiClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/apiClient')>()),
+  apiRequest: vi.fn()
+}));
 
 // ─── from queryHistory.service.test.ts ───
 

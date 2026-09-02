@@ -5,7 +5,10 @@ import {renderHookWithProviders} from '../../test/renderWithProviders';
 // Boundary-only mocks (react.md §21): the shared-connections cache read and the
 // token re-mint are the seam. Everything else — the hook's merge,
 // ordering, reconcile/refresh, polling window — runs for real.
-vi.mock('../shared-spaces/sharedSpaces.service', () => ({readSharedConnectionsCache: vi.fn()}));
+vi.mock('../shared-spaces/sharedSpaces.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../shared-spaces/sharedSpaces.service')>()),
+  readSharedConnectionsCache: vi.fn()
+}));
 vi.mock('../../lib/idToken', () => ({getIdToken: vi.fn()}));
 
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';

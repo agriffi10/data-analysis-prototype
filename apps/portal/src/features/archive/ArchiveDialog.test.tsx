@@ -83,7 +83,7 @@ describe('ArchiveDialog', () => {
     await user.keyboard('{Enter}');
 
     expect(onConfirm).not.toHaveBeenCalled();
-    expect(onCancel).toHaveBeenCalled();
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
   it('confirms only when the confirm is actually pressed', async () => {
@@ -112,7 +112,7 @@ describe('ArchiveDialog', () => {
 
     await user.keyboard('{Escape}');
 
-    expect(onCancel).toHaveBeenCalled();
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
   it('renders a submit failure inline and stays open', () => {

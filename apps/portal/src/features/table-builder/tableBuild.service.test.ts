@@ -5,7 +5,10 @@ import {enqueueTableBuild, enqueueTableRefresh, suggestTableName, isValidTableNa
 import type {TableBuildRequest} from './tableBuild.types';
 import type {TableRefreshRequest} from './tableRefresh.types';
 
-vi.mock('../../lib/apiClient', () => ({apiRequest: vi.fn()}));
+vi.mock('../../lib/apiClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/apiClient')>()),
+  apiRequest: vi.fn()
+}));
 
 /**
  * The create and refresh enqueues, now over the API.

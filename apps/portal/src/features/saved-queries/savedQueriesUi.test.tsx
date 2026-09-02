@@ -170,6 +170,6 @@ describe('SaveQueryDialog', () => {
   it('Cancel closes the dialog', () => {
     const {onCancel} = setup();
     fireEvent.click(screen.getByRole('button', {name: 'Cancel'}));
-    expect(onCancel).toHaveBeenCalled();
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 });

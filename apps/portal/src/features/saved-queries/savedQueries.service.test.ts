@@ -20,12 +20,16 @@ import type {QuerySpace} from '../catalog/catalog.types';
 // and every one of them lands on this same client.
 const {mockSend} = vi.hoisted(() => ({mockSend: vi.fn()}));
 
-vi.mock('../../lib/apiClient', () => ({apiRequest: mockSend}));
+vi.mock('../../lib/apiClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/apiClient')>()),
+  apiRequest: mockSend
+}));
 
 // `spaceFor` asks which bucket is the shared-space one, and that answer comes from the runtime
 // configuration document — absent in a unit test, which would resolve every space to `personal`
 // and make the shared-space assertions below agree with the wrong answer.
-vi.mock('../../lib/userSpace', () => ({
+vi.mock('../../lib/userSpace', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/userSpace')>()),
   userSpaceBucket: () => 'user-space',
   sharedSpaceBucket: () => 'shared-space'
 }));
