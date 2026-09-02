@@ -42,13 +42,18 @@ the role is *reused* by the API, which is the whole reason no permission policy 
 boundary needed no re-pointing, and the deployed value confirms it. The obligation was written from
 a premise that reads "the credential path is retired" as "the role is retired".
 
-**Not run, and not passed:** everything in the arc's §12 that needs a browser — the fresh sign-in
-against the narrowed lists above all — plus the three checks merge 2 was waived on. They are rows in
+**Not run, and not passed:** everything needing a browser — the fresh sign-in against the narrowed
+lists above all, and a real presigned upload and download, which is the only check that can detect
+the bucket-CORS narrowing. Those and the five checks merge 2 was waived on are rows in
 [`owed.md`](owed.md) → *SPEC-202*.
 
 ---
 
 ## Arc B's execution log — ported 2026-09-02 from the arc script's §15 (runs of 2026-08-30, 08-31 and 09-01)
+
+**Every `§` in this entry is the DELETED arc script's numbering**, not `e2e.md`'s — its §5 is the
+ported surface, where `e2e.md`'s §5 is cleanup. Read a section number here as a pointer into
+`git show 95fddf14:docs/testing/arc-b-api-container-e2e.md`.
 
 **Ported, not re-run.** These are the arc's own dated results, moved here verbatim in substance when
 `arc-b-api-container-e2e.md` was deleted at the arc's close. They were observed by the sessions that

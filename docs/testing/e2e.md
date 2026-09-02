@@ -50,7 +50,28 @@ session.**
 
 ## 1. Instruments
 
-Install after **every full page load**. Client-side nav (nav-tab clicks) preserves them; a
+**The shell variables every `curl` step below uses.** Read them once, at the start, from state —
+`tofu -chdir=infra init -backend-config=backend.conf` first, or every one comes back empty:
+
+```bash
+APP_URL=$(tofu -chdir=infra output -raw spa_origin)
+API_ORIGIN=$(tofu -chdir=infra output -raw api_origin)
+USER_BUCKET=$(tofu -chdir=infra output -raw s3_user_space_bucket_name)
+SHARED_BUCKET=$(tofu -chdir=infra output -raw shared_space_bucket_name)
+HOSTED_UI=$(tofu -chdir=infra output -raw cognito_domain)
+REGION=$(tofu -chdir=infra output -raw aws_region)
+for v in APP_URL API_ORIGIN USER_BUCKET SHARED_BUCKET HOSTED_UI REGION; do
+  [ -n "${!v}" ] || echo "EMPTY: $v — every check reading it will pass vacuously"
+done
+```
+
+**Check the emptiness, do not assume it.** An uninitialised backend makes `tofu output -raw` yield
+the empty string through `$( )`, and §4.18's exclusion filter then reads
+`amazonaws.com -cognito-idp..amazonaws.com …`, which excludes more than intended and reports **0** —
+a wrong conclusion rather than an error. Names are worth reading off `infra/outputs.tf` rather than
+guessing: the user-space bucket's is `s3_user_space_bucket_name`, unlike its siblings.
+
+Install the page instruments after **every full page load**. Client-side nav (nav-tab clicks) preserves them; a
 `navigate` does not.
 
 ```js
@@ -212,6 +233,10 @@ Phase E   §5 cleanup and write-up
 Without the archive approval, Phases B and D drop out and Phase C is the whole session. Within
 Phase C: read-only surfaces → writes → refusals → destructive. Deleting a shared space goes last,
 because it takes its database with it.
+
+**§4.18 brackets Phase C rather than ending it.** Its network-surface count needs one window holding
+a listing, an upload, a download, a query **and** an enqueue — §4.2, §4.3 and §4.9 — so install its
+recorder before them and read the totals after. Its `curl` rows stand alone and can run any time.
 
 ---
 
@@ -942,19 +967,6 @@ its per-spec sections and their dated results are in git history and in [`sessio
 distribution and the Identity Pool are destroyed. Run this section on any change to the API, the
 image, the CSP, the origins or the credential path — none of it is observable offline.
 
-**The variables this section uses**, read once per run (every one is a root output — check the name against
-`infra/outputs.tf` rather than guessing it: the user-space bucket's is `s3_user_space_bucket_name`,
-not the `user_space_` spelling the others use):
-
-```bash
-APP_URL=$(tofu -chdir=infra output -raw spa_origin)
-API_ORIGIN=$(tofu -chdir=infra output -raw api_origin)
-USER_BUCKET=$(tofu -chdir=infra output -raw s3_user_space_bucket_name)
-SHARED_BUCKET=$(tofu -chdir=infra output -raw shared_space_bucket_name)
-HOSTED_UI=$(tofu -chdir=infra output -raw cognito_domain)
-REGION=$(tofu -chdir=infra output -raw aws_region)
-```
-
 **Classify every other arc's owed checks against this one before trusting them.** Anything asserting
 a URL, a CSP, a browser AWS call or a bucket-CORS behaviour was **invalidated by the origin change
 and must be re-run**; anything asserting a Lambda, a state machine, an IAM simulation or a `logs/`
@@ -983,7 +995,7 @@ console on `$APP_URL`:
 
 ```js
 window.__csp=[];addEventListener('securitypolicyviolation',e=>window.__csp.push(
-  {d:e.effectiveDirective,u:e.blockedURI,disp:e.disposition}));
+  {effectiveDirective:e.effectiveDirective,blockedURI:e.blockedURI,disposition:e.disposition}));
 fetch('https://athena.us-east-1.amazonaws.com',{mode:'no-cors'}).catch(()=>{});
 fetch('/config.json').then(r=>console.log('control',r.status));   // must be 200 in the SAME run
 setTimeout(()=>console.log(window.__csp),500);
@@ -998,19 +1010,47 @@ finding.
 
 **The load-bearing negative: the browser makes no AWS call other than presigned S3 bytes.** Record a
 window that includes a file listing, an upload, a download, a query and **one enqueue** (an `sqs.`
-row counted without an enqueue in the window is vacuous), then filter the network panel by host:
+row counted without an enqueue in the window is vacuous).
+
+**§1's instrument cannot settle this one** — it records `/v1/` calls, `x-amz-target` calls and
+non-`GET` S3 calls, and drops every plain `GET` to an undeclared host, which is exactly the class
+this check exists to catch. Install this recorder instead, which counts **every** request by host:
+
+```js
+window.__hosts={}; const _f=window.fetch;
+const bump=(u,m)=>{try{const h=new URL(u,location.origin).hostname;
+  (window.__hosts[h] ||= []).push(m)}catch(e){}};
+window.fetch=function(...a){bump(a[0] instanceof Request?a[0].url:a[0],
+  (a[0] instanceof Request?a[0].method:(a[1]||{}).method)||'GET'); return _f.apply(this,a)};
+const _o=XMLHttpRequest.prototype.open;
+XMLHttpRequest.prototype.open=function(m,u){bump(u,m); return _o.apply(this,arguments)};
+// at the end of the window:
+Object.entries(window.__hosts).map(([h,ms])=>[h,ms.length]).sort((a,b)=>b[1]-a[1]);
+```
 
 | Host | Expect |
 |---|---|
-| `$API_ORIGIN` | many |
-| `$USER_BUCKET.s3.$REGION.amazonaws.com` | the presigned bytes, and only those |
+| `$API_ORIGIN`'s host | **> 20** over a window this wide |
+| `$USER_BUCKET.s3.$REGION.amazonaws.com` | **≥ 2, at least one `GET` and one `PUT`** — the presigned bytes, and only those |
 | `cognito-idp.$REGION.amazonaws.com`, `$HOSTED_UI` | any — sign-in and refresh are not failures |
 | `athena.`, `glue.`, `sqs.`, `cognito-identity.` | **0** each |
-| `amazonaws.com -cognito-idp.$REGION.amazonaws.com -$USER_BUCKET.s3.$REGION.amazonaws.com -$SHARED_BUCKET.s3.$REGION.amazonaws.com` | **0** — the catch-all, given literally because it is the only row that can catch a host nobody listed |
+| **anything else ending `amazonaws.com`** | **0** — the catch-all, and the only row that can catch a host nobody listed |
 
-Count **in the page** (wrap `fetch` and `XMLHttpRequest`), not from the extension's network reader,
-which has been observed to see 1 of 13 requests — every zero-count check passes vacuously against a
-reader that drops requests.
+Record the numbers, not a tick. The two positive controls are what make the zeros mean anything: a
+window with no enqueue and no download in it produces the same zeros as a perfect one.
+
+**Cross-check in DevTools**, whose filter box is the other way to read the same window. Paste the
+catch-all as one line — a `-`-prefixed term is an exclusion:
+
+```
+amazonaws.com -cognito-idp.$REGION.amazonaws.com -$USER_BUCKET.s3.$REGION.amazonaws.com -$SHARED_BUCKET.s3.$REGION.amazonaws.com
+```
+
+The Hosted UI host is deliberately **not** excluded: it is `*.auth.$REGION.amazoncognito.com` and
+contains no `amazonaws.com` substring, so it never matches. `$API_ORIGIN` is a custom domain and
+does not match either. Do not read a zero from the browser extension's network reader — it has been
+observed to see 1 of 13 requests, and every zero-count check passes vacuously against a reader that
+drops requests.
 
 **Each S3 request must be presigned, not header-signed** — a header-signed request is the browser
 holding credentials, and at the host level the two are identical. Expect the signature in the

@@ -1786,7 +1786,7 @@ per (side × operation), enumerated against the real constants, and read that fi
 >
 > **The open questions are settled:** 1 and 2 answered in the re-scope below, 3 **void** (the arc
 > never replaced `lib/returnPath.ts`), 4 answered by SPEC-196. **What is owed** is not in this entry
-> — [`docs/testing/owed.md`](../testing/owed.md) carries it, including the four checks merge 2 was
+> — [`docs/testing/owed.md`](../testing/owed.md) carries it, including the five checks merge 2 was
 > taken with **waived rather than passed**, of which the fresh sign-in from a clean profile is the one
 > that gates the merge itself.
 

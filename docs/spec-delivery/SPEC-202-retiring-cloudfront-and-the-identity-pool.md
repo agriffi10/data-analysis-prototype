@@ -39,12 +39,12 @@ are in [`sessions.md`](../testing/sessions.md); what did not run is in
 
 ### Deliberate deviations
 
-- **Merge 2 was taken with four checks waived, not passed** (user decision, 2026-09-01): the fresh
-  sign-in from a clean profile, the deep link and its two clocks, the archive plane's row, and
-  400px. The first is the one that gates merge 2 specifically — it exercises the narrowed Cognito
-  lists, and a broken fresh sign-in is invisible to every signed-in session. The arc's §12 re-runs
-  it *after* the irreversible step instead of before it; that is the risk that was accepted, and it
-  is still owed.
+- **Merge 2 was taken with five checks waived, not passed** (user decision, 2026-09-01): the fresh
+  sign-in from a clean profile, the deep link and its two clocks, the archive plane's row, 400px,
+  and the first half of membership propagation. The first is the one that gates merge 2 specifically — it exercises the narrowed Cognito
+  lists, and a broken fresh sign-in is invisible to every signed-in session. It is re-run *after* the
+  irreversible step instead of before it; that is the risk that was accepted, and the live
+  instruction for it is [`owed.md`](../testing/owed.md) → *SPEC-202*, not the deleted script.
 - **The Safari half of the responsive check was retired at its premise**, not left owed: the
   audience has no Safari (user decision, 2026-09-01).
 - **FR-008 AC4 was corrected rather than the deployment.** It asked for `Server` to be absent;

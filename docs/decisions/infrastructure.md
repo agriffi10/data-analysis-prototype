@@ -571,9 +571,11 @@ neither check (cloudsplaining strips it first), so `cognito-idp:CreateUserPool` 
 Formation account actions were never co-causes. **What raises them is an action that could have been
 scoped and was not.** The list is empty now and every IAM finding on the plan blocks.
 
-**The waiver is part of the record.** Merge 2 was taken with four checks open — a fresh sign-in from
-a clean profile, the deep-link return path, the archive plane's row and 400px — recorded as *waived,
-not passed*. The one that gates that merge specifically is the fresh sign-in, because merge 2
-narrows the Cognito lists and **a broken fresh sign-in is invisible to every signed-in session**; the
-arc's own §12 re-runs it after the irreversible step instead of before it, which is the risk that was
-accepted. Whether it has been run is [`owed.md`](../testing/owed.md)'s to say, not this entry's.
+**The waiver is part of the record.** Merge 2 was taken with five checks open — a fresh sign-in from
+a clean profile, the deep-link return path, the archive plane's row, 400px, and the first half of
+membership propagation — recorded as *waived, not passed*. The one that gates that merge
+specifically is the fresh sign-in, because merge 2 narrows the Cognito lists and **a broken fresh
+sign-in is invisible to every signed-in session**; the re-run happens after the irreversible step
+instead of before it, which is the risk that was accepted. Whether it has been run is
+[`owed.md`](../testing/owed.md)'s to say, not this entry's — and that ledger, not the deleted arc
+script, is where the instruction lives.

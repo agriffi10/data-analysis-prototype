@@ -181,6 +181,9 @@ was added for a behaviour whose live verification is still owed. Both halves are
 ## Owed
 
 `arc-b-api-container-e2e.md` **§F** is written and **not run**; every item is a row in `owed.md`.
+
+> **Read this beside the ledger, not on its own (2026-09-02).** The arc script was deleted when Arc B closed; its durable checks are `docs/testing/e2e.md` §4.18 and its results are in `docs/testing/sessions.md`. **[`owed.md`](../testing/owed.md) is authoritative for what has since been run** — several of the items below have been discharged, and this doc is a record of the day it shipped rather than a live status.
+
 The isolation proof and a live 403 pass to **SPEC-198** — this route's grant is unconditioned and its
 bytes are identical for every caller, so it cannot demonstrate isolation and does not claim to.
 `setUnauthenticatedHandler` ships with no handler registered, deliberately.

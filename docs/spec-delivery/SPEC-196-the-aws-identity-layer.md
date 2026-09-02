@@ -79,7 +79,10 @@ margin rather than inheriting a silently wrong one. All four are in `owed.md` wi
 ## Verification: written, not run
 
 `arc-b-api-container-e2e.md` **§E** is complete and runnable. **None of it has been run** — Arc B's
-live verification happens once, at SPEC-202. Every item is a row in `owed.md`. Two mechanisms were
+live verification happens once, at SPEC-202.
+
+> **Read this beside the ledger, not on its own (2026-09-02).** The arc script was deleted when Arc B closed; its durable checks are `docs/testing/e2e.md` §4.18 and its results are in `docs/testing/sessions.md`. **[`owed.md`](../testing/owed.md) is authoritative for what has since been run** — several of the items below have been discharged, and this doc is a record of the day it shipped rather than a live status.
+ Every item is a row in `owed.md`. Two mechanisms were
 verified **by reading** and are recorded as mechanism only, so a later reader can tell the proof
 from a coincidence.
 
