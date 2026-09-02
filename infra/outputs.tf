@@ -200,3 +200,56 @@ output "lambda_image_repository_url" {
   description = "The Lambda image's registry URI. CI pushes a commit-sha tag here; nothing runs it yet."
   value       = module.lambda_image.repository_url
 }
+
+# ── The fleet's own declaration of its membership ─────────────────────────────
+# WHAT THIS REPLACES. `.github/lambda-functions.json` is a hand-maintained list of every Lambda,
+# and CI shards over it today. Terraform already knows, so the list is a second copy that can only
+# ever drift; this is the first copy, read directly. The table is retired against this output, not
+# before it — while both exist, `lambdas/test_fleet_derivation.py` holds them to each other.
+#
+# SHORT NAMES, NOT DEPLOYED NAMES, and the prefix is stripped here rather than in the shell. Every
+# consumer — `point-lambda.sh`, the probe table, the `lambdas/<name>/` source directory — speaks
+# the short name, and CI rebuilds the deployed one as `${PROJECT_NAME}-${ENVIRONMENT}-${NAME}`.
+#
+# THE PRECONDITION IS THE WHOLE REASON THIS IS SAFE. `trimprefix` returns the string UNCHANGED when
+# the prefix does not match, silently and with no error — so a function named off-convention would
+# emit a full name here, CI would prepend the prefix again, and the deploy would wait five minutes
+# for `dat-prod-dat-prod-thing` before failing on something that names neither cause. Refusing at
+# plan time names it exactly once.
+locals {
+  lambda_deployed_names = concat(
+    module.api.function_names,
+    module.archive.function_names,
+    module.auth.function_names,
+    module.control_plane_dlq_drain.function_names,
+    module.data_quality.function_names,
+    module.feedback.function_names,
+    module.file_ops.function_names,
+    module.file_send.function_names,
+    module.notifications.function_names,
+    module.observability.function_names,
+    module.shared_spaces.function_names,
+    module.table_builder.function_names,
+    module.table_share.function_names,
+    module.user_directory.function_names,
+  )
+
+  lambda_name_prefix = "${var.project_name}-${var.environment}-"
+}
+
+output "lambda_function_names" {
+  description = "Every Lambda in the fleet, by short name — the fleet declaring its own membership, derived from the module calls that deploy it. Deploy Lambdas reconciles what it pointed against this."
+  value       = sort([for name in local.lambda_deployed_names : trimprefix(name, local.lambda_name_prefix)])
+
+  precondition {
+    condition = alltrue([
+      for name in local.lambda_deployed_names : startswith(name, local.lambda_name_prefix)
+    ])
+    error_message = "Every Lambda's deployed name must start with ${var.project_name}-${var.environment}- — CI rebuilds it by prepending exactly that, and trimprefix returns a non-matching name unchanged rather than failing. Off-convention names: ${join(", ", [for name in local.lambda_deployed_names : name if !startswith(name, local.lambda_name_prefix)])}."
+  }
+
+  precondition {
+    condition     = length(distinct(local.lambda_deployed_names)) == length(local.lambda_deployed_names)
+    error_message = "Two modules declare the same Lambda name. A set comparison downstream would collapse the duplicate and agree with a fleet one function short."
+  }
+}

@@ -51,6 +51,7 @@ NETWORK_TOOLS = ("curl", "wget", "dnf", "yum", "microdnf", "apt-get", "apk", "gi
 
 sys.path.insert(0, str(LAMBDAS / "docker"))
 import assemble
+import fleet
 
 
 def _table() -> list[dict]:
@@ -181,12 +182,11 @@ def test_the_function_definition_matches_the_deploy_matrix() -> None:
     Raises:
       AssertionError: When the two derivations differ.
     """
-    table = json.loads((ROOT / ".github" / "lambda-functions.json").read_text())
-    declared = {entry["name"] for entry in table}
+    declared = set(fleet.function_names(ROOT))
     found = set(assemble.function_directories(LAMBDAS))
     assert found == declared, (
-        f"the assembler finds {len(found)} function directories and the deploy table declares "
-        f"{len(declared)}. Only in the assembler: {sorted(found - declared)}. Only in the table: "
+        f"the assembler finds {len(found)} function directories and Terraform declares "
+        f"{len(declared)}. Only in the assembler: {sorted(found - declared)}. Only in Terraform: "
         f"{sorted(declared - found)}."
     )
 

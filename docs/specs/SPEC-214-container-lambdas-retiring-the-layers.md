@@ -1,7 +1,7 @@
 # Spec: Container Lambdas — Retiring the Layers and the Deploy Tables
 
 **ID:** SPEC-214
-**Status:** Draft
+**Status:** In Progress
 **Last Updated:** 2026-08-28
 **Depends On:** SPEC-212 (the image and its import smoke test — the replacement guard), SPEC-213 (every function already running the image)
 
@@ -48,6 +48,17 @@ because a review samples and the risk here is absence.
 
 - **Any change to the image, the module or a function.** If this spec finds it needs one, that is a
   finding to raise — it means SPEC-212's coverage was not total and the deletion is premature.
+  **Amended during the build, and the exemption is narrower than it first read.** The build found
+  that `lambdas/docker/assemble.py` reads `.github/lambda-layers.json` to lay out `/opt/python`, that
+  `lambdas/Dockerfile` copies the table in for it, and that `lambda-image-matrix.sh` derives its
+  expectation from it — three consumers this spec named nowhere. So deleting the table is impossible
+  without touching the assembler, and the raised finding resolves the other way: the image's
+  **content** does not change by one byte — the same seven packages and ten flat modules land on
+  `/opt/python` — and what moves is where the assembler reads its input. That is the identical change
+  FR-002 already mandates for `test_image_layout.py` ("it is not the image that changes, it is where
+  the test reads its expectation"); FR-002 simply did not notice that the assembler reads the same
+  file. `assemble.shared_layout()`, the Dockerfile's `COPY` and the matrix's expectation are
+  therefore **in scope**. Nothing else about the image is.
 - **Merging the domain layers' source directories.** `cpcommon` owns the algorithm and a domain
   layer owns its wording; that separation is a code decision, not a packaging one, and the image
   copying them to one directory does not change it. `docs/decisions/` says do **not** merge them,
@@ -106,8 +117,20 @@ to say which functions exist, and Terraform already knows.
 
 - [ ] The root module gains one output listing every function name, built from the `docker-lambda`
       module calls.
-- [ ] `deploy-lambdas.yml` reads that output and shards over it; `.github/lambda-functions.json` is
-      deleted.
+- [ ] ~~`deploy-lambdas.yml` reads that output and shards over it~~; `.github/lambda-functions.json`
+      is deleted. **Amended during the build: it shards over the commit's own static derivation of
+      the same Terraform sources, and the output is read by the reconciliation instead.** A
+      `tofu output` is **last-applied state**, and `deploy-infra.yml` and `deploy-lambdas.yml` fire on
+      the same push with no ordering between them — so a commit that adds a function would shard over
+      state that does not yet contain it, never point it, and pass the `planned == pointed`
+      reconciliation over it. The function would then run whatever image its module created it with,
+      working perfectly on the wrong artefact, which is the un-pointed-function trap this whole arc
+      exists to close. The commit's own declaration is what the deleted table provided, so the
+      sharding reads that; the output is read by the `pointed` job, comparing what was deployed
+      against what is applied, which is a stronger check than the marshalling-only one it replaces.
+      Marked in place rather than rewritten, so a reader arriving from the old claim sees the reversal.
+- [ ] The root output is still added and still read by CI — no hand-maintained function list survives
+      in `.github/`, and Terraform remains the single source of the fleet's membership.
 - [ ] If SPEC-215 has landed, this workflow reads the output through **its** resolver rather than
       writing a second `tofu init` + `tofu output -json` step. It still joins SPEC-215 FR-001's
       version agreement, because that predicate is "declares an OpenTofu version" and not "runs
@@ -144,7 +167,13 @@ to say which functions exist, and Terraform already knows.
       memory and a cross-site review found nineteen further sites — most of them a *second* stale
       paragraph in a file whose first had already been corrected, which is the signature of a sweep
       that fixed what someone remembered. Run
-      `grep -rniE 'placeholder|attach|layer|zip|artifacts bucket|lambda-layers' docs/ */info/ */README.md .github/ README.md CLAIMS.md 2>/dev/null`
+      `grep -rniE 'placeholder|attach|layer|zip|artifacts bucket|lambda-layers' docs/ lambdas/info/ infra/info/ apps/portal/info/ infra/modules/*/README.md .github/ README.md 2>/dev/null`
+      — **corrected during the build.** As first written the command had two paths that match nothing
+      in this repository (`*/README.md`, and `CLAIMS.md`, which does not exist) and `*/info/` reached
+      only two of the three `info/` trees. It therefore never saw `infra/modules/*/README.md`, **18 of
+      which carry a hit**, nor `apps/portal/info/`. A criterion whose command cannot reach the files
+      the criterion separately requires is a false clean, which is the exact failure this FR was
+      written against.
       and dispose of **every** hit as still-true, false-and-fixed, or false-and-marked-as-history.
       A hit left undisposed fails this criterion.
 

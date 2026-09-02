@@ -12,3 +12,8 @@ output "notifications_writer_role_arn" {
   description = "ARN of the privileged notifications-writer role (the single writer of every user's notifications.json)."
   value       = aws_iam_role.writer.arn
 }
+
+output "function_names" {
+  description = "Every Lambda this module deploys, by deployed name. Aggregated at the root into `lambda_function_names`; the reasoning lives there rather than in fourteen copies of it."
+  value       = [module.writer.function_name]
+}

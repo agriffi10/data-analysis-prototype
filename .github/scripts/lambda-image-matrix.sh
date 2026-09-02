@@ -110,8 +110,10 @@ echo "Lambda image matrix: ${IMAGE}"
 # `lambdas/test_deploy_matrix.py` is what keeps the table and the directories honest with each
 # other; this script leans on that rather than repeating it.
 #
-# SPEC-214 deletes that table, and when it does this expectation repoints at whatever replaces it
-# — it does not fall back to the AST sweep, which is the version that could not see the mutation.
+# THAT REPOINT HAS NOW HAPPENED, and it honoured the instruction above. The function count comes
+# from `lambdas/fleet.py`, which reads the fleet out of the Terraform that DECLARES it — a
+# derivation maintained separately from the tree, exactly as the table was. It is deliberately NOT
+# `tofu output`: this job runs on pull requests with no AWS credentials at all.
 EXPECTED=$(python3 - "$REPO" <<'PY'
 import json, pathlib, sys
 
@@ -120,14 +122,15 @@ table = json.loads((repo / ".github" / "lambda-layers.json").read_text())
 packages = sorted(pathlib.Path(e["package"]).name for e in table if e.get("package"))
 flat = sorted(m for e in table if e.get("sourceDir") for m in e.get("modules", []))
 
-functions = json.loads((repo / ".github" / "lambda-functions.json").read_text())
-names = {entry["name"] for entry in functions}
+sys.path.insert(0, str(repo / "lambdas"))
+import fleet
 
-print(json.dumps({"packages": packages, "flat": flat, "functions": len(names)}))
+print(json.dumps({"packages": packages, "flat": flat, "functions": len(fleet.function_names(repo))}))
 PY
 )
 if [ -z "$EXPECTED" ]; then
-  echo "  FAIL could not read the repository's layer table or function directories" >&2
+  echo "  FAIL could not read the repository's layer table, or could not derive the fleet from" >&2
+  echo "       its Terraform — a refusal there is deliberate and is never an empty expectation." >&2
   exit 1
 fi
 EXPECTED_PACKAGES=$(jq -r '.packages | join(" ")' <<<"$EXPECTED")

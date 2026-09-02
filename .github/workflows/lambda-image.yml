@@ -24,9 +24,18 @@ on:
       # even when no Python file moves. The source-side guard in the pytest job would catch a
       # divergence, but the image-side set-equality check would not run at all without this line.
       - '.github/lambda-layers.json'
-      # The function table is where the matrix's EXPECTED handler count comes from — deliberately
-      # a different derivation from the image's own, so that renaming a handler is visible.
-      - '.github/lambda-functions.json'
+      # The matrix's EXPECTED handler count comes from the Terraform that DECLARES the fleet —
+      # deliberately a different derivation from the image's own, so renaming a handler stays
+      # visible. `infra/**` is here for that reason and is the surprising one: a plane gaining a
+      # verb changes the expected count without touching a single Python file, and a gate that
+      # does not run for it is a gate that cannot see the change it exists to check. Scoped to
+      # `modules/` because that is what the derivation reads — the root's own files cannot change
+      # how many functions the modules declare.
+      #
+      # The reader itself, `lambdas/fleet.py`, needs no line — `lambdas/**` above already covers
+      # it. `.github/lambda-functions.json` no longer does either: this workflow's one job reads
+      # the derivation now, and the table feeds nothing it does.
+      - 'infra/modules/**'
       - '.github/scripts/lambda-image-matrix.sh'
       - '.github/scripts/lambda-image-sweep.py'
       - '.github/workflows/lambda-image.yml'
