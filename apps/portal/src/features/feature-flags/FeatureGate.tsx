@@ -24,7 +24,7 @@ export type FeatureGateProps = {
  *
  * @example
  * <FeatureGate flag="dataQuality">
- *   <Button onClick={check}>Check quality</Button>
+ *   <Button onClick={check}>Check data quality</Button>
  * </FeatureGate>
  */
 export function FeatureGate({flag, children}: FeatureGateProps) {

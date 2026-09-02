@@ -55,11 +55,12 @@ export const DEFAULT_EDITOR_FRACTION = 0.5;
 export const EDITOR_SPLIT_KEY_STEP = 0.05;
 
 /**
- * The bounds an UNMEASURED column reports. The pixel floors below are the real
+ * The lowest split an UNMEASURED column reports. The pixel floors below are the real
  * clamps, but they only exist once the column has been measured, and a split has
  * to be a usable number in (0, 1) before then — a stored 0 or 1 reads as invalid.
  */
 export const MIN_EDITOR_FRACTION = 0.05;
+/** The highest split an unmeasured column reports; the reasoning is on `MIN_EDITOR_FRACTION`. */
 export const MAX_EDITOR_FRACTION = 0.95;
 
 /**
@@ -73,11 +74,12 @@ export const MAX_EDITOR_FRACTION = 0.95;
 export const EDITOR_SPLIT_DIVIDER_HEIGHT = 28;
 
 /**
- * Minimum-height floors so a drag never collapses a pane to an unusable size.
- * When a short viewport can't honor both, the editor floor wins.
+ * The editor pane's floor in px, so a drag never collapses it to an unusable size.
+ * When a short viewport can't honor both floors, this one wins.
  */
-export const MIN_EDITOR_HEIGHT = 96; // px — editor floor
-export const MIN_RESULTS_HEIGHT = 120; // px — results-region floor
+export const MIN_EDITOR_HEIGHT = 96;
+/** The results region's floor in px; yields to `MIN_EDITOR_HEIGHT` on a short viewport. */
+export const MIN_RESULTS_HEIGHT = 120;
 
 /** sessionStorage key prefix for the per-user split (full key: prefix + username). */
 export const QUERY_EDITOR_SPLIT_STORAGE_PREFIX = 's3portal.query.editorSplit.';

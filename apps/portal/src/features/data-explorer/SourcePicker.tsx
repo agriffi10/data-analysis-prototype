@@ -133,7 +133,7 @@ export function SourcePicker({spaces, username, onChoose, onCreateTable, onCance
                 <button
                   type="button"
                   onClick={() => onChoose({spaceId: selected.id, database: database as string, table: table.name})}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-text hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-text hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent">
                   <span className="min-w-0 flex-1 truncate">{table.name}</span>
                   {table.tableType === 'VIRTUAL_VIEW' && (
                     <span className="flex-none rounded border border-border px-1.5 py-0.5 text-xs text-text-3">

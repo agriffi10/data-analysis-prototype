@@ -114,7 +114,7 @@ function FileBrowserContent({
   const access = useSharedSpaceAccessRecovery({error, spaceKind, refreshListing});
 
   // Two CROSS-FEATURE entry points live on this page — "Create table" is a
-  // Query capability and "Check quality" is a Data Quality one. Neither belongs to the file
+  // Query capability and "Check data quality" is a Data Quality one. Neither belongs to the file
   // browser, which is exactly why a per-component gating pass misses them.
   const queryEnabled = useFeature('query');
   const dataQualityEnabled = useFeature('dataQuality');
@@ -573,7 +573,7 @@ function FileBrowserContent({
           // cannot be merged. Copy, Move and Delete take it only for a selection that would
           // REACH the plane — refusing a single-file delete the plane never sees would take away
           // something the user could do before. Archive takes it unconditionally (above), and
-          // *Check quality* and *Send to…* not at all: they read, and this lock does not cover
+          // *Check data quality* and *Send to…* not at all: they read, and this lock does not cover
           // them.
           spaceBusyReason={dialogs.spaceBusyReasonFor(selectedItems)}
           // The service refuses these too, but only after the user has read the

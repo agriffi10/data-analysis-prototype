@@ -118,7 +118,8 @@ export function QueryTabStrip({
                 // measured, and invisible below about 8x. A step up fixes that and puts the tab
                 // 3.5px out of line with the +, the bar buttons and the result tabs.
                 'inline-flex h-7 flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border pl-3 text-sm',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                // Inset: the tablist scrolls horizontally, so an outer ring is clipped on three sides.
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent',
                 // The tight right padding assumes the ✕ box sits at the end; with no ✕ the
                 // tab pads symmetrically instead of reserving a dead 24px slot.
                 solo ? 'pr-3' : 'pr-1',

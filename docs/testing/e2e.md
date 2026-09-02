@@ -308,7 +308,7 @@ for either**, other than presigned S3 bytes on an upload or a download.
 | Do | Expect |
 |---|---|
 | Move a folder, then navigate away and back | The in-progress card is still there — it lives at the app shell, not on the page. |
-| While it runs, try Copy / Move / Delete / **Archive** in that space | All four `aria-disabled` with a reason naming the in-progress list. **Check quality** and **Send to…** stay enabled — they read, and this lock does not cover them. |
+| While it runs, try Copy / Move / Delete / **Archive** in that space | All four `aria-disabled` with a reason naming the in-progress list. **Check data quality** and **Send to…** stay enabled — they read, and this lock does not cover them. |
 | Wait for the notification | The card reads *Finished*; the space accepts operations again. |
 | Press **Refresh this folder** (or leave the tab and come back) | The listing now matches. It does **not** update on the notification — that is deliberate, and §4.12's poll is why. |
 | Dismiss a card by hand | It goes, and the space is free again immediately. |
@@ -843,7 +843,7 @@ is not a pass.
    | Topbar | **Files** and **Connections** only — Query and Data quality *absent*, not greyed |
    | `/query` typed in | The **"Query isn't available"** page with a working **Go to Files** link — **not** "Page not found" |
    | Files, in a folder | **No "Create table"** on the toolbar |
-   | Files, one item selected | **No "Check quality"** in the selection toolbar |
+   | Files, one item selected | **No "Check data quality"** in the selection toolbar |
    | `/help` | Neither the **Query** nor the **Tables** section; in **Files**, *"Check data quality"* and *"Find a past quality check"* are gone while *"Upload files"* remains |
    | Hamburger at 400px | Files, Connections, Notifications, Help — and not the two hidden tabs. A tab hidden in the topbar and present here is the feature still one tap away. |
 
