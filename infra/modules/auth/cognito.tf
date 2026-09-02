@@ -20,8 +20,8 @@ resource "aws_cognito_user_pool" "portal" {
   # pre_sign_up — enforce the username rule server-side
   # post_confirmation — provision the user's Glue database + LF grant
   lambda_config {
-    pre_sign_up       = aws_lambda_function.pre_signup.arn
-    post_confirmation = aws_lambda_function.post_confirmation.arn
+    pre_sign_up       = module.pre_signup.function_arn
+    post_confirmation = module.post_confirmation.function_arn
   }
 
   # Email verification uses a 6-digit code (not a link), so the user can enter it

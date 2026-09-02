@@ -59,17 +59,10 @@ locals {
     suffix => "${var.project_name}-${var.environment}-table-share-${suffix}"
   }
 
-  # Constructed function ARNs (known at plan time) — fed to the SFN role's
-  # InvokeFunction list and the Step Function tasks.
-  table_share_function_arns = [
-    for suffix, name in local.table_share_function_names :
-    "arn:aws:lambda:${var.aws_region}:${var.account_id}:function:${name}"
-  ]
-
-  table_share_log_group_names = {
-    for suffix, name in local.table_share_function_names :
-    suffix => "/aws/lambda/${name}"
-  }
+  # From the module's outputs, never rebuilt from a template. The point is not tidiness: an ARN
+  # a policy CONSTRUCTS stays known while the function it names is being replaced, so the policy
+  # plans no diff at all — and this list is the SFN role's whole InvokeFunction grant.
+  table_share_function_arns = [for function in module.functions : function.function_arn]
 
   # The shared role writes to EVERY verb's log group, so one wildcard statement covers them.
   table_share_log_group_wildcard_arn = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/lambda/${var.project_name}-${var.environment}-table-share-*"

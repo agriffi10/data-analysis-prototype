@@ -17,19 +17,19 @@ resource "aws_sfn_state_machine" "file_ops" {
   type     = "STANDARD"
 
   definition = templatefile("${path.module}/state-machine.asl.json.tftpl", {
-    validate_authorize_function_arn = aws_lambda_function.functions["validate-authorize"].arn
-    acquire_lock_function_arn       = aws_lambda_function.functions["acquire-lock"].arn
-    release_lock_function_arn       = aws_lambda_function.functions["release-lock"].arn
-    inspect_source_function_arn     = aws_lambda_function.functions["inspect-source"].arn
-    check_destinations_function_arn = aws_lambda_function.functions["check-destinations"].arn
-    notify_failure_function_arn     = aws_lambda_function.functions["notify-failure"].arn
+    validate_authorize_function_arn = module.functions["validate-authorize"].function_arn
+    acquire_lock_function_arn       = module.functions["acquire-lock"].function_arn
+    release_lock_function_arn       = module.functions["release-lock"].function_arn
+    inspect_source_function_arn     = module.functions["inspect-source"].function_arn
+    check_destinations_function_arn = module.functions["check-destinations"].function_arn
+    notify_failure_function_arn     = module.functions["notify-failure"].function_arn
 
-    build_transfer_manifest_function_arn  = aws_lambda_function.functions["build-transfer-manifest"].arn
-    copy_objects_function_arn             = aws_lambda_function.functions["copy-objects"].arn
-    collect_transfer_results_function_arn = aws_lambda_function.functions["collect-transfer-results"].arn
-    delete_source_function_arn            = aws_lambda_function.functions["delete-source"].arn
-    finalise_outcomes_function_arn        = aws_lambda_function.functions["finalise-outcomes"].arn
-    notify_function_arn                   = aws_lambda_function.functions["notify"].arn
+    build_transfer_manifest_function_arn  = module.functions["build-transfer-manifest"].function_arn
+    copy_objects_function_arn             = module.functions["copy-objects"].function_arn
+    collect_transfer_results_function_arn = module.functions["collect-transfer-results"].function_arn
+    delete_source_function_arn            = module.functions["delete-source"].function_arn
+    finalise_outcomes_function_arn        = module.functions["finalise-outcomes"].function_arn
+    notify_function_arn                   = module.functions["notify"].function_arn
 
     # The Map's shape. Mirrored from cpcommon/transfer/config.py — ASL cannot import
     # Python, and a test asserts the rendered numbers still equal the constants the batch
@@ -83,14 +83,14 @@ resource "aws_cloudwatch_event_rule" "execution_timed_out" {
 
 resource "aws_cloudwatch_event_target" "execution_timed_out" {
   rule = aws_cloudwatch_event_rule.execution_timed_out.name
-  arn  = aws_lambda_function.functions["notify-failure"].arn
+  arn  = module.functions["notify-failure"].function_arn
 }
 
 # Resource-based grant, so the rule needs no invoke role. Scoped to this rule's ARN.
 resource "aws_lambda_permission" "execution_timed_out" {
   statement_id  = "AllowEventBridgeExecutionTimedOut"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.functions["notify-failure"].function_name
+  function_name = module.functions["notify-failure"].function_arn
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.execution_timed_out.arn
 }

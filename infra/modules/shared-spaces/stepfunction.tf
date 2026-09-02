@@ -16,16 +16,16 @@ resource "aws_sfn_state_machine" "orchestrator" {
   type     = "STANDARD"
 
   definition = templatefile("${path.module}/state-machine.asl.json.tftpl", {
-    validate_function_arn           = aws_lambda_function.functions["validate"].arn
-    create_function_arn             = aws_lambda_function.functions["create"].arn
-    add_members_function_arn        = aws_lambda_function.functions["add-members"].arn
-    remove_members_function_arn     = aws_lambda_function.functions["remove-members"].arn
-    leave_function_arn              = aws_lambda_function.functions["leave"].arn
-    delete_function_arn             = aws_lambda_function.functions["delete"].arn
-    forget_function_arn             = aws_lambda_function.functions["forget"].arn
-    acknowledge_function_arn        = aws_lambda_function.functions["acknowledge-membership"].arn
-    transfer_ownership_function_arn = aws_lambda_function.functions["transfer-ownership"].arn
-    notify_failure_function_arn     = aws_lambda_function.functions["notify-failure"].arn
+    validate_function_arn           = module.functions["validate"].function_arn
+    create_function_arn             = module.functions["create"].function_arn
+    add_members_function_arn        = module.functions["add-members"].function_arn
+    remove_members_function_arn     = module.functions["remove-members"].function_arn
+    leave_function_arn              = module.functions["leave"].function_arn
+    delete_function_arn             = module.functions["delete"].function_arn
+    forget_function_arn             = module.functions["forget"].function_arn
+    acknowledge_function_arn        = module.functions["acknowledge-membership"].function_arn
+    transfer_ownership_function_arn = module.functions["transfer-ownership"].function_arn
+    notify_failure_function_arn     = module.functions["notify-failure"].function_arn
   })
 
   logging_configuration {

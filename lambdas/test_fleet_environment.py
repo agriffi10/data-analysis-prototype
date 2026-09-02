@@ -39,6 +39,7 @@ Attributes:
   MODULES: The Terraform module tree holding one lambda.tf per plane.
   FUNCTION_MANIFEST: The deploy manifest naming every function and the layers it attaches.
   LAYER_MANIFEST: The layer manifest, which says where each layer's importable code lives.
+  FLEET_MODULE: The module source that makes a call one of the fleet's functions.
   NAME_PREFIX: The project/environment prefix every deployed function name carries. Stripping it
     yields the ``lambdas/`` directory, which is the contract the deploy matrix already rests on.
   FAIL_FAST_READERS: The canonical spellings of the shared fail-fast reader. A module's own
@@ -55,7 +56,14 @@ import re
 
 import pytest
 from cpcommon import config
-from tf_blocks import blocks, map_entries, span, strip_noise
+from tf_blocks import (
+    argument,
+    lambda_environment,
+    map_entries,
+    module_calls,
+    span,
+    strip_noise,
+)
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 LAMBDAS = ROOT / "lambdas"
@@ -64,6 +72,7 @@ FUNCTION_MANIFEST = ROOT / ".github" / "lambda-functions.json"
 LAYER_MANIFEST = ROOT / ".github" / "lambda-layers.json"
 
 NAME_PREFIX = "${var.project_name}-${var.environment}-"
+FLEET_MODULE = '"../docker-lambda"'
 FAIL_FAST_READERS = ("require", "_require")
 
 
@@ -216,7 +225,11 @@ def _directories(function_name: str, source: str, where: str) -> list[tuple[str,
 
 @functools.lru_cache(maxsize=1)
 def _resources() -> tuple[tuple[str, str, tuple[tuple[str, str], ...], frozenset[str], str], ...]:
-    """Every ``aws_lambda_function`` in the module tree, with what its environment supplies.
+    """Every fleet function in the module tree, with what its environment supplies.
+
+    A function is a call to the container module, identified by its ``source`` rather than by its
+    call name — a plane could reasonably call a different module one day, and a name-based filter
+    would either miss a function or read a stranger as one.
 
     Args:
       None.
@@ -232,18 +245,20 @@ def _resources() -> tuple[tuple[str, str, tuple[tuple[str, str], ...], frozenset
     rows = []
     for path in sorted(MODULES.glob("*/lambda.tf")):
         source = _locals_source(path.parent)
-        for name, body in blocks(path.read_text(encoding="utf-8"), "aws_lambda_function").items():
-            expression = re.search(r"^\s{2}function_name\s*=\s*(.+)$", body, re.MULTILINE)
-            assert expression, f"{path}: {name} declares no function_name"
-            opening = re.search(r"^\s{2}environment\s*\{", body, re.MULTILINE)
-            assert opening, f"{path}: {name} declares no environment block"
-            environment = span(body, opening.start())
+        for name, body in module_calls(path.read_text(encoding="utf-8")).items():
+            if argument(body, "source") != FLEET_MODULE:
+                continue
+            expression = argument(body, "function_name")
+            try:
+                environment = lambda_environment(body)
+            except ValueError:
+                raise AssertionError(f"{path}: {name} supplies no environment") from None
             override = re.search(r"lookup\(local\.([a-z_]+),", environment)
             rows.append(
                 (
                     path.parent.name,
                     name,
-                    tuple(_directories(expression.group(1).strip(), source, str(path))),
+                    tuple(_directories(expression, source, str(path))),
                     frozenset(_assigned(environment)),
                     override.group(1) if override else "",
                 )
@@ -707,9 +722,9 @@ def test_the_terraform_side_is_actually_being_parsed():
     lost its merge-form planes, fails silently in the direction that matters.
     """
     rows = _resources()
-    assert len(rows) >= 16, f"only {len(rows)} lambda resources parsed out of the module tree"
+    assert len(rows) >= 16, f"only {len(rows)} lambda declarations parsed out of the module tree"
     assert any(override for _, _, _, _, override in rows), (
-        "no resource parsed as the merge form — the per-verb override check is measuring nothing"
+        "no declaration parsed as the merge form — the per-verb override check is measuring nothing"
     )
     assert _supply()["table-builder-execute-ddl"][1] >= {"ATHENA_WORKGROUP", "ADMIN_BUCKET"}
 

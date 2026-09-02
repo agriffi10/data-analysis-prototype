@@ -22,17 +22,17 @@ resource "aws_sfn_state_machine" "table_builder" {
   # needs its key added HERE or templatefile() fails at PLAN. Easy to miss precisely because
   # lambda.tf, being for_each over the same map, does not.
   definition = templatefile("${path.module}/state-machine.asl.json.tftpl", {
-    validate_authorize_function_arn    = aws_lambda_function.functions["validate-authorize"].arn
-    check_table_absent_function_arn    = aws_lambda_function.functions["check-table-absent"].arn
-    load_table_definition_function_arn = aws_lambda_function.functions["load-table-definition"].arn
-    acquire_refresh_lock_function_arn  = aws_lambda_function.functions["acquire-refresh-lock"].arn
-    release_refresh_lock_function_arn  = aws_lambda_function.functions["release-refresh-lock"].arn
-    inspect_source_function_arn        = aws_lambda_function.functions["inspect-source"].arn
-    infer_schema_function_arn          = aws_lambda_function.functions["infer-schema"].arn
-    diff_schema_function_arn           = aws_lambda_function.functions["diff-schema"].arn
-    apply_refresh_function_arn         = aws_lambda_function.functions["apply-refresh"].arn
-    execute_ddl_function_arn           = aws_lambda_function.functions["execute-ddl"].arn
-    notify_failure_function_arn        = aws_lambda_function.functions["notify-failure"].arn
+    validate_authorize_function_arn    = module.functions["validate-authorize"].function_arn
+    check_table_absent_function_arn    = module.functions["check-table-absent"].function_arn
+    load_table_definition_function_arn = module.functions["load-table-definition"].function_arn
+    acquire_refresh_lock_function_arn  = module.functions["acquire-refresh-lock"].function_arn
+    release_refresh_lock_function_arn  = module.functions["release-refresh-lock"].function_arn
+    inspect_source_function_arn        = module.functions["inspect-source"].function_arn
+    infer_schema_function_arn          = module.functions["infer-schema"].function_arn
+    diff_schema_function_arn           = module.functions["diff-schema"].function_arn
+    apply_refresh_function_arn         = module.functions["apply-refresh"].function_arn
+    execute_ddl_function_arn           = module.functions["execute-ddl"].function_arn
+    notify_failure_function_arn        = module.functions["notify-failure"].function_arn
   })
 
   logging_configuration {

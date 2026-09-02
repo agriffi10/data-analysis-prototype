@@ -11,8 +11,8 @@ output "api_execution_arn" {
 }
 
 output "api_function_name" {
-  description = "Name of the placeholder function, for the deploy matrix and live invocation checks."
-  value       = aws_lambda_function.api.function_name
+  description = "The API function's deployed name, for the deploy matrix and live invocation checks."
+  value       = module.api.function_name
 }
 
 output "api_endpoint_target" {

@@ -29,6 +29,7 @@ from tf_blocks import (
     lambda_environment,
     lambda_input,
     module_calls,
+    strip_comments,
 )
 
 MODULE_CALL = '''module "functions" {
@@ -175,13 +176,14 @@ def test_a_declaration_is_found_under_either_packaging() -> None:
 
 
 def test_an_input_reads_whichever_spelling_the_declaration_carries() -> None:
-    """`timeout`/`memory_size` on the resource, `timeout_seconds`/`memory_mb` on the module."""
+    """`timeout`/`memory_size`/`role` on the resource; the module's own spellings on a call."""
     call = lambda_declaration(MODULE_CALL, "functions")
     resource = lambda_declaration(RESOURCE, "sweep")
 
     assert lambda_input(call, "timeout") == "each.value.timeout"
     assert lambda_input(resource, "timeout") == "300"
     assert lambda_input(resource, "memory") == "512"
+    assert lambda_input(resource, "role") == "aws_iam_role.sweep.arn"
 
     with pytest.raises(ValueError, match="unknown setting"):
         lambda_input(resource, "disk")
@@ -212,3 +214,19 @@ def test_the_environment_is_found_in_both_shapes_and_carries_the_same_names() ->
     assert "memory_size" not in resource, (
         "the resource's environment slice ran past its own block and swallowed a sibling argument"
     )
+
+
+def test_blanking_comments_alone_leaves_the_string_a_sweep_is_looking_for() -> None:
+    """The counterpart `strip_noise` cannot serve, and the reason it exists.
+
+    A constructed ARN, a resource type, a log-group path — every one lives inside quotes, and
+    `strip_noise` blanks exactly that. A sweep for one over its output finds nothing and reports
+    the tree clean, which is the shape of guard this repo keeps paying for.
+    """
+    source = '  arns = ["arn:aws:lambda:us-east-1:1:function:x"] # arn:aws:lambda: in a comment\n'
+
+    blanked = strip_comments(source)
+
+    assert len(blanked) == len(source), "offsets taken here must still point into the original"
+    assert "arn:aws:lambda:us-east-1:1:function:x" in blanked
+    assert blanked.count("arn:aws:lambda:") == 1, "the comment's copy survived the blanking"

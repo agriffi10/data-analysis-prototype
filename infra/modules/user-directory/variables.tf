@@ -58,3 +58,13 @@ variable "athena_workgroup" {
   description = "The builder runs no queries. See user_pool_id for why it is set anyway."
   type        = string
 }
+
+variable "lambda_image_repository_url" {
+  description = "Registry URI of the fleet's one container image, from module.lambda_image. Every function in this module runs that image and differs only by its command."
+  type        = string
+}
+
+variable "lambda_image_tag" {
+  description = "The commit sha this module's functions are CREATED from. Ignored after creation — CI re-points every function with update-function-code on each deploy — but it must be a tag the registry already holds, or CreateFunction fails."
+  type        = string
+}

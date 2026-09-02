@@ -50,16 +50,10 @@ locals {
   # the COMMON env in lambda.tf.
   data_quality_verb_env = {}
 
-  # Known at plan time — fed to the SFN role's InvokeFunction list.
-  data_quality_function_arns = [
-    for suffix, name in local.data_quality_function_names :
-    "arn:aws:lambda:${var.aws_region}:${var.account_id}:function:${name}"
-  ]
-
-  data_quality_log_group_names = {
-    for suffix, name in local.data_quality_function_names :
-    suffix => "/aws/lambda/${name}"
-  }
+  # From the module's outputs, never rebuilt from a template. The point is not tidiness: an ARN
+  # a policy CONSTRUCTS stays known while the function it names is being replaced, so the policy
+  # plans no diff at all — and this list is the SFN role's whole InvokeFunction grant.
+  data_quality_function_arns = [for function in module.functions : function.function_arn]
 
   # The shared role writes to EVERY verb's log group, so one wildcard statement covers them.
   data_quality_log_group_wildcard_arn = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/lambda/${var.project_name}-${var.environment}-data-quality-*"

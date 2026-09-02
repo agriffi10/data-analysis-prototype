@@ -2,7 +2,7 @@
 
 output "function_name" {
   description = "Name of the drain Lambda — the deploy-lambdas.yml matrix target."
-  value       = aws_lambda_function.drain.function_name
+  value       = module.drain.function_name
 }
 
 output "role_arn" {

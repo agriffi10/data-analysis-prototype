@@ -59,7 +59,7 @@ data "aws_iam_policy_document" "sweep" {
       "logs:CreateLogStream",
       "logs:PutLogEvents",
     ]
-    resources = ["${aws_cloudwatch_log_group.sweep.arn}:*"]
+    resources = ["${module.sweep.log_group_arn}:*"]
   }
 }
 
