@@ -17,9 +17,7 @@ Revisit the decision, do not delete the test.
 Attributes:
   INFRA: The IaC tree.
   ROOT_MAIN: Where both CSP locals live after the move.
-  APP_CLOUDFRONT: The module that used to hold them and now takes the assembled string.
-  APP_VARIABLES: The module's inputs, where the orphaned ``csp_connect_src`` must not survive.
-  ROOT_OUTPUTS: Carries the Hosted-UI drift precondition both delivery paths depend on.
+  ROOT_OUTPUTS: Carries the Hosted-UI drift precondition the served policy depends on.
   ACCEPTED_PRE_MOVE_DIRECTIVES: The policy's directive list as it stood immediately before the
     move — the true pre-move text, ``${var.csp_connect_src}`` and all. The reference changing to
     a root local is the ONE permitted difference, normalised at the comparison rather than baked
@@ -38,8 +36,6 @@ from tf_blocks import join_list_items
 INFRA = pathlib.Path(__file__).resolve().parent.parent / "infra"
 ROOT_MAIN = INFRA / "main.tf"
 ROOT_OUTPUTS = INFRA / "outputs.tf"
-APP_CLOUDFRONT = INFRA / "modules" / "app" / "cloudfront.tf"
-APP_VARIABLES = INFRA / "modules" / "app" / "variables.tf"
 
 ACCEPTED_SEPARATOR = "; "
 
@@ -111,12 +107,12 @@ def test_connect_src_still_names_both_cognito_hosts() -> None:
     """The two entries whose loss a signed-in tester cannot see, asserted by name.
 
     Stated on its own, and deliberately not as part of a whole-list comparison —
-    ``test_api_module.py`` owns that list. A reader holding the arc's END state in mind deletes
-    these two on purpose, because the Identity Pool is retired later and the provider changes later
-    still, and would then update a list assertion to match the mistake. Amplify runs in the browser
-    for the whole of this arc: the authorization-code exchange POSTs to the Hosted UI host and token
-    refresh calls cognito-idp, so a policy without them produces a portal that works for everyone
-    already signed in and for nobody else.
+    ``test_api_module.py`` owns that list. A reader deletes these two on purpose, reasoning that the
+    Identity Pool is retired — it is — or that the provider changes later, and would then update a
+    list assertion to match the mistake. Neither reaches these hosts. Amplify still runs in the
+    browser: the authorization-code exchange POSTs to the Hosted UI host and token refresh calls
+    cognito-idp, so a policy without them produces a portal that works for everyone already signed
+    in and for nobody else.
 
     Args:
       None.

@@ -42,8 +42,9 @@ keys with em dashes are rejected at `CreatePolicy`, invisible to `tofu validate`
 | `spa` | the **container** path — ECR, Fargate cluster/service, ALB, and the admin bucket's first policy | [README](../modules/spa/README.md) |
 | `api` | the HTTP API, its Lambda, custom domain and DNS record | [README](../modules/api/README.md) |
 
-CloudFront is still production and still the rollback; the container path reproduces every job it does
-with three deliberate divergences.
+The container is the only delivery path. CloudFront and the static bucket were destroyed with the
+`app` module; the container reproduces every job the distribution did, with three deliberate
+divergences, and the deploy role's grants on both came off one apply later.
 
 ## Control planes
 
@@ -72,14 +73,13 @@ and shared traps: [`control-plane-shape.md`](control-plane-shape.md).
 
 ## The buckets
 
-Five, and the constraint is one bucket of **personal prefixes**, not one bucket overall.
+Four, and the constraint is one bucket of **personal prefixes**, not one bucket overall.
 
 | Bucket | Module | Notes |
 |---|---|---|
 | user-space | `data` | Bucket 1. Every top-level prefix is a username, with `_directory/` the one exception |
 | shared-space | `shared-spaces` | Bucket 2. **No bucket policy** — which is why an allowlist omission half-works |
 | admin | `analytics` | Athena fallback output, the registry, the control planes' scratch, `logs/` (retained forever) |
-| static assets | `app` | the built SPA, reachable only through CloudFront OAC |
 | archive | `archive` | Bucket 5. GLACIER, and the browser has no relationship with it at all |
 
 Plus the Lambda artifacts bucket (`lambda-artifacts`) and the CloudTrail bucket (`verification`).

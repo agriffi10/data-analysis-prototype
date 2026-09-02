@@ -42,10 +42,11 @@ env:
   # `report` | `block`, applied by .github/scripts/apply-gate.sh.
   #
   # BLOCKING as of 2026-08-09, on a narrowed count: IAM findings that are not on
-  # .github/checkov-plan-accepted.txt. A blanket block was never available — two findings on
-  # the deploy role are permanent (no ARN exists before the resource does, and no condition
-  # key applies), which is why the accept list is keyed by check ID AND resource rather than
-  # by ID. Every other IAM finding fails this job, and the isolation policies have none.
+  # .github/checkov-plan-accepted.txt. That list is EMPTY as of 2026-09-02, so the count is
+  # every IAM finding on the plan — the two it carried were the deploy role's `cloudfront:*`
+  # statement, and they went with it. The list stays keyed by check ID AND resource, because
+  # the next acceptance must not suppress the same rule on another policy. The isolation
+  # policies have never had one.
   GATE_CHECKOV_PLAN: block
   # Normalises Checkov's three output shapes to one with .summary and .results — see the
   # comment at the scan step. Declared once so the validation and the summary cannot drift.
@@ -322,11 +323,11 @@ jobs:
   apply:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    # 60, not 30. A CloudFront distribution is destroyed by disabling it, waiting for the
-    # change to propagate to every edge, and only then deleting — comfortably longer than half
-    # an hour. A job timeout cancels `tofu apply` mid-destroy WITH THE STATE LOCK HELD, which
-    # is a lost apply and a lock to clear by hand. Raised one merge ahead of the destroy that
-    # needs it, where it changes nothing.
+    # 60, not 30. A job timeout cancels `tofu apply` mid-run WITH THE STATE LOCK HELD, which is
+    # a lost apply and a lock to clear by hand. It was raised for the CloudFront teardown, which
+    # ran long because a distribution is destroyed by disabling it and waiting for every edge to
+    # catch up; the distribution is gone and the ceiling stays, because it costs nothing to carry
+    # and the next long destroy would otherwise find it at half an hour.
     timeout-minutes: 60
     permissions:
       id-token: write

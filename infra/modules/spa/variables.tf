@@ -89,7 +89,7 @@ variable "runtime_config" {
 }
 
 variable "csp_connect_src" {
-  description = "The whole connect-src source list, built at root and carried to the container as PORTAL_CSP_CONNECT_SRC so one computation feeds both delivery paths."
+  description = "The whole connect-src source list, built at root and carried to the container as PORTAL_CSP_CONNECT_SRC. It is computed at root rather than here because root is where the origins are built — it fed both delivery paths while there were two, and feeds the only one now."
   type        = string
 }
 

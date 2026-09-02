@@ -34,7 +34,6 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
 
   policy = templatefile("${path.module}/policies/github-actions-deploy.json.tftpl", {
     project_name                = var.project_name
-    static_bucket_arn           = var.static_bucket_arn
     user_space_bucket_arn       = var.user_space_bucket_arn
     portal_role_arn             = var.portal_role_arn
     lambda_artifacts_bucket_arn = var.lambda_artifacts_bucket_arn
@@ -49,7 +48,9 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
 
 # ⚠ EVERY GRANT BELOW IS A CUSTOMER-MANAGED POLICY, NOT A SECOND INLINE ONE. IAM's
 # 10,240-character limit is the AGGREGATE of a role's inline policies, and the main deploy
-# policy alone renders to 9,289. A managed policy has its own separate 6,144-char budget.
+# policy alone spends most of it. A managed policy has its own separate 6,144-char budget.
+# No figure is written here: lambdas/test_deploy_platform_policies.py measures both, and the
+# last number written down rotted by a thousand characters before anyone noticed.
 #
 # Each one is scoped by {project_name}-*-<plane>-* name patterns, and every `Resource: "*"`
 # statement holds only actions IAM defines no resource type for. GRANTS LAND IN THEIR OWN PR,

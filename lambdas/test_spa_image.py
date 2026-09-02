@@ -19,7 +19,6 @@ Attributes:
   SPA_ECS: The task definition whose port, uid and mounts the image must agree with.
   SPA_VARIABLES: Where the health path and container port defaults live.
   ROOT_MAIN: Where the assembled policy is computed.
-  APP_CLOUDFRONT: The distribution's header policy, reproduced byte for byte.
   CONFIG_TYPES: The runtime-configuration classification.
   CONFIG_LOADER: Where the accepted document version is declared.
   WRITABLE_PATHS: The two paths, a third copy on purpose — a shared constant would prove nothing.
@@ -51,7 +50,6 @@ DEPLOY = ROOT / ".github" / "workflows" / "deploy-spa-image.yml"
 SPA_ECS = ROOT / "infra" / "modules" / "spa" / "ecs.tf"
 SPA_VARIABLES = ROOT / "infra" / "modules" / "spa" / "variables.tf"
 ROOT_MAIN = ROOT / "infra" / "main.tf"
-APP_CLOUDFRONT = ROOT / "infra" / "modules" / "app" / "cloudfront.tf"
 CONFIG_TYPES = ROOT / "apps" / "portal" / "src" / "types" / "runtimeConfig.types.ts"
 MATRIX_SCRIPT = ROOT / ".github" / "scripts" / "spa-image-matrix.sh"
 CONFIG_LOADER = ROOT / "apps" / "portal" / "src" / "lib" / "runtimeConfig.ts"

@@ -118,8 +118,10 @@ Neither failure here is visible in a plan. `lambdas/test_deploy_platform_policie
 attachment count, and re-checks its own document.
 
 **The budgets.** IAM's 10,240-character limit is the **aggregate** of a role's inline policies,
-not a per-policy allowance, and `github-actions-deploy.json.tftpl` already renders to 9,289. A
-customer-managed policy has its own separate 6,144-character budget, and a role may carry only
+not a per-policy allowance, and `github-actions-deploy.json.tftpl` already spends most of it —
+no figure here, for the reason the platform policy's is not written down either: the last one
+was a thousand characters stale, and `test_the_inline_deploy_policy_stays_under_the_iam_aggregate`
+measures the live one. A customer-managed policy has its own separate 6,144-character budget, and a role may carry only
 so many of them. All three ceilings are enforced at `CreatePolicy` / `PutRolePolicy` /
 `AttachRolePolicy` — an apply-time `LimitExceeded` on a document that rendered, validated and
 planned green. The container platform's grants are two managed policies rather than one for

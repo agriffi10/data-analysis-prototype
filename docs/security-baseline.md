@@ -548,6 +548,9 @@ That is the result this scan existed to produce, and it could not have been stat
   non-scopable**: there is no resource ARN to name before the resource exists, and Lake Formation's
   settings/permissions actions are account-scoped by design. **Accepted** — no condition key exists
   for them either.
+  > **Superseded 2026-09-02 (SPEC-202).** Both were `cloudfront:*` alone, and both are gone with
+  > the grant — see *What remains, and why it is not fixable* below, which carries the measurement
+  > and why the other actions in this bullet never raised a finding.
 
 Scope note: these are **CI deploy** permissions, not runtime user permissions. The blast radius is
 "a compromised GitHub Actions OIDC session could manage event-source mappings on any Lambda in the
@@ -651,6 +654,18 @@ So the statement became two:
 `lambda:ListTags` was dropped here too, for the same redundancy reason.
 
 ## What remains, and why it is not fixable
+
+> **Superseded 2026-09-02 — nothing remains.** SPEC-202 destroyed the distribution and the deploy
+> role's `cloudfront:*` statement came off one apply later; with it gone the rendered policy reports
+> **zero** CKV_AWS_290 and CKV_AWS_355, so `.github/checkov-plan-accepted.txt` is empty and every IAM
+> finding on the plan now blocks. Measured against the pinned checkov's own scanner, not argued —
+> and the measurement corrects **both paragraphs below**, the triage and the gate proposal that
+> says a blanket block is unavailable. The other actions named there were **not** co-causes: both
+> checks wrap cloudsplaining, which does not count an action it already classifies as taking no
+> resource type, so an unscopable action alone raises nothing. What raised these two was an action
+> that **could have been scoped and was not** — CKV_AWS_355 counts every such action, CKV_AWS_290
+> the write subset — and every one of them was CloudFront's.
+> `cognito-identity:CreateIdentityPool` went with the Identity Pool in the same spec.
 
 The 2 findings on `github_actions_deploy` are a different cause and stay: `cloudfront:CreateDistribution`,
 `cognito-idp:CreateUserPool`, `cognito-identity:CreateIdentityPool`, `logs:DescribeLogGroups` and the

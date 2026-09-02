@@ -18,8 +18,10 @@ Read [`../../info/deploy-role-iam.md`](../../info/deploy-role-iam.md) before add
 ## Why one managed policy per family instead of more inline JSON
 
 **IAM's 10,240-character limit is the AGGREGATE of all inline policies on a role** — a sum, not a
-per-policy budget — and the main deploy policy alone renders to **9,289 characters**. An inline second
-policy pushed the aggregate over and failed with `LimitExceeded`.
+per-policy budget — and the main deploy policy alone spends most of it. An inline second policy
+pushed the aggregate over and failed with `LimitExceeded`. No figure is written here for the same
+reason the managed policies' sizes are not: `lambdas/test_deploy_platform_policies.py` measures the
+live one, and the number this sentence used to carry was a thousand characters stale.
 
 **A customer-managed policy has its own separate 6,144-character budget and does not count toward the
 inline aggregate.** So every new resource family gets its own managed policy. The count is not written
