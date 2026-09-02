@@ -35,7 +35,7 @@ export type UseFileUploadResult = {
  * callbacks are only used in event handlers, so their identity churn is harmless.
  *
  * @example
- * const {upload, progress, pendingCollision, error, isBusy} = useFileUpload(bucket, prefix);
+ * const {uploadOne, progress, pendingCollision, error, isBusy} = useFileUpload(bucket, prefix);
  */
 export function useFileUpload(bucket: string, prefix: string): UseFileUploadResult {
   const queryClient = useQueryClient();

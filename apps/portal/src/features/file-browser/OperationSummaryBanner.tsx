@@ -20,7 +20,7 @@ type Props = {
  * FileBrowser banners (react-best-practices abstraction pass).
  *
  * @example
- * <OperationSummaryBanner count={4} pastVerb="deleted" failVerb="delete" errors={errors} onDismiss={dismiss} />
+ * <OperationSummaryBanner count={4} pastVerb="Deleted" failVerb="delete" errors={errors} onDismiss={dismiss} />
  */
 export function OperationSummaryBanner({count, pastVerb, failVerb, errors, onDismiss}: Props) {
   return (

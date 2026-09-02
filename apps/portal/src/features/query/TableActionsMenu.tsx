@@ -22,7 +22,7 @@ type Props = {
  * menu never toggles the table row.
  *
  * @example
- * <TableActionsMenu tableName="orders" items={[{label: 'Preview rows', onSelect: preview}]} />
+ * <TableActionsMenu tableName="orders" items={[{key: 'preview', label: 'Preview rows', onSelect: preview}]} />
  */
 export function TableActionsMenu({tableName, items}: Props) {
   const menuItems: MenuItem[] = items.flatMap((item) => {

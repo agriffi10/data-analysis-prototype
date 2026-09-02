@@ -171,9 +171,10 @@ describe('MemberRosterDrawer', () => {
       // Holds by construction — `onTransfer` is an optional prop this drawer never passes — but
       // the owner controls live on a roster SHARED with the owner's Manage view, so "read-only"
       // is a claim about a component that can render them, not one that cannot.
-      // By the ACCESSIBLE name, which the control's aria-label sets — a query for its visible
-      // text ("Make owner") can never match and would assert nothing at all.
-      expect(screen.queryByRole('button', {name: /Transfer ownership/})).not.toBeInTheDocument();
+      // By the ACCESSIBLE name, which the control's aria-label sets and which leads with its
+      // visible text — the query must match the name the control really renders, or it
+      // asserts nothing at all.
+      expect(screen.queryByRole('button', {name: /Make owner/})).not.toBeInTheDocument();
     });
 
     it('offers a Refresh control that re-reads connection state', () => {

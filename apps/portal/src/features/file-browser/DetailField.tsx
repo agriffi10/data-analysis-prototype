@@ -14,7 +14,7 @@ type Props = {
  * Optionally trails a copy-to-clipboard button for the value.
  *
  * @example
- * <DetailField label="Key" value={file.key} copyLabel="Copy key" />
+ * <DetailField label="Key" value={file.key} copyLabel="key" />
  */
 export function DetailField({label, value, copyLabel}: Props) {
   return (
