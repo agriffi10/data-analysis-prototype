@@ -108,6 +108,6 @@ unimportable and the function carried a second copy of the fleet's JWKS verifier
 three still absent — `ADMIN_BUCKET`, `SHARED_SPACE_BUCKET`, `ATHENA_WORKGROUP` — are absent on
 purpose, and a probe imports the module without them (`test_layer_import_safety.py`).
 
-`ignore_changes` covers `layers` as well as the code. It was **missing** while the code already
+~~`ignore_changes` covers `layers` as well as the code.~~ **Superseded by SPEC-213:** the function is container-packaged, declares no `layers`, and `ignore_changes` names `image_uri`. The lesson below is why the field was there and is kept for it. It was **missing** while the code already
 imported `cpcommon`, so an apply landing after a deploy would have stripped the layer straight back
 off.

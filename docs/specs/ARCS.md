@@ -2660,19 +2660,31 @@ test is built — the check that runs every function's handler import inside the
 building it before anything depends on it is what makes the rest of the arc a packaging change
 rather than a leap.
 
-**213 is where the risk is, and it has a known shape.** Terraform keeps owning the function and CI
+**213 was where the risk was, and it had a known shape.** Terraform keeps owning the function and CI
 keeps owning the code, so `image_uri` carries `ignore_changes`, so **CI must point every function at
 the new image on every deploy.** A pipeline that builds and pushes and never calls
 `update-function-code` leaves every function on the previous image and each of them keeps
 working. Nothing goes red. This is not a new lesson: SPEC-193/194 hit exactly this with the SPA's
 ECS service, where a pipeline that only registered a task-definition revision left a
 `CannotPullContainerError` indistinguishable from the endpoint failure the platform was tested for.
-The mitigation is the same one — CI counts what it pointed, waits for each update to settle, and
-fails loudly on a shortfall.
+The mitigation is the same one — CI points every function, reconciles by name, waits for each update
+to settle, and fails loudly on a shortfall.
+
+> **Shipped, and the risk that actually bit was one layer down.** `package_type` is ForceNew, so the
+> cutover destroyed and recreated all 86 — and the thing that would have taken production out was
+> not the replacement but the eleven `aws_lambda_permission` resources that would **not** have
+> re-planned alongside it. See `decisions/infrastructure.md` → *A ForceNew packaging change is a
+> rename in state plus 86 replacements*. Two other lessons are worth carrying into 214: a `moved`
+> block whose `from` is not in state is tolerated **silently**, and the runtime interface emulator
+> diverges from Lambda on the init-failure path, so it cannot settle a question about what a failed
+> container logs.
 
 **214's risk is the mirror image: it is a deletion, and the danger is a guard nobody misses.**
-`lambdas/test_deploy_matrix.py` is the only thing standing between a missing layer and that cold
-start. Deleting it removes real protection unless something already replaced it, and a review will
+Its surface grew slightly when 213 removed `point-lambda.sh`'s zip branch: `deploy-lambda.sh` is now
+called by nothing, while `lambdas/test_deploy_packaging.py` still extracts and RUNS its copy block —
+a suite pinning unreachable shell, green forever. Both are named in 214's In Scope.
+`lambdas/test_deploy_matrix.py` **was** the only thing standing between a missing layer and that
+cold start — before 213, when layers still attached. Deleting it removes real protection unless something already replaced it, and a review will
 not catch that — a reviewer reads what is there, and a deletion leaves nothing to read. So 214 does
 not begin with a deletion. It begins with a sweep that enumerates every function, every assertion
 the matrix makes, and what now covers each one, and it prints that report before anything is
@@ -2690,8 +2702,8 @@ fixture captured from the pre-cutover plan, rather than making it in prose.
 
 ### The one thing the arc makes worse, stated rather than glossed
 
-Today a function can import only the layers attached to it. In one image every function can import
-everything — including `shared-space-common`'s ten flat top-level modules, whose names (`config`,
+A function used to be able to import only the layers attached to it. **Since 213 every function can
+import everything** — including `shared-space-common`'s ten flat top-level modules, whose names (`config`,
 `auth`, `registry`, `cache`, `notify`, `messages`, `membership`, `membership_index`, `casio`,
 `teardown`) are generic enough to be imported from another plane by accident and would resolve. The image gives every
 function a strictly larger import surface than its zip has. What keeps that from mattering is an AST

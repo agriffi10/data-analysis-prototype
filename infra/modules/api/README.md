@@ -7,7 +7,7 @@ in two places, and authorization resolves a principal once, before dispatch.
 | File | Holds |
 |---|---|
 | `apigateway.tf` | the API, its CORS block, the integration, stage, domain and mapping |
-| `lambda.tf` | the function, its role, log group and placeholder package |
+| `lambda.tf` | the function — a call to `docker-lambda`, which owns its log group — plus its role and policy |
 | `dns.tf` | the A-alias record |
 | `outputs.tf` | ids and ARNs the root and live checks consume |
 | `variables.tf` | the module interface, including the **provider block** |

@@ -121,7 +121,7 @@ config resolves on **first access** now, so the guard is no longer "does the imp
 any branch read one" — `test_layer_import_safety.py` scans each function's whole source for a
 `cpcommon` import as well as running it.
 
-`ignore_changes` covers `layers` as well as the code. It was **missing** on `pre-signup` while the
+~~`ignore_changes` covers `layers` as well as the code.~~ **Superseded by SPEC-213:** the function is container-packaged, declares no `layers`, and `ignore_changes` names `image_uri`. The lesson below is why the field was there and is kept for it. It was **missing** on `pre-signup` while the
 code already imported `cpcommon`, so an apply landing after a deploy stripped the layer back off and
 **re-broke signup**.
 

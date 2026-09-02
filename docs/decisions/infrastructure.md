@@ -25,6 +25,7 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [A value Terraform computes is read from state, never copied into a settings page (SPEC-215)](#a-value-terraform-computes-is-read-from-state-never-copied-into-a-settings-page-spec-215)
 - [One image for the whole Lambda fleet, and the sweep that pays for it (SPEC-212)](#one-image-for-the-whole-lambda-fleet-and-the-sweep-that-pays-for-it-spec-212)
 - [A cutover is two merges, and only the second one destroys the rollback (SPEC-202)](#a-cutover-is-two-merges-and-only-the-second-one-destroys-the-rollback-spec-202)
+- [A ForceNew packaging change is a rename in state plus 86 replacements, and the permissions are what nobody looks at (SPEC-213)](#a-forcenew-packaging-change-is-a-rename-in-state-plus-86-replacements-and-the-permissions-are-what-nobody-looks-at-spec-213)
 
 ## IaC
 
@@ -579,3 +580,66 @@ sign-in is invisible to every signed-in session**; the re-run happens after the 
 instead of before it, which is the risk that was accepted. Whether it has been run is
 [`owed.md`](../testing/owed.md)'s to say, not this entry's — and that ledger, not the deleted arc
 script, is where the instruction lives.
+
+## A ForceNew packaging change is a rename in state plus 86 replacements, and the permissions are what nobody looks at (SPEC-213)
+
+`package_type` is ForceNew. Moving 86 functions from zip to one container image therefore destroys
+and recreates every one of them, and the whole spec is about making that ordered and observable
+rather than about the packaging itself.
+
+**172 `moved` blocks are what make it ordered.** Every function and every log group changed address
+(`aws_lambda_function.functions["x"]` → `module.functions["x"].aws_lambda_function.this`). Without a
+block, Terraform plans a create at the new address and a destroy at the old one **with no dependency
+edge between them** — for a function that is `CreateFunction` racing `DeleteFunction` on one name,
+and for a log group it is `ResourceAlreadyExistsException` or lost logs. `moved` takes static
+addresses only, so there is one per instance.
+
+**Terraform tolerates a `moved` block whose `from` is not in state.** No error, no warning: the block
+moves nothing and the resource falls back to exactly that unordered pair, with a plan byte-identical
+to one carrying no block at all. Measured on real state. A guard therefore checks the `from` half as
+hard as the `to` half, and both against the keys each call expands to — and anchors its expected
+total to a **frozen** fixture, because a tree-derived count passes on a shrink that deletes a
+function and its block together.
+
+**THE OUTAGE THIS WOULD OTHERWISE HAVE SHIPPED.** All 11 `aws_lambda_permission` resources bound to
+`.function_name` — a config-known literal, identical either side of a replacement. Terraform plans
+**no diff**, so the permission is never recreated, while `DeleteFunction` takes the function's
+resource policy with it: the API 500s on every request, sign-up breaks, every plane's `TIMED_OUT`
+notifier goes silent — behind a green apply, a green deploy and a green cold-start probe, because a
+probe invokes through IAM and never consults the resource policy. **Bind to the module's
+`function_arn`**: the ARN is computed, therefore unknown while the function is replaced, and
+`function_name` is ForceNew on the permission. An event-source mapping's is not, so it updates in
+place — and that difference is worth knowing before predicting a plan. The same reasoning retires
+six planes' constructed-ARN locals: a constructed ARN stays *known* across a replacement, which is
+precisely what makes the grant it feeds survive undiffed.
+
+**A ForceNew replacement is not revertible.** Reverting the commit deletes the `moved` blocks and
+re-races 86 creates against live names, and the reverted configuration brings the placeholder zips
+back. The rollback that exists is the **code**: point the fleet at a previous sha's image, which is a
+`workflow_dispatch` input and no code change. Exercised once, both directions, with each function's
+`Code.ImageUri` read back.
+
+**One image means narrowing a deploy is a category error.** "Which functions changed" has no answer
+when there is one artefact, so CI points **every** function on every run and reconciles by name. A
+function left un-pointed runs an older image and reports a stale build stamp *while working
+perfectly* — which is the failure this whole arc exists to prevent, and the reason the cost (six
+shard jobs where four functions used to deploy) is worth paying.
+
+**Proving a deployed function STARTED took three designs, and the first two were measured wrong
+rather than argued wrong.** `START RequestId` is written *before* init and regardless of its outcome,
+and is truncated away by `--log-type Tail`'s last-4-KB window. An `errorType` namespace rule
+(`Runtime.*`) passes an exception raised at import, which reports its own class — the shape a fleet
+with module-level initialisation most invites. A bare `REPORT RequestId` is present on an init
+failure in production, whatever the runtime interface emulator shows; **the emulator diverges on
+exactly that path**, answering 502 with no `X-Amz-Function-Error` where production answers 200 with
+one, so it cannot be trusted about it. What survives is `Status: error` — a field Lambda writes only
+when a phase failed, so it cannot redden a healthy deploy — plus an anchored `^REPORT RequestId` and
+the `Runtime.` namespace. The general lesson is the one about fixtures: an earlier corpus paired a
+production response envelope with an emulator log tail, a combination neither world produces, and
+that inconsistency hid the defect through two review rounds.
+
+**A probe's population is derived from the IAM, never hand-written.** The deploy role's own
+`lambda:InvokeFunction` grants are the population, compared by set equality in **both** directions —
+a probe without a grant is a loud `AccessDenied`, a grant without a probe is invisible. What that
+cannot see, and is recorded rather than implied, is a plane shipping with no grant at all.
+

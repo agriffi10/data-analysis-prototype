@@ -1,7 +1,7 @@
 # Spec: Container Lambdas — the `docker-lambda` Module and the Cutover
 
 **ID:** SPEC-213
-**Status:** In Progress
+**Status:** Completed
 **Last Updated:** 2026-08-28
 **Depends On:** SPEC-212 (the image and the repository this spec deploys), SPEC-193/194 (the ECS precedent: `ignore_changes` on the artifact reference means **CI must point the resource**, and a pipeline that publishes without pointing leaves a failure indistinguishable from the one the platform is tested for), the seven control-plane modules and the standalone functions
 

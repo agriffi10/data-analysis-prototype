@@ -178,7 +178,12 @@ tofu output        # capture the values needed for the next step
 This provisions: the VPC and its endpoints, the load balancer and the ECS service that serves
 the SPA, the API's front door, the GitHub Actions OIDC deploy role,
 the Cognito User Pool + SPA client + Hosted UI domain, the shared portal IAM role, the
-user‑space S3 bucket, and the pre‑signup Lambda's infrastructure (placeholder code).
+user‑space S3 bucket, and the pre‑signup Lambda's infrastructure.
+
+**Set `TF_VAR_lambda_image_tag` first.** Every Lambda is container-packaged, the variable has no
+default, and a function cannot be *created* from a tag the registry does not hold — so a first apply
+needs the fleet's image pushed. In CI that is `${{ github.sha }}`, supplied automatically; locally,
+push an image with **Deploy Lambda image** and pass its sha.
 
 ### 4. Configure GitHub Actions (Settings → Secrets and variables → Actions)
 
@@ -205,12 +210,14 @@ for the full table and notes).
 | `VITE_COGNITO_DOMAIN` | `tofu output cognito_domain` |
 | `VITE_S3_USER_SPACE_BUCKET` | `tofu output s3_user_space_bucket_name` |
 | `TF_VAR_project_name` / `TF_VAR_environment` | only if you overrode the Terraform defaults (`dat` / `prod`) |
+| `TF_VAR_lambda_image_tag` | **not a variable to set** — CI supplies `${{ github.sha }}`. Listed because it is required with no default, so a local apply must pass it explicitly |
 
 ### 5. Deploy the Lambda code
 
-The IaC creates the Lambda *infrastructure* with placeholder code; the real Python is shipped by
-CI. Trigger **Deploy Lambdas** — run it manually (`workflow_dispatch`) or push a change under
-`lambdas/**` to `main`.
+The IaC creates the Lambda *infrastructure*; **which image each function runs** is CI's. Trigger
+**Deploy Lambdas** — manually (`workflow_dispatch`, optionally with an `image_tag` to roll back) or
+by pushing under `lambdas/**` to `main`. It points every function and then invokes a sample to prove
+the deployed artefact starts.
 
 ### 6. Deploy the app
 

@@ -1,5 +1,5 @@
 # ── The Lambda image's registry ───────────────────────────────────────────────
-# One image for the whole Lambda fleet, tagged by commit sha, deployed by nothing yet. A
+# One image for the whole Lambda fleet, tagged by commit sha, and every function runs it. A
 # repository of its own rather than a shelf in the SPA's: the two have different lifecycles, and a
 # shared repository would make one's expiry policy the other's problem — the SPA rolls back in
 # deploys, the fleet rolls back in days.

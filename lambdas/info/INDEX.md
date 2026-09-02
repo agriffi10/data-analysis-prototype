@@ -10,7 +10,8 @@ because each verb is packaged and deployed as its own function; the prefix is th
 filesystem has, and this index is the only place that grouping is written down.
 
 **Every plane has the same shape** — FIFO SQS → EventBridge Pipe → Step Functions → single-task verb
-Lambdas, one execution role per plane, its own DLQ, and two layers (`cpcommon` plus the plane's own).
+Lambdas, one execution role per plane, and its own DLQ. Shared code comes from the fleet's one
+container image; the `cpcommon`-plus-domain split is a code boundary, not a packaging one.
 Read [`planes/`](planes/) for the one you are changing; the shared pattern and the fences that apply
 to all of them are in [`infra/info/control-plane-shape.md`](../../infra/info/control-plane-shape.md) and the Key Decisions digest in
 `CLAUDE.md`.
@@ -28,7 +29,8 @@ How code reaches any of them: [`deployment.md`](deployment.md).
 
 `cpcommon` owns the **algorithm**; a domain layer owns its **wording**. Do not merge the domain
 layers, and do not import one from another — they are packaged and attached separately, so an import
-across them silently merges two layers. Rules: [`best-practices/lambdas/lambdas.md`](best-practices/lambdas/lambdas.md).
+across them used to silently merge two layers; the image makes the reverse hazard live —
+one task root, where a duplicate top-level name wins fleet-wide. Rules: [`best-practices/lambdas/lambdas.md`](best-practices/lambdas/lambdas.md).
 
 ## Control planes
 
@@ -184,7 +186,7 @@ directly — by Cognito, by a schedule, or by its own queue. Triggers and traps:
 | `user-directory-build/` | `build_directory.py` | Publishes the username directory: every personal workspace on the user-space bucket. |
 ## Layers
 
-| Layer | Package | Attached to |
+| Layer | Package | Was attached to |
 |---|---|---|
 | `control-plane-common/` | `cpcommon` | every control-plane verb, and the API |
 | `archive-common/` | `arcommon` | the archive plane |
