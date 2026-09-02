@@ -165,6 +165,12 @@ files = [
     # Joins on the same precedent, entering at zero. It decides whether a green is real, so
     # a wrong Optional or a widened dict here reports a pass nobody checked.
     "scripts/watch_ci.py",
+    # The Terraform reader every infrastructure suite asserts through. It joins the ratchet with
+    # the change that extends it, on the precedent above and for its reason: its failure mode is
+    # a scanner that returns a SMALLER slice, which leaves every assertion over it green while
+    # the guard has stopped covering the half it could not see. It entered at one error — a
+    # tuple return annotated one element too narrow — free to fix now and an argument later.
+    "lambdas/tf_blocks.py",
 ]
 # The suites and the test doubles are not shipped and are not the contract.
 exclude = '(/test_[^/]*\.py|/conftest\.py|/fakes\.py)$'

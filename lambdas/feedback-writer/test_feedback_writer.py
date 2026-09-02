@@ -15,6 +15,7 @@ import pathlib
 import feedback_writer as w
 import pytest
 from cpcommon import cas, clients
+from tf_blocks import lambda_declaration, lambda_input
 
 
 class _Fault(Exception):
@@ -498,13 +499,13 @@ def test_a_large_day_object_is_reported_before_it_becomes_fatal(s3, captured_eve
 def test_the_warning_threshold_is_under_what_the_function_can_rewrite():
     """A warning that fires after the OOM is a warning nobody ever sees.
 
-    The budget is `memory_size` in the module's Terraform, read rather than restated. Peak
+    The budget is the memory the module's Terraform declares, read rather than restated — and
+    read through `tf_blocks`, because the two packagings spell that attribute differently and a
+    pattern matching only one of them stops finding the number without ever saying so. Peak
     resident while appending is several multiples of the raw object — the bytes, the parsed
     objects, the re-serialised string and its encoding all coexist — so the threshold has to
     leave room for that multiple, not merely be smaller than the memory.
     """
-    import re
-
     lambda_tf = (
         pathlib.Path(__file__).resolve().parents[2]
         / "infra"
@@ -513,9 +514,7 @@ def test_the_warning_threshold_is_under_what_the_function_can_rewrite():
         / "lambda.tf"
     ).read_text(encoding="utf-8")
     memory_bytes = (
-        int(re.search(r"^\s*memory_size\s*=\s*(\d+)$", lambda_tf, re.MULTILINE).group(1))
-        * 1024
-        * 1024
+        int(lambda_input(lambda_declaration(lambda_tf, "writer"), "memory")) * 1024 * 1024
     )
 
     assert memory_bytes > w.LARGE_OBJECT_WARN_BYTES * 4, (

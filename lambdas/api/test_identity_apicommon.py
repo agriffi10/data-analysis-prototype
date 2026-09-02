@@ -18,8 +18,6 @@ variable, and the one Terraform declaration of which CLAIM fed which tag. The po
 so the claim names are pinned instead; the tripwire below says what would restore the comparison.
 
 Attributes:
-  INFRA: The IaC tree.
-  API_LAMBDA: The API module's environment block, the middle link of the chain.
   STS_MAX_SESSION_TAGS: STS's ceiling on session tags per AssumeRole call.
   STS_MAX_TAG_KEY: STS's ceiling on one tag key.
   STS_MAX_TAG_VALUE: STS's ceiling on one tag value.
@@ -30,7 +28,6 @@ Attributes:
 """
 
 import os
-import pathlib
 import sys
 
 import pytest
@@ -38,9 +35,6 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from apicommon import config, identity
-
-INFRA = pathlib.Path(__file__).resolve().parent.parent.parent / "infra"
-API_LAMBDA = INFRA / "modules" / "api" / "lambda.tf"
 
 STS_MAX_SESSION_TAGS = 50
 STS_MAX_TAG_KEY = 128

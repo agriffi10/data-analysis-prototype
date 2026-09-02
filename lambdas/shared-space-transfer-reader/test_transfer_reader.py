@@ -3,7 +3,6 @@
 import json
 import os
 import pathlib
-import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
@@ -11,6 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import transfer_reader as reader
 from cpcommon import clients
 from fakes import install
+from tf_blocks import lambda_declaration, lambda_input
 
 _BUCKET = "admin-bkt"
 
@@ -208,10 +208,8 @@ def test_the_row_cap_is_computed_from_the_budget_it_is_derived_from():
     # pinned to a literal here — otherwise the two drift and the function budgets for an
     # invocation it no longer has.
     module = pathlib.Path(__file__).resolve().parents[2] / "infra" / "modules" / "shared-spaces"
-    block = (module / "lambda.tf").read_text().split(
-        'resource "aws_lambda_function" "transfer_reader"'
-    )[1].split("\n}")[0]
-    declared = int(re.search(r"timeout\s*=\s*(\d+)", block).group(1))
+    block = lambda_declaration((module / "lambda.tf").read_text(), "transfer_reader")
+    declared = int(lambda_input(block, "timeout"))
     assert declared == reader.TIMEOUT_SECONDS, (
         f"the reader budgets for {reader.TIMEOUT_SECONDS}s and Terraform gives it {declared}s"
     )
