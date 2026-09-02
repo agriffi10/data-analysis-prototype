@@ -575,6 +575,52 @@ class TestNothingIsCreatedForAnOccupiedKey:
         assert body["error"]["params"] == {"name": "big.bin"}
         assert fake.calls == ["head_object"], "an upload was created for a refused key"
 
+    @pytest.mark.parametrize(
+        # `assert_replaceable` refuses TWO things, and a guard driven on one of them is a guard
+        # that survives being swapped for the weaker `assert_writable` — measured: it did.
+        "key",
+        ["alice/archive/secret.bin", "alice/reports/DO_NOT_DELETE.txt"],
+    )
+    @pytest.mark.parametrize(
+        ("path", "body"),
+        [
+            (
+                "/v1/objects/upload",
+                {"contentType": "text/plain", "overwrite": True, "size": 1024},
+            ),
+            ("/v1/objects/upload/part", {"uploadId": "upload-1", "partNumber": 1}),
+        ],
+    )
+    def test_no_route_mints_for_a_protected_location(self, s3, path, body, key) -> None:
+        """A URL is minted only after EXACTLY the authorization the direct call would have had.
+
+        Driven on the part route as well as on create, and the part route is the one that needed
+        saying: it cannot be reached without an ``uploadId`` that create refuses to issue for
+        these keys, and the bucket Denies the write underneath — so a mint here is not redeemable
+        and the omission was invisible to every other assertion. The rule is about where the mint
+        happens, not about whether this particular mint could be spent.
+
+        Args:
+          s3: The client fixture.
+          path: The route under test.
+          body: The rest of its request.
+          key: A write-locked location and a marker key — the two things the check refuses.
+
+        Returns:
+          None.
+
+        Raises:
+          AssertionError: If either route mints for a write-locked location.
+        """
+        fake = s3(FakeS3())
+
+        answer = _post(path, {"space": _ALICE, "key": key, **body})
+
+        assert answer["statusCode"] == 403
+        assert json.loads(answer["body"])["error"]["code"] == "AccessDenied"
+        assert fake.signed == [], "a URL was minted for a write-locked location"
+        assert fake.assumes == 0
+
     @pytest.mark.parametrize("overwrite", [True, False])
     def test_a_marker_key_is_never_uploadable(self, s3, overwrite) -> None:
         """The stricter rule at BOTH settings, and nothing is created either way.
@@ -1293,15 +1339,19 @@ class TestEveryRefusalIsExercised:
         assert fake.calls == ["create_multipart_upload"], "an overwrite paid for a HEAD"
 
 
-def test_the_refusal_boundary_is_exact() -> None:
-    """The largest servable size is served and the next byte is refused.
+def test_the_part_ceiling_boundary_is_exact(monkeypatch) -> None:
+    """The largest size the PART ceiling can serve is served and the next byte is refused.
 
     Probing well past the boundary cannot see an off-by-one: with the refusal written ``>=``
     instead of ``>``, the largest servable size would be refused and every far-side probe would
     still pass. Both sides, one byte apart.
 
+    The upload ceiling is lifted for this test, because it now refuses first — at 5 GiB, three
+    orders of magnitude below where the part ceiling bites. Two refusals share one code, so each
+    needs the other moved out of its way to be seen at all.
+
     Args:
-      None.
+      monkeypatch: The pytest fixture.
 
     Returns:
       None.
@@ -1310,6 +1360,7 @@ def test_the_refusal_boundary_is_exact() -> None:
       AssertionError: If the boundary moves by a byte.
     """
     largest = s3_config.MULTIPART_PART_BYTES * s3_config.MULTIPART_MAX_PARTS
+    monkeypatch.setattr(s3_config, "S3_SINGLE_PUT_MAX_BYTES", largest + 1)
 
     part_size, part_count = objects_upload.part_plan(largest)
     assert part_size == s3_config.MULTIPART_PART_BYTES
@@ -1319,6 +1370,62 @@ def test_the_refusal_boundary_is_exact() -> None:
         objects_upload.part_plan(largest + 1)
     assert raised.value.code == "PayloadTooLarge"
     assert raised.value.params == {"limit": largest}
+
+
+def test_the_upload_ceiling_is_enforced_server_side_and_is_exact() -> None:
+    """The ceiling multipart must not quietly raise, and the server is what holds it now.
+
+    Before this route existed S3 enforced it **unforgeably**: a ``PutObject`` over the
+    single-``PUT`` cap was refused by the service. A multipart upload has no such limit, so
+    without a server-side check the API would accept a plan 209 times larger than the ceiling the
+    product states — from any client that does not ask the browser first, which is every client
+    that is not the browser.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the ceiling moves by a byte, or stops being enforced here.
+    """
+    ceiling = s3_config.S3_SINGLE_PUT_MAX_BYTES
+
+    part_size, part_count = objects_upload.part_plan(ceiling)
+    assert part_size == s3_config.MULTIPART_PART_BYTES
+    assert part_count == 48
+
+    with pytest.raises(ApiError) as raised:
+        objects_upload.part_plan(ceiling + 1)
+    assert raised.value.code == "PayloadTooLarge"
+    assert raised.value.params == {"limit": ceiling}
+
+
+def test_an_astronomically_large_size_is_a_refusal_and_not_a_fault(s3) -> None:
+    """A huge declared size is refused, whichever guard gets to it first.
+
+    The behaviour, end to end. The ceiling above is what actually answers this today; the
+    companion below is what pins the arithmetic underneath it, because with the ceiling in place
+    this test passes whether the division is integer or not.
+
+    Args:
+      s3: The client fixture.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a huge declared size faults instead of refusing.
+    """
+    fake = s3(FakeS3())
+
+    answer = _post("/v1/objects/upload", _create_body(10**400))
+
+    assert answer["statusCode"] == 413
+    assert json.loads(answer["body"])["error"]["code"] == "PayloadTooLarge"
+    assert fake.calls == []
+    assert fake.assumes == 0
 
 
 def test_the_assembled_etag_is_encoded_like_every_other_written_object(s3) -> None:
@@ -1387,3 +1494,137 @@ def test_the_conditional_complete_parameter_exists_in_the_installed_botocore() -
     assert "IfNoneMatch" in operation.input_shape.members, (
         "the conditional complete is unsupported here; every non-overwrite upload would fault"
     )
+
+
+def test_the_plan_arithmetic_never_converts_a_declared_size_to_float(monkeypatch) -> None:
+    """The ceiling is lifted so the arithmetic underneath it can be seen at all.
+
+    ``json.loads`` builds Python ints of unbounded size, so ``size / n`` on a 400-digit value
+    raises ``OverflowError`` — turning an expected refusal into a 500 that writes an error stack
+    into a store retained for ever, repeatably, from one small body. An expected refusal is a
+    return value; only unpredicted faults raise.
+
+    **Measured: with the ceiling in place, restoring the float division passes every other test
+    in this file**, because nothing reaches the division any more. So the ceiling is the live
+    defence and this is the one that keeps the arithmetic honest if the ceiling ever moves —
+    which it will, since raising it is a stated product decision rather than a technical one.
+
+    Args:
+      monkeypatch: The pytest fixture.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the plan arithmetic overflows instead of refusing.
+    """
+    monkeypatch.setattr(s3_config, "S3_SINGLE_PUT_MAX_BYTES", 10**500)
+
+    with pytest.raises(ApiError) as raised:
+        objects_upload.part_plan(10**400)
+
+    assert raised.value.code == "PayloadTooLarge"
+
+
+class TestTheSingleBranchKeepsWhatTheRetiredRouteHad:
+    """Every property `objects.uploadUrl`'s tests held, now held here.
+
+    Written BEFORE that route was deleted, not after: the retirement removes the only assertions
+    for a mint's window, its clamp, its signed content type and its occupied-key refusal, and a
+    deletion leaves nothing behind for a reviewer to read. These are re-pointed, not re-invented —
+    each is the retired test's own claim, driven against the route that replaced it.
+    """
+
+    def test_it_asks_for_the_upload_window_and_clamps_to_the_signing_session(
+        self, s3, monkeypatch
+    ) -> None:
+        """Twenty seconds of session must not mint fifteen minutes of URL.
+
+        The window is moved before asserting on it, for the same reason the part window is: the
+        upload and download windows are both 900, so against the shipped values the assertion
+        cannot tell which constant the route read.
+
+        Args:
+          s3: The client fixture.
+          monkeypatch: The pytest fixture.
+
+        Returns:
+          None.
+
+        Raises:
+          AssertionError: If the URL outlives its signature, or the wrong window was requested.
+        """
+        monkeypatch.setattr(s3_config, "UPLOAD_URL_EXPIRY_SECONDS", 888)
+        fake = s3(FakeS3(), seconds_left=20)
+
+        answer = _post("/v1/objects/upload", _create_body(1024))
+
+        assert answer["statusCode"] == 200
+        assert fake.covering == 888, "the route signed an upload with a different window"
+        assert fake.signed[0][2] <= 20
+
+    def test_the_advertised_expiry_never_outlives_the_url(self, s3) -> None:
+        """`expiresAt` is what the caller trusts, so it must not describe a longer life.
+
+        Args:
+          s3: The client fixture.
+
+        Returns:
+          None.
+
+        Raises:
+          AssertionError: If the advertised expiry exceeds the signing session's.
+        """
+        s3(FakeS3(), seconds_left=30)
+
+        body = json.loads(_post("/v1/objects/upload", _create_body(1024))["body"])
+        expires_at = datetime.datetime.fromisoformat(body["expiresAt"])
+
+        assert expires_at <= datetime.datetime.now(datetime.UTC) + datetime.timedelta(seconds=31)
+
+    def test_it_signs_the_content_type_the_caller_declared(self, s3) -> None:
+        """A different type at redemption fails the signature and 403s as a permissions problem.
+
+        Args:
+          s3: The client fixture.
+
+        Returns:
+          None.
+
+        Raises:
+          AssertionError: If the declared content type is not what was signed.
+        """
+        fake = s3(FakeS3())
+
+        _post("/v1/objects/upload", _create_body(1024, contentType="text/csv"))
+
+        operation, params, _seconds = fake.signed[0]
+        assert operation == "put_object"
+        assert params["ContentType"] == "text/csv"
+        assert params["Key"] == "alice/big.bin"
+
+    def test_an_occupied_key_mints_NO_url_on_the_single_path_either(self, s3) -> None:
+        """A route that mints first has already handed out the capability.
+
+        The multipart branch has its own version of this; the single branch reaches a different
+        few lines and had none once the retired route's test went.
+
+        Args:
+          s3: The client fixture.
+
+        Returns:
+          None.
+
+        Raises:
+          AssertionError: If a URL is minted for an occupied key.
+        """
+        fake = s3(FakeS3(occupied=True))
+
+        answer = _post("/v1/objects/upload", _create_body(1024))
+        body = json.loads(answer["body"])
+
+        assert answer["statusCode"] == 409
+        assert body["error"]["code"] == "Conflict"
+        assert body["error"]["params"] == {"name": "big.bin"}
+        assert "url" not in body
+        assert fake.signed == [], "a URL was minted for an occupied key"

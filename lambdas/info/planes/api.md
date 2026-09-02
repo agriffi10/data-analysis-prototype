@@ -5,8 +5,8 @@ Function, no verb fan-out. It verifies a bearer token and serves routes directly
 
 Arc B is porting the browser's direct AWS calls behind it. Today it serves `/healthz`, the username
 directory, the feature-flag document, the whole **object surface** (list, metadata, exists, content
-read and write, copy, move, delete, free-name and the two presign routes) and the **catalog
-surface** — Athena start, status, results and stop, plus Glue get-database and list-tables.
+read and write, copy, move, delete, free-name, the download presign and the four upload routes) and
+the **catalog surface** — Athena start, status, results and stop, plus Glue get-database and list-tables.
 CloudFront is still production and the rollback.
 
 **A route may name a resource in its path.** `/v1/queries/{queryExecutionId}` and
@@ -17,8 +17,27 @@ arbitrated where a request arrives. The gateway hands the function a percent-**d
 and a value that is not one path segment is refused in the browser — decoded, it would address a
 sibling template rather than fail.
 
-**File bytes do not pass through it.** An upload is a presigned `PUT` and a download a presigned
-`GET`, minted here and redeemed by the browser directly against S3.
+**File bytes do not pass through it.** A download is a presigned `GET`. An upload is a presigned
+`PUT` **or a multipart plan, and the SERVER decides which** — `objects.upload` answers one or the
+other from the declared size, so the browser holds no threshold and a second copy of that policy
+number cannot drift. `objects.uploadPart` signs one part at a time, immediately before it is sent;
+`objects.uploadComplete` and `objects.uploadAbort` finish or discard. Every byte still moves
+between the browser and S3.
+
+- **An `uploadId` is a CAPABILITY, not an authorization.** Part, complete and abort each re-resolve
+  the space from claims and re-contain the key, exactly as create does — the id looks like
+  authorization, which is what makes that easy to skip. It buys nothing either: S3 checks the
+  `(key, uploadId)` pair itself, so the API keeps **no record of an upload**, and there is no
+  second copy of that state to go stale. The cost of that choice is that no route can bound a part
+  number by the plan's count or check what was actually sent, so the upload ceiling is a refusal on
+  a **declared** number rather than enforcement.
+- **S3's multipart faults are mapped per route, never by the classifier.** `errors` maps its denial
+  set to 403 unconditionally, so teaching it `NoSuchUpload` would tell a user they lack a
+  permission for an upload that merely expired. Unmapped, a fault becomes the deliberately generic
+  `InternalError` — which is why the per-route `raise` is what makes an authored sentence possible.
+- **The collision check runs again at COMPLETE**, under `If-None-Match: *`, when `overwrite` is
+  false. The create-time check answered about a moment that can be hours earlier, and a long upload
+  is exactly when a user re-creates the file they are replacing.
 
 ## The shape
 
@@ -111,9 +130,12 @@ sibling template rather than fail.
   containment rules.
 - **No route waits, sleeps or polls.** A five-minute query against a 30-second gateway ceiling does
   not fail at the margin, it fails always — so the four loops that poll an execution and page its
-  results stay in the browser, and the API makes exactly one AWS call per request — with one
-  deliberate exception, SPEC-198's free-name probe, which heads up to `FREE_NAME_MAX_ATTEMPTS`
-  candidates because the alternative was that many browser round trips.
+  results stay in the browser. What is enforced is the SHAPE, not a count of one: no route sleeps,
+  waits, paginates or walks a continuation token, and `test_api_thinness.py` is what holds that.
+  A route may make a **small fixed number** of calls — `objects.move` heads, copies and deletes;
+  the multipart create heads then creates — and the free-name probe is the one route whose count
+  is bounded rather than fixed, at `FREE_NAME_MAX_ATTEMPTS`, because the alternative was that many
+  browser round trips. **A count that grows with the user's data is the thing forbidden.**
 - **Neither the SQL statement nor Athena's `stateChangeReason` may be a log field.** Both routinely
   quote a user's own cell values back, so the span carries `sql_bytes`, `state`, `row_count` and
   `column_count` instead. The reason still travels on the response body, where the browser's

@@ -113,7 +113,6 @@ HANDLERS: dict[str, Callable[[RequestContext], dict[str, Any]]] = {
     "objects.copy": objects_mutate.copy_object,
     "objects.move": objects_mutate.move_object,
     "objects.delete": objects_mutate.delete_object,
-    "objects.uploadUrl": objects_presign.upload_url,
     "objects.upload": objects_upload.create,
     "objects.uploadPart": objects_upload.sign_part,
     "objects.uploadComplete": objects_upload.complete,

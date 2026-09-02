@@ -91,9 +91,10 @@ tag matches nothing and gets an implicit deny. The tag variable is escaped as
 
 - **Multipart:** `AbortMultipartUpload` + `ListMultipartUploadParts` only.
   `CreateMultipartUpload`/`UploadPart`/`CompleteMultipartUpload` are authorized by the existing
-  `PutObject` grant. **`ListBucketMultipartUploads` is deliberately not granted** — lib-storage never
-  lists in-progress uploads, and that action does not support the `s3:prefix` condition key, so
-  granting it bucket-wide would leak other users' in-progress upload keys.
+  `PutObject` grant. **`ListBucketMultipartUploads` is deliberately not granted** — nothing on this
+  path enumerates in-progress uploads, and that action does not support the `s3:prefix` condition
+  key, so granting it bucket-wide would leak other users' in-progress upload keys. That is also
+  why an operator credential, not the portal role, is what checks for orphaned parts.
 - **The username directory** is one statement: `GetObject` on `_directory/*`. **No `ListBucket`
   widening** (so `_directory/` is invisible to the file browser and the browser needs no change) and
   **no write** (the daily builder is the only writer). The disclosure is intended and accepted, not

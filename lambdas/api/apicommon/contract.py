@@ -417,23 +417,6 @@ class PresignedUrlResponse(TypedDict):
     expiresAt: str
 
 
-class UploadUrlRequest(TypedDict):
-    """A request for a presigned PUT.
-
-    Attributes:
-      space: The space.
-      key: The object key.
-      contentType: The content type the upload will carry, which is signed into the URL.
-      overwrite: Whether an occupied key may be replaced. With false and the key occupied the
-        route mints NO url.
-    """
-
-    space: SpaceRef
-    key: str
-    contentType: str
-    overwrite: bool
-
-
 class CreateUploadRequest(TypedDict):
     """A request to begin an upload, whichever shape it turns out to take.
 
@@ -1417,16 +1400,6 @@ ROUTES: Final[tuple[Route, ...]] = (
         request=DeleteRequest,
         query=None,
         response=ObjectDeletedResponse,
-    ),
-    Route(
-        id="objects.uploadUrl",
-        method="POST",
-        path="/v1/objects/upload-url",
-        idempotent=False,
-        plane="user",
-        request=UploadUrlRequest,
-        query=None,
-        response=PresignedUrlResponse,
     ),
     Route(
         id="objects.upload",

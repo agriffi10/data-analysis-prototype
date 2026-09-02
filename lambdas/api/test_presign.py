@@ -1,4 +1,8 @@
-"""The presign routes, and the fact a signed URL is a credential.
+"""The presigned DOWNLOAD, and the fact a signed URL is a credential.
+
+The upload half of this file moved to `test_multipart.py` when `objects.uploadUrl` retired — the
+window, the clamp, the signed content type and the occupied-key refusal are all asserted there
+against `objects.upload`. What is left here is the download route and the rules both share.
 
 **The clamp test is the one that matters, and it is written to catch the implementation that looks
 right.** Reading the expiry with a second `assume_user_role` is the obvious way to write it, it
@@ -24,16 +28,16 @@ class FakeSigner:
 
     Attributes:
       signed: ``(operation, params, expires_in)`` per mint.
-      calls: Operation names, so a mint-before-check can be spotted by ORDER.
+      calls: Operation names, in order.
       assumes: How many times the signing door was opened — an `AssumeRole` is an AWS call, and a
         refusal that costs one is not free. Invisible to ``calls``, which is why it is separate.
     """
 
-    def __init__(self, occupied=False):
+    def __init__(self):
         """Builds the fake.
 
         Args:
-          occupied: Whether ``head_object`` should report an existing object.
+          None.
 
         Returns:
           None.
@@ -44,24 +48,6 @@ class FakeSigner:
         self.signed = []
         self.calls = []
         self.assumes = 0
-        self._occupied = occupied
-
-    def head_object(self, **kwargs):
-        """Reports the configured occupancy.
-
-        Args:
-          **kwargs: The head request.
-
-        Returns:
-          A head response when occupied.
-
-        Raises:
-            _Missing: When not occupied.
-        """
-        self.calls.append("head_object")
-        if not self._occupied:
-            raise _Missing()
-        return {"ContentLength": 1}
 
     def generate_presigned_url(self, operation, Params, ExpiresIn):
         """Records and returns a URL.
@@ -97,24 +83,6 @@ class FakeSigner:
             "&X-Amz-Signature=deadbeef"
         )
 
-
-class _Missing(Exception):
-    """A botocore-shaped absence."""
-
-    def __init__(self):
-        """Builds it.
-
-        Args:
-          None.
-
-        Returns:
-          None.
-
-        Raises:
-          None.
-        """
-        super().__init__("NoSuchKey")
-        self.response = {"Error": {"Code": "NoSuchKey", "Message": ""}}
 
 
 def _credentials(seconds_left):
@@ -233,28 +201,18 @@ class TestTheUrlNeverOutlivesTheSessionThatSignedIt:
                 {"space": {"kind": "personal", "name": "alice"}, "key": "alice/big.csv"},
                 s3_config.DOWNLOAD_URL_EXPIRY_SECONDS,
             ),
-            (
-                "/v1/objects/upload-url",
-                {
-                    "space": {"kind": "personal", "name": "alice"},
-                    "key": "alice/big.csv",
-                    "contentType": "text/csv",
-                    "overwrite": True,
-                },
-                s3_config.UPLOAD_URL_EXPIRY_SECONDS,
-            ),
         ],
-        ids=["download", "upload"],
+        ids=["download"],
     )
-    def test_BOTH_routes_ASK_FOR_the_window_they_sign_for(self, monkeypatch, path, body, window) -> None:
+    def test_the_download_route_ASKS_FOR_the_window_it_signs_for(self, monkeypatch, path, body, window) -> None:
         """The argument, not the clamp — and without it the fix is decorative.
 
         ``signing_client(covering=…)`` forces a fresh session when the cached one cannot span the
         window. Pass a `covering` of 1 and the guard is satisfied by every session that is not
         already dead, no force ever fires, and the route is back to signing for whatever happens to
         remain — **which is the production behaviour this whole change exists to remove, and it
-        passes every other test in this file.** Measured: with `covering=1` at both call sites the
-        entire suite was green.
+        passes every other test in this file.** Measured: with `covering=1` at the call site the
+        suite was green. The upload route's equivalent lives in `test_multipart.py`.
 
         Args:
           monkeypatch: The pytest fixture.
@@ -285,60 +243,22 @@ class TestTheUrlNeverOutlivesTheSessionThatSignedIt:
                 "/v1/objects/download-url",
                 {"space": {"kind": "personal", "name": "alice"}, "key": "alice/big.csv"},
             ),
-            (
-                "/v1/objects/upload-url",
-                {
-                    "space": {"kind": "personal", "name": "alice"},
-                    "key": "alice/big.csv",
-                    "contentType": "text/csv",
-                    "overwrite": True,
-                },
-            ),
         ],
-        ids=["download", "upload"],
+        ids=["download"],
     )
-    def test_BOTH_routes_clamp(self, monkeypatch, path, body) -> None:
-        """The upload half was asserted nowhere, and it is the half that matters more.
+    def test_the_download_route_clamps(self, monkeypatch, path, body) -> None:
+        """A download URL that dies early costs a retry, and this is what stops it.
 
-        A download URL that dies early costs a retry. An upload URL that dies early 403s at the
-        TAIL of a long transfer, after the bytes were sent — and with three uploads in flight it
-        lands on the files the user waited longest for. Ignoring the clamped value at the signing
-        call left the whole suite green.
+        The upload side is the half that matters more — an upload URL that dies early 403s at the
+        TAIL of a long transfer, after the bytes were sent — and it is asserted in
+        `test_multipart.py` now, against both the single-`PUT` branch and a part. Ignoring the
+        clamped value at the signing call left the whole suite green.
         """
         fake = FakeSigner()
         _install(monkeypatch, fake, _credentials(20))
         answer = router.route("POST", path, bearer(), "rq", body, None)
         assert answer["statusCode"] == 200
         assert fake.signed[0][2] <= 20
-
-    def test_the_upload_route_mints_and_signs_the_content_type(self, monkeypatch) -> None:
-        """The happy path, which the upload route did not have at all.
-
-        Without it the route appeared only in two refusal tests, so nothing asserted it mints, or
-        that the content type the browser will send is the one signed into the URL.
-        """
-        fake = FakeSigner()
-        _install(monkeypatch, fake, _credentials(3600))
-        answer = router.route(
-            "POST",
-            "/v1/objects/upload-url",
-            bearer(),
-            "rq",
-            {
-                "space": {"kind": "personal", "name": "alice"},
-                "key": "alice/new.csv",
-                "contentType": "text/csv",
-                "overwrite": True,
-            },
-            None,
-        )
-        assert answer["statusCode"] == 200
-        body = json.loads(answer["body"])
-        assert body["url"].startswith("https://s3.example/alice/new.csv")
-        assert body["expiresAt"]
-        operation, params, _ = fake.signed[0]
-        assert operation == "put_object"
-        assert params["ContentType"] == "text/csv"
 
     def test_a_healthy_credential_gets_the_full_window(self, monkeypatch) -> None:
         """The control: the clamp must not shorten every URL to nothing."""
@@ -421,49 +341,6 @@ class TestAUrlIsABearerToken:
         ):
             assert parameter not in blob, f"{parameter} reached an emitted record"
         assert "secret.csv" not in blob, "the key itself is not a field either"
-
-    def test_an_occupied_key_mints_NO_url(self, monkeypatch) -> None:
-        """A route that mints first and checks after has handed out the capability already."""
-        fake = FakeSigner(occupied=True)
-        _install(monkeypatch, fake, _credentials(3600))
-        answer = router.route(
-            "POST",
-            "/v1/objects/upload-url",
-            bearer(),
-            "rq",
-            {
-                "space": {"kind": "personal", "name": "alice"},
-                "key": "alice/taken.csv",
-                "contentType": "text/csv",
-                "overwrite": False,
-            },
-            None,
-        )
-        assert answer["statusCode"] == 409
-        assert "url" not in json.loads(answer["body"])
-        assert fake.signed == []
-        assert "generate_presigned_url" not in fake.calls
-
-    def test_a_protected_location_mints_no_url_and_costs_no_assume(self, monkeypatch) -> None:
-        """Refused server-side, not only by the browser's affordance."""
-        fake = FakeSigner()
-        _install(monkeypatch, fake, _credentials(3600))
-        answer = router.route(
-            "POST",
-            "/v1/objects/upload-url",
-            bearer(),
-            "rq",
-            {
-                "space": {"kind": "personal", "name": "alice"},
-                "key": "alice/archive/receipt.json",
-                "contentType": "application/json",
-                "overwrite": True,
-            },
-            None,
-        )
-        assert answer["statusCode"] == 403
-        assert fake.calls == []
-        assert fake.assumes == 0, "the refusal opened the signing door"
 
     def test_a_foreign_space_mints_no_url(self, monkeypatch) -> None:
         """The isolation refusal reaches the presign routes too."""

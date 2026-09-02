@@ -121,7 +121,6 @@ DISPOSITIONS = {
     "lambdas/api/routes/objects_head.py::metadata": LIST_GRANT,
     "lambdas/api/routes/objects_head.py::exists": LIST_GRANT,
     "lambdas/api/routes/objects_free_name.py::free_name": LIST_GRANT,
-    "lambdas/api/routes/objects_presign.py::upload_url": LIST_GRANT,
     "lambdas/api/routes/objects_upload.py::_refuse_if_occupied": LIST_GRANT,
     "lambdas/api/routes/objects_mutate.py::_perform_copy": LIST_GRANT,
     "lambdas/archive-common/arcommon/guard.py::_is_occupied": LIST_GRANT,
