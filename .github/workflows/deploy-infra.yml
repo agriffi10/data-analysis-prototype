@@ -7,10 +7,16 @@ on:
   # executed, which is how a security check ships broken and looks fine.
   pull_request:
     branches: [main]
-    paths: ['infra/**', '.github/workflows/deploy-infra.yml']
+    paths: ['infra/**', '.github/workflows/deploy-infra.yml',
+            '.github/scripts/lambda_plan_guard.py',
+            'lambdas/fixtures/pre_cutover_plan.json',
+            '.github/lambda-functions.json']
   push:
     branches: [main]
-    paths: ['infra/**', '.github/workflows/deploy-infra.yml']
+    paths: ['infra/**', '.github/workflows/deploy-infra.yml',
+            '.github/scripts/lambda_plan_guard.py',
+            'lambdas/fixtures/pre_cutover_plan.json',
+            '.github/lambda-functions.json']
   # Manual recovery lever. The push trigger above is the normal path, but GitHub
   # can silently DROP a push event (it did for the SPEC-111 merge 930c12e — zero
   # workflow runs were created, so the apply never happened and the deployed state
@@ -211,6 +217,27 @@ jobs:
             echo "::error title=Checkov (plan)::plan.json is not valid plan output — refusing to report zero."
             exit 1
           fi
+
+      # The fixture SPEC-213 FR-002 compares the cutover against, captured from the plan as it is
+      # BEFORE anything moves. It is uploaded rather than written into the repo by CI: a fixture a
+      # pipeline can regenerate is a fixture that agrees with whatever the code currently says,
+      # which is the one thing it must never do. Committed by hand, once, and frozen.
+      #
+      # This step is not the gate. It runs always and passes always; the assertion is the step
+      # after it, which hard-fails when the fixture is missing rather than skipping.
+      - name: Capture the Lambda parity fixture
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/lambda_plan_guard.py capture \
+            --plan infra/plan.json --out /tmp/pre_cutover_plan.json
+          head -c 400 /tmp/pre_cutover_plan.json
+
+      - name: Upload the Lambda parity fixture
+        uses: actions/upload-artifact@v4
+        with:
+          name: lambda-parity-fixture
+          path: /tmp/pre_cutover_plan.json
+          retention-days: 7
 
       - name: Set up Python
         uses: actions/setup-python@v7
