@@ -699,11 +699,14 @@ shared-space and file-send fixtures). Both satisfy `^[a-z][a-z0-9_]{2,62}$`.
   parser is marked non-executable, so pasting one into the DOM logs nothing — which looks exactly
   like a policy that blocked it. Do not use it.
 - **Safari refuses to evaluate a report-only policy naming no reporting endpoint**, logging that the
-  policy will have no effect. A Chromium harness cannot surface that, which is one reason §9 is the
-  discharging pass and not a formality.
-- **400px is not reachable by window resize on macOS**, and the automation's `resize_window` reports
-  success while changing nothing the page sees. Use the DevTools device toolbar and assert on
-  `matchMedia` (§9).
+  policy will have no effect. A Chromium harness cannot surface that. This was one reason §9 was
+  treated as the discharging pass; **superseded 2026-09-01** — the audience has no Safari, so the
+  blind spot is real but unreachable by anyone this deployment serves.
+- **400px is not reachable by window resize on macOS.** Measured 2026-09-01: `resize_window` reports
+  success at 400 while the page reports `innerWidth: 606`, because macOS clamps the window. It does
+  **not** change nothing — the breakpoints do flip — it simply cannot get that narrow, which is why
+  the assertion is on `matchMedia` and never on the tool's own success. Use the DevTools device
+  toolbar (§9).
 - **The laptop IAM user cannot read `dat-prod-user-space` at all** — the bucket policy allowlists the
   portal, deploy and execution roles. Anything touching a user's space goes through the portal UI or
   an assumed role.
@@ -1029,13 +1032,21 @@ count is 0). For each: perform the gesture, wait for the notification, and confi
 > The **archive** direction only. A restore is 3–5 billed, uncancellable hours and belongs to
 > `e2e.md`, not here.
 
-## 9. Safari, and 400px — BLOCKING
+## 9. Safari, and 400px — BLOCKING for 400px only
 
-**Safari is the discharging pass.** The user browses in Safari; a Chromium run corroborates and cannot
-discharge, and Safari's report-only blind spot means it is the browser most likely to differ.
+> **Superseded 2026-09-01 (user decision).** The premise below — "the user browses in Safari" — does
+> not hold for this deployment: **the audience has no access to Safari**, so a Safari pass discharges
+> nothing anyone will exercise and is **no longer blocking**. Step 1 is retired rather than owed; do
+> not re-add it as a gap. Step 2 (400px) is browser-independent and still blocks, because the
+> automation cannot reach that width — see the log.
 
-1. In **Safari**, repeat §3 (fresh sign-in, clean profile), §5 steps 1–3 and 6–7, and §7 steps 1–4.
-   - [ ] Pass — note any divergence from Chrome explicitly, including "none".
+**Original rationale, kept for the record.** Safari was the discharging pass on the assumption that
+the user browses in it; a Chromium run corroborates and cannot discharge, and Safari's report-only
+blind spot makes it the browser most likely to differ.
+
+1. ~~In **Safari**, repeat §3, §5 steps 1–3 and 6–7, and §7 steps 1–4.~~ **Retired** — see the note
+   above. The Chromium runs of those steps stand on their own.
+   - [x] N/A — the audience has no Safari.
 2. **400px.** Not reachable by window resize on macOS. Open the device toolbar, set the width to
    **400**, reload (so load-time device gates re-run), and record:
    ```js
@@ -1522,8 +1533,11 @@ bearer substring, any email, any object key, any recipient name.
 
 ### G.6 — Browser
 
-**Safari** at desktop is the discharging pass, since that is the browser in use. A Chromium pass
-corroborates and cannot discharge — record it as such.
+> **Superseded 2026-09-01 (user decision).** The audience has no access to Safari, so it is not
+> "the browser in use" and cannot be the discharging pass. A Chromium pass discharges this row.
+
+~~**Safari** at desktop is the discharging pass, since that is the browser in use. A Chromium pass
+corroborates and cannot discharge — record it as such.~~
 
 ### G.7 — Recorded as OWED, not discharged
 
@@ -1686,8 +1700,19 @@ a change nobody would connect back to a test run days later.
 | 2026-08-31 | **§7 — CSP enforcing, with a negative control** | post-merge-1 | Chromium | **PASS** | A `fetch` to `athena.us-east-1.amazonaws.com` raised a **positive** `securitypolicyviolation` with `effectiveDirective: "connect-src"` and `disposition: "enforce"`. The negative control (`/config.json`, same origin) returned **200 in the same run**, so this is enforcement and not a broken network. **The method is now measured, not assumed:** CDP evaluation is exempt from `script-src`, NOT from `connect-src` — SPEC-140's prescription over-generalised from a `script-src` measurement, and this is the correction. Safari re-run owed (§9). |
 | 2026-08-31 | **FR-008 — the four absences and the two presences** | post-merge-1 | Chromium | **PASS** | Probed all six hosts in one run. **Blocked:** `cognito-identity.`, `athena.`, `glue.`, `sqs.` — four violations, no more and no fewer, every one `connect-src`/`enforce`. **Allowed:** `cognito-idp.`, the Hosted UI host, `api.dataquarry.app`, the user-space S3 endpoint. The two Cognito presences are the criterion whose omission broke fresh sign-in for a day. |
 | 2026-08-31 | **§10 — the rollback rehearsal** | post-merge-1, pre-merge-2 | Chromium | **PASS** | `https://d1kbh4bnvh1je8.cloudfront.net/` loads the app and completes a **real cross-origin API call**: `GET /healthz` → 200, `version` = `85ea5457…` = `main`. Its `/config.json` carries the same ten keys and **no** `cognitoIdentityPoolId`, and its `appUrl` is its own origin. **This is a CloudFront-served HEAD bundle talking to the API — it does NOT restore browser-direct AWS**, because that code is gone from HEAD and so is the pool that backed it. Run in the only window where it is both meaningful and possible. |
-| 2026-08-31 | §3, §4, §5, §6, §8 | post-merge-1 | — | **NOT RUN — blocking, and merge 2 is held on them** | Every one needs a signed-in session. Sign-in requires entering a password, which the agent does not do, so these are Andrew's to start: sign in at `portal.dataquarry.app`, then the session can be driven. §8 additionally needs the `arcb_owner` / `arcb_member` fixtures of §2. **§4 is the load-bearing negative and is satisfiable for the first time now** — the pool it was blocked on is gone. |
-| 2026-08-31 | §9 — Safari | post-merge-1 | — | **NOT RUN — blocking** | Safari is the discharging pass and the tooling here is Chromium. §7 above corroborates without discharging. |
+| 2026-08-31 | §3 and §6 | post-merge-1 | — | **NOT RUN — blocking, and merge 2 is held on them** | Superseded in part on 2026-09-01: §4, §5 and §8 have since run and are recorded below. What is left needs a sign-in the agent cannot perform (§3, in a clean profile) or a token clock the agent must not change unasked (§6). |
+| 2026-08-31 | §9 — Safari | post-merge-1 | — | **RETIRED, was NOT RUN** | Recorded at the time as blocking, on the premise that Safari was the discharging pass. **Superseded 2026-09-01:** the audience has no Safari, so this half discharges nothing and was retired rather than left owed. §7's Chromium run stands on its own. |
 | 2026-08-31 | §6 — deep link while signed out, **first half only** | post-merge-1 | Chromium | **PARTIAL** | `/query?db=demo` while signed out lands on `/` and stores `portal.returnPath: "/query?db=demo"` in `sessionStorage`. The capture works. **The half that matters — landing back on that link AFTER sign-in — is unrun**, and so is the private-browsing repeat, because both need a completed sign-in. Recorded as partial rather than passed: the capture succeeding and the restore failing look identical from here. |
-| 2026-08-31 | §9 — the breakpoints, **desktop only** | post-merge-1 | Chromium | **PARTIAL** | At 1512px `matchMedia` reports `(min-width: 900px)` and `(min-width: 1300px)` both true, so the compiled breakpoints resolve. **400px is unrun**: it is not reachable by window resize on macOS, and the automation's `resize_window` reports success while changing nothing the page sees — it needs the DevTools device toolbar and an assertion on `matchMedia`, not a screenshot. Safari is unrun and is the discharging pass. |
+| 2026-08-31 | §9 — the breakpoints, **desktop only** | post-merge-1 | Chromium | **PARTIAL** | At 1512px `matchMedia` reports `(min-width: 900px)` and `(min-width: 1300px)` both true, so the compiled breakpoints resolve. **400px is unrun**: it is not reachable by window resize on macOS, and the automation's `resize_window` reports success while changing nothing the page sees — it needs the DevTools device toolbar and an assertion on `matchMedia`, not a screenshot. Safari's half was **retired at its premise on 2026-09-01** — the audience has no Safari — so it is not carried as a gap. |
+| 2026-09-01 | **§5 steps 1–4, 9 — the object surface** | post-merge-1 | Chromium | **PASS** | Counted in-page (`fetch`+XHR wrapped) because the extension's network reader drops requests. Listing page = **1** call; details = 1 `metadata`; folder create = 1 `PUT /v1/objects/content`; copy = 1 `POST /objects/copy`; single-file delete = 1 `DELETE`. Upload of a 12 MiB file = **one `PUT`, over XHR not fetch**, with **51 progress samples, first at 1.6%** — a `fetch` upload emits none, which is the silent loss this row exists to catch. Download: SigV4, `response-content-disposition` present and `attachment`, naming the file; **12,582,912 bytes received**, exact. Free name = `name (4).txt` from **one** `/free-name` call, not 4 and not 999. Mark-one-read = 1 `/enqueue/notifications`, unread 19 → 18. |
+| 2026-09-01 | §5 step 1 — the collision path, beyond what the step asks | post-merge-1 | Chromium | **PASS** | Moving the copy back onto its original is refused **server-side, `POST /v1/objects/move` → 409**, surfaced as "1 item(s) already exist at the destination" with Overwrite all / Cancel, and Cancel reports **"Moved 0 items."** rather than a false success. |
+| 2026-09-01 | **§5 step 5 — saved queries, both halves** | post-merge-1 | Chromium | **PASS** | Personal save, edit, and re-save are **one `PUT` each**; the Replace is disclosed in the dialog ("replacing the file this tab was opened from") and that clause correctly disappears when the target space changes. Saving into a shared space issued **two** `PUT`s: the `.sql` plus `ensureSavedQueriesFolder`'s `DO_NOT_DELETE.txt` marker, written `overwrite: false` once per space per session with `Conflict` as its success case (`savedQueries.service.ts`). Not a second write of the query — checked, not assumed. The space picker offers only spaces the user belongs to. |
+| 2026-09-01 | **§5 step 6 — the NULL clause is filed against the wrong surface** | post-merge-1 | Chromium | **PASS on rows; clause reassigned** | 10 rows, and the `sql` in the request body is **byte-identical** to the editor. But NULL and `''` render **identically** in the Query grid — deliberately: `QueryResultsTable.tsx` says *"A null cell is SQL NULL and renders blank here — this surface makes nothing of the distinction (the Data Explorer's grid does)."* The API distinguishes them correctly on the wire (`""` vs `null`, alternating). **The criterion belongs to step 7**, where `CellValue.tsx` renders italic `NULL` vs `(empty)`. Nearly written up as an app defect; it is a script defect. |
+| 2026-09-01 | **§5 step 7 — Data Explorer** | post-merge-1 | Chromium | **PASS** | Opening the table = 1 execution. Paging past row 100 to "Rows 101–150" = **0 new executions** (one `/results` against the same execution id) and the billing line stays 3.5 KB. The `O'Brien` filter **is** a new execution with a changed row count, and the generated SQL is `WHERE "name" = 'O''Brien'` — quote **doubled**, the Trino/DML escaper, with double-quoted identifiers. A wrong escaper here is a predicate that silently matches nothing. `(empty)` renders in italics, distinct from a value. |
+| 2026-09-01 | **§5 step 8 — Lake Formation still filters, with a paired control** | post-merge-1 | Chromium | **PASS** | As the member: the rail lists only their own database and the one space they belong to; `agriffith`'s is absent. A rail can be filtered client-side, so the query was run: `SELECT * FROM agriffith.arcb_report` → **Failed, "You don't have permission to run that query"**, terminal, with **no `/results` fetch** and **no re-login**. Control, same user and same minute: `agriffith_three.employees` → **Succeeded, 2 rows, 112 B scanned**. One database denied and another allowed through the same route, so the grant is on the **assumed** role. |
+| 2026-09-01 | §5 step 10 — membership propagation | post-merge-1 | Chromium | **PARTIAL — first half owed** | Second half holds: the member added to `dwb_testing_all` shows **Pending** on the owner's roster, and after a fresh sign-in the space appears in their rail, lists its files, and the cloned table queries. **The pre-refresh refusal was not observed** and cannot be, in a single browser: switching accounts mints a token that already carries the membership, so the refusal and the fix become indistinguishable. Needs two concurrent sessions, or a membership change made while a session is held. |
+| 2026-09-01 | **§8 — seven of the eight planes, each through the API** | post-merge-1 | Chromium | **PASS (7/8)** | One `POST /v1/enqueue/{plane}` per gesture and **no browser `sqs:SendMessage` anywhere**: shared-space, notifications, table-build, table-share, data-quality, file-send, file-ops. Every one produced its notification. Sender told **once** for file-send ("Sent \"arcb_send\" (4 files)" — the count includes the nested file, so the walk recursed); recipient told once, and `shared_files/agriffith/arcb_send/` really contains the four files with `nested/` intact. Table-share cloned **150 rows** into the recipient's database and they can query it. |
+| 2026-09-01 | **§8 — the links, and two rows that carry none** | post-merge-1 | Chromium | **PASS with a finding** | Links resolve for file-ops (`/files?prefix=…`), file-send (`/files?prefix=<recipient>/shared_files/<sender>/`) and data-quality (`/data-quality/<space>/<id>` — space **from the route**, and the report renders 150 rows, 1 file, 0 duplicates, `name` 20.0% null-or-blank). **table-build and table-share carry no link at all**, against this section's "with a link". Deliberate in code: `tbcommon/notify.py`'s `emit_created` passes no `link`, while the same module does pass one for the `columns_removed` failure. Not load-bearing the way data-quality's is (its reports folder is hidden); either the planes gain a link or this section drops the clause. |
+| 2026-09-01 | §8 — the archive row | post-merge-1 | — | **NOT RUN** | The only irreversible gesture in the section: a restore is 3–5 billed, uncancellable hours. Held for an explicit go-ahead rather than fired on a fixture. |
+| 2026-09-01 | §9 — 400px, and why the tooling cannot reach it | post-merge-1 | Chromium | **PARTIAL** | `resize_window` reports *"Successfully resized … to 400x800"* while the page reports **`innerWidth: 606`** — macOS clamps the window, so the tool succeeds at a width the page never sees. It is **not inert** (both breakpoints correctly flip to `false`), it simply cannot reach 400, which is why this step says to assert on `matchMedia`. At 606: hamburger nav, `scrollWidth === innerWidth` so **no horizontal overflow**, both breakpoints `false`. Only `tablet:` and `desktop:` are compiled, so 400 and 606 are the **same CSS branch** — what stays unproven is overflow at the narrower width. Safari's half is **retired, not owed** — the audience has no Safari (user decision, 2026-09-01), so §9 now blocks on 400px alone. |
 | | | pre-merge-1 / post-merge-1 / post-merge-2 | | | |

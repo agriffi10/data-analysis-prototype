@@ -618,9 +618,11 @@ checklist for any later change to the API or the container.
       `logs/service={plane}/` record carrying a real `env` and a real build sha. The archive plane's
       entry is the **archive** direction only — a restore is 3–5 billed hours and belongs to that
       arc's own script. **Blocking.**
-- [ ] **§9 — Safari, and 400px.** Safari is the discharging pass: the user browses in Safari and a
-      Chromium run corroborates without discharging (Safari also refuses to evaluate a report-only
-      policy naming no reporting endpoint, which a Chromium harness cannot surface). The 400px pass
+- [ ] **§9 — 400px.** **Superseded 2026-09-01 (user decision):** the Safari half is retired, not
+      owed — the audience has no access to Safari, so a Safari pass discharges nothing anyone will
+      exercise, and this criterion no longer requires one. (Safari's refusal to evaluate a
+      report-only policy naming no reporting endpoint remains true and remains unreachable here.)
+      The 400px pass
       notes that **400px is not reachable by window resize on macOS**, and that `resize_window`
       reports success while changing nothing the page sees — use the device toolbar and **assert on
       `matchMedia`**, recording the matched query rather than a screenshot. **Blocking.**
