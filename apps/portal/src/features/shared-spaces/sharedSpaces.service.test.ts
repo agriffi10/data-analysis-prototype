@@ -118,6 +118,7 @@ describe('readSharedConnectionsCache (SPEC-052)', () => {
     expect(result).toEqual({success: true, data: cache});
     // The bucket no longer travels: the API resolves the space from the caller's verified claims,
     // so what remains observable is the key and the space derived from it.
+    expect(send).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0][0]).toBe('objects.readContent');
     expect(send.mock.calls[0][1]).toMatchObject({
       query: {spaceKind: 'personal', spaceName: 'alice', key: 'alice/user_settings/shared-connections.json'}

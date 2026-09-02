@@ -1074,6 +1074,7 @@ describe('QueryWorkspace', () => {
       await user.click(screen.getByRole('button', {name: 'Run statement'}));
       await screen.findByText('Succeeded');
       // The run carries neither a database context nor a shared outputLocation.
+      expect(mockRunQuery).toHaveBeenCalledTimes(1);
       expect(mockRunQuery.mock.calls[0][0]).toEqual({sql: 'SELECT 1', username: 'alice'});
       expect(mockRunQuery.mock.calls[0][0]).not.toHaveProperty('outputLocation');
 

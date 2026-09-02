@@ -432,6 +432,7 @@ describe('FileBrowser — move / copy / rename', () => {
     await user.click(within(dialog).getByRole('button', {name: /rename|save/i}));
     await waitFor(() => expect(mockSubmitFileOp).toHaveBeenCalled());
     expect(mock.moveObject).not.toHaveBeenCalled();
+    expect(mockSubmitFileOp).toHaveBeenCalledTimes(1);
     expect(mockSubmitFileOp.mock.calls[0][0]).toMatchObject({
       operation: 'move',
       source: {items: [{kind: 'folder', key: 'alice/docs/', targetName: 'archive'}]},

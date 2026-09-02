@@ -544,6 +544,7 @@ describe('UploadDropzone', () => {
       const onFiles = vi.fn();
       const {user} = renderWithProviders(<UploadDropzone onFiles={onFiles} />);
       await user.upload(screen.getByLabelText('Choose files'), [new File(['a'], 'a.txt'), new File(['b'], 'b.txt')]);
+      expect(onFiles).toHaveBeenCalledTimes(1);
       expect(onFiles.mock.calls[0][0]).toHaveLength(2);
     });
 

@@ -189,6 +189,7 @@ describe('everything else is enqueued (FR-001 AC9)', () => {
     await user.click(await screen.findByRole('button', {name: 'Delete'}));
     await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
     expect(mock.deleteObject).not.toHaveBeenCalled();
+    expect(mockSubmit).toHaveBeenCalledTimes(1);
     expect(Object.keys(mockSubmit.mock.calls[0][0]).sort()).toEqual(['operation', 'requestId', 'source']);
   });
 
@@ -201,6 +202,7 @@ describe('everything else is enqueued (FR-001 AC9)', () => {
     await user.click(within(dialog).getByRole('button', {name: 'Open folder docs'}));
     await user.click(within(dialog).getByRole('button', {name: 'Move here'}));
     await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    expect(mockSubmit).toHaveBeenCalledTimes(1);
     const request = mockSubmit.mock.calls[0][0];
     expect(request.operation !== 'delete' && request.destination.prefix).toBe('alice/docs/');
     expect(request.source.items.every((item) => item.targetName === undefined)).toBe(true);
@@ -215,6 +217,7 @@ describe('everything else is enqueued (FR-001 AC9)', () => {
     await user.click(within(dialog).getByRole('button', {name: 'Open folder docs'}));
     await user.click(within(dialog).getByRole('button', {name: 'Copy here'}));
     await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    expect(mockSubmit).toHaveBeenCalledTimes(1);
     const request = mockSubmit.mock.calls[0][0];
     expect(request.operation !== 'delete' && request.onConflict).toBe('refuse');
   });
@@ -234,6 +237,7 @@ describe('the same-folder copy probes FIRST, then forks on the item kind (FR-001
     await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
     expect(mock.firstFreeName).toHaveBeenCalledTimes(1);
     expect(mock.copyObject).not.toHaveBeenCalled();
+    expect(mockSubmit).toHaveBeenCalledTimes(1);
     expect(mockSubmit.mock.calls[0][0].source.items).toEqual([
       {kind: 'folder', key: 'alice/docs/', targetName: 'docs (1)'}
     ]);
@@ -248,6 +252,7 @@ describe('the same-folder copy probes FIRST, then forks on the item kind (FR-001
     await user.click(screen.getByRole('button', {name: 'Copy'}));
     await waitFor(() => expect(mock.copyObject).toHaveBeenCalled());
     expect(mockSubmit).not.toHaveBeenCalled();
+    expect(mock.copyObject).toHaveBeenCalledTimes(1);
     expect(mock.copyObject.mock.calls[0][0]).toMatchObject({destKey: 'alice/notes (1).txt'});
   });
 });
@@ -289,6 +294,7 @@ describe('in-flight state', () => {
     await selectAnd(user, 'folder docs', 'Delete selected items');
     await user.click(await screen.findByRole('button', {name: 'Delete'}));
     await screen.findByRole('region', {name: 'File operations in progress'});
+    expect(mockSubmit).toHaveBeenCalledTimes(1);
     const requestId = mockSubmit.mock.calls[0][0].requestId;
 
     vi.mocked(getNotifications).mockResolvedValue(
@@ -311,6 +317,7 @@ describe('in-flight state', () => {
     await selectAnd(user, 'folder docs', 'Delete selected items');
     await user.click(await screen.findByRole('button', {name: 'Delete'}));
     await screen.findByRole('region', {name: 'File operations in progress'});
+    expect(mockSubmit).toHaveBeenCalledTimes(1);
     const requestId = mockSubmit.mock.calls[0][0].requestId;
 
     // `focommon.notify.request_payload` carries the request id and nothing else — the bounded
@@ -482,6 +489,7 @@ describe('the conflict round trip', () => {
     await user.click(within(confirm).getByRole('button', {name: 'Overwrite'}));
 
     await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    expect(mockSubmit).toHaveBeenCalledTimes(1);
     const request = mockSubmit.mock.calls[0][0];
     expect(request.requestId).not.toBe('run-1');
     expect(request.source.space).toEqual({kind: 'shared', name: 'finance'});
@@ -514,6 +522,7 @@ describe('the conflict round trip', () => {
     await user.click(within(form).getByRole('button', {name: 'Request again'}));
 
     await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    expect(mockSubmit).toHaveBeenCalledTimes(1);
     const request = mockSubmit.mock.calls[0][0];
     expect(request.operation !== 'delete' && request.onConflict).toBe('refuse');
     expect(request.source.items).toEqual([{kind: 'file', key: 'finance/q1.csv', targetName: 'q1-v2.csv'}]);

@@ -44,6 +44,7 @@ describe('useArchive', () => {
     act(() => hook.result.current.open(ITEMS));
     await act(async () => hook.result.current.submit());
 
+    expect(notify).toHaveBeenCalledTimes(1);
     const {message} = notify.mock.calls[0][0];
     expect(message).toMatch(/started/i);
     expect(message).toMatch(/notification/i);
@@ -156,6 +157,7 @@ describe('useRestoreArchive', () => {
     act(() => hook.result.current.openDialog());
     await act(async () => hook.result.current.submit(ARCHIVE_ID));
 
+    expect(notify).toHaveBeenCalledTimes(1);
     const {message} = notify.mock.calls[0][0];
     expect(message).toMatch(/hours/i);
     expect(message).toMatch(/notification/i);
