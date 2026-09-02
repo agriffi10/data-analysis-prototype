@@ -6,10 +6,12 @@ import {
   type SelectionContextValue
 } from './selectionContext';
 
-// Wraps a view in selection state. The `prefix` prop is the
-// folder currently shown; whenever it changes the selection clears (navigate-
-// clears), so a selection never carries across folders. A completed delete clears
-// via clear(). The reducer itself lives in selectionContext.ts (pure + testable).
+/**
+ * Wraps a view in selection state. The `prefix` prop is the
+ * folder currently shown; whenever it changes the selection clears (navigate-
+ * clears), so a selection never carries across folders. A completed delete clears
+ * via clear(). The reducer itself lives in selectionContext.ts (pure + testable).
+ */
 export function SelectionProvider({prefix, children}: {prefix?: string; children: ReactNode}) {
   const [state, dispatch] = useReducer(selectionReducer, initialSelectionState);
 

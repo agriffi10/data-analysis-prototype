@@ -343,7 +343,7 @@ describe('in-flight state', () => {
     await waitFor(() => expect(move).toHaveAttribute('aria-disabled', 'true'));
     expect(move.getAttribute('title')).toMatch(/still running here/);
     // Read-only actions from other planes are NOT gated: this lock does not serialize them.
-    expect(screen.getByRole('button', {name: 'Send selected items to someone'})).not.toHaveAttribute('aria-disabled');
+    expect(screen.getByRole('button', {name: 'Send to another user'})).not.toHaveAttribute('aria-disabled');
   });
 
   it('does NOT gate a selection that would stay in the browser', async () => {

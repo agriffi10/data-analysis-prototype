@@ -28,17 +28,19 @@ type QueryResultsTableProps = {
   onNext: () => void;
 };
 
-// Results table reusing the file-table visual
-// language (surface, border, rounded-lg, surface-2 uppercase header, monospace
-// rows, hover). Columns are user-resizable — a <colgroup> of explicit
-// widths drives table-layout:fixed, each data-column header carries a drag/keyboard
-// resize handle, cells/headers truncate with an ellipsis (full text on hover via
-// `title`), and the body scrolls horizontally for wide (20+ column) results.
-// Widths are supplied by the parent (useColumnWidths, keyed by execution id) so
-// they persist across Prev/Next and tab switches and reset on a new query. A
-// successful DDL / zero-row SELECT renders the friendly empty state, not an error.
-// Navigating REPLACES the visible rows, unlike the file browser's
-// append-style "Load more".
+/**
+ * Results table reusing the file-table visual
+ * language (surface, border, rounded-lg, surface-2 uppercase header, monospace
+ * rows, hover). Columns are user-resizable — a <colgroup> of explicit
+ * widths drives table-layout:fixed, each data-column header carries a drag/keyboard
+ * resize handle, cells/headers truncate with an ellipsis (full text on hover via
+ * `title`), and the body scrolls horizontally for wide (20+ column) results.
+ * Widths are supplied by the parent (useColumnWidths, keyed by execution id) so
+ * they persist across Prev/Next and tab switches and reset on a new query. A
+ * successful DDL / zero-row SELECT renders the friendly empty state, not an error.
+ * Navigating REPLACES the visible rows, unlike the file browser's
+ * append-style "Load more".
+ */
 export function QueryResultsTable({
   columns,
   rows,

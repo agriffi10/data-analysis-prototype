@@ -33,9 +33,11 @@ export function isMarkerName(key: string): boolean {
   return key.slice(key.lastIndexOf('/') + 1) === PREFIX_MARKER_FILENAME;
 }
 
-// The saved-queries folder at a space root. Its own name and its own
-// marker text — PREFIX_MARKER_BODY says the file keeps "your personal storage
-// space" active, which is wrong in a shared space and wrong about this folder.
+/**
+ * The saved-queries folder at a space root. Its own name and its own
+ * marker text — PREFIX_MARKER_BODY says the file keeps "your personal storage
+ * space" active, which is wrong in a shared space and wrong about this folder.
+ */
 export const SAVED_QUERIES_FOLDER = 'saved_queries';
 
 export const SAVED_QUERIES_MARKER_BODY =
@@ -43,15 +45,19 @@ export const SAVED_QUERIES_MARKER_BODY =
   'folder disappear until a query is saved into it again. It is hidden from ' +
   'your file browser and can be ignored.';
 
-// The archive folder at a space root — where the plane writes one receipt per
-// archive, and where the user reads the ids a restore needs. VISIBLE and browsable on purpose
-// (a hidden folder cannot be the surface that carries the ids), and read-only in the same
-// breath: see `writeLockedPrefix.ts` for the gate and `protectedFolders.ts` for the two lists
-// it joins. Named here rather than in either of those, because both need it.
+/**
+ * The archive folder at a space root — where the plane writes one receipt per
+ * archive, and where the user reads the ids a restore needs. VISIBLE and browsable on purpose
+ * (a hidden folder cannot be the surface that carries the ids), and read-only in the same
+ * breath: see `writeLockedPrefix.ts` for the gate and `protectedFolders.ts` for the two lists
+ * it joins. Named here rather than in either of those, because both need it.
+ */
 export const ARCHIVE_FOLDER = 'archive';
 
-// Single source of truth for the listing page size: entries per ListObjectsV2
-// page (MaxKeys); the user pulls the rest via "Load more". 25 is a UI/UX page
-// size — intentionally small so each request and render stays bounded — NOT an
-// S3 limit (S3's hard cap is 1000).
+/**
+ * Single source of truth for the listing page size: entries per ListObjectsV2
+ * page (MaxKeys); the user pulls the rest via "Load more". 25 is a UI/UX page
+ * size — intentionally small so each request and render stays bounded — NOT an
+ * S3 limit (S3's hard cap is 1000).
+ */
 export const LISTING_PAGE_SIZE = 25;

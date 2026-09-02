@@ -141,10 +141,12 @@ export type DataQualityReport = {
 // and blurring them is precisely what would let a Parquet report show a green result it
 // did not earn.
 
+/** True when a figure was deliberately not attempted for this file's format. */
 export function isSkipped(figure: unknown): figure is SkippedFigure {
   return !!figure && (figure as SkippedFigure).status === 'skipped';
 }
 
+/** True when a figure was attempted and could not be produced. */
 export function isNotComputed(figure: unknown): figure is NotComputedFigure {
   return !!figure && (figure as NotComputedFigure).status === 'not_computed';
 }

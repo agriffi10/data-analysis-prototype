@@ -56,10 +56,12 @@ import type {QuerySpace, GlueTableSummary} from '../catalog/catalog.types';
 // route / landing page never pay for it.
 const SqlEditor = lazy(() => import('./SqlEditor').then((m) => ({default: m.SqlEditor})));
 
-// The query workspace: schema browser (left) + editor/status/results
-// (main), wired to the catalog data layer. The editor is multi-tab:
-// each tab is an independent query window with its own SQL + run state; Run/Clear/
-// Stop/status/results all act on the active tab.
+/**
+ * The query workspace: schema browser (left) + editor/status/results
+ * (main), wired to the catalog data layer. The editor is multi-tab:
+ * each tab is an independent query window with its own SQL + run state; Run/Clear/
+ * Stop/status/results all act on the active tab.
+ */
 export function QueryWorkspace() {
   const {user} = useAuth();
   const username = user?.username ?? '';

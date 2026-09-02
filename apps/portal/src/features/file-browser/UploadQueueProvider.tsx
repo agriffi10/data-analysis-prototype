@@ -15,18 +15,20 @@ import {
   type UploadQueueContextValue
 } from './uploadQueueContext';
 
-// Drives the upload queue. The
-// pure reducer (uploadQueueContext) owns the item list; this provider runs the
-// side effects — a concurrency gate that starts queued items via the uploader's
-// `uploadFile`, wires progress + cancel, and invalidates the listing as each
-// upload finishes.
-//
-// The provider is mounted once at the authenticated app shell (ProtectedLayout),
-// so the queue is SESSION-scoped: uploads keep running across folder navigation,
-// connection (bucket) switches, route changes, and drawer open/close — they are
-// only aborted when the session ends (the provider unmounts on sign-out). Each
-// item therefore carries its own destination bucket + key, captured at enqueue
-// time, so navigating elsewhere mid-upload never re-targets an in-flight upload.
+/**
+ * Drives the upload queue. The
+ * pure reducer (uploadQueueContext) owns the item list; this provider runs the
+ * side effects — a concurrency gate that starts queued items via the uploader's
+ * `uploadFile`, wires progress + cancel, and invalidates the listing as each
+ * upload finishes.
+ *
+ * The provider is mounted once at the authenticated app shell (ProtectedLayout),
+ * so the queue is SESSION-scoped: uploads keep running across folder navigation,
+ * connection (bucket) switches, route changes, and drawer open/close — they are
+ * only aborted when the session ends (the provider unmounts on sign-out). Each
+ * item therefore carries its own destination bucket + key, captured at enqueue
+ * time, so navigating elsewhere mid-upload never re-targets an in-flight upload.
+ */
 export function UploadQueueProvider({children}: {children: ReactNode}) {
   const queryClient = useQueryClient();
   const [state, dispatch] = useReducer(uploadQueueReducer, initialUploadQueueState);

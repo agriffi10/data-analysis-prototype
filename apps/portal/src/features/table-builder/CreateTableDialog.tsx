@@ -23,11 +23,13 @@ type Props = {
   onCancel: () => void;
 };
 
-// The "Create table from this folder" prompt — a catalog-safe name
-// (pre-filled from the folder name) plus an optional partition-keys section. Confirm
-// stays disabled until the name AND every declared key are valid; the server
-// re-validates authoritatively, so this is UX only. Composes the shared
-// Modal/Input/Button primitives.
+/**
+ * The "Create table from this folder" prompt — a catalog-safe name
+ * (pre-filled from the folder name) plus an optional partition-keys section. Confirm
+ * stays disabled until the name AND every declared key are valid; the server
+ * re-validates authoritatively, so this is UX only. Composes the shared
+ * Modal/Input/Button primitives.
+ */
 export function CreateTableDialog({folderName, folderPath, busy = false, submitError, onSubmit, onCancel}: Props) {
   const [name, setName] = useState(() => suggestTableName(folderName));
   const [touched, setTouched] = useState(false);

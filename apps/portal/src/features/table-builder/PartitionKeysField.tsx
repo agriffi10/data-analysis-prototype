@@ -4,12 +4,6 @@ import {Button} from '../../components/Button';
 import {emptyDraftKey, type DraftPartitionKey, type PartitionKeyErrors, type PartitionType} from './partitionKeys';
 import {FIELD_HINT, FIELD_LABEL} from '../../components/fieldStyles';
 
-// The optional, ordered partition-keys editor. Controlled — the
-// dialog owns the draft rows (so it can compute validity + the wire keys) and the
-// per-row `errors`; this component renders + edits them and manages focus on
-// add/remove (accessibility rulebook: labelled dynamic rows). An empty list means a
-// flat (unpartitioned) table — no keys are sent.
-
 type Props = {
   value: DraftPartitionKey[];
   errors: PartitionKeyErrors[]; // index-aligned with `value`
@@ -20,6 +14,15 @@ type Props = {
 const selectClass =
   'h-9 w-full rounded-md border border-border bg-surface px-3 text-base text-text focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-45';
 
+/**
+ * The optional, ordered partition-keys editor. Controlled — the dialog owns the draft rows (so
+ * it can compute validity and the wire keys) and the per-row `errors`; this component renders
+ * and edits them and manages focus on add/remove (labelled dynamic rows). An empty list means a
+ * flat, unpartitioned table — no keys are sent.
+ *
+ * @example
+ * <PartitionKeysField value={keys} errors={keyErrors} onChange={setKeys} />
+ */
 export function PartitionKeysField({value, errors, disabled = false, onChange}: Props) {
   // Name inputs by row id, so we can move focus to a specific row after add/remove.
   const nameRefs = useRef(new Map<string, HTMLInputElement>());

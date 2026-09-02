@@ -707,10 +707,12 @@ function FileBrowserContent({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-// Owns prefix navigation state and provides selection state to the content. The
-// SelectionProvider lives here (above the content) so navigating to a new prefix
-// clears the selection, and so the content can consume
-// useSelection() as a descendant.
+/**
+ * Owns prefix navigation state and provides selection state to the content. The
+ * SelectionProvider lives here (above the content) so navigating to a new prefix
+ * clears the selection, and so the content can consume
+ * useSelection() as a descendant.
+ */
 export function FileBrowser({
   bucket,
   prefix: prefixProp = '',

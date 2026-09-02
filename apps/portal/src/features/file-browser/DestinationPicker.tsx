@@ -83,22 +83,21 @@ function isProtectedFolder(folderPrefix: string, rootPrefix: string, locked: rea
   return isRootFolderNamed(folderPrefix, rootPrefix, locked);
 }
 
-// Parent of a browse prefix, clamped to the navigation floor so the picker can
-// never climb above the user's own space: `alice/a/b/` → `alice/a/`, and
-// `alice/a/` → `alice/` (the root). Used by the ".." up-navigation row.
-// The shared destination-folder picker used by both Move
-// And Copy. Lists only folders within the user's own space
-// (navigable), excludes the folders being operated on (can't descend into them)
-// and the protected `athenaresults/` folder (never a write destination), and
-// disables the confirm button inside an operated folder's own subtree (no
-// moving/copying a folder into itself). Whether the items' current parent is a
-// valid destination is caller-controlled (`allowCurrentParent`): Move forbids it,
-// Copy allows it (same-folder auto-number).
-//
-// An opt-in `selectableFiles` mode exists for the caller that targets
-// data rather than a destination (the data-quality dialog). There a file row can be
-// selected as the target, the resolved target is reported back via `onTargetChange`
-// (the picker keeps owning the browse state).
+/**
+ * The shared destination-folder picker used by both Move
+ * and Copy. Lists only folders within the user's own space
+ * (navigable), excludes the folders being operated on (can't descend into them)
+ * and the protected `athenaresults/` folder (never a write destination), and
+ * disables the confirm button inside an operated folder's own subtree (no
+ * moving/copying a folder into itself). Whether the items' current parent is a
+ * valid destination is caller-controlled (`allowCurrentParent`): Move forbids it,
+ * Copy allows it (same-folder auto-number).
+ *
+ * An opt-in `selectableFiles` mode exists for the caller that targets
+ * data rather than a destination (the data-quality dialog). There a file row can be
+ * selected as the target, the resolved target is reported back via `onTargetChange`
+ * (the picker keeps owning the browse state).
+ */
 export function DestinationPicker({
   bucket,
   items,

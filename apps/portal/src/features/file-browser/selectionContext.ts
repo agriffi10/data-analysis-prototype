@@ -23,6 +23,7 @@ export type SelectionContextValue = {
   clear: () => void;
 };
 
+/** The file browser's selection state and mutators; provided by `SelectionProvider`. */
 export const SelectionContext = createContext<SelectionContextValue | null>(null);
 
 // ── Reducer ───────────────────────────────────────────────────────────────────
@@ -40,6 +41,7 @@ export type SelectionAction =
   | {type: 'selectAll'; items: SelectableItem[]}
   | {type: 'clear'};
 
+/** An empty selection — the reducer's starting state. */
 export const initialSelectionState: SelectionState = {items: new Map()};
 
 /** Pure selection reducer: toggle / selectAll / clear over the id-keyed Map. */

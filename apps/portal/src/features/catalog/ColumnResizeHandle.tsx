@@ -83,7 +83,7 @@ export function ColumnResizeHandle<K extends string | number>({
       onPointerDown={onPointerDown}
       onDoubleClick={() => onReset(column)}
       onKeyDown={onKeyDown}
-      className="group/handle absolute right-0 top-0 z-10 flex h-full w-3 cursor-col-resize touch-none select-none items-stretch justify-end focus:outline-none">
+      className="group/handle absolute right-0 top-0 z-10 flex h-full w-3 cursor-col-resize touch-none select-none items-stretch justify-end focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent">
       {/* A divider that's visible at rest (so users see the column edge is
           grabbable) and thickens to the accent color on hover/focus. */}
       <span

@@ -725,7 +725,7 @@ describe('FileBrowser — send to… (SPEC-167)', () => {
   // THE JOURNEY, not the halves (SPEC-154's discipline): select real rows in the real browser,
   // open the real dialog, name a recipient through the real combobox, and assert what reached
   // the queue. Every piece between the checkbox and the enqueue is the shipped one.
-  const sendButton = () => screen.getByRole('button', {name: 'Send selected items to someone'});
+  const sendButton = () => screen.getByRole('button', {name: 'Send to another user'});
 
   beforeEach(() => {
     mockSend.mockResolvedValue({success: true, data: undefined});

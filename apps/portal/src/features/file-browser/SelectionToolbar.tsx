@@ -83,6 +83,15 @@ function BulkMoveIcon() {
   );
 }
 
+/**
+ * The action bar shown while one or more items are selected: select-all, the count, and the
+ * operations the selection can take (delete, move, copy, rename, download, check quality, send).
+ * Every button is disabled rather than hidden while an operation is in flight, so the bar's
+ * shape never jumps under the pointer.
+ *
+ * @example
+ * <SelectionToolbar allItems={items} onRequestDelete={openDelete} onRequestMove={openMove} … />
+ */
 export function SelectionToolbar({
   allItems,
   onRequestDelete,
@@ -194,7 +203,7 @@ export function SelectionToolbar({
           disabled={count !== 1 || isBusy}
           aria-label="Check data quality of the selected item">
           <QualityCheckIcon />
-          <span className="hidden tablet:inline">Check quality</span>
+          <span className="hidden tablet:inline">Check data quality</span>
         </Button>
       )}
 
@@ -208,7 +217,7 @@ export function SelectionToolbar({
           className="gap-1.5 !h-9 !px-2.5 tablet:!h-8 tablet:!px-3"
           onClick={onRequestSend}
           disabled={count === 0 || isBusy}
-          aria-label="Send selected items to someone">
+          aria-label="Send to another user">
           <SendIcon />
           <span className="hidden tablet:inline">Send to…</span>
         </Button>

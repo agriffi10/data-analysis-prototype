@@ -15,6 +15,7 @@ export type FileOpsInFlightContextValue = {
   busySpace: (space: FileOpSpace) => boolean;
 };
 
+/** The session's in-flight file operations; provided by `FileOpsInFlightProvider`. */
 export const FileOpsInFlightContext = createContext<FileOpsInFlightContextValue | null>(null);
 
 /**

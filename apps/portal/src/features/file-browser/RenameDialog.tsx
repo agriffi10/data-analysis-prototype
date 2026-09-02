@@ -22,13 +22,15 @@ function splitFileName(name: string): {base: string; ext: string} {
   return {base: name.slice(0, dot), ext: name.slice(dot)};
 }
 
-// Rename a file or folder. The new name is validated with the
-// same rules as create-folder/upload (non-empty trimmed, no `/`, no
-// leading/trailing whitespace, no control chars). Modal; Escape cancels; the input
-// is prefilled with the current name and the Rename action is disabled until the
-// name is valid and changed. For a file WITH an extension, only the base name is
-// editable — the extension is held fixed and re-appended on submit so a rename
-// can't accidentally change (or drop) the file type.
+/**
+ * Rename a file or folder. The new name is validated with the
+ * same rules as create-folder/upload (non-empty trimmed, no `/`, no
+ * leading/trailing whitespace, no control chars). Modal; Escape cancels; the input
+ * is prefilled with the current name and the Rename action is disabled until the
+ * name is valid and changed. For a file WITH an extension, only the base name is
+ * editable — the extension is held fixed and re-appended on submit so a rename
+ * can't accidentally change (or drop) the file type.
+ */
 export function RenameDialog({kind, currentName, isBusy = false, onRename, onCancel}: Props) {
   const {base, ext} = kind === 'file' ? splitFileName(currentName) : {base: currentName, ext: ''};
   const [name, setName] = useState(base);

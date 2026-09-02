@@ -3,10 +3,12 @@ import {isTerminalState} from '../catalog/athena.service';
 import {useQueryExecution} from '../catalog/useQueryExecution';
 import type {QueryStatus} from '../catalog/catalog.types';
 
-// a headless poller, one per tab holding an execution. Each runs
-// its own useQueryExecution so a backgrounded query keeps polling to terminal
-// (its status/history finalize without waiting for the user to return). Reports
-// status up and finalizes history exactly once per execution id.
+/**
+ * a headless poller, one per tab holding an execution. Each runs
+ * its own useQueryExecution so a backgrounded query keeps polling to terminal
+ * (its status/history finalize without waiting for the user to return). Reports
+ * status up and finalizes history exactly once per execution id.
+ */
 export function TabExecutionPoller({
   tabId,
   executionId,
