@@ -45,10 +45,20 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [A route may carry PATH parameters, and a value that is not one segment is refused in the browser (SPEC-199)](#a-route-may-carry-path-parameters-and-a-value-that-is-not-one-segment-is-refused-in-the-browser-spec-199)
 - [The membership index is an authorization input, where the username directory is not (SPEC-203)](#the-membership-index-is-an-authorization-input-where-the-username-directory-is-not-spec-203)
 - [The role's Lake Formation grants and the principal tag are ONE mechanism (2026-09-01)](#the-roles-lake-formation-grants-and-the-principal-tag-are-one-mechanism-2026-09-01)
+- [The Identity Pool is retired, and no one's sign-in changed (SPEC-202)](#the-identity-pool-is-retired-and-no-ones-sign-in-changed-spec-202)
 
 ## Auth
 
-Cognito User Pool → Identity Pool (ABAC) stamps the `username` principal tag from the verified token claim **server-side** (unspoofable; never client-asserted). One shared IAM role for all users; per-user isolation via `${aws:PrincipalTag/username}`. (SPEC-011; reversed the earlier "no Identity Pool".)
+Cognito User Pool, ABAC: the `username` principal tag is stamped from the verified token claim
+**server-side** (unspoofable; never client-asserted). One shared IAM role for all users; per-user
+isolation via `${aws:PrincipalTag/username}`. (SPEC-011; reversed the earlier "no Identity Pool".)
+
+**What stamps it changed in SPEC-202; the model did not.** The Identity Pool stamped it from
+SPEC-011 until 2026-08-31, exchanging the ID token for credentials in the browser. The API now reads
+the same claims out of the same token and assumes the same role with the same tags — one computation
+over one input, which is why no policy was rewritten and why the role is reused rather than minted.
+The pool is deleted and the browser holds no AWS credentials at all. Full entry:
+[The Identity Pool is retired, and no one's sign-in changed](#the-identity-pool-is-retired-and-no-ones-sign-in-changed-spec-202).
 
 ## Hosted UI = Managed Login v2
 
@@ -836,14 +846,18 @@ that flip is deployed — stops the token being sent. Collapsing either boundary
 closed on the first request after deploy.
 
 **The eight `sqs:SendMessage` grants come off in SPEC-200, and that ordering is separate from the
-trust flip.** The Identity Pool survives until SPEC-202, so at the moment `identity.actor` becomes
-authoritative, any signed-in tab that could still write a queue could name any actor. "201 before the
-grant removal" would be a real impersonation window rather than a theoretical one.
+trust flip.** The Identity Pool survived until SPEC-202 — it is retired now — so at the moment
+`identity.actor` became authoritative, any signed-in tab that could still write a queue could have
+named any actor. "201 before the grant removal" would have been a real impersonation window rather
+than a theoretical one.
 
-The recovery consequence is worth writing down: the eight `VITE_*_QUEUE_URL` repository variables
-become unreferenced but must be **left in place** until SPEC-202. A revert of the switchover needs
-them, and re-reading eight values from `tofu output` is the only step of that recovery which is not
-`git revert`.
+The recovery consequence was worth writing down and the revert it protected has since expired: the
+eight `VITE_*_QUEUE_URL` repository variables were left in place until SPEC-202, because a revert of
+the switchover needed them and re-reading eight values from `tofu output` was the only step of that
+recovery which was not `git revert`. SPEC-202 removed the credentials that revert would have used,
+so recovery from here is forward. The variables themselves are still **set** in the repository and
+read by nothing — their deletion is one line of SPEC-215's owed ledger entry, not something this
+arc closed.
 
 ## Table-share's dedup id is keyed on the verified actor, not the token (SPEC-200)
 
@@ -1134,3 +1148,43 @@ omission in IAM rather than anything in the grant. **Adding either action is not
 the removal of the guard**, and it needs no other change to become reachable by any member of any
 space. The same reasoning is why a future per-member grant must be the **intersection** — Database:
 `DESCRIBE`, `CREATE_TABLE` — and not a copy of the role's constants.
+
+## The Identity Pool is retired, and no one's sign-in changed (SPEC-202)
+
+**The conflation this entry exists to prevent.** The Cognito **User Pool** authenticates people:
+Managed Login v2, the Hosted UI round trip, Amplify in the tab, the ID token. The Cognito **Identity
+Pool** did something else entirely — it exchanged that ID token for temporary AWS credentials so the
+browser could call AWS. SPEC-202 deleted the second and touched the first not at all. A reader who
+reads "Cognito is retired" into this will go looking for a sign-in change that does not exist.
+
+**What actually came out.** The pool itself, its principal-tag map, its role attachment, the portal
+role's `AssumeRoleWithWebIdentity` trust statement (two statements to one — what remains admits the
+API's execution role), `cognitoIdentityPoolId` from the runtime document, and the browser's last two
+credential modules. `lib/awsCredentials.ts` became `lib/idToken.ts` with one export, `getIdToken`:
+named for a JWT rather than for credentials **deliberately**, because there are no AWS credentials
+in the browser to name and a module called `awsCredentials` invites putting some back.
+`credentialRetry.ts` went with it — the expired-credential retry that used to wrap every AWS call is
+a server-side re-assume now.
+
+**The load-bearing negative could not be observed until the pool was gone, which is why the order
+was not a preference.** `lib/amplify.ts` configures `identityPoolId` whenever the key is present, and
+every `fetchAuthSession()` then vends pool credentials — including the one `getIdToken` makes on
+every API call. So *"the browser makes no AWS call other than presigned S3 bytes"* reads as false
+while the pool exists no matter how much code has been deleted, and running that check before the
+retirement and calling it a pass is the failure the spec was ordered around. Measured after, in
+Chromium: four hosts blocked by the CSP (`cognito-identity.`, `athena.`, `glue.`, `sqs.`), two
+allowed and required (`cognito-idp.`, the Hosted UI host).
+
+**A retirement is proved by an absence, and an absence needs a positive form.** Two ids were captured
+**before** the merges, because the Terraform outputs that name them do not survive:
+`describe-identity-pool` on the recorded pool id returns `ResourceNotFoundException`, `get-role`
+returns exactly one trust statement. "Gone from the plan" is not the same claim.
+
+**What did not change is the part worth asserting.** FR-010 re-ran SPEC-196's IAM simulation against
+the deployed roles after the retirement, row for row: `alice/` allowed, `bob/` implicit-deny, every
+denial paired with an allowed control on the same bucket so an ungranted action is distinguishable
+from a mistyped ARN. **No row moved.** The retired browser grants stayed retired. The SPA task role
+was asserted by **absence** — no attached and no inline policies — rather than by simulation,
+because a role with no policies returns `implicitDeny` for everything with no control available, and
+an unpaired `implicitDeny` presented as a pass is exactly what the rest of that check exists to
+avoid.

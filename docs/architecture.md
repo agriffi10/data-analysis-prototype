@@ -49,11 +49,12 @@ register.
 
 Two things decide almost everything else.
 
-**One shared IAM role, and isolation by principal tag.** Every authenticated caller — the browser
-directly, and the API on the browser's behalf — ends up as the same portal role, tagged with the
-caller's `username`. The Cognito Identity Pool stamps that tag **server-side from the verified
-claim**, so it cannot be spoofed, and every policy scopes itself with
-`${aws:PrincipalTag/username}`. There are no per-user roles and no app-level access control.
+**One shared IAM role, and isolation by principal tag.** Every authenticated caller ends up as the
+same portal role, tagged with the caller's `username`. **The API stamps that tag** — server-side,
+from the verified ID token's claim, so it cannot be spoofed — and every policy scopes itself with
+`${aws:PrincipalTag/username}`. There are no per-user roles and no app-level access control. The
+Cognito Identity Pool stamped the same tag from the same claim until SPEC-202 retired it; the model
+is unchanged, and the browser now holds no AWS credentials at all.
 
 **One string is four things.** A username is also the S3 prefix, the principal tag and the Glue
 database name, which is why it is constrained at signup to `^[a-z][a-z0-9_]{2,62}$` and is
@@ -99,17 +100,17 @@ Routing is `react-router` v8, imported from `react-router` (v8 removed `react-ro
 
 ## How the SPA reaches a user
 
-**Two delivery paths run at once, and that is the state of the arc rather than the target.**
+**One delivery path.** The SPA is an nginx container on ECS Fargate behind an internet-facing ALB,
+built and deployed on every push to `main`, serving `portal.dataquarry.app`.
 
-| Path | What it is | Status |
-|---|---|---|
-| CloudFront + S3 | the built `dist/` uploaded in three prefix-scoped passes behind an OAC origin, with a response-headers policy carrying the enforcing CSP | **production, and the rollback** |
-| ECS Fargate | the same SPA inside an nginx container behind an internet-facing ALB, built and deployed on every push to `main` | built and live, not yet the cutover |
-
-The container reproduces every job CloudFront does, with three deliberate divergences —
-`Server: nginx`, no brotli, and HSTS without `preload`. The two front doors are admitted
-**additively** to CORS and the CSP; narrowing to one happens at the cutover, because an allowlist
-naming a single origin makes the other a rollback nobody can exercise.
+It ran beside a CloudFront + S3 origin for the length of the arc, because two front doors are what
+made the rollback exercisable: both were admitted **additively** to CORS, the CSP and Cognito's
+callback list, since an allowlist naming a single origin makes the other a rollback nobody can use.
+SPEC-202 narrowed all three lists and destroyed the distribution, its OAC, its response-headers
+policy and the static bucket. What the container inherited from it is the header set, reproduced
+with three deliberate divergences — `Server: nginx`, no brotli, and HSTS without `preload` — and
+the per-class cache scheme. What it does not inherit is the reconciliation: **the image IS the file
+set**, so there is no `--delete` pass and no orphan class.
 
 **Configuration is a runtime document.** The SPA fetches a same-origin `/config.json` once before the
 first render, rather than reading `VITE_*` values inlined at build time — so promoting a build is a
@@ -151,27 +152,29 @@ The function is deliberately **not in the VPC**, and authorization is a verifier
 
 ## Identity
 
-Sign-in is **Cognito**: a standalone User Pool with the Hosted UI (Managed Login v2), federated into
-an Identity Pool that vends the AWS credentials.
+Sign-in is **Cognito**: a standalone User Pool with the Hosted UI (Managed Login v2). It
+authenticates people and issues JWTs, and that is all it does — nothing in the browser turns a token
+into AWS credentials.
 
 ```
 Amplify checks the session
   → no session redirects to the Hosted UI
   → Cognito issues JWTs
-  → Amplify exchanges them with the Identity Pool (enhanced flow: GetId → GetCredentialsForIdentity)
-  → the Identity Pool stamps { username: <cognito:username> } as a principal tag
-  → the portal role's trust policy admits this pool (AssumeRoleWithWebIdentity + TagSession)
-  → 1-hour temporary credentials, cached and refreshed by Amplify
+  → the browser sends the ID token to the API as a bearer, and holds nothing else
+  → the API verifies it, reads { cognito:username, custom:shared_space_1..10 } from the claims
+  → and assumes the portal role with those as session tags, for that request
 ```
 
-The app reads them with `fetchAuthSession()` and hands them to the SQS client; on a
-credential-expiry error it retries once with a forced refresh. **There is no browser-side S3, Athena
-or Glue client any more** — those surfaces are the API's, and the expired-credential retry that used
-to wrap every one of their calls is a server-side re-assume. Tokens are held **per tab**, not for the whole browser.
+**The browser makes no AWS call except presigned S3 bytes**, which the API mints for it. `getIdToken`
+(`lib/idToken.ts`) is the whole of what used to be a credential layer; the expired-credential retry
+that wrapped every AWS call is a server-side re-assume. Tokens are held **per tab**, not for the
+whole browser.
 
-The tag mapping is `aws_cognito_identity_pool_provider_principal_tag` in
-`infra/modules/auth/identity-pool.tf`, and the tag **value** must be the `cognito:username` claim —
-the bare `username` claim does not exist in a User Pool ID token, so it would never stamp.
+A **Cognito Identity Pool** did this exchange in the browser from SPEC-011 until SPEC-202 retired it
+on 2026-08-31, stamping the same tag from the same claim. Two of its constraints survive it: the tag
+**value** is the `cognito:username` claim, because the bare `username` claim does not exist in a User
+Pool ID token; and a session tag is single-valued, which is why membership is ten numbered slots
+rather than a list.
 
 ### The API's auth boundary
 
@@ -185,9 +188,10 @@ caller stated.
   URI — those belong to Amplify, in the browser. Provider-agnosticism is five server-side config
   fields ([`infra/modules/api/README.md`](../infra/modules/api/README.md)), so swapping the identity
   provider is a change of values.
-- **It assumes the same role with the same tags from the same claims** as the Identity Pool, which is
-  why no policy had to be rewritten and why the hand-maintained bucket-policy allowlist stays
-  correct. The role is reused, never minted.
+- **It assumes the same role with the same tags from the same claims** the Identity Pool read, which
+  is why no policy had to be rewritten and why the hand-maintained bucket-policy allowlist stays
+  correct. The role is reused, never minted — and reusing it is what let the pool be deleted without
+  touching a single permission policy.
 - **Refusals are byte-identical and expiry is not disclosed**; a provider that cannot be *read*
   answers 5xx rather than 401, because an outage is not a bad token and "sign in again" cannot fix
   one.
@@ -208,8 +212,9 @@ parts of an upload that was cancelled or failed to assemble. `ListBucketMultipar
 prefix, so it would leak other users' in-progress uploads.
 
 **Shared space — bounded membership slots.** Access is gated by membership principal tags on the same
-role. The hard AWS constraint is that the Identity Pool maps each claim to exactly **one
-single-valued** tag, and IAM cannot iterate a list inside a `Resource` ARN. So what is bounded is **how
+role. The hard AWS constraint is that a session tag holds exactly **one value** — the Identity Pool
+mapped one claim to one tag, and the API that replaced it stamps one tag per claim for the same
+reason — and IAM cannot iterate a list inside a `Resource` ARN. So what is bounded is **how
 many spaces one user can belong to**: ten Cognito custom attributes `custom:shared_space_1..10`, each
 holding one space name and each mapped to a principal tag, with one templated statement-pair per slot.
 **A space's own member count is not bounded at all** — the limit is per person, not per space.
@@ -235,7 +240,7 @@ not grant `CREATE_TABLE` on a database the admin did not create.
 
 ## Storage
 
-Five buckets. The constraint the project holds to is **one bucket of personal prefixes**, not one
+Four buckets. The constraint the project holds to is **one bucket of personal prefixes**, not one
 bucket overall.
 
 | Bucket | Holds |
@@ -243,7 +248,6 @@ bucket overall.
 | user-space | every user's own prefix, plus two shared documents every signed-in user may read: the username directory under `_directory/` and the feature flags under `_config/` |
 | shared-space | user-created shared spaces. The **lifecycle** — create, membership, delete — goes through a control plane; a member's browser writes objects inside a space it belongs to directly |
 | admin | the shared-space registry, the planes' scratch, `logs/` (retained forever), and Athena's **fallback** output — a user's own results land in their user-space prefix |
-| static assets | the built SPA, reachable only through the CloudFront OAC |
 | archive | the GLACIER vault, which the browser has no relationship with at all |
 
 Plus a Lambda artifacts bucket and a CloudTrail bucket, neither of which the app touches.
@@ -349,7 +353,6 @@ router.
 | `ci.yml` | pull requests | lint, format check, `tsc -b`, unit tests, ruff, mypy, pytest, contract regeneration, doc-layout validation |
 | `spa-image.yml` | pull requests | builds the container and asserts its behaviour against every criterion the image is built to meet |
 | `deploy-infra.yml` | pull requests (`plan`) and push to `main` (`apply`) | `tofu plan` with a Checkov scan of the rendered plan, then `tofu apply`, with a `skip_refresh` break-glass |
-| `deploy-app.yml` | push to `main` | builds the SPA, uploads it to the CloudFront origin, and renders `/config.json` alongside |
 | `deploy-spa-image.yml` | push to `main` | builds the image, pushes it to ECR tagged by commit sha, and points the ECS service |
 | `deploy-lambdas.yml` | push to `main` | packages each function and every layer, and updates the function code |
 | `deploy-config.yml` | push to `main` | publishes the feature-flag document to the user-space bucket |
@@ -425,10 +428,10 @@ superseded decision keeps its row and gains a note saying which row replaced it.
 
 | # | Decision | Context | Notes |
 |---|---|---|---|
-| 1 | [Cognito User Pool plus Identity Pool, no custom auth](decisions/identity-and-access.md#auth) | A greenfield app with no existing identity estate; the managed pair vends AWS credentials directly, so the browser needs no token-exchange code of ours. | The Hosted UI is [Managed Login v2](decisions/identity-and-access.md#hosted-ui--managed-login-v2) — the classic UI broke the post-signup redirect. Tokens are held per tab, not per browser. |
-| 2 | [One shared IAM role, isolation by principal tag](decisions/identity-and-access.md#auth) | Per-user roles need a provisioning step per user and hit account limits; the Identity Pool can stamp a verified claim as a session tag, which scopes one policy to every user. | The tag is stamped server-side, so it cannot be spoofed. A session without the tag matches nothing — the default is an implicit deny. |
+| 1 | [Cognito User Pool plus Identity Pool, no custom auth](decisions/identity-and-access.md#auth) | A greenfield app with no existing identity estate; the managed pair vends AWS credentials directly, so the browser needs no token-exchange code of ours. | The Hosted UI is [Managed Login v2](decisions/identity-and-access.md#hosted-ui--managed-login-v2) — the classic UI broke the post-signup redirect. Tokens are held per tab, not per browser. **Superseded in part by row 49 (SPEC-202):** the Identity Pool is retired and the browser holds no AWS credentials. The User Pool, the Hosted UI and the token are unchanged — the pair is now a User Pool and the API. |
+| 2 | [One shared IAM role, isolation by principal tag](decisions/identity-and-access.md#auth) | Per-user roles need a provisioning step per user and hit account limits; the Identity Pool can stamp a verified claim as a session tag, which scopes one policy to every user. | The tag is stamped server-side, so it cannot be spoofed. A session without the tag matches nothing — the default is an implicit deny. **Amended by row 49 (SPEC-202):** the API stamps the tag now, from the same claim of the same token; the model and every policy are unchanged. |
 | 3 | [The username is also the prefix, the tag and the database name](decisions/identity-and-access.md#usernames) | One identifier means one thing to keep consistent; three would need a mapping table nobody could see. | Constrained at signup to `^[a-z][a-z0-9_]{2,62}$` so it is catalog-safe. The client-environment transition re-keys exactly this. |
-| 4 | [A user may belong to ten shared spaces](decisions/identity-and-access.md#bucket-2-shared-space) | The Identity Pool maps a claim to exactly one single-valued tag and IAM cannot iterate a list inside an ARN, so a per-user list of memberships is not expressible — ten fixed slots are. | **The bound is per user, not per space** — a space's member count is unlimited. Raising it enlarges the portal-role policy by a statement-pair. Unbounded membership would need a token-vending Lambda, which replaces the whole credential path — recorded, not built. |
+| 4 | [A user may belong to ten shared spaces](decisions/identity-and-access.md#bucket-2-shared-space) | The Identity Pool maps a claim to exactly one single-valued tag and IAM cannot iterate a list inside an ARN, so a per-user list of memberships is not expressible — ten fixed slots are. | **The bound is per user, not per space** — a space's member count is unlimited. Raising it enlarges the portal-role policy by a statement-pair. Unbounded membership would need a token-vending Lambda, which replaces the whole credential path — recorded, not built. **Amended by row 49 (SPEC-202):** the constraint is the session tag's single value, not the pool's mapping — the API stamps one tag per claim for the same reason, so the ten slots stay. |
 | 5 | [The username directory is built from S3, not Cognito](decisions/identity-and-access.md#the-username-directory-is-built-from-s3-not-cognito-spec-146) | Today Cognito is the complete list and S3 is not; the directory is still built from S3 because that is what the client transition inverts. | Readable by every authenticated user, accepted deliberately: usernames only, never emails. |
 | 6 | [A feature flag is presentation, never authorization](decisions/identity-and-access.md#a-feature-flag-is-presentation-never-authorization--and-it-lives-beside-the-username-directory-spec-162) | A flag decides what is offered; IAM decides what is permitted, and conflating them puts an access decision in the browser. | The flag document lives in the **user-space** bucket beside the directory — the admin bucket's grant would not have worked. |
 | 7 | [The API is a verifier, not an OIDC client](decisions/identity-and-access.md#the-api-is-a-verifier-not-an-oidc-client-spec-195) | Sign-in already works in the browser; the API only needs to decide a bearer is genuine. Building a client here duplicates the flow in the one place a mistake fails closed and silently. | Five config fields, no cookie so no CSRF surface, CORS still required. A key-retrieval fault is 5xx, never 401. |
@@ -479,7 +482,7 @@ superseded decision keeps its row and gains a note saying which row replaced it.
 | 30 | [OpenTofu, bounded-context modules, IAM as `.tftpl` templates](decisions/infrastructure.md#iac) | OpenTofu over CDK, Pulumi and SST — the infrastructure is the product's security boundary, so a declarative document a reviewer reads beats a program they have to execute in their head. `.tftpl` for the same reason: inline `jsonencode` hides a policy inside HCL. | An IAM policy document must be printable ASCII, so rationale never goes in a `.tftpl` — an em dash is rejected at `CreatePolicy`, invisible to plan and validate. |
 | 31 | [Lambda code and infrastructure deploy separately](../lambdas/info/deployment.md) | Terraform applying code means every code change waits on an infra apply, and layer attachment belongs with the build that produced the layer. | `tofu apply` never touches code. `ignore_changes` must name `layers`, or an apply strips a layer back off and the next cold start fails. |
 | 32 | [Configuration is a runtime document with no production fallback](decisions/infrastructure.md#configuration-is-a-runtime-document-and-a-production-build-has-no-fallback-spec-192) | A `VITE_*` value inlined at build time makes an artifact environment-specific, so promotion becomes a rebuild and rollback becomes a rebuild back. | `no-store`, refused whole on version. A key is wired in five places, asserted across all of them, and the container refuses to start on a missing one. |
-| 33 | [The SPA ships as a container on Fargate, with CloudFront still production](decisions/infrastructure.md#the-nginx-configuration-reproduces-cloudfronts-jobs-and-three-are-divergences-spec-194) | The target environment needs a runtime it controls; running both paths keeps a rollback that is exercised rather than theoretical. | Three deliberate divergences: `Server: nginx`, no brotli, no HSTS `preload`. Origins are admitted **additively** and narrowed only at the cutover. |
+| 33 | [The SPA ships as a container on Fargate, with CloudFront still production](decisions/infrastructure.md#the-nginx-configuration-reproduces-cloudfronts-jobs-and-three-are-divergences-spec-194) | The target environment needs a runtime it controls; running both paths keeps a rollback that is exercised rather than theoretical. | Three deliberate divergences: `Server: nginx`, no brotli, no HSTS `preload`. Origins are admitted **additively** and narrowed only at the cutover. **Superseded by row 50 (SPEC-202):** CloudFront is destroyed and the container is the only front door; the divergences and the additive-origins rule are unchanged. |
 | 34 | [No NAT gateway; private subnets reach AWS through endpoints alone](decisions/infrastructure.md#there-is-no-nat-gateway-and-the-endpoints-are-the-whole-outbound-story-spec-193) | "No route to the internet" is a property a reviewer reads off a route table; "a NAT gateway nobody uses" is a claim re-argued every year. | The residual failure is a **connect timeout**, which leaves nothing behind — hence flow logs. Read any successful pull beside `describe-route-tables`. |
 | 35 | [The image tag is the commit sha and `:latest` does not exist](decisions/infrastructure.md#the-image-tag-is-the-commit-sha-and-latest-does-not-exist-spec-193) | An immutable tag makes a running task traceable to a commit, and makes a rollback a repoint. | `task_definition` is ignored and `desired_count` is not, so **CI must point the service** — a pipeline that only registers a revision produces a pull error indistinguishable from an endpoint failure. |
 | 36 | [The deploy role self-grants, and grants land in their own PR first](../infra/info/deploy-role-iam.md) | The role that creates everything has to be able to create the thing that grants it — so the grant and its first use cannot be in the same apply. | Scopability is **measured** with `simulate-custom-policy`, never assumed. A simulate matches patterns, not the ARN a service actually passes. |
@@ -489,7 +492,9 @@ superseded decision keeps its row and gains a note saying which row replaced it.
 | 42 | [The browser's queue grants come off with the switchover, not with the trust flip](decisions/identity-and-access.md#the-browsers-queue-grants-come-off-with-the-switchover-not-with-the-trust-flip-spec-200) | The eight FIFO request queues were the browser's last privileged write and its only remaining AWS grant. Moving the send behind the API is what lets a plane trust an actor the API stamps from a verified bearer rather than a token it verifies itself — and the grant had to come off in the SAME change, because the Identity Pool survives to SPEC-202 and a trusted `actor` field plus a browser credential able to write the queue is impersonation. | The API's execution role is the only principal that may write a request queue; the browser holds no AWS grant at all. The message carries a nested `identity` block ALONGSIDE the token it does not yet replace — SPEC-201 flips the planes onto it and only then stops the token being sent. Supersedes row 24's "the browser's only grant is `sqs:SendMessage`". |
 | 43 | [The planes trust a body field because of who may WRITE it, not because of cryptography](decisions/identity-and-access.md#the-planes-trust-a-body-field-because-of-who-may-write-it-not-because-of-cryptography-spec-201) | Eight planes each verified a Cognito ID token out of the queue message. Once the API became the only principal that may write those queues, that was a second answer to a settled question — and the last reason a raw JWT travelled through eight queues, sat in eight execution inputs, and reached CloudWatch on every dead-letter. | The planes read `identity.actor` through one reader that **cannot verify**; `cpcommon.auth` keeps one caller, the API. Dropping a verification is not dropping an authorization — every authorizer has zero diff. Two deploys, the second irreversible. Completes row 42.
 | 44 | [The membership index is an authorization input, where the username directory is not](decisions/identity-and-access.md#the-membership-index-is-an-authorization-input-where-the-username-directory-is-not-spec-203) | The session's shared-space tags come from Cognito custom-attribute claims, which do not exist in the successor account under either identity variant. The registry could answer "which spaces is this user in" but not cheaply — one object per space, keyed by space name, so a listing plus a read per space on every credential mint. A new per-user projection in the admin bucket answers it in one `GetObject`. | The source is a **cold-start choice** (`MEMBERSHIP_SOURCE`), default `claims`, wired into no Terraform — nothing here changes what runs today. The index is **user-unreachable, plane-written, CAS-written**, which is what lets it be an authorization input where SPEC-146's directory may not be. The user's own connections cache has the same shape, is one `GetObject` away, and is **user-writable** — reading it is a complete bypass. |
+| 49 | [The Identity Pool is retired, and no one's sign-in changed](decisions/identity-and-access.md#the-identity-pool-is-retired-and-no-ones-sign-in-changed-spec-202) | Two credential paths ran at once through the arc: the pool vending AWS credentials to the browser, and the API assuming the same role from the same claims. The second made the first redundant, and the first made the arc's load-bearing negative — the browser makes no AWS call other than presigned S3 bytes — impossible to observe, because Amplify vends pool credentials whenever the id is configured. | Retiring it changed **nobody's sign-in**: the User Pool, Managed Login v2 and the token are untouched, and reading it as "Cognito is retired" sends the next reader looking for a change that does not exist. The role is **reused**, so no permission policy was rewritten; the trust policy went from two statements to one. `lib/awsCredentials.ts` became `lib/idToken.ts` with one export, named for a JWT because a module called `awsCredentials` invites putting some back. The absence is proved **positively** — `describe-identity-pool` → `ResourceNotFoundException` — and SPEC-196's isolation simulation was re-run row for row afterwards with **no row changed**. Supersedes row 1's "the managed pair vends AWS credentials". |
 | 45 | [A shared-space delete removes people, not things](decisions/control-planes.md#a-delete-removes-people-not-things--and-retention-keys-on-a-durable-fact-never-live-status-spec-205) | Deleting a workspace destroyed every object under its prefix, its Glue database and its registry record, on a bucket with **no versioning** — so a mistaken delete had no recourse at all. It now ends every member's access and destroys nothing, which makes the mistake recoverable by an administrator and removes SPEC-151's whole failure class from the route (nothing frees a name, so a partial teardown cannot). | Retention keys on the durable `everActive`, **never live `status`** — which moves `active → deleting → failed` over intact data. `deleting` is **not** evidence a space was usable: delete is gated on ownership alone, so a never-active create reaches it too. **One predicate**, `is_destroyable`, routes the delete AND refuses the add; complements written twice drift silently in both directions. Two permanent, user-visible costs: a name is never reusable, and deleted data is retained. The residual is the credential window — a removed member's query workspace still reaches the retained database until their token expires. |
 | 46 | [A control-plane queue may have a second producer, admitted by SenderId](decisions/control-planes.md#a-control-plane-queue-may-have-a-second-producer-admitted-by-senderid-spec-208) | A shared space's owner was whoever created it, forever — so an owner who had left could only be worked around by abandoning the space or deleting it, and both are worse than the problem. Transfer fixes the ordinary case; the case the UI cannot serve is an owner who is already gone, which needs a door no signed-in session goes through. | The reader enqueues onto the **existing** queue, so operator and user transfers are one verb, one authorization and one notification pair. That reuse is what forces the fence: with no bearer to present, an operator message declares `origin` and is admitted only by the **`SenderId` role-id half** — the mechanism SPEC-206 established, inverted from a denylist to an allowlist. Two things make it real rather than nominal: the reader holds its **own execution role** (sharing the orchestrator's would admit every verb on the plane, invisibly), and `origin` is **undeclarable through the API**, so a signed-in caller cannot claim it at all. Narrows rows 42 and 43's "the API is the only principal that may write a request queue" to "the writers are enumerated"; the browser still holds no grant. |
 | 47 | [One image for the whole Lambda fleet, and the sweep that pays for it](decisions/infrastructure.md#one-image-for-the-whole-lambda-fleet-and-the-sweep-that-pays-for-it-spec-212) | Eighty-six functions ship as zips with ten layers attached in a literal order, and what a function can import is decided at deploy time by a join between two JSON tables — observable nowhere else, so a missing layer is a `ModuleNotFoundError` at the next cold start, in production, behind a green suite. That happened and lasted nine days. | A container image replaces the join with an artefact: dependencies installed once, shared code copied once, every function running the same image with a different command. **It runs nothing yet** — no `aws_lambda_function` changed, and the cutover is its own spec. The image is strictly **wider** than a zip and an AST sweep, not the packaging, is what pays for that. Its import check runs through the runtime's **own bootstrap**, because a reconstructed search path that is a superset passes what production fails. |
 | 48 | [An upload's shape is the server's decision, and a part is sized so the expiry premise stops mattering](decisions/storage.md#an-uploads-shape-is-the-servers-decision-and-a-part-is-sized-so-the-expiry-premise-stops-mattering-spec-216) | One `PUT` gave a dropped connection nothing to retry, and made every upload depend on an unmeasured premise about when S3 evaluates a presigned expiry. Letting the browser choose the path would have put one policy number in two places. | The threshold **is** the part size — one quantity, computed from the slowest supported uplink. Reverses row 39's no-part-level-retry clause. The 5 GiB ceiling is unchanged, but what holds it is now a refusal on the **declared** size — a courtesy, not S3's unforgeable one. |
+| 50 | [A cutover is two merges, and only the second one destroys the rollback](decisions/infrastructure.md#a-cutover-is-two-merges-and-only-the-second-one-destroys-the-rollback-spec-202) | The arc was additive by design, so the retirement was the one subtraction — and nothing goes red when a dead distribution keeps answering, when the browser holds credentials it no longer uses, or when a `connect-src` still names four hosts nothing fetches. A half-finished retirement looks exactly like a finished one. | Merge 1 retires and touches nothing serving the app; the live checks then run **with the rollback intact**; merge 2 narrows the three allowlists and destroys the distribution, after which there is no way back. What the rollback was is worth stating precisely: a CloudFront-served **HEAD** bundle talking to the API, not a restoration of browser-direct AWS. A grant outlives its resource by one apply (the refresh deadlock), which is where the Checkov accept list turned out to be holding that grant's own findings open. Retires `deploy-app.yml`, `infra/modules/app`, the static bucket and the `/*` invalidation with it. |

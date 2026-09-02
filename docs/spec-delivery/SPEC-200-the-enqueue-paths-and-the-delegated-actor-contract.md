@@ -172,8 +172,8 @@ every path would refuse every notification the fleet produces.
 ## What is owed
 
 **Phase 5 in full. It was written up but NOT RUN**, because no browser was connected to the session
-that shipped it. The steps are [`arc-b-api-container-e2e.md`](../testing/arc-b-api-container-e2e.md)
-§G — ten submissions judged on the outcome, the per-plane double-submit including table-share's
+that shipped it. The steps were the arc script's
+§G (deleted when Arc B closed; see [`owed.md`](../testing/owed.md) §1 for where it lives now) — ten submissions judged on the outcome, the per-plane double-submit including table-share's
 across a forced token refresh, one log record per plane with four things asserted absent, the three
 `curl` refusals, and the IAM simulation against both deployed roles — and the owed rows are filed in
 [`owed.md`](../testing/owed.md). Nothing offline can settle that a group id computed in Python is the one the deployed queue receives (ordering has no

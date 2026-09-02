@@ -1765,20 +1765,47 @@ per (side × operation), enumerated against the real constants, and read that fi
 
 ## API-layer & containerisation arc (SPEC-192 → 202)
 
+> **THE ARC IS COMPLETE. SPEC-202 merged in two parts — the retirement on 2026-08-31, the narrowing
+> and the destroy on 2026-09-02 — and everything below this block is a dated note from while it ran.
+> Read them as history.**
+>
+> **What shipped:** an HTTP API with one `$default` route verifying a bearer and assuming the portal
+> role; the object surface, the catalog and the eight control-plane queues behind it; the SPA as a
+> container on Fargate behind an ALB, configured by a runtime document; and then the subtraction —
+> the Identity Pool, the browser's credential layer, CloudFront, the static bucket, `deploy-app.yml`
+> and `infra/modules/app`, all gone. The browser holds no AWS credentials and reaches AWS only for
+> presigned S3 bytes.
+>
+> **What the arc found that no spec predicted**, beyond SPEC-193's four apply-time traps below: that
+> **no origin worked for five specs** because nobody added the container to the Cognito app client
+> until the last one; that a **queue resource policy would have silenced every notification**; that
+> SPEC-140's CSP **verification technique** was unsatisfiable and generalised from the wrong
+> directive (corrected in `decisions/infrastructure.md`); and, one merge after the destroy, that the
+> **Checkov accept list was holding the retired grant's own findings open**, so removing the grant
+> made both acceptances stale — a hard error by design.
+>
+> **The open questions are settled:** 1 and 2 answered in the re-scope below, 3 **void** (the arc
+> never replaced `lib/returnPath.ts`), 4 answered by SPEC-196. **What is owed** is not in this entry
+> — [`docs/testing/owed.md`](../testing/owed.md) carries it, including the four checks merge 2 was
+> taken with **waived rather than passed**, of which the fresh sign-in from a clean profile is the one
+> that gates the merge itself.
+
 > **SPEC-200 MERGED 2026-08-29 and the eight control-plane queues are behind the API.** The browser
 > holds no AWS grant at all now; what it still calls directly is presigned S3 bytes and Cognito
 > through Amplify. The message carries a nested `identity` block **alongside** the token it does not
 > yet replace — SPEC-201 flips the planes onto it and only then stops the token being sent, and
 > reversing either boundary fails all eight planes closed on the first request after deploy.
-> **None of SPEC-200's Phase 5 has been run** (`arc-b-api-container-e2e.md` §G): every plane's first
-> real request through the API, and the simulation proving the browser's grants are gone, are owed.
+> **(Since run.)** SPEC-200's Phase 5 was owed here; seven of the eight planes were exercised
+> through the API on 2026-09-01 with no browser `sqs:SendMessage` anywhere, and the grants
+> simulation ran on 2026-08-31. What is left of it is in [`owed.md`](../testing/owed.md).
 >
-> **The arc's central claim is still an argument, not an observation:** that
-> Lake Formation keeps enforcing against the assumed-role session needs one real `SELECT` returning
-> rows, and it is owed rather than run (it also discharges SPEC-196 Phase 5 item 4). So is the
-> question this spec was meant to answer and could not settle offline — whether a **foreign**
-> database and an **absent** one are distinguishable through Lake Formation, which is LF's property
-> and not the API's. Both are rows in `docs/testing/owed.md`; the steps are `e2e.md` §4.3.
+> **(Since observed, 2026-09-01.)** The arc's central claim — that Lake Formation keeps enforcing
+> against the assumed-role session — was an argument when this was written and is now a measurement:
+> as a member, a `SELECT` against another user's database failed terminally with no `/results` fetch
+> and **no re-login**, while a database that user does hold returned rows in the same minute. One
+> denied and one allowed through the same route, so the grant is on the **assumed** role. Whether a
+> foreign and an absent database are distinguishable is LF's property, not the API's, and stays a
+> row in [`owed.md`](../testing/owed.md).
 
 > **SPEC-193 APPLIED 2026-08-26, and what the apply found is worth more than what the spec
 > predicted.** The platform is live: `api.dataquarry.app` answers `/healthz`, `portal.dataquarry.app`
@@ -1807,8 +1834,9 @@ per (side × operation), enumerated against the real constants, and read that fi
 > SPEC-194 starts from a platform that works, with `deploy-spa-image.yml` replacing the dispatch-only
 > `push-placeholder-image.yml` this spec shipped as scaffolding.
 
-> **RE-SCOPED 2026-08-18, after the first five specs were drafted — read this before the entry below.**
-> **This arc is PREP WORK, and it keeps the current Cognito authentication exactly as it is** (user
+> **THE RE-SCOPE, 2026-08-18, and everything in it shipped as written.** It was a preamble telling a
+> builder what the arc would and would not touch; it is now the settled account of what it did.
+> **The arc was PREP WORK and kept the current Cognito authentication exactly as it is** (user
 > decision). The BFF, Entra ID and Identity Center are **target-environment** work in a later arc; Arc
 > B does everything that can be done ahead of that move without touching how anyone signs in.
 >
@@ -1819,11 +1847,12 @@ per (side × operation), enumerated against the real constants, and read that fi
 > - **The API authorizes with the Cognito ID token as a BEARER** — the trust model the seven control
 >   planes already have. No cookie means **no CSRF surface and no `SameSite` requirement**, so the
 >   *two-origins-one-registrable-domain* decision relaxes from a requirement to a preference.
-> - **The Identity Pool keeps minting browser credentials until SPEC-202**, and that is what removes
->   the degraded window the BFF ordering created: every un-ported feature keeps working through the
->   arc, so the live checks owed on the archive, table-builder and Data Explorer arcs stay runnable.
->   SPEC-202 retires it once nothing in the browser needs AWS credentials — **which is not a change to
->   how anyone signs in.**
+> - **The Identity Pool kept minting browser credentials until SPEC-202**, which is what removed the
+>   degraded window the BFF ordering created: every un-ported feature kept working through the arc, so
+>   the live checks owed on the archive, table-builder and Data Explorer arcs stayed runnable.
+>   SPEC-202 retired it on 2026-08-31, once nothing in the browser needed AWS credentials — **which
+>   was not a change to how anyone signs in**, and reading it as one is the conflation the register
+>   entry exists to prevent.
 > - **`connect-src` keeps the Cognito hosts** (open question 2's answer, amended): API host + S3 +
 >   `'self'` **+ the User Pool and Hosted UI hosts**, because Amplify is still running in the browser.
 >   SPEC-140's recorded outage was exactly an omitted Hosted UI host.

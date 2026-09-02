@@ -10,6 +10,43 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-02 (SPEC-202's post-merge-2 CLI pass, and the arc's close)
+
+**CLI only, no browser.** Run against the deployed account from the repo worktree with the
+`tofu-deploy-user` credentials, `main` at **`a546f2e4`** (SPEC-202 merge 2) and then at
+**`95fddf14`** (the deploy role's grant retirement) with Deploy Infrastructure, Deploy SPA image,
+Deploy Lambdas, Deploy Lambda image and Publish Config all green for both. **No instruments** — every
+assertion below is a `curl` or an `aws` read, which is why the browser half of the arc's §12 is
+still owed rather than discharged here.
+
+**The retirement, proved positively rather than as an absence from a plan:**
+
+| Check | Result |
+|---|---|
+| `cloudfront get-distribution --id E63PRJKNACLDP` | **`NoSuchDistribution`** — the id was captured before merge 1 precisely because its Terraform output does not survive |
+| `s3api head-bucket` on the static bucket | **404**. `list-buckets` returns four app buckets (user-space, shared-space, admin, archive) plus artifacts, archive-audit and state |
+| `cognito-identity list-identity-pools` | **`[]`** |
+| `describe-user-pool-client` callback and logout lists | each exactly `http://localhost:5173` and `https://portal.dataquarry.app`. The CloudFront entry is gone from both |
+| `apigatewayv2 get-api` CORS | `allow_origins` = `["https://portal.dataquarry.app"]`, `allow_credentials` **false**, `allow_headers` carries `x-request-id` |
+| `get-bucket-cors` on user-space and shared-space | `localhost:5173` and `spa_origin` only, on both |
+| `curl -sSI https://portal.dataquarry.app/` | CSP (enforcing, not report-only), HSTS `max-age=31536000; includeSubDomains` with **no** `preload`, `X-Frame-Options: DENY`, nosniff, `Referrer-Policy`, `Permissions-Policy`, COOP, CORP, and `Server: nginx` — the three divergences as designed. `connect-src` = `'self'`, `cognito-idp`, the Hosted UI host, both S3 buckets, `api.dataquarry.app`; **no** `cognito-identity.`, `athena.`, `glue.` or `sqs.` |
+| `curl -sS …/config.json` | **eleven** keys and **no `cognitoIdentityPoolId`**. Eleven rather than the arc's ten because `maxUploadBytes` arrived with SPEC-216 afterwards — a count in a spec is dated the day it is written |
+| `iam get-role-policy` on the deploy role, after #614 applied | **22 statements**; `S3StaticBucket` and `CloudFront` both absent (24 before) |
+| The notifications writer's `NOTIFICATIONS_UNTRUSTED_SENDER_ID` | equals the live portal role's unique id (`AROA2EDGYGNUCQJ24WOYE`) — non-empty, so SPEC-206's `create` boundary is configured, and it needed nothing from this spec |
+
+**One finding, and it is about a claim rather than the deployment.** `CLAUDE.md` carried an
+obligation saying SPEC-202 "re-points SPEC-206's `SenderId` boundary, which still names the portal
+role it retires". **SPEC-202 does not retire the portal role** — it retires the Identity Pool, and
+the role is *reused* by the API, which is the whole reason no permission policy had to change. The
+boundary needed no re-pointing, and the deployed value confirms it. The obligation was written from
+a premise that reads "the credential path is retired" as "the role is retired".
+
+**Not run, and not passed:** everything in the arc's §12 that needs a browser — the fresh sign-in
+against the narrowed lists above all — plus the three checks merge 2 was waived on. They are rows in
+[`owed.md`](owed.md) → *SPEC-202*.
+
+---
+
 ## Live-check session — 2026-09-01 (SPEC-210 dark mode, SPEC-211 feedback, SPEC-209 divider, and the undersized-target register)
 
 Run against deployed prod (`d1kbh4bnvh1je8.cloudfront.net`) signed in as **`agriffith`** in
@@ -393,9 +430,9 @@ the switchover (`main` at `9a3568de`).
 
 The staged **hard-failure** and **unparseable** paths, the **promotion** check, and a **fresh sign-in
 from a private window** — the first three need a deliberately broken or changed document published to
-the bucket, the fourth needs a real Hosted UI round trip. All four are written up as
-[`arc-b-api-container-e2e.md`](arc-b-api-container-e2e.md) §A.1–A.4 and carried in
-[`owed.md`](owed.md).
+the bucket, the fourth needs a real Hosted UI round trip. All four were written up as the arc
+script's §A.1–A.4 (deleted when Arc B closed — see the note at the top of [`owed.md`](owed.md) §1)
+and are carried in [`owed.md`](owed.md).
 
 ---
 

@@ -48,6 +48,7 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [Help is read where the work is, and a gated page's help is gated by derivation (SPEC-207)](#help-is-read-where-the-work-is-and-a-gated-pages-help-is-gated-by-derivation-spec-207)
 - [One split, two clamp domains, and the pair has to agree (SPEC-209)](#one-split-two-clamp-domains-and-the-pair-has-to-agree-spec-209)
 - [The divider needs a click path, because a drag is not an alternative to itself (SPEC-209)](#the-divider-needs-a-click-path-because-a-drag-is-not-an-alternative-to-itself-spec-209)
+- [The `@aws-sdk/*` ban is a lint rule AND a manifest sweep, because Amplify vendors the SDK (SPEC-202)](#the-aws-sdk-ban-is-a-lint-rule-and-a-manifest-sweep-because-amplify-vendors-the-sdk-spec-202)
 
 ## State
 
@@ -1025,3 +1026,30 @@ is *worse* than invalid, because it is wrong at exactly the point users aim: the
 **child** of the separator, so the guard ignores a grab on the grip while every test that grabs the
 band still passes. Siblings in a plain wrapper band answer both at once, and need no filtering at
 all.
+
+## The `@aws-sdk/*` ban is a lint rule AND a manifest sweep, because Amplify vendors the SDK (SPEC-202)
+
+Six specs each deleted a browser-side AWS client. What none of them could see is that **a dependency
+nobody imports is invisible to every import rule** — the `package.json` entry outlived its last
+importer every time, and nothing went red. That leftover is how the next `@aws-sdk` import arrives:
+already installed, already resolvable, one autocomplete away. So the fence is two mechanisms, and
+each catches what the other cannot.
+
+**The lint rule is declared four times, and that is the hazard.** ESLint flat config **replaces** a
+rule's value at the last entry matching a file rather than merging it, so the layering clause, the
+exemption clause and the sibling-feature clause each override the `src/**` clause for the files they
+match. Written once, the ban is silently off for `src/lib/**`, `src/components/**`, every test in
+those trees and four feature directories — while the config reads as though it holds. The guard
+therefore **enumerates** every entry governing `src/` that declares `no-restricted-imports` and
+requires the group in each, rather than sampling one. And its scoping question is **inverted** on
+purpose: an entry is out of scope only if every glob it names is demonstrably not under `src/`,
+because an entry with no `files` at all governs everything, and filtering on a `src/` prefix let
+exactly that shape declare the rule without the group while an `@aws-sdk` import in `features/`
+linted clean. Tests are **in** scope: a test mocking `@aws-sdk/client-s3` is a test of a call the
+app no longer makes.
+
+**The sweep reads `package.json`, never `node_modules`.** `aws-amplify` vendors `@aws-sdk/*`
+packages transitively, so an assertion over the installed tree would fail permanently, be deleted
+inside a week, and a deleted guard is indistinguishable from a passing one in CI. It carries a
+guard-the-guard — the manifest must still name `aws-amplify` — because a parse that read nothing
+agrees with an empty manifest.

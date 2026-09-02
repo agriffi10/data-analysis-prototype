@@ -24,6 +24,7 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [A role that cannot list a bucket cannot be told an object is absent](#a-role-that-cannot-list-a-bucket-cannot-be-told-an-object-is-absent)
 - [A value Terraform computes is read from state, never copied into a settings page (SPEC-215)](#a-value-terraform-computes-is-read-from-state-never-copied-into-a-settings-page-spec-215)
 - [One image for the whole Lambda fleet, and the sweep that pays for it (SPEC-212)](#one-image-for-the-whole-lambda-fleet-and-the-sweep-that-pays-for-it-spec-212)
+- [A cutover is two merges, and only the second one destroys the rollback (SPEC-202)](#a-cutover-is-two-merges-and-only-the-second-one-destroys-the-rollback-spec-202)
 
 ## IaC
 
@@ -42,19 +43,44 @@ OpenTofu (over CDK/Pulumi/SST); `infra/modules/` are bounded-context (app/base/a
 > origin, and the module takes the assembled policy as an input. *Who emits it:* the container
 > serves the same policy from nginx, with `connect-src` supplied by the task definition and every
 > other directive baked in the image. The rules below are unchanged and inherited — enumerate from
-> the hosts the app **fetches**, verify with a same-origin page script and a negative control, diff
-> per alert ID. HSTS `preload` is dropped for the container's domain, re-decided.
+> the hosts the app **fetches**, verify with a positive violation event and a negative control (see
+> the correction below), diff per alert ID. HSTS `preload` is dropped for the container's domain,
+> re-decided.
+
+> **Superseded and CORRECTED by SPEC-202 (2026-09-02), on two further points.** *Where it runs:* the
+> distribution, its response-headers policy, its OAC and `modules/app` are destroyed. nginx serves
+> the only policy now, and `CKV_AWS_259` — the check the `preload` decision was argued against —
+> came off `.github/checkov-enforced.txt` in the same change, because an enforced check ID matching
+> no finding is a hard error.
+>
+> *How to verify one, which is the part that was wrong rather than merely stale.* This entry
+> prescribed "a same-origin page script plus a negative control, because CDP evaluation bypasses
+> page CSP". What was measured to reach that rule was **`script-src`** (`new Function` reported as
+> allowed) — the debugger's script-evaluation exemption — and the prescription generalised from it
+> is **unsatisfiable** against a policy carrying `script-src 'self'`: an inline script is blocked and
+> an Elements-panel `<script>` is parser-marked non-executable, so the arc's one enforcement check
+> had no runnable method and its failure read as a broken snippet rather than as a finding. The
+> corrected rule, measured 2026-08-31 against the deployed container: **CDP evaluation is exempt
+> from `script-src`, NOT from `connect-src`.** So assert a **positive** `securitypolicyviolation`
+> event with `effectiveDirective: "connect-src"` and `disposition: "enforce"`, from an evaluated
+> `fetch` to a host the policy excludes, **plus a same-origin negative control in the same run** —
+> without the control, a blocked request and a broken network are the same observation.
 
 
 One `aws_cloudfront_response_headers_policy` on the distribution's default cache behavior carries the browser-facing security posture — **enforcing** CSP, HSTS (`includeSubDomains`, **no `preload`**), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`, COOP, CORP — and strips `Server` and `x-amz-server-side-encryption`. Four decisions carry the weight. **(1) The CSP is assembled from variables, never literals.** `connect-src` *is* the app's network surface — there is no backend, so anything missing from it is a broken feature — and it is built from `var.aws_region`, the two bucket names and the Hosted UI domain, passed as **constructed strings from root locals** because `modules/app` is upstream of `base → data` and a module reference would be a dependency cycle. A hardcoded region or bucket would have to be hunted down during the client-environment transition. (**Correction 2026-08-04:** the Hosted UI domain was missing from the shipped list, and it broke sign-in outright once the policy went enforcing — Amplify's authorization-code exchange POSTs to `https://<hosted-ui-domain>/oauth2/token`, which is **not** `cognito-idp`, so the returning `?code=` was never redeemed and the app sat signed-out over a live Cognito session. Enumerate `connect-src` from the **hosts the app actually fetches**, not from the AWS services it uses.) **(2) Report-only first is not ceremony.** A CSP wrong about `worker-src` or `style-src` breaks the Monaco editor in production and nowhere else, because no unit test observes a CSP. It earned its keep twice: it caught that `src/index.css:1` `@import`s Inter from `fonts.googleapis.com` (Vite leaves remote `@import`s in built CSS, so an enforcing CSP would have stripped the typeface site-wide), and it exposed that **Safari refuses to evaluate a report-only policy naming no reporting endpoint** — logging "the policy will have no effect" and applying nothing, so a verification pass reports zero violations whether or not any occurred. Chrome and Firefox honour report-only without one, which is exactly why a Chromium-based harness cannot surface it; the same reason CDP `Runtime.evaluate` is useless for CSP probing, since it bypasses page CSP entirely (it reported `new Function` as *allowed* under `script-src 'self'`). Verify a CSP with a **same-origin page script**, and always include a negative control that proves enforcement is live. (**Correction 2026-08-04:** report-only also has a blind spot the promotion to enforcing walked straight into. Report-only **never blocks**, so the sign-in pass that "reported no violations" succeeded *because* the policy was inert, and the one violation it did raise was reported to an endpoint nobody read. A report-only pass proves a flow still works; it proves nothing about whether the flow would survive enforcement. **Read the violation reports, or re-run the flow against the enforcing policy before calling it verified.**) **(3) Three findings are accepted, not silenced.** `Cross-Origin-Embedder-Policy` is absent because `require-corp` buys cross-origin isolation this app cannot use (no `SharedArrayBuffer`, no high-resolution timers) at real risk to subresource loads. `preload` is absent because it declares an intent to submit to hstspreload.org that we do not have, on a shared-suffix `*.cloudfront.net` name a custom domain will replace, and it is near-irreversible once granted — this **fails Checkov `CKV_AWS_259`, whose sole objection is that flag**. (**Update 2026-08-03:** `preload` was flipped on, clearing `CKV_AWS_259` — it is inert without an hstspreload.org submission, so **never submit this `*.cloudfront.net` domain** to hstspreload.org.) `style-src 'unsafe-inline'` stays because Monaco injects `<style>` at runtime — this is a **new ZAP Medium introduced by the fix itself**, and removing it needs per-response nonces, impossible on a static S3+CloudFront origin without Lambda@Edge; `script-src` carries no such allowance, which is the one that matters. **(4) A finding total is not a signal.** `CKV2_AWS_32` clearing and `CKV_AWS_259` appearing cancelled at 305, so the Checkov total looked untouched; ZAP went 20 → 13 while gaining a Medium. Diff **per check ID and per resource**, never by count. Full account: `docs/spec-delivery/SPEC-140-cloudfront-response-headers.md`.
 
 ## Static-asset caching = three prefix-scoped sync passes (SPEC-141)
 
-> **Superseded in part by SPEC-194 (2026-08-27).** Everything below is true of the S3 delivery
-> path, which is now **one of two**. The container image IS the file set, so the `--delete`
-> reconciliation pass and the accepted stale-root-object orphan class do not exist for it; it
-> reproduces the per-class scheme in nginx and stops there. Both retire outright with the
-> distribution.
+> **RETIRED by SPEC-202 (2026-09-02).** Nothing below runs any more: `deploy-app.yml`, the three
+> sync passes, the `/*` invalidation and the static bucket are all deleted, and the image IS the
+> file set — no reconciliation, no orphan class, and an honest 404 under `/assets/` instead of a
+> stale chunk. The entry stays because two of its findings outlived their mechanism and are the
+> reason it is worth reading: **`--exclude` PROTECTS destination keys from `--delete`** (so a pass
+> excluding a prefix can never reconcile it — read against the CLI's own `dst_patterns`, after this
+> repo stated it backwards in three places at once), and **the bug was the browser cache, not the
+> CDN** (reach for the origin object's headers, not an invalidation, when some users see a broken
+> app after a deploy). *(Its predecessor marker, SPEC-194's, said the two paths would "retire
+> outright with the distribution" — this is that.)*
 
 
 `deploy-app.yml` uploads `dist/` in **three passes**: hashed assets under `assets/` as `public, max-age=31536000, immutable`, then the shell and root files as `no-cache`, then a repeat of the assets pass carrying the **one** `--delete`. Four things make that shape non-negotiable. **(1) The bug was the BROWSER cache, not the CDN.** The deploy already invalidates `/*`, so CloudFront never served a stale shell; with no `Cache-Control` anywhere, browsers applied **heuristic freshness** to `index.html`, and `--delete` had already removed the hashed bundle that shell referenced — **a white screen, not stale content**, on exactly the users whose cache was warm, and unreproducible with devtools caching disabled. Reach for the origin object's headers, not an invalidation, when the symptom is "some users see a broken app after a deploy." **(2) `--exclude` PROTECTS destination keys from `--delete` — it does not endanger them.** The CLI filters the reverse (destination) generator with the same patterns re-rooted at the destination (`awscli/customizations/s3/filters.py` builds `dst_patterns` beside `patterns`; `subcommands.py` gives `rev_generator` its own filter), so an excluded object is never a deletion candidate. The consequence: **a pass that excludes a prefix can never reconcile it** — `--delete --exclude 'assets/*'` keeps every stale chunk forever. Scope passes by **prefix** (`dist/assets/` → `s3://…/assets/`) so each owns a disjoint key set. (*Corrected 2026-08-04 by the SPEC-141 review, which read the CLI source: the original entry, the workflow comment, and SPEC-141:108-109 itself all stated this backwards — claiming an excluded `index.html` would be deleted. The implementation was never affected; only the reason was wrong.*) **(3) No file may be uploaded by two passes.** `sync` compares size and mtime, and a fresh CI checkout makes every local mtime newer than the bucket's — the first deploy re-uploaded all 108 assets on a byte-identical build, confirming a second pass over the same files would overwrite the immutable header with that pass's `--cache-control`. **(4) Deletions therefore live on their own pass, and the surviving orphan class is a SPEC CHOICE rather than a CLI constraint.** `--delete` scoped to `assets/` leaves stale **root-level** objects behind (harmless, unreferenced, removable by hand). Adding `--delete` to the shell pass **would** reconcile those — `--exclude` protects every asset key from that same deletion (verified against the CLI's `dst_patterns`), and the assets pass still reconciles chunks, so nothing would be retained. What forbids it is SPEC-141's AC "exactly one sync pass carries `--delete`", **written on the same mistaken reading of `--exclude` corrected in (2)**. Revisit the AC deliberately if the manual cleanup becomes annoying; the cost to weigh is that a root-scoped `--delete` removes anything in the bucket not produced by `dist/` (nothing else writes it today). `icons.svg` is the first such orphan. The residual race is **accepted and documented**: a tab already open that lazy-imports after the delete pass still 404s inside `Suspense` — **both** lazy routes are exposed, `/query` (which loads Monaco beneath it) and `/connections`, so a fix must not be scoped to Monaco; closing it needs retained bundles behind an S3 lifecycle rule. Rule of thumb for the whole area: **a content-hashed URL is immutable, a stable URL must revalidate**, and prefer a path prefix over an extension list — `dist/assets/` carries a `.ttf` that a js/css rule would miss. Full account: `docs/spec-delivery/SPEC-141-cache-control-headers.md`.
@@ -240,10 +266,17 @@ Detail: `spec-delivery/SPEC-193`.
 The Cognito app client's callback and logout lists, CloudFront's `connect-src`, and the API's CORS
 list each gained the new origin **beside** the existing one. Nothing was removed.
 
-An allowlist naming one origin makes the other a rollback that cannot be exercised — and the
-rollback is CloudFront, which is still production. The narrowing belongs to the spec that retires the
-distribution, deliberately last. Each addition is verified to have removed nothing, because a
+An allowlist naming one origin makes the other a rollback that cannot be exercised. The narrowing
+belonged to the spec that retired the distribution, deliberately last, and **SPEC-202 did it in the
+same merge as the destroy** — after the rollback had been rehearsed against the container origin
+while both were still admitted. Each addition was verified to have removed nothing, because a
 "replace" where an "add" was intended applies green and is invisible until the day it is needed.
+
+**The three lists are now one origin each** (plus `localhost:5173` on the callback list and both
+bucket CORS rules, which is dev, not a second deployed origin): Cognito's callback and logout lists,
+the API's CORS `allow_origins`, and both buckets' CORS. The container's `connect-src` is the fourth
+list of the same kind and narrowed in the merge before, since it is served from the image rather
+than from an allowlist.
 
 Detail: `spec-delivery/SPEC-193`.
 
@@ -490,3 +523,52 @@ repoints at whatever replaces it and does **not** fall back to the sweep.
 - **The build context is the repository root with `lambdas/Dockerfile.dockerignore`.** BuildKit
   reads a Dockerfile-specific ignore file in preference to the context root's; the root file
   excludes `lambdas` on purpose, so that the SPA's build — which asserts its absence — keeps working.
+
+## A cutover is two merges, and only the second one destroys the rollback (SPEC-202)
+
+Every spec in the API-and-container arc was **additive** — two front doors, two credential paths,
+each step revertible because the thing it replaced was still running. The retirement is the
+subtraction, and subtraction is where this repo's characteristic failure lives: nothing goes red when
+a dead distribution keeps answering, nothing goes red when the browser holds credentials it no longer
+uses, and nothing goes red when a `connect-src` still names four AWS hosts no request goes to. **A
+half-finished retirement looks exactly like a finished one.**
+
+So the shape is two merges whose difference is whether they can be undone.
+
+- **Merge 1 retires, and touches nothing that serves the app.** The Identity Pool, the browser's last
+  credential modules, the lint rule, the container's narrowed `connect-src`. CloudFront still ran,
+  its `connect-src` still named the API, the callback and logout lists still named both origins and
+  both buckets' CORS still allowed both — so the front door could still be moved back and the app
+  would work.
+- **Then the live checks run, with that rollback intact.** This is the whole reason for the split:
+  the arc's load-bearing negative cannot be observed while the Identity Pool exists (see the identity
+  register), and the rollback rehearsal is only meaningful in the window where the old origin still
+  serves.
+- **Merge 2 narrows the three allowlists and destroys the distribution.** After it there is no
+  rollback at all: no origin serves the old front door and no allowlist admits it.
+
+**What the rollback actually was, stated because it is easy to overstate.** The rehearsal loaded the
+app from the CloudFront domain and completed a real cross-origin API call — a CloudFront-served
+**HEAD** bundle talking to the API. It did **not** restore browser-direct AWS, because that code was
+already gone from HEAD and so was the pool that backed it. A rollback of the front door is not a
+rollback of the arc.
+
+**A grant outlives the resource it covers by one apply, deliberately.** The deploy role's
+`cloudfront:*` and static-bucket statements were left standing through the destroy and removed in the
+next change, because removing a grant in the same apply that destroys what it covers is the refresh
+deadlock [`deploy-role-iam.md`](../../infra/info/deploy-role-iam.md) records. The follow-up found
+the trap that ordering hides: **the accept list was holding the grant's own findings open.** Both
+accepted Checkov plan findings on the deploy role were that `cloudfront:*` statement, so removing it
+made both acceptances match nothing — and a stale accept is a hard error, which would have failed
+the grant-removal PR on its own gate. Measured with the pinned scanner rather than argued, which
+also corrected the accept list's stated reason: an action AWS defines no resource type for raises
+neither check (cloudsplaining strips it first), so `cognito-idp:CreateUserPool` and the Lake
+Formation account actions were never co-causes. **What raises them is an action that could have been
+scoped and was not.** The list is empty now and every IAM finding on the plan blocks.
+
+**The waiver is part of the record.** Merge 2 was taken with four checks open — a fresh sign-in from
+a clean profile, the deep-link return path, the archive plane's row and 400px — recorded as *waived,
+not passed*. The one that gates that merge specifically is the fresh sign-in, because merge 2
+narrows the Cognito lists and **a broken fresh sign-in is invisible to every signed-in session**; the
+arc's own §12 re-runs it after the irreversible step instead of before it, which is the risk that was
+accepted. Whether it has been run is [`owed.md`](../testing/owed.md)'s to say, not this entry's.

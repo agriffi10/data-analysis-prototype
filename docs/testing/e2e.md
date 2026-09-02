@@ -27,7 +27,7 @@ looks right" is never one. Record the outcome in a dated session file (§5).
 
 | Gate | How |
 |---|---|
-| `main` is green, and you know the deployed sha | `gh run list --branch main --limit 5`, then `git rev-parse HEAD`. A red **Deploy App** means you are testing something that is not there. |
+| `main` is green, and you know the deployed sha | `gh run list --branch main --limit 5`, then `git rev-parse HEAD`. A red **Deploy SPA image** or **Publish Config** means you are testing something that is not there. |
 | You are signed in, and you know as whom | Every result below is meaningless without the username it was observed under. |
 | Feature flags are all on | `config/feature-flags.json` → `environments.prod` is `{}`. A surface that is *absent* under a flag reads exactly like a broken one. |
 
@@ -236,7 +236,7 @@ username becomes the S3 prefix, the principal tag **and** the Glue database name
 
 | Do | Expect |
 |---|---|
-| Sign in through the Hosted UI | Lands on `/files`. Managed Login v2 branding. |
+| Sign in through the Hosted UI | Lands on **`$APP_URL`**`/files`, Managed Login v2 branding. A `redirect_mismatch` page instead means `appUrl` and the app client's `callback_urls` disagree — that is the distinguishing symptom, not a blank page. In the network panel, the `POST` to `https://$HOSTED_UI/oauth2/token` returned **200**: the code exchange is a `fetch`, which is what `connect-src` governs. |
 | Reload | Still signed in — the session survives a refresh. |
 | Sign out, then open `/query` directly | Redirected to sign-in; after signing in you land on **`/query`**, not `/files` (the return path). |
 | Sign in again | The topbar carries every tab whose flag is on. |
@@ -905,29 +905,6 @@ whole app actually looks right.
    place that last number is real. §4.13 carries the rule; the coding side is
    `apps/portal/info/best-practices/accessibility/accessibility.md` → *Target size in this app*.
 
-### The container platform — what a signed-in session CANNOT reach
-
-`portal.dataquarry.app` is a **placeholder** and no user is pointed at it: the portal you sign in to
-is still the CloudFront one. There is nothing here to click.
-
-Two things are worth a glance whenever this guide is run, because both are invisible until a rollback
-or a ported route needs them, and both are cheap:
-
-- `curl -s https://api.dataquarry.app/healthz` returns `{"status": "ok", "version": "<sha>"}`. The sha
-  is the last commit that changed the function **or any layer it packages** — so it is usually HEAD,
-  and is older only when the deploy genuinely skipped the function. Resolve it with
-  `git log -1 --format=%h -- lambdas/api/ lambdas/control-plane-common/`, never by grepping
-  `lambdas/api/` alone: on 2026-09-01 healthz reported HEAD because that commit changed
-  `cpcommon/config.py`, while `lambdas/api/` alone pointed four commits back. Reading it either way
-  round — as necessarily HEAD, or as necessarily the api-only sha — makes a healthy API look broken.
-- `curl -sSI $CLOUDFRONT_URL | grep -io 'connect-src[^;]*'` still names `https://api.dataquarry.app`.
-  If it does not, a ported feature will fail in the browser and nowhere else.
-
-The platform's own verification — the no-NAT pull, the redirect, target health — is **§B of
-`arc-b-api-container-e2e.md`**, discharged 2026-08-26 and recorded in `owed.md`.
-
----
-
 ### 4.17 Give feedback (SPEC-211)
 
 Write-only: there is no read surface, so **the only way to see whether a submission landed is the
@@ -956,6 +933,89 @@ aws s3 cp "s3://$ADMIN_BUCKET/feedback/$(date -u +%Y/%m/%d).json" - | python3 -m
 Expect one object for today, `version` 1, and your submission in `entries` with the username
 taken from your token, an `eventId`, and the `route` you were on. Submit twice more and confirm
 all three are present, in order — the append preserves what is there.
+
+### 4.18 The front door, and the browser's network surface (SPEC-192 → 202)
+
+**Folded in when Arc B closed** (2026-09-02, from `arc-b-api-container-e2e.md`, which is deleted —
+its per-spec sections and their dated results are in git history and in [`sessions.md`](sessions.md)).
+`portal.dataquarry.app` is a container on Fargate and **the only front door**; the CloudFront
+distribution and the Identity Pool are destroyed. Run this section on any change to the API, the
+image, the CSP, the origins or the credential path — none of it is observable offline.
+
+**The two cheap CLI checks, worth a glance on every run.**
+
+- `curl -s https://api.dataquarry.app/healthz` returns `{"status": "ok", "version": "<sha>"}`. The sha
+  is the last commit that changed the function **or any layer it packages** — so it is usually HEAD,
+  and is older only when the deploy genuinely skipped the function. Resolve it with
+  `git log -1 --format=%h -- lambdas/api/ lambdas/control-plane-common/`, never by grepping
+  `lambdas/api/` alone: on 2026-09-01 healthz reported HEAD because that commit changed
+  `cpcommon/config.py`, while `lambdas/api/` alone pointed four commits back. Reading it either way
+  round — as necessarily HEAD, or as necessarily the api-only sha — makes a healthy API look broken.
+- `curl -sSI "$APP_URL"` carries the whole header set: `Content-Security-Policy` (never
+  `-Report-Only`), HSTS `max-age=31536000; includeSubDomains` (**no** `preload`), `X-Frame-Options:
+  DENY`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, COOP, CORP, and
+  `Server: nginx` — the last three are the container's three deliberate divergences from the
+  distribution it replaced. `connect-src` must name `'self'`, `cognito-idp`, **the Hosted UI host**,
+  both S3 buckets and `https://api.dataquarry.app`, and must **not** name `cognito-identity.`,
+  `athena.`, `glue.` or `sqs.`. A header *name* is not evidence a policy is enforced — that is the
+  next check.
+
+**The CSP is enforcing, proved by a positive violation and a negative control.** Paste into the
+console on `$APP_URL`:
+
+```js
+window.__csp=[];addEventListener('securitypolicyviolation',e=>window.__csp.push(
+  {d:e.effectiveDirective,u:e.blockedURI,disp:e.disposition}));
+fetch('https://athena.us-east-1.amazonaws.com',{mode:'no-cors'}).catch(()=>{});
+fetch('/config.json').then(r=>console.log('control',r.status));   // must be 200 in the SAME run
+setTimeout(()=>console.log(window.__csp),500);
+```
+
+**Expect** one violation with `effectiveDirective: "connect-src"` and `disposition: "enforce"`, and
+the control returning **200**. Without the control, a blocked request and a broken network are the
+same observation. **The method matters and was wrong once:** CDP/console evaluation is exempt from
+`script-src`, **not** from `connect-src` — the older "inject a same-origin `<script>`" recipe is
+unsatisfiable under `script-src 'self'` and its failure reads as a broken snippet rather than a
+finding.
+
+**The load-bearing negative: the browser makes no AWS call other than presigned S3 bytes.** Record a
+window that includes a file listing, an upload, a download, a query and **one enqueue** (an `sqs.`
+row counted without an enqueue in the window is vacuous), then filter the network panel by host:
+
+| Host | Expect |
+|---|---|
+| `$API_ORIGIN` | many |
+| `$USER_BUCKET.s3.$REGION.amazonaws.com` | the presigned bytes, and only those |
+| `cognito-idp.$REGION.amazonaws.com`, `$HOSTED_UI` | any — sign-in and refresh are not failures |
+| `athena.`, `glue.`, `sqs.`, `cognito-identity.` | **0** each |
+| `amazonaws.com -cognito-idp.$REGION.amazonaws.com -$USER_BUCKET.s3.$REGION.amazonaws.com -$SHARED_BUCKET.s3.$REGION.amazonaws.com` | **0** — the catch-all, given literally because it is the only row that can catch a host nobody listed |
+
+Count **in the page** (wrap `fetch` and `XMLHttpRequest`), not from the extension's network reader,
+which has been observed to see 1 of 13 requests — every zero-count check passes vacuously against a
+reader that drops requests.
+
+**Each S3 request must be presigned, not header-signed** — a header-signed request is the browser
+holding credentials, and at the host level the two are identical. Expect the signature in the
+**query** (`X-Amz-Algorithm=AWS4-HMAC-SHA256`, `X-Amz-Credential`, `X-Amz-Date`, `X-Amz-Expires`,
+`X-Amz-SignedHeaders`, `X-Amz-Security-Token`, `X-Amz-Signature` — SigV4 is pinned in code) and
+**no** `Authorization` and no `x-amz-security-token` **header**. Record the family you saw rather
+than trusting this paragraph: it has been wrong in both directions.
+
+**A presigned URL is a bearer token, so it must appear in no log.** Sweep the day's
+`logs/service=api/` for all six of `X-Amz-Signature`, `X-Amz-Credential`, `X-Amz-Security-Token`,
+`AWSAccessKeyId`, `x-amz-security-token`, `Signature=` — all six, always, because a sweep naming
+only the family currently deployed goes unfailable the day a different tree changes. **Zero needs
+its positive control**: the window must hold real mints, evidenced by `key_length` /
+`presign_expires_in` records, or zero means the window was empty. And a **hit is not automatically a
+leak** — `error.stack` carries source lines, and `botocore/auth.py` contains all six as literals, so
+read the record: a leak carries a signature *value*, a traceback carries the parameter *name*.
+
+**What a signed-in session cannot settle here** — the platform's own verification (the no-NAT pull
+read beside a route table, the redirect, target health), the container under real concurrency, and
+anything about `/config.json` that the container renders rather than the browser reads. Those are
+[`owed.md`](owed.md)'s, and the platform half was discharged 2026-08-26.
+
+---
 
 ## 5. Cleanup and write-up
 
