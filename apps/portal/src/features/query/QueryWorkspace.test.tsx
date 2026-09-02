@@ -1,43 +1,52 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {fireEvent, render, screen, waitFor, within} from '@testing-library/react';
-import {MemoryRouter, useLocation} from 'react-router';
-import {createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
+import {render, screen, waitFor, within} from '@testing-library/react';
+import {DEFAULT_RESULTS_PAGE_SIZE} from './query.constants';
+import {
+  editor,
+  fail,
+  installWorkspaceMocks,
+  mockAppend,
+  mockCopyObject,
+  mockDeleteSaved,
+  mockEnqueueRefresh,
+  mockEnqueueShare,
+  mockGetHistory,
+  mockGetResults,
+  mockListSaved,
+  mockReadCache,
+  mockReadSaved,
+  mockRunQuery,
+  mockRunToCompletion,
+  mockWriteSaved,
+  ok,
+  openTableMenu,
+  queueRuns,
+  renderWorkspace,
+  resetViewport,
+  runScriptSingle,
+  runScriptTabs,
+  savedFile,
+  savedListing,
+  seedSingle,
+  seedTabs,
+  statusMap,
+  succeeded
+} from '../../test/queryWorkspaceSupport';
+import {MemoryRouter} from 'react-router';
+import {createTestQueryClient} from '../../test/renderWithProviders';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
-import {authValue, authenticated} from '../../test/authFixtures';
-import {NavRailProvider} from '../../components/NavRailProvider';
-import {useNavRailContent} from '../../components/navRailContext';
-import {
-  getQueryResults,
-  getQueryStatus,
-  getTableDdl,
-  runQuery,
-  runStatementToCompletion,
-  stopQuery
-} from '../catalog/athena.service';
+import {authValue} from '../../test/authFixtures';
 import {getDatabase, listTables} from '../catalog/glue.service';
-import {appendQueryHistory, getQueryHistory, updateQueryHistoryEntry} from './queryHistory.service';
+import {runQuery} from '../catalog/athena.service';
+import {getQueryHistory} from './queryHistory.service';
 import {
-  deleteSavedQuery,
   ensureSavedQueriesFolder,
   listSavedQueries,
-  readSavedQuery,
   savedQueryKey,
-  savedQueryName,
-  writeSavedQuery
+  savedQueryName
 } from '../saved-queries/savedQueries.service';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
-import {copyObject, listFiles} from '../file-browser/fileBrowser.service';
-import {enqueueTableRefresh} from '../table-builder/tableBuild.service';
-import {enqueueTableShare} from '../table-share/tableShare.service';
 import {QueryWorkspace} from './QueryWorkspace';
-import {
-  DEFAULT_RESULTS_PAGE_SIZE,
-  EDITOR_SPLIT_DIVIDER_HEIGHT,
-  MIN_EDITOR_HEIGHT,
-  MIN_RESULTS_HEIGHT,
-  QUERY_EDITOR_SPLIT_STORAGE_PREFIX,
-  QUERY_TABS_STORAGE_PREFIX
-} from './query.constants';
 import {ROUTE_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import {ToastProvider} from '../../components/ToastProvider';
 import {AuthContext} from '../auth/authContext';
@@ -45,58 +54,14 @@ import {queryKeys} from './queryKeys';
 import {savedQueryKeys} from '../saved-queries/savedQueryKeys';
 import {catalogKeys} from '../catalog/catalogKeys';
 import {connectionKeys} from '../connections/connectionKeys';
-import type {QueryTabsState} from './query.types';
-import type {QueryState} from '../catalog/catalog.types';
 import type {ReactElement} from 'react';
 
-// ─── from QueryWorkspace.test.tsx ───
-// Monaco's re-measure after a pane resize: hoisted so the mock factory below and
-// the cases that assert on it share one spy.
-const monacoLayout = vi.hoisted(() => vi.fn());
-
-vi.mock('./SqlEditor', async () => {
-  const {forwardRef, useImperativeHandle, useRef} = await import('react');
-  type MockProps = {
-    value: string;
-    onChange: (v: string) => void;
-    onRun?: () => void;
-    onRunScriptSingle?: () => void;
-    onRunScriptTabs?: () => void;
-  };
-  return {
-    SqlEditor: forwardRef<import('./SqlEditor').SqlEditorHandle, MockProps>(function MockSqlEditor(
-      {value, onChange, onRun, onRunScriptSingle, onRunScriptTabs},
-      ref
-    ) {
-      const taRef = useRef<HTMLTextAreaElement>(null);
-      useImperativeHandle(ref, () => ({
-        focus: () => taRef.current?.focus(),
-        layout: monacoLayout,
-        getSelectionRange: () => {
-          const ta = taRef.current;
-          if (!ta || ta.selectionStart === ta.selectionEnd) return null;
-          return {start: ta.selectionStart, end: ta.selectionEnd};
-        },
-        getCursorOffset: () => taRef.current?.selectionStart ?? 0
-      }));
-      return (
-        <>
-          <textarea
-            ref={taRef}
-            aria-label="SQL editor"
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-          />
-          {/* Named in SPEC-078's vocabulary. Present only when the prop is wired, so
-              an unwired scope is an absent button rather than a dead one. */}
-          {onRun && <button onClick={onRun}>editor: Run Statement</button>}
-          {onRunScriptSingle && <button onClick={onRunScriptSingle}>editor: Run Script → single result</button>}
-          {onRunScriptTabs && <button onClick={onRunScriptTabs}>editor: Run Script → tab per statement</button>}
-        </>
-      );
-    })
-  };
-});
+// Integration style (react.md §21): render the REAL QueryWorkspace tree — real hooks and real
+// child components — mocking ONLY the AWS service boundary; the pure helpers stay real via
+// importOriginal. The editor stub, the fixtures and the render live in
+// `src/test/queryWorkspaceSupport.tsx`; the divider and the below-`tablet` surface have suites
+// of their own beside this one.
+vi.mock('./SqlEditor', () => import('../../test/sqlEditorStub'));
 
 // ── AWS service boundary (the only real seam) ────────────────────────────────
 vi.mock('../catalog/athena.service', async (importOriginal) => ({
@@ -155,187 +120,8 @@ vi.mock('../table-builder/tableBuild.service', async (importOriginal) => ({
 }));
 
 describe('QueryWorkspace', () => {
-  // Integration style (react.md §21): render the REAL QueryWorkspace tree — real
-  // hooks (useQueryTabs/useConnections/useSchema/useQueryExecution/useQueryResults/
-  // useQueryHistory/useSavedQueries/useResultsPageSize/useResultRowCount/…) and real
-  // child components (SchemaBrowser/DatabaseNode/TableActionsMenu/QueryTabStrip/
-  // QueryStatusBar/QueryResultsTable/SaveResultsDialog/DestinationPicker/dialogs/
-  // drawers) — mocking ONLY the AWS service boundary. Pure helpers in
-  // query.service (parseS3Url/isTerminalState) and query.sql stay real via
-  // importActual so the real hooks and split/resolve logic behave normally.
-
-  // The Monaco editor is heavy/global (its own SqlEditor.test covers it) — stub the
-  // lazy wrapper with a textarea that still drives value/onChange and forwards the
-  // SPEC-078 selection handle so statement-resolution tests can position a cursor.
-  // This is the sanctioned §21 heavy-child exception: Monaco needs a real DOM editor
-  // and workers, which jsdom has neither of.
-  //
-  // SPEC-150 FR-010 widened its surface. It used to type only `{value, onChange}`, so
-  // the three SPEC-078 run props were silently discarded and deleting one at the call
-  // site changed nothing any test could see. It now accepts them and exposes each as a
-  // button, which keeps the stub honest about the contract it stands in for — the
-  // keybindings themselves stay SqlEditor.test's subject, not this file's.
-
-  // copyObject = Save-results copy; listFiles = the SaveResultsDialog's real
-  // DestinationPicker folder listing.
-
-  const mockRunQuery = vi.mocked(runQuery);
-  const mockStopQuery = vi.mocked(stopQuery);
-  const mockGetTableDdl = vi.mocked(getTableDdl);
-  const mockRunToCompletion = vi.mocked(runStatementToCompletion);
-  const mockGetStatus = vi.mocked(getQueryStatus);
-  const mockGetResults = vi.mocked(getQueryResults);
-  const mockListTables = vi.mocked(listTables);
-  const mockGetHistory = vi.mocked(getQueryHistory);
-  const mockAppend = vi.mocked(appendQueryHistory);
-  const mockUpdate = vi.mocked(updateQueryHistoryEntry);
-  const mockListSaved = vi.mocked(listSavedQueries);
-  const mockReadSaved = vi.mocked(readSavedQuery);
-  const mockWriteSaved = vi.mocked(writeSavedQuery);
-  const mockDeleteSaved = vi.mocked(deleteSavedQuery);
-  const mockReadCache = vi.mocked(readSharedConnectionsCache);
-  const mockCopyObject = vi.mocked(copyObject);
-  const mockListFiles = vi.mocked(listFiles);
-  const mockEnqueueRefresh = vi.mocked(enqueueTableRefresh);
-  const mockEnqueueShare = vi.mocked(enqueueTableShare);
-
-  // SaveResultsDialog and the space resolver read these at render/module time. Still load-bearing:
-  // removing the user-space stub fails 18 of the tests below.
-  vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-bucket');
-  vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-bucket');
-
-  const ok = <T,>(data: T) => ({success: true as const, data});
-  const fail = (message: string, code?: string) => ({
-    success: false as const,
-    error: {message, ...(code ? {code} : {})}
-  });
-
-  // ── Builders ────────────────────────────────────────────────────────────────
-  /** One `.sql` object in a space's `saved_queries/` folder (SPEC-173). */
-  const savedFile = (
-    name: string,
-    over: {spaceId?: string; bucket?: string; size?: number; updatedAt?: string} = {}
-  ) => ({
-    spaceId: over.spaceId ?? 'personal',
-    bucket: over.bucket ?? 'user-bucket',
-    key: `alice/saved_queries/${name}.sql`,
-    name,
-    updatedAt: over.updatedAt ?? '2026-07-01T10:00:00.000Z',
-    size: over.size ?? 24
-  });
-  const savedListing = (...names: string[]) => ok({queries: names.map((n) => savedFile(n)), isTruncated: false});
-  const salesTable = {name: 'sales_2026', location: 's3://b/alice/sales/', columns: [{name: 'region', type: 'string'}]};
-  const foreignTable = {name: 'foreign', location: 's3://b/bob/x/', columns: []};
-  const viewObj = {name: 'revenue_view', tableType: 'VIRTUAL_VIEW', columns: []};
-
-  /** Per-execution status overrides consulted by the getQueryStatus mock (live). */
-  let statusMap: Record<string, {state?: QueryState; stateChangeReason?: string}> = {};
-  const succeeded = (id: string, over: {state?: QueryState; stateChangeReason?: string} = {}) => ({
-    queryExecutionId: id,
-    state: 'SUCCEEDED' as QueryState,
-    dataScannedBytes: 2048,
-    engineExecutionTimeMillis: 800,
-    outputLocation: `s3://user-bucket/alice/athenaresults/${id}.csv`,
-    ...over
-  });
-
-  const rowsPage = {
-    columns: [{name: 'region', type: 'string'}],
-    rows: [['us-east'], ['eu-west']],
-    nextToken: undefined
-  };
-
-  function seedTabs(state: QueryTabsState) {
-    sessionStorage.setItem(`${QUERY_TABS_STORAGE_PREFIX}alice`, JSON.stringify(state));
-  }
-  function seedSingle(sql: string) {
-    seedTabs({version: 1, tabs: [{id: 'a', label: 'Query 1', sql}], activeTabId: 'a', nextQueryNumber: 2});
-  }
-
-  /** runQuery returns a distinct execution id per statement in a batch. */
-  function queueRuns(...ids: string[]) {
-    mockRunQuery.mockReset();
-    for (const id of ids) mockRunQuery.mockResolvedValueOnce(ok({queryExecutionId: id}));
-  }
-
-  /** Renders whatever the page registered for the mobile nav drawer (SPEC-100 FR-005). */
-  function NavRailProbe() {
-    return <div aria-label="mobile nav rail">{useNavRailContent()}</div>;
-  }
-
-  /** A probe that surfaces the router location so navigation is observable without
-   *  mocking react-router (everything stays real). */
-  function LocationProbe() {
-    const loc = useLocation();
-    return <span aria-label="probe-location">{`${loc.pathname}${loc.search}`}</span>;
-  }
-
-  function renderWorkspace(route?: string, options: {queryClient?: QueryClient} = {}) {
-    return renderWithProviders(
-      <>
-        <QueryWorkspace />
-        <LocationProbe />
-      </>,
-      {auth: authenticated('alice'), route, ...options}
-    );
-  }
-
-  const editor = () => screen.getByLabelText('SQL editor') as HTMLTextAreaElement;
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    sessionStorage.clear();
-    localStorage.clear();
-    statusMap = {};
-
-    mockReadCache.mockResolvedValue(ok({version: 1, connections: []}));
-    mockGetDatabase();
-    mockListTables.mockResolvedValue(ok([salesTable, foreignTable, viewObj]));
-    mockGetHistory.mockResolvedValue(ok({version: 1, entries: []}));
-    mockListSaved.mockResolvedValue(ok({queries: [], isTruncated: false}));
-    mockAppend.mockResolvedValue(ok({version: 1, entries: []}));
-    mockUpdate.mockResolvedValue(ok({version: 1, entries: []}));
-    mockWriteSaved.mockImplementation(async ({space, name, sql}) =>
-      ok(savedFile(name, {spaceId: space.id, bucket: space.bucket, size: sql.length}))
-    );
-    mockReadSaved.mockResolvedValue(ok('SELECT 1;'));
-    mockDeleteSaved.mockResolvedValue(ok(undefined));
-    vi.mocked(ensureSavedQueriesFolder).mockResolvedValue(ok(undefined));
-    mockRunQuery.mockResolvedValue(ok({queryExecutionId: 'q-1'}));
-    mockStopQuery.mockResolvedValue(ok(undefined));
-    mockGetStatus.mockImplementation(async (id: string) => ok(succeeded(id, statusMap[id] ?? {})));
-    mockGetResults.mockResolvedValue(ok(rowsPage));
-    mockRunToCompletion.mockResolvedValue(ok(succeeded('q-run')));
-    mockGetTableDdl.mockResolvedValue(ok('CREATE EXTERNAL TABLE ...'));
-    mockCopyObject.mockResolvedValue(ok({destKey: 'alice/out.csv'}));
-    mockListFiles.mockResolvedValue(ok({files: [], folders: [], isTruncated: false}));
-
-    window.innerWidth = 1024;
-  });
-
-  afterEach(() => {
-    window.innerWidth = 1024;
-  });
-
-  // getDatabase varies rarely — a helper so tests can override.
-  function mockGetDatabase() {
-    vi.mocked(getDatabase).mockImplementation(async (name: string) => ok({name}));
-  }
-
-  // Open the "More run options" split dropdown and pick a whole-script scope.
-  async function runScriptSingle(user: ReturnType<typeof renderWorkspace>['user']) {
-    await user.click(screen.getByRole('button', {name: 'More run options'}));
-    await user.click(await screen.findByRole('menuitem', {name: 'Run Query Tab'}));
-  }
-  async function runScriptTabs(user: ReturnType<typeof renderWorkspace>['user']) {
-    await user.click(screen.getByRole('button', {name: 'More run options'}));
-    await user.click(await screen.findByRole('menuitem', {name: 'Run Multiple Queries'}));
-  }
-
-  // Open a rail table's kebab menu (the rail auto-expands the personal db).
-  async function openTableMenu(user: ReturnType<typeof renderWorkspace>['user'], table: string) {
-    await user.click(await screen.findByRole('button', {name: `Options for ${table}`}));
-  }
+  beforeEach(installWorkspaceMocks);
+  afterEach(resetViewport);
 
   describe('QueryWorkspace', () => {
     it('renders the real schema rail + tabs and runs the active statement to a result set (SPEC-077 shape)', async () => {
@@ -1107,6 +893,7 @@ describe('QueryWorkspace', () => {
   });
 
   // ── SPEC-145: refresh table ─────────────────────────────────────────────────
+
   describe('QueryWorkspace — refresh table (SPEC-145)', () => {
     const refreshDialog = () => screen.getByRole('alertdialog', {name: /confirm refresh table/i});
 
@@ -1154,145 +941,7 @@ describe('QueryWorkspace', () => {
   });
 
   // ── SPEC-100: responsive workspace ──────────────────────────────────────────
-  describe('QueryWorkspace responsive (SPEC-100)', () => {
-    /** Renders inside a NavRailProvider so the mobile drawer's contextual slot is observable. */
-    function renderMobileWorkspace() {
-      window.innerWidth = 390;
-      return renderWithProviders(
-        <NavRailProvider>
-          <QueryWorkspace />
-          <NavRailProbe />
-          <LocationProbe />
-        </NavRailProvider>,
-        {auth: authenticated('alice')}
-      );
-    }
 
-    it('pares the workspace to a browse-first surface below tablet — no editor, toolbar or tab strip', async () => {
-      mockListSaved.mockResolvedValue(savedListing('Revenue'));
-      renderMobileWorkspace();
-
-      // Saved is the default surface (FR-004).
-      expect(await screen.findByRole('button', {name: 'Run saved query Revenue'})).toBeInTheDocument();
-      expect(screen.getByRole('button', {name: 'Saved'})).toHaveAttribute('aria-pressed', 'true');
-
-      expect(screen.queryByLabelText('SQL editor')).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', {name: 'Run statement'})).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', {name: 'Clear query'})).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', {name: 'Create view'})).not.toBeInTheDocument();
-      expect(screen.queryByRole('tablist', {name: 'Query tabs'})).not.toBeInTheDocument();
-    });
-
-    it('moves the schema rail off-canvas below tablet, and keeps it inline above', async () => {
-      const {unmount} = renderMobileWorkspace();
-      // Not in the inline layout…
-      expect(screen.queryByRole('complementary', {name: 'Schema browser'})).not.toBeInTheDocument();
-      // …but the same tree is handed to the mobile nav drawer's contextual slot.
-      const rail = await screen.findByLabelText('mobile nav rail');
-      expect(await within(rail).findByRole('button', {name: 'Collapse alice'})).toBeInTheDocument();
-      expect(await within(rail).findByText('sales_2026')).toBeInTheDocument();
-      unmount();
-
-      window.innerWidth = 1024;
-      renderWorkspace();
-      expect(await screen.findByRole('complementary', {name: 'Schema browser'})).toBeInTheDocument();
-    });
-
-    it('runs a saved query from a card and shows row cards with a pager', async () => {
-      mockListSaved.mockResolvedValue(savedListing('Revenue'));
-      // The card carries no SQL — the file is read when the card is CHOSEN (FR-006).
-      mockReadSaved.mockResolvedValue(ok('SELECT region FROM alice.sales'));
-      const {user} = renderMobileWorkspace();
-
-      await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
-
-      // The shared run path, not a mobile-only one.
-      await waitFor(() =>
-        expect(mockRunQuery).toHaveBeenCalledWith({sql: 'SELECT region FROM alice.sales', username: 'alice'})
-      );
-      expect(await screen.findByRole('heading', {name: 'Revenue'})).toBeInTheDocument();
-      // One card per row of the page, read-only SQL, and a fixed pager.
-      expect(await screen.findByLabelText('Row 1')).toBeInTheDocument();
-      expect(within(screen.getByLabelText('Row 1')).getByText('us-east')).toBeInTheDocument();
-      expect(screen.queryByLabelText('SQL editor')).not.toBeInTheDocument();
-      expect(screen.getByRole('button', {name: 'Prev'})).toBeDisabled();
-
-      // Back returns to the browse-first home.
-      await user.click(screen.getByRole('button', {name: 'Back to queries'}));
-      expect(await screen.findByRole('button', {name: 'Run saved query Revenue'})).toBeInTheDocument();
-    });
-
-    it('never shows one query’s results under another query’s name', async () => {
-      mockListSaved.mockResolvedValue(savedListing('Revenue', 'Costs'));
-      const {user} = renderMobileWorkspace();
-
-      await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
-      expect(await screen.findByLabelText('Row 1')).toBeInTheDocument();
-      await user.click(screen.getByRole('button', {name: 'Back to queries'}));
-
-      // The second run never reaches Athena, so no run is installed on the tab.
-      mockRunQuery.mockResolvedValueOnce(fail('Rate exceeded', 'ThrottlingException'));
-      await user.click(await screen.findByRole('button', {name: 'Run saved query Costs'}));
-
-      expect(await screen.findByRole('heading', {name: 'Costs'})).toBeInTheDocument();
-      expect(await screen.findByText('Query failed.')).toBeInTheDocument();
-      // Costs' failure must not be dressed in Revenue's succeeded status or rows.
-      expect(screen.queryByLabelText('Row 1')).not.toBeInTheDocument();
-      expect(screen.queryByText('Succeeded')).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', {name: 'Prev'})).not.toBeInTheDocument();
-    });
-
-    it('runs a table’s data from the drawer into the mobile results view', async () => {
-      const {user} = renderMobileWorkspace();
-      const rail = await screen.findByLabelText('mobile nav rail');
-
-      await user.click(await within(rail).findByRole('button', {name: 'Options for sales_2026'}));
-      await user.click(await screen.findByRole('menuitem', {name: 'View data'}));
-
-      // On a phone there is no editor tab to open into — the run has to land
-      // somewhere the user can see it.
-      expect(await screen.findByRole('heading', {name: 'sales_2026'})).toBeInTheDocument();
-      expect(await screen.findByLabelText('Row 1')).toBeInTheDocument();
-      expect(mockRunQuery).toHaveBeenCalledWith({sql: 'SELECT * FROM alice.sales_2026', username: 'alice'});
-    });
-
-    it('hands a tab back to the editor cleanly when the viewport grows past tablet', async () => {
-      seedSingle('SELECT my_unsaved_draft');
-      mockListSaved.mockResolvedValue(savedListing('Revenue'));
-      const {user, rerender} = renderMobileWorkspace();
-
-      await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
-      expect(await screen.findByLabelText('Row 1')).toBeInTheDocument();
-
-      // Rotate/resize past the breakpoint: `useBreakpoint` re-reads the width on
-      // the next render, so re-rendering the same tree crosses the tier.
-      window.innerWidth = 1400;
-      rerender(
-        <NavRailProvider>
-          <QueryWorkspace />
-          <NavRailProbe />
-        </NavRailProvider>
-      );
-
-      // The editor holds the draft, so it must not wear the mobile run's results —
-      // nor claim the run returned nothing. The run itself is still in history.
-      expect(await screen.findByLabelText('SQL editor')).toHaveValue('SELECT my_unsaved_draft');
-      expect(screen.getByText('Run a query to see results.')).toBeInTheDocument();
-      expect(screen.queryByText('The run finished without returning rows.')).not.toBeInTheDocument();
-      expect(screen.queryByText('us-east')).not.toBeInTheDocument();
-    });
-  });
-
-  // ── SPEC-154 FR-001: table share, driven end to end ─────────────────────────
-  //
-  // `enqueueTableShare` was mocked in this file and never asserted, and the flow's three
-  // fragments each tested a stub: `TableShareDialog.test.tsx` asserted a `vi.fn()` prop,
-  // `useTableShare.test.ts` was a bare `renderHook`, `DatabaseNode.test.tsx` asserted
-  // `onShareTable` was called. Every half was green and the WIRE between them was untested — a
-  // dialog that never mounts, a wrong `source`, or a dropped `onSubmit` all passed.
-  //
-  // Structured on the SPEC-145 refresh block above, deliberately: menu → dialog → submit →
-  // service → toast, plus the failure path and the control's absence where it must not appear.
   describe('QueryWorkspace — share table (SPEC-093)', () => {
     async function openShareDialog(user: ReturnType<typeof renderWorkspace>['user'], table = 'sales_2026') {
       await openTableMenu(user, table);
@@ -1340,6 +989,7 @@ describe('QueryWorkspace', () => {
   // `rowsPage` hard-codes `nextToken: undefined`, so the pager was permanently disabled and
   // every path through it was unreachable. Coverage was hook state plus a prop spy, which is
   // exactly the split this spec exists to close.
+
   describe('QueryWorkspace — results pagination (SPEC-087)', () => {
     const page = (rows: string[][], nextToken?: string) => ({
       columns: [{name: 'region', type: 'string'}],
@@ -1388,6 +1038,7 @@ describe('QueryWorkspace', () => {
 
   // FR-005's neighbours: two settings that share the pagination seam — tested at hook level
   // and through a prop spy, never through a user path.
+
   describe('QueryWorkspace — result-view settings that survive a tab switch (SPEC-079/087)', () => {
     async function runOnce(user: ReturnType<typeof renderWorkspace>['user']) {
       await user.click(screen.getByRole('button', {name: 'Run statement'}));
@@ -1442,288 +1093,7 @@ describe('QueryWorkspace', () => {
       expect(regionWidth()).toBe(widened);
     });
   });
-
-  describe('QueryWorkspace — the editor/results divider', () => {
-    // jsdom lays nothing out, so the measured column would be 0 and every drag a
-    // divide by zero. `clientHeight` is read by one source file — the workspace's
-    // own column measurement — so spying the getter gives that one measurement a
-    // real value and leaves everything else alone. The editor pane's height is an
-    // INLINE style, not layout, so it stays observable.
-    const COLUMN = 1000;
-    let heights: ReturnType<typeof vi.spyOn>;
-
-    beforeEach(() => {
-      heights = vi.spyOn(Element.prototype, 'clientHeight', 'get').mockReturnValue(COLUMN);
-    });
-    afterEach(() => heights.mockRestore());
-
-    // `fireEvent` rather than `userEvent` for the pointer sequences, against §21's
-    // default: the drag's listeners live on the window, and the released-off-element
-    // case has to dispatch on the document, neither of which userEvent's pointer API
-    // can target. Every other interaction here is userEvent. The three drag tests
-    // already in this repo do the same.
-    const divider = () => screen.getByRole('separator', {name: 'Resize the editor and results'});
-    // The separator sits inside a 24px band with the two step buttons, because a
-    // focusable widget may not contain focusable descendants. The BAND is the
-    // column's flex child, so the panes are its siblings, not the separator's.
-    const band = () => divider().parentElement as HTMLElement;
-    const editorPane = () => band().previousElementSibling as HTMLElement;
-
-    async function renderReady() {
-      seedSingle('SELECT 1');
-      const rendered = renderWorkspace();
-      await screen.findByRole('button', {name: 'sales_2026'});
-      return rendered;
-    }
-
-    it('drags the split by the pointer DELTA from the gesture origin, and re-lays-out Monaco', async () => {
-      await renderReady();
-      expect(editorPane().style.height).toBe('500px');
-      expect(divider()).toHaveAttribute('aria-valuenow', '50');
-      // No text selection while dragging: the handler cancels the gesture's default.
-      expect(divider()).toHaveClass('select-none');
-      monacoLayout.mockClear();
-
-      // The grab point is deliberately NOT the pane height. They coincide only if
-      // the divider sits at the top of the viewport, which it never does — the
-      // header, tab strip and toolbar are above it — and a handler that read the
-      // pointer as an absolute position would agree with a delta handler at every
-      // grab point where they are equal.
-      // Grab the GRIP, not the band: the visible pill is what a user aims at, and
-      // it is a child of the separator, so the gesture arrives with a target that
-      // is not the element carrying the handler.
-      const grip = divider().firstElementChild as HTMLElement;
-      expect(fireEvent.pointerDown(grip, {clientY: 800})).toBe(false); // preventDefault'd
-      fireEvent.pointerMove(window, {clientY: 1000}); // +200 from the origin
-
-      expect(editorPane().style.height).toBe('700px');
-      expect(divider()).toHaveAttribute('aria-valuenow', '70');
-      expect(divider()).toHaveAttribute('aria-valuetext', 'Editor 70% of the column');
-      expect(monacoLayout).toHaveBeenCalledTimes(1);
-      fireEvent.pointerUp(window);
-    });
-
-    it('ends the drag on a release dispatched off the element, and persists what it ended on', async () => {
-      const {unmount} = await renderReady();
-
-      fireEvent.pointerDown(divider(), {clientY: 800});
-      fireEvent.pointerMove(window, {clientY: 1000});
-      // The listeners live on the window, so a release dispatched on the document
-      // still ends the gesture — the case a pointer released off-screen produces.
-      fireEvent.pointerUp(document);
-      fireEvent.pointerMove(window, {clientY: 1200});
-
-      expect(editorPane().style.height).toBe('700px');
-      // The failure a hook test cannot see is the workspace not reading it back.
-      unmount();
-      await renderReady();
-      expect(editorPane().style.height).toBe('700px');
-    });
-
-    it('persists a value the next mount will accept, even when the drag ran past a floor', async () => {
-      // The move handler clamps, and nothing rendered depends on it — `fraction`
-      // and `editorHeight` both re-clamp downstream. What depends on it is the
-      // value that reaches storage: an unclamped over-drag persists a negative
-      // number, `isFraction` rejects it on the next mount, and the user's split
-      // silently reverts to even.
-      const {unmount} = await renderReady();
-      fireEvent.pointerDown(divider(), {clientY: 800});
-      fireEvent.pointerMove(window, {clientY: -5000});
-      fireEvent.pointerUp(window);
-      expect(editorPane().style.height).toBe(`${MIN_EDITOR_HEIGHT}px`);
-
-      unmount();
-      await renderReady();
-      expect(editorPane().style.height).toBe(`${MIN_EDITOR_HEIGHT}px`);
-    });
-
-    it('stops at the editor floor and at the results floor', async () => {
-      await renderReady();
-
-      fireEvent.pointerDown(divider(), {clientY: 500});
-      fireEvent.pointerMove(window, {clientY: -5000});
-      expect(editorPane().style.height).toBe(`${MIN_EDITOR_HEIGHT}px`);
-
-      fireEvent.pointerMove(window, {clientY: 5000});
-      expect(editorPane().style.height).toBe(`${COLUMN - MIN_RESULTS_HEIGHT - EDITOR_SPLIT_DIVIDER_HEIGHT}px`);
-      fireEvent.pointerUp(window);
-    });
-
-    it('is an accessible separator, and the column is its three flex children', async () => {
-      await renderReady();
-
-      expect(divider()).toHaveAttribute('aria-orientation', 'horizontal');
-      expect(divider()).toHaveAttribute('tabindex', '0');
-      expect(divider()).toHaveAttribute('aria-valuemin', String(Math.round((MIN_EDITOR_HEIGHT / COLUMN) * 100)));
-      expect(divider()).toHaveAttribute(
-        'aria-valuemax',
-        String(Math.round(((COLUMN - MIN_RESULTS_HEIGHT - EDITOR_SPLIT_DIVIDER_HEIGHT) / COLUMN) * 100))
-      );
-      // jsdom computes no styles, so a visible ring is only assertable as the class.
-      expect(divider()).toHaveClass('focus-visible:ring-2');
-      expect(band().style.height).toBe(`${EDITOR_SPLIT_DIVIDER_HEIGHT}px`);
-
-      // The panes and the divider exactly fill the column because they are its
-      // only children and the results side takes the flex remainder. jsdom lays
-      // nothing out, so this is the structural half; the arithmetic half is the
-      // containment sweep over `clampEditorHeight`.
-      const column = band().parentElement as HTMLElement;
-      expect(column.children).toHaveLength(3);
-      expect(editorPane()).toHaveClass('flex-none');
-      expect(band()).toHaveClass('flex-none');
-      expect(band().nextElementSibling).toHaveClass('flex-1', 'min-h-0');
-    });
-
-    it('moves the split with the arrow keys, Home and End', async () => {
-      const {user} = await renderReady();
-      divider().focus();
-      expect(divider()).toHaveFocus();
-
-      await user.keyboard('{ArrowUp}');
-      expect(divider()).toHaveAttribute('aria-valuenow', '45');
-      await user.keyboard('{ArrowDown}{ArrowDown}');
-      expect(divider()).toHaveAttribute('aria-valuenow', '55');
-      await user.keyboard('{Home}');
-      expect(editorPane().style.height).toBe(`${MIN_EDITOR_HEIGHT}px`);
-      await user.keyboard('{End}');
-      expect(editorPane().style.height).toBe(`${COLUMN - MIN_RESULTS_HEIGHT - EDITOR_SPLIT_DIVIDER_HEIGHT}px`);
-    });
-
-    it('steps the split from a click, without dragging and without resetting', async () => {
-      // The pointer path that is not a drag. Without it the only way to choose a
-      // split with a pointer is to hold and move one, which is the thing some
-      // people cannot do — and the double-click reaches exactly one position.
-      const {user} = await renderReady();
-      const smaller = screen.getByRole('button', {name: 'Give the results more room'});
-      const larger = screen.getByRole('button', {name: 'Give the editor more room'});
-
-      await user.click(smaller);
-      expect(divider()).toHaveAttribute('aria-valuenow', '45');
-      await user.click(larger);
-      await user.click(larger);
-      expect(divider()).toHaveAttribute('aria-valuenow', '55');
-      expect(sessionStorage.getItem(`${QUERY_EDITOR_SPLIT_STORAGE_PREFIX}alice`)).toBe('0.55');
-
-      // Pressing a button must not start a drag. Held, not clicked: a click ends
-      // with a pointerup, which unbinds any drag the pointerdown began, so the
-      // move below could never see one and the assertion would pass regardless.
-      fireEvent.pointerDown(smaller, {clientY: 800});
-      fireEvent.pointerMove(window, {clientY: 2000});
-      expect(divider()).toHaveAttribute('aria-valuenow', '55');
-      fireEvent.pointerUp(window);
-      // …and two quick steps are two steps, not the band's reset-to-even.
-      await user.dblClick(larger);
-      expect(divider()).toHaveAttribute('aria-valuenow', '65');
-    });
-
-    it('grabbing the divider focuses it, so the keys are reachable from a pointer', async () => {
-      // The drag cancels the pointer-down default, which in a browser also
-      // cancels the focus a mousedown would have given — leaving the whole
-      // keyboard path unreachable for anyone who found the divider by dragging.
-      await renderReady();
-      expect(divider()).not.toHaveFocus();
-
-      fireEvent.pointerDown(divider(), {clientY: 800});
-      expect(divider()).toHaveFocus();
-      fireEvent.pointerUp(window);
-    });
-
-    it('drops the gesture when it is cancelled, and when the workspace unmounts', async () => {
-      const {unmount} = await renderReady();
-
-      // pointercancel fires INSTEAD of pointerup when the browser or OS takes the
-      // gesture over; an unbound move handler then resizes on every pointer move.
-      fireEvent.pointerDown(divider(), {clientY: 800});
-      fireEvent.pointerMove(window, {clientY: 900});
-      expect(editorPane().style.height).toBe('600px');
-      fireEvent.pointerCancel(window);
-      fireEvent.pointerMove(window, {clientY: 1200});
-      expect(editorPane().style.height).toBe('600px');
-
-      // And a release arriving after the tree is gone must not persist a split
-      // the user was still choosing.
-      fireEvent.pointerDown(divider(), {clientY: 800});
-      fireEvent.pointerMove(window, {clientY: 700});
-      unmount();
-      fireEvent.pointerUp(window);
-      expect(sessionStorage.getItem(`${QUERY_EDITOR_SPLIT_STORAGE_PREFIX}alice`)).toBe('0.6');
-    });
-
-    it('double-click resets to an even split, persists it, and leaves no drag running', async () => {
-      const {user} = await renderReady();
-      fireEvent.pointerDown(divider(), {clientY: 500});
-      fireEvent.pointerMove(window, {clientY: 700});
-      fireEvent.pointerUp(window);
-      expect(editorPane().style.height).toBe('700px');
-
-      await user.dblClick(divider());
-
-      expect(editorPane().style.height).toBe('500px');
-      expect(sessionStorage.getItem(`${QUERY_EDITOR_SPLIT_STORAGE_PREFIX}alice`)).toBe('0.5');
-      fireEvent.pointerMove(window, {clientY: 900});
-      expect(editorPane().style.height).toBe('500px');
-    });
-
-    it('replaces the layout presets rather than sitting beside them', async () => {
-      await renderReady();
-      // The toolbar really rendered — otherwise every absence below holds because
-      // there is no toolbar, not because the control was removed from one.
-      expect(screen.getByRole('button', {name: 'Clear query'})).toBeInTheDocument();
-      expect(screen.queryByRole('group', {name: 'Editor and results layout'})).not.toBeInTheDocument();
-      for (const name of [/split editor and results evenly/i, /grow the editor/i, /grow the results/i]) {
-        expect(screen.queryByRole('button', {name})).not.toBeInTheDocument();
-      }
-    });
-
-    it('measures the column when a narrow session widens past tablet', async () => {
-      // The column only exists above `tablet`, so a mount-only measurement finds
-      // no element and never runs again: the divider renders, announces a value,
-      // and moves nothing — the editor stuck at its floor with no way out.
-      mockListSaved.mockResolvedValue(savedListing('Revenue'));
-      window.innerWidth = 390;
-      const {rerender} = renderWithProviders(
-        <NavRailProvider>
-          <QueryWorkspace />
-        </NavRailProvider>,
-        {auth: authenticated('alice')}
-      );
-      await screen.findByRole('button', {name: 'Run saved query Revenue'});
-
-      window.innerWidth = 1400;
-      rerender(
-        <NavRailProvider>
-          <QueryWorkspace />
-        </NavRailProvider>
-      );
-
-      await screen.findByRole('separator', {name: 'Resize the editor and results'});
-      expect(editorPane().style.height).toBe('500px'); // measured, not the floor
-      fireEvent.pointerDown(divider(), {clientY: 800});
-      fireEvent.pointerMove(window, {clientY: 900});
-      fireEvent.pointerUp(window);
-      expect(editorPane().style.height).toBe('600px');
-      window.innerWidth = 1024;
-    });
-
-    it('renders no divider below tablet', async () => {
-      heights.mockRestore();
-      mockListSaved.mockResolvedValue(savedListing('Revenue'));
-      window.innerWidth = 390;
-      renderWithProviders(
-        <NavRailProvider>
-          <QueryWorkspace />
-        </NavRailProvider>,
-        {auth: authenticated('alice')}
-      );
-
-      await screen.findByRole('button', {name: 'Run saved query Revenue'});
-      expect(screen.queryByRole('separator', {name: 'Resize the editor and results'})).not.toBeInTheDocument();
-      window.innerWidth = 1024;
-    });
-  });
 });
-
-// ─── from QueryWorkspace.a11y.test.tsx ───
 
 describe('QueryWorkspace.a11y', () => {
   // Integration a11y (react.md §21): render the REAL workspace — real SchemaBrowser
