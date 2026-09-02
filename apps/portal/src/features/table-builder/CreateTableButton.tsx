@@ -29,6 +29,9 @@ type Props = {
  * The ONE case refused before submission is the space root, because that build succeeds:
  * see `createTableRefusal`. The control plane refuses it too — this is the explanation,
  * not the enforcement.
+ *
+ * @example
+ * <CreateTableButton spaceKind="personal" bucket={bucket} database="alice" prefix="alice/sales/" rootPrefix="alice/" />
  */
 export function CreateTableButton({spaceKind, bucket, database, prefix, rootPrefix}: Props) {
   const [open, setOpen] = useState(false);

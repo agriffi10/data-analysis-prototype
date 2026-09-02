@@ -526,7 +526,7 @@ describe('ConnectionsPage — transferring ownership (SPEC-208 FR-006)', () => {
     const {user} = renderPage();
 
     await user.click(within(await rowFor('owned')).getByRole('button', {name: 'Manage'}));
-    await user.click(await screen.findByRole('button', {name: 'Transfer ownership to bob'}));
+    await user.click(await screen.findByRole('button', {name: 'Make owner: bob'}));
     await user.click(screen.getByRole('button', {name: 'Transfer'}));
 
     await waitFor(() => expect(mockEnqueue).toHaveBeenCalledTimes(1));
@@ -538,7 +538,7 @@ describe('ConnectionsPage — transferring ownership (SPEC-208 FR-006)', () => {
     // watches — so the roles move when the fan-out says so, not when the click happens.
     const drawer = screen.getByRole('dialog', {name: 'Manage members'});
     expect(within(within(drawer).getByText('alice').closest('li')!).getByText('Owner')).toBeInTheDocument();
-    expect(within(drawer).getByRole('button', {name: 'Transfer ownership to bob'})).toBeInTheDocument();
+    expect(within(drawer).getByRole('button', {name: 'Make owner: bob'})).toBeInTheDocument();
   });
 
   it('renders our own wording on a failure, never the service’s', async () => {
@@ -550,7 +550,7 @@ describe('ConnectionsPage — transferring ownership (SPEC-208 FR-006)', () => {
     const {user} = renderPage();
 
     await user.click(within(await rowFor('owned')).getByRole('button', {name: 'Manage'}));
-    await user.click(await screen.findByRole('button', {name: 'Transfer ownership to bob'}));
+    await user.click(await screen.findByRole('button', {name: 'Make owner: bob'}));
     await user.click(screen.getByRole('button', {name: 'Transfer'}));
 
     const alert = await screen.findByRole('alert');

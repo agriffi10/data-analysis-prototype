@@ -21,6 +21,9 @@ type Props = {
  * a thin modal shell over the shared `DestinationPicker` (no behavior
  * change to move). Move forbids the items' current parent as a destination (a
  * no-op), so `allowCurrentParent` is left off.
+ *
+ * @example
+ * <MoveDialog bucket={bucket} items={selected} rootPrefix="alice/" currentPrefix="alice/docs/" destinations={destinations} onMove={move} onCancel={close} />
  */
 export function MoveDialog({
   bucket,

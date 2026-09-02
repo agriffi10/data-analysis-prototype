@@ -29,6 +29,9 @@ type Props = {
  * stays disabled until the name AND every declared key are valid; the server
  * re-validates authoritatively, so this is UX only. Composes the shared
  * Modal/Input/Button primitives.
+ *
+ * @example
+ * <CreateTableDialog folderName="sales" folderPath="alice/sales/" busy={create.isPending} onSubmit={submit} onCancel={close} />
  */
 export function CreateTableDialog({folderName, folderPath, busy = false, submitError, onSubmit, onCancel}: Props) {
   const [name, setName] = useState(() => suggestTableName(folderName));

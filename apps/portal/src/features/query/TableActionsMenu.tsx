@@ -20,6 +20,9 @@ type Props = {
  * the kebab (⋮) + popover, now composed from the shared `Menu` primitive
  * — behavior/a11y unchanged. Clicks stop propagation so opening the
  * menu never toggles the table row.
+ *
+ * @example
+ * <TableActionsMenu tableName="orders" items={[{label: 'Preview rows', onSelect: preview}]} />
  */
 export function TableActionsMenu({tableName, items}: Props) {
   const menuItems: MenuItem[] = items.flatMap((item) => {

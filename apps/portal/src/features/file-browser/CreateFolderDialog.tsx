@@ -12,6 +12,9 @@ type Props = {
  * Prompt for a new folder name with client-side validation (the
  * same rules the service enforces) before any request is issued. Chrome, focus and
  * Enter-to-submit come from FormDialog; Escape cancels via Modal.
+ *
+ * @example
+ * <CreateFolderDialog onCreate={(name) => createFolder(name)} onCancel={close} />
  */
 export function CreateFolderDialog({onCreate, onCancel}: Props) {
   const [name, setName] = useState('');

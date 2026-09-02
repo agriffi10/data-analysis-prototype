@@ -12,6 +12,11 @@ type Props = {
  * Right slide-over hosting the upload flow (dropzone + collision + errors). A thin
  * wrapper over the shared Drawer; the destination hint sits beside the title and
  * the body uses slightly larger spacing for the dropzone sections.
+ *
+ * @example
+ * <UploadDrawer open={uploadsOpen} onClose={closeUploads} destinationLabel="alice/docs/">
+ *   <UploadList />
+ * </UploadDrawer>
  */
 export function UploadDrawer({open, onClose, destinationLabel, children}: Props) {
   return (

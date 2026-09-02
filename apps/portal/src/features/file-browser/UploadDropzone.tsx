@@ -10,6 +10,9 @@ type Props = {
  * dropping any number of files enqueues them all onto the upload queue; per-file
  * progress, status, and cancel live in the in-drawer uploads list (UploadList), not here
  * (this is purely the "add files" surface). Upgrades the single-file zone.
+ *
+ * @example
+ * <UploadDropzone onFiles={(files) => enqueue(files)} disabled={!writable} />
  */
 export function UploadDropzone({onFiles, disabled}: Props) {
   const inputRef = useRef<HTMLInputElement>(null);

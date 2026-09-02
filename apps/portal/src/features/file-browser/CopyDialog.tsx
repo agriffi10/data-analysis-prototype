@@ -70,6 +70,9 @@ function SameFolderCopyDialog({prompt, itemCount}: {prompt: SameFolderPromptCont
  * allows the items' current parent as a destination (`allowCurrentParent`): that
  * triggers the same-folder auto-number flow, which replaces the picker
  * with an editable name field.
+ *
+ * @example
+ * <CopyDialog bucket={bucket} items={selected} rootPrefix="alice/" currentPrefix="alice/docs/" destinations={destinations} onCopy={copy} onCancel={close} />
  */
 export function CopyDialog({
   bucket,

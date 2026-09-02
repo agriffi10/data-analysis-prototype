@@ -70,8 +70,9 @@ export function MembersList({owner, members, onRemove, onTransfer, busy = false,
               size="sm"
               // Named for the same reason Remove is: the visible text repeats on every row, so
               // a screen-reader user hearing the list of controls would get N identical buttons
-              // with no way to tell which member each one hands the space to.
-              aria-label={`Transfer ownership to ${member.username}`}
+              // with no way to tell which member each one hands the space to. The name leads
+              // with the visible text so a voice-control user can say what they see.
+              aria-label={`Make owner: ${member.username}`}
               onClick={() => onTransfer(member.username)}
               disabled={busy}>
               Make owner

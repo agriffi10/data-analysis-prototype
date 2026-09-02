@@ -175,6 +175,9 @@ function UploadRow({item}: {item: UploadItem}) {
  * (UploadQueueProvider at the app shell), so it shows every upload of the session
  * and survives the drawer closing / connection switches. Renders nothing when the
  * queue is empty.
+ *
+ * @example
+ * <UploadList />
  */
 export function UploadList() {
   const {items, clearFinished} = useUploadQueue();

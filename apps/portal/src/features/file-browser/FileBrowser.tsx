@@ -712,6 +712,9 @@ function FileBrowserContent({
  * SelectionProvider lives here (above the content) so navigating to a new prefix
  * clears the selection, and so the content can consume
  * useSelection() as a descendant.
+ *
+ * @example
+ * <FileBrowser bucket={bucket} rootPrefix="alice/" rootLabel="My files" writable username="alice" destinations={destinations} />
  */
 export function FileBrowser({
   bucket,

@@ -188,6 +188,9 @@ function MetadataFields({
  * close). A Download + Rename action pair sits at the top. The fetch
  * state (loading / inline error / data) comes from useObjectMetadata; reopening
  * after an error refetches because a fresh observer mounts on the same query key.
+ *
+ * @example
+ * <MetadataPanel bucket={bucket} file={file} canModify={writable} onRequestRename={openRename} onClose={close} />
  */
 export function MetadataPanel({
   bucket,

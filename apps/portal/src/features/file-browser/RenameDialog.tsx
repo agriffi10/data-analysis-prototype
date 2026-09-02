@@ -30,6 +30,9 @@ function splitFileName(name: string): {base: string; ext: string} {
  * name is valid and changed. For a file WITH an extension, only the base name is
  * editable — the extension is held fixed and re-appended on submit so a rename
  * can't accidentally change (or drop) the file type.
+ *
+ * @example
+ * <RenameDialog kind="folder" currentName="reports" isBusy={rename.isPending} onRename={submit} onCancel={close} />
  */
 export function RenameDialog({kind, currentName, isBusy = false, onRename, onCancel}: Props) {
   const {base, ext} = kind === 'file' ? splitFileName(currentName) : {base: currentName, ext: ''};

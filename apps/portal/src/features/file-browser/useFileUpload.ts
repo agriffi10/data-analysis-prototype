@@ -33,6 +33,9 @@ export type UseFileUploadResult = {
  * runUpload/runCreateFolder are hoisted function declarations (not useCallback)
  * because each references itself in its collision-retry closure; the returned
  * callbacks are only used in event handlers, so their identity churn is harmless.
+ *
+ * @example
+ * const {upload, progress, pendingCollision, error, isBusy} = useFileUpload(bucket, prefix);
  */
 export function useFileUpload(bucket: string, prefix: string): UseFileUploadResult {
   const queryClient = useQueryClient();

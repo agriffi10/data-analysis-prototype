@@ -61,6 +61,9 @@ const SqlEditor = lazy(() => import('./SqlEditor').then((m) => ({default: m.SqlE
  * (main), wired to the catalog data layer. The editor is multi-tab:
  * each tab is an independent query window with its own SQL + run state; Run/Clear/
  * Stop/status/results all act on the active tab.
+ *
+ * @example
+ * <QueryWorkspace />
  */
 export function QueryWorkspace() {
   const {user} = useAuth();

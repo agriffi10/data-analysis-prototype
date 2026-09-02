@@ -28,6 +28,9 @@ import {
  * only aborted when the session ends (the provider unmounts on sign-out). Each
  * item therefore carries its own destination bucket + key, captured at enqueue
  * time, so navigating elsewhere mid-upload never re-targets an in-flight upload.
+ *
+ * @example
+ * <UploadQueueProvider>{children}</UploadQueueProvider>
  */
 export function UploadQueueProvider({children}: {children: ReactNode}) {
   const queryClient = useQueryClient();

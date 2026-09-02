@@ -160,6 +160,9 @@ const PLANE_UNAVAILABLE =
  * cannot be consulted at `confirmCopy` for that path. Only after the user has confirmed a name
  * does the fork happen — a single FILE takes the synchronous same-folder copy, a single FOLDER is
  * enqueued with the probed name.
+ *
+ * @example
+ * const dialogs = useFileBrowserDialogs({bucket, currentPrefix, space, destinations, del, move, copy});
  */
 export function useFileBrowserDialogs({
   bucket,

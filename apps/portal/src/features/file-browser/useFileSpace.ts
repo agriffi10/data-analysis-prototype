@@ -108,6 +108,9 @@ export function usableSpaceTargets(
  * Selection flows through the URL so a deep-link (`/files?space=…&prefix=…`) and a
  * sidebar click are one mechanism, and a vanished/unusable space reconciles to the
  * personal space purely during render (mirrors `useActiveDatabase`).
+ *
+ * @example
+ * const {space, destinations} = useFileSpace({username, connections, isLoading, userSpaceBucket, sharedSpaceBucket});
  */
 export function useFileSpace({
   username,

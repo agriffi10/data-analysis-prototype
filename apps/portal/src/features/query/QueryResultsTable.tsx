@@ -40,6 +40,9 @@ type QueryResultsTableProps = {
  * successful DDL / zero-row SELECT renders the friendly empty state, not an error.
  * Navigating REPLACES the visible rows, unlike the file browser's
  * append-style "Load more".
+ *
+ * @example
+ * <QueryResultsTable columns={columns} rows={rows} pageIndex={0} rangeStart={1} rangeEnd={rows.length} totalRowCount={null} hasPrev={false} hasNext={hasNext} isFetchingNext={false} isLoading={false} widths={widths} onResize={resize} onResetColumn={reset} onPrev={prev} onNext={next} />
  */
 export function QueryResultsTable({
   columns,

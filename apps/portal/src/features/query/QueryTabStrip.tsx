@@ -24,6 +24,9 @@ const barButton =
  * bold label) — never color-only, and no leading dot so it can't be confused with
  * the dirty-state marker. The last remaining tab hides its close control; the `+`
  * is never disabled (the cap is enforced by a dialog upstream).
+ *
+ * @example
+ * <QueryTabStrip tabs={tabs} activeTabId={activeTabId} dirtyTabIds={dirty} onSelect={select} onClose={close} onNew={openBlank} onOpenSaved={openSaved} onOpenHistory={openHistory} />
  */
 export function QueryTabStrip({
   tabs,
