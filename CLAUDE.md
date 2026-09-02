@@ -530,7 +530,8 @@ ambiguous** ones with options and a recommendation, never silently decide.
 **Review and spec size: `@docs/process.md` §3 and §4.** Three artifacts — a **spec**, a **plan** and
 a **diff** — each reviewed in a **fresh context**, the diff twice; **a branch does not reach the
 remote** until every finding is fixed or flagged. Specs run 3–6 FRs and split past 8. Read those
-sections rather than working from memory of them; both carry exit rules this paragraph does not.
+sections rather than working from memory of them — §3 carries the exit rules this paragraph
+compresses, and §4 the FR ceiling and the `SPEC_OVERSIZE_MAX` ratchet.
 The method — how many reviewers, briefing one, rotating the frame — is `@docs/reviewer-contract.md`,
 pulled when you are about to spend one.
 

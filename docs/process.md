@@ -151,8 +151,8 @@ answered, and on a twelve-phase spec it asks it twelve times.
   (*The reviewer contract*, below), fix or explicitly reject every finding — *then* push and open
   the PR. Pushing first and reviewing after inverts the gate: the branch is already public, the fixes
   arrive as follow-up commits, and the review reads as commentary on something that has already
-  happened rather than as the thing that decides whether it should. Rotating the frame (below) happens
-  in the same window. A push is the point of no return for the review, the same way the merge is the
+  happened rather than as the thing that decides whether it should. Rotating the frame
+  (`docs/reviewer-contract.md`) happens in the same window. A push is the point of no return for the review, the same way the merge is the
   point of no return for CI.
 - Before pushing, run the project's **formatter, linter, unit tests and `npm run build`** locally
   and get them green. These quality gates are a pre-push step — don't push red and leave CI to discover
@@ -170,6 +170,17 @@ answered, and on a twelve-phase spec it asks it twelve times.
   route through `docs/best-practices/INDEX.md` — which names the tree each rulebook lives in — and
   load only the relevant section(s). Apply the rules as you write;
   flag (don't silently break) any that conflict with existing code.
+- **Spot-check a negative claim before acting on it, and again before writing it down.** "No test
+  covers this", "nothing imports this file", "it is only documented on page X" — each asserts an
+  absence, which is what a search proves worst. Verify it yourself whether a reviewer said it or
+  you did. A wrong claim entering **code** has tests to catch it later; one entering a spec, a
+  register entry, a docstring or a commit message has nothing, and the next session reads it as
+  settled. Long form, with the two that shipped as source comments and were believed for weeks:
+  `docs/reviewer-contract.md`.
+- **A mechanical sweep REPORTS before it applies.** Print what it would change, read the list, then
+  re-run with `--apply` — and check the result by diffing **test names**, never a pass count. A
+  sweep for unused module-level helpers once classified pytest's `Test*` classes as dead and would
+  have deleted every test inside them; it was caught only because it printed first.
 - Specs ship with **no Open Questions** — they're resolved during authoring (§4). An issue that emerges
   mid-build is triaged by *kind*, not parked:
   - **Reversible / technical** (naming, file layout, which helper to reuse, an obvious bug fix): just
@@ -225,7 +236,10 @@ who had to pick, and neither by a reader.
 
 ## 4. Authoring a spec
 
-Specs are written from `docs/templates/spec-template.md`. What makes a spec *buildable*:
+Specs are written from `docs/templates/spec-template.md`. **A spec touching lifecycle, IAM or
+concurrency is planned with an execution harness rather than a review** — an import-time `_require`
+in a shared layer fails at cold start only, and a concurrent-refresh race is a property of two
+overlapping executions; neither is findable by reading. What makes a spec *buildable*:
 
 - **Overview** — user/business intent, no implementation detail. Understandable cold.
 - **Scope: In / Out** — explicitly list what's *excluded*, especially anything a reader would
@@ -337,18 +351,25 @@ When a spec is done, in the same pass:
 > plane-named scripts within a ratchet, refusing a spec-numbered one outright; the number of specs
 > carrying more than 8 FRs to a ratchet at the measured level (§4); `CLAUDE.md` to a
 > byte budget and each
-> Key Decisions line to a length; the `docs/decisions/` register to one file per digest area, each
+> Key Decisions line to a length; **`docs/process.md` — this file — to a byte budget of its own,**
+> since CLAUDE.md's first instruction is to read it and it therefore costs every session what
+> CLAUDE.md costs; the `docs/decisions/` register to one file per digest area, each
 > routed by its `INDEX.md`, with one heading level per entry and a Contents that reaches every one
 > of them; every `ARCS.md` arc to a status-free heading that is in the arc list; every spec
 > header to agreeing with its `INDEX.md` row and every Completed spec to having a delivery doc;
 > every delivery doc to a line cap; and every relative markdown link to resolving. **The budgets
 > are ratchets at the measured level** (SPEC-150's convention for the coverage floors) — raising
 > one so a growing doc passes is the failure mode the gate exists to catch. Move the detail down a
-> tier instead. **One exception, taken deliberately (user decision, 2026-08-27):**
-> `CLAUDE_MAX_BYTES` is 50,000 rather than the measured level, because the completion ritual
-> requires every closing spec to fold a clause into Key Decisions — so a ratchet there makes each
-> completion a forced prune of some other area's fences, which is the gate causing the damage it
-> exists to prevent. The shape rules are what bind that file: group by area, no per-spec line, and
+> tier instead. **Two exceptions carry headroom rather than sitting at the measured level, for
+> different reasons.** `CLAUDE_MAX_BYTES` is 50,000 (user decision, 2026-08-27) because the
+> completion ritual *mandates* growth — every closing spec that settles an architectural decision
+> folds a clause into Key Decisions, so a ratchet there makes each completion a forced prune of
+> some other area's fences, which is the gate causing the damage it exists to prevent.
+> `PROCESS_MAX_BYTES` is 41,000 against a measured 38,917 for a weaker reason, and it is worth
+> being honest about the difference: **nothing mandates appending to this file.** The headroom is
+> there so that the next legitimate addition is not forced to cut something else in the same PR —
+> the failure `CLAUDE_MAX_BYTES` records — not because growth is owed. If it is still unspent, it
+> should come down rather than be filled. The shape rules are what bind that file: group by area, no per-spec line, and
 > a per-bullet length cap. Every rule it holds existed in prose first and was violated anyway; that is why it
 > is a gate.
 

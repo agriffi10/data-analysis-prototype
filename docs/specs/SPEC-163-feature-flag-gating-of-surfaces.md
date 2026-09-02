@@ -17,7 +17,7 @@ The hard part is not the tab; it is the cross-feature entry points. "Create tabl
 lives in the file browser but is a *Query* feature; "Share table" lives in the Query rail but pushes
 into *Shared Workspaces*. Those are exactly the surfaces a per-component approach misses. So this
 spec does not gate components one at a time — it builds a **registry** that enumerates every gated
-surface and a test that walks it, the discipline `process.md` records for a finding that is an
+surface and a test that walks it, the discipline `reviewer-contract.md` records for a finding that is an
 instance of a rule rather than a one-off.
 
 ## Scope

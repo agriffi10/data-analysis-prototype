@@ -18,7 +18,7 @@ expensive one to leave *undetected*, because the code that follows will faithful
 
 **How many reviewers, and where.** **One** on the spec when it is written, **one** on the
 implementation plan when the build actually starts, and **two** on the diff before it is pushed —
-plus the narrow pass on the PR grouping below. The diff gets two because it is the **widest**
+plus the narrow pass on the PR grouping, which `docs/process.md` §3 places before the first push. The diff gets two because it is the **widest**
 artifact and the last one before the branch goes public: a spec or a plan is one document a single
 reader can hold whole, while a diff spans code, infrastructure and tests *and* the criteria they
 are supposed to satisfy, and the method's measured history (*Rotating the frame*, below — measured

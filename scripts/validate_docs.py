@@ -71,12 +71,19 @@ Attributes:
     bytes, slightly larger than the file that has been cut three times. The fix was the same shape
     as those cuts: the reviewer contract's method — how many reviewers and where, briefing one,
     rotating the frame — moved to ``docs/reviewer-contract.md``, which is pulled when a reviewer is
-    about to be spent rather than at session start. That took the file to 36,920 bytes.
+    about to be spent rather than at session start. That took the file to 36,920 bytes — then the
+    diff's review found three rules the cut had demoted with it that are not reviewer method at
+    all (spot-checking a negative claim, a sweep reporting before it applies, and the execution
+    harness for lifecycle/IAM/concurrency specs), and returning them brought it to 38,917. The
+    budget is calibrated on THAT number, not on the over-cut one.
 
-    Held at 40,000 rather than at the measured level, for the reason CLAUDE_MAX_BYTES is: a
-    ratchet with no headroom makes the next legitimate addition pay by cutting something else,
-    which is the failure that cap's entry documents. The headroom is deliberate and small. If this
-    file approaches it, move a section down a tier — the reviewer contract proved that works.
+    Held at 41,000 rather than at the measured level, but NOT for CLAUDE_MAX_BYTES's reason, and
+    the difference is worth stating so the precedent is not read as wider than it is. CLAUDE.md
+    has headroom because a gate *mandates* growth: the completion ritual folds a clause in on
+    every architectural close, so a ratchet there forces a prune. **Nothing mandates appending to
+    process.md.** Its headroom exists only so the next legitimate addition is not forced to cut
+    something else in the same PR. If it goes unspent, lower it rather than fill it; if the file
+    approaches it, move a section down a tier — the reviewer contract proved that works.
   DIGEST_MAX_CHARS: The longest a single Key Decisions bullet may be, measured on the LOGICAL
     bullet — continuation lines joined. It was measured per physical line until 2026-08-26, which
     stopped meaning anything the moment the section was rewritten as wrapped prose: the longest
@@ -125,7 +132,7 @@ TESTING_INFLIGHT_MAX = 1
 
 FIXTURES_MAX_SCRIPTS = 1
 CLAUDE_MAX_BYTES = 50_000
-PROCESS_MAX_BYTES = 40_000
+PROCESS_MAX_BYTES = 41_000
 DIGEST_MAX_CHARS = 1_400
 DELIVERY_MAX_LINES = 260
 FR_CEILING = 8
