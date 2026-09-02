@@ -1,60 +1,38 @@
-# The scheduled log sweep. Terraform owns the function and a placeholder zip; CI deploys the
-# real code and attaches the cpcommon layer. See README.md.
+# The scheduled log sweep. Terraform owns the function; CI owns which image it runs. See README.md.
 
-data "archive_file" "placeholder" {
-  type        = "zip"
-  output_path = "${path.module}/.placeholder-log-sweep.zip"
+module "sweep" {
+  source = "../docker-lambda"
 
-  source {
-    filename = "log_sweep.py"
-    content  = "def handler(event, context):\n    return {'placeholder': True}\n"
-  }
-}
-
-resource "aws_cloudwatch_log_group" "sweep" {
-  name              = "/aws/lambda/${local.sweep_name}"
-  retention_in_days = var.log_retention_days
-}
-
-resource "aws_lambda_function" "sweep" {
-  function_name = local.sweep_name
-  role          = aws_iam_role.sweep.arn
-  runtime       = "python3.12"
-  handler       = "log_sweep.handler"
+  function_name        = local.sweep_name
+  role_arn             = aws_iam_role.sweep.arn
+  image_repository_url = var.lambda_image_repository_url
+  image_tag            = var.lambda_image_tag
+  command              = ["log_sweep.handler"]
 
   # ORDERED: timeout < queue visibility (360s) < schedule interval (600s). Breaking either
   # inequality writes messages to S3 twice. README.md.
-  timeout = 300
+  timeout_seconds = 300
   # 512, not 256 — the sweep reads the day's whole object back before appending.
-  memory_size = 512
+  memory_mb = 512
 
-  environment {
-    variables = {
-      LOGS_QUEUE_URL = aws_sqs_queue.logs.url
-      ENV_NAME       = var.environment
+  # Passed through rather than left to the module's default, so this module's own retention
+  # variable still decides its log group's retention.
+  log_retention_days = var.log_retention_days
 
-      # ADMIN_BUCKET is genuinely used; the rest are the cpcommon layer's required union.
-      # Do not remove one because the sweep does not read it — README.md.
-      ADMIN_BUCKET        = var.admin_bucket_name
-      USER_SPACE_BUCKET   = var.user_space_bucket_name
-      SHARED_SPACE_BUCKET = var.shared_space_bucket_name
-      ATHENA_WORKGROUP    = var.athena_workgroup
-    }
-  }
+  environment = merge({
+    LOGS_QUEUE_URL = aws_sqs_queue.logs.url
+    ENV_NAME       = var.environment
 
-  # Bootstrap with the placeholder; CI replaces the code via update-function-code.
-  filename         = data.archive_file.placeholder.output_path
-  source_code_hash = data.archive_file.placeholder.output_base64sha256
+    # ADMIN_BUCKET is genuinely used; the rest are the shared code's required union.
+    # Do not remove one because the sweep does not read it — README.md.
+    ADMIN_BUCKET        = var.admin_bucket_name
+    USER_SPACE_BUCKET   = var.user_space_bucket_name
+    SHARED_SPACE_BUCKET = var.shared_space_bucket_name
+    ATHENA_WORKGROUP    = var.athena_workgroup
+  })
 
-  lifecycle {
-    # CI owns the code AND the cpcommon layer attachment — never revert either on apply.
-    ignore_changes = [filename, source_code_hash, layers]
-  }
-
-  depends_on = [
-    aws_iam_role_policy.sweep,
-    aws_cloudwatch_log_group.sweep,
-  ]
+  # The sweep policy is NOT in this list, and cannot be: it renders this module's own log-group
+  # ARN, so depending on it here is a cycle. ../docker-lambda/README.md.
 }
 
 # ── The schedule ─────────────────────────────────────────────────────────────
@@ -68,14 +46,14 @@ resource "aws_cloudwatch_event_rule" "sweep" {
 
 resource "aws_cloudwatch_event_target" "sweep" {
   rule = aws_cloudwatch_event_rule.sweep.name
-  arn  = aws_lambda_function.sweep.arn
+  arn  = module.sweep.function_arn
 }
 
 # No invoke role needed — EventBridge invokes through this resource policy, scoped to the rule.
 resource "aws_lambda_permission" "sweep" {
   statement_id  = "AllowExecutionFromEventBridge"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.sweep.function_name
+  function_name = module.sweep.function_arn
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.sweep.arn
 }

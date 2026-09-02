@@ -162,6 +162,36 @@ def _functions(plan: dict) -> dict[str, dict]:
     return found
 
 
+def _permissions(plan: dict) -> dict[str, dict]:
+    """Every `aws_lambda_permission` the plan builds, keyed by address.
+
+    A destroy-only entry is skipped for the reason `_functions` skips one: its `after` is null,
+    which is neither an ARN nor unknown, and reading it would fail the guard with a diagnosis
+    naming the wrong problem.
+
+    Args:
+      plan: A parsed `tofu show -json` document.
+
+    Returns:
+      A mapping of address to `{"after": ..., "unknown": ...}`.
+
+    Raises:
+      None.
+    """
+    found: dict[str, dict] = {}
+    for change in plan.get("resource_changes", []):
+        if change.get("type") != "aws_lambda_permission":
+            continue
+        actions = (change.get("change") or {}).get("actions") or []
+        if actions == ["delete"]:
+            continue
+        found[change.get("address")] = {
+            "after": (change.get("change") or {}).get("after") or {},
+            "unknown": (change.get("change") or {}).get("after_unknown") or {},
+        }
+    return found
+
+
 def _short(name: str, project: str, environment: str) -> str:
     """Strips the project/environment prefix, giving the name the deploy table uses.
 
@@ -266,6 +296,40 @@ def check(plan: dict, fixture: dict, package_type: str, image_repository: str | 
                     f"{name}: command is {command!r}, expected [{expected!r}] — the handler the "
                     "zip-packaged function carried"
                 )
+
+    # ── Every permission binds to an ARN, never to a name ──
+    # THE OUTAGE THIS FILE EXISTS TO MAKE UNREACHABLE. `package_type` is ForceNew, so every
+    # function is destroyed and recreated. A permission whose `function_name` is a config-known
+    # literal is IDENTICAL either side of that, so Terraform plans no diff at all — while
+    # DeleteFunction has taken the function's resource policy with it. The API 500s on every
+    # request, sign-up breaks, every plane's timeout notifier goes silent, and the apply, the
+    # deploy and a cold-start probe are all green (a probe invokes through IAM, which never
+    # consults the resource policy).
+    #
+    # An ARN read from the module's output is COMPUTED, so it is unknown while the function is
+    # replaced, and `aws_lambda_permission.function_name` is itself ForceNew — which is what
+    # plans the permission for replacement alongside.
+    #
+    # WHAT THIS DOES NOT CATCH: an ARN the configuration BUILDS from a template is known, and
+    # reproduces the defect exactly while passing here. The source rule in
+    # lambdas/test_the_cutover.py is what covers that — it requires the module's own output, not
+    # merely something ARN-shaped.
+    permissions = _permissions(plan)
+    if not permissions:
+        sys.exit(
+            "the plan carries no aws_lambda_permission at all, so the binding check is vacuous"
+        )
+    for address, entry in sorted(permissions.items()):
+        if _has_unknown_leaf(entry["unknown"].get("function_name")):
+            continue
+        bound = entry["after"].get("function_name") or ""
+        if not bound.startswith("arn:aws:lambda:"):
+            problems.append(
+                f"{address}: function_name is {bound!r}, which is a NAME. It is known at plan "
+                "time, so it is identical either side of a function replacement and the "
+                "permission is never recreated — while the replacement takes the old resource "
+                "policy with it. Bind it to the module's function_arn output."
+            )
 
     # ── Population: the plan and the deploy table must name the same fleet ──
     planned = {_short(n, project, environment) for n in functions}

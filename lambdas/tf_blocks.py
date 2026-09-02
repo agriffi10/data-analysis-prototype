@@ -212,6 +212,46 @@ def join_list_items(text: str, local_name: str) -> tuple[str, tuple[str, ...]]:
     return separator[1:-1], tuple(items)
 
 
+def strip_comments(text: str) -> str:
+    """Blanks comments ONLY, preserving length and every other character — strings included.
+
+    The counterpart to ``strip_noise`` for a scan whose subject IS a string literal. A
+    constructed ARN, a resource name, a log-group path: every one of those lives inside quotes,
+    and ``strip_noise`` blanks exactly that, so a sweep for one over its output finds nothing and
+    reports the tree clean. Measured: a sweep for ``arn:aws:lambda:`` over stripped source found
+    zero occurrences in a module that had one.
+
+    Comments still have to go, for ``strip_noise``'s own reason: a comment explaining why a
+    pattern is forbidden reads, to a bare regex, exactly like the file doing it.
+
+    Args:
+      text: The Terraform fragment to blank.
+
+    Returns:
+      The fragment, same length, with comment bodies replaced by spaces.
+
+    Raises:
+      None.
+    """
+    out = list(text)
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char == "#" or text[index : index + 2] == "//":
+            end = text.find("\n", index)
+            end = len(text) if end == -1 else end
+            out[index:end] = " " * (end - index)
+            index = end
+        elif char == '"':
+            index += 1
+            while index < len(text) and text[index] != '"':
+                index += 2 if text[index] == "\\" else 1
+            index += 1
+        else:
+            index += 1
+    return "".join(out)
+
+
 def strip_noise(text: str) -> str:
     """Blanks comments and string CONTENTS, preserving length and every other character.
 
@@ -438,15 +478,16 @@ def lambda_environment(body: str) -> str:
 LAMBDA_INPUT_SPELLINGS = {
     "timeout": ("timeout_seconds", "timeout"),
     "memory": ("memory_mb", "memory_size"),
+    "role": ("role_arn", "role"),
 }
 
 
 def lambda_input(body: str, setting: str) -> str:
     """One function's declared timeout, memory or role, under whichever name it carries.
 
-    The two packagings spell these differently — ``timeout``/``memory_size`` on the resource,
-    ``timeout_seconds``/``memory_mb`` on the module's inputs — and a suite pinning a Python
-    constant to the deployed number cares about the number, not the spelling.
+    The two packagings spell these differently — ``timeout``/``memory_size``/``role`` on the
+    resource, ``timeout_seconds``/``memory_mb``/``role_arn`` on the module's inputs — and a suite
+    pinning a Python constant to the deployed value cares about the value, not the spelling.
 
     Args:
       body: A declaration body from ``lambda_declaration``.

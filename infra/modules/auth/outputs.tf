@@ -15,12 +15,12 @@ output "user_pool_domain" {
 
 output "pre_signup_function_name" {
   description = "Name of the pre-signup validation Lambda. The deploy-lambdas workflow targets this for update-function-code."
-  value       = aws_lambda_function.pre_signup.function_name
+  value       = module.pre_signup.function_name
 }
 
 output "post_confirmation_function_name" {
   description = "Name of the post-confirmation provisioning Lambda. The deploy-lambdas workflow targets this for update-function-code."
-  value       = aws_lambda_function.post_confirmation.function_name
+  value       = module.post_confirmation.function_name
 }
 
 output "post_confirmation_exec_role_arn" {

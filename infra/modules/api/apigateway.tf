@@ -36,7 +36,7 @@ resource "aws_apigatewayv2_api" "api" {
 resource "aws_apigatewayv2_integration" "api" {
   api_id                 = aws_apigatewayv2_api.api.id
   integration_type       = "AWS_PROXY"
-  integration_uri        = aws_lambda_function.api.invoke_arn
+  integration_uri        = module.api.invoke_arn
   payload_format_version = "2.0"
 
   # AT API Gateway's hard 30s ceiling, and deliberately ABOVE the function's 29s. The order
@@ -83,7 +83,7 @@ resource "aws_apigatewayv2_stage" "default" {
 resource "aws_lambda_permission" "api" {
   statement_id  = "AllowApiGatewayInvoke"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.api.function_name
+  function_name = module.api.function_arn
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.api.execution_arn}/*/*"
 }

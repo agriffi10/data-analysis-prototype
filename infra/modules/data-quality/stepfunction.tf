@@ -16,15 +16,15 @@ resource "aws_sfn_state_machine" "data_quality" {
   type     = "STANDARD"
 
   definition = templatefile("${path.module}/state-machine.asl.json.tftpl", {
-    validate_authorize_function_arn  = aws_lambda_function.functions["validate-authorize"].arn
-    inspect_source_function_arn      = aws_lambda_function.functions["inspect-source"].arn
-    create_temp_tables_function_arn  = aws_lambda_function.functions["create-temp-tables"].arn
-    start_profile_query_function_arn = aws_lambda_function.functions["start-profile-query"].arn
-    check_query_function_arn         = aws_lambda_function.functions["check-query"].arn
-    byte_scan_function_arn           = aws_lambda_function.functions["byte-scan"].arn
-    assemble_report_function_arn     = aws_lambda_function.functions["assemble-report"].arn
-    drop_temp_tables_function_arn    = aws_lambda_function.functions["drop-temp-tables"].arn
-    notify_failure_function_arn      = aws_lambda_function.functions["notify-failure"].arn
+    validate_authorize_function_arn  = module.functions["validate-authorize"].function_arn
+    inspect_source_function_arn      = module.functions["inspect-source"].function_arn
+    create_temp_tables_function_arn  = module.functions["create-temp-tables"].function_arn
+    start_profile_query_function_arn = module.functions["start-profile-query"].function_arn
+    check_query_function_arn         = module.functions["check-query"].function_arn
+    byte_scan_function_arn           = module.functions["byte-scan"].function_arn
+    assemble_report_function_arn     = module.functions["assemble-report"].function_arn
+    drop_temp_tables_function_arn    = module.functions["drop-temp-tables"].function_arn
+    notify_failure_function_arn      = module.functions["notify-failure"].function_arn
   })
 
   logging_configuration {

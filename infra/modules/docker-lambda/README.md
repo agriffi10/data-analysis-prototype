@@ -33,13 +33,22 @@ A container function cannot be created pointing at a tag the registry does not h
 creation the value is ignored, so the constraint is real exactly once per function — but "once" is
 the cutover, when it applies to all 86 at the same moment.
 
-**That wait does not exist yet.** `Deploy Lambdas` waits for the tag before pointing a function
-(`.github/scripts/point-lambda.sh`), but `Deploy Infrastructure` has no such step — and
-`deploy-lambda-image.yml` carries no `paths:` filter, so it fires on the same push as an apply and
-the two race. Nothing depends on that today, because no function is created from an image. The
-apply-side wait, and the ordering note in
-[`lambdas/info/deployment.md`](../../../lambdas/info/deployment.md), land with the cutover — the
-change that makes the race matter.
+**Both sides wait.** `Deploy Lambdas` waits for the tag before pointing a function
+(`.github/scripts/point-lambda.sh`), and `Deploy Infrastructure`'s apply now polls for it before
+`tofu apply` — because `deploy-lambda-image.yml` carries no `paths:` filter, so it fires on the same
+push as an apply and the two race. The apply-side wait **fails on a `workflow_dispatch` too**, which
+is deliberate: that path exists for a dropped push event, and a dropped push drops the image build
+as well, so continuing would fail `CreateFunction` with functions already destroyed. The recovery
+needs no new input — dispatch `Deploy Lambda image` with an empty tag, then dispatch
+`Deploy Infrastructure`. Ordering note:
+[`lambdas/info/deployment.md`](../../../lambdas/info/deployment.md).
+
+**The registry acquires a policy Terraform does not declare.** AWS's own guidance is that a
+same-account function needs `ecr:BatchGetImage` and `ecr:GetDownloadUrlForLayer` allowed on either
+side, and Lambda adds the repository policy itself at `CreateFunction` when the caller holds
+`ecr:GetRepositoryPolicy` and `ecr:SetRepositoryPolicy` — which the deploy role does. So nothing here
+declares an `aws_ecr_repository_policy`, and a `LambdaECRImageRetrievalPolicy` appearing on the
+registry is that, not drift.
 
 ## What is deliberately not declared
 
@@ -65,6 +74,26 @@ belt-and-braces. Two reasons, and the second is the one that bites:
 
 `architectures` also has to agree with the image, which is built `--platform linux/amd64`: an
 arm64 function fails at start with a manifest error that reads nothing like the mismatch it is.
+
+## Four callers cannot depend on their own execution policy
+
+A caller normally lists its execution policy in the module call's `depends_on`, so the policy
+settles before the function is created. **Four cannot:** `api`, `auth` (twice) and `observability`
+render that policy from the function's own log-group ARN, and the group now lives in here — so
+`module.x` → `depends_on aws_iam_role_policy.x` → `module.x.log_group_arn` is a cycle, reproduced in
+a scratch config before it was worked around. Those four drop the policy from `depends_on` and keep
+everything else.
+
+What that costs, stated rather than left to be derived: **on the cutover apply, nothing.** Those log
+groups are *moved*, not replaced, so their ARNs are unchanged and the four policies are no-ops. The
+window is a **from-scratch** apply only, and of the four only `observability`'s sweep can be invoked
+in it (`rate(10 minutes)`; the two auth triggers need a real sign-up and `api` needs real traffic).
+Its worst case is one async invocation that cannot write logs, retried automatically.
+
+Rejected: constructing the log-group ARN at the call site, which adds an interpolated ARN and, for
+`api`, a variable and a root wiring site. Also rejected: a second inline policy per site holding only
+the log statements — it preserves the ordering, but four more IAM resources on the Checkov surface is
+a poor trade for a window that closes itself.
 
 ## The log group belongs to the module
 

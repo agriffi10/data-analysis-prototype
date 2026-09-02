@@ -120,8 +120,63 @@ def fixture(pre_cutover):
     return GUARD.capture(pre_cutover)
 
 
+def _permission(bound, unknown=False, address="module.x.aws_lambda_permission.p"):
+    """One `resource_changes` entry for a Lambda permission.
+
+    Args:
+      bound: The planned `function_name`.
+      unknown: Whether it is unknown, as it is while the function it names is replaced.
+      address: The resource address.
+
+    Returns:
+      A resource-change document.
+
+    Raises:
+      None.
+    """
+    return {
+        "address": address,
+        "type": "aws_lambda_permission",
+        "change": {
+            "actions": ["create"],
+            "after": {"function_name": bound},
+            "after_unknown": {"function_name": True} if unknown else {},
+        },
+    }
+
+
+GOOD_PERMISSION = _permission("arn:aws:lambda:us-east-1:1:function:dat-prod-api")
+
+
+def _check_with_table(plan, fixture, table, package_type="Zip", image_repository=None):
+    """`_check` for the cases that supply their own deploy table.
+
+    Args:
+      plan: The plan to check.
+      fixture: The frozen capture.
+      table: The deploy table to compare the plan against.
+      package_type: The packaging every function must have.
+      image_repository: The registry every image_uri must name.
+
+    Returns:
+      The list of problems.
+
+    Raises:
+      None.
+    """
+    changes = plan.get("resource_changes", [])
+    if not any(change.get("type") == "aws_lambda_permission" for change in changes):
+        plan = {**plan, "resource_changes": [*changes, GOOD_PERMISSION]}
+    return GUARD.check(plan, fixture, package_type, image_repository, table, "dat", "prod")
+
+
 def _check(plan, fixture, package_type="Zip", image_repository=None):
     """Runs the guard's check with this module's fixed project and environment.
+
+    A real root plan always carries permissions, and the guard refuses one that does not — so a
+    plan built here to say something about FUNCTIONS is given a correctly-bound permission unless
+    it supplies its own. Without that, every test in this file would be asserting about the
+    permission rule by accident.
 
     Args:
       plan: The plan to check.
@@ -135,6 +190,9 @@ def _check(plan, fixture, package_type="Zip", image_repository=None):
     Raises:
       None.
     """
+    changes = plan.get("resource_changes", [])
+    if not any(change.get("type") == "aws_lambda_permission" for change in changes):
+        plan = {**plan, "resource_changes": [*changes, GOOD_PERMISSION]}
     return GUARD.check(plan, fixture, package_type, image_repository, TABLE, "dat", "prod")
 
 
@@ -336,8 +394,7 @@ def test_the_plan_and_the_deploy_table_must_name_the_same_fleet(pre_cutover, fix
     Raises:
       AssertionError: When a divergence goes unreported.
     """
-    problems = GUARD.check(pre_cutover, fixture, "Zip", None,
-                           [*TABLE, {"name": "ghost-function"}], "dat", "prod")
+    problems = _check_with_table(pre_cutover, fixture, [*TABLE, {"name": "ghost-function"}])
     assert any("ghost-function" in p and "no such function" in p for p in problems), problems
 
     dropped = json.loads(json.dumps(pre_cutover))
@@ -345,7 +402,7 @@ def test_the_plan_and_the_deploy_table_must_name_the_same_fleet(pre_cutover, fix
         _resource("dat-prod-unlisted", _zip_after())
     )
     fixture2 = GUARD.capture(dropped)
-    problems = GUARD.check(dropped, fixture2, "Zip", None, TABLE, "dat", "prod")
+    problems = _check(dropped, fixture2)
     assert any("unlisted" in p and "deploy table does not name it" in p for p in problems), problems
 
 
@@ -575,8 +632,8 @@ def test_a_create_plan_captures_and_checks_clean():
         }]
     }
     captured = GUARD.capture(created)
-    problems = GUARD.check(created, captured, "Image", "repo",
-                           [{"name": "archive-copy-objects"}], "dat", "prod")
+    problems = _check_with_table(created, captured, [{"name": "archive-copy-objects"}],
+                                 package_type="Image", image_repository="repo")
     assert problems == [], problems
 
 
@@ -604,8 +661,8 @@ def test_vpc_parity_survives_the_computed_vpc_id():
                      "ipv6_allowed_for_dual_stack": False}]))
 
     fixture = GUARD.capture({"resource_changes": [no_op]})
-    problems = GUARD.check({"resource_changes": [replacement]}, fixture, "Zip", None,
-                           [{"name": "vpc-thing"}], "dat", "prod")
+    problems = _check_with_table({"resource_changes": [replacement]}, fixture,
+                                 [{"name": "vpc-thing"}])
     assert problems == [], problems
 
 
@@ -627,8 +684,8 @@ def test_a_real_vpc_change_is_still_caught():
         vpc_config=[{"subnet_ids": ["s-9"], "security_group_ids": ["sg-1"]}]))
 
     fixture = GUARD.capture({"resource_changes": [before]})
-    problems = GUARD.check({"resource_changes": [after]}, fixture, "Zip", None,
-                           [{"name": "vpc-thing"}], "dat", "prod")
+    problems = _check_with_table({"resource_changes": [after]}, fixture,
+                                 [{"name": "vpc-thing"}])
     assert any("vpc_config moved" in p for p in problems), problems
 
 
@@ -716,3 +773,58 @@ def test_a_destroyed_function_is_skipped_rather_than_aborting_the_guard():
         ]
     }
     assert sorted(GUARD._functions(plan)) == ["dat-prod-api"]
+
+
+def test_a_permission_bound_to_a_NAME_is_the_outage_this_guard_refuses(pre_cutover, fixture):
+    """The defect that ships green: no diff, and the replacement takes the resource policy.
+
+    A name is known at plan time and identical either side of the replacement, so Terraform never
+    recreates the permission — while DeleteFunction has already removed the policy it granted.
+    """
+    plan = {
+        "resource_changes": [
+            *pre_cutover["resource_changes"],
+            _permission("dat-prod-api"),
+        ]
+    }
+
+    problems = _check(plan, fixture)
+
+    assert any("which is a NAME" in problem for problem in problems), problems
+
+
+def test_a_permission_unknown_because_its_function_is_being_replaced_is_fine(pre_cutover, fixture):
+    """The correct binding, seen the way a replacement plan renders it.
+
+    `function_arn` is computed, so it is unknown while the function is replaced — which is
+    precisely what plans the permission for replacement alongside it.
+    """
+    plan = {
+        "resource_changes": [
+            *pre_cutover["resource_changes"],
+            _permission(None, unknown=True),
+        ]
+    }
+
+    assert _check(plan, fixture) == []
+
+
+def test_a_plan_carrying_no_permission_at_all_exits_rather_than_passing(pre_cutover, fixture):
+    """A check that passes when its own subject is absent reads as enforcement while enforcing
+    nothing — the same refusal `_functions` already makes for an empty fleet."""
+    with pytest.raises(SystemExit) as exit_info:
+        GUARD.check(pre_cutover, fixture, "Zip", None, TABLE, "dat", "prod")
+
+    assert "no aws_lambda_permission" in str(exit_info.value)
+
+
+def test_a_destroyed_permission_is_skipped_rather_than_read_as_a_bare_name():
+    """Its `after` is null, which is neither an ARN nor unknown — and reading it would fail the
+    guard with a diagnosis naming the wrong problem."""
+    destroyed = {
+        "address": "module.x.aws_lambda_permission.gone",
+        "type": "aws_lambda_permission",
+        "change": {"actions": ["delete"], "after": None, "after_unknown": {}},
+    }
+
+    assert GUARD._permissions({"resource_changes": [destroyed]}) == {}

@@ -1,7 +1,7 @@
 # Spec: Container Lambdas — the `docker-lambda` Module and the Cutover
 
 **ID:** SPEC-213
-**Status:** Draft
+**Status:** In Progress
 **Last Updated:** 2026-08-28
 **Depends On:** SPEC-212 (the image and the repository this spec deploys), SPEC-193/194 (the ECS precedent: `ignore_changes` on the artifact reference means **CI must point the resource**, and a pipeline that publishes without pointing leaves a failure indistinguishable from the one the platform is tested for), the seven control-plane modules and the standalone functions
 
@@ -113,7 +113,15 @@ The module exists partly so that other modules stop rebuilding function names fr
 - [ ] Every place that grants a permission on a function, wires a trigger to it, references it in a
       state machine, or names it in an event source mapping consumes `function_arn` or
       `function_name` from the module.
-- [ ] A test asserts no `.tf` file constructs a Lambda function ARN by string interpolation.
+- [ ] A test asserts no `.tf` file constructs a Lambda function ARN by string interpolation, with
+      **one named exemption**: `shared-spaces` keeps `local.shared_space_function_arns`. That plane
+      has ONE `orchestrator` role serving both the state machine and the verbs, so the policy that
+      consumes the ARN list is the same policy the functions depend on — reading the module output
+      there is a genuine cycle, reproduced before it was accepted. The exemption is a **named local
+      in a named module**, never a class of location: "inside a `templatefile()` input" was tried and
+      admits every ASL definition in the repo. Consequence worth knowing: that grant is the one
+      Lambda grant that plans no diff across the replacement, which is safe only because the ARN it
+      builds is stable. Amended mid-build under §3's rule.
 - [ ] The root module's per-function outputs that CI consumes are produced from the module outputs.
 
 ### FR-004: The image tag, and the bootstrap order
@@ -153,9 +161,22 @@ The trap. `ignore_changes` means Terraform will never move a function onto a new
       function's update is asynchronous and a job that returns on the API call alone reports a
       deploy that has not happened.
 - [ ] A function whose update fails fails the job, naming the function.
-- [ ] The workflow no longer builds or uploads a zip for any function, and no longer publishes or
-      attaches a layer version. (The layer *tables* survive to SPEC-214; the attach calls do not
-      survive this one, because attaching a layer to a container function is an error.)
+- [ ] ~~The workflow no longer builds or uploads a zip for any function, and no longer publishes or
+      attaches a layer version.~~ **Deferred to SPEC-214, deliberately, and the reason is better than
+      the criterion.** `point-lambda.sh` dispatches on the function's **live** `PackageType`, so the
+      layer machinery reaches nothing the moment a function becomes `Image` — and leaving it in place
+      is what makes a partly-failed 86-function apply recoverable rather than wedged, because a fleet
+      that is half zip and half image can still be deployed by a pipeline that speaks both. Removing
+      it during the cutover would delete the recovery path at the exact moment it is most likely to be
+      needed. Amended mid-build under §3's rule.
+- [ ] **Also deferred to SPEC-214: the count against Terraform's own declaration, and the retirement
+      of `plan_deploy.py`'s narrowing.** Editing `deploy-lambdas.yml`, `plan_deploy.py` or
+      `point-lambda.sh` puts them in the planner's `HARD_GLOBAL_PATHS`, which forces a **full-fleet
+      deploy concurrent with the apply that is deleting and recreating those very functions** — the
+      two workflows are in different `concurrency` groups, so they genuinely race. Measured with the
+      planner. What the deferral costs: an un-pointed function reports a stale `BUILD_VERSION`. It
+      costs nothing else, because one image serves all 86 and the apply creates every function at
+      the correct sha.
 - [ ] `Deploy Infrastructure` and `Deploy Lambdas` still run in parallel on a push, and the
       `ResourceConflictException` window that already exists between an env-block apply and a
       concurrent function update is documented as unchanged rather than silently inherited.

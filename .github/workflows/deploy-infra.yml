@@ -243,19 +243,28 @@ jobs:
       # skip, because a check that passes when its own input is absent reads as enforcement while
       # enforcing nothing.
       #
-      # `--package-type Zip` is the world as it is. SPEC-213's cutover flips this one word to
-      # Image, which is the whole reason this lands a PR early: the gate is proven against the
-      # fleet before it is asked to judge the change to it.
+      # `--package-type Image` is the world as it is: every function is a container running the
+      # fleet's one image. The guard landed a PR early carrying BOTH modes and was proven against
+      # the zip fleet first, so the cutover changed this one word rather than the gate.
+      #
+      # The repository is described BY NAME, never unfiltered: an unfiltered describe-repositories
+      # authorizes against `repository/*`, while the deploy role is scoped to this registry and
+      # the SPA's — so asking "which one ends in -lambda" needs a strictly wider grant than
+      # constructing the name does.
       - name: Assert the planned Lambda fleet
         env:
           PROJECT: ${{ vars.TF_VAR_project_name || 'dat' }}
           ENVIRONMENT: ${{ vars.TF_VAR_environment || 'prod' }}
         run: |
           set -euo pipefail
+          REPOSITORY=$(aws ecr describe-repositories \
+            --repository-names "${PROJECT}-${ENVIRONMENT}-lambda" \
+            --query 'repositories[0].repositoryUri' --output text)
           python3 .github/scripts/lambda_plan_guard.py check \
             --plan infra/plan.json \
             --fixture lambdas/fixtures/pre_cutover_plan.json \
-            --package-type Zip \
+            --package-type Image \
+            --image-repository "$REPOSITORY" \
             --table .github/lambda-functions.json \
             --project "$PROJECT" \
             --environment "$ENVIRONMENT"
@@ -427,6 +436,41 @@ jobs:
             -backend-config="bucket=${{ secrets.TF_VAR_state_bucket }}" \
             -backend-config="dynamodb_table=${{ secrets.TF_VAR_state_lock_table }}" \
             -backend-config="region=${{ vars.AWS_REGION }}"
+
+      # A container function cannot be CREATED pointing at a tag the registry does not hold. After
+      # creation the value is ignored, so the constraint is real exactly once per function — but
+      # "once" includes every function this apply creates, and `deploy-lambda-image.yml` carries no
+      # `paths:` filter, so it fires on the SAME PUSH as this apply and the two race. Losing that
+      # race fails CreateFunction partway through the fleet.
+      #
+      # IT FAILS ON A DISPATCH TOO, and that is deliberate rather than an oversight. The dispatch
+      # path exists for a dropped push event — which drops the IMAGE build as well, so main's tip
+      # has no image at all, and warning-and-continuing would turn a clean refusal into an
+      # InvalidParameterValueException with functions already destroyed. The recovery needs no new
+      # input: dispatch `Deploy Lambda image` (an empty tag builds this commit), then dispatch this
+      # workflow.
+      #
+      # A poll rather than a `data "aws_ecr_image"`: the plan job runs on pull requests, where
+      # github.sha is a MERGE COMMIT whose image was never pushed, and a data source would fail
+      # every PR.
+      - name: Wait for this commit's Lambda image
+        env:
+          PROJECT: ${{ vars.TF_VAR_project_name || 'dat' }}
+          ENVIRONMENT: ${{ vars.TF_VAR_environment || 'prod' }}
+        run: |
+          set -euo pipefail
+          NAME="${PROJECT}-${ENVIRONMENT}-lambda"
+          for attempt in $(seq 1 60); do
+            if aws ecr describe-images --repository-name "$NAME" \
+                 --image-ids "imageTag=${GITHUB_SHA}" >/dev/null 2>&1; then
+              echo "::notice title=Image ready::${NAME}:${GITHUB_SHA} is in the registry."
+              exit 0
+            fi
+            echo "Waiting for ${NAME}:${GITHUB_SHA} (attempt ${attempt}/60)…"
+            sleep 10
+          done
+          echo "::error title=No image::${NAME}:${GITHUB_SHA} is not in the registry after ~10 min. Check the 'Deploy Lambda image' run for this commit; an apply that CREATES a function from a tag the registry does not hold fails partway through the fleet. To recover, dispatch 'Deploy Lambda image' with an empty tag, then dispatch this workflow."
+          exit 1
 
       - name: OpenTofu apply
         working-directory: infra

@@ -896,3 +896,42 @@ wants its own.
 scans the path `lambdas` with `p/owasp-top-ten` + `p/python` and `GATE_SEMGREP` is `block` — so the
 first Dockerfile under that path could have reddened a blocking gate. Measured with the pinned
 1.172.0: **1 path scanned, 0 findings, 0 errors.**
+
+# Addendum — The Container Cutover Did Not Change the Fleet's Posture, 2026-09-02
+
+SPEC-213 moved all 86 Lambdas from zip packaging to one container image. Every function is now a
+call to `infra/modules/docker-lambda`, so the `.tf` scan sees **one** `aws_lambda_function` resource
+instead of seventeen. The enforce list was regenerated with the command in its own header, at the
+pinned checkov 3.3.9, and diffed rather than pasted over.
+
+**`.github/checkov-enforced.txt` is unchanged, and that is the measured result, not an omission.**
+Before: 955 passed / 763 failed. After: 1119 passed / 585 failed. No enforced ID became
+unevaluated — the hard error `checkov-enforced.sh` raises when a resource family leaves the repo —
+and no enforced ID started failing. `CKV_AWS_363` (deprecated runtime) was the one to watch, since a
+container function declares no `runtime` at all; it evaluates and passes.
+
+## Two IDs newly qualify and are deliberately NOT enforced
+
+`CKV_AWS_115` (reserved concurrency) and `CKV_AWS_117` (Lambda inside a VPC) went from 86 failures
+and one pass to 86 passes and zero failures. **Nothing about the fleet's posture changed.** Both
+already passed on `aws_lambda_function.this` — the container module's own resource, scanned
+standalone — and the cutover simply made every function that resource:
+
+- `CKV_AWS_117` passes because the module declares `dynamic "vpc_config"`. The block yields **no**
+  configuration at all: every caller passes `vpc_config = null`, and the API function is
+  deliberately outside the VPC (row 32 above, and `modules/api/README.md`).
+- `CKV_AWS_115` passes because the module always declares `reserved_concurrent_executions`. Its
+  value is `-1`, which is the provider's spelling of **unreserved** — no limit.
+
+Enforcing either would hold at zero a check that passes for a structural reason and contradicts a
+written disposition on this page: `CKV_AWS_117` is an **accept** ("no VPC, deliberately") and
+`CKV_AWS_115` is a **defer**. A gate asserting the opposite of the register beside it is worse than
+no gate, and it would fire the day somebody removed the `dynamic` block for a reason unrelated to
+VPC posture.
+
+This is a deliberate deviation from the list's own rule — *"they are here because they pass, which
+is the whole rule"* — and it is recorded here because that header says a decision about the list's
+contents belongs on this page. **The rule still holds for a check that passes because the thing it
+checks is true.** These two pass because of how the configuration is SHAPED, and the distinction is
+what a regeneration cannot see: re-measure, then ask what made each new arrival pass before adding
+it.

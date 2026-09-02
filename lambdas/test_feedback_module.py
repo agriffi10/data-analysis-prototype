@@ -28,6 +28,7 @@ import re
 import sys
 
 import pytest
+from tf_blocks import lambda_declaration, lambda_input, strip_noise
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 INFRA = REPO / "infra"
@@ -210,9 +211,17 @@ def test_the_event_source_mapping_delivers_one_record_at_a_time() -> None:
         "line, because the unanchored string is a PREFIX of every batch size from 1 to 19 — the "
         "handler refuses a batch, so this number is the only thing making that refusal unreachable"
     )
-    assert "ignore_changes = [filename, source_code_hash, layers]" in lambda_tf, (
-        "without `layers` an apply landing after a deploy strips the cpcommon layer back off, and "
-        "the function fails at its next cold start on an import that had been working"
+    # What CI owns is the image REFERENCE, and the ignore that protects it lives in the module
+    # this function calls. Comments blanked first: that module's own comment explains why a
+    # stale `ignore_changes = [layers]` would be a fossil, and a raw scan reads the explanation
+    # as the declaration.
+    module_source = strip_noise(
+        (INFRA / "modules" / "docker-lambda" / "main.tf").read_text(encoding="utf-8")
+    )
+    ignored = re.search(r"ignore_changes\s*=\s*\[([^\]]*)\]", module_source)
+    assert ignored and ignored.group(1).strip() == "image_uri", (
+        "without it, every apply drags the whole fleet back to whatever tag Terraform was last "
+        "handed — and the function then runs an image nobody chose"
     )
 
 
@@ -377,13 +386,11 @@ def test_the_writer_is_sized_for_an_UNBOUNDED_document_and_the_ceiling_is_comput
     fleet's uncapped and capped day-object writers respectively — and that the warning threshold
     sits comfortably under the ceiling the budget buys.
     """
-    import re as _re
-
     lambda_tf = (MODULE / "lambda.tf").read_text(encoding="utf-8")
     sweep_tf = (INFRA / "modules" / "observability" / "lambda.tf").read_text(encoding="utf-8")
 
-    mine = int(_re.search(r"^\s*memory_size\s*=\s*(\d+)$", lambda_tf, _re.MULTILINE).group(1))
-    sweep = int(_re.search(r"^\s*memory_size\s*=\s*(\d+)$", sweep_tf, _re.MULTILINE).group(1))
+    mine = int(lambda_input(lambda_declaration(lambda_tf, "writer"), "memory"))
+    sweep = int(lambda_input(lambda_declaration(sweep_tf, "sweep"), "memory"))
 
     assert mine == sweep, (
         f"the feedback writer runs on {mine} MB and log-sweep on {sweep}. Both do an unbounded "

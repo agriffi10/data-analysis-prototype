@@ -42,10 +42,12 @@ browser ──sqs:SendMessage──▶ FIFO request queue ──▶ EventBridge 
 - **Cross-module ARNs are constructed strings from the root locals**, never another module's output,
   so they are known at plan time and each module plans standalone. An unknown ARN inside `compact()`
   or a list **silently drops the change**.
-- **Terraform owns the function infrastructure plus a placeholder zip; CI owns the Python code and
-  every layer attachment.** `ignore_changes = [filename, source_code_hash, layers]` on every function
-  — without `layers`, an apply landing after a deploy strips the layer back off and the function
-  fails at cold start on an import that had been working.
+- **Terraform owns the function infrastructure; CI owns which image it runs.** Every verb is a call
+  to [`../modules/docker-lambda`](../modules/docker-lambda/README.md), carrying
+  `ignore_changes = [image_uri]`. That cuts both ways: without it every apply would drag the fleet
+  back to whatever tag Terraform was last handed, and with it Terraform never moves a function
+  forward either — so CI must point every function on every deploy, and a pipeline that pushes an
+  image and points nothing leaves the fleet on the previous one, each function still working.
 - **Every verb gets its task's real timeout and memory**, not one number for the plane: a small
   validator is not the polars infer step.
 - **No `time_sleep` guard.** The deploy-role grants these resource types need are applied in

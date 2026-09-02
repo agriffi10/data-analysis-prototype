@@ -87,15 +87,10 @@ locals {
     suffix => "${var.project_name}-${var.environment}-file-ops-${suffix}"
   }
 
-  file_ops_function_arns = [
-    for suffix, name in local.file_ops_function_names :
-    "arn:aws:lambda:${var.aws_region}:${var.account_id}:function:${name}"
-  ]
-
-  file_ops_log_group_names = {
-    for suffix, name in local.file_ops_function_names :
-    suffix => "/aws/lambda/${name}"
-  }
+  # From the module's outputs, never rebuilt from a template. The point is not tidiness: an ARN
+  # a policy CONSTRUCTS stays known while the function it names is being replaced, so the policy
+  # plans no diff at all — and this list is the SFN role's whole InvokeFunction grant.
+  file_ops_function_arns = [for function in module.functions : function.function_arn]
 
   # The shared role writes to EVERY verb's log group, so one wildcard covers them.
   file_ops_log_group_wildcard_arn = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/lambda/${var.project_name}-${var.environment}-file-ops-*"

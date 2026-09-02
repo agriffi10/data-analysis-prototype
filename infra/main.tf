@@ -476,6 +476,12 @@ module "base" {
 module "auth" {
   source = "./modules/auth"
 
+  # The fleet's one container image, and the tag these functions are CREATED from. The tag
+  # is ignored after creation — CI re-points every function on each deploy — so it is an
+  # INPUT github.sha already knows rather than anything Terraform derives.
+  lambda_image_repository_url = module.lambda_image.repository_url
+  lambda_image_tag            = var.lambda_image_tag
+
   project_name = var.project_name
   environment  = var.environment
   spa_origin   = local.spa_origin
@@ -706,6 +712,12 @@ module "analytics" {
 module "shared_spaces" {
   source = "./modules/shared-spaces"
 
+  # The fleet's one container image, and the tag these functions are CREATED from. The tag
+  # is ignored after creation — CI re-points every function on each deploy — so it is an
+  # INPUT github.sha already knows rather than anything Terraform derives.
+  lambda_image_repository_url = module.lambda_image.repository_url
+  lambda_image_tag            = var.lambda_image_tag
+
   project_name             = var.project_name
   environment              = var.environment
   aws_region               = var.aws_region
@@ -780,6 +792,12 @@ module "shared_spaces" {
 module "notifications" {
   source = "./modules/notifications"
 
+  # The fleet's one container image, and the tag these functions are CREATED from. The tag
+  # is ignored after creation — CI re-points every function on each deploy — so it is an
+  # INPUT github.sha already knows rather than anything Terraform derives.
+  lambda_image_repository_url = module.lambda_image.repository_url
+  lambda_image_tag            = var.lambda_image_tag
+
   project_name = var.project_name
   environment  = var.environment
   aws_region   = var.aws_region
@@ -816,6 +834,12 @@ module "notifications" {
 module "feedback" {
   source = "./modules/feedback"
 
+  # The fleet's one container image, and the tag these functions are CREATED from. The tag
+  # is ignored after creation — CI re-points every function on each deploy — so it is an
+  # INPUT github.sha already knows rather than anything Terraform derives.
+  lambda_image_repository_url = module.lambda_image.repository_url
+  lambda_image_tag            = var.lambda_image_tag
+
   project_name = var.project_name
   environment  = var.environment
   aws_region   = var.aws_region
@@ -847,6 +871,12 @@ module "feedback" {
 # needs are already applied, so no in-module time_sleep guard is required.
 module "table_builder" {
   source = "./modules/table-builder"
+
+  # The fleet's one container image, and the tag these functions are CREATED from. The tag
+  # is ignored after creation — CI re-points every function on each deploy — so it is an
+  # INPUT github.sha already knows rather than anything Terraform derives.
+  lambda_image_repository_url = module.lambda_image.repository_url
+  lambda_image_tag            = var.lambda_image_tag
 
   project_name = var.project_name
   environment  = var.environment
@@ -903,6 +933,12 @@ module "table_builder" {
 module "table_share" {
   source = "./modules/table-share"
 
+  # The fleet's one container image, and the tag these functions are CREATED from. The tag
+  # is ignored after creation — CI re-points every function on each deploy — so it is an
+  # INPUT github.sha already knows rather than anything Terraform derives.
+  lambda_image_repository_url = module.lambda_image.repository_url
+  lambda_image_tag            = var.lambda_image_tag
+
   project_name = var.project_name
   environment  = var.environment
   aws_region   = var.aws_region
@@ -957,6 +993,12 @@ module "table_share" {
 module "file_send" {
   source = "./modules/file-send"
 
+  # The fleet's one container image, and the tag these functions are CREATED from. The tag
+  # is ignored after creation — CI re-points every function on each deploy — so it is an
+  # INPUT github.sha already knows rather than anything Terraform derives.
+  lambda_image_repository_url = module.lambda_image.repository_url
+  lambda_image_tag            = var.lambda_image_tag
+
   project_name = var.project_name
   environment  = var.environment
   aws_region   = var.aws_region
@@ -1010,6 +1052,12 @@ module "file_send" {
 module "file_ops" {
   source = "./modules/file-ops"
 
+  # The fleet's one container image, and the tag these functions are CREATED from. The tag
+  # is ignored after creation — CI re-points every function on each deploy — so it is an
+  # INPUT github.sha already knows rather than anything Terraform derives.
+  lambda_image_repository_url = module.lambda_image.repository_url
+  lambda_image_tag            = var.lambda_image_tag
+
   project_name = var.project_name
   environment  = var.environment
   aws_region   = var.aws_region
@@ -1054,6 +1102,12 @@ module "file_ops" {
 # module.analytics does not depend on it.
 module "archive" {
   source = "./modules/archive"
+
+  # The fleet's one container image, and the tag these functions are CREATED from. The tag
+  # is ignored after creation — CI re-points every function on each deploy — so it is an
+  # INPUT github.sha already knows rather than anything Terraform derives.
+  lambda_image_repository_url = module.lambda_image.repository_url
+  lambda_image_tag            = var.lambda_image_tag
 
   project_name = var.project_name
   environment  = var.environment
@@ -1121,6 +1175,12 @@ module "archive" {
 module "data_quality" {
   source = "./modules/data-quality"
 
+  # The fleet's one container image, and the tag these functions are CREATED from. The tag
+  # is ignored after creation — CI re-points every function on each deploy — so it is an
+  # INPUT github.sha already knows rather than anything Terraform derives.
+  lambda_image_repository_url = module.lambda_image.repository_url
+  lambda_image_tag            = var.lambda_image_tag
+
   project_name = var.project_name
   environment  = var.environment
   aws_region   = var.aws_region
@@ -1171,6 +1231,12 @@ module "data_quality" {
 module "control_plane_dlq_drain" {
   source = "./modules/control-plane-dlq-drain"
 
+  # The fleet's one container image, and the tag these functions are CREATED from. The tag
+  # is ignored after creation — CI re-points every function on each deploy — so it is an
+  # INPUT github.sha already knows rather than anything Terraform derives.
+  lambda_image_repository_url = module.lambda_image.repository_url
+  lambda_image_tag            = var.lambda_image_tag
+
   project_name = var.project_name
   environment  = var.environment
   aws_region   = var.aws_region
@@ -1206,6 +1272,12 @@ module "control_plane_dlq_drain" {
 module "observability" {
   source = "./modules/observability"
 
+  # The fleet's one container image, and the tag these functions are CREATED from. The tag
+  # is ignored after creation — CI re-points every function on each deploy — so it is an
+  # INPUT github.sha already knows rather than anything Terraform derives.
+  lambda_image_repository_url = module.lambda_image.repository_url
+  lambda_image_tag            = var.lambda_image_tag
+
   project_name = var.project_name
   environment  = var.environment
   aws_region   = var.aws_region
@@ -1237,6 +1309,12 @@ module "observability" {
 # bucket), which the depends_on below orders.
 module "user_directory" {
   source = "./modules/user-directory"
+
+  # The fleet's one container image, and the tag these functions are CREATED from. The tag
+  # is ignored after creation — CI re-points every function on each deploy — so it is an
+  # INPUT github.sha already knows rather than anything Terraform derives.
+  lambda_image_repository_url = module.lambda_image.repository_url
+  lambda_image_tag            = var.lambda_image_tag
 
   project_name = var.project_name
   environment  = var.environment
@@ -1326,6 +1404,12 @@ module "verification" {
 # anyway, so the spec that starts verifying tokens inherits no surprise.
 module "api" {
   source = "./modules/api"
+
+  # The fleet's one container image, and the tag these functions are CREATED from. The tag
+  # is ignored after creation — CI re-points every function on each deploy — so it is an
+  # INPUT github.sha already knows rather than anything Terraform derives.
+  lambda_image_repository_url = module.lambda_image.repository_url
+  lambda_image_tag            = var.lambda_image_tag
 
   # The FIFO request queues this function is the only writer of. Their URLs go in the environment
   # and their ARNs into the one grant; the browser's eight grants came off in the same change that

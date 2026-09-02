@@ -218,7 +218,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 210 — Dark Mode: the Measured Dark Palette, the Theme Switch and Monaco | Completed |
 | 211 — Give Feedback: the API Route, the Writer Queue and the Daily Document | Completed |
 | 212 — Container Lambdas: the Base Image, ECR and the Build Pipeline | Completed |
-| 213 — Container Lambdas: the `docker-lambda` Module and the Cutover | Draft |
+| 213 — Container Lambdas: the `docker-lambda` Module and the Cutover | In Progress |
 | 214 — Container Lambdas: Retiring the Layers and the Deploy Tables | Draft |
 | 215 — Configuration from Terraform State (retiring the repository variables) | Completed |
 | 216 — Multipart Upload & Part-Level Retry | Completed |

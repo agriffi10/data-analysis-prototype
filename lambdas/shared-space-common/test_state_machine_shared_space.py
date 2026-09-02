@@ -10,6 +10,13 @@ import pathlib
 import re
 
 import pytest
+from tf_blocks import (
+    argument,
+    lambda_declaration,
+    lambda_input,
+    module_calls,
+    strip_noise,
+)
 
 _MODULE = pathlib.Path(__file__).resolve().parents[2] / "infra" / "modules" / "shared-spaces"
 _ASL = _MODULE / "state-machine.asl.json.tftpl"
@@ -170,19 +177,32 @@ def test_the_reader_does_not_run_under_the_orchestrator_role():
     )
     assert "transfer-ownership" in verbs, "the verb, unlike the reader, does belong there"
 
-    block = lambda_tf.split('resource "aws_lambda_function" "transfer_reader"')[1].split("\n}")[0]
-    role = re.search(r"role\s*=\s*(\S+)", block).group(1)
+    block = lambda_declaration(lambda_tf, "transfer_reader")
+    role = lambda_input(block, "role")
     assert role == "aws_iam_role.transfer_reader.arn", f"the reader runs as {role}"
 
 
 def test_the_reader_gets_its_own_log_group():
-    """It leaves the for_each that gives every verb one, so without this resource Lambda creates
-    one at INFINITE retention — and checkov cannot see a log group that is not declared."""
-    lambda_tf = (_MODULE / "lambda.tf").read_text()
-    # Split on a brace at column 0, not on the first "}" — an interpolation in the name closes
-    # one long before the resource block does.
-    block = lambda_tf.split('resource "aws_cloudwatch_log_group" "transfer_reader"')[1].split("\n}")[0]
-    assert "retention_in_days" in block
+    """It leaves the for_each that gives every verb one, and a function with no declared log
+    group gets one at INFINITE retention on first invoke — which checkov cannot see at all.
+
+    The reader is its own call to the container module, and that module declares the group; so
+    what is asserted is the pair. A reader folded back into the verbs' for_each would lose its
+    own role, which is the boundary the test above exists for.
+    """
+    calls = module_calls((_MODULE / "lambda.tf").read_text())
+    assert {"functions", "transfer_reader"} <= set(calls), (
+        f"the reader is not a call of its own; this module calls {sorted(calls)}"
+    )
+    assert argument(calls["transfer_reader"], "source") == '"../docker-lambda"'
+
+    module_main = (
+        _MODULE.parent / "docker-lambda" / "main.tf"
+    ).read_text(encoding="utf-8")
+    assert re.search(r"^\s*retention_in_days\s*=", strip_noise(module_main), re.MULTILINE), (
+        "the container module no longer declares its log group's retention, so every function "
+        "in the fleet keeps its logs forever and checkov's CKV_AWS_66 sees nothing"
+    )
 
 
 def test_the_schedule_names_a_rule_the_deploy_role_can_manage():

@@ -61,7 +61,9 @@ def test_exactly_one_function_is_reachable_by_the_backfill_invoke_grant():
 def test_the_invoke_grant_reaches_nothing_the_state_machine_routes_to():
     # The machine is wired with one explicit ARN per verb, so the verbs are exactly the
     # functions named in its templatefile block — derived, not listed here.
-    routed = set(re.findall(r'aws_lambda_function\.functions\["([a-z0-9-]+)"\]', STEPFUNCTION.read_text()))
+    routed = set(
+        re.findall(r'module\.functions\["([a-z0-9-]+)"\]', STEPFUNCTION.read_text())
+    )
     granted = {s for s in _function_suffixes() if s.startswith("backfill-")}
 
     assert routed, "no routed verbs parsed from stepfunction.tf"

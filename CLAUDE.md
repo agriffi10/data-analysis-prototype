@@ -437,7 +437,7 @@ only reads; the API enqueues on its behalf.
   (hence one snippet per location, `always` throughout, and a server-level floor for errors raised
   before a location resolves); assert on **responses**, never config text; `/healthz` is
   exact-match, or a probe falls through and a broken container reads healthy.
-- **ONE image for all 86 Lambdas, deployed nowhere yet** — shared code on `/opt/python`, function
+- **ONE image, and all 86 Lambdas now RUN it** — shared code on `/opt/python`, function
   modules flat at the task root, **dependencies deliberately in site-packages** so the layout
   guard is a real set equality. One shared task root is the new hazard: a duplicate name does not
   collide, it **silently wins** for the whole fleet, so collisions and shadowing are asserted
@@ -445,6 +445,15 @@ only reads; the API enqueues on its behalf.
   `--entrypoint python` omits `/opt/python`, and a reconstructed path that is a superset passes
   what production fails — and its expected count comes from the deploy table, never from the same
   rule the sweep uses, or renaming a handler drops **both** sides and agrees.
+- **`package_type` is FORCE-NEW, so the cutover destroyed and recreated all 86** — ordered only
+  because **172 `moved` blocks** re-addressed each function and its log group; without one,
+  Terraform plans a create and a destroy with **no edge between them**, which is `CreateFunction`
+  racing `DeleteFunction` on one name. So **reverting the cutover is not a rollback** — it deletes
+  those blocks and re-races. `image_uri` is *not* ForceNew, which is what lets CI move the fleet
+  forward. **Every `aws_lambda_permission` binds to the module's `function_arn`, never a name**: a
+  name is config-known and identical either side, so Terraform plans **no diff** while the
+  replacement takes the resource policy with it — an API-wide 500 behind a green apply, a green
+  deploy and a green probe (a probe invokes through IAM, which never reads the resource policy).
 - **Configuration is a RUNTIME document** (`/config.json`, `no-store`, refused whole on version)
   with **no production fallback**. Its key set is wired in five places, asserted across all, and the
   container **refuses to start** on a required one unset or empty. **The deploy READS the values

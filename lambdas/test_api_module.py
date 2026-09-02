@@ -55,7 +55,13 @@ from cpcommon.jwks import (
     API_GATEWAY_INTEGRATION_CEILING_SECONDS,
     JWKS_HTTP_TIMEOUT_SECONDS,
 )
-from tf_blocks import blocks
+from tf_blocks import (
+    argument,
+    lambda_declaration,
+    lambda_environment,
+    lambda_input,
+    strip_noise,
+)
 
 INFRA = pathlib.Path(__file__).resolve().parent.parent / "infra"
 API = INFRA / "modules" / "api"
@@ -215,8 +221,8 @@ def _api_environment() -> dict[str, str]:
     Raises:
       None.
     """
-    function = blocks((API / "lambda.tf").read_text(), "aws_lambda_function")["api"]
-    body = re.search(r"environment\s*\{(.*?)\n  \}", function, re.DOTALL).group(1)
+    function = lambda_declaration((API / "lambda.tf").read_text(), "api")
+    body = lambda_environment(function)
     return {
         match.group(1): match.group(2).strip()
         for match in re.finditer(r"^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.+)$", body, re.MULTILINE)
@@ -362,12 +368,19 @@ def test_the_function_is_an_isolated_front_door_holding_only_what_it_needs() -> 
     assert "aws_api_gateway_account" not in source, (
         "an HTTP API needs no account-level CloudWatch Logs role"
     )
+    # ONE log group is declared in this module: the API Gateway access log. The function's own
+    # belongs to the container module it calls, which is what stops a function and its log group
+    # being declared in two places and disagreeing — so this counts the module's, and the
+    # function's retention is asserted where it is set.
     assert set(re.findall(r'resource\s+"aws_cloudwatch_log_group"\s+"(\w+)"', source)) == {
-        "api", "access",
+        "access",
     }
-    assert len(re.findall(r"retention_in_days\s*=\s*\d+", source)) == 2, (
-        "both the function's log group and the access-log group need a retention"
+    assert len(re.findall(r"retention_in_days\s*=\s*\d+", source)) == 1, (
+        "the access-log group needs a retention"
     )
+    assert "retention_in_days" in (
+        (INFRA / "modules" / "docker-lambda" / "main.tf").read_text(encoding="utf-8")
+    ), "the container module must still manage the function log group's retention"
     assert re.search(r'endpoint_type\s*=\s*"REGIONAL"', source)
     assert "aws_acm_certificate_validation.api.certificate_arn" in root_call, (
         "the certificate must come from the validation, not from aws_acm_certificate.api.arn"
@@ -417,17 +430,28 @@ def test_the_function_is_an_isolated_front_door_holding_only_what_it_needs() -> 
         "zip's package or the image's task root), and an env-borne one would name the last "
         "infra commit rather than the running code"
     )
-    assert 'data "archive_file" "api_placeholder"' in source
-    ignored = re.search(r"ignore_changes\s*=\s*\[([^\]]*)\]", source)
-    assert ignored, "the function must ignore changes to the attributes CI owns"
-    for attribute in ("filename", "source_code_hash", "layers"):
-        assert attribute in ignored.group(1), (
-            f"ignore_changes omits {attribute} — an apply would revert what CI deployed"
-        )
-
-    declared_timeout = int(
-        re.search(r"^\s*timeout\s*=\s*(\d+)", source, re.MULTILINE).group(1)
+    # There is no placeholder artefact any more: the image is valid from the first apply. What
+    # CI owns is now the image REFERENCE, and the ignore that protects it lives in the module
+    # this function calls — so the assertion follows it there rather than being dropped.
+    call = lambda_declaration(source, "api")
+    assert argument(call, "source") == '"../docker-lambda"', (
+        "the API function is no longer a call to the fleet's container module"
     )
+    # Comments blanked first. That module's own comment explains why a stale
+    # `ignore_changes = [layers]` would be a fossil, and a raw scan reads the explanation as the
+    # declaration — a failure sentence describing something the file does not do.
+    module_source = strip_noise(
+        (INFRA / "modules" / "docker-lambda" / "main.tf").read_text(encoding="utf-8")
+    )
+    ignored = re.search(r"ignore_changes\s*=\s*\[([^\]]*)\]", module_source)
+    assert ignored, "the container module must ignore changes to what CI owns"
+    assert ignored.group(1).strip() == "image_uri", (
+        f"ignore_changes is [{ignored.group(1).strip()}] — an apply would drag the whole fleet "
+        "back to whatever tag Terraform was last handed, and a stale `layers` entry would be a "
+        "fossil that reads as meaningful on a function that has none"
+    )
+
+    declared_timeout = int(lambda_input(call, "timeout"))
     declared_ceiling = (
         int(re.search(r"timeout_milliseconds\s*=\s*(\d+)", source).group(1)) // 1000
     )
