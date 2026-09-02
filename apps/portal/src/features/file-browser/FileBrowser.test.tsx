@@ -584,6 +584,19 @@ describe('FileBrowser — resolving a collision through the UI (SPEC-154 FR-003)
     expect(mock.uploadFile.mock.calls[1][0]).toMatchObject({key: 'alice/notes-2.txt', overwrite: false});
     expect(await screen.findByText('Uploaded')).toBeInTheDocument();
   });
+
+  it('drops the item from the queue when the collision prompt is cancelled — no second upload', async () => {
+    mock.uploadFile.mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}} as never);
+
+    const {user} = renderBrowser();
+    await uploadInto(user);
+
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', {name: 'Cancel'}));
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', {name: 'Uploads'})).not.toBeInTheDocument();
+    expect(mock.uploadFile).toHaveBeenCalledTimes(1);
+  });
 });
 
 // FR-003 AC3/AC5: the BATCH prompt, and the summary banner a user actually reads.
