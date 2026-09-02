@@ -494,7 +494,7 @@ These pass locally and fail later — check them as part of the work, not as an 
   [`infra/info/deploy-role-iam.md`](../infra/info/deploy-role-iam.md) **first**, and treat the IAM
   expansion as in-scope work for the spec.
 - **Adding or rewiring a Lambda** has its own split — Terraform owns the function, CI owns the code
-  and every layer attachment — and its own deploy-time traps:
+  and which image it runs — and its own deploy-time traps:
   [`lambdas/info/deployment.md`](../lambdas/info/deployment.md).
 
 ---

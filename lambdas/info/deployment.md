@@ -169,9 +169,16 @@ Two things about that path, both worth knowing before taking it. **Terraform tol
 block whose `from` is not in state** — no error, no warning — so a mistyped address is a block that
 moves nothing, and the resource falls back to the create-beside-destroy the blocks exist to prevent.
 The plan is byte-identical to one with no block at all; measured. And **the reverted configuration
-brings the placeholder zips back**, so every function is recreated raising *"code not yet deployed by
-CI"* until the next `Deploy Lambdas` run points and re-attaches. An infra rollback is therefore a
-two-step recovery, not one.
+brings the placeholder zips back** — which is where the path stops being a recovery at all: nothing
+can deploy a zip function any more. `point-lambda.sh` refuses a non-`Image` packaging by name and
+the layer job is gone, so 86 functions would sit on placeholder code raising *"code not yet deployed
+by CI"* with no pipeline able to fix them. Recovering from that means restoring the zip pipeline
+first, out of git history.
+
+**So do not roll the infrastructure back. Roll the CODE back** — point the fleet at a previous sha's
+image, above — which is the recovery this arc actually built and exercised. The infra revert is
+documented here so that nobody discovers its shape during an incident, not because it is the
+procedure to reach for.
 
 ## Related
 

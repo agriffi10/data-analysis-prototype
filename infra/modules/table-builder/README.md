@@ -70,7 +70,7 @@ budget**, so raising a verb's timeout fails there rather than in production.
 Adding an entry:
 
 - **`lambda.tf` needs no edit** — it is entirely `for_each` over this map, so the function, its log
-  group and its placeholder zip all follow.
+  group all follow — the log group from the container module the call goes through.
 - **`stepfunction.tf` does need one** — its `templatefile()` call passes an explicit per-function map.
 - **The deploy role needs none** — `modules/base`'s grant scopes to `{project}-*-table-builder-*`,
   which already covers a new function and its log group.

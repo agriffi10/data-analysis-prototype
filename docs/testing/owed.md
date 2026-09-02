@@ -135,11 +135,19 @@ recipe anywhere** — write one when you run it.
 | **Fresh sign-in end to end, from a private window** (SPEC-192) — proves Amplify is configured before the first render | A warm session cannot exercise it: the browser arrives already authenticated, and a bootstrap that configured Amplify too late looks identical. Same shape as the omitted Hosted UI host that broke fresh sign-in for a day. | §A.4 |
 | **Everything the container owns about `/config.json`** — the entrypoint rendering it from the task environment, nginx's `no-store`, image promotion itself | No container exists yet; the document is a static object until SPEC-194. | SPEC-194's own checks |
 
-### SPEC-213 FR-007's rollback has a lever and no exercise yet
+### DISCHARGED 2026-09-02 — SPEC-213 FR-007's rollback, exercised both ways
 
-| Check | Why it is not settled | What it takes |
-|---|---|---|
-| **The rollback is exercised once, and what it was exercised against is recorded** (FR-007) | The lever exists — `Deploy Lambdas` takes an `image_tag` dispatch input, the tag is checked against the registry up front, and `lambdas/test_point_lambda.py` pins the override against a stub. None of that is an exercise. Recording one before running it is the failure this ledger exists to name. | Dispatch `Deploy Lambdas` with a previous main sha, **read `Code.ImageUri` back off a sample** to confirm, then dispatch again with an empty tag. Confirming by "main went green" is exactly wrong: the concurrency group holds one pending run, so a merge landing mid-exercise can evict the forward dispatch and leave the fleet on the rollback image, serving perfectly. |
+Run [33667798352](https://github.com/agriffi10/data-analysis-prototype/actions/runs/33667798352)
+pointed all 86 functions at `9d1c8fa1`'s image; run
+[33668619737](https://github.com/agriffi10/data-analysis-prototype/actions/runs/33668619737)
+returned them to `1028b8b5`. Both green, and the probe passed on each.
+
+**What makes it a real discharge rather than a green tick:** `point-lambda.sh` reads
+`Code.ImageUri` back off every function and fails on a mismatch, so 86 per-function read-backs are
+what the green consists of. That matters because the obvious confirmation — "main went green" —
+cannot see the failure this arc is about: the `deploy-lambdas` concurrency group holds one pending
+run, so a merge landing mid-exercise can evict the FORWARD dispatch and leave the fleet on the
+rollback image, serving perfectly. The queue lock was held across both runs for that reason.
 
 ### The cold-start probe's discriminator has never been observed on this fleet
 
@@ -154,14 +162,15 @@ designs passed the failure they were written for.
 | Check | Why it is not settled | What it takes |
 |---|---|---|
 | **An init failure on this account produces a log the probe rejects** | Three designs have now been wrong about which line separates "the container did not start" from "the handler refused the payload", and each looked right until it was driven. The current rule is safe in the false-positive direction — `Status: error` never appears on a healthy invocation, so it cannot redden a good deploy — but its coverage of the failure is inferred. | Deploy a throwaway function on the fleet image whose module raises at import, `aws lambda invoke --log-type Tail` it, and decode `LogResult`. If the `REPORT` line is old-style and carries no `Status` field, an import-time exception whose class is not under `Runtime.` would pass, and the rule needs the `INIT_REPORT` signal instead — which is NOT used today because some runtimes emit it on every cold start and failing on it would redden every deploy. |
-| **The first real probe run's output is read** | Nothing in the suite can tell whether the gate observed what it thinks it observed; the script prints the errorType it saw for every function, and that output is the evidence. | Read the `probe` job's log on the first green `Deploy Lambdas` after this merges, and confirm each line reports a handler that ran rather than a phase that failed. |
+| ~~**The first real probe run's output is read**~~ **DISCHARGED 2026-09-02** | Run [33666840335](https://github.com/agriffi10/data-analysis-prototype/actions/runs/33666840335): all 14 reached their handler — six `validate-authorize` verbs refusing with `TerminalError`, two writers with `ValidationError`, `pre-signup` with `Exception`, and five returning cleanly. **This settles the false-positive direction only.** Nine of those went through the `^REPORT RequestId` branch, so a handler error demonstrably produces an anchored REPORT line in a real production tail. The failure direction is still inferred. | — |
 
 ### The cold-start probe reaches 15 of 86, and one of those is deliberately not probed
 
 `Deploy Lambdas` invokes one function per plane plus each standalone after pointing the fleet, and
-requires `START RequestId` in the log — the signal Lambda writes only once the handler is entered,
-so an init that raised cannot produce it. That is SPEC-213 FR-006, and these are the parts it does
-not reach.
+fails on an `errorType` under `Runtime.`, on `Status: error` in the log, or on no anchored
+`^REPORT RequestId` line. (An earlier draft of this row said `START RequestId` — the first of three
+designs the spec discarded, because it is written *before* init and regardless of its outcome.)
+That is SPEC-213 FR-006, and these are the parts it does not reach.
 
 | Check | Why the probe cannot settle it | What it takes |
 |---|---|---|
@@ -813,7 +822,7 @@ against the account rather than a green tick:
 
 | Owed | Why it cannot be run here | What discharges it |
 |---|---|---|
-| That the image can actually be **run** by Lambda | No function points at it — deliberately; this spec deploys nothing | SPEC-213. Until then the strongest available evidence is the behaviour matrix, which runs the image through the same `/var/runtime/bootstrap` a deployed function uses, and imports every handler under it |
+| ~~That the image can actually be **run** by Lambda~~ **DISCHARGED 2026-09-02 by SPEC-213** | It named SPEC-213 as the condition, and that spec shipped: all 86 functions run the image | Run [33666840335](https://github.com/agriffi10/data-analysis-prototype/actions/runs/33666840335) invoked 14 of them on the **deployed** artefact and all reached their handler — recorded in full above |
 
 ## SPEC-200 — the enqueue paths (2026-08-29, PARTLY RUN 2026-08-30)
 

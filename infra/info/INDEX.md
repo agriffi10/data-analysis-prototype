@@ -31,7 +31,7 @@ keys with em dashes are rejected at `CreatePolicy`, invisible to `tofu validate`
 | `data` | the **user-space bucket** (Bucket 1) and the shared **portal role** | [README](../modules/data/README.md) |
 | `auth` | the Cognito User Pool, its SPA client, the Hosted UI domain and both triggers | [README](../modules/auth/README.md) |
 | `analytics` | the Athena workgroup, the **admin bucket**, and the **Lake Formation** bootstrap | [README](../modules/analytics/README.md) |
-| `lambda-artifacts` | the bucket CI stages Lambda zips in | [README](../modules/lambda-artifacts/README.md) |
+| `lambda-artifacts` | the bucket CI staged Lambda zips in — **nothing writes to it now**; it survives until SPEC-214 | [README](../modules/lambda-artifacts/README.md) |
 | `observability` | the structured-logging queue and its scheduled sweep | [README](../modules/observability/README.md) |
 | `lambda-image` | the registry CI pushes the Lambda container image to | [README](../modules/lambda-image/README.md) |
 | `docker-lambda` | one container-packaged function; every Lambda in the repo is a call to it | [README](../modules/docker-lambda/README.md) |

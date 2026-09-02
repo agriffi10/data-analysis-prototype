@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# ⚠ NOTHING CALLS THIS. SPEC-213 removed `point-lambda.sh`'s zip branch and made a non-`Image`
+# packaging a refusal, so there is no path from a deploy to this script. It survives until
+# SPEC-214, which deletes it against a coverage proof rather than on the strength of being
+# unreachable. Everything below describes a pipeline that no longer runs.
 # Builds and deploys ONE Lambda function: package, combined size guard, artifact
 # upload, update-function-code, and the layer attachment.
 #

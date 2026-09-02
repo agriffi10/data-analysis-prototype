@@ -135,25 +135,25 @@ The consolidation itself (from `table-builder-infer-schema/ddl.py`, SPEC-069) wa
 move as `cpcommon.type_mapping`: the projection-props logic is fiddly, easy to get subtly
 wrong, and must not exist twice.
 
-## `cpcommon/type_mapping.py` — polars in a layer every verb attaches
+## `cpcommon/type_mapping.py` — polars, and the barrier that used to be there
 
-This module imports **polars**, and `cpcommon` is attached to **every** control-plane verb.
-Importing it from a verb that does not also attach a polars layer is an `ImportError` at
-**cold start**. Only two functions carry polars today:
+This module imports **polars**, and `cpcommon` is reachable from every control-plane verb.
 
-- `table-builder-infer-schema` (the `table-builder-polars` layer)
-- `data-quality-inspect-source` (the `data-quality-polars` layer)
+> **The import barrier is GONE.** While the fleet shipped as zips, importing this from a verb
+> that did not also attach a polars layer was an `ImportError` at **cold start**, and only
+> `table-builder-infer-schema` and `data-quality-inspect-source` carried polars. One image now
+> installs it once, so **every** function can import this file successfully. That is the
+> "strictly wider import surface" the container arc names as the one thing it makes worse.
 
-Every other verb — 15+ of them — attaches `cpcommon` without polars.
+Two consequences, and the second replaces the old rule:
 
-Living here is safe **only** because `cpcommon/__init__.py` imports no submodules, so this
-file is loaded if and only if something explicitly imports it. Do **not** add
-`from . import type_mapping` to that `__init__`: it would break every polars-free verb the
-instant it deployed, which is the shape of the PR #196 outage — a shared layer's import-time
-requirement that only some functions can satisfy.
-
-Adding a polars-carrying verb? Give it `cpcommon: true` **and** a polars layer in
-`deploy-lambdas.yml`'s matrix, and check the combined per-function size guard.
+- `cpcommon/__init__.py` still imports no submodules, so this file is loaded only when something
+  explicitly imports it. Keep it that way — not because an import would now *fail*, but because a
+  package that drags polars into every cold start pays for it in every function's init time.
+- **Nothing will stop an accidental import any more.** The old protection was the packaging: a verb
+  that should not use polars could not. What replaces it is the AST sweep the arc records, and
+  reviewing what a verb imports — which is exactly why the arc says the sweep, not the packaging,
+  is what pays for the wider surface.
 
 ## `cpcommon/observability.py` — the field rule's edges
 

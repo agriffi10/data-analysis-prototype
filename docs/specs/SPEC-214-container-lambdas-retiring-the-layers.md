@@ -140,6 +140,14 @@ to say which functions exist, and Terraform already knows.
 
 #### Acceptance Criteria:
 
+- [ ] **The sweep is MECHANICAL, and the command is part of the criterion.** SPEC-213 did this by
+      memory and a cross-site review found nineteen further sites — most of them a *second* stale
+      paragraph in a file whose first had already been corrected, which is the signature of a sweep
+      that fixed what someone remembered. Run
+      `grep -rniE 'placeholder|attach|layer|zip|artifacts bucket|lambda-layers' docs/ */info/ */README.md .github/ README.md CLAIMS.md 2>/dev/null`
+      and dispose of **every** hit as still-true, false-and-fixed, or false-and-marked-as-history.
+      A hit left undisposed fails this criterion.
+
 - [ ] `lambdas/info/deployment.md` describes the image split: Terraform owns the function and its
       command, CI owns the image and points every function at it. Its "Layers deploy like code"
       section, its two-deploy-tables section and its "Adding a function" steps are rewritten, not

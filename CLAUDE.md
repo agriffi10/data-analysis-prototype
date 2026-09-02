@@ -82,10 +82,11 @@ recorded nowhere else** — when a spec closes, prune here rather than appending
 
 ### Current work
 
-- **Container Lambdas (212 → 213 → 214, 212 done)** — an image exists in ECR and **runs nothing**;
-  the fleet still ships zips with layers. 213 cuts over and **CI must point every function**, or
-  all 86 keep working on the old image with nothing red. 214 deletes the tables and must repoint
-  the matrix's count expectation rather than dropping it. Narrative in `ARCS.md`.
+- **Container Lambdas (212 → 213 → 214, 213 done)** — all 86 functions run the image and CI points
+  every one of them on every run. **214 is a DELETION**, so its risk is a guard nobody misses: it
+  removes the two tables, the layer build and `deploy-lambda.sh` — which nothing calls now, though
+  `test_deploy_packaging.py` still runs it — and must repoint the matrix's count expectation rather
+  than dropping it. Narrative in `ARCS.md`.
 
 
 ## Key Decisions (settled — don't re-litigate)
@@ -209,7 +210,8 @@ unrecoverable — revisit before real user data lands.
 Shared spaces, table builder, table share, data quality, file send, **archive** and file
 operations each get:
 a **FIFO SQS** queue → EventBridge Pipe → Step Functions → single-task verb Lambdas, **one execution
-role per plane**, its own DLQ, and a `cpcommon` layer plus a domain layer. A plane sharing another's
+role per plane** and its own DLQ; `cpcommon` and a domain module are a CODE split, not a packaging
+one, since the cutover. A plane sharing another's
 DLQ lets one malformed request dead-letter someone else's work.
 
 **The traps, every one of which ships green:**
@@ -446,15 +448,17 @@ only reads; the API enqueues on its behalf.
   `--entrypoint python` omits `/opt/python`, and a reconstructed path that is a superset passes
   what production fails — and its expected count comes from the deploy table, never from the same
   rule the sweep uses, or renaming a handler drops **both** sides and agrees.
-- **`package_type` is FORCE-NEW, so the cutover destroyed and recreated all 86** — ordered only
-  because **172 `moved` blocks** re-addressed each function and its log group; without one,
-  Terraform plans a create and a destroy with **no edge between them**, which is `CreateFunction`
-  racing `DeleteFunction` on one name. So **reverting the cutover is not a rollback** — it deletes
-  those blocks and re-races. `image_uri` is *not* ForceNew, which is what lets CI move the fleet
-  forward. **Every `aws_lambda_permission` binds to the module's `function_arn`, never a name**: a
-  name is config-known and identical either side, so Terraform plans **no diff** while the
-  replacement takes the resource policy with it — an API-wide 500 behind a green apply, a green
-  deploy and a green probe (a probe invokes through IAM, which never reads the resource policy).
+- **`package_type` is FORCE-NEW: the cutover replaced all 86**, ordered only by **172 `moved`
+  blocks** — without one, Terraform plans a create and a destroy with **no edge between them**, and
+  it tolerates a `moved` whose `from` is not in state **silently**. So **reverting is not a
+  rollback**; pointing at a previous sha's image is, and `image_uri` is *not* ForceNew, which is what
+  lets CI move the fleet at all. **Every `aws_lambda_permission` binds to `function_arn`, never a
+  name** — a name is config-known, plans **no diff**, and lets the replacement take the resource
+  policy: an API-wide 500 behind a green apply and a green probe. Six planes' constructed ARN lists
+  moved for the same reason. **CI points EVERY function every run** ("which changed" has no answer
+  with one artefact; an un-pointed one runs an older image *working perfectly*), reconciles by NAME,
+  then proves a sample STARTED — a check that took three designs, none of which an emulator can
+  settle, because it diverges from Lambda on exactly the init-failure path.
 - **Configuration is a RUNTIME document** (`/config.json`, `no-store`, refused whole on version)
   with **no production fallback**. Its key set is wired in five places, asserted across all, and the
   container **refuses to start** on a required one unset or empty. **The deploy READS the values

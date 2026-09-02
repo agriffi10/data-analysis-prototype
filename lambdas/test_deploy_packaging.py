@@ -1,5 +1,10 @@
 """What actually reaches the deployment package, run rather than read.
 
+**THIS SUITE NOW PINS UNREACHABLE SHELL.** SPEC-213 removed `point-lambda.sh`'s zip branch, so
+nothing calls `deploy-lambda.sh` any more — the copy block extracted and RUN below is dead code,
+and this file will stay green whatever happens to the pipeline that replaced it. SPEC-214 deletes
+both. Kept until then rather than deleted early, because 214 removes it against a coverage proof.
+
 The build step is four lines of shell and it decides which of a function's modules exist at
 runtime. Getting it wrong is invisible everywhere it could be caught: ``conftest.py`` puts the
 function directory on ``sys.path`` so every import resolves under pytest, and

@@ -63,6 +63,13 @@ def _stub(tmp_path, meta, payload, *, exit_code=0, stderr=""):
     script.write_text(
         textwrap.dedent(f"""\
         #!/usr/bin/env bash
+        # Only `invoke` writes an outfile. Without this guard the stub also answers the
+        # `wait function-active-v2` call, whose LAST argument is the function NAME — and it wrote
+        # a file called `dat-prod-alpha` into whatever directory pytest was run from.
+        case "$*" in
+          *"lambda invoke"*) ;;
+          *) exit 0 ;;
+        esac
         printf '%s' {json.dumps(stderr)} >&2
         [ {exit_code} -eq 0 ] || exit {exit_code}
         for arg in "$@"; do OUTFILE="$arg"; done
@@ -277,6 +284,7 @@ def test_one_failure_among_several_fails_the_job_and_names_only_that_one(tmp_pat
     script.write_text(
         textwrap.dedent(f"""\
         #!/usr/bin/env bash
+        case "$*" in *"lambda invoke"*) ;; *) exit 0 ;; esac
         for arg in "$@"; do OUTFILE="$arg"; done
         case "$*" in
           *beta*) printf '%s' '{{"errorType": "Runtime.HandlerNotFound"}}' > "$OUTFILE"

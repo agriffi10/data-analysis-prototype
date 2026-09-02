@@ -28,9 +28,10 @@ It is **60s, not 30s**, because the first apply saw a later bucket-config call
 Lambda copies the code internally on `update-function-code`, so an expired S3 object never affects a
 running function. Packages expire after 30 days to keep the bucket bounded.
 
-The second lifecycle rule aborts incomplete multipart uploads after 7 days (`CKV_AWS_300`). CI
-uploads a zip per function per deploy, so **an interrupted runner is the ordinary way this bucket
-acquires orphaned parts** — billed, and invisible to every listing.
+The second lifecycle rule aborts incomplete multipart uploads after 7 days (`CKV_AWS_300`). While
+CI uploaded a zip per function per deploy, **an interrupted runner was the ordinary way this bucket
+acquired orphaned parts** — billed, and invisible to every listing. Nothing uploads now, so the rule
+is sweeping up after a pipeline that has stopped running.
 
 ## The bucket name comes from the root module
 
