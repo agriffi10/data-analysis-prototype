@@ -107,6 +107,19 @@ several of them years old.
   in this repo shipped as source comments and were believed for weeks — a "registry guard" the
   router advertised and did not have, and a credential "scrub" a config module named as the thing
   keeping tokens out of logs. Both were found by writing the test that assumed them.
+- **A verification method has a frame, exactly as a review does.** Several sweeps that all ask the
+  same question are one check run however many times, however exhaustive each is — proving that moved
+  content survived says nothing about content that was newly written. Before trusting a verification,
+  ask what question it asks, and whether anything asks a different one. Its stopping rule is the
+  sweep's: stop when a fresh question would not change what you conclude.
+- **Never carry an evidence sentence from another repo's docs or commit messages — re-measure it
+  here, or drop it.** It does not feel like guessing: the sentence was written by someone with that
+  repo open, it reads as measured, and it survives being repeated. But a claim about another codebase
+  is unverifiable in this one, and a reader who checks it finds nothing. **Anchor both ends of any
+  measurement to a commit** a reader can re-derive it from — anchoring only the end leaves "from"
+  as whichever commit the writer had in mind. If both ends cannot be cited, state the principle and
+  drop the number. `scripts/validate_docs.py`'s budget history is the shape to copy: every figure in
+  it is tied to the cut that produced it.
 - **A mechanical sweep REPORTS before it applies.** Print what it would change, read the list, then
   re-run with `--apply`, and check the result by diffing **test names** rather than a pass count. A
   classifier that looks right is routinely wrong at its edges: a sweep for unused module-level
@@ -118,6 +131,19 @@ several of them years old.
   round spawning a review of its fixes. A frame only finds what its mutations probe, so a fix that
   satisfies a weak mutation can still be wrong: the same reduction had a `watch_ci` guard restored
   against one frame's probe and broken under the next frame's.
+- **A gate is not tested by running it on the thing it guards.** Running a checker over this
+  repo's own docs proves the docs pass; it proves nothing about whether any check still fires, and a
+  gate whose checks have gone quiet is indistinguishable from a healthy repo. A gate owes a **fixture
+  corpus**: one case per construct, asserting the specific **failure text** rather than the exit code,
+  because a check that fails for the wrong reason gets "fixed" by changing the wrong thing. Include
+  cases that assert **silence** — a corpus of only-failures cannot see a false positive. Prove the
+  corpus bites by defeating each check in turn and watching it redden.
+  Measured here: `scripts/validate_docs.py` is the gate this repo's doc discipline rests on —
+  fifteen checks in `main()`, run unconditionally on every pull request — and it has no test of any
+  kind. Nothing shows that any of the fifteen still fires.
+- **One fixture per guard is not enough when the guard has more than one exit.** A check with two
+  terminating conditions is satisfied by a fixture exercising either, so the mutant that breaks the
+  other survives with the suite green. Count the ways a check can stop, and write that many cases.
 - **Reasoning finds wording; execution finds defects.** Require a reproduction, not an argument — a
   run in the browser or against real AWS. SPEC-137's instrumented code passed review, unit tests and
   `update-function-code`, then raised `ModuleNotFoundError` at every cold start and broke sign-up for
