@@ -117,6 +117,25 @@ jobs:
         working-directory: infra
         run: tofu validate
 
+      # `tofu validate` walks the ROOT's module graph, so a module nothing calls yet is checked by
+      # nothing at all — measured: a module referencing an undeclared variable leaves the root
+      # validate reporting "Success!". `docker-lambda` is in exactly that state until the cutover
+      # calls it, which is the one window where a mistake in it would surface for the first time
+      # on the apply that replaces all 86 functions.
+      - name: Validate every module the root does not reach
+        run: |
+          set -euo pipefail
+          checked=0
+          for module in infra/modules/*/; do
+            grep -qE "\./modules/$(basename "$module")\"?$|\./modules/$(basename "$module")\"" infra/*.tf && continue
+            echo "::group::$(basename "$module")"
+            tofu -chdir="$module" init -backend=false >/dev/null
+            tofu -chdir="$module" validate
+            checked=$((checked + 1))
+            echo "::endgroup::"
+          done
+          echo "validated ${checked} module(s) the root does not call."
+
       - name: OpenTofu plan
         working-directory: infra
         # -out saves the plan so `tofu show -json` can render it for Checkov (SPEC-139).
@@ -143,6 +162,10 @@ jobs:
           # careless edit away from being lost.
           TF_VAR_spa_desired_count: ${{ vars.TF_VAR_spa_desired_count || '0' }}
           TF_VAR_spa_image_tag: ${{ vars.TF_VAR_spa_image_tag || 'placeholder' }}
+          # The commit being applied. Unlike spa_image_tag this carries no fallback and no
+          # repository variable: it is an input github.sha already knows, and a stale
+          # default would create functions from an image nobody meant.
+          TF_VAR_lambda_image_tag: ${{ github.sha }}
           # THE SAME repository variable the task definition renders CONFIG_maxUploadBytes from,
           # which is what the container serves in /config.json. One renderer now, but the variable
           # still feeds Terraform here as well — sourcing either from anywhere else makes the
@@ -389,6 +412,10 @@ jobs:
           # careless edit away from being lost.
           TF_VAR_spa_desired_count: ${{ vars.TF_VAR_spa_desired_count || '0' }}
           TF_VAR_spa_image_tag: ${{ vars.TF_VAR_spa_image_tag || 'placeholder' }}
+          # The commit being applied. Unlike spa_image_tag this carries no fallback and no
+          # repository variable: it is an input github.sha already knows, and a stale
+          # default would create functions from an image nobody meant.
+          TF_VAR_lambda_image_tag: ${{ github.sha }}
           # THE SAME repository variable the task definition renders CONFIG_maxUploadBytes from,
           # which is what the container serves in /config.json. One renderer now, but the variable
           # still feeds Terraform here as well — sourcing either from anywhere else makes the

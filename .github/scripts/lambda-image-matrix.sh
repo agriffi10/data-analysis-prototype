@@ -309,6 +309,25 @@ else
        "$(jq -r '.import_failures | to_entries[] | "  \(.key): \(.value)"' <<<"$REPORT")"
 fi
 
+# ── The build stamp ───────────────────────────────────────────────────────────
+# The stamp is a FILE in the task root, not an environment variable — the SPA image's equivalent
+# check reads `printenv` and is an analogue here, not a transplant. Terraform owns each function's
+# environment map, so an env-borne version would be reverted by the next apply.
+#
+# This exists because a `--build-arg` dropped from ONE of the two image workflows is otherwise
+# invisible: the image builds, every handler imports, the matrix passes, and every log record the
+# fleet emits carries the 0.0.0 sentinel instead of a commit. The expected value is the tag being
+# built, which is what makes "the sha identifies what is running" true of the stamp as well as of
+# the registry.
+STAMP=$(docker exec "$NAME" cat /var/task/BUILD_VERSION 2>/dev/null || true)
+EXPECTED_STAMP="${IMAGE##*:}"
+if [ -z "$STAMP" ]; then
+  fail "BUILD_VERSION is stamped in the image" \
+       "empty or absent — the build ran without --build-arg BUILD_VERSION, so every record this fleet emits will carry the 0.0.0 sentinel"
+else
+  check_eq "BUILD_VERSION is the tag being built" "$STAMP" "$EXPECTED_STAMP"
+fi
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
   echo "${CHECKS} checks passed."

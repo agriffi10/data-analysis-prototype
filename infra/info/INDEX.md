@@ -34,6 +34,7 @@ keys with em dashes are rejected at `CreatePolicy`, invisible to `tofu validate`
 | `lambda-artifacts` | the bucket CI stages Lambda zips in | [README](../modules/lambda-artifacts/README.md) |
 | `observability` | the structured-logging queue and its scheduled sweep | [README](../modules/observability/README.md) |
 | `lambda-image` | the registry CI pushes the Lambda container image to | [README](../modules/lambda-image/README.md) |
+| `docker-lambda` | one container-packaged function; every Lambda in the repo is a call to it | [README](../modules/docker-lambda/README.md) |
 
 ## Delivery
 

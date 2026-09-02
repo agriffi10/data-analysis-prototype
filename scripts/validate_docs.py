@@ -131,6 +131,33 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 #: link-checked. Add the tree in the same commit that creates it.
 DOC_TREES = ("docs", "apps/portal/info", "lambdas/info", "infra/info", "infra/modules")
 
+#: Directories a doc walk must not descend into. `.terraform` holds a vendored copy of every
+#: provider, each with its own README and CHANGELOG carrying links this repo does not own — three
+#: of them dangle. It is gitignored, so it never reaches CI, which is exactly why this was easy to
+#: miss: the gate every reviewer is told to run locally breaks the moment anyone runs
+#: `tofu init` inside a module directory, and it breaks with a message about a link in HashiCorp's
+#: changelog.
+VENDORED = (".terraform", "node_modules", "__pycache__", ".venv")
+
+
+def _docs_in(tree):
+    """Every markdown file in a doc tree, skipping vendored directories.
+
+    Args:
+      tree: A path relative to the repository root.
+
+    Returns:
+      The markdown files, sorted.
+
+    Raises:
+      None.
+    """
+    return sorted(
+        path
+        for path in (ROOT / tree).rglob("*.md")
+        if not any(part in VENDORED for part in path.parts)
+    )
+
 TESTING_PERMANENT = frozenset({"e2e.md", "owed.md", "sessions.md"})
 TESTING_INFLIGHT_MAX = 1
 
@@ -760,7 +787,7 @@ def check_links() -> list[str]:
     errors = []
     files = [ROOT / "README.md", ROOT / "CLAUDE.md"]
     for tree in DOC_TREES:
-        files.extend(sorted((ROOT / tree).rglob("*.md")))
+        files.extend(_docs_in(tree))
     for path in files:
         for match in re.finditer(r"\[[^\]]*\]\(([^)#\s]+?)(?:#[^)]*)?\)", path.read_text()):
             target = match.group(1)
@@ -792,7 +819,7 @@ def check_section_pointers() -> list[str]:
     errors = []
     scanned = [ROOT / "CLAUDE.md"]
     for tree in DOC_TREES:
-        scanned.extend(sorted((ROOT / tree).rglob("*.md")))
+        scanned.extend(_docs_in(tree))
     for path in scanned:
         text = path.read_text()
         for match in re.finditer(r"(owed\.md`?[^.\n]{0,40}?|^)§(\d+\.\d+)", text, re.MULTILINE):
