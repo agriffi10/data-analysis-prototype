@@ -11,8 +11,8 @@ name: SPA image
 #
 # PATH-FILTERED, unlike the deploy workflow. This job only proves the image, so a commit that
 # changes no input to it has nothing to prove. The deploy workflow is deliberately NOT filtered:
-# the container has to track main exactly like the CloudFront bundle does, or "which commit is in
-# production" stops having an answer.
+# the container has to track main commit for commit — it is production, and the bundle that used to
+# share that job is gone — or "which commit is in production" stops having an answer.
 
 on:
   pull_request:

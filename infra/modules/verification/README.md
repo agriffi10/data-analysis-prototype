@@ -64,9 +64,11 @@ needs.
 Delegating to the account root instead — the standard AWS idiom, which grants nothing by itself since
 an account principal still needs its own `sts:AssumeRole` — was **rejected by the plan scan
 (`CKV_AWS_61`), and rejecting it was right**. The accept list is for findings with *no scopable
-alternative*: CloudFront and Cognito creation have no ARN before the resource exists and no applicable
-condition key. That is not true here — **naming the principal is the alternative**, so accepting the
-finding would have been suppressing a fixable one.
+alternative*, and it is **empty**: the two it once held were the deploy role's `cloudfront:*`
+statement and went with the distribution. Note what it never held — an action AWS defines no
+resource type for, such as Cognito pool creation, raises neither of those checks in the first
+place, because cloudsplaining strips it before either one counts. Here **naming the principal is
+the alternative**, so accepting the finding would have been suppressing a fixable one.
 
 ## Three Glue ARNs, not `catalog` + `catalog/*`
 

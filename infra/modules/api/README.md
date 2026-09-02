@@ -28,10 +28,10 @@ not reach the browser at all. But the rule stands on its own ground: two places 
 same question is how they come to disagree, and the one that wins here is not the one a reader is
 looking at.
 
-- **Exact origins, never `*`.** Both are real for the length of the arc — the container is where
-  ported features are proved, CloudFront is the rollback — and **a list naming one of them leaves
-  the other an app that loads and can do nothing**. `app_url` is omitted while empty, the same
-  ternary the Cognito callback list and both bucket CORS rules use. It is removed at the cutover.
+- **Exact origins, never `*`.** One entry now — `spa_origin`, compacted so an unset value drops out
+  rather than reaching the gateway as an empty string. It was two through the cutover, because **a
+  list naming one origin leaves the other an app that loads and can do nothing**, which is what kept
+  CloudFront a rollback anyone could exercise; the second entry went with the distribution.
 - **`x-request-id` must be in `allow_headers`.** The browser's API client mints it on every call, and
   **a header the preflight does not admit fails the preflight** — so the request never reaches the
   API and the browser reports a generic network error, indistinguishable from the API being down.

@@ -11,9 +11,11 @@
 # the Lake Formation account-level actions as co-causes. They are not, and the distinction
 # matters for the next grant: those actions ARE unscopable, but cloudsplaining — which both
 # checks wrap — does not count an action it already classifies as taking no resource type,
-# so an unscopable action alone raises nothing. What raises these two is a WRITE action that
-# COULD have been scoped and was not. `cognito-identity:CreateIdentityPool` went with the
-# Identity Pool in the same spec.
+# so an unscopable action alone raises nothing. What raises these two is an action that COULD
+# have been scoped and was not. CKV_AWS_355 counts every such action ("restrictable", in its
+# own words) — a read or a tagging call fires it exactly as a write does — and CKV_AWS_290
+# counts the write subset of the same list. `cognito-identity:CreateIdentityPool` went with
+# the Identity Pool in the same spec.
 #
 # So an empty list means every IAM finding on the plan now fails the job, and the mechanism
 # stays because the next grant that needs it will need it in the same shape: accepted by
@@ -33,8 +35,11 @@
 # This blocks PRs only. The `plan` job runs on pull_request; `apply` runs on push/dispatch and
 # does not depend on it, so nothing here can redden a production deploy.
 #
-# ONE PIECE OF FRICTION WORTH EXPECTING. Adding a new unscopable wildcard action to
+# ONE PIECE OF FRICTION WORTH EXPECTING. Adding a wildcard statement to
 # `github_actions_deploy` — the recurring case CLAUDE.md's "Infra rule" mandates for any spec
-# provisioning new infra — can fire CKV_AWS_356 / CKV_AWS_111 / CKV_AWS_49 on that resource,
-# and a write action left unscoped fires the two this file used to carry. That makes such a
-# change a two-step edit: the grant, and the acceptance for it. Deliberate.
+# provisioning new infra — fires CKV_AWS_355 for any scopable action in it, CKV_AWS_290 if
+# that action is also a write, and CKV_AWS_63 for `Action: "*"`. Those three are the ones that
+# reach this resource. CKV_AWS_356 / CKV_AWS_111 / CKV_AWS_49 are their `aws_iam_policy_document`
+# DATA-SOURCE twins and cannot fire on an `aws_iam_role_policy` — measured against the pinned
+# checkov, after this file spent a release naming them. So such a change is a two-step edit:
+# the grant, and the acceptance for it. Deliberate.

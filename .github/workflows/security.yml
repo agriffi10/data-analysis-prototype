@@ -706,8 +706,8 @@ jobs:
   # last shipped and attribute the result to the wrong change — worse than not scanning.
   #
   # The scan is UNAUTHENTICATED and passive. It spiders and reports; it does not attack.
-  # Against a Cognito-gated SPA that means it reaches the static shell and the CloudFront
-  # response headers, so what it can find is essentially OWASP A05 Security
+  # Against a Cognito-gated SPA that means it reaches the static shell and the response headers
+  # the container serves, so what it can find is essentially OWASP A05 Security
   # Misconfiguration: CSP, HSTS, X-Content-Type-Options, X-Frame-Options, cookie flags.
   # A green run here is NOT evidence about anything behind the login.
 
