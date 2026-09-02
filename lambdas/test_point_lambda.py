@@ -39,7 +39,8 @@ def _harness(tmp_path, package_type, *, landed=None, status="Successful",
     Args:
       tmp_path: The pytest temporary directory.
       package_type: What `get-function` should report.
-      landed: What `Code.ImageUri` reads back as, defaulting to the tag that was asked for.
+      landed: What `Code.ImageUri` reads back as. Defaults to the sha a push supplies, so a
+        test that overrides the tag must say what it expects to land.
       status: What `LastUpdateStatus` reports.
       image_present: Whether `describe-images` finds the tag.
       function_present: Whether `get-function` finds the function.
@@ -87,11 +88,6 @@ def _harness(tmp_path, package_type, *, landed=None, status="Successful",
         """))
     (binary / "aws").chmod(0o755)
 
-    (binary / "deploy-lambda.sh").write_text(
-        f'#!/usr/bin/env bash\necho "DEPLOY_LAMBDA_SH_RAN $1" >> {log}\n'
-    )
-    (binary / "deploy-lambda.sh").chmod(0o755)
-
     # WITHOUT THIS the two longest refusal paths are unreachable: both poll 30 times at 10s, which
     # no sane test timeout survives. `_harness` advertised `image_present` and `function_present`
     # from the start and neither was usable until the sleep was stubbed out.
@@ -100,13 +96,14 @@ def _harness(tmp_path, package_type, *, landed=None, status="Successful",
     return binary, log
 
 
-def _run(binary, script_dir, timeout=30):
+def _run(binary, script_dir, timeout=30, image_tag=None):
     """Runs the script with the stub bin/ first on PATH.
 
     Args:
       binary: The stub bin directory.
       script_dir: The directory holding the copy of point-lambda.sh under test.
       timeout: Seconds before the run is abandoned.
+      image_tag: An explicit IMAGE_TAG, or None to leave it unset as a push does.
 
     Returns:
       The completed process.
@@ -121,6 +118,8 @@ def _run(binary, script_dir, timeout=30):
         ENVIRONMENT="prod",
         GITHUB_SHA="abc123",
     )
+    if image_tag is not None:
+        env["IMAGE_TAG"] = image_tag
     # Running the script IS the test, and `bash` resolves from the STUBBED PATH deliberately
     # — that is what makes the fake `aws` reachable to it.
     return subprocess.run(  # noqa: S603
@@ -149,36 +148,6 @@ def staged(tmp_path):
     staged_dir.mkdir()
     (staged_dir / "point-lambda.sh").write_text(SCRIPT.read_text(encoding="utf-8"))
     return staged_dir
-
-
-def test_a_zip_function_goes_through_deploy_lambda_sh(tmp_path, staged):
-    """The zip branch is a dispatch, not a reimplementation.
-
-    Args:
-      tmp_path: Temporary directory.
-      staged: The staged script directory.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When a Zip function is not handed to the existing script.
-    """
-    binary, log = _harness(tmp_path, "Zip")
-    (staged / "deploy-lambda.sh").write_text(
-        f'#!/usr/bin/env bash\necho "DEPLOY_LAMBDA_SH_RAN $1" >> {log}\n'
-    )
-    (staged / "deploy-lambda.sh").chmod(0o755)
-
-    result = _run(binary, staged)
-    calls = log.read_text()
-
-    assert result.returncode == 0, result.stderr
-    assert "DEPLOY_LAMBDA_SH_RAN archive-copy-objects" in calls
-    assert "update-function-code" not in calls, (
-        "the zip branch must not point at an image; --image-uri against a Zip function is an "
-        "InvalidParameterValueException"
-    )
 
 
 def test_an_image_function_is_pointed_at_this_commit_s_image(tmp_path, staged):
@@ -289,10 +258,17 @@ def test_the_read_back_uses_the_tag_not_the_digest():
     )
 
 
-def test_an_unknown_package_type_is_refused_rather_than_guessed(tmp_path, staged):
-    """Neither of the two known values means the script cannot know which call is correct.
+@pytest.mark.parametrize("packaging", ["Zip", "Something"])
+def test_anything_but_Image_is_refused_rather_than_deployed(packaging, tmp_path, staged):
+    """`Zip` is no longer special, and that is the point of parametrising rather than adding a test.
+
+    The dispatch that handed a Zip function to `deploy-lambda.sh` is gone, so both values reach one
+    predicate — two tests over one branch would be two fixtures where the neighbouring path catches
+    either. A zip function reappearing in this fleet is a fact somebody needs told; deploying it
+    some other way is not a decision this script may make.
 
     Args:
+      packaging: The live `PackageType` the stub reports.
       tmp_path: Temporary directory.
       staged: The staged script directory.
 
@@ -300,13 +276,15 @@ def test_an_unknown_package_type_is_refused_rather_than_guessed(tmp_path, staged
       None.
 
     Raises:
-      AssertionError: When an unknown packaging is guessed at.
+      AssertionError: When a non-Image packaging is deployed anyway, or refused without saying so.
     """
-    binary, log = _harness(tmp_path, "Something")
+    binary, log = _harness(tmp_path, packaging)
     result = _run(binary, staged)
 
     assert result.returncode != 0
-    assert "neither Zip nor Image" in result.stdout + result.stderr
+    output = result.stdout + result.stderr
+    assert "only deploys Image" in output, output
+    assert packaging in output, "the refusal must name the packaging it saw"
     assert "update-function-code" not in log.read_text()
 
 
@@ -360,3 +338,33 @@ def test_an_image_tag_that_never_appears_is_refused_naming_the_image_workflow(tm
     assert "not in the registry" in output, output
     assert "Deploy Lambda image" in output, "the refusal must name the workflow to look at"
     assert "update-function-code" not in log.read_text()
+
+
+def test_an_explicit_image_tag_overrides_the_commit(tmp_path, staged):
+    """FR-007's rollback, and the reason it is an env override rather than a code change.
+
+    The registry is immutable and tagged by sha, so naming a previous sha names exactly the
+    artefact that ran then. The default is still this commit — asserted by every other test here,
+    which sets no IMAGE_TAG and expects `:abc123`.
+
+    Args:
+      tmp_path: Temporary directory.
+      staged: The staged script directory.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the override is ignored, or leaks into only some of the calls.
+    """
+    binary, log = _harness(tmp_path, "Image", landed=REPOSITORY + ":rollback99")
+
+    result = _run(binary, staged, image_tag="rollback99")
+    calls = log.read_text()
+
+    assert result.returncode == 0, result.stderr
+    assert ":rollback99" in calls, calls
+    assert ":abc123" not in calls, (
+        "the commit sha reached a call the override was supposed to replace, so a rollback would "
+        "point some of the fleet at the image it was rolling back from"
+    )

@@ -1,49 +1,47 @@
 name: Deploy Lambdas
 
-# Builds and deploys the actual Lambda code (Terraform only manages the function
-# infrastructure + a placeholder; see infra/modules/auth/lambda.tf). For each
-# function under lambdas/, this installs the shared requirements, zips the
-# package, uploads it to the artifacts bucket, and runs update-function-code.
+# Points every Lambda at the fleet's one container image. Terraform owns the function and carries
+# `ignore_changes = [image_uri]`, so it will never move a function forward — only
+# `update-function-code --image-uri` does, and this workflow is the only thing that calls it.
 #
-# Shared-space functions (SPEC-062) get their shared code from a Lambda LAYER instead
-# of bundling it: the `layer` job builds + publishes the `shared-space-common` layer
-# once, and each shared-space function attaches it via update-function-configuration.
-# Terraform ignores the function `layers` attribute, so CI owns the layer the same way
-# it owns the code. Since SPEC-125 they attach `cpcommon` alongside it — two layers —
-# and shared-space-common carries DOMAIN code only, with no external deps of its own.
+# EVERY function, every run. The narrowing this workflow used to do — deploy only what a diff
+# touched — was correct while each function carried its own zip and its own layer ARNs. It is a
+# category error now: there is ONE artefact for the whole fleet, so "which functions changed" has
+# no answer, and a function left un-pointed runs an older image and reports a stale BUILD_VERSION
+# while working perfectly. That is the trap this arc is written around, so the answer is to point
+# all of them and reconcile the names afterwards.
 
 on:
   # The workflow file itself is in the path filter, for the reason SPEC-139 added it to
   # deploy-infra.yml: without it this workflow can be edited and merged having never run.
   # That is not hypothetical — #320 bumped every action in the repo off the EOL node20
-  # runtime, and this file's eight `configure-aws-credentials` call sites went to main
-  # completely unexercised, because changing a workflow is not changing `lambdas/**`.
+  # runtime, and this file's `configure-aws-credentials` call sites went to main completely
+  # unexercised, because changing a workflow is not changing `lambdas/**`.
   #
-  # The two JSON tables and the two scripts are in the filter for exactly that reason,
-  # and the reason is stronger for them than for the workflow: this workflow's real
-  # behaviour now lives in them. Editing lambda-functions.json is how a function is
-  # added or its layers changed, and editing lambda-layers.json is how a layer's
-  # contents change — both of which must deploy, and neither of which touches
-  # `lambdas/**`. Without these entries a merge that only re-points a layer would go to
-  # main having deployed nothing, and the next unrelated lambdas/ push would carry it.
+  # The function table is here because editing it is how a function is added, which must deploy and
+  # which touches no `lambdas/**` path. The probe's table and script are here for the same reason:
+  # they decide what this workflow proves, and a change to either that never ran is a gate nobody
+  # has seen work.
   push:
     branches: [main]
     paths:
       - 'lambdas/**'
       - '.github/workflows/deploy-lambdas.yml'
       - '.github/lambda-functions.json'
-      - '.github/lambda-layers.json'
-      - '.github/scripts/deploy-lambda.sh'
-      # The file the shard loop actually calls since the fleet gained a second packaging.
-      # Without it a push that only fixes the deploy dispatcher runs NO deploy at all.
+      - '.github/lambda-probes.json'
       - '.github/scripts/point-lambda.sh'
-      - '.github/scripts/build-layer.sh'
-      # The planner decides what this workflow does. Without it here, a push that fixes a
-      # planner bug never runs the workflow — and plan_deploy.py's own HARD_GLOBAL_PATHS
-      # entry, which exists so its bug cannot suppress the deploy that fixes it, is
-      # unreachable in exactly that case.
+      - '.github/scripts/probe-cold-start.sh'
       - '.github/scripts/plan_deploy.py'
   workflow_dispatch:
+    inputs:
+      image_tag:
+        description: >-
+          THE ROLLBACK. Empty deploys this commit's image. A previous commit's sha points every
+          function back at the image that sha built — the registry is immutable and tagged by sha,
+          so naming one names exactly the artefact that ran then. No code change, and no revert:
+          reverting the cutover would delete the `moved` blocks and re-race 86 creates.
+        required: false
+        default: ''
 
 # Resource names are derived deterministically from the same project/environment
 # the IaC uses (defaults match infra/variables.tf). Override via repo Variables
@@ -66,246 +64,97 @@ env:
 # It puts a cancelled Deploy Lambdas run on main, which the project's "always confirm main
 # went green" rule would otherwise send someone chasing.
 #
-# It is NOT benign on the strength of "the third commit is a superset of the second", which
-# is true of the TREE and false of the DIFF. The evicted run's changes would fall into a
-# gap no later diff covers. What makes it safe is that the `plan` job anchors its diff to
-# the last SUCCESSFUL run rather than to the previous tip — an evicted or failed run leaves
-# the base where it was, and the next run re-covers the range.
+# For a PUSH that eviction is now harmless, and for a better reason than the diff-anchoring it
+# used to need: every run points the WHOLE fleet at its own commit's image, so an evicted run
+# leaves nothing uncovered — the next one does all of it.
+#
+# FOR A ROLLBACK DISPATCH IT IS NOT HARMLESS, and this is the one place to know it. If a merge
+# lands while the forward dispatch is pending, the forward run can be the one evicted — and the
+# fleet stays on the rollback image, SERVING PERFECTLY, with main green. That is this arc's
+# signature failure wearing the rollback's clothes. Confirm a rollback by reading `Code.ImageUri`
+# back off a function, never by "main went green".
 concurrency:
   group: deploy-lambdas
   cancel-in-progress: false
 
 jobs:
-  # ── What does this push actually need? ──────────────────────────────────────
-  # This workflow rebuilt and redeployed all 73 functions on every push. The median
-  # push touches four function directories, so ~69 were re-uploading identical code.
+  # ── What is deployed, and against which image ───────────────────────────────
+  # The whole table, always. `plan_deploy.py --all` still owns the sharding constants, which is why
+  # it is called rather than reimplemented here; SPEC-214 removes the module along with the tables.
   #
-  # The reason that was not simply wasteful is the thing to understand before changing
-  # anything here: `publish-layer-version` MINTS A NEW VERSION on every call, a function
-  # pins its layers by ARN, so republishing all ten layers every run meant every function
-  # genuinely DID need re-pointing. Skipping functions is only correct because unchanged
-  # layers now resolve to the version already published instead of a fresh one — the two
-  # halves are one change and neither works alone.
-  #
-  # The rules live in .github/scripts/plan_deploy.py, which is pure and offline so that
-  # lambdas/test_plan_deploy.py can drive it over the real tables. Everything it cannot
-  # reason about confidently falls back to the whole fleet: a function it wrongly omits
-  # keeps running against a layer that has moved on, and that is invisible until a cold
-  # start (SPEC-137 broke real Cognito signups exactly that way).
+  # The diff apparatus this job used to carry — the last-successful-run lookup, `fetch-depth: 0`,
+  # the `git diff` and the two `git show` table reads — is gone rather than left running and
+  # ignored. A mechanism that still executes while nothing consumes its answer is the fossil
+  # SPEC-213 FR-001 refuses for `ignore_changes = [layers]`, one size up.
   plan:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: read
-      # To find the last run of this workflow that actually succeeded — see below.
-      actions: read
-    outputs:
-      functions: ${{ steps.plan.outputs.functions }}
-      publish: ${{ steps.plan.outputs.publish }}
-      shards: ${{ steps.plan.outputs.shards }}
-      shard_count: ${{ steps.plan.outputs.shard_count }}
-      any: ${{ steps.plan.outputs.any }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          # The plan is a diff against the previous commit, so the history has to be here.
-          fetch-depth: 0
-
-      - name: Work out what changed
-        id: plan
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          # ── The diff BASE is the last commit this workflow actually deployed ───────
-          # NOT `github.event.before`, which is merely the previous tip. The two differ
-          # exactly when a run does not deploy: this workflow queues rather than cancels
-          # (`concurrency` above), and GitHub holds only ONE pending run per group — so
-          # three merges in quick succession EVICT the middle one. A shard can also fail,
-          # and `fail-fast: false` means the rest of the run still goes green.
-          #
-          # While every run deployed all 73 functions that was harmless, and the
-          # concurrency comment above said so. Change detection is what makes it unsafe:
-          # against `before`, the evicted or failed run's commits fall into a gap that no
-          # later diff ever covers, and those functions run stale code until something
-          # unrelated happens to touch them. Invisible until a cold start.
-          #
-          # Anchoring to the last SUCCESSFUL run makes this a reconciler rather than a
-          # change detector: a failed or evicted run simply leaves the base where it was,
-          # and the next run re-covers the whole range.
-          BASE=""
-          if [ "${{ github.event_name }}" = "push" ]; then
-            BASE=$(gh api \
-              "/repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-lambdas.yml/runs?branch=main&status=success&event=push&per_page=1" \
-              --jq '.workflow_runs[0].head_sha // empty' 2>/dev/null || true)
-          fi
-
-          FORCE=""
-          if [ "${{ github.event_name }}" != "push" ]; then
-            FORCE="--all"
-            echo "Not a push — planning a full deploy."
-          elif [ -z "$BASE" ]; then
-            FORCE="--all"
-            echo "No previous successful run of this workflow — planning a full deploy."
-          elif ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
-            FORCE="--all"
-            echo "Last successful run's commit ${BASE} is not in this history (force-push?) — planning a full deploy."
-          else
-            echo "Diffing against the last successfully deployed commit: ${BASE}"
-          fi
-          BEFORE="$BASE"
-
-          OLD_ARGS=()
-          if [ -z "$FORCE" ]; then
-            # `--no-renames` because a rename is reported by DESTINATION only, so a file
-            # moved OUT of a watched prefix would leave the layer or function that lost it
-            # neither rebuilt nor redeployed. One word, and it restores the deploy-too-much
-            # bias every other rule here is written to.
-            git diff --no-renames --name-only "${BEFORE}" "${GITHUB_SHA}" > changed.txt
-            echo "Changed paths:"; sed 's/^/  /' changed.txt
-            # The tables as they were, so a table change narrows to the rows that moved
-            # instead of forcing the fleet. If either cannot be read the planner falls
-            # back on its own — the flag is simply not passed.
-            if git show "${BEFORE}:.github/lambda-functions.json" > old-functions.json 2>/dev/null; then
-              OLD_ARGS+=(--old-functions old-functions.json)
-            fi
-            if git show "${BEFORE}:.github/lambda-layers.json" > old-layers.json 2>/dev/null; then
-              OLD_ARGS+=(--old-layers old-layers.json)
-            fi
-          else
-            : > changed.txt
-          fi
-
-          PLAN=$(python3 .github/scripts/plan_deploy.py \
-            ${FORCE:+$FORCE} ${OLD_ARGS[@]+"${OLD_ARGS[@]}"} --changed-from changed.txt)
-
-          echo "$PLAN" | jq .
-          echo "$(jq -r .reason <<<"$PLAN")" >> "$GITHUB_STEP_SUMMARY"
-
-          {
-            printf 'functions=%s\n' "$(jq -c .functions <<<"$PLAN")"
-            printf 'publish=%s\n'   "$(jq -c .publish   <<<"$PLAN")"
-            printf 'shards=%s\n'    "$(jq -c .shards    <<<"$PLAN")"
-            printf 'shard_count=%s\n' "$(jq -r .shard_count <<<"$PLAN")"
-            printf 'any=%s\n'       "$(jq -r 'if (.functions | length) > 0 then "true" else "false" end' <<<"$PLAN")"
-          } >> "$GITHUB_OUTPUT"
-
-  # ── Layers, ALL of them, in one job ────────────────────────────────────────
-  # This was ten separate jobs. Each took 14-29 seconds and GitHub bills a whole
-  # minute per job, so ten layers cost ten billed minutes for about three minutes of
-  # work — the same rounding tax the deploy matrix below was paying, one order down.
-  #
-  # Separate jobs looked justified because each layer built differently. Written out
-  # as a table it is three shapes: pip-install a requirements file, copy a package
-  # directory, or copy an explicit list of flat modules — and two layers use two of
-  # them at once. The table is .github/lambda-layers.json and the shapes are
-  # .github/scripts/build-layer.sh.
-  #
-  # The job publishes every layer and emits ONE json output mapping flag -> {arn, kb},
-  # which the deploy shards read. Ten jobs meant twenty `needs.*.outputs.*` references
-  # in the deploy job; a missing one of those is a function deployed without its layer,
-  # which fails at COLD START where no test and no deploy can see it (SPEC-137 broke
-  # real Cognito signups exactly that way). One map, one lookup, and deploy-lambda.sh
-  # refuses any function whose layer resolves to an empty ARN.
-  layers:
-    needs: [plan]
-    # Nothing to deploy means nothing to publish. Skipped rather than run-and-no-op so a
-    # docs-only push that happens to touch lambdas/ costs no billed minutes at all.
-    if: needs.plan.outputs.any == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
       id-token: write
       contents: read
     outputs:
-      layers: ${{ steps.publish.outputs.layers }}
+      functions: ${{ steps.plan.outputs.functions }}
+      shards: ${{ steps.plan.outputs.shards }}
+      shard_count: ${{ steps.plan.outputs.shard_count }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
-          # Cap the OIDC assume-role retries. The default is 12, and on 2026-07-27 a
-          # connect timeout to STS cost ~7 minutes per attempt, so one job spent 82
-          # minutes failing. Three still retries a fast-failing transient; the slow
-          # case is bounded by `timeout-minutes` above.
           retry-max-attempts: 3
 
-      - name: Build and publish every layer
-        id: publish
+      # ONCE, HERE, not 86 times in the shards. `point-lambda.sh` waits up to five minutes per
+      # function for a tag to appear, so a mistyped rollback tag would otherwise cost over an hour
+      # of billed runtime before anyone learned it was wrong.
+      - name: Check the image this run will point at
+        env:
+          PROJECT: ${{ vars.TF_VAR_project_name || 'dat' }}
+          ENVIRONMENT: ${{ vars.TF_VAR_environment || 'prod' }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
           set -euo pipefail
-
-          FLAGS=()
-          while IFS= read -r flag; do
-            [ -n "$flag" ] && FLAGS+=("$flag")
-          done < <(jq -r '.[].flag' .github/lambda-layers.json)
-
-          # Which of them the plan says actually changed. Every layer is still BUILT —
-          # the combined per-function size guard needs its unzipped size either way — but
-          # only these are PUBLISHED. The rest resolve to the version already published,
-          # which is what leaves the functions attaching them correctly pointed without
-          # redeploying any of them.
-          PUBLISH_SET=$(jq -r '.[]' <<<'${{ needs.plan.outputs.publish }}' | tr '\n' ' ')
-          echo "Publishing: ${PUBLISH_SET:-none (all reused)}"
-
-          if [ "${#FLAGS[@]}" -eq 0 ]; then
-            echo "::error::no layers in .github/lambda-layers.json — every function would deploy with no layer attached and fail at cold start."
-            exit 1
-          fi
-
-          # Every layer is attempted even after one fails, so a broken layer reports
-          # alongside the others instead of hiding them behind the first error.
-          RESULTS=""
-          FAILED=()
-          for FLAG in "${FLAGS[@]}"; do
-            echo "::group::${FLAG}"
-            case " $PUBLISH_SET " in *" $FLAG "*) DO_PUBLISH=true ;; *) DO_PUBLISH=false ;; esac
-            if line=$(bash .github/scripts/build-layer.sh "$FLAG" "$DO_PUBLISH"); then
-              RESULTS="${RESULTS}${line}"$'\n'
-            else
-              echo "::error::layer ${FLAG} failed to build or publish."
-              FAILED+=("$FLAG")
+          TAG="${IMAGE_TAG:-$GITHUB_SHA}"
+          NAME="${PROJECT}-${ENVIRONMENT}-lambda"
+          if [ -n "${IMAGE_TAG}" ]; then
+            # A ROLLBACK must name an image that already exists. This commit's own image, by
+            # contrast, is built by a workflow firing on the same push, so it is waited for per
+            # function rather than required now.
+            if ! aws ecr describe-images --repository-name "$NAME" \
+                 --image-ids "imageTag=${TAG}" >/dev/null 2>&1; then
+              echo "::error title=Unknown tag::${NAME}:${TAG} is not in the registry. A rollback names an image that already exists — check the sha, and that its 'Deploy Lambda image' run went green."
+              exit 1
             fi
-            echo "::endgroup::"
-          done
+            echo "::notice title=Rollback::pointing every function at ${NAME}:${TAG}"
+          else
+            echo "::notice title=Deploy::pointing every function at ${NAME}:${TAG} (this commit)"
+          fi
 
-          if [ "${#FAILED[@]}" -gt 0 ]; then
-            echo "::error::layers failed: ${FAILED[*]}"
+      - name: The whole fleet
+        id: plan
+        run: |
+          set -euo pipefail
+          PLAN=$(python3 .github/scripts/plan_deploy.py --all)
+          echo "$PLAN" | jq .
+          echo "$(jq -r .reason <<<"$PLAN")" >> "$GITHUB_STEP_SUMMARY"
+
+          # A table that parsed to nothing would shard to zero jobs and report success having
+          # deployed nothing — "did not run" is never "clean".
+          COUNT=$(jq '.functions | length' <<<"$PLAN")
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::the deploy plan named no functions. Every run points the whole fleet, so an empty plan means the function table could not be read."
             exit 1
           fi
 
-          # flag -> {arn, kb}. `-c` is LOAD-BEARING, not tidiness: jq pretty-prints by
-          # default, and a multi-line value breaks $GITHUB_OUTPUT's `key=value` format with
-          # "Invalid format" — after every layer has already published. Guarded by
-          # lambdas/test_deploy_matrix.py.
-          MAP=$(printf '%s' "$RESULTS" | jq -cRn '
-            [inputs | select(length > 0) | split("\t")
-             | {key: .[0], value: {arn: .[1], kb: .[2]}}] | from_entries')
-
-          # Refuse to hand the deploy an incomplete map rather than letting it discover
-          # a missing layer per function.
-          expected=$(jq 'length' .github/lambda-layers.json)
-          actual=$(jq 'length' <<<"$MAP")
-          if [ "$actual" -ne "$expected" ]; then
-            echo "::error::published ${actual} layers but the table names ${expected} — refusing to deploy against an incomplete layer map."
-            exit 1
-          fi
-
-          echo "$MAP" | jq .
-          printf 'layers=%s\n' "$MAP" >> "$GITHUB_OUTPUT"
+          {
+            printf 'functions=%s\n' "$(jq -c .functions <<<"$PLAN")"
+            printf 'shards=%s\n'    "$(jq -c .shards    <<<"$PLAN")"
+            printf 'shard_count=%s\n' "$(jq -r .shard_count <<<"$PLAN")"
+          } >> "$GITHUB_OUTPUT"
 
   # largest line on the Actions bill. GitHub rounds every job up to a full billed
   # minute, and all 73 of these finish in ~29 seconds — so the shape cost 73 minutes
@@ -324,13 +173,13 @@ jobs:
   # cannot express "these twelve in one job", and the table was always read as data
   # by lambdas/test_deploy_matrix.py — which now parses JSON instead of regexing YAML.
   deploy:
-    needs: [plan, layers]
-    if: needs.plan.outputs.any == 'true'
+    needs: [plan]
     runs-on: ubuntu-latest
-    # Sized against a SHARD, not a function, which is the change sharding makes to this
-    # number. Thirteen functions at ~20s each is ~4.5 min; the infra race adds up to 5
-    # min ONCE (the first function waits for Deploy Infrastructure, the rest find it
-    # already there), so ~10 min is the realistic worst case and this is 3x it.
+    # Sized against a SHARD, and RE-DERIVED now that every run points the whole fleet rather
+    # than a diff's worth. 86 functions across 6 shards is ~15 each, not thirteen; a container
+    # update is an API call plus two waiters, ~25s, so ~6.5 min, and the image race adds up to 5
+    # min ONCE (the first function waits, the rest find the tag already there). ~12 min is the
+    # realistic worst case and this is 2.5x it.
     #
     # Deliberately NOT the pathological sum. Each function can in principle spend 5 min
     # in the get-function loop plus three `aws lambda wait` calls at up to 5 min each,
@@ -356,22 +205,15 @@ jobs:
     env:
       SHARD: ${{ matrix.shard }}
       SHARD_COUNT: ${{ needs.plan.outputs.shard_count }}
-      # The functions THIS PUSH needs, not the whole table.
+      # The whole fleet.
       PLANNED: ${{ needs.plan.outputs.functions }}
-      # flag -> {arn, kb} for every published layer, from the one layers job.
-      # deploy-lambda.sh refuses to deploy a function whose layer is missing from this
-      # map rather than shipping it to fail at COLD START, where no test and no deploy
-      # can see it — which is how SPEC-137 broke real Cognito signups.
-      LAYERS_JSON: ${{ needs.layers.outputs.layers }}
+      # Empty on a push; a previous sha on a rollback dispatch. point-lambda.sh defaults it to
+      # this commit, so every other caller is unaffected.
+      IMAGE_TAG: ${{ inputs.image_tag }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
@@ -388,28 +230,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          export BUCKET="${PROJECT_NAME}-lambda-artifacts-${ACCOUNT_ID}"
+          # No artifacts bucket to wait for any more: nothing is uploaded. The only artefact is
+          # the image, and point-lambda.sh waits for that tag itself.
 
-          # Wait for the artifacts bucket ONCE per shard rather than once per
-          # function. Same race as before (a merge touching infra/ and lambdas/ fires
-          # both workflows on one push), but the bucket is shared by every function in
-          # the shard, so polling it per function was 12 redundant round trips.
-          for attempt in $(seq 1 30); do
-            if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
-              echo "Artifacts bucket ready."
-              break
-            fi
-            if [ "$attempt" -eq 30 ]; then
-              echo "::error::Bucket ${BUCKET} not ready after ~5 min. Run Deploy Infrastructure first."
-              exit 1
-            fi
-            echo "Waiting for ${BUCKET} (attempt ${attempt}/30)…"
-            sleep 10
-          done
-
-          # A read loop rather than `mapfile` (bash 4+), matching deploy-lambda.sh, so the
-          # whole path can be dry-run on a Mac before it is pushed.
+          # A read loop rather than `mapfile` (bash 4+), so the whole path can be dry-run on a
+          # Mac before it is pushed.
           FUNCS=()
           while IFS= read -r fn; do
             [ -n "$fn" ] && FUNCS+=("$fn")
@@ -475,7 +300,7 @@ jobs:
   # be reconciled, or the one run where this matters most is the one where it does not run.
   pointed:
     needs: [plan, deploy]
-    if: always() && needs.plan.outputs.any == 'true'
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -495,6 +320,9 @@ jobs:
       - name: Reconcile against what the deploy planned
         env:
           PLANNED: ${{ needs.plan.outputs.functions }}
+          # Named so the success line below cannot say `GITHUB_SHA` on a rollback, which is the
+          # one run where a reader most needs to be told which image the fleet is on.
+          TAG: ${{ inputs.image_tag || github.sha }}
         run: |
           set -euo pipefail
 
@@ -508,19 +336,18 @@ jobs:
             exit 1
           fi
 
-          # THE PLANNER IS NOT TERRAFORM, and FR-005 asks for the latter. The chain that closes
-          # that is: this job holds pointed == planned; `plan_deploy.py` draws `planned` from
-          # .github/lambda-functions.json; and deploy-infra.yml's plan guard holds that table equal
-          # to the functions Terraform actually declares. What is NOT yet closed is a planner that
-          # narrows wrongly — a function it omits is absent from both sides here and agrees. So the
-          # one thing this can check on its own is that the planner invented nothing, and the
-          # equality lands with the cutover, when every function needs pointing on every deploy and
-          # the narrowing goes away.
+          # WHAT THIS DOES AND DOES NOT PROVE, stated rather than overclaimed. With the narrowing
+          # gone, `planned` IS the deploy table, so comparing the two here catches a marshalling
+          # loss between the jobs and nothing more. The equality FR-005 asks for is against what
+          # TERRAFORM declares, and that link is held elsewhere: deploy-infra.yml's plan guard
+          # compares the table against the planned fleet, and `.github/lambda-functions.json` is in
+          # THAT workflow's `paths:` filter — so the table cannot diverge from Terraform without an
+          # edit that runs the guard. The chain closes on the edit, not on every push, and saying
+          # so is the difference between a gate and a comment claiming one.
           jq -r '.[].name' .github/lambda-functions.json | sort -u > table.txt
-          INVENTED=$(comm -23 planned.txt table.txt)
-          if [ -n "$INVENTED" ]; then
-            echo "::error::the deploy planned functions the deploy table does not name:"
-            printf '  %s\n' $INVENTED
+          if ! diff -q planned.txt table.txt >/dev/null; then
+            echo "::error::the deploy plan and the function table disagree — one of them did not survive the job boundary:"
+            diff planned.txt table.txt || true
             exit 1
           fi
 
@@ -531,4 +358,49 @@ jobs:
             echo "::error::$(wc -l <<<"$MISSED" | tr -d ' ') function(s) are running an earlier image or package."
             exit 1
           fi
-          echo "All $(wc -l < planned.txt | tr -d ' ') planned functions were pointed at ${GITHUB_SHA}."
+          echo "All $(wc -l < planned.txt | tr -d ' ') functions were pointed at ${TAG}."
+
+  # ── Does the deployed artefact actually START? ──────────────────────────────
+  # SPEC-213 FR-006. Every gate in this repo has at some point been blind to a cold start:
+  # SPEC-137's broken import passed review, unit tests and `update-function-code`, and only the
+  # deployed function knew. The image's own matrix imports every handler module inside the built
+  # artefact, which is the stronger check — but it runs against an image, not against a function,
+  # and it cannot see a deployed function whose configuration stops it starting.
+  #
+  # A SAMPLE, not the fleet: exactly the set the deploy role holds `lambda:InvokeFunction` for,
+  # which is six planes' `validate-authorize` verb, shared-spaces' operator backfill (a verb would
+  # need a grant that does not exist, and the backfill defaults to a read-only mode) and each
+  # standalone. `lambdas/test_cold_start_probe.py` derives that set from the grants themselves and
+  # fails if the probe table drifts from it in either direction — a probe without a grant fails
+  # loudly, a grant without a probe is invisible. What it cannot see is a plane that ships with no
+  # grant at all; that, and the 71 functions the sample does not reach, are in docs/testing/owed.md.
+  #
+  # It runs after `pointed`, so the functions it invokes are on THIS run's image.
+  probe:
+    needs: [pointed]
+    runs-on: ubuntu-latest
+    # DERIVED, not chosen. Fourteen sequential invocations, each bounded by the function's own
+    # Lambda timeout: two carry 300s (log-sweep, user-directory-build) and the rest 30-60s, so the
+    # pathological case is ~16 min, plus checkout and the OIDC assume. 25 is that with room, and
+    # the run only approaches it if a probed function is hanging — which is a failure worth waiting
+    # for rather than one to cut short.
+    timeout-minutes: 25
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          retry-max-attempts: 3
+
+      # Invoked directly rather than guarded by an `if`: a probe that can be skipped is a gate that
+      # reports clean on the run where it did not run.
+      - name: Invoke one function per plane and every standalone
+        run: .github/scripts/probe-cold-start.sh

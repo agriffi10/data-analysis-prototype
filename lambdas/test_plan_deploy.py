@@ -55,26 +55,9 @@ def test_a_changed_layer_redeploys_EVERY_function_that_attaches_it():
     assert result["publish"] == ["focommon"]
 
 
-#: Restated as a LITERAL rather than imported from the module under test. Parametrizing
-#: over ``plan_deploy.GLOBAL_PATHS`` meant deleting an entry deleted its own test case:
-#: four of the five hard-global paths could be removed with the whole suite green.
-EXPECTED_GLOBAL_PATHS = (
-    ".github/workflows/deploy-lambdas.yml",
-    ".github/scripts/deploy-lambda.sh",
-    ".github/scripts/build-layer.sh",
-    ".github/scripts/plan_deploy.py",
-    "lambdas/requirements.txt",
-    ".github/lambda-functions.json",
-    ".github/lambda-layers.json",
-)
-
-
 def test_an_unavailable_diff_deploys_everything():
     """"I do not know what changed" must never be read as "nothing did"."""
     result = plan([], force_all=True)
     assert set(result["functions"]) == ALL_NAMES
     assert set(result["publish"]) == {layer["flag"] for layer in LAYERS}
 
-
-FUNCTIONS_TABLE = ".github/lambda-functions.json"
-LAYERS_TABLE = ".github/lambda-layers.json"

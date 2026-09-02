@@ -135,6 +135,40 @@ recipe anywhere** — write one when you run it.
 | **Fresh sign-in end to end, from a private window** (SPEC-192) — proves Amplify is configured before the first render | A warm session cannot exercise it: the browser arrives already authenticated, and a bootstrap that configured Amplify too late looks identical. Same shape as the omitted Hosted UI host that broke fresh sign-in for a day. | §A.4 |
 | **Everything the container owns about `/config.json`** — the entrypoint rendering it from the task environment, nginx's `no-store`, image promotion itself | No container exists yet; the document is a static object until SPEC-194. | SPEC-194's own checks |
 
+### SPEC-213 FR-007's rollback has a lever and no exercise yet
+
+| Check | Why it is not settled | What it takes |
+|---|---|---|
+| **The rollback is exercised once, and what it was exercised against is recorded** (FR-007) | The lever exists — `Deploy Lambdas` takes an `image_tag` dispatch input, the tag is checked against the registry up front, and `lambdas/test_point_lambda.py` pins the override against a stub. None of that is an exercise. Recording one before running it is the failure this ledger exists to name. | Dispatch `Deploy Lambdas` with a previous main sha, **read `Code.ImageUri` back off a sample** to confirm, then dispatch again with an empty tag. Confirming by "main went green" is exactly wrong: the concurrency group holds one pending run, so a merge landing mid-exercise can evict the forward dispatch and leave the fleet on the rollback image, serving perfectly. |
+
+### The cold-start probe's discriminator has never been observed on this fleet
+
+The probe fails a function when its `errorType` is under `Runtime.`, when its log carries
+`Status: error`, or when the log has no `^REPORT RequestId` at all. Two of those three were arrived
+at by building containers from the fleet's pinned base image and driving them through the runtime
+interface emulator; the third comes from AWS's documented production output. **Neither is this
+account's Lambda.** The emulator is already known to diverge on exactly this path — it answers 502
+with no `X-Amz-Function-Error`, where production answers 200 with one — which is why two earlier
+designs passed the failure they were written for.
+
+| Check | Why it is not settled | What it takes |
+|---|---|---|
+| **An init failure on this account produces a log the probe rejects** | Three designs have now been wrong about which line separates "the container did not start" from "the handler refused the payload", and each looked right until it was driven. The current rule is safe in the false-positive direction — `Status: error` never appears on a healthy invocation, so it cannot redden a good deploy — but its coverage of the failure is inferred. | Deploy a throwaway function on the fleet image whose module raises at import, `aws lambda invoke --log-type Tail` it, and decode `LogResult`. If the `REPORT` line is old-style and carries no `Status` field, an import-time exception whose class is not under `Runtime.` would pass, and the rule needs the `INIT_REPORT` signal instead — which is NOT used today because some runtimes emit it on every cold start and failing on it would redden every deploy. |
+| **The first real probe run's output is read** | Nothing in the suite can tell whether the gate observed what it thinks it observed; the script prints the errorType it saw for every function, and that output is the evidence. | Read the `probe` job's log on the first green `Deploy Lambdas` after this merges, and confirm each line reports a handler that ran rather than a phase that failed. |
+
+### The cold-start probe reaches 15 of 86, and one of those is deliberately not probed
+
+`Deploy Lambdas` invokes one function per plane plus each standalone after pointing the fleet, and
+requires `START RequestId` in the log — the signal Lambda writes only once the handler is entered,
+so an init that raised cannot produce it. That is SPEC-213 FR-006, and these are the parts it does
+not reach.
+
+| Check | Why the probe cannot settle it | What it takes |
+|---|---|---|
+| **`control-plane-dlq-drain` starts** | Invoking it sweeps all four request DLQs, **deletes** the messages it reads and emits a notification into each actor's inbox. Consuming a DLQ destroys the only copy of a dead-lettered body, and a deploy-time sweep runs it through a container that has just changed — the moment the drain is least proven. FR-006's own third criterion says to record this rather than count it as covered. | A deliberate operator invocation against a DLQ known to be empty, or a probe payload the handler recognises as a no-op. The deploy role's `lambda:InvokeFunction` grant is already there. |
+| **The other 71 functions start** | The probe is a sample by design. All 86 run the **same image**, and `lambda-image-matrix.sh` imports every handler module inside it through the real runtime bootstrap — so what the sample adds is that a deployed function's *configuration* lets it start, and that is per-function. A plane-mate starting says nothing about a sibling whose environment or memory is wrong. | Invoking all 86, which needs 71 more grants; or accepting the sample, which is what FR-006 asks for. Named here so the gap is a decision rather than an assumption. |
+| **A cold start specifically** | `update-function-code` discards every warm environment, so a probe straight after pointing is cold in the ordinary case — but `log-sweep` and the DLQ drain fire on ten-minute schedules and can be warm when it runs. The script reports which it observed; it does not force a cold one. | Nothing safe. A warm hit still implies an earlier successful init of the same code, because a failed init leaves nothing to reuse — weaker evidence, and the script says so rather than implying more. |
+
 ### SPEC-210's dark-mode checks — ONE DISCHARGED 2026-09-01, one now owed for a NAMED reason
 
 | Check | Why the suite cannot settle it | What it takes |

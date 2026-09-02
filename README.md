@@ -236,7 +236,7 @@ See [`.github/workflows/README.md`](.github/workflows/README.md) for the full co
 | `ci.yml` | push (any branch) · PR → `main` | Lint, unit/component tests, production build |
 | `deploy-spa-image.yml` | push → `main` | Build the SPA image, prove it against the container matrix, push to ECR by commit sha, point the ECS service, wait for it to settle |
 | `deploy-infra.yml` | PR / push → `main` (paths `infra/**`) | `tofu fmt -check` + `plan` (posts plan to the PR); `apply` on merge |
-| `deploy-lambdas.yml` | push → `main` (paths `lambdas/**`) · manual | Build each Python Lambda, upload artifact, `update-function-code` |
+| `deploy-lambdas.yml` | push → `main` (paths `lambdas/**`) · manual (`image_tag` rolls back) | Point every Lambda at the fleet's container image, reconcile by name, prove a sample starts |
 
 ---
 

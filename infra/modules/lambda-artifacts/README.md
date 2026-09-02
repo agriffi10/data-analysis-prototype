@@ -1,8 +1,9 @@
 # `lambda-artifacts` — the Lambda code staging bucket
 
-One private S3 bucket. `.github/workflows/deploy-lambdas.yml` builds each function's zip, uploads it
-under `{function}/{git-sha}.zip`, then calls `update-function-code` referencing the object. Shared by
-every Lambda under `lambdas/`.
+One private S3 bucket, and **nothing writes to it any more.** It staged each function's zip under
+`{function}/{git-sha}.zip` while the fleet was zip-packaged; every function now runs a container
+image and `deploy-lambdas.yml` uploads nothing at all. The bucket survives until SPEC-214, which
+removes the zip machinery against a coverage proof rather than on the strength of being unused.
 
 | File | Holds |
 |---|---|

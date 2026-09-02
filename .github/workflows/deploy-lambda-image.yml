@@ -3,10 +3,11 @@ name: Deploy Lambda image
 # Builds the Lambda fleet's container image on every push to main, proves it, and pushes it to the
 # registry tagged by commit sha.
 #
-# IT DEPLOYS NOTHING. No function runs this image yet — the fleet still ships as zips with layers —
-# so this workflow ends at the push. The cutover, and the `update-function-code` loop that has to
-# point every function at a new image, is a later change. Read the absence of a deploy step as
-# deliberate rather than unfinished.
+# IT STILL DEPLOYS NOTHING, and that is now a split rather than an unfinished job: all 86 functions
+# run this image, and `deploy-lambdas.yml` is what points them at it. This workflow ends at the
+# push on purpose — the two fire on the SAME commit, so a deploy step here would race the pointing
+# there, and `Deploy Infrastructure` waits on this workflow's tag before it may create a function
+# from it.
 #
 # NO `paths:` FILTER, deliberately, and it is not an oversight. The image has to track main exactly,
 # the same way deploy-spa-image.yml does: a filter means the newest image and HEAD
