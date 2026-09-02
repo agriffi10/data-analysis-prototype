@@ -263,7 +263,8 @@ See [`.github/workflows/README.md`](.github/workflows/README.md) for the full co
 | Document | What's in it |
 |---|---|
 | [`CLAUDE.md`](CLAUDE.md) | Project memory (always loaded, kept lean): tech stack, code conventions, a one-line **Key Decisions** digest, session workflow |
-| [`docs/process.md`](docs/process.md) | How we work: where truth lives, the spec lifecycle, the reviewer contract, the completion ritual |
+| [`docs/process.md`](docs/process.md) | How we work: where truth lives, the spec lifecycle, the review gate, the completion ritual |
+| [`docs/reviewer-contract.md`](docs/reviewer-contract.md) | The method behind the review gate — pulled when you are about to spend a reviewer |
 | [`docs/decisions/`](docs/decisions/INDEX.md) | The **Key Decisions register in full** — reasoning + the "do NOT build" fences |
 | [`docs/architecture.md`](docs/architecture.md) | **How the system works** — the pieces, how a request travels, the constraints that shape it, and the Architecture Decision Record indexing the register |
 | [`docs/transition_plan.md`](docs/transition_plan.md) | The client-environment transition — IdC federation, de-provisioning, Lake Formation re-keying |

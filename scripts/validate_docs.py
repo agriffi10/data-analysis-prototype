@@ -65,6 +65,18 @@ Attributes:
     ``DIGEST_MAX_CHARS``, both checked here, and they are unchanged. "No per-spec line" is
     doctrine and is NOT machine-checked: nothing counts bullets or recognises a per-spec one. If this file approaches 50,000 the answer is still a
     cut, not another raise: three cuts have already been needed, and all three were structural.
+  PROCESS_MAX_BYTES: The other always-loaded file's budget. ``docs/process.md`` is read at the
+    start of every session by CLAUDE.md's own first instruction, so its size is a per-session cost
+    exactly like CLAUDE.md's, and until 2026-09-01 nothing bounded it — it had reached 50,863
+    bytes, slightly larger than the file that has been cut three times. The fix was the same shape
+    as those cuts: the reviewer contract's method — how many reviewers and where, briefing one,
+    rotating the frame — moved to ``docs/reviewer-contract.md``, which is pulled when a reviewer is
+    about to be spent rather than at session start. That took the file to 36,920 bytes.
+
+    Held at 40,000 rather than at the measured level, for the reason CLAUDE_MAX_BYTES is: a
+    ratchet with no headroom makes the next legitimate addition pay by cutting something else,
+    which is the failure that cap's entry documents. The headroom is deliberate and small. If this
+    file approaches it, move a section down a tier — the reviewer contract proved that works.
   DIGEST_MAX_CHARS: The longest a single Key Decisions bullet may be, measured on the LOGICAL
     bullet — continuation lines joined. It was measured per physical line until 2026-08-26, which
     stopped meaning anything the moment the section was rewritten as wrapped prose: the longest
@@ -113,6 +125,7 @@ TESTING_INFLIGHT_MAX = 1
 
 FIXTURES_MAX_SCRIPTS = 1
 CLAUDE_MAX_BYTES = 50_000
+PROCESS_MAX_BYTES = 40_000
 DIGEST_MAX_CHARS = 1_400
 DELIVERY_MAX_LINES = 260
 FR_CEILING = 8
@@ -244,6 +257,35 @@ def check_fixture_scripts() -> list[str]:
             "ratchet in this file deliberately; do not let the directory grow a spec at a time."
         )
     return errors
+
+
+def check_process_budget() -> list[str]:
+    """Hold ``docs/process.md`` to its budget.
+
+    CLAUDE.md's first instruction is to read this file, so it loads every session too and its size
+    is the same kind of cost. The remedy is the one that has worked three times on CLAUDE.md: move
+    a section down a tier behind a pointer, never trim the reasoning in place.
+
+    Args:
+      None.
+
+    Returns:
+      One message when the file is over budget, empty otherwise.
+
+    Raises:
+      None.
+    """
+    size = len((ROOT / "docs" / "process.md").read_text().encode())
+    if size <= PROCESS_MAX_BYTES:
+        return []
+    return [
+        (
+            f"docs/process.md is {size:,} bytes against a {PROCESS_MAX_BYTES:,} budget. "
+            "CLAUDE.md's first instruction is to read it, so it costs every session what "
+            "CLAUDE.md costs: move a section down a tier behind a pointer, the way the reviewer "
+            "contract moved to docs/reviewer-contract.md. See PROCESS_MAX_BYTES above."
+        )
+    ]
 
 
 def check_claude_budget() -> list[str]:
@@ -846,6 +888,7 @@ def main() -> int:
         check_testing_layout,
         check_fixture_scripts,
         check_claude_budget,
+        check_process_budget,
         check_decisions_register,
         check_arcs,
         check_spec_status,
