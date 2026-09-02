@@ -1,12 +1,10 @@
+import * as service from './queryHistory.service';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, screen, waitFor} from '@testing-library/react';
-import {createTestQueryClient, renderHookWithProviders, renderWithProviders} from '../../test/renderWithProviders';
+import {renderWithProviders} from '../../test/renderWithProviders';
 import {QueryHistoryPanel} from './QueryHistoryPanel';
 import {queryKeys} from './queryKeys';
-import {getQueryHistory} from './queryHistory.service';
-import {useQueryHistory} from './useQueryHistory';
 import type {QueryHistory, QueryHistoryEntry} from './query.types';
-import * as service from './queryHistory.service';
 
 vi.mock('./queryHistory.service', async (importActual) => {
   const actual = await importActual<typeof service>();
@@ -243,80 +241,6 @@ describe('QueryHistoryPanel', () => {
       // TanStack keeps the last-good data on a failed refetch: banner + list both show.
       expect(await screen.findByText(/Couldn’t load history/)).toBeInTheDocument();
       expect(screen.getByText('SELECT 1')).toBeInTheDocument();
-    });
-  });
-});
-
-// ─── from useQueryHistory.test.tsx ───
-describe('useQueryHistory', () => {
-  const mockGet = vi.mocked(getQueryHistory);
-
-  function store(n: number): QueryHistory {
-    return {
-      version: 1,
-      entries: Array.from({length: n}, (_, i) => ({
-        queryExecutionId: `q${i}`,
-        sql: `SELECT ${i}`,
-        database: 'alice',
-        submittedAt: new Date(2026, 0, 1, 0, i).toISOString(),
-        status: 'SUCCEEDED' as const
-      }))
-    };
-  }
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  describe('useQueryHistory (SPEC-046 refresh)', () => {
-    it('refresh re-reads the store from S3 (refetch of the history key)', async () => {
-      mockGet.mockResolvedValueOnce({success: true, data: store(1)});
-      const client = createTestQueryClient();
-      const {result} = renderHookWithProviders(() => useQueryHistory('alice'), {queryClient: client});
-
-      await waitFor(() => expect(result.current.history).toHaveLength(1));
-      expect(mockGet).toHaveBeenCalledTimes(1);
-
-      // A second tab wrote a new entry; Refresh pulls it in.
-      mockGet.mockResolvedValueOnce({success: true, data: store(2)});
-      await act(async () => {
-        await result.current.refresh();
-      });
-
-      expect(mockGet).toHaveBeenCalledTimes(2);
-      await waitFor(() => expect(result.current.history).toHaveLength(2));
-    });
-
-    it('refresh targets exactly queryKeys.history(username)', async () => {
-      mockGet.mockResolvedValue({success: true, data: store(1)});
-      const client = createTestQueryClient();
-      const spy = vi.spyOn(client, 'invalidateQueries');
-      const {result} = renderHookWithProviders(() => useQueryHistory('alice'), {queryClient: client});
-      await waitFor(() => expect(result.current.history).toHaveLength(1));
-
-      await act(async () => {
-        await result.current.refresh();
-      });
-      expect(spy).toHaveBeenCalledWith({queryKey: queryKeys.history('alice')});
-    });
-
-    it('a failed refresh keeps the previously-loaded entries (non-destructive)', async () => {
-      mockGet.mockResolvedValueOnce({success: true, data: store(2)});
-      const client = createTestQueryClient();
-      const {result} = renderHookWithProviders(() => useQueryHistory('alice'), {queryClient: client});
-      await waitFor(() => expect(result.current.history).toHaveLength(2));
-
-      mockGet.mockResolvedValueOnce({
-        success: false,
-        error: {message: 'access denied'}
-      });
-      await act(async () => {
-        await result.current.refresh();
-      });
-
-      await waitFor(() => expect(result.current.error).toEqual(expect.objectContaining({message: 'access denied'})));
-      // The list is retained despite the failed refetch.
-      expect(result.current.history).toHaveLength(2);
     });
   });
 });

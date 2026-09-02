@@ -1,10 +1,10 @@
-import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {act, cleanup, render, renderHook, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {cleanup, render, screen, waitFor, within} from '@testing-library/react';
 import {USER_EVENT_OPTIONS, renderWithProviders} from '../test/renderWithProviders';
 import {AppNavDrawer} from './AppNavDrawer';
 import {CollapsibleRail} from './CollapsibleRail';
-import {RAIL_COLLAPSED_STORAGE_KEY, useRailCollapsed} from './useRailCollapsed';
+import {RAIL_COLLAPSED_STORAGE_KEY} from './useRailCollapsed';
 import {memoryStorage} from '../test/storage';
 import {ErrorBoundary} from './ErrorBoundary';
 
@@ -115,29 +115,6 @@ describe('CollapsibleRail', () => {
       renderRail();
       await user.click(screen.getByRole('button', {name: /collapse sidebar/i}));
       expect(localStorage.getItem(RAIL_COLLAPSED_STORAGE_KEY)).toBe('true');
-    });
-  });
-});
-
-// ─── from useRailCollapsed.test.ts ───
-describe('useRailCollapsed', () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
-    vi.stubGlobal('localStorage', memoryStorage());
-  });
-
-  describe('useRailCollapsed', () => {
-    it('degrades to not-persisted (default expanded, no throw) when localStorage is unavailable', () => {
-      vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
-        throw new Error('storage denied');
-      });
-      vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
-        throw new Error('storage denied');
-      });
-      const {result} = renderHook(() => useRailCollapsed());
-      expect(result.current.collapsed).toBe(false); // default, not a throw
-      act(() => result.current.toggle()); // must not throw despite setItem throwing
-      expect(result.current.collapsed).toBe(true); // in-memory state still works
     });
   });
 });

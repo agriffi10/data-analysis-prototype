@@ -172,6 +172,7 @@ describe('useRestoreArchive', () => {
     act(() => hook.result.current.openDialog());
     await act(async () => hook.result.current.submit('  3F8A1C2E-9B4D-4A17-8C65-2E0D7B1F4A93  '));
 
+    expect(vi.mocked(enqueueRestore)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(enqueueRestore).mock.calls[0][0].archiveId).toBe('3f8a1c2e-9b4d-4a17-8c65-2e0d7b1f4a93');
   });
 
@@ -180,6 +181,7 @@ describe('useRestoreArchive', () => {
     act(() => hook.result.current.openDialog());
     await act(async () => hook.result.current.submit(ARCHIVE_ID));
 
+    expect(vi.mocked(enqueueRestore)).toHaveBeenCalledTimes(1);
     const [req] = vi.mocked(enqueueRestore).mock.calls[0];
     expect(req.requestId).not.toBe(req.archiveId);
   });
