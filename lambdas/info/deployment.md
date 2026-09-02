@@ -13,7 +13,7 @@ its neighbours only by the `command` naming its handler.
 |---|---|
 | The repo | `lambdas/<function-name>/<module>.py` and its tests, plus a shared `lambdas/requirements.txt` |
 | Terraform | the function resource, its execution role, its log group and its trigger wiring — every function a call to [`infra/modules/docker-lambda`](../../infra/modules/docker-lambda/README.md), with `lifecycle { ignore_changes = [image_uri] }` |
-| GitHub Actions | the image, and which image each function runs — `deploy-lambda-image.yml` builds and pushes it tagged by commit sha, and `deploy-lambdas.yml` runs `update-function-code --image-uri` |
+| GitHub Actions | the image, and which image each function runs — `deploy-lambda-image.yml` builds and pushes it tagged by commit sha, and `deploy-lambdas.yml` runs `update-function-code --image-uri` on **every** function, then proves a sample of them starts |
 
 **Use underscores in the `.py` filename** (`pre_signup.py`, command `pre_signup.handler`) — a
 hyphenated filename cannot be imported as a module, and the directory name is hyphenated.
@@ -43,18 +43,58 @@ as well, so main's tip has no image and continuing would fail `CreateFunction` w
 already destroyed. The recovery needs no extra input — dispatch `Deploy Lambda image` with an empty
 tag, which builds this commit, then dispatch `Deploy Infrastructure`.
 
-## The layer machinery is still here, and attaches nothing
+## Every function, every run — and why narrowing is now a category error
 
-`deploy-lambdas.yml` still has its `layers` job, `.github/lambda-layers.json` still describes the
-layers, and `deploy-lambda.sh` still knows how to attach them. **None of it reaches a function.**
-`point-lambda.sh` dispatches on the function's live `PackageType`, and every function is `Image`, so
-the zip branch is never taken — and attaching a layer to a container function is an error anyway.
+`Deploy Lambdas` points the **whole fleet** on every run. It used to deploy only what a diff
+touched, which was right while each function carried its own zip and its own layer ARNs. With one
+image for all 86, "which functions changed" has no answer: a function left un-pointed runs an older
+image and reports a stale `BUILD_VERSION` **while working perfectly**, which is the failure this
+whole arc is written around.
 
-It survives on purpose, until SPEC-214: it is what makes a partly-failed apply recoverable rather
-than wedged, because a fleet that is half zip and half image can still be deployed by a pipeline that
-speaks both. Read the two tables as history for now; what a function can import is a property of the
-**image**, which `.github/scripts/lambda-image-matrix.sh` proves by importing every handler module
-inside it, through the real runtime bootstrap.
+The cost is real and was paid deliberately: six shard jobs of ~15 functions on every `lambdas/**`
+push, against a median of four before. That is the price of the guarantee, and the reconciliation is
+what makes it worth paying — the `pointed` job compares the functions actually deployed against the
+deploy table by NAME, because a count tells you a number is wrong and the names tell you which
+functions are running last week's image.
+
+## The layer machinery is still here, and nothing reaches it
+
+`.github/lambda-layers.json` still describes the layers and `build-layer.sh` and `deploy-lambda.sh`
+still know how to build and attach them. **Nothing calls any of it.** `point-lambda.sh`'s zip branch
+is gone and a non-`Image` packaging is now refused by name, so there is no path from a deploy to a
+layer — and attaching a layer to a container function is an error anyway.
+
+It survives until SPEC-214, which deletes it against a coverage proof rather than on the strength of
+being unreachable. What a function can import is a property of the **image**, which
+`.github/scripts/lambda-image-matrix.sh` proves by importing every handler module inside it, through
+the real runtime bootstrap.
+
+## The deployed artefact is proved to start
+
+An image that imports cleanly is not a function that starts. After pointing, `Deploy Lambdas`
+invokes one function per plane and every standalone — exactly the set the deploy role holds
+`lambda:InvokeFunction` for — and requires each invocation's log to carry **`REPORT RequestId`**.
+
+Three designs were tried, and each looked right until it was driven:
+
+| design | why it is wrong |
+|---|---|
+| `START RequestId` present | Written **before** init and regardless of its outcome. Also the first line, so `--log-type Tail`'s last-4-KB window truncates it away on a chatty function. Wrong in both directions. |
+| `errorType` begins `Runtime.` | An exception raised at import reports its own class — `RuntimeError` — with no prefix. That is the shape this fleet most invites, since `observability.init` runs at module scope. |
+| `REPORT RequestId` present | True under the runtime interface emulator, false in production: AWS's documented output for a `Runtime.ExitError` init failure carries `START`, `END` **and** `REPORT`. |
+
+What the probe actually fails on is what is unambiguous in both worlds: an `errorType` under
+`Runtime.`, a `Status: error` in the log — a field Lambda writes only when a phase failed, so it
+cannot redden a healthy deploy — or no `^REPORT RequestId` line at all. `INIT_REPORT` is
+deliberately **not** a signal: some runtimes emit it on every cold start, and failing on it would
+turn every deploy red. A handler that ran and raised is a **pass** — the subject is the cold start.
+
+The residual, and the one command that settles it, is in [`../../docs/testing/owed.md`](../../docs/testing/owed.md).
+
+`lambdas/test_cold_start_probe.py` derives the probe's population from the deploy role's grants and
+fails on any difference **in both directions**: a probe without a grant fails loudly the first time
+it runs, but a grant without a probe is invisible. `control-plane-dlq-drain` is the one deliberate
+exemption — invoking it consumes DLQ messages — and it is recorded in `docs/testing/owed.md`.
 
 ## The function table
 
@@ -73,6 +113,10 @@ planner selected.
 2. Add a `docker-lambda` module call in the owning module's `lambda.tf`, supplying its
    `command = ["<module>.<handler>"]`, its timeout and its memory.
 3. Add a `{"name": "<name>", …}` row to `.github/lambda-functions.json`.
+   **A new PLANE also needs a probe:** grant the deploy role `lambda:InvokeFunction` on one of its
+   functions and add that name to `.github/lambda-probes.json`. Without the grant the plane is
+   simply unprobed and nothing says so — `test_cold_start_probe.py` compares the probe table against
+   the grants, so it cannot see a plane that has neither.
 4. Extend the deploy role for any new actions — [`../../infra/info/deploy-role-iam.md`](../../infra/info/deploy-role-iam.md).
 5. Add a row to [`INDEX.md`](INDEX.md).
 
@@ -104,7 +148,14 @@ before code can be pointed at it.
 Two different things, and only one of them is a revert.
 
 **The code** rolls back by pointing the functions at a previous sha's image, which is still in the
-registry under the lifecycle bound `lambda-image` computes. No code change is involved.
+registry under the lifecycle bound `lambda-image` computes. No code change is involved: run
+`Deploy Lambdas` by `workflow_dispatch` with `image_tag` set to that sha. The tag is checked against
+the registry once, up front, because `point-lambda.sh` waits five minutes per function for one that
+never arrives.
+
+**Confirm it by reading `Code.ImageUri` back, never by "main went green".** The `deploy-lambdas`
+concurrency group holds one pending run, so a merge landing while the forward dispatch is queued can
+evict it — leaving the fleet on the rollback image, serving perfectly, with main green.
 
 **The packaging does not.** The cutover moved every function and every log group to a new Terraform
 address, and 172 `moved` blocks are what made that a rename in state rather than a create racing a

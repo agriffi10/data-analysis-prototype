@@ -21,6 +21,14 @@ fleet.
 
 Reads a list of changed paths and returns the plan as JSON. Pure and offline, so
 ``lambdas/test_plan_deploy.py`` can drive it over the real tables.
+
+**THE NARROWING IS NO LONGER REACHED.** Once every function ran one container image, "which
+functions changed" stopped having an answer: there is a single artefact, and a function left
+un-pointed runs an older image and reports a stale build stamp while working perfectly.
+``deploy-lambdas.yml`` therefore calls this module with ``--all`` and nothing else, so only the
+sharding below is live. The narrowing is kept for one spec rather than half-removed — SPEC-214
+replaces CI's function list with a Terraform output and deletes this module whole — and its tests
+are kept with it, because a rule and its test go together or neither is trustworthy.
 """
 
 from __future__ import annotations
@@ -188,7 +196,9 @@ def plan(
     deltas: tuple[set[str], set[str]] | None = None
 
     if force_all:
-        everything = "manual dispatch, or the changed set was unavailable"
+        # The only live caller passes this on every run, so the sentence has to be true of that
+        # rather than of the recovery case it was written for: it reaches a step summary.
+        everything = "one image serves the whole fleet, so every function is pointed"
     elif any(_touched(changed, path) for path in HARD_GLOBAL_PATHS):
         hit = sorted(p for p in HARD_GLOBAL_PATHS if _touched(changed, p))
         everything = f"{', '.join(hit)} changed"

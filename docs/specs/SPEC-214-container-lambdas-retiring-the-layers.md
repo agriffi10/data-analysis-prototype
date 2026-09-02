@@ -32,7 +32,11 @@ because a review samples and the risk here is absence.
 
 ### In Scope
 
-- Deleting `.github/lambda-layers.json`, the layer build script and the attach-order loop.
+- Deleting `.github/lambda-layers.json`, the layer build script and the attach-order loop —
+  and `deploy-lambda.sh` whole, with `lambdas/test_deploy_packaging.py`. SPEC-213 removed
+  `point-lambda.sh`'s zip branch, so nothing calls that script any more; the suite that
+  extracts and RUNS its copy block therefore pins unreachable shell and stays green forever.
+  Named here rather than left to be discovered, per SPEC-213's own record of it.
 - Deleting or rewriting `.github/lambda-functions.json` — CI's function list becomes a Terraform
   output.
 - Deleting `lambdas/test_build_layer.py` and the layer half of `lambdas/test_deploy_matrix.py`.
@@ -122,8 +126,14 @@ to say which functions exist, and Terraform already knows.
 
 - [ ] Every layer version published by the old pipeline is deleted, and the deletion is done in CI
       rather than from a laptop — the deploy role holds the grant and a local identity does not.
-- [ ] The deletion runs **after** the functions have been confirmed on the image for at least one
-      deploy cycle, so a rollback to a zip-packaged function is still possible until it does.
+- [ ] ~~The deletion runs **after** the functions have been confirmed on the image for at least one
+      deploy cycle, so a rollback to a zip-packaged function is still possible until it does.~~
+      **Superseded by SPEC-213's final PR, which removed `point-lambda.sh`'s zip branch and made a
+      non-`Image` packaging a refusal.** There is no longer a pipeline that can deploy a zip
+      function, so the layer versions no longer buy a rollback and the ordering they justified is
+      void. What replaces it is a rollback that does exist: point the fleet at a previous sha's
+      image, which is a `workflow_dispatch` input and no code change. Marked in place rather than
+      rewritten, so a reader arriving from the old claim sees the reversal.
 - [ ] The deploy role's now-unused layer grants are removed in the same pass.
 
 ### FR-005: The documentation says what actually happens

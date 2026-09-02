@@ -161,22 +161,21 @@ The trap. `ignore_changes` means Terraform will never move a function onto a new
       function's update is asynchronous and a job that returns on the API call alone reports a
       deploy that has not happened.
 - [ ] A function whose update fails fails the job, naming the function.
-- [ ] ~~The workflow no longer builds or uploads a zip for any function, and no longer publishes or
-      attaches a layer version.~~ **Deferred to SPEC-214, deliberately, and the reason is better than
-      the criterion.** `point-lambda.sh` dispatches on the function's **live** `PackageType`, so the
-      layer machinery reaches nothing the moment a function becomes `Image` — and leaving it in place
-      is what makes a partly-failed 86-function apply recoverable rather than wedged, because a fleet
-      that is half zip and half image can still be deployed by a pipeline that speaks both. Removing
-      it during the cutover would delete the recovery path at the exact moment it is most likely to be
-      needed. Amended mid-build under §3's rule.
-- [ ] **Also deferred to SPEC-214: the count against Terraform's own declaration, and the retirement
-      of `plan_deploy.py`'s narrowing.** Editing `deploy-lambdas.yml`, `plan_deploy.py` or
-      `point-lambda.sh` puts them in the planner's `HARD_GLOBAL_PATHS`, which forces a **full-fleet
-      deploy concurrent with the apply that is deleting and recreating those very functions** — the
-      two workflows are in different `concurrency` groups, so they genuinely race. Measured with the
-      planner. What the deferral costs: an un-pointed function reports a stale `BUILD_VERSION`. It
-      costs nothing else, because one image serves all 86 and the apply creates every function at
-      the correct sha.
+- [ ] The workflow no longer builds or uploads a zip for any function, and no longer publishes or
+      attaches a layer version. **Held back from the cutover PR, not from this spec**, and the
+      distinction matters because an earlier amendment said "deferred to SPEC-214" and was wrong:
+      editing `deploy-lambdas.yml`, `plan_deploy.py` or `point-lambda.sh` puts them in the planner's
+      `HARD_GLOBAL_PATHS`, which during the cutover would have forced a **full-fleet deploy
+      concurrent with the apply that was deleting and recreating those very functions** — different
+      `concurrency` groups, so a genuine race, measured with the planner. That apply completed, so
+      the constraint expired and the work lands in this spec's final PR, where the forced full-fleet
+      deploy is exactly what the criterion above asks for. (The layer *tables*, `build-layer.sh` and
+      `deploy-lambda.sh` are SPEC-214's, and stay.)
+- [ ] The count is against **what Terraform declares**, and the chain is stated rather than implied:
+      the `pointed` job holds deployed == the deploy table, and `deploy-infra.yml`'s plan guard holds
+      that table == the planned fleet. `.github/lambda-functions.json` is in **that** workflow's
+      `paths:` filter, so the table cannot diverge from Terraform without an edit that runs the
+      guard. The chain closes on the edit, not on every push.
 - [ ] `Deploy Infrastructure` and `Deploy Lambdas` still run in parallel on a push, and the
       `ResourceConflictException` window that already exists between an env-block apply and a
       concurrent function update is documented as unchanged rather than silently inherited.
@@ -190,8 +189,20 @@ Every gate in this repo has at some point been blind to a cold start. This one i
 #### Acceptance Criteria:
 
 - [ ] After the cutover, one function per plane plus each standalone function is invoked once
-      against the deployed environment, and the invocation is asserted to return without a
-      `ModuleNotFoundError`, an `ImportModuleError` or an `InitError`.
+      against the deployed environment, and the invocation is asserted to have reached its handler.
+      **The assertion is what is unambiguous in production**, not the list of three error types this
+      criterion first named — amended under §3's rule after THREE designs, each of which looked
+      right until it was driven. The list is the failure mode rather than the fix: an exception
+      raised at import reports its own class (`RuntimeError`), which no list of runtime error names
+      contains, and this fleet runs `observability.init` at module scope. `START RequestId` is
+      written *before* init and regardless of its outcome. An `errorType` namespace rule
+      (`Runtime.*`) passes that same case. `REPORT RequestId` is present on an init failure in
+      production, whatever the runtime interface emulator shows — and the emulator is known to
+      diverge on that path, answering 502 where production answers 200.
+      What the probe fails on is an `errorType` under `Runtime.`, a `Status: error` in the log — a
+      field Lambda writes only when a phase failed, so it cannot redden a healthy deploy — or no
+      `^REPORT RequestId` line at all. A handler that ran and raised is a **pass**: the subject is
+      the cold start. The residual, and the command that settles it, is in `docs/testing/owed.md`.
 - [ ] The check runs against **the deployed artifact**, not a local image; SPEC-137's failure passed
       review, unit tests and `update-function-code`, and only the deployed function knew.
 - [ ] Whatever cannot be invoked safely from a live environment — anything with a side effect on user

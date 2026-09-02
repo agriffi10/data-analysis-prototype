@@ -1,22 +1,14 @@
 #!/usr/bin/env bash
-# Deploys ONE Lambda's code, whichever way that function is packaged.
+# Points ONE Lambda at the fleet's container image.
 #
-# WHY THIS DISPATCHES RATHER THAN REPLACING deploy-lambda.sh. The cutover changes 86 functions in a
-# single apply, and an apply can fail partway. If the pipeline spoke only `--image-uri`, a
-# half-finished cutover would leave main holding a mixed fleet with no pipeline able to deploy the
-# zip half — and the revert would not recover it either, since `update-function-code --s3-bucket`
-# against an Image function is an InvalidParameterValueException. Reading the LIVE package type
-# costs one field of a call this script already makes, and it means the cutover push needs no
-# pipeline change at all: this file lands first, its zip branch exercised against the real fleet on
-# merge, and the image branch takes over per function as Terraform replaces it.
+# THE ZIP BRANCH IS GONE, and the live `PackageType` read that dispatched to it is now a REFUSAL.
+# It existed for the cutover: while an 86-function replacement could fail partway, a pipeline that
+# spoke only `--image-uri` would have left main holding a mixed fleet it could not deploy. That
+# apply completed, every function is Image-packaged, and a zip function reappearing is a fact
+# somebody needs told rather than something to deploy around.
 #
-# The zip branch is not reimplemented here. It execs deploy-lambda.sh, which owns the package
-# build, the combined size guard, the artifact upload and the layer attachment — and which
-# lambdas/test_deploy_packaging.py drives directly by extracting its copy block and RUNNING it.
-# Rewriting that logic here would leave that suite testing a file nothing calls.
-#
-# Required env: PROJECT_NAME, ENVIRONMENT, GITHUB_SHA. The zip branch additionally needs BUCKET and
-# LAYERS_JSON, which it validates itself.
+# Required env: PROJECT_NAME, ENVIRONMENT, GITHUB_SHA. IMAGE_TAG is optional and overrides the sha —
+# it is the rollback: point the fleet at a tag the registry already holds, with no code change.
 set -euo pipefail
 
 NAME="${1:?usage: point-lambda.sh <function-name>}"
@@ -44,17 +36,17 @@ aws lambda wait function-active-v2 --function-name "$FUNCTION"
 PACKAGE_TYPE=$(aws lambda get-function --function-name "$FUNCTION" \
   --query 'Configuration.PackageType' --output text)
 
-if [ "$PACKAGE_TYPE" = "Zip" ]; then
-  echo "${NAME}: Zip-packaged, deploying through deploy-lambda.sh"
-  exec bash "$(dirname "$0")/deploy-lambda.sh" "$NAME"
-fi
-
 if [ "$PACKAGE_TYPE" != "Image" ]; then
-  echo "::error::${FUNCTION} reports PackageType '${PACKAGE_TYPE}', which is neither Zip nor Image. Refusing to guess."
+  echo "::error::${FUNCTION} reports PackageType '${PACKAGE_TYPE}', and this pipeline only deploys Image. A function that is not container-packaged cannot be pointed at an image, and deploying it some other way is not a decision to make here."
   exit 1
 fi
 
-# ── The image branch ──────────────────────────────────────────────────────────
+# ── Which image ───────────────────────────────────────────────────────────────
+# IMAGE_TAG defaults to this commit. Supplying one is the rollback, and it is the only lever that
+# needs to exist: the registry is immutable and tagged by sha, so naming a previous sha names
+# exactly the artefact that ran then.
+TAG="${IMAGE_TAG:-$GITHUB_SHA}"
+
 REPOSITORY_NAME="${PROJECT_NAME}-${ENVIRONMENT}-lambda"
 if ! REPOSITORY=$(aws ecr describe-repositories --repository-names "$REPOSITORY_NAME" \
                     --query 'repositories[0].repositoryUri' --output text 2>/dev/null); then
@@ -67,18 +59,18 @@ fi
 # function — pointing at a tag that does not exist fails with a message about the image.
 for attempt in $(seq 1 30); do
   if aws ecr describe-images --repository-name "$REPOSITORY_NAME" \
-       --image-ids "imageTag=${GITHUB_SHA}" >/dev/null 2>&1; then
+       --image-ids "imageTag=${TAG}" >/dev/null 2>&1; then
     break
   fi
   if [ "$attempt" -eq 30 ]; then
-    echo "::error::${REPOSITORY_NAME}:${GITHUB_SHA} is not in the registry after ~5 min. Check the 'Deploy Lambda image' run for this commit."
+    echo "::error::${REPOSITORY_NAME}:${TAG} is not in the registry after ~5 min. Check the 'Deploy Lambda image' run for this commit."
     exit 1
   fi
-  echo "Waiting for ${REPOSITORY_NAME}:${GITHUB_SHA} (attempt ${attempt}/30)…"
+  echo "Waiting for ${REPOSITORY_NAME}:${TAG} (attempt ${attempt}/30)…"
   sleep 10
 done
 
-TARGET="${REPOSITORY}:${GITHUB_SHA}"
+TARGET="${REPOSITORY}:${TAG}"
 echo "${NAME}: Image-packaged, pointing at ${TARGET}"
 
 aws lambda update-function-code \
@@ -126,4 +118,4 @@ if [ "$LANDED" != "$TARGET" ]; then
   exit 1
 fi
 
-echo "✓ ${NAME} → ${GITHUB_SHA}"
+echo "✓ ${NAME} → ${TAG}"

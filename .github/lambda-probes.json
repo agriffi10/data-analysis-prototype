@@ -1,0 +1,27 @@
+{
+  "note": "The functions Deploy Lambdas invokes after pointing them, to prove the deployed artefact starts. NOT hand-maintained: lambdas/test_cold_start_probe.py derives this set from the deploy role's own lambda:InvokeFunction grants and fails on any difference, in both directions \u2014 a probe without a grant fails loudly, but a GRANT WITHOUT A PROBE is invisible. An empty payload is used: most probed functions refuse it after import, which is a pass because the handler running is what is being proved.",
+  "probe": [
+    "api",
+    "archive-validate-authorize",
+    "data-quality-validate-authorize",
+    "feedback-writer",
+    "file-ops-validate-authorize",
+    "file-send-validate-authorize",
+    "log-sweep",
+    "notifications-writer",
+    "post-confirmation",
+    "pre-signup",
+    "shared-space-backfill-ever-active",
+    "table-builder-validate-authorize",
+    "table-share-validate-authorize",
+    "user-directory-build"
+  ],
+  "exempt": {
+    "control-plane-dlq-drain": "The one that is NOT like the three above, and the difference is destruction rather than frequency. Invoking it sweeps all four request DLQs, DELETES the messages it reads and emits a notification into each actor's inbox. The others append or rebuild, so an extra run is recoverable; consuming a DLQ destroys the only copy of a dead-lettered body. A deploy-time sweep also runs it through a container that has just changed \u2014 the moment the drain is least proven. Recorded in docs/testing/owed.md rather than counted as covered. The grant stays: it is what a deliberate operator invocation would need."
+  },
+  "work_on_an_empty_payload": {
+    "log-sweep": "Ignores the event and drains the logs FIFO, appending to the day object. PROBED anyway: it runs on a ten-minute schedule, the queue is at-least-once by design, and an extra append is a record that would have been written ten minutes later.",
+    "user-directory-build": "Ignores the event and republishes the username directory. PROBED anyway: it runs daily, is idempotent by construction \u2014 a missed run costs staleness, never correctness \u2014 and its own docstring names an empty payload as the way to force a rebuild.",
+    "shared-space-backfill-ever-active": "Defaults to mode=report, which reads every registry record and writes nothing. PROBED because that default is deliberate: its docstring says an invocation with no payload 'reports rather than mutates'."
+  }
+}
