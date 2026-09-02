@@ -110,6 +110,11 @@ export function QueryTabStrip({
               onClick={() => onSelect(tab.id)}
               onKeyDown={(e) => onTabKeyDown(e, index)}
               className={cx(
+                // Height is the scale step every control in this bar shares; do not raise it to
+                // give the ✕ room. The ✕ is a 24 CSS px pointer target inside a 22.5px content
+                // box, so its hover fill overhangs onto the tab's 1px border by 0.75px a side —
+                // measured, and invisible below about 8x. A step up fixes that and puts the tab
+                // 3.5px out of line with the +, the bar buttons and the result tabs.
                 'inline-flex h-7 flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border pl-3 text-sm',
                 // The tight right padding assumes the ✕ box sits at the end; with no ✕ the
                 // tab pads symmetrically instead of reserving a dead 24px slot.
@@ -134,7 +139,7 @@ export function QueryTabStrip({
                 on the focused tab (onTabKeyDown), so the same action stays fully
                 operable without this control (WCAG 2.1.1).
                 The last remaining tab renders no ✕ and no placeholder — the tab
-                shrinks to its label rather than holding an empty 21px slot. */}
+                shrinks to its label rather than holding an empty 24px slot. */}
               {!solo && (
                 <span
                   role="presentation"
@@ -143,7 +148,7 @@ export function QueryTabStrip({
                     e.stopPropagation();
                     onClose(tab.id);
                   }}
-                  className="grid h-6 w-6 flex-none cursor-pointer place-items-center rounded-sm text-text-3 hover:bg-danger-soft hover:text-danger">
+                  className="grid h-[24px] w-[24px] flex-none cursor-pointer place-items-center rounded-sm text-text-3 hover:bg-danger-soft hover:text-danger">
                   <svg
                     viewBox="0 0 24 24"
                     fill="none"

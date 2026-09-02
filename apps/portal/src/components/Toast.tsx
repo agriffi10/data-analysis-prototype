@@ -50,7 +50,7 @@ export function Toast({variant, message, onDismiss, action}: Props) {
         type="button"
         aria-label="Dismiss"
         onClick={onDismiss}
-        className="grid h-6 w-6 flex-none place-items-center rounded-sm opacity-70 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+        className="grid h-[24px] w-[24px] flex-none place-items-center rounded-sm opacity-70 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
         <svg
           viewBox="0 0 16 16"
           fill="none"

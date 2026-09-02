@@ -35,6 +35,78 @@ function filesContaining(needle: string, exclude: string[] = []): string[] {
 }
 
 /** Each consolidated shape, its one legitimate home, and a label for the failure message. */
+/**
+ * Source with its comments removed, so prose about a class is never read as the class.
+ *
+ * Not tidiness — correctness, and it FAILED CLOSED without it in a way that looked like a real
+ * regression: `Chip.tsx` explains its size in a comment containing `` `h-6` ``, and the backtick
+ * there opened a template literal as far as the scanner below was concerned, so the class string
+ * underneath stopped being seen as its own literal and the chip pin went red on correct code.
+ * `lib/targetSize.test.ts` carries the same rule for the same reason, with an apostrophe.
+ *
+ * A `//` preceded by `:` is left alone — that is the `https://` in a URL.
+ *
+ * @param source - One source file.
+ * @returns The source with block and line comments blanked.
+ */
+function withoutComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1');
+}
+
+/**
+ * Whether `classString` carries `cls` as a WHOLE class.
+ *
+ * A plain `includes` reads `h-[24px]` inside `min-h-[24px]`, which is a different class meaning a
+ * different thing — a size versus a floor. Measured: with `includes`, retyping a sized control as
+ * a floored one satisfied the very pin that exists to stop that drift.
+ *
+ * @param classString - One string literal from the source.
+ * @param cls - The class to look for.
+ * @returns True when the class appears on its own.
+ */
+function hasWholeClass(classString: string, cls: string): boolean {
+  const escaped = cls.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // `:` is in the lookbehind, matching `lib/targetSize.test.ts`'s `MIN_SIZE_CLASS`. Without it a
+  // VARIANT satisfies a pin for the unprefixed class: `tablet:min-h-[24px]` reads as `min-h-[24px]`
+  // while flooring nothing below 900px — the phone, which is the width these targets are for.
+  // Planted: prefixing both crumb floors with `tablet:` left this file AND the sweep green.
+  return new RegExp(`(?<![\\w:-])${escaped}(?![\\w\\-/])`).test(classString);
+}
+
+/**
+ * Files where one QUOTE-FREE RUN of the source carries every one of `classes`.
+ *
+ * Splitting on quote characters rather than matching quoted literals is deliberate, and it is the
+ * third attempt at this. Pairing quotes with a regex is not lexing: one stray quote inside a regex
+ * literal — `etag.replace(/"/g, '')` ships at `features/file-browser/MetadataPanel.tsx` — inverts
+ * the pairing for the rest of the file, and the pin then reddens on a file whose classes are
+ * untouched. A class string contains no quotes, so it always survives the split whole, whatever
+ * else in the file does not. Comments are stripped first because they quote class names as prose.
+ *
+ * Order-independent, because class order is meaningless in Tailwind and a guard that reddens on a
+ * reorder gets deleted. Whole-class and variant-aware, per `hasWholeClass`. Together in one run,
+ * because looking for each class separately passes when a file keeps the height on one element and
+ * the width on another.
+ *
+ * WHAT IT DOES NOT COVER, so its silence is not read as more than it is. It is FILE-scoped, not
+ * element-scoped: moving a pinned pair together onto a non-target sibling in the same file still
+ * passes. And it wants the pair in ONE run, so splitting a class across two `cx(…)` arguments
+ * reddens correct code — write the pair in a single string. Neither is a size regression the
+ * sweep in `lib/targetSize.test.ts` would miss; this file only ever covered the sideways edit, a
+ * normalisation from `h-[24px]` back onto the rem scale, which the sweep cannot see because 24.5
+ * clears the floor.
+ *
+ * @param classes - The classes that must appear together.
+ * @returns The src-relative paths, so a failure names the offender.
+ */
+function filesSizedAbsolutely(classes: string[]): string[] {
+  return FILES.filter(([, source]) =>
+    withoutComments(source)
+      .split(/['"`]/)
+      .some((run) => classes.every((c) => hasWholeClass(run, c)))
+  ).map(([path]) => path);
+}
+
 const OWNED: {what: string; needle: string; owner: string}[] = [
   {what: 'the status-pill dot', needle: 'h-[7px] w-[7px]', owner: 'components/StatusPill.tsx'},
   {
@@ -72,6 +144,34 @@ describe('shared primitives are not re-implemented (SPEC-186)', () => {
     }
   });
 
+  // Everything the 24px pins assert is `toContain`, so a matcher that returned EVERY file would
+  // satisfy all of them, and so would one with no whole-class boundary at all. Both were planted
+  // and both passed the suite. These are the controls that make the pins mean something: the
+  // matcher has to be able to say no, and it has to say no to the three near-misses that would
+  // otherwise read as a pin holding — a variant that only applies above 900px, a floor where a
+  // size is pinned, and a ceiling.
+  it('the 24px matcher can say NO — variants, floors and ceilings are not the pinned class', () => {
+    expect(filesSizedAbsolutely(['zz-[99px]'])).toEqual([]);
+    expect(filesSizedAbsolutely(['h-[24px]', 'w-[24px]'])).not.toContain('components/Badge.tsx');
+
+    expect(hasWholeClass('grid h-[24px] w-[24px]', 'h-[24px]')).toBe(true);
+    expect(hasWholeClass('grid w-[24px] h-[24px]', 'h-[24px]')).toBe(true);
+    // A variant floors nothing at the width these targets are for.
+    expect(hasWholeClass('tablet:h-[24px]', 'h-[24px]')).toBe(false);
+    expect(hasWholeClass('dark:min-h-[24px]', 'min-h-[24px]')).toBe(false);
+    // A floor is not a size and a ceiling is not either, in both directions.
+    expect(hasWholeClass('min-h-[24px]', 'h-[24px]')).toBe(false);
+    expect(hasWholeClass('max-w-[24px]', 'w-[24px]')).toBe(false);
+    expect(hasWholeClass('h-[24px]', 'min-h-[24px]')).toBe(false);
+
+    // A stray quote in a regex literal must not desync the scan for the rest of the file — this
+    // exact expression ships in `features/file-browser/MetadataPanel.tsx`.
+    const withStrayQuote = `const e = etag.replace(/"/g, ''); const c = "grid h-[24px] w-[24px]";`;
+    expect(
+      withStrayQuote.split(/['"`]/).some((run) => ['h-[24px]', 'w-[24px]'].every((c) => hasWholeClass(run, c)))
+    ).toBe(true);
+  });
+
   it.each(OWNED)('has exactly one copy of $what', ({needle, owner}) => {
     // Six sites hand-rolled the status pill, plus a seventh in `LandingPage` that the spec's own
     // list missed — which is the argument for a sweep over an enumeration.
@@ -103,6 +203,37 @@ describe('shared primitives are not re-implemented (SPEC-186)', () => {
   // fail here. `toContain` rather than set equality: the divider's step buttons legitimately
   // carry the same class, and a second correct user must not redden this.
   it('pins the chip remove target to an absolute 24px', () => {
-    expect(filesContaining('h-[24px] w-[24px]')).toContain('components/Chip.tsx');
+    expect(filesSizedAbsolutely(['h-[24px]', 'w-[24px]'])).toContain('components/Chip.tsx');
+  });
+
+  // The same tripwire for the controls measured out of `lib/targetSize.test.ts`'s register.
+  // The sweep there already catches a SHRINK — `h-6` is 21px and would reappear as an offence
+  // with no entry. What it cannot catch is a normalisation SIDEWAYS onto the scale: `h-7` is
+  // 24.5px, clears the floor today, and reddens nothing, while quietly re-coupling an absolute
+  // threshold to a root font size that is 14px only by convention. That is the exact edit that
+  // hid the chip's 21px target for months, so the absolute spelling is pinned by name.
+  it('pins every target measured out of the register to an absolute 24px', () => {
+    const pins: [string[], string[]][] = [
+      // Sized absolutely, so a 24px pointer target survives a restyle of whatever encloses it.
+      [
+        ['h-[24px]', 'w-[24px]'],
+        [
+          'components/Toast.tsx',
+          'features/data-explorer/ExplorationTabStrip.tsx',
+          'features/query/QueryTabStrip.tsx',
+          'features/query/TableActionsMenu.tsx'
+        ]
+      ],
+      // The crumbs are FLOORED rather than sized — a crumb grows with its label — and both axes
+      // are load-bearing, because a one-character folder name draws a 7px-wide box.
+      [
+        ['min-h-[24px]', 'min-w-[24px]'],
+        ['features/file-browser/DestinationPicker.tsx', 'features/file-browser/FileBrowser.tsx']
+      ]
+    ];
+    for (const [classes, owners] of pins) {
+      const found = filesSizedAbsolutely(classes);
+      for (const owner of owners) expect(found, `${owner} must keep ${classes.join(' + ')}`).toContain(owner);
+    }
   });
 });

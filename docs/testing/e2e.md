@@ -740,6 +740,56 @@ trail answers it — `owed.md` carries the query and the `IsLogging` preconditio
   tripwire in `sharedPrimitives.guard.test.ts` catches the textual edit; only this catches the
   rendered size.
 
+**The Inline exception does NOT cover a breadcrumb trail — settled 2026-09-01, and what would
+re-open it.** SC 2.5.8's Inline exception reads "the target is in a sentence or its size is
+otherwise constrained by the line-height of non-target text", and the W3C Understanding text gives
+one example, a link inside a paragraph, with the rationale that reflowing prose makes a link's
+position unpredictable to the author. A crumb trail is neither half of that. It is not a sentence —
+it is a `<nav>` holding an `<ol>` of controls, whose non-target text is the `/` separators and the
+final `aria-current` crumb. And
+its size is not *constrained* by that text's line-height, which was settled by measuring rather than
+arguing: the crumbs are flex items, so flooring one at `min-h-[24px]` takes it from 18px to 24px
+while the separator beside it stays at its own 18px line-height, and the row simply grows. A
+constraint you can lift by editing one class is not a constraint. **What would re-open this:** laying
+the crumbs out as inline text inside a real sentence, where raising one would change the leading of
+the text around it. The trail being visually compact is not the test.
+
+**The controls measured out of the register, and what to spot-check.** All were measured at the 14px
+root against the built stylesheet. Both crumb trails (`/files`, and the destination picker in a
+copy/move dialog) now carry `min-h-[24px] min-w-[24px]` — **both axes**, because a one-character
+folder name draws a 7px-wide box and two of those sit 22.8px apart, inside each other's circle.
+Confirm a one-character folder crumb is at least 24×24, and that a long folder name still shows an
+ellipsis: the fix deliberately does **not** use `inline-flex`, which makes the label an anonymous
+flex item and stops `truncate` rendering its `…` while still clipping, so the regression looks like
+a slightly shorter name rather than a broken one.
+
+**Then check the trail WRAPS, which is the half a target-size check will not tell you.** Flooring
+the crumbs widens every short one, and `/files`' trail did not wrap before this — so at 375px a
+path six or more folders deep ran its content past the nav, clipped the folder you are standing in
+at the screen edge, and put the whole document into a horizontal scroll, which is an SC 1.4.10
+Reflow failure traded for an SC 2.5.8 one. Narrow to **375px**, then to **320px**, and walk into a
+deep folder: the trail must wrap onto a second row with the current folder fully visible, and the
+page must not scroll sideways — drag horizontally and confirm nothing moves. **Confirm `innerWidth` actually changed before believing any of this** — §1's stale-viewport trap is exactly this shape, and a resize that silently did nothing leaves a desktop-width trail that wraps at no width and passes. At 320px with nine
+segments it takes three rows and pushes the file list down about 47px, which is the accepted cost.
+The refresh button beside the trail is centred against the whole block, so it sits lower than the
+first crumb row once wrapped; that is expected, not a bug. The two tab strips' ✕ closes are `h-[24px]
+w-[24px]` inside a tab whose own `h-7` did **not** change. That was tried and reverted, and the
+reasoning is worth keeping: `h-7` is a 24.5px BORDER box over a 22.5px CONTENT box, so a 24px ✕
+stays inside the tab's outer bounds (measured: 0.25px to spare) but overhangs the content box by
+0.75px a side onto the 1px border, where its own hover fill paints over it. Raising the tab to
+`h-8` removes that 0.75px artifact and costs a visible 3.5px mismatch against the `+` button, the
+bar buttons and `ResultTabs`, all of which are `h-7`. The artifact is invisible below about 8x
+magnification; the mismatch is not. Nothing about the ✕'s conformance depends on the tab. A 24×24 target needs **no**
+exception, which is what makes the ✕ fixable at all: the exception could never rescue it, since it
+sits inside the tab's own box, and that was misread for a while as "unfixable" rather than "not
+rescuable". `Toast`'s dismiss and the schema rail's `TableActionsMenu` trigger are also 24×24 now;
+both already conformed via spacing (37.8px and a 14px centre-to-box against the row button), so
+those two are robustness rather than fixes — the menu trigger was clearing the requirement by
+2px, on a `gap-1` rail row. Do not repeat the claim that a `gap-0.5` there would have broken it:
+1.75px + half the 21px trigger is 12.25px, which still clears the 12 the exception needs. Only
+`gap-0` would have, and the honest statement is that it was the app's tightest pass, not that a
+named edit would have ended it.
+
 ### 4.14 Feature flags
 
 **The whole point is that the app cannot tell you the answer.** Every compiled-in default is `true`,

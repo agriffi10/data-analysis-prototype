@@ -94,6 +94,10 @@ export function ExplorationTabStrip({tabs, activeTabId, onSelect, onClose, onNew
               onClick={() => onSelect(tab.id)}
               onKeyDown={(e) => onTabKeyDown(e, index)}
               className={cx(
+                // Height is the scale step the + beside it shares; do not raise it to give the ✕
+                // room. The ✕ is a 24 CSS px pointer target in a 22.5px content box, so its hover
+                // fill overhangs the tab's 1px border by 0.75px a side — measured, invisible below
+                // about 8x, and cheaper than putting this strip out of line with its siblings.
                 'inline-flex h-7 flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border pl-3 pr-1 text-sm',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
                 active
@@ -113,7 +117,7 @@ export function ExplorationTabStrip({tabs, activeTabId, onSelect, onClose, onNew
                   e.stopPropagation();
                   onClose(tab.id);
                 }}
-                className="grid h-6 w-6 flex-none cursor-pointer place-items-center rounded-sm text-text-3 hover:bg-danger-soft hover:text-danger">
+                className="grid h-[24px] w-[24px] flex-none cursor-pointer place-items-center rounded-sm text-text-3 hover:bg-danger-soft hover:text-danger">
                 <svg
                   viewBox="0 0 24 24"
                   fill="none"

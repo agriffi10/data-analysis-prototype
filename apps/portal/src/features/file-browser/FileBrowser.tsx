@@ -241,7 +241,11 @@ function FileBrowserContent({
         <nav
           aria-label="breadcrumb"
           className="min-w-0 flex-1">
-          <ol className="flex items-center gap-1 text-sm">
+          {/* Wraps because the crumbs are floored at 24px: without it a deep path at 375px
+              overflows this nav by ~38px and the folder you are standing in is clipped at the
+              screen edge, taking the document into a horizontal scroll. The destination picker's
+              trail has always wrapped for the same reason. */}
+          <ol className="flex flex-wrap items-center gap-1 text-sm">
             {breadcrumbs.map((crumb, i) => {
               const isLast = i === breadcrumbs.length - 1;
               return (
@@ -263,7 +267,11 @@ function FileBrowserContent({
                     </span>
                   ) : (
                     <button
-                      className="max-w-[160px] truncate text-text-2 hover:text-text hover:underline"
+                      // Both floors are the 24 CSS px pointer-target threshold, absolute because
+                      // it is a threshold and not a step on the rem-derived scale. Width matters
+                      // too: a one-character folder draws a 7px box, and two sit 22.8px apart.
+                      // NOT `inline-flex` — that stops `truncate` rendering its ellipsis.
+                      className="min-h-[24px] min-w-[24px] max-w-[160px] truncate text-text-2 hover:text-text hover:underline"
                       onClick={() => setPrefix(crumb.prefix)}>
                       {crumb.label}
                     </button>

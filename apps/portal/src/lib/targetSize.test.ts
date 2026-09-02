@@ -167,6 +167,35 @@ const POINTER_HANDLER = /on(?:Click|PointerDown|MouseDown)=/;
 const UNSIZED_INPUT_PX = 13;
 const CHECKBOX_OR_RADIO = /type=['"](?:checkbox|radio)['"]/;
 
+// A `min-h-*` / `min-w-*` utility that is NOT variant-prefixed — `:` is excluded from the
+// lookbehind on purpose, so a `tablet:min-h-[24px]` (which floors nothing on a phone) is not read
+// as an unconditional floor.
+//
+// Read for REPLACED elements only, and the distinction is the whole reason `SIZE_CLASS` above
+// throws every `min-*` away. A floor is not a height when the element has content: a padded row
+// carrying `min-h-6` may draw taller than 21px on its own, so the class says nothing about what
+// the browser paints. A checkbox has no content that can be shorter and no padding that can grow
+// it, so a floor on one is exact — which makes a correct `min-h-[24px] min-w-[24px]` fix on a
+// checkbox invisible to `SIZE_CLASS` and the register entry silently stale.
+const MIN_SIZE_CLASS = /(?<![\w:-])min-(h|w)-(\[[^\]]*]|[\d.]+|px)(?![\w\-/])/g;
+
+/**
+ * Whether a replaced element's own classes floor it at the target size on BOTH axes.
+ *
+ * Both, because a checkbox floored only in height is still the user agent's 13px wide.
+ *
+ * @param classes - The tag's own class string.
+ * @returns True when an unconditional `min-h-*` AND `min-w-*` each reach the floor.
+ */
+function replacedElementMeetsFloor(classes: string): boolean {
+  const floor: Record<string, number> = {};
+  for (const [, axis, value] of classes.matchAll(MIN_SIZE_CLASS)) {
+    const px = sizeClassPx(value);
+    if (px !== null) floor[axis] = Math.max(floor[axis] ?? 0, px);
+  }
+  return (floor.h ?? 0) >= MIN_TARGET_PX && (floor.w ?? 0) >= MIN_TARGET_PX;
+}
+
 /**
  * The text of one JSX opening tag's attributes, from `start` to the `>` that closes it.
  *
@@ -254,6 +283,25 @@ function ownClassName(attributes: string): string {
 }
 
 /**
+ * Whether the tag's own `className` is a plain quoted string rather than an expression.
+ *
+ * `ownClassName` hands back the SOURCE of a `{…}` value, so every branch of a conditional is in
+ * the string at once and a floor that applies in one of them reads as unconditional. That is
+ * harmless where a class is evidence of a PROBLEM — a conditional `h-4` is flagged in both states,
+ * which fails closed — and unsafe where it is evidence of a FIX, which is what the floor below is.
+ * Measured: `className={compact ? 'min-h-[24px] min-w-[24px]' : 'accent-accent'}` on a checkbox
+ * read as conforming, in a file with no register entry, and the suite stayed green.
+ *
+ * @param attributes - One tag's attribute text.
+ * @returns True only when the value is a single quoted string.
+ */
+function ownClassNameIsLiteral(attributes: string): boolean {
+  const at = classNameAtTopLevel(attributes);
+  if (at === null) return false;
+  return attributes[at] === '"' || attributes[at] === "'";
+}
+
+/**
  * Every interactive tag in `source` whose own size classes put it under the floor.
  *
  * A tag counts as interactive when it is a native control, carries an interactive `role`, is one
@@ -284,7 +332,12 @@ function undersizedControls(source: string): string[] {
       const px = sizeClassPx(cls);
       if (px !== null && px < MIN_TARGET_PX) offences.push(`<${name}> ${whole} = ${px}px`);
     }
-    if (!sized.length && name === 'input' && CHECKBOX_OR_RADIO.test(attributes)) {
+    if (
+      !sized.length &&
+      name === 'input' &&
+      CHECKBOX_OR_RADIO.test(attributes) &&
+      !(ownClassNameIsLiteral(attributes) && replacedElementMeetsFloor(classes))
+    ) {
       offences.push(`<input type=checkbox|radio> no size class = ${UNSIZED_INPUT_PX}px`);
     }
   }
@@ -294,10 +347,15 @@ function undersizedControls(source: string): string[] {
 /**
  * Every control under the floor today, and what it is.
  *
- * A tripwire, not a clean bill of health: each of these is a CANDIDATE that the spacing exception
- * may or may not cover, and NONE of them has had its geometry measured in a browser. The notes say
- * what a control is and where it sits, never that it conforms. Revisit the decision — measure them
- * and move them out — rather than deleting the entry.
+ * A tripwire, not a clean bill of health. Every entry is under the floor; whether that is a
+ * FAILURE depends on the spacing exception, which is geometry this file cannot do. An entry whose
+ * `why` names a measured centre-to-centre distance has been through a browser; one that does not
+ * is still an unmeasured CANDIDATE. Revisit the decision — measure it and move it out — rather
+ * than deleting the entry.
+ *
+ * Two of the measured ones are CONFIRMED failures rather than candidates, and are recorded as
+ * such in `docs/testing/owed.md`: they are kept here because fixing them is a change to a
+ * different feature's layout, not because anything exempts them.
  *
  * The chip's remove button was the thirteenth, and left by the intended route: someone measured it,
  * decided the cushion was invisible and load-bearing, sized it absolutely at `h-[24px]`, and this
@@ -312,24 +370,16 @@ function undersizedControls(source: string): string[] {
  * offences means a change to any of them is a change to this list.
  */
 const ACCEPTED_UNDERSIZED: Record<string, {why: string; controls: string[]}> = {
-  '/src/components/Toast.tsx': {
-    why: 'the toast dismiss button, beside an optional underlined text action in the same bar',
-    controls: ['<button> h-6 = 21px', '<button> w-6 = 21px']
-  },
   '/src/features/data-explorer/ColumnFilterMenu.tsx': {
-    why: 'the column sort/filter menu trigger, one per column header, its width coming from padding',
+    why: 'the column sort/filter menu trigger, one per column header, its width coming from padding. MEASURED 28.63x21 sitting INSIDE the header cell\u2019s own click target, so centre-to-box is 0 and the spacing exception cannot apply — a CONFIRMED failure, not a candidate. Not resized here because the cell also holds the resize handle 12.6px away, so the three of them need a layout that separates them rather than three sizes',
     controls: ['<button> h-6 = 21px']
-  },
-  '/src/features/data-explorer/ExplorationTabStrip.tsx': {
-    why: 'the tab close affordance, and the one place in the app the spacing exception CANNOT rescue — it sits INSIDE the clickable tab, so a 24px circle centred on it necessarily intersects the tab\u2019s own box. It needs a design decision rather than a resize, and it is deliberately left alone. Keyboard is not the issue: the span is a non-focusable presentation node on purpose (a button inside `role="tab"` is nested-interactive) and the tab closes on Delete',
-    controls: ['<span> h-6 = 21px', '<span> w-6 = 21px']
   },
   '/src/features/file-browser/FileListRowMobile.tsx': {
     why: 'the row selection checkbox, centred in a fixed-width cell at the row edge',
     controls: ['<input> h-4 = 14px', '<input> w-4 = 14px']
   },
   '/src/features/file-browser/FileListTable.tsx': {
-    why: 'the select-all header checkbox and the per-row selection checkbox, stacked one per 42px row',
+    why: 'the select-all header checkbox and the per-row selection checkbox, stacked one per 42px row. MEASURED 14x14, and the per-row one is a CONFIRMED failure rather than a candidate: its `<li>` is itself a target (`onDoubleClick` downloads) measuring 876x42, so centre-to-box is 0 and the exception cannot apply. The sweep cannot see that row — `POINTER_HANDLER` does not match `onDoubleClick`',
     controls: ['<input> h-4 = 14px', '<input> w-4 = 14px', '<input> h-4 = 14px', '<input> w-4 = 14px']
   },
   '/src/features/file-browser/SelectionToolbar.tsx': {
@@ -340,14 +390,6 @@ const ACCEPTED_UNDERSIZED: Record<string, {why: string; controls: string[]}> = {
     why: 'the recipient-kind radios, each inside its own label',
     controls: ['<input> h-4 = 14px', '<input> w-4 = 14px']
   },
-  '/src/features/query/QueryTabStrip.tsx': {
-    why: 'the tab close affordance — the same shape, and the same unrescuable geometry, as the Data Explorer strip above',
-    controls: ['<span> h-6 = 21px', '<span> w-6 = 21px']
-  },
-  '/src/features/query/TableActionsMenu.tsx': {
-    why: 'the table row actions menu trigger, at the end of a schema rail row',
-    controls: ['<button> h-6 = 21px', '<button> w-6 = 21px']
-  },
   '/src/features/table-builder/RefreshTableDialog.tsx': {
     why: 'the "allow removals" checkbox, alone in its row',
     controls: ['<input> h-4 = 14px', '<input> w-4 = 14px']
@@ -357,11 +399,11 @@ const ACCEPTED_UNDERSIZED: Record<string, {why: string; controls: string[]}> = {
     controls: ['<input> h-4 = 14px', '<input> w-4 = 14px']
   },
   '/src/features/catalog/ColumnResizeHandle.tsx': {
-    why: 'the column resize handle: a focusable `role="separator"` span, 10.5px wide and the smallest target in the app. It drags rather than clicks, which is the only reason a sweep keyed on `onClick` could not see it',
+    why: 'the column resize handle: a focusable `role="separator"` span, MEASURED 10.5x43 and the smallest target in the app. It drags rather than clicks, which is the only reason a sweep keyed on `onClick` could not see it. Centre-to-box 0 against the header cell it sits in and 12.6px centre-to-centre from the filter menu, so it is a CONFIRMED failure. Widening it to 24 would put it on top of that menu — the fix is a header layout, not a width',
     controls: ['<span> w-3 = 10.5px']
   },
   '/src/features/data-explorer/AdvancedCopyDialog.tsx': {
-    why: 'three copy-option checkboxes, each inside its own label',
+    why: 'three copy-option checkboxes, each inside its own label, MEASURED 13x13 at 25px centre-to-centre from the `mt-2` between labels — covered by the spacing exception, by one pixel',
     controls: [
       '<input type=checkbox|radio> no size class = 13px',
       '<input type=checkbox|radio> no size class = 13px',
@@ -369,15 +411,15 @@ const ACCEPTED_UNDERSIZED: Record<string, {why: string; controls: string[]}> = {
     ]
   },
   '/src/features/data-explorer/CalcPanel.tsx': {
-    why: 'the include-strings toggle and one checkbox per aggregate function',
+    why: 'the include-strings toggle and one checkbox per aggregate function, MEASURED 13x13 inputs, though the TARGET is the wrapping `<label>`, which activates the same control. A CONFIRMED failure, and only just: the stacked `gap-2` labels put two function rows 23px apart centre-to-centre, one short of 24',
     controls: ['<input type=checkbox|radio> no size class = 13px', '<input type=checkbox|radio> no size class = 13px']
   },
   '/src/features/data-explorer/GroupingPanel.tsx': {
-    why: 'the duplicates-only and show-percentage toggles',
+    why: 'the duplicates-only and show-percentage toggles, MEASURED 13x13 at 34.5px centre-to-centre in the panel\u2019s `gap-3` column, so the spacing exception covers them',
     controls: ['<input type=checkbox|radio> no size class = 13px', '<input type=checkbox|radio> no size class = 13px']
   },
   '/src/features/data-explorer/OrderFilterDialog.tsx': {
-    why: 'the show and pin checkboxes, one pair per column, stacked in a list',
+    why: 'the show and pin checkboxes, one pair per column, stacked in a list. MEASURED 13x13 at 56px centre-to-centre, so the spacing exception covers them — kept here because they are still under the floor, not because they fail',
     controls: ['<input type=checkbox|radio> no size class = 13px', '<input type=checkbox|radio> no size class = 13px']
   },
   '/src/features/data-explorer/RowColoursDialog.tsx': {
@@ -385,7 +427,7 @@ const ACCEPTED_UNDERSIZED: Record<string, {why: string; controls: string[]}> = {
     controls: ['<input type=checkbox|radio> no size class = 13px', '<input type=checkbox|radio> no size class = 13px']
   },
   '/src/features/data-explorer/StripingControl.tsx': {
-    why: 'one checkbox per column in the striping picker',
+    why: 'one checkbox per column in the striping picker, MEASURED 13x13 inputs, though the TARGET is the wrapping `<label>`, which activates the same control. A CONFIRMED failure rather than a candidate either way: the `gap-y-1` list wraps, and two rows measure 19.5px centre-to-centre, inside the 24px each needs — label pitch and checkbox pitch are equal here, so the verdict does not turn on which box is measured',
     controls: ['<input type=checkbox|radio> no size class = 13px']
   },
   '/src/features/data-explorer/TransformersDialog.tsx': {
@@ -432,6 +474,22 @@ describe('a control sized from the spacing scale reaches the target floor', () =
     // Three classes that look like the ones above and mean something else. A floor and a ceiling
     // do not fix a height; a fraction is a proportion of the parent.
     expect(undersizedControls('<button className="min-h-6 max-w-4 w-1/2">x</button>')).toEqual([]);
+
+    // A REPLACED element is the one place a floor IS the size, so a checkbox floored on both axes
+    // is accepted — and only when the floor is unconditional. The three refusals are the ways it
+    // is not: one axis only, a variant that does not apply at every width, and a branch of a
+    // conditional. The last one fails CLOSED on purpose; it read as conforming before this.
+    const unsized = ['<input type=checkbox|radio> no size class = 13px'];
+    expect(undersizedControls('<input type="checkbox" className="min-h-[24px] min-w-[24px]" />')).toEqual([]);
+    expect(undersizedControls('<input type="checkbox" className="min-h-[24px]" />')).toEqual(unsized);
+    expect(undersizedControls('<input type="checkbox" className="tablet:min-h-[24px] tablet:min-w-[24px]" />')).toEqual(
+      unsized
+    );
+    expect(
+      undersizedControls(
+        '<input type="checkbox" className={compact ? "min-h-[24px] min-w-[24px]" : "accent-accent"} />'
+      )
+    ).toEqual(unsized);
 
     // …and a decorative icon passed as a prop is not the control's own size — in EITHER attribute
     // order, which is what "the tag's own className" has to mean. JSX order is arbitrary and

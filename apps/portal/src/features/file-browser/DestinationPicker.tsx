@@ -280,7 +280,11 @@ export function DestinationPicker({
                   </span>
                 ) : (
                   <button
-                    className="hover:text-text hover:underline"
+                    // Both floors are the 24 CSS px pointer-target threshold, absolute because it
+                    // is a threshold and not a step on the rem-derived scale. Width matters too:
+                    // a one-character folder draws a 7px box, and this trail wraps, so two of
+                    // them land 22.8px apart — inside each other's 24px circle.
+                    className="min-h-[24px] min-w-[24px] hover:text-text hover:underline"
                     // A crumb's prefix is only `undefined` in the unclamped dev-unauth
                     // breadcrumb, which this picker never renders — it always has a
                     // space root. Falling back to the root keeps the clamp total.
