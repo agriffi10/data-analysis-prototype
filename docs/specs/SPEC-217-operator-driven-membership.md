@@ -107,21 +107,28 @@ retired.
 - [ ] A file whose header is the retired `space,new_owner` is rejected with a reason that names the
       accepted header, rather than the generic wrong-header sentence. An operator who wrote
       yesterday's file gets told what changed.
-- [ ] `action` must be one of `transfer_ownership`, `add_members`, `remove_members`, held as a
-      **local constant** in the reader — it has no domain layer and importing one at runtime would
-      buy a cold-start crash on `PORTAL_ROLE_ARN`, which the reader's environment does not set — and
-      a test asserts that constant **equals** `shared-space-common`'s `config.OPERATOR_ACTIONS`, in
-      the manner `SCHEMA_VERSION` and `MESSAGE_GROUP_ID` are already cross-checked from the test's
-      own `sys.path`. Equality, not containment: a subset assertion passes while the reader silently
-      refuses an action the plane admits.
+- [ ] `action` must be one of **`add`, `remove`, `transfer`** — the operator's vocabulary, not the
+      plane's. A row names one person, so `add_members` reads wrong on it, and an operator writing
+      this file by hand should not have to know the wire.
+- [ ] The three words are a **mapping to the plane's actions**, held as a module-level constant in
+      the reader: `add → add_members`, `remove → remove_members`, `transfer → transfer_ownership`.
+      The reader keeps it locally rather than importing the domain layer, which would buy a
+      cold-start crash on `PORTAL_ROLE_ARN` — a variable the reader's environment does not set — and
+      a test cross-checks it from the test's own `sys.path`, in the manner `SCHEMA_VERSION` and
+      `MESSAGE_GROUP_ID` already are.
+- [ ] **That cross-check asserts the mapping's VALUES set-equal `config.OPERATOR_ACTIONS`, and that
+      the mapping is injective.** A second vocabulary is a thing that drifts, and this is what stops
+      it: set equality alone forces a CSV word to exist for every action the plane admits and forces
+      one to go when an action is withdrawn, but it collapses two words mapping to one action and
+      agrees. Three keys, three distinct values, asserted separately from the set.
 - [ ] A row naming any other action rejects the **whole file**, with a reason naming the line number
-      and the accepted actions. Partial enqueueing is not an option this reader has: SPEC-208's rows
+      and the three accepted words. Partial enqueueing is not an option this reader has: SPEC-208's rows
       are enqueued neither wholly nor partly, and mixing actions does not change that.
 - [ ] **A file naming one space under more than one action is rejected**, naming the space and both
       lines. Two actions on one space in one file read as a sequence and are not one: their
-      executions overlap, so `transfer_ownership` then `remove_members` on the same space can be
-      validated in either order, and the losing order refuses with FR-004's "transfer the space
-      first" — advice the previous line already took. The refusal is at the reader because it is the
+      executions overlap, so a `transfer` row then a `remove` row on the same space can be validated
+      in either order, and the losing order refuses with FR-004's "transfer the space first" —
+      advice the previous line already took. The refusal is at the reader because it is the
       only place that can see the pair.
 - [ ] Two rows carrying the same `(space, action, username)` triple reject the whole file, naming
       both lines. Duplicates within one coalesced request are a no-op at best and a mistake at worst,
@@ -163,11 +170,13 @@ operator origin and no identity block, in the envelope SPEC-208 established.
       `cpcommon.cas.MAX_ATTEMPTS` is 6 and whose docstring rests on contention being rare — and each
       dragging a full `write_roster_to_all`, so N single-member adds to one space cost O(N²) cache
       writes. The verbs already take a list, and one message is one CAS and one fan-out.
-- [ ] `transfer_ownership` enqueues `payload: {"newOwner": <username>}`; `add_members` and
-      `remove_members` each enqueue `payload: {"members": [...]}`. A test asserts each shape against
-      the key the corresponding verb actually reads, rather than against a literal repeated in the
-      test.
-- [ ] A second `transfer_ownership` row for the same space naming a *different* target is refused,
+- [ ] A `transfer` row enqueues `action: "transfer_ownership"` with
+      `payload: {"newOwner": <username>}`; `add` and `remove` enqueue `add_members` and
+      `remove_members` with `payload: {"members": [...]}`. The message carries the **wire** action,
+      never the CSV word — the validator's vocabulary is `VALID_ACTIONS` and a message naming `add`
+      is refused as an unknown action. A test asserts each shape against the key the corresponding
+      verb actually reads, rather than against a literal repeated in the test.
+- [ ] A second `transfer` row for the same space naming a *different* target is refused,
       by the same one-action-one-space reasoning: two transfers of one space in one file are a race
       whichever way they are read. (A repeated target is already refused as a duplicate triple.)
 - [ ] Every message carries `origin: "operator"`, no `identity` key, the queue's single message group
@@ -407,18 +416,29 @@ and `remove_members` the moment their refusals stop being raises.
 ```
 # The operator CSV — <admin-bucket>/operator-requests/inbox/<anything>.csv
 space,action,username
-finance_reports,add_members,bcarter
-finance_reports,add_members,rsingh
-project_atlas,transfer_ownership,dmehta
-sales_archive,remove_members,agriffith
+finance_reports,add,bcarter
+finance_reports,add,rsingh
+project_atlas,transfer,dmehta
+sales_archive,remove,agriffith
 ```
 
-`space` is the shared space's name. `action` is one of three, spelled exactly as the plane's own
-action values so the operator's file and the plane's log line say the same word. `username` is the
-member the row is about: the person taking the space for a transfer, and the person being added or
-removed otherwise. **One space appears under at most one action per file** (FR-001), and the rows
-sharing a `(space, action)` become one request (FR-002) — the two `finance_reports` rows above are
-one `add_members` naming both people.
+`space` is the shared space's name. `action` is `add`, `remove` or `transfer` — one word per row,
+because a row names one person. `username` is the member the row is about: the person taking the
+space for a transfer, and the person being added or removed otherwise. **One space appears under at
+most one action per file** (FR-001), and the rows sharing a `(space, action)` become one request
+(FR-002) — the two `finance_reports` rows above are one `add_members` naming both people.
+
+The reader maps each word to the action the plane already knows, and a test holds the mapping to
+`OPERATOR_ACTIONS` in both directions:
+
+```python
+# lambdas/shared-space-transfer-reader/transfer_reader.py
+ACTIONS = {
+    "add": "add_members",
+    "remove": "remove_members",
+    "transfer": "transfer_ownership",
+}
+```
 
 ```python
 # lambdas/shared-space-common/auth.py — the new predicate, beside transfer_refusal
@@ -462,7 +482,7 @@ OPERATOR_ACTIONS = frozenset({"transfer_ownership", "add_members", "remove_membe
 ```
 lambdas/
 ├── shared-space-transfer-reader/     # the header, the action column, coalescing, the two caps
-│   ├── transfer_reader.py
+│   ├── transfer_reader.py            # ACTIONS: the operator's three words
 │   └── test_transfer_reader.py
 ├── shared-space-common/
 │   ├── auth.py                       # member_refusal, the code constant, the owner check leaving authorize
