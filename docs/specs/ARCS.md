@@ -1044,7 +1044,7 @@ the alternative, failing closed, strips the app to Files for everyone on one S3 
 **163's hard part is not the tab, it is the cross-feature entry points.** "Create table from this
 folder" lives in the file browser but is a Query feature; "Share table" lives in the Query rail but
 targets Shared Workspaces. Gating component-by-component is exactly how the fourth one ships
-unhidden — the failure mode `process.md` records from `log-forge`'s SPEC-033. So the surfaces live in
+unhidden — the failure mode `reviewer-contract.md` records from `log-forge`'s SPEC-033. So the surfaces live in
 a **registry** with a test that walks it in both states, plus a guard-the-guard that fails if the
 registry ever goes trivial (SPEC-153's discipline).
 

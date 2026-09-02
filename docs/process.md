@@ -55,6 +55,7 @@ tree, and holds no rules of its own.
 | `docs/decisions/INDEX.md` → one area file | the *entry* for your area | settled decisions in full and the "do NOT build" fences, **one file per area, matching CLAUDE.md's digest** |
 | `docs/spec-delivery/SPEC-XXX-*.md` | when a dependency points to one | what a past spec shipped |
 | `docs/testing/e2e.md` + `owed.md` + `sessions.md` | when running live checks | how to validate the deployed app, what is still owed, and what has actually been run |
+| `docs/reviewer-contract.md` | when you are about to spend a reviewer | how many reviewers and where they run, briefing one, rotating the frame, and when to stop — the method behind §3's gate |
 | `docs/templates/` | when authoring a spec or closing one | the spec and completion templates §4 and §5 start from |
 | `docs/security-baseline.md` | before touching a scanner or a suppression | every shipped scanner finding and its written disposition |
 | `docs/transition_plan.md` | before auth, provisioning or LF work | the client-environment transition |
@@ -102,9 +103,10 @@ the order, rather than by a longer spec.
 
 ## 3. The session rhythm
 
-This is the operating loop, start to finish. CLAUDE.md's *Session Workflow* is the condensed version.
-**If this section and CLAUDE.md ever disagree, CLAUDE.md wins** — fix the drift here in the same
-session you notice it (two hand-synced copies of one procedure is how numbering bugs happen).
+This is the operating loop, start to finish. CLAUDE.md's *Session Workflow* carries the entry
+sequence and the gates whose specifics live nowhere else, and **points here for the rest rather
+than restating it** — the second hand-synced copy is how the two drifted before (#595).
+**If they ever disagree, CLAUDE.md wins** — fix the drift here in the same session you notice it.
 
 **Start of session**
 1. Read CLAUDE.md, then the **current** spec in full. Don't infer scope from a prior conversation —
@@ -149,8 +151,8 @@ answered, and on a twelve-phase spec it asks it twelve times.
   (*The reviewer contract*, below), fix or explicitly reject every finding — *then* push and open
   the PR. Pushing first and reviewing after inverts the gate: the branch is already public, the fixes
   arrive as follow-up commits, and the review reads as commentary on something that has already
-  happened rather than as the thing that decides whether it should. Rotating the frame (below) happens
-  in the same window. A push is the point of no return for the review, the same way the merge is the
+  happened rather than as the thing that decides whether it should. Rotating the frame
+  (`docs/reviewer-contract.md`) happens in the same window. A push is the point of no return for the review, the same way the merge is the
   point of no return for CI.
 - Before pushing, run the project's **formatter, linter, unit tests and `npm run build`** locally
   and get them green. These quality gates are a pre-push step — don't push red and leave CI to discover
@@ -168,6 +170,21 @@ answered, and on a twelve-phase spec it asks it twelve times.
   route through `docs/best-practices/INDEX.md` — which names the tree each rulebook lives in — and
   load only the relevant section(s). Apply the rules as you write;
   flag (don't silently break) any that conflict with existing code.
+- **When a finding is an instance of a RULE, re-audit the rule — not the line.** Fixing the one
+  reported site leaves every other instance shipped, so enumerate the whole population first: that
+  is the difference between a registry with a walking test and a hand-maintained checklist, and a
+  hand-maintained list rots. Long form: `docs/reviewer-contract.md`.
+- **Spot-check a negative claim before acting on it, and again before writing it down.** "No test
+  covers this", "nothing imports this file", "it is only documented on page X" — each asserts an
+  absence, which is what a search proves worst. Verify it yourself whether a reviewer said it or
+  you did. A wrong claim entering **code** has tests to catch it later; one entering a spec, a
+  register entry, a docstring or a commit message has nothing, and the next session reads it as
+  settled. Long form, with the two that shipped as source comments and were believed for weeks:
+  `docs/reviewer-contract.md`.
+- **A mechanical sweep REPORTS before it applies.** Print what it would change, read the list, then
+  re-run with `--apply`, and check the result by diffing **test names**, never a pass count. Parse
+  rather than regex where a parser exists. Long form, with the sweep that classified pytest's
+  `Test*` classes as dead: `docs/reviewer-contract.md`.
 - Specs ship with **no Open Questions** — they're resolved during authoring (§4). An issue that emerges
   mid-build is triaged by *kind*, not parked:
   - **Reversible / technical** (naming, file layout, which helper to reuse, an obvious bug fix): just
@@ -180,196 +197,21 @@ answered, and on a twelve-phase spec it asks it twelve times.
 
 **The reviewer contract — three artifacts, one gate**
 
-Nothing reaches the next stage on its author's own judgement. A **spec**, an **implementation plan**
-and a **diff** each go to a reviewer in a **fresh context** — a subagent or a new session, never the
-context that produced the artifact. An author reviewing their own work assumes its output was
-intended and rubber-stamps it; that is as true of a plan as of code, and a wrong plan is the more
-expensive one to leave *undetected*, because the code that follows will faithfully implement it.
+A **spec**, an implementation **plan** and a **diff** each go to a reviewer in a **fresh context** —
+a new session or a subagent, never the context that produced them. A spec is not Draft-ready, a plan
+does not start code, and **a branch does not reach the remote**, until every finding is either
+**fixed** or **flagged**. The spec and the plan get one reviewer each; the diff gets two, in
+different frames. A rejection costs a sentence out loud, and only goes in writing when it carries a
+lesson worth keeping.
 
-**How many reviewers, and where.** **One** on the spec when it is written, **one** on the
-implementation plan when the build actually starts, and **two** on the diff before it is pushed —
-plus the narrow pass on the PR grouping below. The diff gets two because it is the **widest**
-artifact and the last one before the branch goes public: a spec or a plan is one document a single
-reader can hold whole, while a diff spans code, infrastructure and tests *and* the criteria they
-are supposed to satisfy, and the method's measured history (*Rotating the frame*, below — measured
-on a sibling repo, not here) is that the first differently-framed pass over a change finds a class
-the previous frames could not see: after eight rounds spread across the spec, its revisions and
-the code, the first rotation found ~25 further defects. That evidence argues for a **different
-frame**, not for the number two; two is the floor because one frame is demonstrably not enough
-and a floor has to be a number.
+Cap same-frame rounds at two, then rotate. Exit on the **trajectory** of the findings — stop when a
+fresh frame's worst finding is one that would not change the built result, and say which finding
+that was — never on a round count, and never by waiting for an empty round.
 
-The two are **two frames, not two rounds** — the same frame run twice buys wording — and they are
-not free picks. One starts from the **change** and reads it against what it is supposed to
-satisfy; the other starts from **something other than the change**, which is the same requirement
-as "at least one pass must start from the feature, not the diff" below. On a code diff those are:
-the spec's acceptance criteria plus the `best-practices/` rules for the domains it touches, and a
-pass that **builds** the thing and runs the suites rather than reading it. On a diff with no code
-in it — a spec, a plan, a docs change — they are: the artifact against its own sources, and the
-artifact against every *other* place the same rule is stated. Both land **before** the push; a
-review that only happens once the branch is public does not count toward the two.
-
-Every count here is a **floor**, not a cap, but the two floors work differently and should not be
-read across. **On a diff**, two is a minimum before a push: a clean first review does not close
-the gate, because "the reviewer found nothing" means nothing within the frame it was given, and
-the exit rules below decide when to stop *above* two. **On a spec or a plan**, one review closes
-the gate — a clean review there is an answer. What makes that count a floor is **re-entry**: a
-revised artifact is a new artifact and goes back through the gate as one, which is why a phase
-that rewrites the plan sends the new plan through again.
-
-- **The gate is blocking, and what it asks for is an answer, not a filing.** A spec is not
-  Draft-ready, a plan does not start code, and a branch does not reach the remote, until every
-  finding has been either **fixed** or **flagged** — said out loud, so the call is visible and can be
-  argued with. A finding silently dropped is a finding that was not reviewed; a finding rejected in
-  one sentence is a finding that was. **Write a rejection down only when it carries a lesson worth
-  keeping** — then it belongs in the register or the spec, as reasoning, not as a paper trail.
-- **The reviewer gets the artifact and its sources, never the author's reasoning.** For a spec: the
-  spec file, its arc entry in `ARCS.md`, the `decisions/` entries it claims to follow, and the specs
-  it depends on. For a plan: the plan, the spec, and the
-  `apps/portal/info/component-inventory/<area>.md` files the spec touches. For a diff: the diff, the
-  spec's acceptance criteria, and the `best-practices/` rules for the domains it touches (route via
-  their INDEX). Handing over the authoring rationale tells the reviewer what to conclude.
-- **What each review is for.** A **spec** review asks: is every FR testable and binary; does any
-  acceptance criterion pass vacuously; is anything in Out of Scope actually required by an FR; does
-  it contradict a settled `decisions/` entry or silently supersede one without saying so; are there
-  Open Questions wearing declarative clothes. A **plan** review asks: does every FR and acceptance
-  criterion have a phase that delivers it; is existing reuse used rather than re-built; has
-  out-of-scope work crept in; is a phase resting on a premise nobody has checked. A **diff** review
-  checks the change against the acceptance criteria and the rulebooks — not "does it look fine."
-- **A reviewer finding is not an instruction.** The author decides. Rejecting one is ordinary and
-  costs a sentence; the thing to avoid is deciding silently, because then nobody can tell a
-  considered rejection from a finding that was never read. A fixed finding that was wrong is a
-  silent regression, which is the same failure in the other direction.
-
-**Rotating the frame, and knowing when to stop**
-
-Review rounds converge on the frame they are given, not on correctness. Measured on a sibling repo
-(`log-forge`, 2026-08-07): **eight** rounds of independent review — two on the spec, three on its
-revisions, three on the code — after which the merged result still carried two defects, one of which
-was a regression of a guarantee an earlier spec had shipped. Rounds 1–3 found design defects; rounds
-4–8 increasingly found wording. The *first* differently-framed pass afterwards found ~25 defects,
-several of them years old.
-
-- **Cap same-frame review at two rounds, then switch frame rather than iterate.** For a spec: a
-  reviewer briefed only on the *dependencies* it claims, or one asked to build the thing from the
-  spec alone and report what it could not determine. For a plan: one asked to find the phase that
-  will be discovered impossible. For code: adversarial *execution*, whole-feature fresh eyes, a11y,
-  security, or concurrency.
-- **The exit rules govern the ceiling, never the floor.** "Never exit on a round count" is about when
-  to *stop*; it does not license stopping below the counts in *The reviewer contract*. A diff still
-  gets its two frames even when the first one comes back clean.
-- **At least one pass must start from the feature, not the diff.** Every diff-scoped review is
-  structurally blind to a defect that predates the diff — and to the states the diff is never
-  exercised in: SPEC-140's CSP was reviewed and verified *signed in*, and the `connect-src` host it
-  omitted broke **fresh sign-in** for a day.
-- **A review SAMPLES; when the risk is ABSENCE, enumerate instead.** Review is the right instrument
-  for "is this new code correct" and a weak one for "what did we stop checking" — a reviewer reads
-  what is there, and a deletion leaves nothing to read. Measured on the 2026-08-28 suite reduction:
-  three fresh frames returned **4, then 7, then 17** findings, diverging rather than converging,
-  because each sampled a population of hundreds. The mechanical sweep that answered it completely —
-  reason codes raised vs reason codes asserted — ran in seconds. **Before reviewing a change whose
-  risk is what it removed, write the sweep that lists the whole population.**
-- **Spot-check a negative claim before acting on it, and again before writing it down.** "Only
-  documented on page X", "no test covers this", "nothing imports this file", "there is no scrubber"
-  — each is a claim about an absence, and an absence is what a search proves badly. Verify it
-  yourself whether a reviewer said it or you did. The asymmetry that makes this worth a rule: a
-  wrong claim entering **code** has tests to catch it later, while one entering a spec, a register
-  entry, a docstring or a commit message has nothing, and the next session reads it as settled. Two
-  in this repo shipped as source comments and were believed for weeks — a "registry guard" the
-  router advertised and did not have, and a credential "scrub" a config module named as the thing
-  keeping tokens out of logs. Both were found by writing the test that assumed them.
-- **A mechanical sweep REPORTS before it applies.** Print what it would change, read the list, then
-  re-run with `--apply`, and check the result by diffing **test names** rather than a pass count. A
-  classifier that looks right is routinely wrong at its edges: a sweep for unused module-level
-  helpers classified pytest's `Test*` classes as dead and would have deleted every test inside
-  them — caught only because it printed first. A regex over source is the same hazard one level
-  down; parse instead where a parser exists.
-- **A finding should carry a reproducing mutation, and the fix is verified by re-planting it.**
-  Then fix-verification is mechanical and needs no second reviewer — which is what stops a review
-  round spawning a review of its fixes. A frame only finds what its mutations probe, so a fix that
-  satisfies a weak mutation can still be wrong: the same reduction had a `watch_ci` guard restored
-  against one frame's probe and broken under the next frame's.
-- **Reasoning finds wording; execution finds defects.** Require a reproduction, not an argument — a
-  run in the browser or against real AWS. SPEC-137's instrumented code passed review, unit tests and
-  `update-function-code`, then raised `ModuleNotFoundError` at every cold start and broke sign-up for
-  nine days; every gate was blind because none of them ran the deployed artifact.
-- **A spec touching lifecycle, IAM or concurrency gets an execution harness, not a review.** An
-  import-time `_require` in a shared layer fails at **cold start** only, and a concurrent-refresh
-  race is a property of two overlapping executions — neither is findable by reading.
-- **Exit on the trajectory of the findings, not on a round count and not on an empty round.** A fresh
-  frame rarely finds literally nothing; it finds something smaller. The honest signal is the **class**
-  changing round over round: on SPEC-205, blockers → machinery introduced by the fixes → sequencing
-  and contradictions → coin-flips no test would catch. Stop when a new frame's worst finding is one
-  that would not change the built result, **and say which finding that was.** "The reviewer found
-  nothing" only ever means "nothing within the frame I gave it."
-  **This governs the ceiling, never the floor.** It says when to stop *above* the counts in *The
-  reviewer contract*, not that a count can be skipped: a diff still gets its two frames when the
-  first comes back with nothing that would change the built result.
-
-**When a review changes a rule, re-audit the rule — not the line**
-
-A review finding is usually reported as an instance ("this call site uses the wrong predicate").
-Fixing the cited line and moving on is how the same defect survives repeated review: on `log-forge`'s
-SPEC-033, three separate reviewers reported the same rule against three *different* call sites, each
-was fixed, and a fourth site shipped broken.
-
-- When a finding is an instance of a **rule**, the fix is a test or lint rule that enumerates
-  **every** site of that rule and asserts each one — the discipline SPEC-152's fleet test (every
-  state machine carries `NotifyFailure`), SPEC-155's `components/`-may-not-import-`features/` ESLint
-  rule and `lambdas/test_deploy_matrix.py` already use, and for the same reason: a hand-maintained
-  list rots and a derived one does not.
-- **Scope added mid-review restarts the clock.** Widening a spec in response to a finding is often
-  right, but the widening arrives late, gets the least scrutiny, and inherits confidence it has not
-  earned.
-
-**Briefing the reviewer — four lines that change what comes back**
-
-Measured over four rounds on one spec (SPEC-205, 2026-08-18: two adversarial-audit rounds, then two
-implementer rounds). The frame decides the *class* of finding; the briefing decides whether the
-answer is honest.
-
-- **Say that "this is sound" is a valid verdict.** A reviewer that infers it is expected to produce
-  findings will produce them. The round that returned the most useful report was the one told
-  explicitly that a short "implementable as written, here is what I built" was a valuable outcome —
-  and it still returned real defects, so the line costs nothing.
-- **Require it to cite where it looked** before declaring something missing — the spec line it read
-  before concluding the spec is silent. That separates a genuine gap from a miss, and it is the
-  cheapest way to keep a long report's false-positive rate down.
-- **Tell round N+1 what round N fixed, and forbid re-auditing it.** Otherwise the second pass
-  re-derives the first pass's findings and never reaches the new work.
-- **Withhold the history from a frame that is testing self-sufficiency.** The opposite of the line
-  above, and both are right: a pass asking *"is this spec buildable by someone who wasn't here"* must
-  be given it cold.
-
-**A rewrite under review pressure is the highest-risk artifact in the loop**
-
-Adjacent to *scope added mid-review restarts the clock*, and stronger. When a finding causes a
-substantial **replacement** rather than a widening, the replacement is written quickly, confidently,
-and with nobody having reviewed it. On SPEC-205 the second round found **four blockers, all of them
-inside machinery the first round's fixes introduced** — two of which independently broke a path the
-spec had a requirement to preserve. Budget a round for the fix, aimed at the fix.
-
-And **when the same area is wrong twice, the signal is about the area, not the draft.** Both SPEC-205
-drafts were wrong about the same thing — what protects a space from teardown. A repeat in one place
-is where to spend the next frame, ahead of anything the reviewer ranked higher.
-
-**The implementer frame must actually build, and every frame must run the gates**
-
-*The build-it-from-the-spec rotation named above, made concrete — it earns its own block because it
-yields a different class of finding than any reading-based frame.*
-
-- **Have it write real code, off-repo, and run the suites.** What it found by running that no reader
-  found: nine existing tests that invert (a list the spec claimed was four, including one in a
-  *different* suite from the one the spec's list implied), fixtures across two validator suites that
-  silently become the new failure case, a hard-coded verb count in an unrelated plane's coverage
-  test, and a fake whose signature diverges from the real client.
-- **Its output class is contradictions, unspecified shapes and sequencing** — two requirements that
-  cannot both hold; a return type nobody named; a phase boundary that leaves `main` exposed. An
-  adversarial reader finds defects and does not find these; the implementer finds these and is worse
-  at defects. Run both, not one twice.
-- **Every reviewer runs the repo's gates against the branch.** Four rounds reviewed SPEC-205 and
-  none ran `scripts/validate_docs.py`; the branch was red on it throughout, for a reason unrelated to
-  the spec, and it took an agent that *built* the change to notice. A review of a change touching
-  gated files runs the gates.
+**The method is `docs/reviewer-contract.md`** — how many reviewers and where they run, briefing one
+(the four lines that change what comes back), rotating the frame, when a review changes a *rule*
+rather than a line, and the worked evidence behind each. Read it when you are about to spend a
+reviewer; it is not session-start material, which is why it is not in this file.
 
 **An Open Question can wear a declarative sentence**
 
@@ -398,7 +240,11 @@ who had to pick, and neither by a reader.
 
 ## 4. Authoring a spec
 
-Specs are written from `docs/templates/spec-template.md`. What makes a spec *buildable*:
+Specs are written from `docs/templates/spec-template.md`. **A spec touching lifecycle, IAM or
+concurrency is planned with an execution harness rather than a review** — an import-time `_require`
+in a shared layer fails at cold start only, and a concurrent-refresh race is a property of two
+overlapping executions; neither is findable by reading (`docs/reviewer-contract.md`). What makes a
+spec *buildable*:
 
 - **Overview** — user/business intent, no implementation detail. Understandable cold.
 - **Scope: In / Out** — explicitly list what's *excluded*, especially anything a reader would
@@ -510,18 +356,24 @@ When a spec is done, in the same pass:
 > plane-named scripts within a ratchet, refusing a spec-numbered one outright; the number of specs
 > carrying more than 8 FRs to a ratchet at the measured level (§4); `CLAUDE.md` to a
 > byte budget and each
-> Key Decisions line to a length; the `docs/decisions/` register to one file per digest area, each
+> Key Decisions line to a length; **`docs/process.md` — this file — to a byte budget of its own,**
+> since CLAUDE.md's first instruction is to read it and it therefore costs every session what
+> CLAUDE.md costs; the `docs/decisions/` register to one file per digest area, each
 > routed by its `INDEX.md`, with one heading level per entry and a Contents that reaches every one
 > of them; every `ARCS.md` arc to a status-free heading that is in the arc list; every spec
 > header to agreeing with its `INDEX.md` row and every Completed spec to having a delivery doc;
 > every delivery doc to a line cap; and every relative markdown link to resolving. **The budgets
 > are ratchets at the measured level** (SPEC-150's convention for the coverage floors) — raising
 > one so a growing doc passes is the failure mode the gate exists to catch. Move the detail down a
-> tier instead. **One exception, taken deliberately (user decision, 2026-08-27):**
-> `CLAUDE_MAX_BYTES` is 50,000 rather than the measured level, because the completion ritual
-> requires every closing spec to fold a clause into Key Decisions — so a ratchet there makes each
-> completion a forced prune of some other area's fences, which is the gate causing the damage it
-> exists to prevent. The shape rules are what bind that file: group by area, no per-spec line, and
+> tier instead. **One exception carries deliberate headroom.** `CLAUDE_MAX_BYTES` is 50,000
+> (user decision, 2026-08-27) because the
+> completion ritual *mandates* growth — every closing spec that settles an architectural decision
+> folds a clause into Key Decisions, so a ratchet there makes each completion a forced prune of
+> some other area's fences, which is the gate causing the damage it exists to prevent.
+> `PROCESS_MAX_BYTES` sits just above this file's measured size like every other budget here, and
+> is **not** a second exception: nothing mandates appending to this file, so when an addition does
+> not fit, the answer is the one `CLAUDE_MAX_BYTES`'s entry already settled — **defer the
+> addition**, which is always available for an addition, or move a section down a tier. The shape rules are what bind that file: group by area, no per-spec line, and
 > a per-bullet length cap. Every rule it holds existed in prose first and was violated anyway; that is why it
 > is a gate.
 

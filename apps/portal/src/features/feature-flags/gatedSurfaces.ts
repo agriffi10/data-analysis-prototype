@@ -32,7 +32,7 @@ export type GatedSurface = {
  * lives in the file browser and is a Query feature; "Share table" lives in the Query rail and
  * pushes into Shared Workspaces; "Check data quality" is a button on a file-browser selection.
  * A per-component pass finds three of those and ships the fourth visible — the failure
- * `process.md` records the same finding, which is why this is a registry with a
+ * `reviewer-contract.md` records the same finding, which is why this is a registry with a
  * walking test rather than a checklist.
  *
  * Adding a fifth entry point is therefore a registry edit, not a discovery exercise, and
