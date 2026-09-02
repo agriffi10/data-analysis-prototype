@@ -170,6 +170,10 @@ answered, and on a twelve-phase spec it asks it twelve times.
   route through `docs/best-practices/INDEX.md` — which names the tree each rulebook lives in — and
   load only the relevant section(s). Apply the rules as you write;
   flag (don't silently break) any that conflict with existing code.
+- **When a finding is an instance of a RULE, re-audit the rule — not the line.** Fixing the one
+  reported site leaves every other instance shipped, so enumerate the whole population first: that
+  is the difference between a registry with a walking test and a hand-maintained checklist, and a
+  hand-maintained list rots. Long form: `docs/reviewer-contract.md`.
 - **Spot-check a negative claim before acting on it, and again before writing it down.** "No test
   covers this", "nothing imports this file", "it is only documented on page X" — each asserts an
   absence, which is what a search proves worst. Verify it yourself whether a reviewer said it or
@@ -178,9 +182,9 @@ answered, and on a twelve-phase spec it asks it twelve times.
   settled. Long form, with the two that shipped as source comments and were believed for weeks:
   `docs/reviewer-contract.md`.
 - **A mechanical sweep REPORTS before it applies.** Print what it would change, read the list, then
-  re-run with `--apply` — and check the result by diffing **test names**, never a pass count. A
-  sweep for unused module-level helpers once classified pytest's `Test*` classes as dead and would
-  have deleted every test inside them; it was caught only because it printed first.
+  re-run with `--apply`, and check the result by diffing **test names**, never a pass count. Parse
+  rather than regex where a parser exists. Long form, with the sweep that classified pytest's
+  `Test*` classes as dead: `docs/reviewer-contract.md`.
 - Specs ship with **no Open Questions** — they're resolved during authoring (§4). An issue that emerges
   mid-build is triaged by *kind*, not parked:
   - **Reversible / technical** (naming, file layout, which helper to reuse, an obvious bug fix): just
@@ -239,7 +243,8 @@ who had to pick, and neither by a reader.
 Specs are written from `docs/templates/spec-template.md`. **A spec touching lifecycle, IAM or
 concurrency is planned with an execution harness rather than a review** — an import-time `_require`
 in a shared layer fails at cold start only, and a concurrent-refresh race is a property of two
-overlapping executions; neither is findable by reading. What makes a spec *buildable*:
+overlapping executions; neither is findable by reading (`docs/reviewer-contract.md`). What makes a
+spec *buildable*:
 
 - **Overview** — user/business intent, no implementation detail. Understandable cold.
 - **Scope: In / Out** — explicitly list what's *excluded*, especially anything a reader would
@@ -360,16 +365,15 @@ When a spec is done, in the same pass:
 > every delivery doc to a line cap; and every relative markdown link to resolving. **The budgets
 > are ratchets at the measured level** (SPEC-150's convention for the coverage floors) — raising
 > one so a growing doc passes is the failure mode the gate exists to catch. Move the detail down a
-> tier instead. **Two exceptions carry headroom rather than sitting at the measured level, for
-> different reasons.** `CLAUDE_MAX_BYTES` is 50,000 (user decision, 2026-08-27) because the
+> tier instead. **One exception carries deliberate headroom.** `CLAUDE_MAX_BYTES` is 50,000
+> (user decision, 2026-08-27) because the
 > completion ritual *mandates* growth — every closing spec that settles an architectural decision
 > folds a clause into Key Decisions, so a ratchet there makes each completion a forced prune of
 > some other area's fences, which is the gate causing the damage it exists to prevent.
-> `PROCESS_MAX_BYTES` is 41,000 against a measured 38,917 for a weaker reason, and it is worth
-> being honest about the difference: **nothing mandates appending to this file.** The headroom is
-> there so that the next legitimate addition is not forced to cut something else in the same PR —
-> the failure `CLAUDE_MAX_BYTES` records — not because growth is owed. If it is still unspent, it
-> should come down rather than be filled. The shape rules are what bind that file: group by area, no per-spec line, and
+> `PROCESS_MAX_BYTES` sits just above this file's measured size like every other budget here, and
+> is **not** a second exception: nothing mandates appending to this file, so when an addition does
+> not fit, the answer is the one `CLAUDE_MAX_BYTES`'s entry already settled — **defer the
+> addition**, which is always available for an addition, or move a section down a tier. The shape rules are what bind that file: group by area, no per-spec line, and
 > a per-bullet length cap. Every rule it holds existed in prose first and was violated anyway; that is why it
 > is a gate.
 

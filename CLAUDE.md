@@ -1,7 +1,7 @@
 # S3 File Portal — Project Memory
 
 Loaded every session — keep it lean. **Start by reading `@docs/process.md`**: how we work — spec
-lifecycle, session rhythm, the reviewer contract, the completion ritual, doc hygiene. Its §1 is the
+lifecycle, session rhythm, the review gate, the completion ritual, doc hygiene. Its §1 is the
 **full doc router** — which file is authoritative for what, and when to pull it — so this file does
 not repeat it. Everything outside the always-loaded tier is pulled **on demand**: cross-cutting docs
 in `docs/`, and the domain rulebooks and inventories beside the code they govern, in each tree's
@@ -508,8 +508,9 @@ personal prefixes).
 ## Session Workflow
 
 **The contract is `@docs/process.md` — read every session, not once.** This section is the entry
-sequence and the gates whose specifics live nowhere else; for the rest it points, because a summary
-that restates the contract drifts from it, and this one already has (#595).
+sequence, plus the few gates worth having in front of you before you open anything; for the rest it
+points, because a summary that restates the contract drifts from it, and this one already has
+(#595). Nothing here is the *only* statement of a rule — process.md is.
 
 **Start:** (1) this file, then `@docs/process.md`; (2) the spec (`@docs/specs/SPEC-XXX`); (3) pull
 **only** what the spec touches — the matching `apps/portal/info/component-inventory/` area file(s),
