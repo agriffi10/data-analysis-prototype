@@ -267,6 +267,13 @@ jobs:
       - name: Validate the documentation layout
         run: python3 scripts/validate_docs.py
 
+      # The corpus proves those fifteen checks still FIRE. Running the validator against this
+      # repo's own docs proves the docs pass and nothing about whether any check works, and a
+      # gate whose checks have gone quiet looks exactly like a healthy repo. Ordered after the
+      # validator deliberately: if both fail, the real breakage is the more useful message.
+      - name: Prove the doc validator's checks still fire
+        run: python3 scripts/validate_docs_test.py
+
       # A malformed feature-flag document must never reach a bucket, and the failure it
       # produces is silent — the browser falls back to all-on, which is indistinguishable
       # from a healthy environment. This is the first of the document's two validations;
