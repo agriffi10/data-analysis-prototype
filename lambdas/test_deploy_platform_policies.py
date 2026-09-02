@@ -209,7 +209,6 @@ def _render(path: pathlib.Path) -> str:
     substitutions = {
         "aws_region": "us-east-1",
         "project_name": "dat",
-        "static_bucket_arn": "arn:aws:s3:::dat-prod-static-assets",
         "user_space_bucket_arn": "arn:aws:s3:::dat-prod-user-space",
         "portal_role_arn": "arn:aws:iam::696000197480:role/dat-portal-user-role",
         "lambda_artifacts_bucket_arn": "arn:aws:s3:::dat-lambda-artifacts-696000197480",

@@ -322,13 +322,6 @@ locals {
   # that owns the bucket's lifecycle rules. A literal in each would be two literals.
   alb_access_logs_prefix = "alb-access-logs"
 
-  # The static bucket's ARN. The module that owned the bucket is gone; the deploy role's
-  # grant on it is rendered from this and OUTLIVES the destroy by one apply on purpose —
-  # removing the grant in the same apply is the refresh deadlock deploy-role-iam.md records.
-  # Both this local and the grant retire together in the next change.
-  static_assets_bucket_name = "${var.project_name}-static-${data.aws_caller_identity.current.account_id}"
-  static_assets_bucket_arn  = "arn:aws:s3:::${var.project_name}-static-${data.aws_caller_identity.current.account_id}"
-
   # Every host the browser fetches. This list IS the app's network surface — anything missing
   # is a broken feature, not a hardened one, and nothing observes a CSP offline.
   #
@@ -448,12 +441,11 @@ locals {
 module "base" {
   source = "./modules/base"
 
-  project_name      = var.project_name
-  github_repo       = var.github_repo
-  state_bucket      = var.state_bucket
-  state_lock_table  = var.state_lock_table
-  aws_region        = var.aws_region
-  static_bucket_arn = local.static_assets_bucket_arn
+  project_name     = var.project_name
+  github_repo      = var.github_repo
+  state_bucket     = var.state_bucket
+  state_lock_table = var.state_lock_table
+  aws_region       = var.aws_region
 
   # Scopes the deploy role's Route 53 grant to the single zone the front door owns.
   # The grant and the records that use it read the SAME variable, so they cannot

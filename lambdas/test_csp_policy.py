@@ -17,8 +17,6 @@ Revisit the decision, do not delete the test.
 Attributes:
   INFRA: The IaC tree.
   ROOT_MAIN: Where both CSP locals live after the move.
-  APP_CLOUDFRONT: The module that used to hold them and now takes the assembled string.
-  APP_VARIABLES: The module's inputs, where the orphaned ``csp_connect_src`` must not survive.
   ROOT_OUTPUTS: Carries the Hosted-UI drift precondition both delivery paths depend on.
   ACCEPTED_PRE_MOVE_DIRECTIVES: The policy's directive list as it stood immediately before the
     move — the true pre-move text, ``${var.csp_connect_src}`` and all. The reference changing to
@@ -38,8 +36,6 @@ from tf_blocks import join_list_items
 INFRA = pathlib.Path(__file__).resolve().parent.parent / "infra"
 ROOT_MAIN = INFRA / "main.tf"
 ROOT_OUTPUTS = INFRA / "outputs.tf"
-APP_CLOUDFRONT = INFRA / "modules" / "app" / "cloudfront.tf"
-APP_VARIABLES = INFRA / "modules" / "app" / "variables.tf"
 
 ACCEPTED_SEPARATOR = "; "
 
