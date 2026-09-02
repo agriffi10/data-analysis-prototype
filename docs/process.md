@@ -457,8 +457,8 @@ These pass locally and fail later — check them as part of the work, not as an 
   `npm run test -w apps/portal`.
 - **`import.meta.env.VITE_*` read at module top level** is captured at import — `vi.stubEnv` in
   `beforeEach` is too late and CI has no `.env`. Stub at top level **and dynamic-import** the module.
-- **A new configuration key is wired in SIX places, and `deploy-app.yml`'s build env is not the one
-  that reaches production.** Production reads a runtime `/config.json`; a `VITE_*` value is the **dev
+- **A new configuration key is wired in FIVE places, and none of them is a build env.** Production
+  reads a runtime `/config.json`; a `VITE_*` value is the **dev
   fallback only**, and `npm run check:bundle` asserts the production bundle carries no `VITE_` names
   at all. Wiring the build env and stopping there ships a key that exists nowhere the browser can
   see it. The list — including the render step and the container entrypoint's

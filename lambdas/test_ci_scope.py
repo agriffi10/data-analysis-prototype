@@ -77,8 +77,9 @@ UNGATED_SCAN_STEPS = frozenset(
 )
 
 #: Every out-of-tree read that does NOT arrive through the IAM-template glob, named rather than
-#: counted. A floor cannot protect these: 88 of the 93 reads come from that one glob, so any of
-#: these five could stop being swept while the total still cleared any plausible threshold.
+#: counted. A floor cannot protect these: the overwhelming majority of reads come from that one
+#: glob, so any of the entries below could stop being swept while the total still cleared any
+#: plausible threshold.
 NAMED_OUT_OF_TREE_READS = frozenset(
     {
         "config/feature-flags.json",

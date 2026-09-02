@@ -1,6 +1,5 @@
 # ── Module composition ────────────────────────────────────────────────────────
 # Infrastructure is grouped into bounded-context modules:
-#   app  — SPA hosting: static assets bucket, CloudFront distribution, OAC
 #   base — foundation: GitHub Actions OIDC provider and deployment role
 # auth — Cognito: User Pool, SPA app client, Hosted UI domain
 # data — user-space S3 bucket (Bucket 1) + CORS/encryption
