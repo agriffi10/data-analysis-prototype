@@ -2,6 +2,18 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "PreSignupProbeInvoke",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-pre-signup"
+    },
+    {
+      "Sid": "PostConfirmationProbeInvoke",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-post-confirmation"
+    },
+    {
       "Sid": "IAMSelfManage",
       "Effect": "Allow",
       "Action": [

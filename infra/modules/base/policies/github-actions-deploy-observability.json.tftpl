@@ -2,6 +2,12 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "LogSweepProbeInvoke",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-log-sweep"
+    },
+    {
       "Sid": "ObservabilityLogsQueueManage",
       "Effect": "Allow",
       "Action": [

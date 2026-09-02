@@ -134,6 +134,12 @@ def test_the_grant_is_gated_on_the_self_grant_propagation_sleep() -> None:
 #: it reads in a diff as a shorter list rather than as a missing capability. Measured against
 #: the notifications grant, which provisions the same families and is proven by live applies.
 EXPECTED_ACTIONS = {
+    # The FR-006 cold-start probe, scoped to this one function. Separate from the manage
+    # statement beside it so the sweep in test_invoke_grant_population.py reads one
+    # purpose per statement.
+    "FeedbackProbeInvoke": {
+        "lambda:InvokeFunction",
+    },
     "FeedbackQueuesManage": {
         "sqs:CreateQueue",
         "sqs:DeleteQueue",

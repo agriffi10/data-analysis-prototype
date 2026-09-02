@@ -2,6 +2,12 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "FeedbackProbeInvoke",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-feedback-writer"
+    },
+    {
       "Sid": "FeedbackQueuesManage",
       "Effect": "Allow",
       "Action": [
