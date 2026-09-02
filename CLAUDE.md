@@ -82,11 +82,9 @@ recorded nowhere else** — when a spec closes, prune here rather than appending
 
 ### Current work
 
-- **Container Lambdas (212 → 213 → 214, 213 done)** — all 86 functions run the image and CI points
-  every one of them on every run. **214 is a DELETION**, so its risk is a guard nobody misses: it
-  removes the two tables, the layer build and `deploy-lambda.sh` — which nothing calls now, though
-  `test_deploy_packaging.py` still runs it — and must repoint the matrix's count expectation rather
-  than dropping it. Narrative in `ARCS.md`.
+- **Container Lambdas (214 in progress)** — a DELETION, so its risk is a guard nobody misses. The
+  function table is gone; left are the layer table (the image ASSEMBLER reads it), the layer
+  versions and their grants, in that order — the destroy needs `DeleteLayerVersion`. `ARCS.md`.
 
 
 ## Key Decisions (settled — don't re-litigate)
@@ -446,8 +444,10 @@ only reads; the API enqueues on its behalf.
   collide, it **silently wins** for the whole fleet, so collisions and shadowing are asserted
   **against the built image**. The import sweep runs through the runtime's **own bootstrap** —
   `--entrypoint python` omits `/opt/python`, and a reconstructed path that is a superset passes
-  what production fails — and its expected count comes from the deploy table, never from the same
-  rule the sweep uses, or renaming a handler drops **both** sides and agrees.
+  what production fails — and its expected count comes from **Terraform**, never from the same rule
+  the sweep uses, or renaming a handler drops **both** sides and agrees. **The fleet's membership
+  is `fleet.py`, read from the Terraform SOURCES** — a `tofu output` is last-applied state and the
+  deploy workflows race on the push adding a function. No `.github/` list names functions.
 - **`package_type` is FORCE-NEW: the cutover replaced all 86**, ordered only by **172 `moved`
   blocks** — without one, Terraform plans a create and a destroy with **no edge between them**, and
   it tolerates a `moved` whose `from` is not in state **silently**. So **reverting is not a

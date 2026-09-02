@@ -23,7 +23,7 @@ Usage:
     lambda_plan_guard.py capture --plan plan.json --out fixture.json
     lambda_plan_guard.py check   --plan plan.json --fixture fixture.json \\
                                  --package-type Zip [--image-repository URL] \\
-                                 --table .github/lambda-functions.json \\
+                                 --table fleet-rows.json \\
                                  --project dat --environment prod
 
 Attributes:
@@ -335,9 +335,9 @@ def check(plan: dict, fixture: dict, package_type: str, image_repository: str | 
     planned = {_short(n, project, environment) for n in functions}
     declared = {row["name"] for row in table}
     for missing in sorted(declared - planned):
-        problems.append(f"{missing}: in the deploy table, but Terraform plans no such function")
+        problems.append(f"{missing}: declared in Terraform's sources, but the plan creates no such function")
     for extra in sorted(planned - declared):
-        problems.append(f"{extra}: Terraform plans it, but the deploy table does not name it")
+        problems.append(f"{extra}: Terraform plans it, but Terraform's sources do not declare it")
 
     # ── Parity: every field the spec promises is unchanged ──
     expected_names = set(fixture["functions"])

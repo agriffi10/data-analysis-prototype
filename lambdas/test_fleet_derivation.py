@@ -1,11 +1,12 @@
 """The fleet's Terraform-derived membership, and the two lists that must not drift from it.
 
-**This file is the bridge that makes deleting the deploy table safe.** `.github/lambda-functions.json`
-is the fleet's declaration today and `lambdas/fleet.py` is its replacement; the first test asserts
-they are the same 86 names in both directions, so the replacement is proven against the thing it
-replaces *before* that thing is deleted. It goes when the table does, having done its job.
+**The deploy table is gone, and the bridge that proved this replacement against it went with it.**
+That test asserted the two were the same 86 names in both directions, and it landed and ran green
+before a single deletion — which is what made the deletion safe rather than hopeful. It is not
+kept: a test comparing the derivation against a file that no longer exists is not a weaker guard,
+it is a broken one.
 
-The other two guard the replacement's own soft spot. The root output aggregates fourteen module
+What remains guards the replacement's own soft spot. The root output aggregates fourteen module
 outputs by hand in a `concat`, which is a new hand-maintained list of exactly the kind this spec
 exists to remove — a plane added to `main.tf` and forgotten there would contribute no functions,
 CI would shard over a fleet one plane short, and every set comparison downstream derives from the
@@ -13,8 +14,8 @@ same output and would agree with the shortfall.
 
 Attributes:
   ROOT: The repository root.
-  TABLE: The deploy table being retired.
   ROOT_TF: The root module's Terraform, where the aggregation lives.
+  WORKFLOW: The deploy, whose shard filter is read out and run rather than restated.
   MODULES: The bounded-context module directory.
   AGGREGATE: The local the root output reads.
 """
@@ -22,13 +23,15 @@ Attributes:
 import json
 import pathlib
 import re
+import shutil
+import subprocess
 import sys
 
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-TABLE = ROOT / ".github" / "lambda-functions.json"
 ROOT_TF = ROOT / "infra" / "outputs.tf"
+WORKFLOW = ROOT / ".github" / "workflows" / "deploy-lambdas.yml"
 MODULES = ROOT / "infra" / "modules"
 AGGREGATE = "lambda_deployed_names"
 
@@ -137,34 +140,6 @@ def _fleet_calls(module: pathlib.Path) -> dict[str, bool]:
     return found
 
 
-def test_the_derivation_and_the_deploy_table_are_the_same_fleet() -> None:
-    """The replacement is proven against the thing it replaces, both directions.
-
-    One direction alone is not enough and the asymmetry is the point: a derivation that finds
-    FEWER functions than the table ships a fleet with an un-deployed function in it, and one that
-    finds MORE points at a function Terraform never created, where `point-lambda.sh` waits five
-    minutes per name before failing.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When the two disagree in either direction.
-    """
-    derived = set(fleet.function_names(ROOT))
-    declared = {entry["name"] for entry in json.loads(TABLE.read_text(encoding="utf-8"))}
-
-    assert derived == declared, (
-        f"the Terraform derivation finds {len(derived)} functions and {TABLE.name} declares "
-        f"{len(declared)}. Only derived: {sorted(derived - declared)}. Only in the table: "
-        f"{sorted(declared - derived)}. The table is deleted against this agreement, so it must "
-        "hold before the deletion, not after."
-    )
-
-
 def test_the_root_output_aggregates_every_module_that_deploys_a_function() -> None:
     """The root's hand-written `concat` covers every plane, and names no module that has none.
 
@@ -255,4 +230,119 @@ def test_every_module_exports_the_names_of_every_function_it_deploys(module: str
         f"reach the fleet, and a filtered walk satisfies every check above while exporting a "
         f"subset — which is the shortfall this test exists to catch, wearing the shape of a walk. "
         f"The output is: {written}"
+    )
+
+
+def test_the_shards_cover_the_whole_fleet_exactly_once() -> None:
+    """Every function lands in exactly one shard, and the union is the fleet.
+
+    **A guard the tree claimed to have and never did.** `test_deploy_matrix.py`'s docstring said a
+    shard expression selecting no functions was closed by
+    `test_every_function_lands_in_exactly_one_shard` — a test that has never existed in any commit
+    on any branch. What actually covers part of it is a runtime refusal in the workflow, and that
+    fires only when a shard comes back EMPTY; a sharding expression that drops one function while
+    leaving every shard non-empty was covered by nothing at all.
+
+    **The workflow's own expression is EXTRACTED AND RUN, not restated.** Saying "the deploy uses
+    the same modulo" is the kind of claim that is true when written and unchecked forever after —
+    measured: mutating the workflow's `jq` filter to drop six of eighty-six functions, with every
+    shard still non-empty so the runtime emptiness guard cannot fire, left the whole suite green.
+    So the filter is read out of the YAML and executed against the real fleet, and its answer must
+    equal `shard_of`'s for every shard.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a function is dropped, duplicated, or the shard count is wrong.
+    """
+    planned = fleet.plan(ROOT)
+    names = planned["functions"]
+    assert names, "the plan named no functions, so every assertion below would be vacuous"
+
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    match = re.search(r"'(to_entries\[\][^']*)'", workflow)
+    assert match, (
+        f"no shard filter found in {WORKFLOW.name}. It was renamed or rewritten, and this test "
+        "would otherwise go on checking a filter the deploy no longer runs."
+    )
+    selector = match.group(1)
+
+    jq = shutil.which("jq")
+    assert jq, (
+        "jq is not installed, so the workflow's own filter cannot be run. Skipping would make this "
+        "test silently stop guarding the expression the deploy uses, which is the whole point of "
+        "reading it out of the YAML — CI has jq, and a laptop without it should say so."
+    )
+
+    collected: list[str] = []
+    for shard in planned["shards"]:
+        expected = fleet.shard_of(names, shard, planned["shard_count"])
+        actual = subprocess.run(  # noqa: S603 — resolved binary, arguments built here
+            [jq, "-r", "--argjson", "s", str(shard),
+             "--argjson", "n", str(planned["shard_count"]), selector],
+            input=json.dumps(names), capture_output=True, text=True, check=True,
+        ).stdout.split()
+        assert actual == expected, (
+            f"shard {shard}: the workflow's filter selects {actual} and `shard_of` selects "
+            f"{expected}. The test would be guarding an expression the deploy does not run."
+        )
+        collected.extend(expected)
+
+    assert sorted(collected) == sorted(names), (
+        f"the shards do not cover the fleet: dropped {sorted(set(names) - set(collected))}, "
+        f"unexpected {sorted(set(collected) - set(names))}"
+    )
+    assert len(collected) == len(names), (
+        f"{len(collected)} slots for {len(names)} functions — a function lands in more than one "
+        "shard, so two jobs race `update-function-code` on it"
+    )
+    assert len(planned["shards"]) == planned["shard_count"], (
+        "the shard list and the shard count disagree, so the matrix would spawn a different "
+        "number of jobs than the selection expression divides by — which silently drops functions"
+    )
+
+
+def test_no_hand_maintained_function_list_survives_in_github() -> None:
+    """Nothing under `.github/` enumerates the fleet any more.
+
+    The point of moving the fleet's membership to Terraform is that there is ONE declaration. A
+    second list is not merely redundant — it is a list that can only ever drift, and the drift is
+    invisible until a function is deployed against the wrong one. So the absence is asserted
+    rather than assumed.
+
+    Scoped to files that enumerate the FLEET. `.github/lambda-probes.json` is deliberately not
+    caught: it is a documented SAMPLE — one verb per plane plus each standalone — derived from and
+    held to the deploy role's invoke grants by `test_cold_start_probe.py`, which fails in both
+    directions if it drifts.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a file under `.github/` lists most of the fleet.
+    """
+    names = set(fleet.function_names(ROOT))
+    offenders = []
+    for path in sorted((ROOT / ".github").rglob("*")):
+        if not path.is_file() or path.name == "lambda-probes.json":
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        mentioned = sum(1 for name in names if f'"{name}"' in text)
+        if mentioned > len(names) // 2:
+            offenders.append(f"{path.relative_to(ROOT)} ({mentioned} of {len(names)})")
+
+    assert not offenders, (
+        f"these files under .github/ enumerate the fleet: {offenders}. Terraform is the single "
+        "declaration of which Lambdas exist; a second list drifts, and the drift is invisible "
+        "until something deploys against the wrong one."
     )

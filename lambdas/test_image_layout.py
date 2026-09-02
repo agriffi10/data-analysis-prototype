@@ -95,6 +95,103 @@ def test_the_shared_layout_is_exactly_what_the_layer_table_declares() -> None:
     assert set(flat) == expected_flat
 
 
+#: Layer source directories packaged by an EXPLICIT per-file module list (a ``modules`` key in the
+#: layer table), mapped to nothing — the set is what matters. Every other layer copies a whole
+#: package directory, so a new module there ships automatically and there is no list to drift from.
+EXPLICIT_COPY_LISTS = {"shared-space-common"}
+
+#: Files under a layer source directory that are deliberately NOT shipped.
+_NOT_SHIPPED = ("test_", "conftest.py", "fakes.py", "__init__.py")
+
+
+def _copy_list(directory: str) -> set[str]:
+    """The module names the layer table lists for one source directory.
+
+    Args:
+      directory: The layer source directory's name.
+
+    Returns:
+      The listed module names.
+
+    Raises:
+      AssertionError: When the table has no entry for it, or the entry names no modules — either
+        way the comparison below would have nothing to compare and would pass.
+    """
+    for entry in _table():
+        if entry.get("sourceDir", "").endswith(directory):
+            listed = set(entry.get("modules", []))
+            assert listed, f"the layer entry for {directory} names no modules"
+            return listed
+    raise AssertionError(f"no layer entry with a sourceDir for {directory} in {LAYER_TABLE.name}")
+
+
+def test_the_layer_copy_list_matches_the_layer_directory() -> None:
+    """The explicit module list and the directory it is built from agree, both directions.
+
+    **This is the guard SPEC-137 cost this project nine days of broken sign-ups to learn.** All ten
+    flat modules ship behind ONE table entry, so nothing that reasons about the ENTRY can see
+    whether a given module reached `/opt/python`: a module added to the directory and left out of
+    the list simply never ships, and the function importing it raises `ModuleNotFoundError` at cold
+    start, after a green suite and a green deploy.
+
+    **It lives here because its previous home was deleted a PR too early.** It was in
+    `test_deploy_matrix.py`, which went when the FUNCTION table did — and the reasoning that
+    retired it ("there is no list any more, the assembler copies the directory") is true of where
+    this spec ENDS, not of here: `assemble.shared_layout` still reads this list. Measured on the
+    commit that dropped it: a module planted on disk and absent from the list passed all 2,388
+    tests, and importing it lazily from a verb passed the image's behaviour matrix too. The guard
+    goes when the list does, and not before.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the list and the directory disagree in either direction.
+    """
+    for directory in sorted(EXPLICIT_COPY_LISTS):
+        listed = _copy_list(directory)
+        on_disk = {
+            path.stem
+            for path in (LAMBDAS / directory).glob("*.py")
+            if not path.name.startswith(_NOT_SHIPPED)
+        }
+        assert listed == on_disk, (
+            f"{directory}'s copy list and its directory disagree: only in the list "
+            f"{sorted(listed - on_disk)}, only on disk {sorted(on_disk - listed)}. A module on "
+            "disk and not in the list never reaches /opt/python, and the function importing it "
+            "raises ModuleNotFoundError at cold start"
+        )
+
+
+def test_no_unchecked_explicit_copy_list_was_added() -> None:
+    """A second layer built from a hand-written list would be exempt by omission.
+
+    `EXPLICIT_COPY_LISTS` is what the test above iterates, so a new `modules` entry that nobody
+    adds here ships with no agreement check at all — the same silent exemption that cost this
+    fleet an outage once already.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a layer names a module list and is not declared here.
+    """
+    declared = {
+        pathlib.Path(entry["sourceDir"]).name for entry in _table() if entry.get("modules")
+    }
+    assert declared == EXPLICIT_COPY_LISTS, (
+        f"layers built from an explicit module list: {sorted(declared)}, declared here: "
+        f"{sorted(EXPLICIT_COPY_LISTS)}. An undeclared one is exempt from the agreement check "
+        "above, which is the whole failure this pair exists to prevent"
+    )
+
+
 def test_every_declared_layer_source_exists() -> None:
     """A table entry naming a source that is gone must fail here, not at a cold start.
 

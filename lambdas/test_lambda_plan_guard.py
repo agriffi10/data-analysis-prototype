@@ -19,6 +19,7 @@ import importlib.util
 import json
 import pathlib
 
+import fleet
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -403,7 +404,9 @@ def test_the_plan_and_the_deploy_table_must_name_the_same_fleet(pre_cutover, fix
     )
     fixture2 = GUARD.capture(dropped)
     problems = _check(dropped, fixture2)
-    assert any("unlisted" in p and "deploy table does not name it" in p for p in problems), problems
+    assert any(
+        "unlisted" in p and "sources do not declare it" in p for p in problems
+    ), problems
 
 
 def test_an_empty_plan_exits_rather_than_reporting_clean(fixture):
@@ -453,16 +456,15 @@ def test_capture_refuses_a_plan_whose_values_are_unknown():
 # wrong things — and it cannot be regenerated to fix that, by design.
 
 FIXTURE = ROOT / "lambdas" / "fixtures" / "pre_cutover_plan.json"
-DEPLOY_TABLE = ROOT / ".github" / "lambda-functions.json"
 
 
 def test_the_committed_fixture_covers_exactly_the_deployed_fleet():
     """The fixture and the deploy table are two independent lists of one fleet.
 
-    Not self-referential: the fixture was captured from a `tofu plan` and the table is
-    hand-maintained beside the function directories, so a divergence means one of them is wrong
-    about what exists. `test_deploy_matrix.py` separately holds the table equal to the directories
-    on disk, which closes the third side.
+    Not self-referential: the fixture was CAPTURED from a `tofu plan` run before the cutover, and
+    the declaration is derived from today's Terraform sources — so a divergence means one of them
+    is wrong about what exists. `test_image_layout.py` separately holds the declaration equal to
+    the function directories on disk, which closes the third side.
 
     Args:
       None.
@@ -475,12 +477,12 @@ def test_the_committed_fixture_covers_exactly_the_deployed_fleet():
     """
     fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
     captured = {name.removeprefix("dat-prod-") for name in fixture["functions"]}
-    declared = {row["name"] for row in json.loads(DEPLOY_TABLE.read_text(encoding="utf-8"))}
+    declared = set(fleet.function_names(ROOT))
 
     assert captured, "the fixture names no functions"
     assert captured == declared, (
         f"only in the fixture: {sorted(captured - declared)}; "
-        f"only in the deploy table: {sorted(declared - captured)}"
+        f"only in the Terraform fleet: {sorted(declared - captured)}"
     )
 
 

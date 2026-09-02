@@ -231,10 +231,13 @@ spec's Phase 1 assumed an expansion and sequenced a separate land-and-apply arou
 timing trap; neither was required.
 
 **The cold-start probe is the one gate that would have caught SPEC-137.** `test_notify_failure_import_safety.py`
-imports each new verb in a fresh interpreter whose `sys.path` is **exactly** what its deploy-matrix row
-grants. `conftest.py` puts every layer root on `sys.path` for the whole suite by design, `update-function-code`
-succeeds against a function that cannot import, and `test_deploy_matrix.py` reasons about **names** — it
-cannot tell you the named layer actually publishes what the code imports. The environment is
+imports each new verb in a fresh interpreter whose `sys.path` is **exactly** what the deployment gives it.
+`conftest.py` puts every shared root on `sys.path` for the whole suite by design, and `update-function-code`
+succeeds against a function that cannot import. **Superseded in part by the container image (SPEC-213/214):**
+the probe used to grant exactly the layers a function's deploy-table row named, and a wrong ROW failed there.
+There are no rows and no per-function layer grants — one image gives every function every shared package —
+so that half cannot fire and the probe no longer claims it. What survives is the half that still can: these
+verbs must import at all, in a minimal environment. The environment is
 **inherited**, unlike `test_layer_import_safety.py` which withholds `cpcommon.config`'s six: these verbs
 reach their DOMAIN config through their notifier, whose import-time `_require` is *supposed* to run.
 (`cpcommon`'s own six resolve on first access since SPEC-156 FR-004, so they are no longer part of what
@@ -246,15 +249,20 @@ module present on disk but absent from a layer's *build* is invisible to it. Eve
 explicit `for m in config casio auth …` list in the workflow — so a new module there ships only if
 someone remembers to name it. Review confirmed the gap was live: deleting `messages` from that list left
 the entire suite green while the deployed layer lost it. A test now joins the workflow's list against the
-directory — **SPEC-153 moved it to `test_deploy_matrix.py`**, the harness whose subject is packaging, and
-generalised it; see *A layer gate must check the copy list, not the flag map* below.
+directory — SPEC-153 moved it to the packaging harness and generalised it; **SPEC-214 moved it again, to
+`lambdas/test_image_layout.py`**, when the harness it lived in went with the function table. That second move
+was nearly a silent loss and is worth the sentence: the reasoning that retired it — "there is no list any
+more, the assembler copies the directory" — is true of where SPEC-214 ENDS and was applied a PR too early,
+while `assemble.shared_layout` still read the list. Measured on the commit that dropped it: a module planted
+on disk and absent from the list passed all 2,388 tests, and importing it lazily from a verb passed the
+image's behaviour matrix too. See *A layer gate must check the copy list, not the flag map* below.
 
 ---
 
 ## A layer gate must check the copy list, not the flag map (SPEC-153)
 
-`test_deploy_matrix.py` exists because SPEC-137 shipped instrumented code whose layer attachment was
-missing and every gate was blind. It joins each function's **imports** against the matrix **flags**.
+The packaging harness existed because SPEC-137 shipped instrumented code whose layer attachment was
+missing and every gate was blind. It joined each function's **imports** against the matrix **flags**.
 That answers "which functions attach the layer" and says nothing about **what the layer contains** —
 so adding a module to `lambdas/shared-space-common/`, importing it from a function whose row already
 reads `layer: true`, passed every check, deployed green, and raised `ModuleNotFoundError` at cold
@@ -269,7 +277,8 @@ corrected to all nine anyway, with a comment saying exactly that.
 
 `shared-space-common` is the **only** such layer — every other copies a whole package directory or
 pip-installs, so a new module ships by existing, and those are exempt for that named reason.
-`test_no_unchecked_explicit_copy_list_was_added` fails if a second one appears, so the exemption
+`test_no_unchecked_explicit_copy_list_was_added` — now in `lambdas/test_image_layout.py` — fails if a
+second one appears, so the exemption
 cannot quietly widen. A guard-the-guard asserts the parsed set is non-trivial: two empty sets are
 equal, and a regex that stops matching would otherwise pass vacuously.
 

@@ -8,28 +8,26 @@ to end, on every failure at once, while every other gate stays green.
 
 SPEC-137 is the precedent and every one of its blind spots still applies:
 
-* **pytest cannot see it.** ``lambdas/conftest.py`` puts the layer roots on ``sys.path``
+* **pytest cannot see it.** ``lambdas/conftest.py`` puts the shared roots on ``sys.path``
   for every test, so an import that would fail in Lambda succeeds under test, by design.
 * **The deploy cannot see it.** ``update-function-code`` succeeds against a function that
   raises ``ModuleNotFoundError`` at cold start; the job goes green.
-* **``test_deploy_matrix.py`` sees only half of it.** It joins a function's imports against
-  its matrix row — a real check, and the one SPEC-137 needed — but it reasons about NAMES.
-  It cannot tell you the named layer actually provides the module, in the layout the layer
-  is really built in.
+So this runs a fresh interpreter whose ``sys.path`` is what the deployed function actually
+gets: the shared surface plus its own directory, and nothing else.
 
-So this runs a fresh interpreter whose ``sys.path`` is EXACTLY what the deploy matrix
-grants that function: the layer roots its row flags, plus the function's own directory.
-Nothing else. If the ROW is wrong, the subprocess fails here rather than in production nine
-days later.
+**WHAT CHANGED, and why the check is narrower than it was.** This used to grant exactly the
+layers a function's deploy-table row flagged, and a wrong ROW failed here rather than in
+production. There are no rows now, and no per-function layer grants either: one image puts
+every shared package on ``/opt/python`` for every function in the fleet. So the failure this
+half caught — a function importing a layer its row did not attach — cannot occur, and the
+probe no longer claims to catch it. What survives is the half that still can fail and still
+matters most: these verbs must import at all, in a minimal environment, with nothing on the
+path that a test harness put there.
 
-WHAT IT DOES NOT COVER, stated so nobody reads more into it: the layer roots are SOURCE
-TREES, so a module present on disk but absent from a layer's BUILD is invisible to this
-probe. That gap is real for exactly one layer — ``shared-space-common`` publishes flat
-modules from an explicit list rather than copying a package — and
-``test_deploy_matrix.test_the_layer_copy_list_matches_the_layer_directory`` closes it.
-That assertion lived here briefly (SPEC-152) and moved to the packaging harness in SPEC-153,
-which is the file that reads a Lambda's PACKAGING rather than its behaviour; keeping two
-copies of one set-equality is the drift this repo's guards exist to prevent.
+WHAT IT DOES NOT COVER, stated so nobody reads more into it: these are SOURCE TREES, so a
+module present on disk but absent from the built artefact is invisible here. The image's own
+behaviour matrix closes that, by importing every handler inside the built image under the
+runtime's own bootstrap — which is a stronger answer than this probe ever gave.
 
 THE ENVIRONMENT IS INHERITED, DELIBERATELY, and that is the difference from
 ``test_layer_import_safety.py``. That test withholds ``cpcommon.config``'s six variables
@@ -41,20 +39,18 @@ import demands from anyone.) Scrubbing here would assert the opposite of the con
 is under test is PACKAGING, and ``sys.path`` is the only thing scrubbed.
 """
 
-import json
 import os
 import pathlib
 import subprocess
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "docker"))
+import assemble
+import fleet
 import pytest
 
 LAYER_ROOT = pathlib.Path(__file__).resolve().parent
 LAMBDAS = LAYER_ROOT.parent
-#: The deploy table the shard jobs read. It moved out of the workflow's `strategy.matrix`
-#: when the per-function jobs were sharded for Actions cost; `test_deploy_matrix.py` reads
-#: the same file, and the two must not drift back to different sources.
-FUNCTIONS = LAMBDAS.parent / ".github" / "lambda-functions.json"
 
 #: The functions SPEC-152 added, and the module Lambda loads for each. SPEC-164's file-send
 #: notifier joins them: a plane's LAST-RESORT notifier failing at import is the one failure
@@ -68,33 +64,10 @@ NOTIFY_FAILURE_VERBS = {
     "file-ops-notify-failure": "fo_notify_failure",
 }
 
-#: matrix flag -> the directory the layer publishes its contents FROM. ``layer`` is
-#: shared-space-common, which publishes FLAT modules at the layer root rather than a
-#: package — which is why the root itself is the path, exactly as /opt/python would be.
-LAYER_ROOTS = {
-    "cpcommon": LAMBDAS / "control-plane-common",
-    "tbcommon": LAMBDAS / "table-builder-common",
-    "tscommon": LAMBDAS / "table-share-common",
-    "dqcommon": LAMBDAS / "data-quality-common",
-    "focommon": LAMBDAS / "file-ops-common",
-    "fscommon": LAMBDAS / "file-send-common",
-    "arcommon": LAMBDAS / "archive-common",
-    "layer": LAMBDAS / "shared-space-common",
-}
-
-def _matrix_row(function: str) -> dict:
-    """The deploy table's layer flags for one function, read as data.
-
-    Only true flags are present, so a flag is absent rather than ``False`` — every caller
-    reads through ``.get()`` or iterates the granted set, for which the two are the same
-    answer. A function missing from the table yields no flags, which the caller turns into
-    a failure rather than a vacuous pass.
-    """
-    for entry in json.loads(FUNCTIONS.read_text()):
-        if entry["name"] == function:
-            return dict.fromkeys(entry["layers"], True)
-    return {}
-
+#: The shared surface the image gives every function, read from the ASSEMBLER. The list this
+#: replaces was an eleventh restatement of the layer table; deriving it from a `*-common` glob
+#: instead would have been a twelfth, agreeing with the image by naming convention alone.
+SHARED_ROOTS = tuple(str(p) for p in assemble.shared_roots(LAMBDAS.parent))
 
 #: boto3 IS STUBBED, and the reason is the same one that makes this probe meaningful.
 #:
@@ -124,19 +97,16 @@ print("IMPORT_OK", file=sys.stderr)
 @pytest.mark.parametrize(
     ("function", "module"), sorted(NOTIFY_FAILURE_VERBS.items()), ids=lambda v: v
 )
-def test_a_notify_failure_verb_imports_from_only_the_layers_its_row_grants(function, module):
-    """A cold start, simulated honestly: only the granted layer roots are importable."""
-    flags = _matrix_row(function)
-    assert flags, (
-        f"{function} has no row in {FUNCTIONS.name}. It cannot deploy, and this probe "
+def test_a_notify_failure_verb_imports_on_the_image_s_own_search_path(function, module):
+    """A cold start, simulated honestly: the shared surface and the function, nothing else."""
+    assert function in set(fleet.function_names(LAMBDAS.parent)), (
+        f"{function} is not a function Terraform declares. It cannot deploy, and this probe "
         "would otherwise pass by testing nothing."
     )
-
-    granted = [str(LAYER_ROOTS[flag]) for flag, on in flags.items() if on and flag in LAYER_ROOTS]
-    assert granted, f"{function}'s row grants no layer at all"
+    assert SHARED_ROOTS, "found no shared roots — this probe would run on the function alone"
 
     env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
-    env["PYTHONPATH"] = os.pathsep.join([*granted, str(LAMBDAS / function)])
+    env["PYTHONPATH"] = os.pathsep.join([*SHARED_ROOTS, str(LAMBDAS / function)])
     # LOGS_QUEUE_URL IS FORCED, not inherited, and that is a correctness fix rather than
     # tidiness. `observability.init` runs at module scope and takes the SQSSink branch only
     # when this is set — so leaving it to the ambient environment made the probe exercise a
@@ -154,9 +124,10 @@ def test_a_notify_failure_verb_imports_from_only_the_layers_its_row_grants(funct
         check=False,
     )
     assert result.returncode == 0, (
-        f"{function} cannot import at cold start from the layers its matrix row grants "
-        f"({sorted(f for f, on in flags.items() if on)}). This is the SPEC-137 failure "
-        f"mode, on the one function whose whole job is to report it:\n{result.stderr}"
+        f"{function} cannot import at cold start on the search path the image gives it "
+        f"({len(SHARED_ROOTS)} shared roots plus its own directory). This is the failure mode "
+        f"where a broken import reaches production behind a green suite and a green deploy, on "
+        f"the one function whose whole job is to report failures:\n{result.stderr}"
     )
     assert "IMPORT_OK" in result.stderr
 

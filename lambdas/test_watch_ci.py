@@ -7,8 +7,8 @@ tests are that claim rather than incidental coverage. Two of them state a histor
 their name and would have failed against the code that shipped it.
 
 The tests live here rather than beside the script because ``pytest lambdas/`` is what CI
-runs, which is the same reason ``test_plan_deploy.py`` tests a ``.github/scripts/`` module
-from this directory.
+runs, which is the same reason every other test of a ``.github/scripts/`` module sits
+in this directory.
 """
 
 import importlib.util

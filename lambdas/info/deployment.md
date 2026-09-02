@@ -59,8 +59,9 @@ functions are running last week's image.
 
 ## The layer machinery is still here, and nothing reaches it
 
-`.github/lambda-layers.json` still describes the layers and `build-layer.sh` and `deploy-lambda.sh`
-still know how to build and attach them. **Nothing calls any of it.** `point-lambda.sh`'s zip branch
+`.github/lambda-layers.json` still describes the layers and `build-layer.sh` still knows how to
+build them. **Nothing deploys through any of it** — the attach script is already deleted, and the
+table survives only because the image assembler still reads it. `point-lambda.sh`'s zip branch
 is gone and a non-`Image` packaging is now refused by name, so there is no path from a deploy to a
 layer — and attaching a layer to a container function is an error anyway.
 
@@ -96,23 +97,32 @@ fails on any difference **in both directions**: a probe without a grant fails lo
 it runs, but a grant without a probe is invisible. `control-plane-dlq-drain` is the one deliberate
 exemption — invoking it consumes DLQ messages — and it is recorded in `docs/testing/owed.md`.
 
-## The function table
+## Which functions exist
 
-`.github/lambda-functions.json` holds one object per function — its `name`, and the `layers` it used
-to need by flag. `deploy-lambdas.yml` reads it; its `strategy.matrix` is over **shards**, computed
-from what the plan found, and has not been a list of functions since a matrix could no longer express
-"these twelve in one job".
+**Terraform, and nothing else.** `lambdas/fleet.py` derives the fleet's names from the
+`docker-lambda` module calls in `infra/modules/`, and the hand-maintained table that used to hold
+the same list is deleted — a second declaration of one fact can only ever drift, and the drift is
+invisible until something deploys against the wrong copy.
 
-The table is also the fleet's population: `deploy-infra.yml`'s plan guard holds it equal to the
-functions Terraform actually declares, and the `pointed` job holds what CI deployed equal to what the
-planner selected.
+Two readers, for two different questions. `deploy-lambdas.yml` shards over **this commit's**
+sources, because a `tofu output` is last-applied state and the two deploy workflows fire on the same
+push with no ordering — so on the push that adds a function the output does not have it yet, and the
+new function would never be pointed. The `pointed` job reads the **applied** output
+(`lambda_function_names`) afterwards and reconciles: a function this commit declares but Terraform
+has not created is reported and benign, while a deployed function this commit does not declare
+fails, because nothing pointed it at this run's image and nothing else would say so.
+
+`deploy-infra.yml`'s plan guard reads the same derivation, which makes its check "the static parser
+agrees with Terraform's own evaluator" rather than a comparison of a list with itself.
 
 ## Adding a function
 
 1. Create `lambdas/<name>/` with one handler module and its tests.
 2. Add a `docker-lambda` module call in the owning module's `lambda.tf`, supplying its
    `command = ["<module>.<handler>"]`, its timeout and its memory.
-3. Add a `{"name": "<name>", …}` row to `.github/lambda-functions.json`.
+3. Nothing to register — step 2 IS the registration, and CI derives the fleet from it.
+   **A new MODULE** additionally needs a `function_names` output and a line in `infra/outputs.tf`'s
+   `lambda_deployed_names`; `test_fleet_derivation.py` fails by name if either is missing.
    **A new PLANE also needs a probe:** grant the deploy role `lambda:InvokeFunction` on one of its
    functions and add that name to `.github/lambda-probes.json`. Without the grant the plane is
    simply unprobed and nothing says so — `test_cold_start_probe.py` compares the probe table against

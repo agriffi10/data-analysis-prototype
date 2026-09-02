@@ -202,10 +202,10 @@ output "lambda_image_repository_url" {
 }
 
 # ── The fleet's own declaration of its membership ─────────────────────────────
-# WHAT THIS REPLACES. `.github/lambda-functions.json` is a hand-maintained list of every Lambda,
-# and CI shards over it today. Terraform already knows, so the list is a second copy that can only
-# ever drift; this is the first copy, read directly. The table is retired against this output, not
-# before it — while both exist, `lambdas/test_fleet_derivation.py` holds them to each other.
+# WHAT THIS REPLACES. `.github/lambda-functions.json` was a hand-maintained list of every Lambda
+# that CI sharded over. Terraform already knew, so the list was a second copy that could only ever
+# drift; this is the first copy, read directly. It was retired against this output rather than
+# before it: while both existed, a test held them equal in both directions.
 #
 # SHORT NAMES, NOT DEPLOYED NAMES, and the prefix is stripped here rather than in the shell. Every
 # consumer — `point-lambda.sh`, the probe table, the `lambdas/<name>/` source directory — speaks

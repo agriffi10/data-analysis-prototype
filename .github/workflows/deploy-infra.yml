@@ -10,13 +10,13 @@ on:
     paths: ['infra/**', '.github/workflows/deploy-infra.yml',
             '.github/scripts/lambda_plan_guard.py',
             'lambdas/fixtures/pre_cutover_plan.json',
-            '.github/lambda-functions.json']
+            'lambdas/fleet.py', 'lambdas/tf_blocks.py']
   push:
     branches: [main]
     paths: ['infra/**', '.github/workflows/deploy-infra.yml',
             '.github/scripts/lambda_plan_guard.py',
             'lambdas/fixtures/pre_cutover_plan.json',
-            '.github/lambda-functions.json']
+            'lambdas/fleet.py', 'lambdas/tf_blocks.py']
   # Manual recovery lever. The push trigger above is the normal path, but GitHub
   # can silently DROP a push event (it did for the SPEC-111 merge 930c12e — zero
   # workflow runs were created, so the apply never happened and the deployed state
@@ -260,12 +260,19 @@ jobs:
           REPOSITORY=$(aws ecr describe-repositories \
             --repository-names "${PROJECT}-${ENVIRONMENT}-lambda" \
             --query 'repositories[0].repositoryUri' --output text)
+
+          # Written to a FILE, not passed as a process substitution. `<(…)` hands the guard a
+          # readable stream whatever the command inside did, so a derivation that failed would
+          # arrive as an empty table — and this step's `set -e` never sees the exit status of a
+          # command it did not run in the foreground. A plain assignment fails here instead.
+          python3 lambdas/fleet.py --rows > fleet-rows.json
+
           python3 .github/scripts/lambda_plan_guard.py check \
             --plan infra/plan.json \
             --fixture lambdas/fixtures/pre_cutover_plan.json \
             --package-type Image \
             --image-repository "$REPOSITORY" \
-            --table .github/lambda-functions.json \
+            --table fleet-rows.json \
             --project "$PROJECT" \
             --environment "$ENVIRONMENT"
 
