@@ -167,7 +167,7 @@ describe('TableShareDialog', () => {
     it('Cancel invokes onCancel', async () => {
       const {onCancel, user} = renderDialog();
       await user.click(screen.getByRole('button', {name: 'Cancel'}));
-      expect(onCancel).toHaveBeenCalled();
+      expect(onCancel).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -129,6 +129,16 @@ type Params = {
 };
 
 /**
+ * What a user is told when the file-operations service is not taking work and the browser has no
+ * way to perform the shape they picked.
+ *
+ * It does not say "try again later": while the service is switched off, later is the same. Saying
+ * so would be the one false sentence on this surface.
+ */
+const PLANE_UNAVAILABLE =
+  'Folders and multi-item actions are handled by the file operations service, which is not available.';
+
+/**
  * Every dialog and drawer the file browser can raise, the handlers that resolve one into an
  * operation, and **the one place that decides whether an operation runs here or on the plane**.
  *
@@ -150,17 +160,10 @@ type Params = {
  * cannot be consulted at `confirmCopy` for that path. Only after the user has confirmed a name
  * does the fork happen — a single FILE takes the synchronous same-folder copy, a single FOLDER is
  * enqueued with the probed name.
- */
-/**
- * What a user is told when the file-operations service is not taking work and the browser has no
- * way to perform the shape they picked.
  *
- * It does not say "try again later": while the service is switched off, later is the same. Saying
- * so would be the one false sentence on this surface.
+ * @example
+ * const dialogs = useFileBrowserDialogs({bucket, currentPrefix, space, destinations, del, move, copy});
  */
-const PLANE_UNAVAILABLE =
-  'Folders and multi-item actions are handled by the file operations service, which is not available.';
-
 export function useFileBrowserDialogs({
   bucket,
   currentPrefix,

@@ -213,10 +213,12 @@ describe('useTableRefresh', () => {
       const {result} = render();
       act(() => result.current.open('alice', TABLE));
       await act(() => result.current.submit(true));
+      expect(mockEnqueue).toHaveBeenCalledTimes(1);
       expect(mockEnqueue.mock.calls[0][0]).toMatchObject({allowRemovals: true});
 
       act(() => result.current.open('alice', TABLE));
       await act(() => result.current.submit(false));
+      expect(mockEnqueue).toHaveBeenCalledTimes(2);
       expect(mockEnqueue.mock.calls[1][0]).not.toHaveProperty('allowRemovals');
     });
 

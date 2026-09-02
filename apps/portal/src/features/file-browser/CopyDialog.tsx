@@ -64,11 +64,16 @@ function SameFolderCopyDialog({prompt, itemCount}: {prompt: SameFolderPromptCont
   );
 }
 
-// Destination-folder picker for Copy — a thin modal shell
-// over the shared `DestinationPicker` (parallels MoveDialog). Unlike Move, Copy
-// allows the items' current parent as a destination (`allowCurrentParent`): that
-// triggers the same-folder auto-number flow, which replaces the picker
-// with an editable name field.
+/**
+ * Destination-folder picker for Copy — a thin modal shell
+ * over the shared `DestinationPicker` (parallels MoveDialog). Unlike Move, Copy
+ * allows the items' current parent as a destination (`allowCurrentParent`): that
+ * triggers the same-folder auto-number flow, which replaces the picker
+ * with an editable name field.
+ *
+ * @example
+ * <CopyDialog bucket={bucket} items={selected} rootPrefix="alice/" currentPrefix="alice/docs/" destinations={destinations} onCopy={copy} onCancel={close} />
+ */
 export function CopyDialog({
   bucket,
   items,

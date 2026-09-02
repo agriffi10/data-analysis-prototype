@@ -201,7 +201,7 @@ describe('userDirectory.service', () => {
 
       const result = await getUserDirectory();
 
-      expect(result.success).toBe(false);
+      expect(result).toEqual({success: false, error: expect.objectContaining({code: 'ApiUnavailable'})});
     });
 
     it("carries SessionExpired through, so the hook's unavailable collapse still holds", async () => {

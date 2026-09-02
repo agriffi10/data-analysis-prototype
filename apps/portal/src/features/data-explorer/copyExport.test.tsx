@@ -22,7 +22,11 @@ import {chooseExplorationOption, explorationOption} from './explorationOptions.t
 //
 // The number this file exists to assert is a ZERO: neither copying nor exporting may start
 // an execution, so `runQuery` is counted across both.
-vi.mock('../catalog/glue.service', () => ({getDatabase: vi.fn(), listTables: vi.fn()}));
+vi.mock('../catalog/glue.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../catalog/glue.service')>()),
+  getDatabase: vi.fn(),
+  listTables: vi.fn()
+}));
 vi.mock('../catalog/athena.service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../catalog/athena.service')>()),
   runQuery: vi.fn(),

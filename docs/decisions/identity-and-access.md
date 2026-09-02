@@ -284,7 +284,7 @@ with no row fails; an empty registry, or a flag with zero surfaces, fails.
 
 **THE TABS ARE THE EASY PART, AND THAT IS THE WHOLE ARGUMENT.** "Create table from this folder"
 lives on a file-browser toolbar and is a *Query* feature. "Share table" lives in the Query rail
-and pushes into *Shared Workspaces*. "Check quality" is a button on a file-browser selection. A
+and pushes into *Shared Workspaces*. "Check data quality" is a button on a file-browser selection. A
 per-component pass finds three of those and ships the fourth visible — the failure mode
 `reviewer-contract.md` records from log-forge's SPEC-033. Adding a fifth entry point is now a registry
 edit rather than a discovery exercise.

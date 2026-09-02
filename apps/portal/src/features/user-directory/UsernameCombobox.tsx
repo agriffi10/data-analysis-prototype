@@ -13,7 +13,7 @@ import {Input} from '../../components/Input';
 import {cx} from '../../lib/cx';
 import {parseMemberInputDetailed} from '../shared-spaces/memberInput';
 import {CATALOG_IDENTIFIER_RULE} from '../../lib/catalogIdentifier';
-import {MAX_LIST_HEIGHT, listPlacement} from './comboboxPlacement';
+import {useListPlacement} from './useListPlacement';
 import type {SuggestionSource} from './userDirectory.types';
 import {FIELD_HINT} from '../../components/fieldStyles';
 
@@ -80,32 +80,6 @@ const MAX_SUGGESTIONS = 8;
 const ANNOUNCE_DEBOUNCE_MS = 400;
 
 /**
- * The box the list is actually clipped by — the nearest scrollable ancestor, or the viewport.
- *
- * This used to measure against `window.innerHeight`, which is right for a
- * combobox on a page and wrong for one inside a dialog: `Modal`'s panel is `overflow-y-auto`, so
- * a list with room below it *in the viewport* is still clipped by the panel. Measured live in
- * Add members, the list ran 97px past the dialog's bottom edge and showed 3 of 8 options.
- *
- * `overflow: hidden` counts: it clips just as hard as `auto` does, and does not scroll to
- * reveal what it cut off.
- *
- * @param from - The combobox wrapper.
- * @returns The clipping rectangle in viewport coordinates.
- */
-function clippingRect(from: HTMLElement): {top: number; bottom: number} {
-  for (let el = from.parentElement; el; el = el.parentElement) {
-    const overflowY = getComputedStyle(el).overflowY;
-    if (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'hidden') {
-      const box = el.getBoundingClientRect();
-      // A zero-height ancestor is jsdom reporting nothing rather than a real clip; keep walking.
-      if (box.height > 0) return {top: box.top, bottom: box.bottom};
-    }
-  }
-  return {top: 0, bottom: window.innerHeight};
-}
-
-/**
  * An accessible single-value typeahead over catalog-safe identifiers, suggested by whatever
  * {@link SuggestionSource} the caller supplies — the published username directory or
  * the signed-in user's own shared spaces.
@@ -158,10 +132,6 @@ export const UsernameCombobox = forwardRef<UsernameComboboxHandle, UsernameCombo
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [announced, setAnnounced] = useState<{query: string; count: number} | null>(null);
-  const [dropUp, setDropUp] = useState(false);
-  // Applied as an inline `maxHeight` rather than a class: the value is a measurement, and
-  // Tailwind cannot express an arbitrary one that changes at runtime.
-  const [maxListHeight, setMaxListHeight] = useState(MAX_LIST_HEIGHT);
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -181,6 +151,7 @@ export const UsernameCombobox = forwardRef<UsernameComboboxHandle, UsernameCombo
     [exclude, query, search, status, suppress]
   );
   const listOpen = open && suggestions.length > 0;
+  const {dropUp, maxHeight: maxListHeight} = useListPlacement(wrapperRef, listOpen);
 
   // CLAMPED, because `suggestions` can shrink for reasons the input never sees. The keyboard
   // handlers reset the highlight on typing, Escape, Tab and commit — but not when a caller
@@ -212,38 +183,6 @@ export const UsernameCombobox = forwardRef<UsernameComboboxHandle, UsernameCombo
         ? 'No matches'
         : `${announced.count} matches`
       : '';
-
-  // Flip above the field when there is not room below, and CAP the list at the room there
-  // actually is — measured against the box that clips it, which inside a
-  // dialog is the panel and not the viewport. A bounded max-height plus this flip is
-  // sufficient — no positioning library, which would be a Tech Stack change.
-  //
-  // Re-measured on scroll and resize, both captured: the field moves within the dialog's own
-  // scroll box, and that scroll event does not bubble to `window`.
-  useLayoutEffect(() => {
-    if (!listOpen) return;
-    function measure() {
-      const wrapper = wrapperRef.current;
-      const box = wrapper?.getBoundingClientRect();
-      if (!wrapper || !box) return;
-      const clip = clippingRect(wrapper);
-      const placement = listPlacement({
-        fieldTop: box.top,
-        fieldBottom: box.bottom,
-        clipTop: clip.top,
-        clipBottom: clip.bottom
-      });
-      setDropUp(placement.dropUp);
-      setMaxListHeight(placement.maxHeight);
-    }
-    measure();
-    window.addEventListener('scroll', measure, true);
-    window.addEventListener('resize', measure);
-    return () => {
-      window.removeEventListener('scroll', measure, true);
-      window.removeEventListener('resize', measure);
-    };
-  }, [listOpen]);
 
   // Keep the virtual cursor's option inside the list's VISIBLE region.
   // DOM focus never leaves the input in a combobox, so nothing scrolls the list on its own —

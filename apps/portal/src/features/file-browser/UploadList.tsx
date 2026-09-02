@@ -168,12 +168,17 @@ function UploadRow({item}: {item: UploadItem}) {
   );
 }
 
-// The in-drawer uploads list (feedback 2026-06-30): sits under the upload field in
-// the Upload drawer, listing the session's uploads newest-first in a scrollable
-// list, each with a progress bar + status chip. Reads the SESSION-scoped queue
-// (UploadQueueProvider at the app shell), so it shows every upload of the session
-// and survives the drawer closing / connection switches. Renders nothing when the
-// queue is empty.
+/**
+ * The in-drawer uploads list (feedback 2026-06-30): sits under the upload field in
+ * the Upload drawer, listing the session's uploads newest-first in a scrollable
+ * list, each with a progress bar + status chip. Reads the SESSION-scoped queue
+ * (UploadQueueProvider at the app shell), so it shows every upload of the session
+ * and survives the drawer closing / connection switches. Renders nothing when the
+ * queue is empty.
+ *
+ * @example
+ * <UploadList />
+ */
 export function UploadList() {
   const {items, clearFinished} = useUploadQueue();
   if (items.length === 0) return null;

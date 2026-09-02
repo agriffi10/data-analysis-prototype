@@ -3,7 +3,10 @@ import {classifyDocument, quarantineDocument, readJsonDocument, writeJsonDocumen
 import {apiRequest} from './apiClient';
 import type {ServiceResult} from '../types/service.types';
 
-vi.mock('./apiClient', () => ({apiRequest: vi.fn()}));
+vi.mock('./apiClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./apiClient')>()),
+  apiRequest: vi.fn()
+}));
 
 describe('s3Json', () => {
   const send = vi.mocked(apiRequest);
@@ -37,6 +40,7 @@ describe('s3Json', () => {
       expect(result).toEqual({success: true, data: {a: 1}});
       // The bucket no longer travels — the API resolves the space from the caller's verified
       // claims — so what is observable is the route, the derived space and the key.
+      expect(send).toHaveBeenCalledTimes(1);
       expect(send.mock.calls[0][0]).toBe('objects.readContent');
       expect(send.mock.calls[0][1]).toMatchObject({
         query: {spaceKind: 'personal', spaceName: 'alice', key: 'alice/user_settings/k.json'}
@@ -195,6 +199,7 @@ describe('s3Json', () => {
       });
 
       expect(result).toEqual({success: true, data: undefined});
+      expect(send).toHaveBeenCalledTimes(1);
       expect(send.mock.calls[0][0]).toBe('objects.writeContent');
       expect((send.mock.calls[0][1] as {body: Record<string, unknown>}).body).toMatchObject({
         key: 'alice/user_settings/k.json',

@@ -283,7 +283,7 @@ describe('useDelete', () => {
         count: 1,
         errors: [{key: 'alice/a.txt', message: 'denied', code: 'AccessDenied'}]
       });
-      expect(mockInvalidate).toHaveBeenCalled();
+      expect(mockInvalidate).toHaveBeenCalledWith(expect.anything(), 'us', 'alice/');
     });
 
     it('aggregates the marker refusal into the summary rather than failing the run', async () => {

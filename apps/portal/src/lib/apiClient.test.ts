@@ -67,6 +67,7 @@ describe('apiRequest — the call it makes', () => {
 
     await apiRequest('userDirectory.get');
 
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     const init = fetchMock.mock.calls[0][1];
     expect(init.headers.authorization).toBe('Bearer a-token');
     expect(init.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
@@ -78,6 +79,7 @@ describe('apiRequest — the call it makes', () => {
 
     await apiRequest('userDirectory.get');
 
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][1].headers['content-type']).toBeUndefined();
     expect(fetchMock.mock.calls[0][1].body).toBeUndefined();
   });
@@ -275,6 +277,7 @@ describe('apiRequest — path parameters', () => {
 
     await apiRequest('athena.stop', {params: {queryExecutionId: 'abc-123'}});
 
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][0]).toBe(`${ORIGIN}/v1/queries/abc-123/stop`);
   });
 
@@ -286,6 +289,7 @@ describe('apiRequest — path parameters', () => {
 
     await apiRequest('athena.stop', {params: {queryExecutionId: 'a b%c'}});
 
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][0]).toBe(`${ORIGIN}/v1/queries/a%20b%25c/stop`);
   });
 
@@ -342,6 +346,7 @@ describe('apiRequest — path parameters', () => {
       query: {nextToken: awkward}
     });
 
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     const url = new URL(fetchMock.mock.calls[0][0]);
     expect(url.searchParams.get('nextToken')).toBe(awkward);
     expect(url.search).toContain('a%2Bb%2Fc%3D%3D');

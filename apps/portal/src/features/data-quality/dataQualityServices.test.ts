@@ -9,7 +9,10 @@ import {getRunsIndex} from './dataQualityRuns.service';
 import type {DataQualityRequest} from './dataQuality.types';
 
 // ─── from dataQuality.format.test.ts ───
-vi.mock('../../lib/apiClient', () => ({apiRequest: vi.fn()}));
+vi.mock('../../lib/apiClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/apiClient')>()),
+  apiRequest: vi.fn()
+}));
 
 describe('dataQuality.format', () => {
   describe('locationLabel', () => {

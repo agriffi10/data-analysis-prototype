@@ -60,7 +60,7 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     {name: 'Review conflicts on a notification', kind: 'control', path: '/notifications'},
     // The entry point itself. In the FILE BROWSER, like "Check data quality" and
     // unlike "Create table", which is a Query capability wearing a file-browser button.
-    {name: 'Send selected items to someone', kind: 'control', path: '/files'},
+    {name: 'Send to another user', kind: 'control', path: '/files'},
     {name: 'Send files guide', kind: 'guide', path: '/help', helpId: 'send-files'},
     // Archive is a Files SUB-SURFACE, not one of the five primary features, so it
     // inherits this flag rather than gaining one — and it needs THREE rows, because its two
@@ -276,6 +276,7 @@ export function navDestination(key: FeatureFlagKey): {to: string; label: string}
   return nav ? {to: nav.path, label: nav.name} : undefined;
 }
 
+/** Every gated nav path mapped to the flag that gates it, for route-level gating. */
 export const NAV_PATH_FLAGS: ReadonlyMap<string, FeatureFlagKey> = new Map(
   (Object.entries(GATED_SURFACES) as [FeatureFlagKey, readonly GatedSurface[]][]).flatMap(([key, surfaces]) =>
     surfaces.filter((s) => s.kind === 'nav').map((s) => [s.path, key] as const)

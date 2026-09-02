@@ -17,8 +17,14 @@ vi.mock('./auth.service', () => ({
   startSignUp: vi.fn(),
   startSignOut: vi.fn()
 }));
+// Listed, not spread: the original imports `sessionStorage` from `aws-amplify/utils`, which
+// this file mocks down to `Hub`, so spreading it would bind an undefined the provider never
+// touches but a future reader would have to reason about.
 vi.mock('../../lib/amplify', () => ({isAmplifyConfigured: () => true}));
-vi.mock('../../lib/returnPath', () => ({setReturnPathIfAbsent: vi.fn()}));
+vi.mock('../../lib/returnPath', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/returnPath')>()),
+  setReturnPathIfAbsent: vi.fn()
+}));
 vi.mock('aws-amplify/utils', () => ({Hub: {listen: vi.fn()}}));
 
 import {getCurrentAuthUser, startSignIn, startSignUp, startSignOut} from './auth.service';
@@ -36,9 +42,9 @@ function TestConsumer() {
   const {status, user, error, signIn, signUp, signOut} = useAuth();
   return (
     <div>
-      <span data-testid="status">{status}</span>
-      <span data-testid="username">{user?.username ?? ''}</span>
-      <span data-testid="error">{error ?? ''}</span>
+      <output aria-label="status">{status}</output>
+      <output aria-label="username">{user?.username ?? ''}</output>
+      <output aria-label="error">{error ?? ''}</output>
       <button onClick={() => void signIn()}>signin</button>
       <button onClick={() => void signUp()}>signup</button>
       <button onClick={() => void signOut()}>signout</button>
@@ -53,9 +59,9 @@ const renderProvider = () =>
     </AuthProvider>
   );
 
-const status = () => screen.getByTestId('status').textContent;
-const username = () => screen.getByTestId('username').textContent;
-const errorText = () => screen.getByTestId('error').textContent;
+const status = () => screen.getByRole('status', {name: 'status'}).textContent;
+const username = () => screen.getByRole('status', {name: 'username'}).textContent;
+const errorText = () => screen.getByRole('status', {name: 'error'}).textContent;
 
 // Fire the captured Hub auth handler as Amplify would. `act` is ASYNC because the
 // handler re-derives the session — the state update lands a microtask later, and a

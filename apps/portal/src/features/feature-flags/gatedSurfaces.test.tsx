@@ -408,10 +408,10 @@ const RECIPES: Record<string, Recipe> = {
     anchor: fileBrowserReady,
     find: byRole('button', 'Check data quality of the selected item')
   },
-  'Send selected items to someone': {
+  'Send to another user': {
     render: renderFileBrowser,
     anchor: fileBrowserReady,
-    find: byRole('button', 'Send selected items to someone')
+    find: byRole('button', 'Send to another user')
   },
   'Archive selected items': {
     render: renderFileBrowser,
@@ -1001,7 +1001,7 @@ describe('the registry itself', () => {
         // delivery doc. A named control rather than a link clause, so the link exemption above
         // does not reach it.
         'Review conflicts on a notification',
-        'Send selected items to someone',
+        'Send to another user',
         'Send files guide',
         // NOT in SPEC-163's table — SPEC-172's own, recorded in its delivery doc. Archive is a
         // Files sub-surface and inherits this flag rather than gaining one.

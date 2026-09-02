@@ -10,9 +10,14 @@ type Props = {
   onCancel: () => void;
 };
 
-// Warn-and-confirm when a name already exists. Versioning is off,
-// so overwriting is irreversible — the user must explicitly choose Overwrite or
-// pick a new name. No write happens while this is open.
+/**
+ * Warn-and-confirm when a name already exists. Versioning is off,
+ * so overwriting is irreversible — the user must explicitly choose Overwrite or
+ * pick a new name. No write happens while this is open.
+ *
+ * @example
+ * <CollisionPrompt kind="file" name="report.csv" onOverwrite={overwrite} onRename={rename} onCancel={cancel} />
+ */
 export function CollisionPrompt({kind, name, onOverwrite, onRename, onCancel}: Props) {
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState(name);

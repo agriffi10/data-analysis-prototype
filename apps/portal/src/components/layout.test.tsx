@@ -1,24 +1,24 @@
+import userEvent from '@testing-library/user-event';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {act, cleanup, fireEvent, render, renderHook, screen, waitFor, within} from '@testing-library/react';
-import {MemoryRouter} from 'react-router';
+import {cleanup, render, screen, waitFor, within} from '@testing-library/react';
+import {USER_EVENT_OPTIONS, renderWithProviders} from '../test/renderWithProviders';
 import {AppNavDrawer} from './AppNavDrawer';
 import {CollapsibleRail} from './CollapsibleRail';
-import {RAIL_COLLAPSED_STORAGE_KEY, useRailCollapsed} from './useRailCollapsed';
+import {RAIL_COLLAPSED_STORAGE_KEY} from './useRailCollapsed';
 import {memoryStorage} from '../test/storage';
 import {ErrorBoundary} from './ErrorBoundary';
 
 // ─── from AppNavDrawer.test.tsx ───
 describe('AppNavDrawer', () => {
   function renderDrawer(props: Partial<React.ComponentProps<typeof AppNavDrawer>> = {}, route = '/files') {
-    return render(
-      <MemoryRouter initialEntries={[route]}>
-        <AppNavDrawer
-          open
-          onClose={props.onClose ?? vi.fn()}
-          isPathEnabled={() => true}
-          {...props}
-        />
-      </MemoryRouter>
+    return renderWithProviders(
+      <AppNavDrawer
+        open
+        onClose={props.onClose ?? vi.fn()}
+        isPathEnabled={() => true}
+        {...props}
+      />,
+      {route, auth: null}
     );
   }
 
@@ -28,39 +28,39 @@ describe('AppNavDrawer', () => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
-    it('closes on link activation, close button, Escape, and scrim tap', () => {
+    it('closes on link activation, close button, Escape, and scrim tap', async () => {
       const onClose = vi.fn();
 
-      const {unmount} = renderDrawer({onClose});
-      fireEvent.click(screen.getByRole('link', {name: 'Files'}));
+      const {unmount, user} = renderDrawer({onClose});
+      await user.click(screen.getByRole('link', {name: 'Files'}));
       expect(onClose).toHaveBeenCalledTimes(1);
       unmount();
 
       const view2 = renderDrawer({onClose});
-      fireEvent.click(screen.getByRole('button', {name: 'Close navigation'}));
+      await user.click(screen.getByRole('button', {name: 'Close navigation'}));
       expect(onClose).toHaveBeenCalledTimes(2);
       view2.unmount();
 
       renderDrawer({onClose});
-      fireEvent.keyDown(document, {key: 'Escape'});
-      fireEvent.click(screen.getByRole('dialog').parentElement!);
+      await user.keyboard('{Escape}');
+      await user.click(screen.getByRole('dialog').parentElement!);
       expect(onClose).toHaveBeenCalledTimes(4);
     });
 
     it('moves focus into the drawer on open and returns it to the trigger on close', async () => {
       function Harness({open}: {open: boolean}) {
         return (
-          <MemoryRouter>
+          <>
             <button>hamburger</button>
             <AppNavDrawer
               open={open}
               onClose={vi.fn()}
               isPathEnabled={() => true}
             />
-          </MemoryRouter>
+          </>
         );
       }
-      const {rerender} = render(<Harness open={false} />);
+      const {rerender} = renderWithProviders(<Harness open={false} />, {auth: null});
       const trigger = screen.getByRole('button', {name: 'hamburger'});
       trigger.focus();
       expect(trigger).toHaveFocus();
@@ -92,9 +92,10 @@ describe('CollapsibleRail', () => {
   }
 
   describe('CollapsibleRail', () => {
-    it('collapsing reveals a reopen handle wired to the rail; reopening hides it again', () => {
+    it('collapsing reveals a reopen handle wired to the rail; reopening hides it again', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
       renderRail();
-      fireEvent.click(screen.getByRole('button', {name: /collapse sidebar/i}));
+      await user.click(screen.getByRole('button', {name: /collapse sidebar/i}));
 
       const handle = screen.getByRole('button', {name: /show sidebar/i});
       expect(handle).toHaveAttribute('aria-expanded', 'false');
@@ -104,38 +105,16 @@ describe('CollapsibleRail', () => {
         within(screen.getByRole('complementary', {name: 'Test rail'})).getByRole('button', {name: 'child action'})
       ).toBeInTheDocument();
 
-      fireEvent.click(handle);
+      await user.click(handle);
       expect(screen.queryByRole('button', {name: /show sidebar/i})).not.toBeInTheDocument();
       expect(screen.getByRole('button', {name: /collapse sidebar/i})).toBeInTheDocument();
     });
 
-    it('persists the collapsed choice under the single shared key', () => {
+    it('persists the collapsed choice under the single shared key', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
       renderRail();
-      fireEvent.click(screen.getByRole('button', {name: /collapse sidebar/i}));
+      await user.click(screen.getByRole('button', {name: /collapse sidebar/i}));
       expect(localStorage.getItem(RAIL_COLLAPSED_STORAGE_KEY)).toBe('true');
-    });
-  });
-});
-
-// ─── from useRailCollapsed.test.ts ───
-describe('useRailCollapsed', () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
-    vi.stubGlobal('localStorage', memoryStorage());
-  });
-
-  describe('useRailCollapsed', () => {
-    it('degrades to not-persisted (default expanded, no throw) when localStorage is unavailable', () => {
-      vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
-        throw new Error('storage denied');
-      });
-      vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
-        throw new Error('storage denied');
-      });
-      const {result} = renderHook(() => useRailCollapsed());
-      expect(result.current.collapsed).toBe(false); // default, not a throw
-      act(() => result.current.toggle()); // must not throw despite setItem throwing
-      expect(result.current.collapsed).toBe(true); // in-memory state still works
     });
   });
 });

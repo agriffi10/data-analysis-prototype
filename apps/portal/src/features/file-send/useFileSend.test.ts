@@ -40,6 +40,7 @@ describe('useFileSend', () => {
     act(() => hook.result.current.open(ITEMS));
     await act(async () => hook.result.current.submit([{kind: 'user', name: 'bob'}]));
 
+    expect(notify).toHaveBeenCalledTimes(1);
     const {message} = notify.mock.calls[0][0];
     expect(message).toMatch(/requested/i);
     expect(message).toMatch(/notification/i);

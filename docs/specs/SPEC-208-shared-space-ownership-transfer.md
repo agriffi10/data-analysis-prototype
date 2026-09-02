@@ -203,7 +203,7 @@ The owner's Manage members drawer gains a transfer action per member row, behind
 
 #### Acceptance Criteria:
 
-- [ ] A member row in `ManageMembersDrawer` renders a control named `Transfer ownership to <username>`
+- [ ] A member row in `ManageMembersDrawer` renders a control named `Make owner: <username>`
       for the owner, and for nobody else — a member viewing the read-only roster sees none.
 - [ ] The control opens a `ConfirmDialog` naming the space and the new owner, and stating that the
       user will become an ordinary member and cannot undo this themselves.

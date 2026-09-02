@@ -1,4 +1,4 @@
-import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {mockApi, apiFailure} from '../../test/apiMock';
 import type {ApiMock} from '../../test/apiMock';
 import {
@@ -11,7 +11,10 @@ import {
 } from './athena.service';
 import {getDatabase, listTables} from './glue.service';
 
-vi.mock('../../lib/apiClient', () => ({apiRequest: vi.fn()}));
+vi.mock('../../lib/apiClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/apiClient')>()),
+  apiRequest: vi.fn()
+}));
 
 /**
  * The catalog services, now over the API.
@@ -71,6 +74,41 @@ describe('the catalog services over the API', () => {
       const result = await runQuery({sql: 'SELECT 1', username: 'alice'});
 
       expect(result).toEqual({success: false, error: {message: '', code: 'InternalError'}});
+    });
+  });
+
+  describe('runStatementToCompletion', () => {
+    // Restored here as well as in the `finally`: a poller that never settles would hang the
+    // case past the `finally`, and fake timers would leak into every case after it.
+    afterEach(() => vi.useRealTimers());
+
+    it('gives up with `Timeout` at the poll ceiling, and stops polling', async () => {
+      // The ceiling is a constant the service keeps to itself (90 polls, 400 ms apart);
+      // the number here is that constant, and a change to it is a change to this test.
+      vi.useFakeTimers();
+      try {
+        api.on('athena.start', {success: true, data: {queryExecutionId: 'q-1'}});
+        api.on('athena.status', {
+          success: true,
+          data: {
+            queryExecutionId: 'q-1',
+            state: 'RUNNING',
+            stateChangeReason: null,
+            dataScannedBytes: null,
+            engineExecutionTimeMillis: null,
+            outputLocation: null
+          }
+        });
+
+        const pending = runStatementToCompletion({sql: 'SELECT 1', database: 'alice', username: 'alice'});
+        await vi.advanceTimersByTimeAsync(400 * 90);
+        const result = await pending;
+
+        expect(result).toEqual({success: false, error: expect.objectContaining({code: 'Timeout'})});
+        expect(api.routes().filter((route) => route === 'athena.status')).toHaveLength(90);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

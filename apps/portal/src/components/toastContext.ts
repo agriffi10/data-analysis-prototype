@@ -15,6 +15,7 @@ export type ToastApi = {
   dismiss: () => void;
 };
 
+/** The app-level toast host's API; provided by `ToastProvider`. */
 export const ToastContext = createContext<ToastApi | null>(null);
 
 /** Access the app-level toast host. Throws if used outside a `ToastProvider`. */

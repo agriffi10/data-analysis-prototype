@@ -99,6 +99,7 @@ describe('configureAmplify', () => {
 
     configureAmplify();
 
+    expect(configure).toHaveBeenCalledTimes(1);
     const config = configure.mock.calls[0][0] as {Auth: {Cognito: Record<string, unknown>}};
     expect('identityPoolId' in config.Auth.Cognito).toBe(false);
   });

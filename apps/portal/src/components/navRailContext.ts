@@ -5,6 +5,7 @@ export type NavRailContextValue = {
   setRailContent: (node: ReactNode) => void;
 };
 
+/** The mobile nav drawer's contextual rail slot; provided by `NavRailProvider`. */
 export const NavRailContext = createContext<NavRailContextValue | null>(null);
 
 /** Read the current contextual rail content (Header/AppNavDrawer consumer). */

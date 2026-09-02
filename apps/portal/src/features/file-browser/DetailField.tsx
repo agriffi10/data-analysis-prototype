@@ -9,8 +9,13 @@ type Props = {
   copyLabel?: string;
 };
 
-// One labelled, read-only row in a details drawer (file metadata or folder).
-// Optionally trails a copy-to-clipboard button for the value.
+/**
+ * One labelled, read-only row in a details drawer (file metadata or folder).
+ * Optionally trails a copy-to-clipboard button for the value.
+ *
+ * @example
+ * <DetailField label="Key" value={file.key} copyLabel="key" />
+ */
 export function DetailField({label, value, copyLabel}: Props) {
   return (
     <div className="border-b border-border-2 py-3 last:border-0">

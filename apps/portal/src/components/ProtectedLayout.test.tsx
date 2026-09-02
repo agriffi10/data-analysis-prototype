@@ -7,7 +7,10 @@ import {renderWithProviders} from '../test/renderWithProviders';
 import {authenticated, unauthenticated, authLoading} from '../test/authFixtures';
 import type {AuthContextValue, AuthStatus} from '../features/auth';
 
-vi.mock('../lib/returnPath', () => ({setReturnPath: vi.fn()}));
+vi.mock('../lib/returnPath', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/returnPath')>()),
+  setReturnPath: vi.fn()
+}));
 
 /**
  * The AWS boundary, and nothing above it (SPEC-154 FR-002). The old

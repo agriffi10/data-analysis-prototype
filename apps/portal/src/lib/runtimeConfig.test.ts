@@ -55,6 +55,7 @@ describe('runtimeConfig — the document', () => {
 
     await loadRuntimeConfig();
 
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('/config.json');
     expect(init.cache).toBe('no-store');

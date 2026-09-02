@@ -99,7 +99,7 @@ describe('useSaveQuery (SPEC-175)', () => {
     const {result, onSaved} = setup();
     act(() => result.current.save({space: PERSONAL, name: 'Quarterly'}));
 
-    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(written('Quarterly'), 'SELECT 1;'));
   });
 
   it('locks submit while the write is in flight, and unlocks on BOTH outcomes (FR-006 AC5)', async () => {

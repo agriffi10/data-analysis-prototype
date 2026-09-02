@@ -99,7 +99,8 @@ export function ExplorationTabStrip({tabs, activeTabId, onSelect, onClose, onNew
                 // fill overhangs the tab's 1px border by 0.75px a side — measured, invisible below
                 // about 8x, and cheaper than putting this strip out of line with its siblings.
                 'inline-flex h-7 flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border pl-3 pr-1 text-sm',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                // Inset: the tablist scrolls horizontally, so an outer ring is clipped on three sides.
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent',
                 active
                   ? 'border-border bg-surface font-semibold text-text shadow-sm'
                   : 'border-transparent font-medium text-text-2 hover:bg-surface hover:text-text'

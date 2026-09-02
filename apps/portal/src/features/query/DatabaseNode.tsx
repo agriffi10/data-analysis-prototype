@@ -229,6 +229,14 @@ function ObjectGroup({
   );
 }
 
+/**
+ * One connection's database in the query rail: an expandable header, then a table list grouped
+ * by tables and views, each table carrying its own actions menu. Loads the schema on demand and
+ * renders the not-yet-provisioned and failed states in place.
+ *
+ * @example
+ * <DatabaseNode connection={connection} defaultExpanded actions={actions} />
+ */
 export function DatabaseNode({
   connection,
   defaultExpanded,

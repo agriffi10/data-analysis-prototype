@@ -31,7 +31,7 @@ export function HelpSectionChips({sections, activeId, onSelect}: HelpSectionChip
             aria-current={active ? 'true' : undefined}
             onClick={() => onSelect(section.id)}
             className={cx(
-              'shrink-0 whitespace-nowrap rounded-full border px-3.5 py-1.5 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+              'shrink-0 whitespace-nowrap rounded-full border px-3.5 py-1.5 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent',
               active
                 ? 'border-accent-border bg-accent-soft text-accent-text'
                 : 'border-border bg-surface text-text-2 hover:bg-surface-2 hover:text-text'

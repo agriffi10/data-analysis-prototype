@@ -84,6 +84,7 @@
 - **2.4.4 Link Purpose (In Context) (A)** — link purpose clear from text (+ programmatic context). ✅ descriptive link text; `aria-label`/`aria-labelledby`; ensure an image-only link has an accessible name. 🔴 "click here"/"more" with no context; image link with no alt.
 - **2.4.5 Multiple Ways (AA)** — ≥2 ways to find a page (nav, search, sitemap, ToC) — except steps in a process.
 - **2.4.7 Focus Visible (AA)** — keyboard focus indicator is visible. ✅ keep/strengthen `:focus-visible` outline. 🔴 `outline:none` with no replacement (F78); removing focus on receipt (F55).
+  - **In this app:** a ring drawn *outside* a control that sits in an `overflow-*` container is clipped — a box-shadow is not scrollable overflow, and `overflow-x: auto` forces `overflow-y` to auto as well, so an unpadded tab strip, chip row or list cuts the ring on three sides while jsdom sees nothing. Use `focus-visible:ring-inset` there (every tab strip, the help chips and the source-picker list do), or pad the container on every axis the ring needs.
 - **2.4.11 Focus Not Obscured (Minimum) (AA)** — focused component not *entirely* hidden by author content. 🔴 sticky header/footer fully covering focused element. ✅ `scroll-padding`.
 - **AAA**: 2.4.8 Location, 2.4.9 Link Purpose (Link Only), 2.4.10 Section Headings, 2.4.12 Focus Not Obscured (Enhanced), **2.4.13 Focus Appearance** (focus indicator min area/contrast).
 

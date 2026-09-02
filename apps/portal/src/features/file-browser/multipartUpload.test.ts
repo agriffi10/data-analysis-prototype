@@ -6,7 +6,10 @@ import {KEEP_SPECIFIC_CODES, PART_CONCURRENCY, PART_RETRIES} from './multipartUp
 import {UPLOAD_CONCURRENCY} from './upload.types';
 import {maxUploadBytes} from './uploadLimits';
 
-vi.mock('../../lib/apiClient', () => ({apiRequest: vi.fn()}));
+vi.mock('../../lib/apiClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/apiClient')>()),
+  apiRequest: vi.fn()
+}));
 
 /** How the server cuts these test files. Small, so a whole upload is a handful of parts. */
 const PART_SIZE = 5;

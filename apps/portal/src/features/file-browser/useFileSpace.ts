@@ -83,10 +83,12 @@ function connectionToSpaceTarget(
   };
 }
 
-// All usable connections as browser targets (feedback 2026-06-30) — the personal
-// space plus every active shared space. Used to populate the move/copy destination
-// picker so files can be relocated across connections. Unusable shared spaces
-// (provisioning/failed/leaving) are excluded, matching the sidebar.
+/**
+ * All usable connections as browser targets (feedback 2026-06-30) — the personal
+ * space plus every active shared space. Used to populate the move/copy destination
+ * picker so files can be relocated across connections. Unusable shared spaces
+ * (provisioning/failed/leaving) are excluded, matching the sidebar.
+ */
 export function usableSpaceTargets(
   connections: Connection[],
   username: string | null,
@@ -100,11 +102,16 @@ export function usableSpaceTargets(
     .filter((t): t is FileSpaceTarget => t !== null);
 }
 
-// the file browser's active-space state, derived
-// from `useConnections` and synced to the `?space=` route param.
-// Selection flows through the URL so a deep-link (`/files?space=…&prefix=…`) and a
-// sidebar click are one mechanism, and a vanished/unusable space reconciles to the
-// personal space purely during render (mirrors `useActiveDatabase`).
+/**
+ * the file browser's active-space state, derived
+ * from `useConnections` and synced to the `?space=` route param.
+ * Selection flows through the URL so a deep-link (`/files?space=…&prefix=…`) and a
+ * sidebar click are one mechanism, and a vanished/unusable space reconciles to the
+ * personal space purely during render (mirrors `useActiveDatabase`).
+ *
+ * @example
+ * const {space, destinations} = useFileSpace({username, connections, isLoading, userSpaceBucket, sharedSpaceBucket});
+ */
 export function useFileSpace({
   username,
   connections,

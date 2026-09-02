@@ -234,7 +234,7 @@ describe('FR-004 — the unavailable route', () => {
     withFlags({});
     renderReportRoute();
 
-    await waitFor(() => expect(getQualityReport).toHaveBeenCalled());
+    await waitFor(() => expect(getQualityReport).toHaveBeenCalledWith(expect.anything(), 'alice', 'req-1'));
   });
 
   it('renders the page on the next render once the flag resolves the other way', async () => {

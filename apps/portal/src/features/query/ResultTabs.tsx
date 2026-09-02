@@ -55,7 +55,7 @@ export function ResultTabs({tabs, activeIndex, onSelect}: Props) {
             onKeyDown={(e) => onTabKeyDown(e, index)}
             title={tab.label}
             className={cx(
-              'inline-flex h-7 flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border px-3 font-mono text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+              'inline-flex h-7 flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border px-3 font-mono text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent',
               active
                 ? 'border-border bg-surface text-text shadow-sm'
                 : 'border-transparent text-text-2 hover:bg-surface hover:text-text'

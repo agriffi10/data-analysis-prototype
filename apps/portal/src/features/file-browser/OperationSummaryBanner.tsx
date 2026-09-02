@@ -14,9 +14,14 @@ type Props = {
   onDismiss: () => void;
 };
 
-// Result banner for a bulk delete/move/copy — success count
-// plus any per-item failures. Shared shell extracted from the three near-identical
-// FileBrowser banners (react-best-practices abstraction pass).
+/**
+ * Result banner for a bulk delete/move/copy — success count
+ * plus any per-item failures. Shared shell extracted from the three near-identical
+ * FileBrowser banners (react-best-practices abstraction pass).
+ *
+ * @example
+ * <OperationSummaryBanner count={4} pastVerb="Deleted" failVerb="delete" errors={errors} onDismiss={dismiss} />
+ */
 export function OperationSummaryBanner({count, pastVerb, failVerb, errors, onDismiss}: Props) {
   return (
     <Banner

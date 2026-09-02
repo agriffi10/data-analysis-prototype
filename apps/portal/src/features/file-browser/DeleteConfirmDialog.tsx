@@ -20,11 +20,16 @@ function describe(item: SelectableItem): {name: string; isFolder: boolean} {
 
 const MAX_NAMES = 5;
 
-// Explicit confirmation before any delete. Names the item(s),
-// states the count, warns that deletion is irreversible (no versioning/undo), and
-// makes clear that folders are removed with all of their contents. Nothing is
-// deleted unless the user confirms. Modal: Escape cancels and focus defaults to
-// Cancel so a stray Enter never destroys data.
+/**
+ * Explicit confirmation before any delete. Names the item(s),
+ * states the count, warns that deletion is irreversible (no versioning/undo), and
+ * makes clear that folders are removed with all of their contents. Nothing is
+ * deleted unless the user confirms. Modal: Escape cancels and focus defaults to
+ * Cancel so a stray Enter never destroys data.
+ *
+ * @example
+ * <DeleteConfirmDialog items={selected} isDeleting={del.isPending} onConfirm={confirmDelete} onCancel={close} />
+ */
 export function DeleteConfirmDialog({items, isDeleting, onConfirm, onCancel}: Props) {
   const described = items.map(describe);
   const folderCount = described.filter((d) => d.isFolder).length;

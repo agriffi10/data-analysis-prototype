@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useRef, useState} from 'react';
+import {useEffect, useEffectEvent, useMemo, useRef, useState} from 'react';
 import {LoadingState} from '../../components/LoadingState';
 import {useToast} from '../../components/toastContext';
 import {useAuth} from '../auth';
@@ -147,15 +147,17 @@ export function DataExplorerWorkspace() {
   // entry), so a reload restores the session's tabs instead of stacking another copy of the
   // linked table on top of them.
   const openedLink = useRef<string | null>(null);
+  const openResolvedLink = useEffectEvent((target: ExploreTarget) => {
+    openSource(target);
+    clear();
+  });
   useEffect(() => {
     if (resolution.status !== 'ready') return;
     const {target} = resolution;
     const key = `${target.spaceId}/${target.database}/${target.table}`;
     if (openedLink.current === key) return;
     openedLink.current = key;
-    openSource(target);
-    clear();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- openSource/clear are re-created each render; the ref is the guard.
+    openResolvedLink(target);
   }, [resolution]);
 
   // What THIS apply cost, decided at the one moment the answer is knowable: an execution
@@ -177,18 +179,21 @@ export function DataExplorerWorkspace() {
 
   // The tab's cost ledger, keyed by execution id upstream — recording the same execution
   // twice changes nothing, which is what makes a cache hit free by construction.
+  const recordActiveScan = useEffectEvent((tabId: string, executionId: string, bytesScanned: number) =>
+    tabs.recordScan(tabId, executionId, bytesScanned)
+  );
+  const activeTabId = tabs.activeTab?.id;
+  const {queryExecutionId, cost} = exploration;
   useEffect(() => {
-    const tab = tabs.activeTab;
-    if (!tab || !exploration.queryExecutionId || !exploration.cost) return;
-    tabs.recordScan(tab.id, exploration.queryExecutionId, exploration.cost.bytesScanned);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `tabs` is re-created each render; recordScan is idempotent per execution id.
-  }, [tabs.activeTab?.id, exploration.queryExecutionId, exploration.cost]);
+    if (!activeTabId || !queryExecutionId || !cost) return;
+    recordActiveScan(activeTabId, queryExecutionId, cost.bytesScanned);
+  }, [activeTabId, queryExecutionId, cost]);
 
   // A statement that failed is remembered so history never walks back into it unasked
   // In memory and per tab — see `useExplorationQuery`.
+  const noteFailedStatement = useEffectEvent((sql: string) => queryControls.noteFailure(sql));
   useEffect(() => {
-    if (exploration.error != null && exploration.sql !== null) queryControls.noteFailure(exploration.sql);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `queryControls` is re-created each render; noteFailure is idempotent per statement.
+    if (exploration.error != null && exploration.sql !== null) noteFailedStatement(exploration.sql);
   }, [exploration.error, exploration.sql]);
 
   // THE PICKER MUST NOT MOUNT WHILE A LINK IS STILL RESOLVING. It reads a database on

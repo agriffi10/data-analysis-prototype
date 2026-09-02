@@ -63,7 +63,7 @@ describe('CollisionPrompt', () => {
     it('overwrites on confirm', () => {
       const {onOverwrite} = setup();
       fireEvent.click(screen.getByRole('button', {name: /overwrite/i}));
-      expect(onOverwrite).toHaveBeenCalled();
+      expect(onOverwrite).toHaveBeenCalledTimes(1);
     });
 
     it('disables save when the new name is unchanged', () => {
@@ -544,6 +544,7 @@ describe('UploadDropzone', () => {
       const onFiles = vi.fn();
       const {user} = renderWithProviders(<UploadDropzone onFiles={onFiles} />);
       await user.upload(screen.getByLabelText('Choose files'), [new File(['a'], 'a.txt'), new File(['b'], 'b.txt')]);
+      expect(onFiles).toHaveBeenCalledTimes(1);
       expect(onFiles.mock.calls[0][0]).toHaveLength(2);
     });
 

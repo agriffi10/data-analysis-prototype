@@ -36,6 +36,7 @@ export type UploadQueueContextValue = {
   clearFinished: () => void;
 };
 
+/** The upload queue and its actions; provided by `UploadQueueProvider`. */
 export const UploadQueueContext = createContext<UploadQueueContextValue | null>(null);
 
 /**
@@ -95,6 +96,7 @@ export type UploadQueueAction =
   | {type: 'retryRename'; id: string; newName: string}
   | {type: 'clearFinished'};
 
+/** An empty queue — the reducer's starting state; `seq` numbers each enqueued item. */
 export const initialUploadQueueState: UploadQueueState = {items: [], seq: 0};
 
 // Map the one matching item through `fn`, returning a fresh array (never mutates).

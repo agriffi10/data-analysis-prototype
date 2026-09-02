@@ -1,7 +1,10 @@
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 import {mockApi, apiFailure} from '../../test/apiMock';
 
-vi.mock('../../lib/apiClient', () => ({apiRequest: vi.fn()}));
+vi.mock('../../lib/apiClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/apiClient')>()),
+  apiRequest: vi.fn()
+}));
 
 import {apiRequest} from '../../lib/apiClient';
 import {enqueueSharedSpaceRequest, readSharedConnectionsCache} from './sharedSpaces.service';
@@ -115,6 +118,7 @@ describe('readSharedConnectionsCache (SPEC-052)', () => {
     expect(result).toEqual({success: true, data: cache});
     // The bucket no longer travels: the API resolves the space from the caller's verified claims,
     // so what remains observable is the key and the space derived from it.
+    expect(send).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0][0]).toBe('objects.readContent');
     expect(send.mock.calls[0][1]).toMatchObject({
       query: {spaceKind: 'personal', spaceName: 'alice', key: 'alice/user_settings/shared-connections.json'}

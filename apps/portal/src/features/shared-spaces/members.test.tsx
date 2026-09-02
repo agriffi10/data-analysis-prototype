@@ -1,5 +1,5 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
-import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {cleanup, render, screen, waitFor, within} from '@testing-library/react';
 import {createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
 import {AddMembersDialog} from './AddMembersDialog';
 import {parseMemberInput} from './memberInput';
@@ -312,15 +312,13 @@ describe('ManageMembersDrawer', () => {
     });
 
     it('opening Add and submitting calls onAddMembers with the parsed list', async () => {
-      const {onAddMembers} = setup();
-      fireEvent.click(screen.getByRole('button', {name: 'Add members'}));
+      const {onAddMembers, user} = setup();
+      await user.click(screen.getByRole('button', {name: 'Add members'}));
       // The field is a chips field since SPEC-148: Enter COMMITS the names, Add then submits.
       // This asserts the CALLBACK argument; the enqueued message is asserted field-by-field in
       // ConnectionsPage.test.tsx, which is where FR-001's payload criterion is really met.
-      const field = screen.getByLabelText('Usernames');
-      fireEvent.change(field, {target: {value: 'cara dave'}});
-      fireEvent.keyDown(field, {key: 'Enter'});
-      fireEvent.click(screen.getByRole('button', {name: 'Add'}));
+      await user.type(screen.getByLabelText('Usernames'), 'cara dave{Enter}');
+      await user.click(screen.getByRole('button', {name: 'Add'}));
       await waitFor(() => expect(onAddMembers).toHaveBeenCalledWith(['cara', 'dave']));
     });
 
@@ -338,10 +336,10 @@ describe('ManageMembersDrawer', () => {
       expect(within(caraRow).getByText('Active')).toBeInTheDocument();
     });
 
-    it('offers a Refresh control that re-reads member state (SPEC-073 FR-006)', () => {
-      const {onRefresh} = setup();
-      fireEvent.click(screen.getByRole('button', {name: 'Refresh connections'}));
-      expect(onRefresh).toHaveBeenCalled();
+    it('offers a Refresh control that re-reads member state (SPEC-073 FR-006)', async () => {
+      const {onRefresh, user} = setup();
+      await user.click(screen.getByRole('button', {name: 'Refresh connections'}));
+      expect(onRefresh).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -350,14 +348,14 @@ describe('ManageMembersDrawer', () => {
       setup();
       // The visible text repeats on every row, so the accessible name is what tells a
       // screen-reader user which member each control hands the space to.
-      expect(screen.getByRole('button', {name: 'Transfer ownership to bob'})).toBeInTheDocument();
-      expect(screen.queryByRole('button', {name: 'Transfer ownership to alice'})).not.toBeInTheDocument();
+      expect(screen.getByRole('button', {name: 'Make owner: bob'})).toBeInTheDocument();
+      expect(screen.queryByRole('button', {name: 'Make owner: alice'})).not.toBeInTheDocument();
     });
 
     it('enqueues exactly one transfer, naming the member, once confirmed', async () => {
       const {onTransferOwnership, user} = setup();
 
-      await user.click(screen.getByRole('button', {name: 'Transfer ownership to bob'}));
+      await user.click(screen.getByRole('button', {name: 'Make owner: bob'}));
       await user.click(screen.getByRole('button', {name: 'Transfer'}));
 
       expect(onTransferOwnership).toHaveBeenCalledTimes(1);
@@ -366,7 +364,7 @@ describe('ManageMembersDrawer', () => {
 
     it("names the space and the new owner, and says the transfer is not the user's to undo", async () => {
       const {user} = setup();
-      await user.click(screen.getByRole('button', {name: 'Transfer ownership to bob'}));
+      await user.click(screen.getByRole('button', {name: 'Make owner: bob'}));
 
       const dialog = screen.getByRole('alertdialog', {name: 'Transfer ownership of salesdata to bob'});
       expect(within(dialog).getByText(/salesdata/)).toBeInTheDocument();
@@ -376,23 +374,23 @@ describe('ManageMembersDrawer', () => {
 
     it('enqueues nothing on cancel and returns focus to the control that opened it', async () => {
       const {onTransferOwnership, user} = setup();
-      const opener = screen.getByRole('button', {name: 'Transfer ownership to bob'});
+      const opener = screen.getByRole('button', {name: 'Make owner: bob'});
 
       await user.click(opener);
       await user.click(screen.getByRole('button', {name: 'Cancel'}));
 
       expect(onTransferOwnership).not.toHaveBeenCalled();
-      await waitFor(() => expect(screen.getByRole('button', {name: 'Transfer ownership to bob'})).toHaveFocus());
+      await waitFor(() => expect(screen.getByRole('button', {name: 'Make owner: bob'})).toHaveFocus());
     });
 
     it('disables the control while a request is in flight', () => {
       setup({busy: true});
-      expect(screen.getByRole('button', {name: 'Transfer ownership to bob'})).toBeDisabled();
+      expect(screen.getByRole('button', {name: 'Make owner: bob'})).toBeDisabled();
     });
 
     it('has no axe violations with the dialog open', async () => {
       const {user} = setup();
-      await user.click(screen.getByRole('button', {name: 'Transfer ownership to bob'}));
+      await user.click(screen.getByRole('button', {name: 'Make owner: bob'}));
 
       // The DRIVEN container: `expectNoA11yViolations` re-renders from the element and would
       // silently check the closed drawer, where axe never sees the dialog at all.

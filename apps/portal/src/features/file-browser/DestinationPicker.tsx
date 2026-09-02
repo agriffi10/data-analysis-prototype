@@ -7,6 +7,7 @@ import {Button} from '../../components/Button';
 import {cx} from '../../lib/cx';
 import {PICKER_LOCKED_FOLDERS, isRootFolderNamed} from './protectedFolders';
 import {SAVED_QUERIES_FOLDER} from './fileBrowser.constants';
+import {UP_ONE_LEVEL_LABEL} from './ParentFolderRow';
 import {useFeature} from '../feature-flags';
 import {buildBreadcrumbs, parentPrefix} from './fileBrowser.paths';
 
@@ -83,22 +84,24 @@ function isProtectedFolder(folderPrefix: string, rootPrefix: string, locked: rea
   return isRootFolderNamed(folderPrefix, rootPrefix, locked);
 }
 
-// Parent of a browse prefix, clamped to the navigation floor so the picker can
-// never climb above the user's own space: `alice/a/b/` → `alice/a/`, and
-// `alice/a/` → `alice/` (the root). Used by the ".." up-navigation row.
-// The shared destination-folder picker used by both Move
-// And Copy. Lists only folders within the user's own space
-// (navigable), excludes the folders being operated on (can't descend into them)
-// and the protected `athenaresults/` folder (never a write destination), and
-// disables the confirm button inside an operated folder's own subtree (no
-// moving/copying a folder into itself). Whether the items' current parent is a
-// valid destination is caller-controlled (`allowCurrentParent`): Move forbids it,
-// Copy allows it (same-folder auto-number).
-//
-// An opt-in `selectableFiles` mode exists for the caller that targets
-// data rather than a destination (the data-quality dialog). There a file row can be
-// selected as the target, the resolved target is reported back via `onTargetChange`
-// (the picker keeps owning the browse state).
+/**
+ * The shared destination-folder picker used by both Move
+ * and Copy. Lists only folders within the user's own space
+ * (navigable), excludes the folders being operated on (can't descend into them)
+ * and the protected `athenaresults/` folder (never a write destination), and
+ * disables the confirm button inside an operated folder's own subtree (no
+ * moving/copying a folder into itself). Whether the items' current parent is a
+ * valid destination is caller-controlled (`allowCurrentParent`): Move forbids it,
+ * Copy allows it (same-folder auto-number).
+ *
+ * An opt-in `selectableFiles` mode exists for the caller that targets
+ * data rather than a destination (the data-quality dialog). There a file row can be
+ * selected as the target, the resolved target is reported back via `onTargetChange`
+ * (the picker keeps owning the browse state).
+ *
+ * @example
+ * <DestinationPicker bucket={bucket} items={selected} rootPrefix="alice/" currentPrefix="alice/docs/" confirmLabel="Move here" busyLabel="Moving…" onConfirm={move} onCancel={close} />
+ */
 export function DestinationPicker({
   bucket,
   items,
@@ -329,7 +332,7 @@ export function DestinationPicker({
                 <button
                   className="flex h-10 w-full cursor-pointer items-center gap-2 px-3 text-left text-sm text-text-2 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
                   onClick={() => navigateTo(parentPrefix(browsePrefix, active.rootPrefix))}
-                  aria-label="Go up to parent folder">
+                  aria-label={UP_ONE_LEVEL_LABEL}>
                   <svg
                     viewBox="0 0 20 20"
                     fill="none"

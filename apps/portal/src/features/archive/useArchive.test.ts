@@ -3,7 +3,11 @@ import {act, renderHook} from '@testing-library/react';
 import {isArchiveId, useArchive, useRestoreArchive} from './useArchive';
 import {enqueueArchive, enqueueRestore} from './archive.service';
 
-vi.mock('./archive.service', () => ({enqueueArchive: vi.fn(), enqueueRestore: vi.fn()}));
+vi.mock('./archive.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./archive.service')>()),
+  enqueueArchive: vi.fn(),
+  enqueueRestore: vi.fn()
+}));
 
 const SPACE = {kind: 'personal' as const, name: 'alice'};
 const ITEMS = [{kind: 'folder' as const, key: 'alice/reports/'}];
@@ -40,6 +44,7 @@ describe('useArchive', () => {
     act(() => hook.result.current.open(ITEMS));
     await act(async () => hook.result.current.submit());
 
+    expect(notify).toHaveBeenCalledTimes(1);
     const {message} = notify.mock.calls[0][0];
     expect(message).toMatch(/started/i);
     expect(message).toMatch(/notification/i);
@@ -152,6 +157,7 @@ describe('useRestoreArchive', () => {
     act(() => hook.result.current.openDialog());
     await act(async () => hook.result.current.submit(ARCHIVE_ID));
 
+    expect(notify).toHaveBeenCalledTimes(1);
     const {message} = notify.mock.calls[0][0];
     expect(message).toMatch(/hours/i);
     expect(message).toMatch(/notification/i);
@@ -166,6 +172,7 @@ describe('useRestoreArchive', () => {
     act(() => hook.result.current.openDialog());
     await act(async () => hook.result.current.submit('  3F8A1C2E-9B4D-4A17-8C65-2E0D7B1F4A93  '));
 
+    expect(vi.mocked(enqueueRestore)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(enqueueRestore).mock.calls[0][0].archiveId).toBe('3f8a1c2e-9b4d-4a17-8c65-2e0d7b1f4a93');
   });
 
@@ -174,6 +181,7 @@ describe('useRestoreArchive', () => {
     act(() => hook.result.current.openDialog());
     await act(async () => hook.result.current.submit(ARCHIVE_ID));
 
+    expect(vi.mocked(enqueueRestore)).toHaveBeenCalledTimes(1);
     const [req] = vi.mocked(enqueueRestore).mock.calls[0];
     expect(req.requestId).not.toBe(req.archiveId);
   });

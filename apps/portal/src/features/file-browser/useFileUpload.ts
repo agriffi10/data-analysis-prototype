@@ -25,13 +25,18 @@ export type UseFileUploadResult = {
   dismissError: () => void;
 };
 
-// Orchestrates single-file upload + create-folder against the
-// service, tracking progress, surfacing collisions for warn-and-confirm, and
-// invalidating the current prefix's listing on success so the new item appears.
-//
-// runUpload/runCreateFolder are hoisted function declarations (not useCallback)
-// because each references itself in its collision-retry closure; the returned
-// callbacks are only used in event handlers, so their identity churn is harmless.
+/**
+ * Orchestrates single-file upload + create-folder against the
+ * service, tracking progress, surfacing collisions for warn-and-confirm, and
+ * invalidating the current prefix's listing on success so the new item appears.
+ *
+ * runUpload/runCreateFolder are hoisted function declarations (not useCallback)
+ * because each references itself in its collision-retry closure; the returned
+ * callbacks are only used in event handlers, so their identity churn is harmless.
+ *
+ * @example
+ * const {uploadOne, progress, pendingCollision, error, isBusy} = useFileUpload(bucket, prefix);
+ */
 export function useFileUpload(bucket: string, prefix: string): UseFileUploadResult {
   const queryClient = useQueryClient();
   const [progress, setProgress] = useState<number | null>(null);

@@ -171,7 +171,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         intro:
           'Before you build a table from a folder of CSVs, or after someone hands you an export you don’t trust, this tells you what’s actually in there: how many rows, whether a column that looks numeric has stray text in it, how much is blank, whether rows repeat, and — for a folder — whether every file agrees on the same columns. It only ever <b>reads</b> your data. Nothing is modified, moved, or deleted.',
         steps: [
-          'There are two ways in. From <b>Files</b>: tick the checkbox on <b>one</b> file or <b>one</b> folder, then click <b>Check quality</b> in the toolbar above the list and confirm — the dialog names exactly what will be read.',
+          'There are two ways in. From <b>Files</b>: tick the checkbox on <b>one</b> file or <b>one</b> folder, then click <b>Check data quality</b> in the toolbar above the list and confirm — the dialog names exactly what will be read.',
           'Or from <b>Data quality</b>: click <b>New quality check</b>, choose the space, then browse to the folder you want checked. Click a file first if you want to check just that one file.',
           'The check runs in the background and can take a few minutes. Carry on working; you don’t have to wait on the page.',
           'When it finishes you’ll get a <b>notification</b> naming what was checked. Click it to open the full report — the findings live there, not in the notification.',

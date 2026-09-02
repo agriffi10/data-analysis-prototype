@@ -8,7 +8,10 @@ import type {SharedConnectionStatus} from '../shared-spaces/sharedSpaces.types';
 
 // The AWS boundary only: the real `useConnections` → cache-read chain runs, so a change
 // to what "usable" means is caught here rather than mocked over.
-vi.mock('../shared-spaces/sharedSpaces.service', () => ({readSharedConnectionsCache: vi.fn()}));
+vi.mock('../shared-spaces/sharedSpaces.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../shared-spaces/sharedSpaces.service')>()),
+  readSharedConnectionsCache: vi.fn()
+}));
 
 const mockCache = vi.mocked(readSharedConnectionsCache);
 

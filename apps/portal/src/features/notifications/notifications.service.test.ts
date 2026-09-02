@@ -1,6 +1,9 @@
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 
-vi.mock('../../lib/apiClient', () => ({apiRequest: vi.fn()}));
+vi.mock('../../lib/apiClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/apiClient')>()),
+  apiRequest: vi.fn()
+}));
 
 import {apiRequest} from '../../lib/apiClient';
 import {apiFailure, mockApi} from '../../test/apiMock';

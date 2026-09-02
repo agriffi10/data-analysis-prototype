@@ -4,6 +4,7 @@ import type {ReactElement} from 'react';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {FileBrowser} from './FileBrowser';
 import {UploadQueueProvider} from './UploadQueueProvider';
+import {toUserText} from '../../lib/errorMessages';
 import {FileOpsInFlightProvider} from './FileOpsInFlightProvider';
 import {UPLOAD_CONCURRENCY} from './upload.types';
 import * as service from './fileBrowser.service';
@@ -407,9 +408,15 @@ describe('FileBrowser — move / copy / rename', () => {
     const dialog = await screen.findByRole('dialog', {name: /rename/i});
     const input = within(dialog).getByRole('textbox');
     await user.clear(input);
-    await user.type(input, 'renamed.csv');
+    // The dialog edits the STEM and keeps the extension; a bare "was called" once hid a
+    // `renamed.csv.csv` here.
+    await user.type(input, 'renamed');
     await user.click(within(dialog).getByRole('button', {name: /rename|save/i}));
-    await waitFor(() => expect(mock.moveObject).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(mock.moveObject).toHaveBeenCalledWith(
+        expect.objectContaining({sourceKey: 'alice/report.csv', destKey: 'alice/renamed.csv'})
+      )
+    );
   });
 
   it('renames a folder from its details panel — ENQUEUED, never a browser-side recursive move', async () => {
@@ -425,6 +432,7 @@ describe('FileBrowser — move / copy / rename', () => {
     await user.click(within(dialog).getByRole('button', {name: /rename|save/i}));
     await waitFor(() => expect(mockSubmitFileOp).toHaveBeenCalled());
     expect(mock.moveObject).not.toHaveBeenCalled();
+    expect(mockSubmitFileOp).toHaveBeenCalledTimes(1);
     expect(mockSubmitFileOp.mock.calls[0][0]).toMatchObject({
       operation: 'move',
       source: {items: [{kind: 'folder', key: 'alice/docs/', targetName: 'archive'}]},
@@ -450,8 +458,8 @@ describe('FileBrowser — upload', () => {
     await user.click(await screen.findByRole('button', {name: 'Upload'}));
     const input = await screen.findByLabelText('Choose files');
     await user.upload(input, new File(['data'], 'up.txt', {type: 'text/plain'}));
-    // The real UploadQueueProvider starts the queued item via uploadFile.
-    await waitFor(() => expect(mock.uploadFile).toHaveBeenCalled());
+    // The real UploadQueueProvider starts the queued item via uploadFile, under the chosen key.
+    await waitFor(() => expect(mock.uploadFile).toHaveBeenCalledWith(expect.objectContaining({key: 'alice/up.txt'})));
   });
 });
 
@@ -578,6 +586,19 @@ describe('FileBrowser — resolving a collision through the UI (SPEC-154 FR-003)
     expect(mock.uploadFile.mock.calls[1][0]).toMatchObject({key: 'alice/notes-2.txt', overwrite: false});
     expect(await screen.findByText('Uploaded')).toBeInTheDocument();
   });
+
+  it('drops the item from the queue when the collision prompt is cancelled — no second upload', async () => {
+    mock.uploadFile.mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}} as never);
+
+    const {user} = renderBrowser();
+    await uploadInto(user);
+
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', {name: 'Cancel'}));
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', {name: 'Uploads'})).not.toBeInTheDocument();
+    expect(mock.uploadFile).toHaveBeenCalledTimes(1);
+  });
 });
 
 // FR-003 AC3/AC5: the BATCH prompt, and the summary banner a user actually reads.
@@ -610,11 +631,11 @@ describe('FileBrowser — resolving a BATCH collision through the UI (SPEC-154 F
 
 // ── SPEC-154 FR-004: an upload watched to completion ────────────────────────
 //
-// The most-used flow in the app had one UI-level test whose only assertion was
-// `expect(mock.uploadFile).toHaveBeenCalled()`. Above it, `UploadList.test.tsx` mocks the
-// context the provider supplies, so every visible state was asserted against hand-fed items;
-// below it, `UploadQueueProvider.test.tsx` tests the reducer through `renderHook`. Nothing
-// spanned them — so the real provider driving the real list was untested end to end.
+// The most-used flow in the app once had one UI-level test whose only assertion was that
+// `uploadFile` was called; the list's own suite mocked the context the provider supplies, so
+// every visible state was asserted against hand-fed items, and `UploadQueueProvider.test.tsx`
+// tests the reducer through `renderHook`. Nothing spanned them — so the real provider driving
+// the real list was untested end to end. The list's behaviours now live here too.
 //
 // This renders the REAL `UploadQueueProvider` behind the REAL `UploadList` (both already in
 // `renderBrowser`'s tree) and watches one file through the states a user sees.
@@ -650,16 +671,16 @@ describe('FileBrowser — an upload watched to completion (SPEC-154 FR-004)', ()
   });
 
   it('shows the Failed state with the MAPPED message, never the raw AWS text', async () => {
-    mock.uploadFile.mockResolvedValue({
-      success: false,
-      error: {message: 'AccessDenied: not authorized to perform s3:PutObject', code: 'AccessDenied'}
-    } as never);
+    const denied = {message: 'AccessDenied: not authorized to perform s3:PutObject', code: 'AccessDenied'};
+    mock.uploadFile.mockResolvedValue({success: false, error: denied} as never);
 
     const {user} = renderBrowser();
     await chooseFile(user);
 
     expect(await screen.findByText('Failed')).toBeInTheDocument();
-    // SPEC-106: `toUserMessage` wording is what reaches the user.
+    // The sentence a user reads is the mapper's, compared against the mapper's own output
+    // rather than a second copy of it; the raw text must not survive beside it.
+    expect(screen.getByText(toUserText(denied))).toBeInTheDocument();
     expect(screen.queryByText(/s3:PutObject/)).not.toBeInTheDocument();
   });
 
@@ -719,13 +740,58 @@ describe('FileBrowser — an upload watched to completion (SPEC-154 FR-004)', ()
     // held rather than the whole batch having stalled.
     expect(screen.getAllByRole('progressbar')).toHaveLength(UPLOAD_CONCURRENCY);
   });
+
+  // The list's own behaviours, driven through the parent that wires the dropzone to the queue
+  // rather than through a mocked `useUploadQueue`: what it shows per row is only meaningful
+  // against items the real provider produced.
+  it('lists uploads newest first, labelled with their destination space, and dismisses a finished one', async () => {
+    // A NESTED prefix in a shared space: the label is the space (the key's first segment),
+    // never the folder the upload landed in.
+    const {user} = renderBrowser({prefix: 'team/sub/', rootPrefix: 'team/', rootLabel: 'team'});
+    await chooseFile(user, 'first.txt');
+    await screen.findByText('Uploaded');
+    await user.upload(screen.getByLabelText('Choose files'), new File(['b'], 'second.txt', {type: 'text/plain'}));
+    await waitFor(() => expect(screen.getAllByText('Uploaded')).toHaveLength(2));
+
+    const list = screen.getByRole('region', {name: 'Uploads'});
+    expect(
+      within(list)
+        .getAllByText(/\.txt$/)
+        .map((el) => el.textContent)
+    ).toEqual(['second.txt', 'first.txt']);
+    expect(within(list).getAllByText('team')).toHaveLength(2);
+    expect(within(list).queryByText('sub')).not.toBeInTheDocument();
+    // A finished row offers Dismiss and never Cancel.
+    expect(within(list).queryByRole('button', {name: /cancel upload/i})).not.toBeInTheDocument();
+    await user.click(within(list).getByRole('button', {name: 'Dismiss first.txt'}));
+    expect(within(list).queryByText('first.txt')).not.toBeInTheDocument();
+  });
+
+  it('offers Clear finished only once a row is terminal, and the list leaves with its last row', async () => {
+    let finish!: (value: unknown) => void;
+    mock.uploadFile.mockImplementation(
+      (async () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        })) as never
+    );
+
+    const {user} = renderBrowser();
+    await chooseFile(user);
+    await screen.findByRole('progressbar', {name: 'Uploading up.txt'});
+    expect(screen.queryByRole('button', {name: 'Clear finished uploads from the list'})).not.toBeInTheDocument();
+
+    finish(ok({key: 'alice/up.txt'}));
+    await user.click(await screen.findByRole('button', {name: 'Clear finished uploads from the list'}));
+    expect(screen.queryByRole('region', {name: 'Uploads'})).not.toBeInTheDocument();
+  });
 });
 
 describe('FileBrowser — send to… (SPEC-167)', () => {
   // THE JOURNEY, not the halves (SPEC-154's discipline): select real rows in the real browser,
   // open the real dialog, name a recipient through the real combobox, and assert what reached
   // the queue. Every piece between the checkbox and the enqueue is the shipped one.
-  const sendButton = () => screen.getByRole('button', {name: 'Send selected items to someone'});
+  const sendButton = () => screen.getByRole('button', {name: 'Send to another user'});
 
   beforeEach(() => {
     mockSend.mockResolvedValue({success: true, data: undefined});

@@ -4,7 +4,10 @@ import type {ApiMock} from '../../test/apiMock';
 import {enqueueArchive, enqueueRestore} from './archive.service';
 import type {ArchiveRequest, RestoreRequest} from '../../types/archive.types';
 
-vi.mock('../../lib/apiClient', () => ({apiRequest: vi.fn()}));
+vi.mock('../../lib/apiClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/apiClient')>()),
+  apiRequest: vi.fn()
+}));
 
 /**
  * The archive and restore enqueues, now over the API.
