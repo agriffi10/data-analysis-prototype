@@ -1,6 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
-import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
-import {renderWithProviders} from '../../test/renderWithProviders';
+import {cleanup, render, screen, waitFor, within} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {DataQualityPage} from './DataQualityPage';
 import {MemoryRouter, Route, Routes} from 'react-router';
@@ -492,7 +493,7 @@ describe('DataQualityPage.a11y', () => {
       // which to open it.
       const {container} = render(withProviders());
       await waitFor(() => expect(screen.getByRole('link', {name: /alice\/sales\//})).toBeInTheDocument());
-      fireEvent.click(screen.getAllByRole('button', {name: 'New quality check'})[0]);
+      await userEvent.setup(USER_EVENT_OPTIONS).click(screen.getAllByRole('button', {name: 'New quality check'})[0]);
       await screen.findByRole('button', {name: 'Select file report.csv'});
 
       await expectContainerHasNoA11yViolations(container, ROUTE_AXE_OPTIONS);

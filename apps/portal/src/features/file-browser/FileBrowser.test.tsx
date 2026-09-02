@@ -457,8 +457,8 @@ describe('FileBrowser — upload', () => {
     await user.click(await screen.findByRole('button', {name: 'Upload'}));
     const input = await screen.findByLabelText('Choose files');
     await user.upload(input, new File(['data'], 'up.txt', {type: 'text/plain'}));
-    // The real UploadQueueProvider starts the queued item via uploadFile.
-    await waitFor(() => expect(mock.uploadFile).toHaveBeenCalled());
+    // The real UploadQueueProvider starts the queued item via uploadFile, under the chosen key.
+    await waitFor(() => expect(mock.uploadFile).toHaveBeenCalledWith(expect.objectContaining({key: 'alice/up.txt'})));
   });
 });
 
@@ -630,11 +630,11 @@ describe('FileBrowser — resolving a BATCH collision through the UI (SPEC-154 F
 
 // ── SPEC-154 FR-004: an upload watched to completion ────────────────────────
 //
-// The most-used flow in the app had one UI-level test whose only assertion was
-// `expect(mock.uploadFile).toHaveBeenCalled()`. Above it, `UploadList.test.tsx` mocks the
-// context the provider supplies, so every visible state was asserted against hand-fed items;
-// below it, `UploadQueueProvider.test.tsx` tests the reducer through `renderHook`. Nothing
-// spanned them — so the real provider driving the real list was untested end to end.
+// The most-used flow in the app once had one UI-level test whose only assertion was that
+// `uploadFile` was called; the list's own suite mocked the context the provider supplies, so
+// every visible state was asserted against hand-fed items, and `UploadQueueProvider.test.tsx`
+// tests the reducer through `renderHook`. Nothing spanned them — so the real provider driving
+// the real list was untested end to end. The list's behaviours now live here too.
 //
 // This renders the REAL `UploadQueueProvider` behind the REAL `UploadList` (both already in
 // `renderBrowser`'s tree) and watches one file through the states a user sees.
@@ -759,7 +759,7 @@ describe('FileBrowser — an upload watched to completion (SPEC-154 FR-004)', ()
         .map((el) => el.textContent)
     ).toEqual(['second.txt', 'first.txt']);
     expect(within(list).getAllByText('team')).toHaveLength(2);
-    expect(within(list).queryByText('team/sub')).not.toBeInTheDocument();
+    expect(within(list).queryByText('sub')).not.toBeInTheDocument();
     // A finished row offers Dismiss and never Cancel.
     expect(within(list).queryByRole('button', {name: /cancel upload/i})).not.toBeInTheDocument();
     await user.click(within(list).getByRole('button', {name: 'Dismiss first.txt'}));

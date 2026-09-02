@@ -63,7 +63,7 @@ describe('CollisionPrompt', () => {
     it('overwrites on confirm', () => {
       const {onOverwrite} = setup();
       fireEvent.click(screen.getByRole('button', {name: /overwrite/i}));
-      expect(onOverwrite).toHaveBeenCalled();
+      expect(onOverwrite).toHaveBeenCalledTimes(1);
     });
 
     it('disables save when the new name is unchanged', () => {

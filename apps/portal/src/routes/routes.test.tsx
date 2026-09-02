@@ -19,6 +19,8 @@ vi.mock('../features/notifications/notifications.service', () => ({
   getNotifications: vi.fn(),
   enqueueNotificationAction: vi.fn()
 }));
+// The sanctioned heavy-child exception: Monaco needs a real DOM editor and workers, and jsdom
+// has neither, so a textarea stands in for it.
 vi.mock('../features/query/SqlEditor', () => ({
   SqlEditor: ({value}: {value: string}) => (
     <textarea
