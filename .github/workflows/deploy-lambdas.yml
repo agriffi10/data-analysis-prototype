@@ -18,8 +18,7 @@ on:
   # runtime, and this file's `configure-aws-credentials` call sites went to main completely
   # unexercised, because changing a workflow is not changing `lambdas/**`.
   #
-  # The function table is here because editing it is how a function is added, which must deploy and
-  # which touches no `lambdas/**` path. The probe's table and script are here for the same reason:
+  # The probe's table and script are here because
   # they decide what this workflow proves, and a change to either that never ran is a gate nobody
   # has seen work.
   push:
@@ -27,11 +26,14 @@ on:
     paths:
       - 'lambdas/**'
       - '.github/workflows/deploy-lambdas.yml'
-      - '.github/lambda-functions.json'
       - '.github/lambda-probes.json'
+      # The fleet's membership is Terraform's now, so a plane gaining a verb has to deploy —
+      # and it touches neither `lambdas/**` nor this file.
+      - 'infra/modules/**'
+      - 'lambdas/fleet.py'
       - '.github/scripts/point-lambda.sh'
       - '.github/scripts/probe-cold-start.sh'
-      - '.github/scripts/plan_deploy.py'
+
   workflow_dispatch:
     inputs:
       image_tag:
@@ -79,13 +81,19 @@ concurrency:
 
 jobs:
   # ── What is deployed, and against which image ───────────────────────────────
-  # The whole table, always. `plan_deploy.py --all` still owns the sharding constants, which is why
-  # it is called rather than reimplemented here; SPEC-214 removes the module along with the tables.
+  # The whole fleet, always, read from THIS COMMIT'S Terraform sources by `lambdas/fleet.py`.
   #
-  # The diff apparatus this job used to carry — the last-successful-run lookup, `fetch-depth: 0`,
-  # the `git diff` and the two `git show` table reads — is gone rather than left running and
-  # ignored. A mechanism that still executes while nothing consumes its answer is the fossil
-  # SPEC-213 FR-001 refuses for `ignore_changes = [layers]`, one size up.
+  # NOT `tofu output`, and the distinction is the one that matters here. A `tofu output` is
+  # LAST-APPLIED state, and this workflow and `deploy-infra.yml` fire on the same push with no
+  # ordering between them — so on the one push that adds a function, the output does not have it
+  # yet. That function would never be pointed, and the reconciliation below would compare a plan
+  # that never mentioned it against a deploy that never did it and agree. The function then runs
+  # whatever image its module created it with, working perfectly, with main green: this arc's
+  # signature failure, produced by its own cleanup.
+  #
+  # The commit's own declaration is what the deleted table provided, so that is what the sharding
+  # reads. The applied output is still read — by the `pointed` job, where "did we deploy what is
+  # actually out there" is the question being asked.
   plan:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -138,15 +146,18 @@ jobs:
         id: plan
         run: |
           set -euo pipefail
-          PLAN=$(python3 .github/scripts/plan_deploy.py --all)
+          # `fleet.py` REFUSES rather than returning a short list, so a derivation it cannot make
+          # fails here. Piping it would report jq's status instead of its own.
+          PLAN=$(python3 lambdas/fleet.py --plan)
           echo "$PLAN" | jq .
-          echo "$(jq -r .reason <<<"$PLAN")" >> "$GITHUB_STEP_SUMMARY"
-
-          # A table that parsed to nothing would shard to zero jobs and report success having
-          # deployed nothing — "did not run" is never "clean".
           COUNT=$(jq '.functions | length' <<<"$PLAN")
+          echo "Pointing the whole fleet: ${COUNT} functions over $(jq -r .shard_count <<<"$PLAN") shards." >> "$GITHUB_STEP_SUMMARY"
+
+          # Belt and braces over the refusal above: a derivation that somehow returned nothing
+          # would shard to zero jobs and report success having deployed nothing, and "did not run"
+          # is never "clean".
           if [ "$COUNT" -eq 0 ]; then
-            echo "::error::the deploy plan named no functions. Every run points the whole fleet, so an empty plan means the function table could not be read."
+            echo "::error::the deploy plan named no functions. Every run points the whole fleet, so an empty plan means the fleet could not be derived from infra/modules."
             exit 1
           fi
 
@@ -169,9 +180,8 @@ jobs:
   # minutes, which leaves room for the function count to grow without a shard
   # crossing a minute boundary and re-inflating the bill.
   #
-  # The function table moved to .github/lambda-functions.json. A `strategy.matrix`
-  # cannot express "these twelve in one job", and the table was always read as data
-  # by lambdas/test_deploy_matrix.py — which now parses JSON instead of regexing YAML.
+  # The fleet is data a shard READS, which is why it is not a `strategy.matrix`: a matrix
+  # creates one job per entry and cannot express "these twelve in one job".
   deploy:
     needs: [plan]
     runs-on: ubuntu-latest
@@ -302,13 +312,36 @@ jobs:
     needs: [plan, deploy]
     if: always()
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
+      id-token: write
       contents: read
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      # Reading the APPLIED fleet needs both, which this job did not previously want. The pinned
+      # version matches every other workflow that inits this backend.
+      - name: Set up OpenTofu
+        uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_version: '~1.8'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          retry-max-attempts: 3
+
+      - name: OpenTofu init
+        working-directory: infra
+        run: |
+          tofu init \
+            -backend-config="bucket=${{ secrets.TF_VAR_state_bucket }}" \
+            -backend-config="dynamodb_table=${{ secrets.TF_VAR_state_lock_table }}" \
+            -backend-config="region=${{ vars.AWS_REGION }}"
 
       - name: Download every shard's record
         uses: actions/download-artifact@v4
@@ -336,18 +369,39 @@ jobs:
             exit 1
           fi
 
-          # WHAT THIS DOES AND DOES NOT PROVE, stated rather than overclaimed. With the narrowing
-          # gone, `planned` IS the deploy table, so comparing the two here catches a marshalling
-          # loss between the jobs and nothing more. The equality FR-005 asks for is against what
-          # TERRAFORM declares, and that link is held elsewhere: deploy-infra.yml's plan guard
-          # compares the table against the planned fleet, and `.github/lambda-functions.json` is in
-          # THAT workflow's `paths:` filter — so the table cannot diverge from Terraform without an
-          # edit that runs the guard. The chain closes on the edit, not on every push, and saying
-          # so is the difference between a gate and a comment claiming one.
-          jq -r '.[].name' .github/lambda-functions.json | sort -u > table.txt
-          if ! diff -q planned.txt table.txt >/dev/null; then
-            echo "::error::the deploy plan and the function table disagree — one of them did not survive the job boundary:"
-            diff planned.txt table.txt || true
+          # AGAINST THE APPLIED FLEET, which is a real comparison rather than a marshalling check.
+          # `planned` came from this COMMIT's Terraform sources; this comes from the state Terraform
+          # has actually applied. The two derivations are independent and they answer different
+          # questions, which is exactly why comparing them is worth a job:
+          #
+          #   * in `planned` and not applied — Deploy Infrastructure has not created it yet. On the
+          #     push that adds a function that is expected and benign: the deploy waits for the
+          #     function and the two agree next run. It is reported, not failed.
+          #   * applied and not in `planned` — a deployed function this commit does not declare. It
+          #     is running an image nobody pointed and NOTHING ELSE WOULD SAY SO, which is the trap
+          #     this job exists for. That fails.
+          APPLIED=$(cd infra && tofu output -json lambda_function_names)
+          if ! jq -e 'type == "array" and length > 0' >/dev/null <<<"$APPLIED"; then
+            echo "::error::could not read lambda_function_names from Terraform state. An unreadable output is not an empty fleet, and every comparison below would pass over it."
+            exit 1
+          fi
+          jq -r '.[]' <<<"$APPLIED" | sort -u > applied.txt
+
+          NEW=$(comm -23 planned.txt applied.txt)
+          if [ -n "$NEW" ]; then
+            echo "::notice title=Not yet applied::$(wc -l <<<"$NEW" | tr -d ' ') function(s) this commit declares are not in Terraform state yet — expected on the push that adds one:"
+            printf '  %s\n' $NEW
+          fi
+
+          # THE SYMMETRIC RACE IS NAMED HERE, because the error would otherwise diagnose it
+          # backwards. A push that REMOVES a function reaches this branch too, for as long as
+          # Deploy Infrastructure has not applied the destroy — and this job usually runs after
+          # that apply, but "usually" is not a guarantee when the apply is queued, slow or red.
+          ORPHANED=$(comm -13 planned.txt applied.txt)
+          if [ -n "$ORPHANED" ]; then
+            echo "::error::these functions are DEPLOYED and this commit does not declare them:"
+            printf '  %s\n' $ORPHANED
+            echo "::error::Either nothing pointed them at this run's image, or this commit REMOVED them and Deploy Infrastructure has not applied the destroy yet. Check that run: if it is still going or failed, re-dispatch this workflow once it is green rather than treating these as un-pointed."
             exit 1
           fi
 

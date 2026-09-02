@@ -5,8 +5,8 @@ this fleet has already paid for that once: SPEC-137 broke sign-up for nine days 
 ``ModuleNotFoundError``, in a handler whose own test only demanded that *an* exception
 appear. So the assertion has to name what it expects.
 
-Sits beside ``test_deploy_matrix.py`` — the other file here that reads the repo as data
-rather than exercising a behaviour.
+Sits beside the other files here that read the repository as data rather than exercising a
+behaviour — ``test_fleet_derivation.py`` and ``test_image_layout.py`` among them.
 """
 
 import pathlib

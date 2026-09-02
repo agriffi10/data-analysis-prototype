@@ -10,8 +10,8 @@ The shape is SPEC-153's: assert the coupling, then assert the parse did not go t
 that reads a workflow and finds nothing must fail rather than pass vacuously — a regex that
 stops matching after a reformat is exactly how a guard starts guarding nothing.
 
-It lives under ``lambdas/`` because that is where pytest runs, alongside
-``test_deploy_matrix.py``, which reads ``deploy-lambdas.yml`` for the same reason.
+It lives under ``lambdas/`` because that is where pytest runs, alongside the other suites that
+read CI's own files as data for the same reason.
 """
 
 import pathlib

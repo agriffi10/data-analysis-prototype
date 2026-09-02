@@ -1,7 +1,7 @@
 """The cold-start probe's population is derived from the deploy role's own grants.
 
 `Deploy Lambdas` invokes a sample of the fleet after pointing it, to prove the deployed artefact
-starts. What that sample IS cannot be a hand-written list: `.github/lambda-functions.json` holds all
+starts. What that sample IS cannot be a hand-written list: the fleet Terraform declares holds all
 86 names and no notion of "one verb per plane plus each standalone", so the sample would be an
 artefact nobody could check, drifting the moment a plane or a standalone was added.
 
@@ -31,7 +31,8 @@ where there are 15. Both halves of that are guarded below.
 Attributes:
   POLICIES: The deploy role's policy templates.
   PROBES: The committed probe population and its exemptions.
-  FUNCTIONS: The deploy table, which is the universe a grant pattern resolves against.
+  Nothing else here needs naming: the universe a grant pattern resolves against is the fleet
+  Terraform declares, read through `fleet.function_names`.
 """
 
 import fnmatch
@@ -39,12 +40,12 @@ import json
 import pathlib
 import re
 
+import fleet
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 POLICIES = ROOT / "infra" / "modules" / "base" / "policies"
 PROBES = ROOT / ".github" / "lambda-probes.json"
-FUNCTIONS = ROOT / ".github" / "lambda-functions.json"
 
 
 def _deployed() -> list[str]:
@@ -59,7 +60,7 @@ def _deployed() -> list[str]:
     Raises:
       None.
     """
-    return [row["name"] for row in json.loads(FUNCTIONS.read_text(encoding="utf-8"))]
+    return fleet.function_names(ROOT)
 
 
 def _granted() -> set[str]:

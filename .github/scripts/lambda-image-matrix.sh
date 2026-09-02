@@ -97,9 +97,8 @@ trap cleanup EXIT
 echo "Lambda image matrix: ${IMAGE}"
 
 # ── What the repository says, computed before the container starts ─────────────
-# The layer table is the declaration of what shared code exists. The FUNCTION table is the
-# declaration of how many Lambdas there are — and it is deliberately not the AST sweep the
-# assembler uses.
+# The layer table is the declaration of what shared code exists. TERRAFORM is the declaration of
+# how many Lambdas there are — and it is deliberately not the AST sweep the assembler uses.
 #
 # THAT CHOICE IS THE DIFFERENCE BETWEEN A GUARD AND A TAUTOLOGY, and it was measured rather than
 # reasoned about. The image-side sweep decides "is this a Lambda" by looking for a top-level
@@ -107,8 +106,8 @@ echo "Lambda image matrix: ${IMAGE}"
 # same source tree — so renaming a function's `handler` removed it from BOTH sides at once, the
 # two numbers agreed at 85, and a planted mutation that broke a function's entry point passed the
 # whole matrix. The table is maintained separately and still says 86, so the shortfall is visible.
-# `lambdas/test_deploy_matrix.py` is what keeps the table and the directories honest with each
-# other; this script leans on that rather than repeating it.
+# `lambdas/test_image_layout.py` is what keeps the Terraform declaration and the directories
+# honest with each other; this script leans on that rather than repeating it.
 #
 # THAT REPOINT HAS NOW HAPPENED, and it honoured the instruction above. The function count comes
 # from `lambdas/fleet.py`, which reads the fleet out of the Terraform that DECLARES it — a
@@ -300,7 +299,7 @@ fi
 
 # ── Every handler imports ─────────────────────────────────────────────────────
 # The reason the arc exists.
-check_eq "the image carries one handler module per function the deploy table declares" \
+check_eq "the image carries one handler module per function Terraform declares" \
   "$(jq -r '.handler_count' <<<"$REPORT")" "$EXPECTED_FUNCTIONS"
 
 IMPORTED=$(jq -r '.handler_count' <<<"$REPORT")
@@ -310,6 +309,30 @@ if [ "$IMPORT_FAILURES" = "0" ]; then
 else
   fail "all ${IMPORTED} handler modules import, and each exposes a callable handler" \
        "$(jq -r '.import_failures | to_entries[] | "  \(.key): \(.value)"' <<<"$REPORT")"
+fi
+
+# ── The size ceiling ──────────────────────────────────────────────────────────
+# A CEILING EXISTS AGAIN, and this one is for the packaging that actually ships. The zip pipeline
+# measured every function's package plus its layers against Lambda's 250 MB unzipped limit, and
+# that guard was deleted with the script that owned it — correctly, since nothing builds a zip,
+# but it left the class of check with no successor at all. A container image has its own limit,
+# 10 GB, so the number is different and the question is the same.
+#
+# THE BUDGET IS DELIBERATELY NOT PINNED AT THE MEASUREMENT. The image is ~223 MiB today, about 2%
+# of the ceiling; a cap set just above that would fail on the next legitimate dependency and make
+# the gate cause the damage it exists to prevent. 5 GB is half the hard limit — room for the fleet
+# to grow by an order of magnitude, and still far enough below 10 GB that crossing it is a
+# deliberate conversation rather than a failed deploy.
+SIZE_BYTES=$(docker image inspect "$IMAGE" --format '{{.Size}}' 2>/dev/null || true)
+CEILING=$((5 * 1024 * 1024 * 1024))
+if ! [ "${SIZE_BYTES:-0}" -gt 0 ] 2>/dev/null; then
+  fail "the image is under Lambda's size ceiling" \
+       "could not read its size — an unread size is not a small one, and this check would pass over anything"
+elif [ "$SIZE_BYTES" -le "$CEILING" ]; then
+  pass "the image is under Lambda's size ceiling ($((SIZE_BYTES / 1024 / 1024)) MiB of $((CEILING / 1024 / 1024)) MiB budgeted, 10 GB hard limit)"
+else
+  fail "the image is under Lambda's size ceiling" \
+       "$((SIZE_BYTES / 1024 / 1024)) MiB exceeds the $((CEILING / 1024 / 1024)) MiB budget. Lambda refuses an image over 10 GB; this budget sits at half that so the headroom is deliberate."
 fi
 
 # ── The build stamp ───────────────────────────────────────────────────────────

@@ -31,9 +31,8 @@ dependencies in one directory, so reproducing that exactly would make "the set o
 decay into a hand-maintained dependency list. Both locations are on the search path either way.
 
 Attributes:
-  PRUNE_PREFIXES: Filename prefixes never copied. Matches what ``deploy-lambda.sh`` prunes from a
-    function package, by name at any depth rather than by a top-level glob — the shallow version
-    of this rule once shipped two functions' ``conftest.py``.
+  PRUNE_PREFIXES: Filename prefixes never copied, by name at any depth rather than by a top-level
+    glob — the shallow version of this rule once shipped two functions' ``conftest.py``.
   PRUNE_NAMES: Exact filenames never copied, for the same reason.
 """
 
@@ -59,9 +58,12 @@ class LayoutError(Exception):
 def defines_handler(path: pathlib.Path) -> bool:
     """Reports whether a module defines a top-level ``handler`` function.
 
-    This is the fleet's one definition of "is a Lambda", shared with
-    ``lambdas/test_deploy_matrix.py`` so that harnesses over the fleet cannot drift into covering
-    different sets.
+    This is the fleet's one definition of "is a Lambda", and every harness over the fleet reads
+    it here rather than restating it — two definitions are two fleets that drift.
+
+    It is deliberately NOT how the fleet's expected SIZE is computed: `lambdas/fleet.py` derives
+    that from Terraform, because a count taken from this rule would sit on both sides of its own
+    comparison and a renamed handler would leave the two agreeing.
 
     Args:
       path: The module to read.
@@ -107,9 +109,9 @@ def function_directories(lambdas: pathlib.Path) -> dict[str, str]:
 def packaged_modules(directory: pathlib.Path) -> list[pathlib.PurePath]:
     """Lists the modules a function directory ships, as paths relative to it.
 
-    Deliberately keeps ``fakes.py`` and ``__init__.py``: ``deploy-lambda.sh`` prunes neither from
-    a function directory, an ``__init__.py`` is how a package is a package, and this image
-    reproduces today's packaging rather than improving on it.
+    Deliberately keeps ``fakes.py`` and ``__init__.py``: an ``__init__.py`` is how a package is a
+    package, and a function's ``fakes.py`` ships like any other module. The zip packaging this
+    reproduced pruned neither either, which is why the rule reads the way it does.
 
     Args:
       directory: One function directory.
@@ -167,6 +169,34 @@ def shared_layout(repo: pathlib.Path) -> tuple[dict[str, pathlib.Path], dict[str
                     raise LayoutError(f"{entry['flag']}: {source} is missing")
                 flat[module] = source
     return packages, flat
+
+
+def shared_roots(repo: pathlib.Path) -> list[pathlib.Path]:
+    """The source directories that make up ``/opt/python``, as import roots.
+
+    **One definition, because there were three.** Two suites needed "the shared surface a deployed
+    function can import from" and each computed it as ``lambdas/*-common`` — a naming convention
+    that agrees with this module's answer today by coincidence and nothing else. A shared root
+    named anything else would leave the environment guard under-reporting demand, which is a false
+    pass on exactly the failure it exists to catch, and the import probe granting too little.
+
+    Derived from the same table this module assembles from, so the roots a test puts on
+    ``sys.path`` are the directories the image actually copies.
+
+    Args:
+      repo: The repository root.
+
+    Returns:
+      The import roots, sorted and unique — a package's PARENT (so ``import cpcommon`` resolves)
+      and a flat module's own directory.
+
+    Raises:
+      LayoutError: Propagated from ``shared_layout``.
+    """
+    packages, flat = shared_layout(repo)
+    roots = {source.parent for source in packages.values()}
+    roots |= {source.parent for source in flat.values()}
+    return sorted(roots)
 
 
 def task_root_layout(repo: pathlib.Path) -> dict[pathlib.PurePath, pathlib.Path]:

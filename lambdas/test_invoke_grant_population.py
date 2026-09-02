@@ -27,7 +27,6 @@ is a human judgement, stated where it can be read and argued rather than implied
 
 Attributes:
   POLICY_DIR: Every deploy-role policy template, inline and managed alike.
-  FUNCTION_TABLE: The deploy table, which is the fleet's function list.
   PROJECT: The rendered project name, matching the deployed function names.
   ENVIRONMENT: The rendered environment segment.
   PROBE_TARGETS: The functions CI is allowed to invoke, and why each is safe. SPEC-213 FR-006
@@ -39,11 +38,11 @@ import json
 import pathlib
 import re
 
+import fleet
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 POLICY_DIR = ROOT / "infra" / "modules" / "base" / "policies"
-FUNCTION_TABLE = ROOT / ".github" / "lambda-functions.json"
 BASE_IAM = ROOT / "infra" / "modules" / "base" / "iam.tf"
 LAMBDA_DIRS = ROOT / "lambdas"
 
@@ -247,10 +246,10 @@ def _invoke_statements():
 
 
 def _fleet():
-    """Every deployed function name, built from the deploy table.
+    """Every deployed function name, derived from the Terraform that declares the fleet.
 
-    The table is the fleet's list — ``test_deploy_matrix.py`` holds it equal to the directories on
-    disk — so this needs no second population of its own.
+    ``test_image_layout.py`` holds that derivation equal to the function directories on disk, so
+    this needs no second population of its own.
 
     Args:
       None.
@@ -261,15 +260,15 @@ def _fleet():
     Raises:
       None.
     """
-    table = {row["name"] for row in json.loads(FUNCTION_TABLE.read_text(encoding="utf-8"))}
+    table = set(fleet.function_names(ROOT))
     on_disk = {
         d.name for d in LAMBDA_DIRS.iterdir()
         if d.is_dir() and any(d.glob("*.py")) and not d.name.startswith((".", "docker"))
         and not d.name.endswith("-common") and d.name != "fixtures"
     }
     # The UNION of two independently-derived populations, not one checked against the other. A
-    # subset assertion was tried and is wrong in the direction that matters: dropping a row from
-    # the deploy table keeps `table <= on_disk` true, and the fleet then no longer contains the
+    # subset assertion was tried and is wrong in the direction that matters: losing a name from
+    # the declaration keeps `declared <= on_disk` true, and the fleet then no longer contains the
     # function a widened grant reaches — the sweep passes having stopped looking. A union cannot
     # shrink unless BOTH sources lose the same name.
     return {f"{PROJECT}-{ENVIRONMENT}-{name}" for name in table | on_disk}
@@ -288,10 +287,10 @@ def _reachable():
       None.
     """
     reached = {}
-    fleet = _fleet()
+    deployed = _fleet()
     for name, sid, resources in _invoke_statements():
         matchers = [_iam_pattern(resource) for resource in resources]
-        for function in fleet:
+        for function in deployed:
             arn = f"arn:aws:lambda:us-east-1:123456789012:function:{function}"
             # A version- or alias-qualified resource authorizes invoking the function just as an
             # unqualified one does, so both spellings are tested. Matching only the bare ARN reads
@@ -322,10 +321,12 @@ def test_the_sweep_found_the_fleet_and_the_grants():
     Raises:
       AssertionError: When a collector is empty, or a literal invoke grant escaped the matcher.
     """
-    fleet = _fleet()
+    deployed = _fleet()
     strict = {(name, sid) for name, sid, _ in _invoke_statements()}
 
-    assert len(fleet) >= 80, f"only {len(fleet)} functions read out of {FUNCTION_TABLE}"
+    assert len(deployed) >= 80, (
+        f"only {len(deployed)} functions read out of the Terraform fleet"
+    )
     assert strict, "no invoke statements collected; every assertion below would be vacuous"
 
     literal = set()

@@ -37,8 +37,10 @@ Attributes:
   ROOT: The repository root.
   LAMBDAS: The Lambda source tree, and the import root for the layers.
   MODULES: The Terraform module tree holding one lambda.tf per plane.
-  FUNCTION_MANIFEST: The deploy manifest naming every function and the layers it attaches.
-  LAYER_MANIFEST: The layer manifest, which says where each layer's importable code lives.
+  SHARED_ROOTS: Every directory the image copies onto `/opt/python`, read from the ASSEMBLER
+    rather than guessed from a naming convention — a shared root not called `*-common` would
+    otherwise leave this guard under-reporting demand, which is a false pass on the exact failure
+    it exists to catch.
   FLEET_MODULE: The module source that makes a call one of the fleet's functions.
   NAME_PREFIX: The project/environment prefix every deployed function name carries. Stripping it
     yields the ``lambdas/`` directory, which is the contract the deploy matrix already rests on.
@@ -50,10 +52,13 @@ Attributes:
 
 import ast
 import functools
-import json
 import pathlib
 import re
+import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "docker"))
+import assemble
+import fleet
 import pytest
 from cpcommon import config
 from tf_blocks import (
@@ -68,8 +73,7 @@ from tf_blocks import (
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 LAMBDAS = ROOT / "lambdas"
 MODULES = ROOT / "infra" / "modules"
-FUNCTION_MANIFEST = ROOT / ".github" / "lambda-functions.json"
-LAYER_MANIFEST = ROOT / ".github" / "lambda-layers.json"
+SHARED_ROOTS = tuple(assemble.shared_roots(ROOT))
 
 NAME_PREFIX = "${var.project_name}-${var.environment}-"
 FLEET_MODULE = '"../docker-lambda"'
@@ -303,36 +307,22 @@ def _supply() -> dict[str, tuple[str, frozenset[str]]]:
     return supply
 
 
-@functools.lru_cache(maxsize=1)
-def _manifest() -> tuple[dict[str, list[str]], dict[str, dict]]:
-    """The two deploy manifests: functions with their layers, and the layers themselves.
-
-    Args:
-      None.
-
-    Returns:
-      Function name to layer flags, and layer flag to its manifest entry.
-
-    Raises:
-      None.
-    """
-    functions = json.loads(FUNCTION_MANIFEST.read_text(encoding="utf-8"))
-    layers = json.loads(LAYER_MANIFEST.read_text(encoding="utf-8"))
-    return (
-        {entry["name"]: entry.get("layers", []) for entry in functions},
-        {entry["flag"]: entry for entry in layers},
-    )
-
-
 def _import_roots(function: str) -> list[pathlib.Path]:
     """The directories a function's imports resolve against, as the deployment resolves them.
 
-    Its own directory plus one root per attached layer, and no others. Scoping to the attached
-    layers is what keeps the walk honest: a global search would resolve a name through a layer
-    the function does not carry, and report a demand it cannot actually reach.
+    Its own directory, then every shared source — which is what the image gives it. This used to
+    scope to the layers a function's row ATTACHED, and that scoping was the honest answer while a
+    function carried only the layers it declared. One image now puts every shared package on
+    `/opt/python` for every function, so an attached-layers scope would describe a world that no
+    longer exists.
+
+    Widening it costs nothing measurable, which was checked rather than assumed: the walk follows
+    a function's actual imports, and a cross-plane import is separately forbidden — so the roots a
+    function never reaches contribute no demand. Run both ways, the parametrized guard below
+    reports the same result for every function.
 
     Args:
-      function: The function's manifest name.
+      function: The function's short name.
 
     Returns:
       The existing roots, in resolution order.
@@ -340,14 +330,7 @@ def _import_roots(function: str) -> list[pathlib.Path]:
     Raises:
       None.
     """
-    attached, layers = _manifest()
-    roots = [LAMBDAS / function]
-    for flag in attached.get(function, []):
-        entry = layers[flag]
-        if "package" in entry:
-            roots.append((ROOT / entry["package"]).parent)
-        elif "sourceDir" in entry:
-            roots.append(ROOT / entry["sourceDir"])
+    roots = [LAMBDAS / function, *SHARED_ROOTS]
     return [root for root in roots if root.is_dir()]
 
 
@@ -579,7 +562,7 @@ def demand(function: str) -> frozenset[str]:
     return frozenset(needed) & _required_names()
 
 
-DEPLOYED = sorted(_manifest()[0])
+DEPLOYED = sorted(fleet.function_names(ROOT))
 
 
 @pytest.mark.parametrize("function", DEPLOYED)

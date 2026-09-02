@@ -30,7 +30,7 @@ REPOSITORY = "123456789012.dkr.ecr.us-east-1.amazonaws.com/dat-prod-lambda"
 
 def _harness(tmp_path, package_type, *, landed=None, status="Successful",
              image_present=True, function_present=True):
-    """Builds a bin/ holding a fake `aws` and a fake `deploy-lambda.sh`.
+    """Builds a bin/ holding a fake `aws` and a fake sibling script.
 
     The fake `aws` answers only the queries this script makes and logs every invocation, so a
     test can assert on what was CALLED rather than on the exit code alone — the neighbouring path
@@ -130,10 +130,11 @@ def _run(binary, script_dir, timeout=30, image_tag=None):
 
 @pytest.fixture
 def staged(tmp_path):
-    """A copy of the script beside the stub `deploy-lambda.sh` it execs.
+    """A copy of the script beside the stub sibling it once execed.
 
-    The script resolves its sibling with `dirname $0`, so the stub has to sit next to the copy
-    under test rather than merely on PATH.
+    The script resolves its siblings with `dirname $0`, so a stub has to sit next to the copy
+    under test rather than merely on PATH. The zip-branch script it dispatched to is deleted;
+    the staging is kept because the path resolution it exercises is still the script's own.
 
     Args:
       tmp_path: The pytest temporary directory.
@@ -262,7 +263,7 @@ def test_the_read_back_uses_the_tag_not_the_digest():
 def test_anything_but_Image_is_refused_rather_than_deployed(packaging, tmp_path, staged):
     """`Zip` is no longer special, and that is the point of parametrising rather than adding a test.
 
-    The dispatch that handed a Zip function to `deploy-lambda.sh` is gone, so both values reach one
+    The dispatch that handed a Zip function to a second script is gone, so both values reach one
     predicate — two tests over one branch would be two fixtures where the neighbouring path catches
     either. A zip function reappearing in this fleet is a fact somebody needs told; deploying it
     some other way is not a decision this script may make.

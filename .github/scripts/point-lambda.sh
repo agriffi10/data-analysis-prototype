@@ -16,7 +16,7 @@ FUNCTION="${PROJECT_NAME}-${ENVIRONMENT}-${NAME}"
 
 # ── The function has to exist, and be idle ────────────────────────────────────
 # Deploy Infrastructure and Deploy Lambdas fire on the same push, so this can win the race. Both
-# waits are inherited from deploy-lambda.sh rather than reasoned about again: a just-created
+# waits are inherited from the zip pipeline rather than reasoned about again: a just-created
 # function sits in Pending, and update-function-code against it is a ResourceConflictException
 # (hit on SPEC-088). `PackageType` being Image does NOT imply State Active, and a container
 # function's create is slower than a zip's — the cutover is the run most likely to prove it.

@@ -26,13 +26,12 @@ Attributes:
 """
 
 import ast
-import json
 import pathlib
 
+import fleet
 import pytest
 
 LAMBDAS = pathlib.Path(__file__).resolve().parent
-FUNCTIONS = LAMBDAS.parent / ".github" / "lambda-functions.json"
 
 PARSE_CALL = "events.parse_sqs_request"
 READER_CALL = "trusted_actor"
@@ -55,10 +54,10 @@ EXPECTED_POPULATION = 11
 
 
 def _deployed_names() -> set[str]:
-    """Every function name in the deploy table.
+    """Every function name Terraform declares.
 
-    Read as data from the same table ``test_deploy_matrix`` reads, rather than re-derived: two
-    readers of one table are two chances to disagree about what the fleet is.
+    Read through the shared derivation rather than re-derived here: two readers of one declaration
+    are two chances to disagree about what the fleet is.
 
     Args:
       None.
@@ -69,7 +68,7 @@ def _deployed_names() -> set[str]:
     Raises:
       None.
     """
-    return {entry["name"] for entry in json.loads(FUNCTIONS.read_text())}
+    return set(fleet.function_names(LAMBDAS.parent))
 
 
 def _calls(path: pathlib.Path) -> set[str]:
