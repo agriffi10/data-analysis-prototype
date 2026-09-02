@@ -301,6 +301,7 @@ describe('readSavedQuery (FR-004)', () => {
     // A user looking at twenty-five rows needs to know WHICH one vanished.
     expect(result.error.message).toContain('Q1 revenue');
     expect(result.error.message).not.toContain('NotFound');
+    expect(result.error.code).toBe('SavedQueryNotFound');
   });
 });
 
@@ -389,19 +390,7 @@ describe('savedQueryName is the ONLY place a `.sql` extension is stripped (SPEC-
   });
 });
 
-describe('the refusals a saved-query read or write can return', () => {
-  it('names the query when its file is gone', async () => {
-    mockSend.mockResolvedValueOnce(notFound());
-    const key = 'alice/saved_queries/Monthly revenue.sql';
-
-    const result = await readSavedQuery({bucket: 'user-space', key});
-
-    expect(result).toEqual({
-      success: false,
-      error: {message: `“${savedQueryName(key)}” no longer exists.`, code: 'SavedQueryNotFound'}
-    });
-  });
-
+describe('writeSavedQuery refusals', () => {
   it('refuses an invalid name before any request is made', async () => {
     const result = await writeSavedQuery({space: PERSONAL, name: 'a/b', sql: 'SELECT 1;'});
 

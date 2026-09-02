@@ -13,6 +13,9 @@ vi.mock('../catalog/glue.service', async (importOriginal) => ({
 }));
 
 const personal: Connection = {id: 'personal', label: 'alice', database: 'alice', kind: 'personal'};
+// Present in the rail but not usable: the case the guard exists for, since an absent database
+// would fail the comparison on its own.
+const deleting: Connection = {id: 'bob', label: 'bob', database: 'bob', kind: 'shared', status: 'deleting'};
 const sales = {name: 'sales_2026', location: 's3://b/alice/sales/', columns: [{name: 'region', type: 'string'}]};
 
 function render(route: string, connections: Connection[] = [personal]) {
@@ -37,8 +40,8 @@ describe('useRefreshLink', () => {
     expect(result.current.link.target?.pending?.columns).toEqual(['region']);
   });
 
-  it('resolves to nothing, and reads no schema, for a database the user cannot reach', async () => {
-    const {result} = render('/query?refreshTable=bob.sales_2026&removed=region');
+  it('resolves to nothing, and reads no schema, for a database that is listed but not usable', async () => {
+    const {result} = render('/query?refreshTable=bob.sales_2026&removed=region', [personal, deleting]);
 
     // Settle whatever the hook is going to do; the assertion is that it did nothing.
     await act(async () => {});

@@ -2,7 +2,7 @@ import {afterEach, describe, expect, it, vi} from 'vitest';
 import {act, renderHook} from '@testing-library/react';
 import {useRef} from 'react';
 import {useListPlacement} from './useListPlacement';
-import {MAX_LIST_HEIGHT, MIN_LIST_HEIGHT} from './comboboxPlacement';
+import {MAX_LIST_HEIGHT} from './comboboxPlacement';
 
 /**
  * jsdom lays nothing out, so the geometry is stubbed: a wrapper inside a scrolling panel, each
@@ -59,6 +59,6 @@ describe('useListPlacement', () => {
     });
     // Closed: the last answer stands, because nothing listens any more.
     expect(result.current.dropUp).toBe(true);
-    expect(result.current.maxHeight).toBeGreaterThanOrEqual(MIN_LIST_HEIGHT);
+    expect(result.current.maxHeight).toBe(MAX_LIST_HEIGHT);
   });
 });
