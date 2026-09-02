@@ -1,16 +1,19 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
-import {render, screen} from '@testing-library/react';
+import {screen} from '@testing-library/react';
 import {renderWithProviders} from '../test/renderWithProviders';
 import {authenticated} from '../test/authFixtures';
 import {getNotifications} from '../features/notifications/notifications.service';
+import {readSharedConnectionsCache} from '../features/shared-spaces/sharedSpaces.service';
 import ConnectionsPage from './ConnectionsPage';
 import NotificationsPage from './NotificationsPage';
 import QueryPage from './QueryPage';
 
 // ─── from ConnectionsPage.test.tsx ───
-vi.mock('../features/shared-spaces', () => ({
-  ConnectionsPage: () => <div>connections-view</div>
+vi.mock('../features/shared-spaces/sharedSpaces.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../features/shared-spaces/sharedSpaces.service')>()),
+  readSharedConnectionsCache: vi.fn()
 }));
+vi.mock('../lib/idToken', () => ({getIdToken: vi.fn().mockResolvedValue({success: true, data: {}})}));
 
 vi.mock('../features/notifications/notifications.service', () => ({
   getNotifications: vi.fn(),
@@ -29,14 +32,15 @@ vi.mock('aws-amplify/auth', () => ({
 }));
 
 describe('ConnectionsPage', () => {
-  // The route component is a thin wrapper: it sets the page title and renders the
-  // feature view (covered by features/shared-spaces/ConnectionsPage.test.tsx). Mock
-  // the view so this stays a focused smoke test of the wrapper.
+  // The route component is a thin wrapper: it sets the page title and renders the REAL
+  // feature view over the one service the view reads on mount. Its behaviour is covered in
+  // features/shared-spaces/ConnectionsPage.test.tsx; here only the wiring is asserted.
 
   describe('ConnectionsPage route (SPEC-052)', () => {
-    it('renders the connections view and sets the document title', () => {
-      render(<ConnectionsPage />);
-      expect(screen.getByText('connections-view')).toBeInTheDocument();
+    it('renders the connections view and sets the document title', async () => {
+      vi.mocked(readSharedConnectionsCache).mockResolvedValue({success: true, data: {version: 1, connections: []}});
+      renderWithProviders(<ConnectionsPage />, {auth: authenticated('alice')});
+      expect(await screen.findByRole('heading', {level: 1, name: 'Shared connections'})).toBeInTheDocument();
       expect(document.title).toContain('Connections');
     });
   });

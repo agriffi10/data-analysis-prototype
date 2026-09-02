@@ -1,5 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
-import {fireEvent, render, screen, within} from '@testing-library/react';
+import {render, screen, within} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import {USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
 import {MAX_RESULTS_PAGE_SIZE, MIN_RESULTS_PAGE_SIZE} from './query.constants';
 import {CreateViewDialog} from '../catalog/CreateViewDialog';
 import {axe} from 'vitest-axe';
@@ -41,7 +43,8 @@ describe('CreateViewDialog', () => {
       expect(screen.getByText('alice')).toBeInTheDocument();
     });
 
-    it('disables Create until the name passes the catalog-safe rule', () => {
+    it('disables Create until the name passes the catalog-safe rule', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
       render(
         <CreateViewDialog
           targetDatabase="alice"
@@ -53,20 +56,18 @@ describe('CreateViewDialog', () => {
       expect(create).toBeDisabled();
 
       // Invalid: leading digit.
-      fireEvent.change(screen.getByLabelText('View name'), {
-        target: {value: '9bad'}
-      });
+      await user.type(screen.getByLabelText('View name'), '9bad');
       expect(create).toBeDisabled();
       expect(screen.getByText(/3–63 characters/)).toBeInTheDocument();
 
       // Valid.
-      fireEvent.change(screen.getByLabelText('View name'), {
-        target: {value: 'monthly_revenue'}
-      });
+      await user.clear(screen.getByLabelText('View name'));
+      await user.type(screen.getByLabelText('View name'), 'monthly_revenue');
       expect(create).toBeEnabled();
     });
 
-    it('confirms with the trimmed valid name', () => {
+    it('confirms with the trimmed valid name', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
       const onCreate = vi.fn();
       render(
         <CreateViewDialog
@@ -75,10 +76,8 @@ describe('CreateViewDialog', () => {
           onCancel={vi.fn()}
         />
       );
-      fireEvent.change(screen.getByLabelText('View name'), {
-        target: {value: '  sales_view  '}
-      });
-      fireEvent.click(screen.getByRole('button', {name: 'Create'}));
+      await user.type(screen.getByLabelText('View name'), '  sales_view  ');
+      await user.click(screen.getByRole('button', {name: 'Create'}));
       expect(onCreate).toHaveBeenCalledWith('sales_view');
     });
 
@@ -127,7 +126,8 @@ describe('QueryHistoryRow', () => {
       expect(screen.getByText('2.0 KB scanned · 800 ms')).toBeInTheDocument();
     });
 
-    it('fires onReopen / onRerun from the actions', () => {
+    it('fires onReopen / onRerun from the actions', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
       const onReopen = vi.fn();
       const onRerun = vi.fn();
       render(
@@ -138,8 +138,8 @@ describe('QueryHistoryRow', () => {
           rerunDisabled={false}
         />
       );
-      fireEvent.click(screen.getByRole('button', {name: /open this query/i}));
-      fireEvent.click(screen.getByRole('button', {name: /re-run this query/i}));
+      await user.click(screen.getByRole('button', {name: /open this query/i}));
+      await user.click(screen.getByRole('button', {name: /re-run this query/i}));
       expect(onReopen).toHaveBeenCalledTimes(1);
       expect(onRerun).toHaveBeenCalledTimes(1);
     });
@@ -205,19 +205,26 @@ describe('ResultTabs', () => {
       expect(rendered.map((t) => t.tabIndex)).toEqual([-1, 0, -1]);
     });
 
-    it('supports the WAI-ARIA tabs keyboard model (arrows wrap, Home/End jump)', () => {
+    it('supports the WAI-ARIA tabs keyboard model (arrows wrap, Home/End jump)', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
       const onSelect = renderTabs(1);
       const rendered = screen.getAllByRole('tab');
+      // The strip is controlled and `activeIndex` never moves here, so each key is sent from
+      // the tab it names by focusing it first.
+      const press = async (tab: HTMLElement, key: string) => {
+        tab.focus();
+        await user.keyboard(`{${key}}`);
+      };
 
-      fireEvent.keyDown(rendered[1], {key: 'ArrowRight'});
+      await press(rendered[1], 'ArrowRight');
       expect(onSelect).toHaveBeenLastCalledWith(2);
-      fireEvent.keyDown(rendered[1], {key: 'ArrowLeft'});
+      await press(rendered[1], 'ArrowLeft');
       expect(onSelect).toHaveBeenLastCalledWith(0);
-      fireEvent.keyDown(rendered[2], {key: 'ArrowRight'}); // wraps
+      await press(rendered[2], 'ArrowRight'); // wraps
       expect(onSelect).toHaveBeenLastCalledWith(0);
-      fireEvent.keyDown(rendered[1], {key: 'Home'});
+      await press(rendered[1], 'Home');
       expect(onSelect).toHaveBeenLastCalledWith(0);
-      fireEvent.keyDown(rendered[1], {key: 'End'});
+      await press(rendered[1], 'End');
       expect(onSelect).toHaveBeenLastCalledWith(2);
     });
   });
@@ -243,31 +250,35 @@ describe('ResultsPageSizeControl', () => {
       expect(input).toHaveValue('100');
     });
 
-    it('commits an in-range integer on Enter', () => {
+    it('commits an in-range integer on Enter', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
       const {onCommit, input} = setup();
-      fireEvent.change(input, {target: {value: '250'}});
-      fireEvent.keyDown(input, {key: 'Enter'});
+      await user.clear(input);
+      await user.type(input, '250{Enter}');
       expect(onCommit).toHaveBeenCalledWith(250);
     });
 
-    it('clamps out-of-range values to the bounds (FR-003)', () => {
+    it('clamps out-of-range values to the bounds (FR-003)', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
       const {onCommit, input} = setup();
-      fireEvent.change(input, {target: {value: '0'}});
-      fireEvent.keyDown(input, {key: 'Enter'});
+      await user.clear(input);
+      await user.type(input, '0{Enter}');
       expect(onCommit).toHaveBeenCalledWith(MIN_RESULTS_PAGE_SIZE);
       expect(input).toHaveValue(String(MIN_RESULTS_PAGE_SIZE));
 
-      fireEvent.change(input, {target: {value: '5000'}});
-      fireEvent.keyDown(input, {key: 'Enter'});
+      await user.clear(input);
+      await user.type(input, '5000{Enter}');
       expect(onCommit).toHaveBeenCalledWith(MAX_RESULTS_PAGE_SIZE);
       expect(input).toHaveValue(String(MAX_RESULTS_PAGE_SIZE));
     });
 
-    it('reverts non-numeric, empty, and fractional input to the last valid value (FR-003)', () => {
+    it('reverts non-numeric, empty, and fractional input to the last valid value (FR-003)', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
       for (const bad of ['abc', '', '2.5']) {
         const {onCommit, input, view} = setup();
-        fireEvent.change(input, {target: {value: bad}});
-        fireEvent.blur(input);
+        await user.clear(input);
+        if (bad !== '') await user.type(input, bad);
+        await user.tab();
         expect(onCommit).not.toHaveBeenCalled();
         expect(input).toHaveValue('100');
         view.unmount();
@@ -362,9 +373,10 @@ describe('SavedQueriesPanel', () => {
     expect(screen.queryByText(/SELECT/i)).not.toBeInTheDocument();
   });
 
-  it('Open fires onOpen with the whole record, key included', () => {
+  it('Open fires onOpen with the whole record, key included', async () => {
+    const user = userEvent.setup(USER_EVENT_OPTIONS);
     const {onOpen} = setup();
-    fireEvent.click(screen.getAllByRole('button', {name: /open saved query/i})[0]);
+    await user.click(screen.getAllByRole('button', {name: /open saved query/i})[0]);
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({key: 'alice/saved_queries/Older.sql'}));
   });
 
@@ -400,7 +412,8 @@ describe('SavedQueriesPanel', () => {
     rootLabel: 'teamspace'
   };
 
-  it('renders a labelled space control listing exactly the spaces it was given, personal first', () => {
+  it('renders a labelled space control listing exactly the spaces it was given, personal first', async () => {
+    const user = userEvent.setup(USER_EVENT_OPTIONS);
     const {onSelectSpace} = setup({spaces: [personal, team]});
     const select = screen.getByLabelText('Space');
     expect(
@@ -409,26 +422,29 @@ describe('SavedQueriesPanel', () => {
         .map((o) => o.textContent)
     ).toEqual(['My files', 'teamspace']);
 
-    fireEvent.change(select, {target: {value: 'teamspace'}});
+    await user.selectOptions(select, 'teamspace');
     expect(onSelectSpace).toHaveBeenCalledWith('teamspace');
   });
 
-  it('offers Retry on a failed listing', () => {
+  it('offers Retry on a failed listing', async () => {
+    const user = userEvent.setup(USER_EVENT_OPTIONS);
     const {onRetry} = setup({error: 'boom'});
-    fireEvent.click(screen.getByRole('button', {name: 'Retry'}));
+    await user.click(screen.getByRole('button', {name: 'Retry'}));
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
-  it('pages the filtered rows, not the listing’s keys', () => {
+  it('pages the filtered rows, not the listing’s keys', async () => {
+    const user = userEvent.setup(USER_EVENT_OPTIONS);
     // A folder of 30 files of which 12 are `.sql` reads `1–10 of 12`, never `of 30`.
     const twelve = Array.from({length: 12}, (_, i) => sq(`q${i}`, '2026-06-01T00:00:00.000Z'));
     setup({queries: twelve});
     expect(screen.getByText('1–10 of 12')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', {name: 'Next'}));
+    await user.click(screen.getByRole('button', {name: 'Next'}));
     expect(screen.getByText('11–12 of 12')).toBeInTheDocument();
   });
 
-  it('keeps the loaded rows and the pager when a FURTHER page fails', () => {
+  it('keeps the loaded rows and the pager when a FURTHER page fails', async () => {
+    const user = userEvent.setup(USER_EVENT_OPTIONS);
     // FR-002 AC5. A failed load-more used to replace the whole list with the banner: 20
     // rows and the pager vanished, and Retry was the only way back.
     const twelve = Array.from({length: 12}, (_, i) => sq(`q${i}`, '2026-06-01T00:00:00.000Z'));
@@ -439,12 +455,13 @@ describe('SavedQueriesPanel', () => {
     // Prev/Next over what IS loaded; Next is not offered past it, because the error stops
     // the fill and the control could never advance.
     expect(screen.getByText('1–10 of 12+')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', {name: 'Next'}));
+    await user.click(screen.getByRole('button', {name: 'Next'}));
     expect(screen.getByText('11–12 of 12+')).toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'Next'})).toBeDisabled();
   });
 
-  it('resets to page 1 when the drawer is reopened, and when the space changes', () => {
+  it('resets to page 1 when the drawer is reopened, and when the space changes', async () => {
+    const user = userEvent.setup(USER_EVENT_OPTIONS);
     // Asserted at the CALLER, because the hook's own reset test changes the key itself and
     // cannot fail when the panel stops changing it.
     const twelve = Array.from({length: 12}, (_, i) => sq(`q${i}`, '2026-06-01T00:00:00.000Z'));
@@ -465,7 +482,7 @@ describe('SavedQueriesPanel', () => {
       onDelete: vi.fn()
     };
     const {rerender} = render(<SavedQueriesPanel {...props} />);
-    fireEvent.click(screen.getByRole('button', {name: 'Next'}));
+    await user.click(screen.getByRole('button', {name: 'Next'}));
     expect(screen.getByText('11–12 of 12')).toBeInTheDocument();
 
     rerender(
@@ -477,7 +494,7 @@ describe('SavedQueriesPanel', () => {
     rerender(<SavedQueriesPanel {...props} />);
     expect(screen.getByText('1–10 of 12')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', {name: 'Next'}));
+    await user.click(screen.getByRole('button', {name: 'Next'}));
     expect(screen.getByText('11–12 of 12')).toBeInTheDocument();
     rerender(
       <SavedQueriesPanel
@@ -516,7 +533,8 @@ describe('TableActionsMenu', () => {
   }
 
   describe('TableActionsMenu', () => {
-    it('is closed initially and opens on click', () => {
+    it('is closed initially and opens on click', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
       render(
         <TableActionsMenu
           tableName="sales"
@@ -527,12 +545,13 @@ describe('TableActionsMenu', () => {
       expect(trigger).toHaveAttribute('aria-expanded', 'false');
       expect(screen.queryByRole('menu')).not.toBeInTheDocument();
 
-      fireEvent.click(trigger);
+      await user.click(trigger);
       expect(trigger).toHaveAttribute('aria-expanded', 'true');
       expect(screen.getByRole('menu')).toBeInTheDocument();
     });
 
-    it('fires the item onSelect and closes', () => {
+    it('fires the item onSelect and closes', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
       const onSelect = vi.fn();
       render(
         <TableActionsMenu
@@ -540,9 +559,9 @@ describe('TableActionsMenu', () => {
           items={items({a: onSelect})}
         />
       );
-      fireEvent.click(screen.getByRole('button', {name: 'Options for sales'}));
-      fireEvent.click(screen.getByRole('menuitem', {name: 'View data'}));
-      expect(onSelect).toHaveBeenCalled();
+      await user.click(screen.getByRole('button', {name: 'Options for sales'}));
+      await user.click(screen.getByRole('menuitem', {name: 'View data'}));
+      expect(onSelect).toHaveBeenCalledTimes(1);
       expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     });
   });
@@ -586,21 +605,23 @@ describe('QueryTabStrip', () => {
       expect(screen.getByRole('tab', {name: /Monthly revenue/})).toHaveAttribute('aria-selected', 'false');
     });
 
-    it('selects a tab on click and closes via the × control', () => {
+    it('selects a tab on click and closes via the × control', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
       const {onSelect, onClose} = setup();
-      fireEvent.click(screen.getByRole('tab', {name: /Monthly revenue/}));
+      await user.click(screen.getByRole('tab', {name: /Monthly revenue/}));
       expect(onSelect).toHaveBeenCalledWith('b');
 
-      fireEvent.click(screen.getByTitle('Close Monthly revenue'));
+      await user.click(screen.getByTitle('Close Monthly revenue'));
       expect(onClose).toHaveBeenCalledWith('b');
     });
 
-    it('renders the global Saved queries + History buttons', () => {
+    it('renders the global Saved queries + History buttons', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
       const {onOpenSaved, onOpenHistory} = setup();
-      fireEvent.click(screen.getByRole('button', {name: 'Saved queries'}));
-      expect(onOpenSaved).toHaveBeenCalled();
-      fireEvent.click(screen.getByRole('button', {name: 'History'}));
-      expect(onOpenHistory).toHaveBeenCalled();
+      await user.click(screen.getByRole('button', {name: 'Saved queries'}));
+      expect(onOpenSaved).toHaveBeenCalledTimes(1);
+      await user.click(screen.getByRole('button', {name: 'History'}));
+      expect(onOpenHistory).toHaveBeenCalledTimes(1);
     });
 
     it('shows a dirty marker on a linked tab with unsaved edits', () => {

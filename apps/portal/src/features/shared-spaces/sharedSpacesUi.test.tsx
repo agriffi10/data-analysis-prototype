@@ -1,5 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
-import {fireEvent, render, screen, within} from '@testing-library/react';
+import {render, screen, within} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import {USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
 import {CreateSharedConnectionDialog} from './CreateSharedConnectionDialog';
 import {DeleteSharedSpaceDialog} from './DeleteSharedSpaceDialog';
 import {LeaveSharedSpaceDialog} from './LeaveSharedSpaceDialog';
@@ -16,7 +18,8 @@ describe('CreateSharedConnectionDialog', () => {
   });
 
   describe('CreateSharedConnectionDialog (SPEC-051 FR-001)', () => {
-    it('disables Create until the name passes the catalog-safe rule', () => {
+    it('disables Create until the name passes the catalog-safe rule', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
       render(
         <CreateSharedConnectionDialog
           onCreate={vi.fn()}
@@ -26,19 +29,17 @@ describe('CreateSharedConnectionDialog', () => {
       const create = screen.getByRole('button', {name: 'Create'});
       expect(create).toBeDisabled();
 
-      fireEvent.change(screen.getByLabelText('Connection name'), {
-        target: {value: '9bad'} // leading digit
-      });
+      await user.type(screen.getByLabelText('Connection name'), '9bad'); // leading digit
       expect(create).toBeDisabled();
       expect(screen.getByText(/3–63 characters/)).toBeInTheDocument();
 
-      fireEvent.change(screen.getByLabelText('Connection name'), {
-        target: {value: 'sales_data'}
-      });
+      await user.clear(screen.getByLabelText('Connection name'));
+      await user.type(screen.getByLabelText('Connection name'), 'sales_data');
       expect(create).toBeEnabled();
     });
 
-    it('confirms with the trimmed valid name', () => {
+    it('confirms with the trimmed valid name', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
       const onCreate = vi.fn();
       render(
         <CreateSharedConnectionDialog
@@ -46,14 +47,13 @@ describe('CreateSharedConnectionDialog', () => {
           onCancel={vi.fn()}
         />
       );
-      fireEvent.change(screen.getByLabelText('Connection name'), {
-        target: {value: '  marketing_q2  '}
-      });
-      fireEvent.click(screen.getByRole('button', {name: 'Create'}));
+      await user.type(screen.getByLabelText('Connection name'), '  marketing_q2  ');
+      await user.click(screen.getByRole('button', {name: 'Create'}));
       expect(onCreate).toHaveBeenCalledWith('marketing_q2');
     });
 
-    it('cancels with no create', () => {
+    it('cancels with no create', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
       const onCancel = vi.fn();
       const onCreate = vi.fn();
       render(
@@ -62,8 +62,8 @@ describe('CreateSharedConnectionDialog', () => {
           onCancel={onCancel}
         />
       );
-      fireEvent.click(screen.getByRole('button', {name: 'Cancel'}));
-      expect(onCancel).toHaveBeenCalled();
+      await user.click(screen.getByRole('button', {name: 'Cancel'}));
+      expect(onCancel).toHaveBeenCalledTimes(1);
       expect(onCreate).not.toHaveBeenCalled();
     });
   });
@@ -72,7 +72,8 @@ describe('CreateSharedConnectionDialog', () => {
 // ─── from DeleteSharedSpaceDialog.test.tsx ───
 describe('DeleteSharedSpaceDialog', () => {
   describe('DeleteSharedSpaceDialog (SPEC-054)', () => {
-    it('keeps Delete disabled until the exact name is typed', () => {
+    it('keeps Delete disabled until the exact name is typed', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
       const onConfirm = vi.fn();
       render(
         <DeleteSharedSpaceDialog
@@ -84,16 +85,17 @@ describe('DeleteSharedSpaceDialog', () => {
       const confirm = screen.getByRole('button', {name: 'Delete'});
       expect(confirm).toBeDisabled();
 
-      fireEvent.change(screen.getByLabelText(/to confirm/), {target: {value: 'sale'}});
+      await user.type(screen.getByLabelText(/to confirm/), 'sale');
       expect(confirm).toBeDisabled();
 
-      fireEvent.change(screen.getByLabelText(/to confirm/), {target: {value: 'sales'}});
+      await user.type(screen.getByLabelText(/to confirm/), 's');
       expect(confirm).toBeEnabled();
-      fireEvent.click(confirm);
+      await user.click(confirm);
       expect(onConfirm).toHaveBeenCalledTimes(1);
     });
 
-    it('Enter confirms only once the name matches', () => {
+    it('Enter confirms only once the name matches', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
       const onConfirm = vi.fn();
       render(
         <DeleteSharedSpaceDialog
@@ -104,11 +106,10 @@ describe('DeleteSharedSpaceDialog', () => {
       );
       const field = screen.getByLabelText(/to confirm/);
 
-      fireEvent.keyDown(field, {key: 'Enter'});
+      await user.type(field, '{Enter}');
       expect(onConfirm).not.toHaveBeenCalled();
 
-      fireEvent.change(field, {target: {value: 'sales'}});
-      fireEvent.keyDown(field, {key: 'Enter'});
+      await user.type(field, 'sales{Enter}');
       expect(onConfirm).toHaveBeenCalledTimes(1);
     });
   });
@@ -117,7 +118,8 @@ describe('DeleteSharedSpaceDialog', () => {
 // ─── from LeaveSharedSpaceDialog.test.tsx ───
 describe('LeaveSharedSpaceDialog', () => {
   describe('LeaveSharedSpaceDialog (SPEC-054)', () => {
-    it('confirms and cancels via the shared danger dialog', () => {
+    it('confirms and cancels via the shared danger dialog', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
       const onConfirm = vi.fn();
       const onCancel = vi.fn();
       render(
@@ -129,9 +131,9 @@ describe('LeaveSharedSpaceDialog', () => {
       );
       expect(screen.getByRole('alertdialog', {name: 'Leave sales'})).toBeInTheDocument();
 
-      fireEvent.click(screen.getByRole('button', {name: 'Leave'}));
+      await user.click(screen.getByRole('button', {name: 'Leave'}));
       expect(onConfirm).toHaveBeenCalledTimes(1);
-      fireEvent.click(screen.getByRole('button', {name: 'Cancel'}));
+      await user.click(screen.getByRole('button', {name: 'Cancel'}));
       expect(onCancel).toHaveBeenCalledTimes(1);
     });
   });
@@ -177,9 +179,10 @@ describe('MemberRosterDrawer', () => {
       expect(screen.queryByRole('button', {name: /Make owner/})).not.toBeInTheDocument();
     });
 
-    it('offers a Refresh control that re-reads connection state', () => {
+    it('offers a Refresh control that re-reads connection state', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
       const {onRefresh} = setup();
-      fireEvent.click(screen.getByRole('button', {name: 'Refresh connections'}));
+      await user.click(screen.getByRole('button', {name: 'Refresh connections'}));
       expect(onRefresh).toHaveBeenCalledTimes(1);
     });
 
@@ -263,7 +266,7 @@ describe('MembersList', () => {
       expect(screen.queryByRole('button', {name: /Remove/})).not.toBeInTheDocument();
     });
 
-    it('renders Remove per non-owner member when onRemove is given, and calls it', () => {
+    it('renders Remove per non-owner member when onRemove is given, and calls it', async () => {
       const onRemove = vi.fn();
       render(
         <MembersList
@@ -275,7 +278,7 @@ describe('MembersList', () => {
       // Owner has no Remove. Queried by the member-naming label since SPEC-154 FR-006, which
       // also retires the `.closest('li')` reach this needed to disambiguate identical buttons.
       expect(screen.queryByRole('button', {name: 'Remove alice'})).toBeNull();
-      fireEvent.click(screen.getByRole('button', {name: 'Remove bob'}));
+      await userEvent.setup(USER_EVENT_OPTIONS).click(screen.getByRole('button', {name: 'Remove bob'}));
       expect(onRemove).toHaveBeenCalledWith('bob');
     });
   });

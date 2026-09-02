@@ -725,6 +725,48 @@ describe('FileBrowser — an upload watched to completion (SPEC-154 FR-004)', ()
     // held rather than the whole batch having stalled.
     expect(screen.getAllByRole('progressbar')).toHaveLength(UPLOAD_CONCURRENCY);
   });
+
+  // The list's own behaviours, driven through the parent that wires the dropzone to the queue
+  // rather than through a mocked `useUploadQueue`: what it shows per row is only meaningful
+  // against items the real provider produced.
+  it('lists uploads newest first, labelled with their destination space, and dismisses a finished one', async () => {
+    const {user} = renderBrowser();
+    await chooseFile(user, 'first.txt');
+    await screen.findByText('Uploaded');
+    await user.upload(screen.getByLabelText('Choose files'), new File(['b'], 'second.txt', {type: 'text/plain'}));
+    await waitFor(() => expect(screen.getAllByText('Uploaded')).toHaveLength(2));
+
+    const list = screen.getByRole('region', {name: 'Uploads'});
+    expect(
+      within(list)
+        .getAllByText(/\.txt$/)
+        .map((el) => el.textContent)
+    ).toEqual(['second.txt', 'first.txt']);
+    expect(within(list).getAllByText('alice')).toHaveLength(2);
+    // A finished row offers Dismiss and never Cancel.
+    expect(within(list).queryByRole('button', {name: /cancel upload/i})).not.toBeInTheDocument();
+    await user.click(within(list).getByRole('button', {name: 'Dismiss first.txt'}));
+    expect(within(list).queryByText('first.txt')).not.toBeInTheDocument();
+  });
+
+  it('offers Clear finished only once a row is terminal, and the list leaves with its last row', async () => {
+    let finish!: (value: unknown) => void;
+    mock.uploadFile.mockImplementation(
+      (async () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        })) as never
+    );
+
+    const {user} = renderBrowser();
+    await chooseFile(user);
+    await screen.findByRole('progressbar', {name: 'Uploading up.txt'});
+    expect(screen.queryByRole('button', {name: 'Clear finished uploads from the list'})).not.toBeInTheDocument();
+
+    finish(ok({key: 'alice/up.txt'}));
+    await user.click(await screen.findByRole('button', {name: 'Clear finished uploads from the list'}));
+    expect(screen.queryByRole('region', {name: 'Uploads'})).not.toBeInTheDocument();
+  });
 });
 
 describe('FileBrowser — send to… (SPEC-167)', () => {
