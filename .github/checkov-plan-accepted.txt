@@ -1,33 +1,40 @@
 # IAM findings accepted on the RENDERED PLAN scan (deploy-infra.yml), by check ID AND
 # resource. Anything not listed here fails the job when GATE_CHECKOV_PLAN=block.
 #
-# Both entries are the same cause and are permanent: the deploy role must create resources
-# that do not exist yet. `cloudfront:CreateDistribution`, `cognito-idp:CreateUserPool`,
-# `cognito-identity:CreateIdentityPool`, `logs:DescribeLogGroups` and the Lake Formation
-# account-level actions have no resource ARN to name before the resource exists, and no
-# applicable condition key. SPEC-139 took the IAM findings from 6 to 2; these are the 2.
+# THE LIST IS EMPTY, and that is the current state rather than a placeholder. It held two
+# findings on `module.base.aws_iam_role_policy.github_actions_deploy` — CKV_AWS_290 and
+# CKV_AWS_355 — until SPEC-202 retired CloudFront and the deploy role's `cloudfront:*`
+# statement came off with it. Both were that statement alone, measured against the pinned
+# checkov's own scanner rather than argued: with it gone the policy reports zero of either.
 #
-# They are accepted by check ID AND RESOURCE, never by check ID alone — the same rules
-# firing on any other policy still fail. The USER-FACING ISOLATION policies
-# (`portal-role-permissions` and the per-plane control-plane execution roles) have zero
-# `Resource: "*"` and must stay that way — that is what this claim means, and it is narrowed
-# here because it once read as covering every role in the account. It does not: the SPA's ECS
-# task-execution role holds `ecr:GetAuthorizationToken` on `"*"`, which is unscopable (the
+# The header this replaces named `cognito-idp:CreateUserPool`, `logs:DescribeLogGroups` and
+# the Lake Formation account-level actions as co-causes. They are not, and the distinction
+# matters for the next grant: those actions ARE unscopable, but cloudsplaining — which both
+# checks wrap — does not count an action it already classifies as taking no resource type,
+# so an unscopable action alone raises nothing. What raises these two is a WRITE action that
+# COULD have been scoped and was not. `cognito-identity:CreateIdentityPool` went with the
+# Identity Pool in the same spec.
+#
+# So an empty list means every IAM finding on the plan now fails the job, and the mechanism
+# stays because the next grant that needs it will need it in the same shape: accepted by
+# check ID AND RESOURCE, never by check ID alone, so the same rule firing on any other policy
+# still fails. The USER-FACING ISOLATION policies (`portal-role-permissions` and the
+# per-plane control-plane execution roles) have zero `Resource: "*"` and must stay that way.
+# That claim is narrowed deliberately: it does not cover every role in the account. The SPA's
+# ECS task-execution role holds `ecr:GetAuthorizationToken` on `"*"`, which is unscopable (the
 # action takes no resource type at all) and reaches no user data. Its scoped siblings — the
 # three pull actions and the two log actions — name the repository and the log group.
 #
 # A line here that no longer matches a finding is a HARD ERROR — it either describes something
 # already fixed, or points at a resource that has been renamed, in which case it is accepting
-# nothing while reading as an acceptance. Delete or correct the line.
+# nothing while reading as an acceptance. Delete or correct the line. That is what emptied
+# this file: the grant went, the acceptances stopped matching, and the gate said so.
 #
 # This blocks PRs only. The `plan` job runs on pull_request; `apply` runs on push/dispatch and
 # does not depend on it, so nothing here can redden a production deploy.
 #
-# ONE PIECE OF FRICTION WORTH EXPECTING. This list covers only the two rules firing today.
-# Adding a new non-scopable wildcard action to `github_actions_deploy` — the recurring case
-# CLAUDE.md's "Infra rule" mandates for any spec provisioning new infra — can fire
-# CKV_AWS_356 / CKV_AWS_111 / CKV_AWS_49 on that same resource, none of them accepted here.
-# That makes such a change a two-step edit: the grant, and the acceptance for it. Deliberate.
-
-CKV_AWS_290  module.base.aws_iam_role_policy.github_actions_deploy
-CKV_AWS_355  module.base.aws_iam_role_policy.github_actions_deploy
+# ONE PIECE OF FRICTION WORTH EXPECTING. Adding a new unscopable wildcard action to
+# `github_actions_deploy` — the recurring case CLAUDE.md's "Infra rule" mandates for any spec
+# provisioning new infra — can fire CKV_AWS_356 / CKV_AWS_111 / CKV_AWS_49 on that resource,
+# and a write action left unscoped fires the two this file used to carry. That makes such a
+# change a two-step edit: the grant, and the acceptance for it. Deliberate.

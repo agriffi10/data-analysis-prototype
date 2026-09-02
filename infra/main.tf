@@ -411,8 +411,8 @@ locals {
 
   # ── The runtime configuration document, as the container receives it ────────
   # Every key the portal's runtime-configuration classification declares, with its value. The
-  # container renders /config.json from these; the CloudFront build renders the same document
-  # from repository variables, and both paths exist until the cutover retires the second.
+  # container renders /config.json from these, and it is the only renderer — the second path
+  # rendered the same document from repository variables and went with the distribution.
   #
   # THE KEYS ARE NAMED HERE AND NOWHERE ELSE IN THE INFRASTRUCTURE. modules/spa renders one
   # CONFIG_<key> environment entry per map entry, so a key added to the classification is
@@ -1423,8 +1423,8 @@ module "network" {
 
 # ── The container platform ────────────────────────────────────────────────────
 # The registry, the cluster, the task definition and the load balancer that serve the SPA.
-# It runs the real image, which CI builds and pushes on every commit to main. Production is
-# still CloudFront, which stays the working portal and the rollback until the cutover.
+# It runs the real image, which CI builds and pushes on every commit to main. It is production,
+# and there is no second path: the distribution that used to serve the portal is destroyed.
 #
 # It takes the network's ids rather than building any of its own — the two modules are split
 # because the network outlives the front door, not because the front door is optional to it.
