@@ -1,5 +1,4 @@
-import {Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
-import {useLocation, useSearchParams} from 'react-router';
+import {Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {useAuth} from '../auth';
 import {useQueryResults} from '../catalog/useQueryResults';
 import {useResultsPageSize} from './useResultsPageSize';
@@ -16,30 +15,20 @@ import {useSaveResults} from '../catalog/useSaveResults';
 import {useTableActions} from './useTableActions';
 import {useEditorSplit} from './useEditorSplit';
 import {EditorSplitDivider} from './EditorSplitDivider';
-import {useSavedQueries} from '../saved-queries/useSavedQueries';
-import {useSavedQuerySpace} from '../saved-queries/useSavedQuerySpace';
-import {useQuerySpaces} from '../catalog/useQuerySpaces';
-import {ensureSavedQueriesFolder, readSavedQuery} from '../saved-queries/savedQueries.service';
-import {useSaveQuery} from '../saved-queries/useSaveQuery';
+import {useSavedQueryFlow} from './useSavedQueryFlow';
+import {useRefreshLink} from './useRefreshLink';
 import {useConnections} from '../connections/useConnections';
 import {useFeature} from '../feature-flags';
-import {useAllSchemas, useSchema} from '../catalog/useSchema';
-import {
-  deriveViewTargetDatabase,
-  resolveRunStatements,
-  sameSql,
-  splitSqlStatements,
-  stripTrailingSemicolons
-} from './query.sql';
-import {QUERY_TABS_MAX} from './query.constants';
+import {useAllSchemas} from '../catalog/useSchema';
+import {deriveViewTargetDatabase, resolveRunStatements, splitSqlStatements, stripTrailingSemicolons} from './query.sql';
 import {SchemaBrowser} from './SchemaBrowser';
 import {QueryMobileView} from './QueryMobileView';
 import {QueryResultsMobile} from './QueryResultsMobile';
 import {useIsMobile} from '../../lib/useBreakpoint';
 import {useTableShare} from '../table-share';
-import {parseRefreshLink, useTableRefresh} from '../table-builder';
+import {useTableRefresh} from '../table-builder';
 import {useToast} from '../../components/toastContext';
-import {logBackgroundFailure, toUserText} from '../../lib/errorMessages';
+import {toUserText} from '../../lib/errorMessages';
 import {QueryHistoryPanel} from './QueryHistoryPanel';
 import {SavedQueriesPanel} from './SavedQueriesPanel';
 import {QueryTabStrip} from './QueryTabStrip';
@@ -49,8 +38,7 @@ import {QueryDialogs} from './QueryDialogs';
 import type {SqlEditorHandle} from './SqlEditor';
 import {isConnectionUsable} from '../connections/connection.types';
 import type {QueryHistoryEntry, QueryTab} from './query.types';
-import type {SavedQuery} from '../saved-queries/savedQueries.types';
-import type {QuerySpace, GlueTableSummary} from '../catalog/catalog.types';
+import type {GlueTableSummary} from '../catalog/catalog.types';
 
 // Monaco is heavy — lazy-load it so it lands in its own async chunk and the Files
 // route / landing page never pay for it.
@@ -144,57 +132,11 @@ export function QueryWorkspace() {
   const toast = useToast();
   // "Share table" dialog + enqueue state (toasts route through the host).
   const share = useTableShare(toast.push);
-  // "Refresh table" dialog + enqueue state, wired the same way. The hook
-  // also owns the rail invalidation, since the enqueue is the only signal there is.
-  // `/query?refreshTable={db}.{table}&removed={names}` — the link
-  // `columns_removed` notification carries. Read from the RAW query string
-  // (`location.search`), never through `useSearchParams`: that decodes, and the names
-  // are individually percent-encoded around a comma separator, so a column named
-  // `a,b` would arrive already split.
-  //
-  // The dialog is DERIVED from the URL rather than opened from an effect (react.md
-  // §3, and React Compiler forbids the setState-in-effect that opening would need):
-  // acting on it retires the parameters, which is what closes it.
-  const location = useLocation();
-  const [, setSearchParams] = useSearchParams();
-  const link = useMemo(() => parseRefreshLink(location.search), [location.search]);
-  // A database the user can't reach resolves to null and is never fetched — no
-  // existence oracle, and the rail is the authority on what exists.
-  const linkDatabase =
-    link && !connectionsLoading && connections.some((c) => c.database === link.database && isConnectionUsable(c))
-      ? link.database
-      : null;
-  const {data: linkSchema} = useSchema(linkDatabase);
-  const linkTarget = useMemo(() => {
-    if (!link || !linkSchema) return null;
-    // A view has no folder to re-read and a table with no location can't be turned
-    // into a request (the menu item is disabled for the same reason), so a link
-    // naming either opens nothing.
-    const table = linkSchema.tables.find(
-      (t) => t.name === link.tableName && t.tableType !== 'VIRTUAL_VIEW' && !!t.location
-    );
-    if (!table) return null;
-    // A link carrying no names is NOT the link-borne state. That state gates confirm
-    // behind the removals opt-in, which is only an informed choice when the columns
-    // are named — with an empty list it would coerce a blind `allowRemovals: true`.
-    // `tbcommon.notify` mints no link without names; a URL that has one was edited.
-    return {database: link.database, table, pending: link.columns.length > 0 ? link : null};
-  }, [link, linkSchema]);
-  const clearRefreshLink = useCallback(
-    () =>
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          next.delete('refreshTable');
-          next.delete('removed');
-          return next;
-        },
-        {replace: true}
-      ),
-    [setSearchParams]
-  );
-
-  const refresh = useTableRefresh(toast.push, {target: linkTarget, onConsumed: clearRefreshLink});
+  // "Refresh table" dialog + enqueue state, wired the same way. The hook also owns the
+  // rail invalidation, since the enqueue is the only signal there is; the link a
+  // `columns_removed` notification carries is resolved by `useRefreshLink`.
+  const refreshLink = useRefreshLink(connections, connectionsLoading);
+  const refresh = useTableRefresh(toast.push, {target: refreshLink.target, onConsumed: refreshLink.clear});
   // Create view. The target database is derived from the body.
   const [createViewOpen, setCreateViewOpen] = useState(false);
   const [createViewDb, setCreateViewDb] = useState('');
@@ -213,65 +155,18 @@ export function QueryWorkspace() {
     appendEntry,
     updateEntry
   } = useQueryHistory(username || null);
-  // Saved queries are `.sql` files in a SPACE's `saved_queries/`
-  // folder. WHICH space is one piece of state, shared by loading and
-  // saving — the personal space plus every active shared space, and the memory a
-  // successful save updates.
-  const allSpaces = useQuerySpaces();
-  const personalSpace: QuerySpace | null = allSpaces[0] ?? null;
-  // Gated at the VIEW, exactly as the connections list above is: with shared
-  // workspaces hidden, offering a colleague's space in the selector would name spaces the
-  // rest of the app has just stopped showing. `useQuerySpaces` still resolves them —
-  // a flag may not touch a service — and a remembered shared space
-  // falls through `useSavedQuerySpace`'s existing "not in the list" path to personal.
-  const savedSpaces = useMemo(
-    () => (sharedSpacesEnabled ? allSpaces : allSpaces.slice(0, 1)),
-    [sharedSpacesEnabled, allSpaces]
-  );
-  const savedSpace = useSavedQuerySpace(username || null, savedSpaces);
-  const saved = useSavedQueries(savedSpace.space);
-
-  // Hold the folder open, once per space per session. Best effort — a failure is
-  // logged and the workspace renders regardless, because saving a query creates the
-  // prefix on its own.
-  //
-  // The `.catch` is what makes "best effort" true of a REJECTION and not just of a failed
-  // `ServiceResult`. The service does not throw by contract, but a `.then`-only chain
-  // turns any breach of that contract into an unhandled rejection, which fails the whole
-  // test run rather than this one non-blocking call.
-  useEffect(() => {
-    if (!personalSpace) return;
-    void ensureSavedQueriesFolder(personalSpace)
-      .then((result) => {
-        if (!result.success) logBackgroundFailure('saved-queries-folder', result.error);
-      })
-      .catch((error: unknown) => logBackgroundFailure('saved-queries-folder', error));
-  }, [personalSpace]);
-
-  // a linked tab is "dirty" when its editor SQL differs from the file
-  // it was opened from. A `.sql` object carries no body until it is READ, so the
-  // comparison is against what this session last saw — the body fetched on open, or the
-  // buffer written on save — rather than a `sql` field on a list row that no longer
-  // exists. A tab restored from `sessionStorage` after a reload has no snapshot and
-  // shows no marker until it is opened or saved again; the alternative was a GetObject
-  // per linked tab on every mount.
-  const [savedSnapshots, setSavedSnapshots] = useState<ReadonlyMap<string, string>>(() => new Map());
-  const rememberSavedSql = useCallback(
-    (key: string, sql: string) => setSavedSnapshots((prev) => new Map(prev).set(key, sql)),
-    []
-  );
-  const dirtyTabIds = useMemo(
-    () =>
-      new Set(
-        tabs.tabs
-          .filter((tab) => {
-            const snapshot = tab.savedQuery ? savedSnapshots.get(tab.savedQuery.key) : undefined;
-            return snapshot !== undefined && !sameSql(snapshot, tab.sql);
-          })
-          .map((tab) => tab.id)
-      ),
-    [tabs.tabs, savedSnapshots]
-  );
+  // Everything the workspace does with saved `.sql` files — the current space, the
+  // listing, the folder marker, the dirty markers, the save dialog, open and delete.
+  const savedFlow = useSavedQueryFlow({
+    username,
+    sharedSpacesEnabled,
+    tabs,
+    toast,
+    focusEditor: () => editorRef.current?.focus(),
+    onTabLimit: () => setLimitOpen(true),
+    onOpened: () => setSavedOpen(false)
+  });
+  const {savedSpaces, savedSpace, saved, dirtyTabIds, saveQuery} = savedFlow;
   const activeLinkedSaved = activeTab.savedQuery;
 
   // The whole batch state machine — per-tab runs,
@@ -451,92 +346,6 @@ export function QueryWorkspace() {
     editorRef.current?.focus();
   };
 
-  // Every save asks — for a name AND a destination, a linked
-  // tab's included, pre-filled and selected — because a user about to overwrite a file
-  // should be told which file, in which space, before it happens. The whole path (the
-  // validation, the folder marker, the write, the `Collision` round-trip and the toast)
-  // lives in the hook; the workspace supplies the destinations and takes the result.
-  const saveQuery = useSaveQuery({
-    spaces: savedSpaces,
-    defaultSpace: savedSpace.space,
-    // The hook takes the two fields it reads, not the tab that happens to
-    // carry them — the Data Explorer has no `QueryTab` to hand it.
-    payload: {sql: activeTab.sql, link: activeTab.savedQuery},
-    toast,
-    onSaved: (query, sql) => {
-      // The buffer just written IS the file's content, so the dirty marker clears
-      // without a read-back.
-      rememberSavedSql(query.key, sql);
-      tabs.setActiveTabMeta({
-        label: query.name,
-        savedQuery: {spaceId: query.spaceId, bucket: query.bucket, key: query.key, name: query.name}
-      });
-      // ONE memory of "the space I am working in" — the next save and the next
-      // load both open where the user last was, rather than two memories that disagree.
-      savedSpace.selectSpace(query.spaceId);
-      saved.refresh();
-      editorRef.current?.focus();
-    }
-  });
-
-  // Open a saved query into a new linked tab (cap dialog honored). Exactly one
-  // GetObject, and only here — a list row never fetches a body.
-  const handleOpenSaved = (query: SavedQuery) => {
-    // The cap is checked BEFORE the fetch. Reading a body only to
-    // discard it and raise the limit dialog spends a GetObject on a tab that was never
-    // going to open.
-    if (tabs.tabs.length >= QUERY_TABS_MAX) {
-      setLimitOpen(true);
-      return;
-    }
-    void (async () => {
-      const body = await readSavedQuery({bucket: query.bucket, key: query.key});
-      if (!body.success) {
-        // The drawer stays open and no tab is opened: the user asked for this file, and
-        // an empty tab labelled with its name would be a worse answer than the message.
-        toast.push({variant: 'danger', message: toUserText(body.error)});
-        return;
-      }
-      const id = tabs.openTab({
-        // The label is the FILE's name from the store's own function, so a tab and a
-        // list row can never disagree about what a file is called.
-        label: query.name,
-        sql: body.data,
-        savedQuery: {spaceId: query.spaceId, bucket: query.bucket, key: query.key, name: query.name}
-      });
-      if (id === null) {
-        setLimitOpen(true);
-        return;
-      }
-      rememberSavedSql(query.key, body.data);
-      setSavedOpen(false);
-      editorRef.current?.focus();
-    })();
-  };
-
-  // The mobile Saved list has no SQL to hand its Run/View
-  // until the file is read, so the fetch happens here — one GetObject, on the card the
-  // user actually chose, and never merely because the list is on screen.
-  const withSavedSql = (query: SavedQuery, use: (sql: string, title: string) => void) => {
-    void (async () => {
-      const body = await readSavedQuery({bucket: query.bucket, key: query.key});
-      if (!body.success) {
-        toast.push({variant: 'danger', message: toUserText(body.error)});
-        return;
-      }
-      use(body.data, query.name);
-    })();
-  };
-
-  // Delete the file and unlink any open tab pointing at it (the tab keeps its
-  // SQL; a later Save creates a new file).
-  const handleDeleteSaved = (query: SavedQuery) => {
-    saved.remove(query).catch((e) => {
-      toast.push({variant: 'danger', message: `Couldn’t delete the query. ${toUserText(e)}`});
-    });
-    tabs.unlinkSavedQuery(query.key);
-  };
-
   // The per-table rail actions, and the mobile nav-rail copy
   // that has to be fed the same handlers.
   const tableActions = useTableActions({
@@ -655,14 +464,14 @@ export function QueryWorkspace() {
               savedHasMore={saved.hasMore}
               onLoadMoreSaved={saved.loadMore}
               savedLoadingMore={saved.isLoadingMore}
-              onDeleteSaved={handleDeleteSaved}
+              onDeleteSaved={savedFlow.deleteSaved}
               history={history}
               historyLoading={historyLoading}
               historyError={historyError}
               onRun={mobile.runSql}
               onView={mobile.viewSql}
-              onRunSaved={(q) => withSavedSql(q, mobile.runSql)}
-              onViewSaved={(q) => withSavedSql(q, mobile.viewSql)}
+              onRunSaved={(q) => savedFlow.withSavedSql(q, mobile.runSql)}
+              onViewSaved={(q) => savedFlow.withSavedSql(q, mobile.viewSql)}
               runDisabled={activeIsInFlight || mobile.pending}
             />
           ) : (
@@ -816,8 +625,8 @@ export function QueryWorkspace() {
             onLoadMore={saved.loadMore}
             isLoadingMore={saved.isLoadingMore}
             onRetry={saved.refresh}
-            onOpen={handleOpenSaved}
-            onDelete={handleDeleteSaved}
+            onOpen={savedFlow.openSaved}
+            onDelete={savedFlow.deleteSaved}
           />
         </>
       )}

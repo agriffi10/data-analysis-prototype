@@ -77,6 +77,37 @@ describe('the catalog services over the API', () => {
     });
   });
 
+  describe('runStatementToCompletion', () => {
+    it('gives up with `Timeout` at the poll ceiling, and stops polling', async () => {
+      // The ceiling is a constant the service keeps to itself (90 polls, 400 ms apart);
+      // the number here is that constant, and a change to it is a change to this test.
+      vi.useFakeTimers();
+      try {
+        api.on('athena.start', {success: true, data: {queryExecutionId: 'q-1'}});
+        api.on('athena.status', {
+          success: true,
+          data: {
+            queryExecutionId: 'q-1',
+            state: 'RUNNING',
+            stateChangeReason: null,
+            dataScannedBytes: null,
+            engineExecutionTimeMillis: null,
+            outputLocation: null
+          }
+        });
+
+        const pending = runStatementToCompletion({sql: 'SELECT 1', database: 'alice', username: 'alice'});
+        await vi.advanceTimersByTimeAsync(400 * 90);
+        const result = await pending;
+
+        expect(result).toEqual({success: false, error: expect.objectContaining({code: 'Timeout'})});
+        expect(api.routes().filter((route) => route === 'athena.status')).toHaveLength(90);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   describe('getQueryStatus', () => {
     it('maps the wire onto QueryStatus, turning null into absent', async () => {
       // BOTH sides: Python maps the botocore shape, this maps the wire shape. The domain type
