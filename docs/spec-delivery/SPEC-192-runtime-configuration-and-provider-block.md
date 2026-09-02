@@ -109,3 +109,6 @@ Owed, and not dischargeable from a signed-in session: the staged boot-failure an
 the promotion check, and a fresh sign-in from a private window. Recorded in
 `docs/testing/arc-b-api-container-e2e.md` §A. Everything the container owns — the entrypoint's
 rendering of the document, nginx's header, image promotion itself — belongs to SPEC-194's checks.
+
+> **Read this beside the ledger, not on its own (2026-09-02).** The arc script was deleted when Arc B closed; its durable checks are `docs/testing/e2e.md` §4.18 and its results are in `docs/testing/sessions.md`. **[`owed.md`](../testing/owed.md) is authoritative for what has since been run** — several of the items below have been discharged, and this doc is a record of the day it shipped rather than a live status.
+

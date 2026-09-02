@@ -207,7 +207,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 199 — The Catalog Surface: Athena & Glue | Completed |
 | 200 — The Enqueue Paths & the Delegated Actor Contract | Completed |
 | 201 — The Lambda Trust Boundary | Completed |
-| 202 — Retiring CloudFront & the Identity Pool, and the Arc's Live Checks | Draft |
+| 202 — Retiring CloudFront & the Identity Pool, and the Arc's Live Checks | Completed |
 | 203 — The Membership Index | Completed |
 | 204 — Shared-Space Entitlements as Grants | Cancelled |
 | 205 — A Delete Empties a Space and Destroys Nothing | Completed |

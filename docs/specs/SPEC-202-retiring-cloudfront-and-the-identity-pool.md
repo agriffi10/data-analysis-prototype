@@ -1,8 +1,8 @@
 # Spec: Retiring CloudFront & the Identity Pool, and the Arc's Live Checks
 
 **ID:** SPEC-202
-**Status:** Draft
-**Last Updated:** 2026-08-18
+**Status:** Completed
+**Last Updated:** 2026-09-02
 **Depends On:** SPEC-192 (the runtime-configuration document whose `cognitoIdentityPoolId` key this spec removes, the ten-key end state its group (a) declares, and the key-set agreement test that makes the removal fail in CI rather than in production), SPEC-193 (`spa_origin` / `api_origin` — the origins every allowlist here narrows to, the deployed roles the IAM simulation targets, and **the three additive allowlist changes this spec narrows**: both origins on the Cognito app client, `api_origin` in CloudFront's `connect-src`, both origins in API Gateway's CORS. They are SPEC-193 FR-006's, not this spec's; here they are preconditions, verified before merge 1 and never re-introduced), SPEC-194 (the container's nginx header set and `connect-src` derivation, whose final state this spec asserts, and the deploy workflow that replaces `deploy-app.yml`), SPEC-195 (the bearer boundary — `getIdToken` is the one export of `lib/awsCredentials.ts` that survives this spec), SPEC-196 (the portal role's second trust statement, without which removing the Identity Pool's leaves the role unassumable, and the isolation-simulation discipline this spec re-runs post-retirement), SPEC-197 → SPEC-201 (the ported surface — every route this spec's live checks exercise; 198, 199 and 200 each delete part of the browser's AWS client set and each deliberately leave `awsCredentials.ts` and `credentialRetry.ts` standing, which is what FR-005 finishes), SPEC-140 (the response-headers policy, and the CSP verification rule this spec corrects — see FR-008 and FR-011), SPEC-141 (the three prefix-scoped passes and the invalidation deleted here), SPEC-011/013/056 (the Identity Pool ABAC model being retired, and the policies that must keep enforcing without it)
 
 ## Overview

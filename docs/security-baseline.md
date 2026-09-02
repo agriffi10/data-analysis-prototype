@@ -396,7 +396,7 @@ allowance — and the criterion that said so was written before we knew ZAP woul
 
 The table above is the **2026-08-03 run against the CloudFront origin** and enumerates that run's
 twenty alerts. Neither disposition below belongs to it: the container origin has not been scanned
-yet — that baseline is owed, non-blocking, in `arc-b-api-container-e2e.md` §C.7. They are recorded
+yet — that baseline is owed, non-blocking, and carried in `docs/testing/owed.md`. They are recorded
 now so the first scan has something to diff **per alert ID** rather than a judgement to make.
 
 | Alert | Disposition |

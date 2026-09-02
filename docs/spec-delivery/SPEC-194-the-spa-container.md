@@ -140,6 +140,9 @@ Owed, and not dischargeable from this session: a fresh sign-in from a private wi
 negative control, Safari, a watched rolling deployment, and a deliberately broken deploy going red.
 All in `arc-b-api-container-e2e.md` §C and `owed.md`.
 
+> **Read this beside the ledger, not on its own (2026-09-02).** The arc script was deleted when Arc B closed; its durable checks are `docs/testing/e2e.md` §4.18 and its results are in `docs/testing/sessions.md`. **[`owed.md`](../testing/owed.md) is authoritative for what has since been run** — several of the items below have been discharged, and this doc is a record of the day it shipped rather than a live status.
+
+
 ## Component inventory
 
 **No row.** This spec adds no service, hook or component — it ships a Dockerfile, nginx

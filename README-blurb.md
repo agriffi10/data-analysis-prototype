@@ -11,7 +11,7 @@ A web portal where authenticated users bring their own data, manage it, and quer
 
 ## Security model — tenancy enforced at the IAM layer, not in app code
 
-Every user is confined to their own data by AWS, not by application logic. A Cognito Identity Pool stamps a verified `username` principal tag **server-side** (ABAC), and a single shared IAM role scopes S3 prefixes, Glue databases/tables, and Athena results to `${aws:PrincipalTag/username}` — so tenancy can't be spoofed by the client. Lake Formation registers the user-space bucket in **hybrid mode** to extend the exact same isolation model to the analytics catalog. Because isolation lives in the trust policy and IAM conditions, there's no application code path that can accidentally leak one tenant's data to another.
+Every user is confined to their own data by AWS, not by application logic. The API stamps a verified `username` principal tag **server-side** onto the session it assumes for each request (ABAC), and a single shared IAM role scopes S3 prefixes, Glue databases/tables, and Athena results to `${aws:PrincipalTag/username}` — so tenancy can't be spoofed by the client. Lake Formation registers the user-space bucket in **hybrid mode** to extend the exact same isolation model to the analytics catalog. Because isolation lives in the trust policy and IAM conditions, there's no application code path that can accidentally leak one tenant's data to another.
 
 ## Everything is Infrastructure as Code
 
@@ -39,4 +39,4 @@ Deployment is OIDC-based end to end: GitHub Actions assumes an AWS role via shor
 
 ---
 
-**Stack:** React 18 · Vite · TypeScript (strict) · TanStack Query · AWS SDK v3 · Cognito / Amplify · Athena + Glue + Lake Formation · SQS + EventBridge Pipes + Step Functions + Lambda · S3 + CloudFront · OpenTofu · GitHub Actions (OIDC)
+**Stack:** React 19 · Vite · TypeScript (strict) · TanStack Query · Cognito / Amplify · API Gateway + Lambda · Athena + Glue + Lake Formation · SQS + EventBridge Pipes + Step Functions · S3 · ECS Fargate + ALB · OpenTofu · GitHub Actions (OIDC)

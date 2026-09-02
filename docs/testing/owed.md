@@ -10,6 +10,15 @@ same property, and a Chromium run standing in for Safari are all recorded here, 
 
 ## 1. What is owed
 
+> **Where Arc B's script went (2026-09-02).** Rows below cite `arc-b-api-container-e2e.md` by
+> section — `§C.1`, `§E`, `§G` and so on. That file was the arc's one temporary script and was
+> **deleted when the arc closed**, per `docs/process.md` §5 step 8. Its durable checks are folded
+> into [`e2e.md`](e2e.md) — the front door, the CSP method, the no-AWS-calls negative and the
+> presigned-URL shape are **§4.18**, and the per-feature ones sit in the feature sections. Its
+> per-spec sections and its full execution log are in git history (`git show
+> 95fddf14:docs/testing/arc-b-api-container-e2e.md`) and in [`sessions.md`](sessions.md). A section
+> reference here is a pointer into that history, not a live path.
+
 ### Needs a second (or third) account
 
 | Check | Why one account cannot do it |
@@ -103,7 +112,7 @@ recipe anywhere** — write one when you run it.
 |---|---|
 | **`Description` and column-comment preservation across a refresh** (SPEC-149) — both survive, the columns changed, `get-table-versions` shows a previous version | Needs the `dat-prod-verification` role. From any other principal Glue returns *Insufficient Lake Formation permission(s): Required Describe*. See §2.5. |
 | **The foreign projection fixture** (SPEC-153 FR-006 AC2) | The same `GetTable` response. Paste it **verbatim** when you have it — the shipped fixture is docs-transcribed. |
-| **SPEC-201 H.4 (the staged pre-cutover message) and H.5 (`assurance` refused live with a neighbour)** | Both hand-enqueue onto a request queue, and after SPEC-200 FR-008 only the **API's execution role** holds `sqs:SendMessage` there. A laptop identity has no grant — that is the isolation working — and an agent session's production AWS writes are classifier-blocked whatever the chat authorization says. Needs an assumed session of that role driven from CI, which is where the grant already lives. Recipe: [`arc-b-api-container-e2e.md`](arc-b-api-container-e2e.md) §H.4, §H.5. |
+| **SPEC-201 H.4 (the staged pre-cutover message) and H.5 (`assurance` refused live with a neighbour)** | Both hand-enqueue onto a request queue, and after SPEC-200 FR-008 only the **API's execution role** holds `sqs:SendMessage` there. A laptop identity has no grant — that is the isolation working — and an agent session's production AWS writes are classifier-blocked whatever the chat authorization says. Needs an assumed session of that role driven from CI, which is where the grant already lives. Recipe: the arc script §H.4, §H.5. |
 
 ### SPEC-203's two owed checks — one of them EXPIRES
 
@@ -121,7 +130,7 @@ recipe anywhere** — write one when you run it.
 
 | Check | Why | Recipe |
 |---|---|---|
-| **The runtime-config hard failure and the unparseable path** (SPEC-192) — `BootFailure` renders, **no route mounts**, the console names the missing key and **no value from the document appears in it** | Only a production build shows it: under Vitest and in `npm run dev` the fallback answers every read, so the whole suite exercises the arm that will not exist in production. It needs a `config.json` published without a required key, and a second one carrying HTML. | [`arc-b-api-container-e2e.md`](arc-b-api-container-e2e.md) §A.2, §A.3 |
+| **The runtime-config hard failure and the unparseable path** (SPEC-192) — `BootFailure` renders, **no route mounts**, the console names the missing key and **no value from the document appears in it** | Only a production build shows it: under Vitest and in `npm run dev` the fallback answers every read, so the whole suite exercises the arm that will not exist in production. It needs a `config.json` published without a required key, and a second one carrying HTML. | the arc script §A.2, §A.3 |
 | **The promotion property** (SPEC-192) — change one repository variable, re-run Deploy App with no source change, read the new value on the FIRST request | The point of the whole spec, and invisible from the UI: a stale document renders a working, fully-functional portal pointed at the wrong account. | §A.1 |
 | **Fresh sign-in end to end, from a private window** (SPEC-192) — proves Amplify is configured before the first render | A warm session cannot exercise it: the browser arrives already authenticated, and a bootstrap that configured Amplify too late looks identical. Same shape as the omitted Hosted UI host that broke fresh sign-in for a day. | §A.4 |
 | **Everything the container owns about `/config.json`** — the entrypoint rendering it from the task environment, nginx's `no-store`, image promotion itself | No container exists yet; the document is a static object until SPEC-194. | SPEC-194's own checks |
@@ -213,8 +222,12 @@ enclosing-target reading.
 ### SPEC-196's live verification — PARTLY RUN 2026-08-27, the rest owed
 
 **Six items ran on 2026-08-27** and are struck through below, with the evidence in
-[`sessions.md`](sessions.md). The rest of [`arc-b-api-container-e2e.md`](arc-b-api-container-e2e.md)
-§E is still owed.
+[`sessions.md`](sessions.md). **§E items 1 and 9 — the trust statement and the IAM simulation
+against the deployed roles — were discharged on 2026-08-31 by SPEC-202 FR-010**, which is the
+overlap the arc script recorded deliberately: whichever ran first discharged both. Row for row
+against SPEC-196's pre-retirement table, with no row changed; the evidence is the ported execution
+log in [`sessions.md`](sessions.md). The rest of §E is still owed (see the note at the top of this
+section for where that script lives now).
 
 The 2026-08-27 decision to run Arc B's live verification once at SPEC-202 was **narrowed for this
 section**: SPEC-197 deletes the probe routes §E is driven through, so running it at 202 would have
@@ -288,14 +301,16 @@ is unrun rather than unobservable, which is why it is not in the section below.
 
 **Most of the SPEC-198 block of [`e2e.md`](e2e.md) §4.2 ran on 2026-08-30** — the per-gesture call
 count, the per-file presign, the XHR transfer against the regional host, both isolation 403s with a
-paired 200 control, the archive-write refusal, the CORS trio (including the CloudFront rollback
-origin) and the log record. Evidence in [`sessions.md`](sessions.md). What is below is what remains.
+paired 200 control, the archive-write refusal, the CORS trio (as it then stood — three origins,
+including the CloudFront rollback one) and the log record. Evidence in
+[`sessions.md`](sessions.md). What is below is what remains — **and see the re-run the origin
+narrowing owes, in the SPEC-202 section**.
 
 | Owed | Why it is not settled offline |
 |---|---|
 | **The presigned URL's expiry is evaluated at request RECEIPT, not at completion** (FR-005 AC8) | The premise the whole single-`PUT` design rests on. **Still owed, and deliberately still worded this way.** SPEC-216 makes the UPLOAD design correct under either reading — a part is sized to finish inside half its window on the slowest supported uplink, so no part depends on a long transfer — but that is not the same as knowing which reading is true, and the premise still governs a presigned **download** of a large object, which SPEC-216 does not touch. The check itself is now: **a multipart upload of a multi-GiB file completes**, past the 900 s window, with per-part re-minting (`e2e.md` §4.2's multipart block). If it were false, every large upload would fail at the tail with an opaque 403 **after the user waited** — and with `UPLOAD_CONCURRENCY` 3 a deep queue would put that failure on the files they waited longest for. |
 | ~~**A presigned URL signed INSIDE a Lambda by an assumed session is honoured by S3**~~ **DISCHARGED 2026-08-30** — two uploads redeemed against `dat-prod-user-space.s3.us-east-1.amazonaws.com` and both returned 200. | Signing is a local SigV4 operation, so offline it always "works"; whether S3 accepts the resulting signature at redemption is a fact about the account. |
-| ~~**A browser preflight against the deployed bucket CORS succeeds from the container origin** (FR-011)~~ **DISCHARGED 2026-08-30 in Chromium** — two presigned `PUT`s completed from the container origin, and the three-origin `curl` returned an ACAO for the SPA origin and for `d1kbh4bnvh1je8.cloudfront.net`, none for a foreign one. **Safari owed.** | A CORS failure is an opaque `TypeError` and presents as "the API is down". `curl` cannot see it — only a browser enforces CORS. |
+| **A browser preflight against the deployed bucket CORS succeeds from the container origin** (FR-011) — **RE-OWED 2026-09-02.** The discharge below is **pre-narrowing evidence**: it was observed against three admitted origins, one of which was a distribution that no longer exists. Merge 2 narrowed both buckets' CORS, and **no browser has redeemed a presigned URL since** — the 2026-09-02 pass was CLI-only, and a preflight is not observable from `curl` against a bucket that answers the request anyway. **This is the only check that detects the bucket-CORS narrowing**, and a wrong narrowing presents as an opaque browser `TypeError` that reads as "the API is down". Discharge it with one real upload **and** one real download from `$APP_URL`. *Superseded discharge follows.* ~~**DISCHARGED 2026-08-30 in Chromium** — two presigned `PUT`s completed from the container origin, and the three-origin `curl` returned an ACAO for the SPA origin and for `d1kbh4bnvh1je8.cloudfront.net`, none for a foreign one. **Safari owed.** | A CORS failure is an opaque `TypeError` and presents as "the API is down". `curl` cannot see it — only a browser enforces CORS. |
 | ~~**The live 403 on a foreign prefix** (FR-013)~~ **DISCHARGED 2026-08-30** — foreign personal space and a foreign shared space both 403 `AccessDenied`, with the caller's own prefix answering 200 as the paired control. | The **zero-call** half is taken offline, by call count, in `test_objects_routes.py` — a route that resolved the prefix from the request and let IAM refuse would return an identical 403, so the live half proves the deployed route refuses and nothing more. The credential-layer half is **SPEC-196 Phase 5 item 6's dated `_identity/self` result, cited rather than re-run**. |
 | **`owed.md` §2.1's bucket-policy Deny on a marker key** — **HALF DISCHARGED 2026-08-30, and the half that ran is not the half that was owed.** `DELETE /v1/objects` on the marker is 403 in a personal *and* a shared space, with an ordinary file in the same folder written and deleted as the control. But the `detail` is *"folder markers may not be removed or replaced"* — the **route's** wording. The route refuses before S3 is asked, so the **bucket-policy Deny is still unexercised** and is not reachable from this API at all. |
 | ~~**An intermediate upload percentage, in a real browser**~~ **DISCHARGED 2026-08-31** — a 7.0 MB upload fired **seven** `xhr.upload` progress events at **19, 23, 36, 53, 71, 87 and 100 %**. Six intermediate values, from one presign and one `PUT`. | Asserted offline against a stubbed `XMLHttpRequest`. What is not observed is that a real `xhr.upload` fires progress events for this transfer — the one thing a `fetch` implementation would silently lack. |
@@ -339,7 +354,7 @@ rows 14 and 15, and the Data Explorer surfaces generally, were **not** reached.
 | **A live 403 on the user plane** (SPEC-197) | Cannot be staged against a bucket-wide grant. **Passed to SPEC-198.** |
 | **What `setUnauthenticatedHandler` should DO** (SPEC-197 FR-007) | The hook ships with **no handler registered**, deliberately: `apiRequest` never navigates, and what a genuinely-dead session should do to the UI is a product decision this spec's scope excludes. Until one is registered, a surviving 401 resolves to "Your session expired. Sign in again." and nothing else happens. |
 | **A 429 mid-walk, observed live** (SPEC-199 FR-007) | API Gateway account throttling cannot be staged. The degradation is unit-tested — a failed page leaves `total: null` and raises no banner — and the live half is the one that would show whether a real burst produces it at all. |
-| **Stale root-level static assets** (SPEC-141) | An accepted orphan class, not a check. Removals are by hand, and **not verifiable by status code** — the distribution maps `403/404 → /index.html` with a **200**, so check `content-type` and `x-cache: Error from cloudfront`. |
+| ~~**Stale root-level static assets** (SPEC-141)~~ — **VOID 2026-09-02** | The S3 delivery path is retired: the image IS the file set, so there is no reconciliation pass and no orphan class, and an asset the build did not produce is an honest 404. Kept for the reasoning only. An accepted orphan class, not a check. Removals were by hand, and **not verifiable by status code** — the distribution maps `403/404 → /index.html` with a **200**, so check `content-type` and `x-cache: Error from cloudfront`. |
 
 ### Accepted exposure, with an owner
 
@@ -357,14 +372,14 @@ rows 14 and 15, and the Data Explorer surfaces generally, were **not** reached.
 | **The front door's domain registration expires** | **2027-08-26** | `dataquarry.app`, auto-renew **deliberately off**. Every hostname in the container arc hangs off it — both ACM certificates, the Cognito callback and logout lists, the CSP's `connect-src`. A lapse takes the platform's DNS dark, and no workflow, alarm or scanner watches a registrar expiry. Re-check with `aws route53domains get-domain-detail --domain-name dataquarry.app --query '{AutoRenew:AutoRenew,Expiry:ExpirationDate}'`. |
 | **A live CORS preflight: one `access-control-allow-origin` per origin, and none for a foreign one** | with SPEC-193 PR 6 | Only the foreign-origin half can fail — a `"*"` configuration passes the echo check. Offline the configuration is asserted; the header count is not observable without a request. |
 | **One real invocation producing one span with `env` and `version` populated** | with SPEC-193 PR 6 | The gate the structured-logging spec lacked, and the entire argument for building a placeholder. A missing layer attachment passes every offline gate: the shared conftest puts the layer on `sys.path`, and `update-function-code` succeeds against a function that cannot import. |
-| **`describe-user-pool-client` shows BOTH origins in the callback AND logout lists** | with SPEC-193 PR 6 | The offline assertion proves the Terraform; only the deployed client proves the apply widened rather than replaced. |
+| ~~**`describe-user-pool-client` shows BOTH origins in the callback AND logout lists**~~ | **DISCHARGED 2026-08-30, then narrowed 2026-09-02** | Both were live before merge 1 — the apply had widened rather than replaced, which was the point. The lists now name `localhost:5173` and `spa_origin` only; the CloudFront entry went with the distribution. The live shape is re-read in the SPEC-202 section below. |
 | ~~**The two front-door certificates are unattached until the API and SPA ship**~~ | **settled 2026-08-27** | Both have shipped: the API's flipped `INELIGIBLE` → `ELIGIBLE` when its custom domain attached it, and the SPA's is on the load balancer's listener serving `portal.dataquarry.app`. The reasoning stands and is worth keeping for the next certificate — ACM's managed renewal covers a certificate only while it is **associated with a service** or exported, so `ISSUED` is not a durable end state and verification must confirm *association*, not status. |
-| **A fresh sign-in against the container origin, from a private window** | with SPEC-194, before any route is ported | **A signed-in pass never tests sign-in.** The authorization-code exchange is the only `fetch` to the Hosted UI host and a warm tab never makes it, so a `connect-src` missing that host produces a portal that works for everyone already signed in and for nobody else — this repo's own recorded outage, and it lasted a day. Steps: `arc-b-api-container-e2e.md` §C.1. |
-| **The CSP is enforcing, proved by a negative control** | with SPEC-194 | Reporting no violations is not evidence — the flow may have succeeded *because* the policy was inert. Needs a **same-origin page script**; CDP `Runtime.evaluate` bypasses page CSP entirely and once reported `new Function` as allowed under `script-src 'self'`. §C.2. |
+| **A fresh sign-in against the container origin, from a private window** | **owed, and now the arc's sharpest gap — see the SPEC-202 section below** | **A signed-in pass never tests sign-in.** The authorization-code exchange is the only `fetch` to the Hosted UI host and a warm tab never makes it, so a `connect-src` missing that host produces a portal that works for everyone already signed in and for nobody else — this repo's own recorded outage, and it lasted a day. Since 2026-09-02 it also exercises the **narrowed** Cognito callback and logout lists, which nothing else does. Steps: `e2e.md` §4.1. |
+| ~~**The CSP is enforcing, proved by a negative control**~~ | **DISCHARGED 2026-08-31, Chromium** | A `fetch` to `athena.us-east-1.amazonaws.com` raised a **positive** `securitypolicyviolation` with `effectiveDirective: "connect-src"` and `disposition: "enforce"`, with `/config.json` returning 200 in the same run as the control. **The method in this row was wrong and is corrected in `e2e.md` §4.18:** CDP evaluation is exempt from `script-src`, **not** from `connect-src`, and the "same-origin page script" recipe is unsatisfiable under `script-src 'self'`. Reporting no violations is still not evidence. |
 | **Safari, once, against the container origin** | with SPEC-194 | Safari refuses to evaluate a report-only policy naming no reporting endpoint — the blind spot no Chromium harness surfaces, and the tooling here is Chromium. §C.3. |
 | **A rolled-back deployment actually reddens the pipeline** | with SPEC-194 | The mechanism is asserted offline; that it fires is not. It needs an image broken in a way the pre-push matrix **cannot see** — a required key the entrypoint demands and the task definition does not supply — because an entrypoint that simply exits 1 reddens at the matrix and never reaches the deploy gate. §C.6. |
 | **A browser honours `immutable` across a real deployment** | with SPEC-194, and not dischargeable offline | The header is asserted on the response; what a browser does with it over a deploy boundary is not observable from `curl`. |
-| **A warm-cache user of the CloudFront origin is unaffected while both delivery paths run** | with SPEC-194 | Two origins serve the same app for the length of this arc. Nothing offline observes a cache populated before the container existed. |
+| ~~**A warm-cache user of the CloudFront origin is unaffected while both delivery paths run**~~ | **VOID 2026-09-02** | There is one origin. The distribution is destroyed, so there is no second cache to be unaffected. Retired at its premise rather than left owed. |
 | **Terraform-registered revisions never reach the running container** | with SPEC-194, structural | The service carries `ignore_changes = [task_definition]`, so a change to the runtime-configuration map or the CSP registers a revision CI never points at — the running container keeps the old value until the next push to `main`. `Deploy SPA image`'s `workflow_dispatch` is the lever. Recorded so a stale CSP is not diagnosed as a container defect. |
 | **`TF_VAR_spa_image_tag` still names a placeholder-era sha** | with SPEC-194 | CI owns which revision runs, so this is inert while `ignore_changes` holds. It stops being inert if the service is ever **replaced** rather than updated: Terraform would create it pointing at its own revision, whose image is the placeholder — which is healthy and serves a placeholder page, with no error anywhere. |
 
@@ -769,7 +784,8 @@ against the account rather than a green tick:
 ## SPEC-200 — the enqueue paths (2026-08-29, PARTLY RUN 2026-08-30)
 
 **G.5 and two of G.1's ten rows ran on 2026-08-30**; evidence in [`sessions.md`](sessions.md). The
-rest is still offline reasoning. The steps are written in full at `arc-b-api-container-e2e.md` §G.
+rest is still offline reasoning. The steps were written in full at the arc script's §G — see the
+note at the top of §1.
 
 | Owed | Why it matters |
 |---|---|
@@ -829,10 +845,12 @@ were retired by this spec (`API_BASE_URL`, the three `VITE_COGNITO_*`, the two b
 were already unread before it (the eight queue URLs, `VITE_ATHENA_WORKGROUP`,
 `VITE_COGNITO_IDENTITY_POOL_ID`).
 
-**Order matters and only one way round.** Delete them **after** a green post-merge `Deploy App` and
-`Publish Config`, never before: if the resolver were wrong about a value, the variables are what the
-revert falls back to. To discharge: delete the sixteen, then re-run both workflows and confirm the
-served `/config.json` is unchanged.
+**Order matters and only one way round.** Delete them **after** a green post-merge `Deploy SPA
+image` and `Publish Config` — `Deploy App` was the gate when this was written and no longer exists
+— never before: if the resolver were wrong about a value, the variables are what the revert falls
+back to. To discharge: delete the sixteen, then re-run both workflows and confirm the served
+`/config.json` is unchanged. **`VITE_COGNITO_IDENTITY_POOL_ID` is in the sixteen and its pool is
+now deleted**, so that one names nothing at all.
 
 **The survivors are not up for deletion** — each is a genuine input, with its reason tabled in
 [`.github/workflows/README.md`](../../.github/workflows/README.md). Fourteen `vars.*` names are
@@ -840,6 +858,59 @@ referenced after this change, of which **eleven are actually set**; the other th
 (`TF_VAR_project_name`, `TF_VAR_environment`, `TF_VAR_verification_principal_arns`) are deliberately
 unset and every reference supplies a `||` fallback. `VITE_APP_URL` is the one that reads like a
 leftover and is not: Cognito's callback list is built from it.
+
+## Arc B's recipes that outlived their script (ported 2026-09-02)
+
+These were the arc script's own steps, and each is owed with the recipe that makes it runnable.
+Without the recipe every one of them is a check somebody would design badly a second time.
+
+| Owed | The recipe, and why the obvious version does not work |
+|---|---|
+| **A ZAP baseline against the container origin** (SPEC-194 §C.7, non-blocking) | Diff against `security-baseline.md` **per alert ID, never by total** — a clearing and an appearing finding once cancelled at 305 and made the total look untouched. Expect the `style-src 'unsafe-inline'` **Medium** and the COEP **Info** to persist **by decision**. Expect **no new *Server Leaks Version Information*** row: that alert fires on a version, and `server_tokens off` is what keeps it clear. |
+| **A rolling deployment, watched** (SPEC-194 §C.5) | A task serves exactly one image's file set, so a browser holding the **old** shell routed to a **new** task 404s a lazily-imported chunk. Leave a tab open, merge any change under `apps/portal/`, let `Deploy SPA image` run, then navigate to a lazy route in the old tab: it may 404 inside the Suspense boundary, and **a reload recovers**, because the shell is `no-cache`. |
+| **The health check doing its job** (SPEC-194 §C.6) | The break has to be **env-only, on the task-definition side, in a variable the image defaults** — add `PORTAL_LOG_LEVEL = "chatty"` to the container definition's `environment` and apply. Two obvious alternatives prove nothing: an entrypoint that exits 1 reddens at the **matrix** and never reaches the deploy gate, and adding a key to the entrypoint's `REQUIRED` list (or removing one from `local.spa_runtime_config`) reddens `pytest` before anything builds. Expect the ECS deployment **not** to reach `COMPLETED` and the workflow to go red **on `rolloutState`**, not on a timeout. Revert and confirm green. Before writing any new recipe here, confirm no test pins what you are about to change. |
+| **A genuinely expired token against the API** (SPEC-195 §D.3) | **Do NOT mint it from a throwaway app client**: `oidc_audience` is a *single* client id, so a second client's token is refused on **audience** — the verifier never reaches the expiry check, and `verification_failed` is one reason code covering signature, issuer, audience and expiry alike, so the check passes while proving the opposite. What works is temporarily shortening the **existing** app client's ID-token validity to its 5-minute minimum, signing in fresh, and waiting six minutes. **Restore the validity afterwards**, or every session in the environment expires in five minutes. Expect 401 with a body hashing identically to the no-token refusal. |
+| **The stack scrub against a REAL token** (SPEC-195 §D.6) | **It has to be driven by a refusal.** The success path emits no `error` at all, so grepping after a 200 returns 0 for the same reason an empty file does; and a query parameter forces nothing, because the handler passes only the method, path and headers. Send a bit-flipped real token, then sweep the day's `logs/service=api/` for the token's **header** and **signature** segments — with `'"reason": "verification_failed"'` counted **≥ 1** as the positive control, or the two zeros mean the window was empty. |
+
+---
+
+## SPEC-202 — the retirement's checks: the CLI half run 2026-09-02, the browser half owed
+
+**Merge 2 was taken with five checks WAIVED — not passed** (user decision, 2026-09-01): the fresh
+sign-in, the deep link and its clocks, the archive row, 400px, and the first half of membership
+propagation. *(The waiver was first written as four; the execution log's own row names five, and
+five is what this table carries.)* Nothing below was observed at the time it would have gated the
+merge. The arc script's §12 said to re-run the fresh sign-in **after** merge 2 — that re-run is the
+first row of *Still owed* here, and this ledger is the only live instruction for it.
+
+**Discharged 2026-09-02, from the CLI, against the account** — every one a positive absence rather
+than "gone from the plan":
+
+| Check | Result |
+|---|---|
+| The distribution is destroyed | `cloudfront get-distribution --id E63PRJKNACLDP` → **`NoSuchDistribution`** |
+| The static bucket is destroyed | `head-bucket` → **404**; `list-buckets` shows four app buckets plus artifacts, audit and state |
+| The Identity Pool is destroyed | `cognito-identity list-identity-pools` → **`[]`** |
+| The Cognito lists are narrowed | callback **and** logout are exactly `http://localhost:5173` and `https://portal.dataquarry.app` |
+| The API's CORS is narrowed | `allow_origins` is `["https://portal.dataquarry.app"]`, `allow_credentials` false |
+| Both buckets' CORS are narrowed | `localhost:5173` and `spa_origin` only, on user-space and shared-space alike |
+| The served header set and `connect-src` | the full set present and enforcing-shaped, `connect-src` = `'self'`, `cognito-idp`, the Hosted UI host, both buckets, `api.dataquarry.app` — no `cognito-identity.`, `athena.`, `glue.` or `sqs.` |
+| The runtime document | `/config.json` carries **no** `cognitoIdentityPoolId`. It carries eleven keys, not the arc's ten — `maxUploadBytes` arrived with SPEC-216 after the arc's count was written |
+| The deploy role's retired grants | inline policy is **22 statements**, `S3StaticBucket` and `CloudFront` both absent (applied by #614) |
+
+**Still owed, and the first one is the one that matters:**
+
+| Check | Why it is not run | What discharges it |
+|---|---|---|
+| **A fresh sign-in from a clean, signed-out profile** against the narrowed callback and logout lists | Needs a sign-in an agent cannot perform in a clean profile. **Merge 2 narrowed exactly the lists this exercises, and a broken fresh sign-in is invisible to every signed-in session** — this repo lost a day to precisely that shape. | `e2e.md` §4.1, in a private window, in a browser. The `redirect_mismatch` page is the distinguishing symptom. |
+| **The deep link and the two clocks** — landing back on `/query?db=…` **after** sign-in, the private-browsing repeat, and a genuinely expired token | The capture half was observed 2026-08-31 (`portal.returnPath` is stored); the restore half needs a completed sign-in, and the expiry needs the app client's token validity shortened, which is a change to the environment nobody asked for. | The sign-in above, plus a deliberate token-validity change **restored afterwards** — left at five minutes, every session in the environment expires in five minutes. |
+| **The archive plane through the API** | The only irreversible gesture in the pass: a restore is 3–5 billed, uncancellable hours. Held for an explicit go-ahead. | `e2e.md` §4.11's approval gate. |
+| **400px** | Not reachable by window resize on macOS (floor 606px), and both breakpoints already read `false` at 606, so 400 and 606 are the same CSS branch — what is unproven is overflow at the narrower width. | DevTools device toolbar, asserting on `matchMedia`. Same row as the responsive pass above. |
+| **A real presigned upload AND download from the browser, against the narrowed bucket CORS** | Merge 2 narrowed both buckets' CORS to `spa_origin` + `localhost:5173`. Nothing since has redeemed a presigned URL in a browser, and `curl` cannot settle a preflight. | `e2e.md` §4.2's upload and download rows, run from `$APP_URL`. A failure here is an opaque `TypeError` with no AWS text — it does **not** look like a CORS problem. |
+| **Membership propagation's pre-refresh REFUSAL** | Observed only in its second half: the added member shows Pending and, after a fresh sign-in, the space appears and queries. Switching accounts mints a token that already carries the membership, so the refusal and the fix are indistinguishable from one browser. | Two concurrent sessions, or a membership change made while a session is held. |
+| **table-build and table-share notifications carry no `link`** — found 2026-09-01 | Not a failure of the run: it is a real finding against the section's "with a link" clause. Deliberate in code (`tbcommon/notify.py`'s `emit_created` passes none, while the same module passes one for `columns_removed`). | A decision, not a check: either the two planes gain a link or the clause goes. Not load-bearing the way data-quality's is — its reports folder is hidden, these two land where the user can already see the result. |
+
+---
 
 ## 3. Discharged, and worth not re-litigating
 

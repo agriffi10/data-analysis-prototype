@@ -175,7 +175,7 @@ reading them as one is the mistake §3.3 exists to prevent — and the arrival o
 | Who propagates identity into AWS | Nothing — one shared role, differentiated by a principal tag | **IAM Identity Center**, via the token exchange (§3.5). Entra authenticates; IdC propagates — they are not alternatives |
 | Who creates the user's S3 prefix | The browser, via `ensurePrefixMarker` | The sync (initial population), then the client's automated process for new users. **Sign-in provisions nothing** |
 | Who creates the user's Glue database | `post_confirmation.py` | Sync initially, user automation thereafter (it already handles tagging); grants come from a separate permissions control plane (§8) |
-| Per-user IAM identity | One shared role plus a `username` principal tag, minted by the Identity Pool | **Interim (Phases 1–4):** the same shared role and tag, assumed by the API from the verified claim — no Identity Pool. **End state (Phase 5):** one identity-enhanced session, no principal tags, storage on S3 Access Grants (§3.4, §3.9). **Bespoke per-user roles are never created** |
+| Per-user IAM identity | One shared role plus a `username` principal tag, stamped by the API from the verified claim (the Identity Pool did this until SPEC-202 retired it, 2026-08-31) | **Interim (Phases 1–4):** the same shared role and tag, assumed by the API from the verified claim — no Identity Pool. **End state (Phase 5):** one identity-enhanced session, no principal tags, storage on S3 Access Grants (§3.4, §3.9). **Bespoke per-user roles are never created** |
 | Per-user storage isolation | `${aws:PrincipalTag/username}` in the bucket and Glue policies | Same in the interim; **S3 Access Grants** in the end state — plain S3 is denied on an identity-enhanced session (§3.6) |
 | Third-party BI / ODBC clients (Excel, Access, Power BI) | Not consumers of this repo at all — they reach Athena directly from the **client's** environment, over SAML federation with Lake Formation, under a **parallel** grant set keyed on SAML principals | The **same** grants that govern the portal, keyed on the same Identity Center principals, carried by the drivers' own trusted-identity-propagation plugins. One entitlement model instead of two (§3.10) |
 | Lake Formation grants | Issued by this app, keyed on the shared role | Same for personal and workspace scopes; core datasets keyed on Identity Center principals (§3), issued by a config-driven reconciler |
@@ -574,8 +574,9 @@ backend, never expose them to client-side code.)
 
 This does not make the app a backend app. The SPA is not the OAuth client — the Lambda is, and
 the SPA is a front end to it. This is the backend-for-frontend pattern. What crosses to the
-browser is AWS temporary credentials, exactly what the Identity Pool sends today, so the posture
-is unchanged. What must never cross is the Identity Center token.
+browser is AWS temporary credentials, which is what the Identity Pool sent until SPEC-202 retired
+it — so the posture would be a return to it rather than a new exposure, and today's browser holds
+no AWS credentials at all. What must never cross is the Identity Center token.
 
 **The backend needs session state in both variants — but for DIFFERENT reasons, and the difference is
 a security property the baseline does not get.** The design conclusion is the same either way:
@@ -1376,6 +1377,13 @@ neither routes through this application's API — is in `docs/specs/ARCS.md` und
 *Other applications acting on behalf of users*. Pull it back here if that arc entry is ever pruned.
 
 ### 4.6 Hosting moves from CloudFront to a container
+
+> **LANDED 2026-09-02 (SPEC-193 → 202).** This section is now a record of a move that happened
+> rather than a plan: the SPA is a container on Fargate behind an ALB, the distribution and the
+> static bucket are destroyed, and the table below is the list of jobs nginx **does** reproduce,
+> with three deliberate divergences (`Server: nginx`, no brotli, no HSTS `preload`). What is still
+> ahead of the successor account is the availability work in this section — autoscaling, capacity
+> providers, a WAF and the multi-AZ obligations — which the arc deferred.
 
 > **AMENDED (2026-08-17) — the topology is settled, and this section's premise that the browser
 > calls AWS directly is now FALSE.** Every AWS SDK call moves behind an API (the arc filed as

@@ -23,8 +23,9 @@ in `docs/`, and the domain rulebooks and inventories beside the code they govern
 ## Project Overview
 
 A web portal where authenticated users upload/download files to/from their own S3 prefix.
-Auth is AWS Cognito (standalone User Pool + Identity Pool). Arc B has moved the object surface, the
-catalog and the eight control-plane queues behind an API (`api.dataquarry.app`); what the browser
+Auth is AWS Cognito — a standalone **User Pool**; the Identity Pool is retired and the browser holds
+no AWS credentials. Arc B moved the object surface, the catalog and the eight control-plane queues
+behind an API (`api.dataquarry.app`), and the SPA is a container behind an ALB; what the browser
 still calls directly is **presigned S3 bytes** and Cognito through Amplify. Status: greenfield, no
 production users yet.
 
@@ -80,12 +81,6 @@ recorded nowhere else** — when a spec closes, prune here rather than appending
 
 ### Current work
 
-- **API layer & containerisation (192 → 202, 192–201 done)** — "Arc B"; narrative in `ARCS.md`,
-  what ran in `sessions.md`, what did not in `owed.md`. CloudFront is still production and the
-  rollback. **Only 202 is left**, and two things it must not miss: it **re-points SPEC-206's
-  `SenderId` boundary**, which still names the portal role it retires (`UNTRUSTED_SENDER_ID` empty
-  refuses *every* notification `create`), and until it lands the browser still calls
-  `cognito-identity`, so arc-b §4's "no AWS calls" negative does not pass.
 - **Container Lambdas (212 → 213 → 214, 212 done)** — an image exists in ECR and **runs nothing**;
   the fleet still ships zips with layers. 213 cuts over and **CI must point every function**, or
   all 86 keep working on the old image with nothing red. 214 deletes the tables and must repoint
@@ -101,7 +96,9 @@ what it says rather than by number. Read the entry for an area before working in
 
 ### Identity, access and the name that ties them together
 
-Cognito User Pool → Identity Pool, ABAC. The `username` principal tag is stamped **server-side from
+Cognito **User Pool**, ABAC — the Identity Pool is RETIRED (SPEC-202) and the API is the only thing
+that turns a token into credentials; retiring it changed **nobody's sign-in**, which is the
+conflation to head off. The `username` principal tag is stamped **server-side from
 the verified claim**, so it cannot be spoofed; one shared role, isolation by
 `${aws:PrincipalTag/username}`; a SHARED space adds a per-space role-level LF grant, retired
 **with** the tag scoping or not at all. Hosted UI is **Managed Login v2** — the classic one broke the
@@ -354,6 +351,11 @@ is a smell.
 
 - **Raw AWS/Cognito/Athena text is NEVER shown.** `lib/errorMessages.ts` is the single source of
   wording; never render `error.message`.
+- **The `@aws-sdk/*` ban is a lint rule AND a `package.json` sweep.** The rule is declared in
+  **every** clause governing `src/` because flat config REPLACES rather than merges, and the sweep
+  reads the **manifest, never `node_modules`** — Amplify vendors the SDK, so a tree assertion would
+  fail permanently and be deleted. A dependency nobody imports is invisible to an import rule, and
+  that leftover is how the next import arrives.
 - **`components/` may not import from `features/`** — enforced by lint. A leaf feature that becomes a
   shared layer gets **extracted before its second consumer**, not after.
 - **Dialogs:** Enter submits from **one** field, not implicitly; Escape dispatches by **tree depth**
@@ -430,8 +432,8 @@ only reads; the API enqueues on its behalf.
   platform is tested for** (the Lambda fleet's registry rides the same rule). A Fargate task volume arrives empty and root-owned and does **not**
   initialise from the image: writable paths are `linuxParameters.tmpfs`, one uid feeding both `user`
   and every mount option.
-- **The SPA image reproduces every CloudFront job; three are DIVERGENCES** — `Server: nginx`, no
-  brotli, no HSTS `preload`. **`add_header` is inherited only by a level defining none of its own**
+- **The SPA container is the ONLY front door; it reproduced every CloudFront job bar three
+  DIVERGENCES** — `Server: nginx`, no brotli, no HSTS `preload`. **`add_header` is inherited only by a level defining none of its own**
   (hence one snippet per location, `always` throughout, and a server-level floor for errors raised
   before a location resolves); assert on **responses**, never config text; `/healthz` is
   exact-match, or a probe falls through and a broken container reads healthy.
@@ -452,16 +454,27 @@ only reads; the API enqueues on its behalf.
   that map**, not just deleting the output. The API's **verifier** config is
   server-side, never in the browser's document — and the exclusion cuts one way: a rule forbidding
   "anything identity-shaped" takes Amplify's own Cognito keys with it.
-- **Origins are admitted ADDITIVELY**, narrowed only at the cutover — an allowlist naming one
-  origin makes the other a rollback nobody can exercise.
+- **Origins are admitted ADDITIVELY** and narrowed only at the cutover — an allowlist naming one
+  origin makes the other a rollback nobody can exercise. **A cutover is TWO merges:** the
+  retirement, which touches nothing serving the app, then the live checks **while the rollback still
+  works**, then the narrowing and the destroy. A half-finished retirement looks exactly like a
+  finished one, so a deleted resource is proved gone **positively** (`NoSuchDistribution`, not
+  "absent from the plan") and a grant outlives its resource by one apply — where SPEC-202 found the
+  next trap: the Checkov accept list was holding that grant's own findings open, so removing it made
+  both acceptances stale, which is a hard error.
 - **CSP `connect-src` IS the app's network surface** — enumerate it from the hosts the app fetches,
-  not the AWS services it uses. The omitted Hosted UI domain broke fresh sign-in for a day. **Both
+  not the AWS services it uses. The omitted Hosted UI domain broke fresh sign-in for a day. **Prove
+  enforcement with a POSITIVE `securitypolicyviolation`** (`effectiveDirective: "connect-src"`,
+  `disposition: "enforce"`) plus a same-origin negative control: CDP evaluation is exempt from
+  `script-src`, **not** from `connect-src`, and the old same-origin-script recipe is unsatisfiable
+  under `script-src 'self'`. **Both
   CSP locals live at ROOT** — a root check cannot read a module local. The container takes
   `connect-src` from the task definition and bakes the rest; **nginx has no escaping**, so anything
   interpolated in is allowlisted — a quote truncates the policy on a container reporting healthy.
-- **Static assets deploy in three prefix-scoped passes** — `--exclude` protects keys from
-  `--delete`, so a pass excluding a prefix can never reconcile it. **S3 path only:** the image IS
-  the file set — no reconciliation, no orphan class, an honest 404 under `/assets/`.
+- **The image IS the file set** — no reconciliation pass, no orphan class, an honest 404 under
+  `/assets/`. The S3 path it replaced deployed in three prefix-scoped passes, and its one finding
+  that outlives it: **`--exclude` PROTECTS keys from `--delete`**, so a pass excluding a prefix can
+  never reconcile it.
 
 ### Gates, scanners and tests
 
@@ -501,7 +514,7 @@ only reads; the API enqueues on its behalf.
 No **second** API (one HTTP API, one `$default` route — a feature does not get its own service) ·
 no **new** browser-side AWS SDK call on a path an API route already serves · no in-browser file
 preview · no admin UI · no second **user-space** bucket
-(several buckets exist — shared-space, admin, artifacts, static; the constraint is one bucket of
+(several buckets exist — shared-space, admin, artifacts; the constraint is one bucket of
 personal prefixes).
 
 ---
@@ -518,7 +531,7 @@ points, because a summary that restates the contract drifts from it, and this on
 the `@docs/decisions/<area>.md` entry, a dependency's delivery doc; read `architecture.md` whole
 only for a part of the system you don't already hold, and never read the inventory or delivery docs
 in full. (4) Confirm `gh run list --branch main --limit 5` is green (esp. Deploy Infrastructure /
-Lambdas / App); investigate failures before building. (5) Branch from fresh `main`
+Lambdas / SPA image / Publish Config); investigate failures before building. (5) Branch from fresh `main`
 (`git fetch && git switch -c <branch> origin/main`). (6) Plan from the spec's phases, validate it
 against the spec, and send it to a **fresh-context reviewer**; (7) send the **PR grouping** to one
 too, before the first push — as few PRs as the dependencies allow.

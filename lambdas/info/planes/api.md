@@ -3,11 +3,12 @@
 One HTTP API, one `$default` route, one Lambda. It is **not** a control plane: no queue, no Step
 Function, no verb fan-out. It verifies a bearer token and serves routes directly.
 
-Arc B is porting the browser's direct AWS calls behind it. Today it serves `/healthz`, the username
-directory, the feature-flag document, the whole **object surface** (list, metadata, exists, content
-read and write, copy, move, delete, free-name, the download presign and the four upload routes) and
-the **catalog surface** — Athena start, status, results and stop, plus Glue get-database and list-tables.
-CloudFront is still production and the rollback.
+Arc B ported the browser's direct AWS calls behind it and is complete. It serves `/healthz`, the
+username directory, the feature-flag document, the whole **object surface** (list, metadata, exists,
+content read and write, copy, move, delete, free-name, the download presign and the four upload
+routes) and the **catalog surface** — Athena start, status, results and stop, plus Glue get-database
+and list-tables. It is the only thing that turns a token into AWS credentials: the Identity Pool is
+retired, and the container behind `spa_origin` is the only front door.
 
 **A route may name a resource in its path.** `/v1/queries/{queryExecutionId}` and
 `/v1/catalog/databases/{database}` are matched segment-wise against the contract's templates, and
@@ -82,8 +83,8 @@ between the browser and S3.
 - **That failure is answered in the router's PRE-DISPATCH clause**, not by `errors.for_exception`.
   `for_request` runs before dispatch, so a failure it raises never reaches the guard that
   classifies a route's exceptions and would arrive as a bare `InternalError`.
-- **It assumes the SAME role with the SAME tags from the SAME claims** as the identity pool, which
-  is why no policy was rewritten. The role is **reused, never minted**. `DurationSeconds` 3600 is a
+- **It assumes the SAME role with the SAME tags from the SAME claims** the Identity Pool read, which
+  is why no policy was rewritten — and why retiring that pool touched no permission policy at all. The role is **reused, never minted**. `DurationSeconds` 3600 is a
   ceiling **both ways**: shorter caps every presigned link, longer is refused because this is role
   chaining.
 - **Two credential planes, user by default, declared ON THE ROUTE — the failure fails OPEN.** A

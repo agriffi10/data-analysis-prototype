@@ -80,7 +80,10 @@ became untrue.
 ## Owed
 
 §D of `docs/testing/arc-b-api-container-e2e.md` is **not yet run** — and its load-bearing checks are
-all negative, because a genuine token succeeds against an API that does not verify at all. Three
+all negative, because a genuine token succeeds against an API that does not verify at all.
+
+> **Read this beside the ledger, not on its own (2026-09-02).** The arc script was deleted when Arc B closed; its durable checks are `docs/testing/e2e.md` §4.18 and its results are in `docs/testing/sessions.md`. **[`owed.md`](../testing/owed.md) is authoritative for what has since been run** — several of the items below have been discharged, and this doc is a record of the day it shipped rather than a live status.
+ Three
 cannot be reached offline at any price: that the JWKS endpoint is reachable from the function's
 network placement, that a browser preflight allows the bearer header, and that a genuinely expired
 token is refused by the expiry check rather than by something earlier.
