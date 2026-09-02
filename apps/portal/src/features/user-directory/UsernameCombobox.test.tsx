@@ -71,7 +71,7 @@ describe('UsernameCombobox', () => {
   }
 
   describe('UsernameCombobox — the ARIA pattern', () => {
-    it('exposes combobox role, state and the listbox it controls', async () => {
+    it('exposes combobox role, state and the listbox it controls, with no active descendant until one is highlighted', async () => {
       const {user} = renderWithProviders(<Harness />);
       expect(field()).toHaveAttribute('aria-expanded', 'false');
       expect(field()).toHaveAttribute('aria-autocomplete', 'list');
@@ -86,6 +86,8 @@ describe('UsernameCombobox', () => {
           .getAllByRole('option')
           .map((o) => o.textContent)
       ).toEqual(['alice', 'alicia']);
+      // Absent, not empty: an empty value is a broken reference some readers announce as one.
+      expect(field()).not.toHaveAttribute('aria-activedescendant');
     });
 
     it('keeps DOM focus in the input and moves a virtual cursor instead', async () => {
@@ -99,14 +101,6 @@ describe('UsernameCombobox', () => {
       expect(document.activeElement).toBe(field());
       expect(field()).toHaveAttribute('aria-activedescendant', options()[0].id);
       expect(options()[0]).toHaveAttribute('aria-selected', 'true');
-    });
-
-    it('omits aria-activedescendant entirely when nothing is highlighted', async () => {
-      // Absent, not empty: an empty value is a broken reference some readers announce as one.
-      const {user} = renderWithProviders(<Harness />);
-      await typeReady(user, 'ali');
-
-      expect(field()).not.toHaveAttribute('aria-activedescendant');
     });
 
     it('wraps the highlight in both directions', async () => {
