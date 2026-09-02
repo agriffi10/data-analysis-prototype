@@ -4,6 +4,7 @@ import type {ReactElement} from 'react';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {FileBrowser} from './FileBrowser';
 import {UploadQueueProvider} from './UploadQueueProvider';
+import {toUserText} from '../../lib/errorMessages';
 import {FileOpsInFlightProvider} from './FileOpsInFlightProvider';
 import {UPLOAD_CONCURRENCY} from './upload.types';
 import * as service from './fileBrowser.service';
@@ -669,16 +670,16 @@ describe('FileBrowser — an upload watched to completion (SPEC-154 FR-004)', ()
   });
 
   it('shows the Failed state with the MAPPED message, never the raw AWS text', async () => {
-    mock.uploadFile.mockResolvedValue({
-      success: false,
-      error: {message: 'AccessDenied: not authorized to perform s3:PutObject', code: 'AccessDenied'}
-    } as never);
+    const denied = {message: 'AccessDenied: not authorized to perform s3:PutObject', code: 'AccessDenied'};
+    mock.uploadFile.mockResolvedValue({success: false, error: denied} as never);
 
     const {user} = renderBrowser();
     await chooseFile(user);
 
     expect(await screen.findByText('Failed')).toBeInTheDocument();
-    // SPEC-106: `toUserMessage` wording is what reaches the user.
+    // The sentence a user reads is the mapper's, compared against the mapper's own output
+    // rather than a second copy of it; the raw text must not survive beside it.
+    expect(screen.getByText(toUserText(denied))).toBeInTheDocument();
     expect(screen.queryByText(/s3:PutObject/)).not.toBeInTheDocument();
   });
 
@@ -743,7 +744,9 @@ describe('FileBrowser — an upload watched to completion (SPEC-154 FR-004)', ()
   // rather than through a mocked `useUploadQueue`: what it shows per row is only meaningful
   // against items the real provider produced.
   it('lists uploads newest first, labelled with their destination space, and dismisses a finished one', async () => {
-    const {user} = renderBrowser();
+    // A NESTED prefix in a shared space: the label is the space (the key's first segment),
+    // never the folder the upload landed in.
+    const {user} = renderBrowser({prefix: 'team/sub/', rootPrefix: 'team/', rootLabel: 'team'});
     await chooseFile(user, 'first.txt');
     await screen.findByText('Uploaded');
     await user.upload(screen.getByLabelText('Choose files'), new File(['b'], 'second.txt', {type: 'text/plain'}));
@@ -755,7 +758,8 @@ describe('FileBrowser — an upload watched to completion (SPEC-154 FR-004)', ()
         .getAllByText(/\.txt$/)
         .map((el) => el.textContent)
     ).toEqual(['second.txt', 'first.txt']);
-    expect(within(list).getAllByText('alice')).toHaveLength(2);
+    expect(within(list).getAllByText('team')).toHaveLength(2);
+    expect(within(list).queryByText('team/sub')).not.toBeInTheDocument();
     // A finished row offers Dismiss and never Cancel.
     expect(within(list).queryByRole('button', {name: /cancel upload/i})).not.toBeInTheDocument();
     await user.click(within(list).getByRole('button', {name: 'Dismiss first.txt'}));

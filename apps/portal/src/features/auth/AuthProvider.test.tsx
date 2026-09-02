@@ -17,10 +17,10 @@ vi.mock('./auth.service', () => ({
   startSignUp: vi.fn(),
   startSignOut: vi.fn()
 }));
-vi.mock('../../lib/amplify', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../lib/amplify')>()),
-  isAmplifyConfigured: () => true
-}));
+// Listed, not spread: the original imports `sessionStorage` from `aws-amplify/utils`, which
+// this file mocks down to `Hub`, so spreading it would bind an undefined the provider never
+// touches but a future reader would have to reason about.
+vi.mock('../../lib/amplify', () => ({isAmplifyConfigured: () => true}));
 vi.mock('../../lib/returnPath', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/returnPath')>()),
   setReturnPathIfAbsent: vi.fn()
