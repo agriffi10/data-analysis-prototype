@@ -17,8 +17,12 @@ Attributes:
   ROOT_VARIABLES: The root `variables.tf`, which declares the image tag the module is given.
 """
 
+import os
 import pathlib
 import re
+import shutil
+import subprocess
+import tempfile
 
 import pytest
 from tf_blocks import blocks, strip_noise
@@ -283,12 +287,6 @@ def test_the_image_tag_has_no_default_and_refuses_the_empty_string() -> None:
         "default would create functions from an image nobody meant and nothing would correct it"
     )
     assert "validation" in body, "nothing refuses an empty TF_VAR_lambda_image_tag"
-    pattern = re.search(r'regex\("([^"]+)"', body)
-    assert pattern, "the validation does not constrain the tag's shape"
-    assert not re.match(pattern.group(1).replace("\\\\", "\\"), ""), (
-        "the validation pattern accepts the empty string, which is what an unset repository "
-        "variable renders as"
-    )
 
 
 def test_the_module_has_a_readme_carrying_its_reasoning() -> None:
@@ -308,4 +306,90 @@ def test_the_module_has_a_readme_carrying_its_reasoning() -> None:
     assert "ignore_changes" in text and "update-function-code" in text, (
         "the README must state the arrangement that makes CI responsible for pointing every "
         "function, which is where the risk in this arc lives"
+    )
+
+
+def _tofu_accepts(value: str) -> bool:
+    """Whether OpenTofu itself accepts a value for `lambda_image_tag`.
+
+    EVALUATED, not read. A validation block can be asserted present while its condition has been
+    weakened to something that accepts anything, and only running it can tell those apart —
+    `ci.yml` records that reasoning and `test_api_module.py` established the harness. Re-implementing
+    the HCL pattern in Python `re` is also unsound in general: Python's `$` matches before a
+    trailing newline and Go's RE2 does not, so a translation can disagree with the thing it claims
+    to mirror.
+
+    The declaration is lifted into a scratch module that declares no provider, so the init is
+    offline and no credentials are involved.
+
+    Args:
+      value: The candidate tag.
+
+    Returns:
+      True when OpenTofu plans successfully with that value.
+
+    Raises:
+      AssertionError: When tofu is unavailable, or the declaration cannot be extracted — a skip
+        would read as coverage this suite would not have.
+    """
+    tofu = shutil.which("tofu")
+    assert tofu, "OpenTofu is not on PATH — this assertion cannot be skipped into passing"
+
+    source = ROOT_VARIABLES.read_text(encoding="utf-8")
+    match = re.search(r'variable\s+"lambda_image_tag"\s*\{', source)
+    assert match, "lambda_image_tag is not declared"
+    index, depth = source.index("{", match.start()), 0
+    while index < len(source):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                break
+        index += 1
+    declaration = source[match.start(): index + 1]
+
+    with tempfile.TemporaryDirectory() as scratch:
+        pathlib.Path(scratch, "variables.tf").write_text(declaration + "\n")
+        environment = {
+            "PATH": os.environ.get("PATH", ""),
+            "HOME": os.environ.get("HOME", ""),
+            "TF_IN_AUTOMATION": "1",
+            "TF_VAR_lambda_image_tag": value,
+        }
+        setup = subprocess.run(  # noqa: S603
+            [tofu, "init", "-backend=false", "-input=false"],
+            cwd=scratch, env=environment, capture_output=True, text=True, check=False,
+        )
+        assert setup.returncode == 0, f"tofu init failed:\n{setup.stdout}\n{setup.stderr}"
+        plan = subprocess.run(  # noqa: S603
+            [tofu, "plan", "-input=false"],
+            cwd=scratch, env=environment, capture_output=True, text=True, check=False,
+        )
+    return plan.returncode == 0
+
+
+def test_opentofu_itself_refuses_an_empty_image_tag() -> None:
+    """The refusal that matters, run rather than read.
+
+    An empty `TF_VAR_` satisfies a required variable AND overrides a default, and an unset
+    repository variable renders as exactly that — so this condition is the only thing between an
+    unsupplied value and 86 functions created from a tag nobody chose. The positive case is here
+    too: a validation that refuses everything would pass the negative alone.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When OpenTofu accepts an empty tag, or refuses a real sha.
+    """
+    assert _tofu_accepts("a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"), (
+        "OpenTofu refuses a real commit sha; the validation is too strict to be usable"
+    )
+    assert not _tofu_accepts(""), (
+        "OpenTofu accepts an empty lambda_image_tag — an unset repository variable renders as "
+        "exactly that, and the value is ignored after creation so nothing would correct it"
     )

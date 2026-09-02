@@ -70,10 +70,18 @@ def _harness(tmp_path, package_type, *, landed=None, status="Successful",
             echo "{REPOSITORY}" ;;
           *"describe-images"*)
             [ "{image_present}" = "True" ] || exit 254 ;;
-          *"get-function-configuration"*"LastUpdateStatus"*)
-            echo "{status}" ;;
+          *"wait function-updated-v2"*)
+            # The REAL waiter has a terminal failure state on LastUpdateStatus == Failed and
+            # exits non-zero. A stub that always succeeds makes the script's failure branch
+            # unreachable and its test vacuous — which is exactly what the first version did.
+            [ "{status}" = "Successful" ] || exit 255 ;;
+          # ORDER MATTERS: "LastUpdateStatus" is a prefix of "LastUpdateStatusReason", so the
+          # broader pattern must come second or it swallows the narrower one — which it did, and
+          # the script's error line reported the status where the reason belongs.
           *"get-function-configuration"*"LastUpdateStatusReason"*)
             echo "a reason" ;;
+          *"get-function-configuration"*"LastUpdateStatus"*)
+            echo "{status}" ;;
           *) : ;;
         esac
         """))
@@ -206,11 +214,17 @@ def test_an_update_that_finishes_as_failed_fails_the_function(tmp_path, staged):
     Raises:
       AssertionError: When a failed update reports success.
     """
-    binary, _ = _harness(tmp_path, "Image", status="Failed")
+    binary, log = _harness(tmp_path, "Image", status="Failed")
     result = _run(binary, staged)
+    output = result.stdout + result.stderr
 
     assert result.returncode != 0
-    assert "Failed" in result.stdout + result.stderr
+    # The REASON, not just the exit code. The waiter exits non-zero on a terminal failure, so a
+    # script that let `set -e` abort on it would fail with botocore's generic waiter message and
+    # never reach the read that names what AWS actually said.
+    assert "finished its update as Failed" in output, output
+    assert "a reason" in output, output
+    assert "LastUpdateStatusReason" in log.read_text()
 
 
 def test_an_image_that_did_not_land_is_refused(tmp_path, staged):

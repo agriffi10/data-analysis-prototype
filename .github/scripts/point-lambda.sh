@@ -87,9 +87,26 @@ aws lambda update-function-code \
   --publish >/dev/null
 
 # A container function's update is ASYNCHRONOUS. Returning on the API call alone reports a deploy
-# that has not happened — the waiter fails on LastUpdateStatus Failed rather than timing out.
-aws lambda wait function-updated-v2 --function-name "$FUNCTION"
+# that has not happened.
+#
+# THE WAITER IS RUN UNDER `if !`, NOT BARE, and that is the difference between a legible failure
+# and a useless one. `function-updated-v2` has a terminal FAILURE state on
+# `LastUpdateStatus == "Failed"`, so it exits non-zero — and under this file's `set -e` a bare call
+# would abort the script right here, leaving the read below unreachable in exactly the case it was
+# written for. The operator would get botocore's "Waiter FunctionUpdatedV2 failed: Waiter
+# encountered a terminal failure state" instead of the reason AWS supplied, on the failure this arc
+# is most likely to hit: a bad manifest, an architecture mismatch, an image that will not start.
+if ! aws lambda wait function-updated-v2 --function-name "$FUNCTION"; then
+  STATUS=$(aws lambda get-function-configuration --function-name "$FUNCTION" \
+    --query 'LastUpdateStatus' --output text 2>/dev/null || echo "unknown")
+  REASON=$(aws lambda get-function-configuration --function-name "$FUNCTION" \
+    --query 'LastUpdateStatusReason' --output text 2>/dev/null || true)
+  echo "::error::${FUNCTION} finished its update as ${STATUS}: ${REASON}"
+  exit 1
+fi
 
+# Belt as well as braces: a waiter that returned success has not necessarily left the function
+# Successful (it also accepts on a state this script does not enumerate), so the status is read.
 STATUS=$(aws lambda get-function-configuration --function-name "$FUNCTION" \
   --query 'LastUpdateStatus' --output text)
 if [ "$STATUS" != "Successful" ]; then

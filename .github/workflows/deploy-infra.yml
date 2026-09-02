@@ -223,8 +223,8 @@ jobs:
       # pipeline can regenerate is a fixture that agrees with whatever the code currently says,
       # which is the one thing it must never do. Committed by hand, once, and frozen.
       #
-      # This step is not the gate. It runs always and passes always; the assertion is the step
-      # after it, which hard-fails when the fixture is missing rather than skipping.
+      # This step is not the gate — `Assert the planned Lambda fleet`, two steps below, is. That
+      # one hard-fails when the fixture is missing rather than skipping; this one only extracts.
       - name: Capture the Lambda parity fixture
         run: |
           set -euo pipefail

@@ -31,9 +31,15 @@ The mitigation is the same: CI counts what it pointed and fails loudly on a shor
 
 A container function cannot be created pointing at a tag the registry does not hold. After
 creation the value is ignored, so the constraint is real exactly once per function — but "once" is
-the cutover, when it applies to all 86 at the same moment. `Deploy Infrastructure` waits for the
-tag before applying; the ordering is written down in
-[`lambdas/info/deployment.md`](../../../lambdas/info/deployment.md).
+the cutover, when it applies to all 86 at the same moment.
+
+**That wait does not exist yet.** `Deploy Lambdas` waits for the tag before pointing a function
+(`.github/scripts/point-lambda.sh`), but `Deploy Infrastructure` has no such step — and
+`deploy-lambda-image.yml` carries no `paths:` filter, so it fires on the same push as an apply and
+the two race. Nothing depends on that today, because no function is created from an image. The
+apply-side wait, and the ordering note in
+[`lambdas/info/deployment.md`](../../../lambdas/info/deployment.md), land with the cutover — the
+change that makes the race matter.
 
 ## What is deliberately not declared
 

@@ -53,6 +53,70 @@ PARITY_FIELDS = (
 PACKAGING_FIELDS = ("package_type", "image_uri", "image_config")
 
 
+def _has_unknown_leaf(marker) -> bool:
+    """Whether a Terraform `after_unknown` marker contains any genuinely unknown value.
+
+    `after_unknown` PRESERVES THE STRUCTURE of the attribute it describes, and that is the whole
+    reason this function exists rather than a truthiness test. Measured against a real create plan
+    of `infra/modules/docker-lambda`:
+
+        environment   after=[{"variables": {"FOO": "bar"}}]   after_unknown=[{"variables": {}}]
+        architectures after=["x86_64"]                        after_unknown=[false]
+        timeout       after=60                                after_unknown=null
+
+    A fully-KNOWN list is `[false]` and a fully-known block is `[{}]` — both truthy in Python. So
+    `if unknown.get(field)` reports every list and every block as unknown, which on the cutover's
+    replacement plan is roughly 250 false failures, and on any plan that merely CREATES a function
+    is a capture that refuses to run. Only a `true` leaf means unknown.
+
+    Args:
+      marker: One `after_unknown` value: a bool, a list, a dict, or None.
+
+    Returns:
+      True when any leaf is unknown.
+
+    Raises:
+      None.
+    """
+    if isinstance(marker, bool):
+        return marker
+    if isinstance(marker, dict):
+        return any(_has_unknown_leaf(v) for v in marker.values())
+    if isinstance(marker, list):
+        return any(_has_unknown_leaf(v) for v in marker)
+    return False
+
+
+def _comparable(field: str, value):
+    """Normalises a parity value so the two plan KINDS can be compared at all.
+
+    `vpc_config` carries `vpc_id`, which the provider reads back: a no-op plan has it and a
+    create plan omits the key entirely, so a raw comparison fails for every VPC-attached function
+    no matter what the configuration says — and the guard's usual remedy, "declare it explicitly",
+    is impossible for an attribute that is not settable. Only the sub-attributes the configuration
+    sets are compared.
+
+    Args:
+      field: The parity field's name.
+      value: Its planned value.
+
+    Returns:
+      The value reduced to what a configuration can actually control.
+
+    Raises:
+      None.
+    """
+    if field != "vpc_config" or not value:
+        return value
+    return [
+        {
+            "subnet_ids": sorted(block.get("subnet_ids") or []),
+            "security_group_ids": sorted(block.get("security_group_ids") or []),
+        }
+        for block in value
+    ]
+
+
 def _functions(plan: dict) -> dict[str, dict]:
     """Every `aws_lambda_function` in the plan, keyed by its deployed name.
 
@@ -128,12 +192,12 @@ def capture(plan: dict) -> dict:
     for name, entry in sorted(functions.items()):
         row = {}
         for field in PARITY_FIELDS:
-            if entry["unknown"].get(field):
+            if _has_unknown_leaf(entry["unknown"].get(field)):
                 sys.exit(
                     f"{name}: {field} is unknown in this plan, so it cannot be captured as the "
                     "value the cutover must preserve. Capture from a plan with no pending changes."
                 )
-            row[field] = entry["after"].get(field)
+            row[field] = _comparable(field, entry["after"].get(field))
         # The handler is captured for a different reason: it IS the command the container function
         # takes, and deriving the expected command from the new code would agree with itself.
         row["handler"] = entry["after"].get("handler")
@@ -213,7 +277,7 @@ def check(plan: dict, fixture: dict, package_type: str, image_repository: str | 
     for name in sorted(expected_names & set(functions)):
         entry, want = functions[name], fixture["functions"][name]
         for field in PARITY_FIELDS:
-            if entry["unknown"].get(field):
+            if _has_unknown_leaf(entry["unknown"].get(field)):
                 problems.append(
                     f"{name}: {field} is UNKNOWN in this plan. That is not 'no change' — an "
                     "attribute the configuration does not set is unknown in a replacement plan "
@@ -221,7 +285,7 @@ def check(plan: dict, fixture: dict, package_type: str, image_repository: str | 
                     "vacuous for the fields most likely to have moved. Declare it explicitly."
                 )
                 continue
-            got = entry["after"].get(field)
+            got = _comparable(field, entry["after"].get(field))
             if got != want[field]:
                 problems.append(f"{name}: {field} moved from {want[field]!r} to {got!r}")
 

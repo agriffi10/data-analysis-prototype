@@ -470,3 +470,163 @@ def test_the_fixture_says_in_its_own_text_that_it_is_frozen():
         "the fixture must say it is frozen; a reader who regenerates it destroys the only "
         "independent record of what the fleet looked like before the cutover"
     )
+
+
+# ── The shapes a real plan actually produces ──────────────────────────────────
+# Everything above this line builds `after_unknown` by hand, and the first version of the guard
+# passed all of it while being wrong about every real plan. The reason is worth stating: those
+# fixtures used SCALAR unknown markers (`{"memory_size": True}`), so they agreed with the
+# implementation and with nothing else.
+#
+# Terraform's `after_unknown` PRESERVES STRUCTURE. Measured with `tofu show -json` against a real
+# create plan of infra/modules/docker-lambda, provider 5.100.0:
+#
+#     environment    after=[{"variables": {"FOO": "bar"}}]   after_unknown=[{"variables": {}}]
+#     architectures  after=["x86_64"]                        after_unknown=[false]
+#     timeout        after=60                                after_unknown=null
+#
+# A known list is `[false]`; a known block is `[{}]`. Both are truthy in Python. These are those
+# captured shapes, verbatim.
+
+REAL_CREATE_UNKNOWN = {
+    "environment": [{"variables": {}}],
+    "architectures": [False],
+    "vpc_config": [],
+    "timeout": None,
+    "memory_size": None,
+    "role": None,
+    "reserved_concurrent_executions": None,
+}
+
+
+def test_a_known_list_or_block_is_not_read_as_unknown():
+    """The leaf test, against the markers a real create plan emits.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a fully-known structured value reads as unknown.
+    """
+    for field, marker in REAL_CREATE_UNKNOWN.items():
+        assert not GUARD._has_unknown_leaf(marker), (
+            f"{field}: marker {marker!r} is fully known in a real plan but reads as unknown"
+        )
+
+
+def test_a_genuinely_unknown_leaf_is_still_caught():
+    """The negative control. Without it the fix above could be "always return False".
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a real unknown is missed.
+    """
+    assert GUARD._has_unknown_leaf(True)
+    assert GUARD._has_unknown_leaf([True])
+    assert GUARD._has_unknown_leaf([{"variables": True}])
+    assert GUARD._has_unknown_leaf([{"subnet_ids": [False, True]}])
+    assert not GUARD._has_unknown_leaf(None)
+
+
+def test_a_create_plan_captures_and_checks_clean():
+    """End to end over the real shapes — capture, then check the same plan against its capture.
+
+    This is the case the guard was written for and got wrong: capture exited 1, and check emitted
+    a false failure for every list and block attribute.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a create plan is not handled cleanly.
+    """
+    created = {
+        "resource_changes": [{
+            "address": "module.fn.aws_lambda_function.this",
+            "type": "aws_lambda_function",
+            "change": {
+                "actions": ["create"],
+                "after": {
+                    "function_name": "dat-prod-archive-copy-objects",
+                    "package_type": "Image",
+                    "image_uri": "repo:abc",
+                    "image_config": [{"command": ["archive_copy_objects.handler"]}],
+                    "environment": [{"variables": {"FOO": "bar"}}],
+                    "architectures": ["x86_64"],
+                    "vpc_config": [],
+                    "timeout": 60,
+                    "memory_size": 128,
+                    "role": "arn:aws:iam::123456789012:role/exec",
+                    "reserved_concurrent_executions": -1,
+                },
+                "after_unknown": REAL_CREATE_UNKNOWN,
+            },
+        }]
+    }
+    captured = GUARD.capture(created)
+    problems = GUARD.check(created, captured, "Image", "repo",
+                           [{"name": "archive-copy-objects"}], "dat", "prod")
+    assert problems == [], problems
+
+
+def test_vpc_parity_survives_the_computed_vpc_id():
+    """`vpc_id` is read back by the provider: present in a no-op plan, absent in a create one.
+
+    Comparing it raw fails for every VPC-attached function whatever the configuration says, and
+    the guard's usual remedy — declare it explicitly — is impossible for an attribute nothing can
+    set. Only the sub-attributes a configuration controls are compared.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the computed read-back breaks parity.
+    """
+    no_op = _resource("dat-prod-vpc-thing", _zip_after(
+        vpc_config=[{"subnet_ids": ["s-2", "s-1"], "security_group_ids": ["sg-1"],
+                     "vpc_id": "vpc-123"}]))
+    replacement = _resource("dat-prod-vpc-thing", _zip_after(
+        vpc_config=[{"subnet_ids": ["s-1", "s-2"], "security_group_ids": ["sg-1"],
+                     "ipv6_allowed_for_dual_stack": False}]))
+
+    fixture = GUARD.capture({"resource_changes": [no_op]})
+    problems = GUARD.check({"resource_changes": [replacement]}, fixture, "Zip", None,
+                           [{"name": "vpc-thing"}], "dat", "prod")
+    assert problems == [], problems
+
+
+def test_a_real_vpc_change_is_still_caught():
+    """The negative control for the normalisation — it must not flatten a genuine move.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a changed subnet passes.
+    """
+    before = _resource("dat-prod-vpc-thing", _zip_after(
+        vpc_config=[{"subnet_ids": ["s-1"], "security_group_ids": ["sg-1"], "vpc_id": "vpc-1"}]))
+    after = _resource("dat-prod-vpc-thing", _zip_after(
+        vpc_config=[{"subnet_ids": ["s-9"], "security_group_ids": ["sg-1"]}]))
+
+    fixture = GUARD.capture({"resource_changes": [before]})
+    problems = GUARD.check({"resource_changes": [after]}, fixture, "Zip", None,
+                           [{"name": "vpc-thing"}], "dat", "prod")
+    assert any("vpc_config moved" in p for p in problems), problems
