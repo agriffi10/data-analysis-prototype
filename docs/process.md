@@ -424,6 +424,15 @@ When a spec is done, in the same pass:
   Don't add prose to the always-loaded tier.
 - **Standing rules never cite volatile numbers** (line counts, row counts, section ranges) — state the
   principle. The numbers rot, and a rule resting on false evidence teaches readers to distrust it.
+  **Dating the measurement does not save it**, which is the tempting half-fix: a dated number
+  still reads as current to anyone not checking the date against the calendar. Anchor both ends
+  of the evidence to a commit a reader can re-measure from, or state the principle and drop the
+  number — `validate_docs.py`'s budget history is the shape to copy.
+- **After a structural cut, RE-DERIVE every threshold rather than re-checking it.** A cap can be
+  invalidated by its own success: the cut shrinks everything below it, and it can never fire again
+  while still being advertised here as a fence. A check that passes proves nothing about a cap that
+  cannot fail. Why `CLAUDE_MAX_BYTES` is deliberately not at the measured level is in
+  `validate_docs.py`'s docstring, where a person changing it reads it.
 - **A rule practice consistently violates gets reconciled or deleted.** A dead rule trains agents to
   ignore the live ones.
 - **Routers carry only what self-describes.** Hand-maintained metadata (symbol counts, "§1–§N" ranges)
