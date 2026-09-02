@@ -3,11 +3,11 @@
 **ID:** SPEC-217
 **Status:** Draft
 **Last Updated:** 2026-09-02
-**Depends On:** SPEC-208 (the operator CSV door, the `SenderId` boundary, refusals as return values), SPEC-206 (the `SenderId` role-id comparison), SPEC-205 (a delete empties a space; `emptiedAt`, the cleared `owner`, and the inertness test this spec re-points), SPEC-051/053 (the shared-space plane, `add_members` and `remove_members`), SPEC-082 (registry CAS), SPEC-125 (`shared-space-common`), SPEC-152 (a pre-verb failure notifies), SPEC-201 (the API stamps the identity block the plane reads)
+**Depends On:** SPEC-208 (the operator CSV door, the `SenderId` boundary, refusals as return values, the verb's own refusal fence), SPEC-206 (the `SenderId` role-id comparison), SPEC-205 (a delete empties a space; `emptiedAt`, the cleared `owner`, and the inertness test this spec re-points), SPEC-051/053 (the shared-space plane, `add_members` and `remove_members`), SPEC-082 (registry CAS), SPEC-125 (`shared-space-common`), SPEC-152 (a pre-verb failure notifies), SPEC-201 (the API stamps the identity block the plane reads)
 
 **Interacts with:** SPEC-203's membership index and the roster fan-out are written by the existing
 verbs and are untouched — this spec changes who may ask for a membership change and how a request
-arrives, never what a verb does once it has one.
+arrives, never what a membership change *does*.
 
 ## Overview
 
@@ -44,6 +44,8 @@ predicate that is actually consulted.
 - `add_members` and `remove_members` leaving `OWNER_ONLY_ACTIONS`, with the owner check moving into
   that predicate rather than being lost — and SPEC-205's emptied-record inertness test re-pointed at
   the predicate for those two actions, still driven as the original owner.
+- The two member verbs gaining the refusal fence and the origin stamp `transfer_ownership` already
+  carries, because a refusal that is a value is a refusal the verb can now be handed.
 - An explicit refusal for removing a space's current owner, which today is silently dropped.
 - The reader coalescing a file's rows into one request per `(space, action)`, the two caps that
   bounds, and the per-row syntactic checks.
@@ -64,6 +66,10 @@ rather than only here.
   CLAUDE.md forbids; the last three are self-scoped acts, and an operator performing one impersonates
   a user rather than administering a space. All five stay refused, and a test enumerates them.
 - **An in-app admin surface.** Unmoved from SPEC-208: no admin group, no admin role, no admin route.
+- **What a membership change does.** Slots, Lake Formation grants, the roster fan-out, the membership
+  index and the notification wording are untouched. FR-006 is the one exception and it is not a
+  change to the work: the two verbs gain the guard and the span stamp that `transfer_ownership`
+  already has, which is bookkeeping about *whether they should have run at all*.
 - **Sequencing between requests.** The Pipe is `FIRE_AND_FORGET` with `batch_size = 1`, so requests
   are *delivered* in order and their executions overlap. A change that depends on an earlier one
   having landed — transfer a space, then remove its former owner — is two files, the second uploaded
@@ -78,10 +84,8 @@ rather than only here.
   half of the `SenderId` comparison, so renaming it rotates the value the boundary compares against,
   and any operator file consumed in that window is moved to `processed/` with every one of its rows
   refused. A misleading name is paid for in a docstring; a rotated role id is paid for in lost work.
-- **Any change to the browser's member management**, or to what the verbs do once a request reaches
-  them. Slots, grants, the roster fan-out, the membership index and the notifications are unchanged.
 - **A backfill of files left under `ownership-transfers/`.** The cutover confirms that prefix empty
-  rather than teaching the reader to drain a prefix it is retiring.
+  before the reader stops looking at it.
 
 ---
 
@@ -104,20 +108,21 @@ retired.
       accepted header, rather than the generic wrong-header sentence. An operator who wrote
       yesterday's file gets told what changed.
 - [ ] `action` must be one of `transfer_ownership`, `add_members`, `remove_members`, held as a
-      **local constant** in the reader — it has no domain layer and importing one for a frozenset
-      would buy a cold-start crash — and a test asserts that constant **equals**
-      `shared-space-common`'s `config.OPERATOR_ACTIONS`, in the manner `SCHEMA_VERSION` and
-      `MESSAGE_GROUP_ID` are already cross-checked. Equality, not containment: a subset assertion
-      passes while the reader silently refuses an action the plane admits.
+      **local constant** in the reader — it has no domain layer and importing one at runtime would
+      buy a cold-start crash on `PORTAL_ROLE_ARN`, which the reader's environment does not set — and
+      a test asserts that constant **equals** `shared-space-common`'s `config.OPERATOR_ACTIONS`, in
+      the manner `SCHEMA_VERSION` and `MESSAGE_GROUP_ID` are already cross-checked from the test's
+      own `sys.path`. Equality, not containment: a subset assertion passes while the reader silently
+      refuses an action the plane admits.
 - [ ] A row naming any other action rejects the **whole file**, with a reason naming the line number
       and the accepted actions. Partial enqueueing is not an option this reader has: SPEC-208's rows
       are enqueued neither wholly nor partly, and mixing actions does not change that.
 - [ ] **A file naming one space under more than one action is rejected**, naming the space and both
       lines. Two actions on one space in one file read as a sequence and are not one: their
       executions overlap, so `transfer_ownership` then `remove_members` on the same space can be
-      validated in either order, and the losing order refuses with FR-004's brand-new "transfer the
-      space first" — advice the previous line already took. The refusal is at the reader because it
-      is the only place that can see the pair.
+      validated in either order, and the losing order refuses with FR-004's "transfer the space
+      first" — advice the previous line already took. The refusal is at the reader because it is the
+      only place that can see the pair.
 - [ ] Two rows carrying the same `(space, action, username)` triple reject the whole file, naming
       both lines. Duplicates within one coalesced request are a no-op at best and a mistake at worst,
       and the file has no way to mean anything by them.
@@ -152,21 +157,19 @@ operator origin and no identity block, in the envelope SPEC-208 established.
 #### Acceptance Criteria:
 
 - [ ] Rows sharing a `(space, action)` become one message whose payload carries every one of their
-      usernames, in file order. One row per member and one message per member is the mapping this
-      criterion exists to forbid: the Pipe is `batch_size = 1` and `FIRE_AND_FORGET`, so N messages
-      for one space are N overlapping executions, each a compare-and-swap against a single registry
-      object whose `cpcommon.cas.MAX_ATTEMPTS` is 6 and whose docstring rests on contention being
-      rare — and each dragging a full `write_roster_to_all`, so N single-member adds to one space
-      cost O(N²) cache writes. The verbs already take a list, and one message is one CAS and one
-      fan-out.
+      usernames, in file order. One message per member is the mapping this criterion exists to
+      forbid: the Pipe is `batch_size = 1` and `FIRE_AND_FORGET`, so N messages for one space are N
+      overlapping executions, each a compare-and-swap against a single registry object whose
+      `cpcommon.cas.MAX_ATTEMPTS` is 6 and whose docstring rests on contention being rare — and each
+      dragging a full `write_roster_to_all`, so N single-member adds to one space cost O(N²) cache
+      writes. The verbs already take a list, and one message is one CAS and one fan-out.
 - [ ] `transfer_ownership` enqueues `payload: {"newOwner": <username>}`; `add_members` and
       `remove_members` each enqueue `payload: {"members": [...]}`. A test asserts each shape against
       the key the corresponding verb actually reads, rather than against a literal repeated in the
       test.
-- [ ] A file naming one space under `transfer_ownership` more than once is already refused by
-      FR-001's duplicate rule only when the target repeats. A second transfer row for the same space
-      naming a *different* target is refused too, by the same one-action-one-space reasoning: two
-      transfers of one space in one file are a race whichever way they are read.
+- [ ] A second `transfer_ownership` row for the same space naming a *different* target is refused,
+      by the same one-action-one-space reasoning: two transfers of one space in one file are a race
+      whichever way they are read. (A repeated target is already refused as a duplicate triple.)
 - [ ] Every message carries `origin: "operator"`, no `identity` key, the queue's single message group
       and the schema version the validator accepts.
 - [ ] The request id is derived from the object key and the `(space, action)` pair, so a crashed tick
@@ -180,17 +183,32 @@ operator origin and no identity block, in the envelope SPEC-208 established.
       the fix is a request ledger the plane does not have.
 - [ ] Files are processed in listing order, and the sweep still **stops** at a file it has no budget
       for rather than skipping past it.
-- [ ] **Two caps, each computed by a test against the budget that sized it, and each naming that
-      budget.** The first is rows per invocation, the reader's existing derivation from its own
-      timeout, send fraction and one `SendMessage` round trip — unchanged in shape, re-derived
-      because coalescing changes what a row costs to send. The second is **members per message**,
-      derived from the `add_members` verb's own timeout (60 s, from the Terraform map, read the way
-      the existing cap reads the reader's) and a per-member cost covering its Cognito lookup, slot
-      assignment, cache write and index write. Without the second, coalescing hands one message a
-      list longer than the verb it feeds can process, and the failure is a timeout — a top-level
-      execution failure that catchers do not cover. A file needing more than that many members for
-      one `(space, action)` is **rejected** with a reason naming the cap, on SPEC-208's reasoning
-      that only the operator can split it.
+- [ ] **The rows-per-invocation cap keeps its existing inputs and its existing value**, and the test
+      asserting that is kept. Coalescing makes it conservative — a file's sends are now at most its
+      distinct `(space, action)` pairs — and the conservatism is deliberate rather than an oversight
+      to be re-derived away: the reader was never the expensive half, and a cap re-derived from a
+      per-row *parse* cost would run to five figures, leave the over-cap rejection unreachable and
+      bound nothing anyone cares about. What must change is the rejection's **wording**, which today
+      says a file of N rows "could never be handled in one run" — no longer true when those rows are
+      one send.
+- [ ] **A second cap bounds members per message**, and it is the one that now matters. It is computed
+      by a test from the `add_members` verb's **effective** timeout and a named per-member cost
+      constant, in the manner `SEND_MILLISECONDS` already names the reader's. Two traps in reading
+      that timeout, both of which ship green: the verb takes the module's `lookup(...)` **default**,
+      because `local.shared_space_function_timeouts` carries one entry and `add-members` is not it —
+      so a test parsing the map finds nothing and a test parsing the resource finds the `lookup`
+      expression, not an integer. The test therefore reads the declared default **and asserts
+      `add-members` has no override**, so it reddens the day one is added rather than sizing against
+      a number that moved. The cost constant must cover the **fan-out too**, which is O(roster) and
+      not per-member: a message adding M members to a space of R costs M lookups, slot assignments
+      and index writes plus R+M cache writes, so a cost model that is R-independent is too permissive
+      for exactly the large space the cap exists to protect.
+- [ ] The justification for that cap is the **partial state**, not a lost notification: this machine
+      declares no top-level `TimeoutSeconds` and `AddMembers` carries a `States.ALL` catch, so a verb
+      that runs out of time is caught and reported. What it leaves behind is the problem — slots
+      assigned, the registry unwritten, and `_release_slots` never reached.
+- [ ] A `(space, action)` group larger than that cap **rejects the file**, with a reason naming the
+      cap, on SPEC-208's reasoning that only the operator can split it.
 - [ ] The structured log names the action and the space on every enqueued message and says which
       lines went into it, so the operator's only feedback channel distinguishes an add from a
       removal. The reader's existing event messages, which say "ownership-transfer", are re-worded.
@@ -219,15 +237,18 @@ that no existing test would catch — the browser only ever sends an owner's req
       `ResultPath`, `ValidateFailureSeed` seeds a null actor, and `shared-space-notify-failure`
       returns without notifying on a falsy actor. This is a behaviour change on the UI path and is
       deliberate — a member change that refuses is currently a request the user watches disappear.
-- [ ] **`test_the_emptied_record_is_inert_to_its_ORIGINAL_OWNER` is re-pointed, not trimmed.** That
-      SPEC-205 test loops five actions asserting `authorize` raises on an emptied record; two of them
-      are the actions this FR moves, so it reddens on a correct change and the cheapest repair is to
-      delete those two names — losing the detection while production behaviour rests on FR-004 being
-      wired. The two actions must instead be asserted through `member_refusal`, **still driven as the
-      original owner**, which is SPEC-205's own trap: `authorize` read the `owner` field, so the
-      original owner is the only actor who could have survived the clearing. This supersedes the
-      mechanism half of the register's *emptied record is inert* entry, and the entry is amended in
-      place rather than left to disagree.
+- [ ] **`test_the_emptied_record_is_inert_to_its_ORIGINAL_OWNER` is re-pointed, and keeps its
+      discrimination.** That SPEC-205 test loops five actions asserting `authorize` raises on an
+      emptied record; two of them are the actions this FR moves, so it reddens on a correct change
+      and the cheapest repair is to delete those two names — losing the detection while production
+      behaviour rests on FR-004 being wired. The two actions are asserted through `member_refusal`
+      instead, **still driven as the original owner**. That alone is weaker than what it replaces:
+      `authorize` refused because the `owner` field was cleared, which is what made the actor
+      load-bearing, while the emptied branch copied from `transfer_refusal` fires on `emptiedAt`
+      before any actor is consulted, so the assertion would pass as a stranger too. So it is paired
+      with a live-record assertion — the original owner allowed, a non-owner refused by code — which
+      is what actually pins the actor. This supersedes the mechanism half of the register's *emptied
+      record is inert* entry, and the entry is amended in place rather than left to disagree.
 - [ ] `delete` **stays** in `OWNER_ONLY_ACTIONS`, and a test asserts the set's exact contents, so
       removing the last member of it cannot pass as tidying.
 - [ ] **The predicate takes `requester`, never the context's `actor`, and `requester is None` is what
@@ -236,21 +257,34 @@ that no existing test would catch — the browser only ever sends an owner's req
       so it compares equal — and the skip could then be deleted with every test still green. This is
       the trap `transfer_refusal` already documents, one action over.
 - [ ] `targets` is a **list**, because that is what the wire carries: the contract declares
-      `members: list[str]` and the browser sends an array. Request-level conditions refuse the whole
-      request; the one per-name condition, FR-004's removal naming the owner, also refuses the whole
-      request rather than dropping that name, so the operator is told rather than partly served.
+      `members: list[str]` as a TypedDict, which is not a runtime check, and nothing between the
+      browser and the predicate validates it. An absent, empty, or non-list `members` is refused with
+      its own code rather than normalising to `[]` and succeeding as a no-op — `transfer_refusal` has
+      exactly this in `TransferTargetMissing` and the member path is given none. It is reachable
+      immediately: FR-005's enumeration drives every action through one operator envelope, so
+      `member_refusal` is called with a `newOwner` payload and no `members` key.
+- [ ] The predicate compares targets in the **same normalised form the verb will apply** —
+      `normalize_members` lowercases, so a UI request naming `Alice` against owner `alice` must
+      refuse rather than pass the predicate and be silently dropped by the verb. That silent drop is
+      the behaviour FR-004 exists to end, and a verbatim comparison copied from `transfer_refusal`
+      would leave it in place on the one path the CSV's syntactic check does not cover.
+- [ ] Request-level conditions refuse the whole request; the one per-name condition, FR-004's removal
+      naming the owner, also refuses the whole request rather than dropping that name, so the
+      operator is told rather than partly served.
 - [ ] Removing the owner check from `member_refusal` reddens the named tests and nothing unrelated;
       the mutation is planted, run and reverted, and the delivery doc says which tests caught it. The
       guard's failure would otherwise be silent, which is the class this project mutation-tests.
 - [ ] `member_refusal` is pure: no AWS calls, and a test asserts the client fakes recorded none.
 - [ ] The predicate is the **only** authority on these two actions. A test asserts `authorize` no
       longer decides them — an owner check written in both places is the complement that drifts.
-- [ ] **Every code the predicate can return has an entry in the message table**, asserted as set
-      equality between the codes in `auth` and the keys of the table in `messages`. Today an
-      unregistered code degrades to `'We couldn't transfer the shared workspace "{space}".'` — so a
-      member refusal shipped without wording tells the user their *transfer* failed, silently. The
-      table is either renamed away from `_TRANSFER_REFUSALS` or joined by a second one; the spec does
-      not care which, only that the set equality holds.
+- [ ] **Every code the predicate can return renders its own sentence.** The codes are a module-level
+      frozenset in `auth`, `_refusal` refuses a code outside it, and a test asserts set equality with
+      the message table's keys — enumerated from that constant rather than swept from call sites, so
+      the guard needs no positive control. Key equality alone is not enough and the criterion says
+      so: `refusal_message` consults one table and degrades an unregistered code to
+      `'We couldn't transfer the shared workspace "{space}".'`, so a second table would satisfy set
+      equality while every member refusal told the user their *transfer* failed. The test asserts the
+      **rendered sentence** for each member code is not that fallback.
 
 ### FR-004: What an operator may ask of a member change, and what refuses
 
@@ -305,22 +339,29 @@ bucket's prefix, its lifecycle rules and the reader's IAM move from `ownership-t
 - [ ] A test enumerates that difference and asserts every action in it — `create`, `delete`, `leave`,
       `forget`, `acknowledge_membership` — is refused on the operator origin, naming each, and
       asserts the difference is non-empty so the loop cannot pass by iterating over nothing.
-- [ ] The rest of `operator_refusal` is unchanged and its tests still pass: an unknown origin, a
+- [ ] `operator_refusal`'s **behaviour** is unchanged and its tests still pass: an unknown origin, a
       message carrying both an origin and an identity block, an unset role-id configuration and a
-      `SenderId` from any other principal are each still refused, in that order.
+      `SenderId` from any other principal are each still refused, in that order. Its **wording** is
+      not unchanged: `TransferOriginUntrusted`, `TransferOriginNotConfigured` and
+      `TransferOriginBothCredentials` each render "That request **to transfer** …", so after this
+      spec a forged operator `add_members` tells the space's owner that someone tried to transfer
+      their workspace. The three sentences become action-neutral, or gain a per-action form; either
+      is acceptable and silence is not.
 - [ ] The reader's S3 grant — object actions on the prefix and an `s3:prefix`-conditioned
       `ListBucket` — is re-pointed at `operator-requests/*`, and a test asserts the reader's only S3
       calls are against that prefix.
 - [ ] Two lifecycle rules expire `operator-requests/processed/` and `operator-requests/rejected/`,
       one rule per prefix; `operator-requests/inbox/` gets **no** expiring rule, for SPEC-208's
       reason.
-- [ ] **The old prefix is confirmed empty by a listing of `ownership-transfers/` — all three
-      sub-prefixes, not just the inbox — before its two lifecycle rules are removed.** Deleting an
-      expiring rule while objects sit under it leaves them with no expiry at all, forever, which is
-      the structural guarantee `infra/modules/analytics/s3.tf` records for `logs/`. If the listing is
-      not empty, the two rules stay until the last object has aged out and the retirement waits; if
-      the listing cannot be run from the building session it goes to `docs/testing/owed.md` with the
-      exact command, and the retirement waits on that.
+- [ ] **A listing of `ownership-transfers/` — all three sub-prefixes, not just the inbox — confirms
+      it empty before the reader and its IAM stop looking at it.** That confirmation gates the
+      *prefix move*, not merely the lifecycle-rule removal: once the reader points at
+      `operator-requests/*`, a file under the old inbox is unreadable by the only thing that could
+      drain it, in a prefix that deliberately has no expiry. Two consequences ride with it —
+      removing an expiring rule while objects sit under it leaves them with no expiry at all, and the
+      old objects have no other reaper. If the listing is not empty the objects are deleted or the
+      old rules kept until they age out; if the listing cannot be run from the building session it
+      goes to `docs/testing/owed.md` with the exact command, and the move waits on it.
 - [ ] `docs/testing/owed.md`'s two SPEC-208 operator rows are **rewritten**, not appended to: they
       are the instruction sheet for a check nobody has run, and they currently name
       `ownership-transfers/inbox/` and a `space,new_owner` file. Left as they are, the next operator
@@ -330,9 +371,34 @@ bucket's prefix, its lifecycle rules and the reader's IAM move from `ownership-t
       (which describes the queue's second producer as reading "an operator's CSV of ownership
       transfers"), `shared-space-common/config.py`'s `OPERATOR_ACTIONS` docstring, and SPEC-208's own
       spec and delivery doc, marked in place rather than left to disagree.
-- [ ] No new resource family is provisioned, so no deploy-role expansion is expected. That is
-      **confirmed by a plan showing no diff under `infra/modules/base/policies/`**, not assumed; if
-      the re-pointed grant needs one, it lands in its own PR ahead of this work.
+- [ ] No new resource family is provisioned, so no deploy-role expansion is expected — **confirmed by
+      a `git diff` over `infra/modules/base/policies/` being empty**, not by a plan, which shows
+      resource diffs rather than directory ones and needs credentials the building session may not
+      hold. If the re-pointed grant does need one, it lands in its own PR ahead of this work.
+
+### FR-006: The two verbs refuse a refused request, and record who asked
+
+#### Description:
+
+`transfer_ownership` raises `TerminalError("unauthorized", …)` when handed a context carrying a
+`refusal`, and re-stamps `origin` on its span. Both behaviours become necessary for `add_members`
+and `remove_members` the moment their refusals stop being raises.
+
+#### Acceptance Criteria:
+
+- [ ] Each of `add_members` and `remove_members` raises `TerminalError("unauthorized", …)` naming the
+      refusal code when its context carries a `refusal`, and a test drives one into each. Until this
+      spec their refusals were raises in the validator and no verb could be reached by one; now the
+      router's `Choice` is the only thing between a refused member change and the work, and the plane
+      page records why that is not enough for transfer — *"without it, any failure of the routing
+      completes a real transfer"*. The same sentence, one verb over, is a stranger gaining access.
+- [ ] Each verb re-stamps `origin` on its span when the context carries one, because `@traced` clears
+      baggage; a test asserts an operator-driven add is not recorded as the owner adding people to
+      their own space. `remove_members` emits no actor at all today and gains one, or an
+      operator-driven removal is attributable to nobody.
+- [ ] No other verb behaviour changes: a test asserts the slot writes, the registry delta, the
+      fan-out, the index writes and the notifications for a non-refused request are what they are
+      today.
 
 ---
 
@@ -365,9 +431,10 @@ def member_refusal(requester, space, action, targets, registry) -> tuple[str, st
     carries the space's own owner, so an owner check written against it passes without the skip and
     the skip could be deleted with every test green.
 
-    `targets` is the list the wire carries. A request-level condition refuses the whole request; so
-    does the one per-name condition, a removal naming the owner, because partly serving an operator
-    is worse than telling them.
+    `targets` is the list the wire carries, compared in the form the verb will normalise it to. An
+    absent, empty or non-list `members` is refused rather than normalised to nothing and succeeding.
+    A request-level condition refuses the whole request; so does the one per-name condition, a
+    removal naming the owner, because partly serving an operator is worse than telling them.
     """
 ```
 
@@ -398,11 +465,13 @@ lambdas/
 │   ├── transfer_reader.py
 │   └── test_transfer_reader.py
 ├── shared-space-common/
-│   ├── auth.py                       # member_refusal, and the owner check leaving authorize
+│   ├── auth.py                       # member_refusal, the code constant, the owner check leaving authorize
 │   ├── config.py                     # OWNER_ONLY_ACTIONS, OPERATOR_ACTIONS
-│   └── messages.py                   # the new refusal wording, and the set-equality test
+│   └── messages.py                   # the new refusal wording, and the rendered-sentence test
 ├── shared-space-validate/            # routing a member refusal to RefusedSeed
-└── shared-space-delete/              # the SPEC-205 inertness test, re-pointed
+├── shared-space-add-members/         # the refusal fence and the origin stamp
+├── shared-space-remove-members/      # the same, plus an actor on its event
+└── shared-space-delete/              # the SPEC-205 inertness test, re-pointed and re-paired
 
 infra/modules/shared-spaces/policies/transfer-reader-permissions.json.tftpl
 infra/modules/analytics/s3.tf         # the two lifecycle rules, re-pointed
@@ -412,23 +481,28 @@ infra/modules/analytics/s3.tf         # the two lifecycle rules, re-pointed
 
 ### Phase 1: The authorization change
 
-- `auth.member_refusal`, its wording in `messages`, the set-equality test over the codes, and the
-  owner check leaving `OWNER_ONLY_ACTIONS` and `authorize`.
+- `auth.member_refusal`, its code constant, its wording in `messages`, the rendered-sentence test,
+  and the owner check leaving `OWNER_ONLY_ACTIONS` and `authorize`.
 - The validator routing a member refusal to `RefusedSeed`, and the ASL walk asserting the arm
   notifies.
-- SPEC-205's inertness test re-pointed, and the register entry amended in place.
-- The planted mutation of the owner check, run and reverted.
+- FR-006's refusal fence and origin stamp on both verbs — they are what makes the value-shaped
+  refusal safe, so they land with it and not after it.
+- SPEC-205's inertness test re-pointed and re-paired, and the register entry amended in place.
+- The planted mutation of the owner check, run and reverted. Note that until Phase 2 admits the two
+  actions on the operator origin, `operator_refusal` refuses them first — so this phase's
+  operator-skip tests call the predicate directly, and the end-to-end pairing arrives with Phase 2.
 
 ### Phase 2: The operator boundary
 
-- `OPERATOR_ACTIONS` widened, its exact-contents assertion, and the enumerated refusal of the
-  other five.
-- The operator skip, and the paired tests that neither half passes alone.
+- `OPERATOR_ACTIONS` widened, its exact-contents assertion, the enumerated refusal of the other
+  five, and the three re-worded origin sentences.
+- The operator skip end to end, and the paired tests that neither half passes alone.
 
 ### Phase 3: The CSV and the prefix
 
 - The header, the action column, the per-row syntactic checks, the one-action-per-space rule, the
   duplicate-row rule and the coalescing.
-- The two caps, each computed by a test and naming its budget.
-- The prefix move: the reader, its IAM, the two lifecycle rules, the empty-prefix confirmation, and
-  the doc sites that still name the old shape.
+- The members-per-message cap and its Terraform read; the rows-per-invocation cap kept, with its
+  rejection re-worded.
+- The prefix move, gated on the empty-prefix listing: the reader, its IAM, the two lifecycle rules,
+  and the doc sites that still name the old shape.
