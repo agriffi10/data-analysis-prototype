@@ -14,8 +14,9 @@ from a user's.
 
 **CLI only, no browser.** Run against the deployed account from the repo worktree with the
 `tofu-deploy-user` credentials, `main` at **`a546f2e4`** (SPEC-202 merge 2) and then at
-**`95fddf14`** (the deploy role's grant retirement) with Deploy Infrastructure, Deploy SPA image,
-Deploy Lambdas, Deploy Lambda image and Publish Config all green for both. **No instruments** — every
+**`95fddf14`** (the deploy role's grant retirement). Every workflow that ran on each sha concluded
+success; **Publish Config ran on `a546f2e4` only** — its `paths:` filter matches none of the grant
+retirement's files, and "did not run" is not "green". **No instruments** — every
 assertion below is a `curl` or an `aws` read, which is why the browser half of the arc's §12 is
 still owed rather than discharged here.
 
@@ -44,6 +45,65 @@ a premise that reads "the credential path is retired" as "the role is retired".
 **Not run, and not passed:** everything in the arc's §12 that needs a browser — the fresh sign-in
 against the narrowed lists above all — plus the three checks merge 2 was waived on. They are rows in
 [`owed.md`](owed.md) → *SPEC-202*.
+
+---
+
+## Arc B's execution log — ported 2026-09-02 from the arc script's §15 (runs of 2026-08-30, 08-31 and 09-01)
+
+**Ported, not re-run.** These are the arc's own dated results, moved here verbatim in substance when
+`arc-b-api-container-e2e.md` was deleted at the arc's close. They were observed by the sessions that
+ran them on the dates given; nothing below was re-observed on 2026-09-02. The full original text,
+with every step's wording, is `git show 95fddf14:docs/testing/arc-b-api-container-e2e.md`.
+
+**Two ids were captured before merge 1, because their Terraform outputs do not survive it:**
+identity pool `us-east-1:b937244c-1632-420d-81af-49838df20233`, distribution `E63PRJKNACLDP`
+(both 2026-08-30).
+
+### Pre-merge-1 (2026-08-30, CLI)
+
+| Check | Result |
+|---|---|
+| SPEC-193's three additive allowlist changes are live | **PASS.** Callback and logout lists each carried `http://localhost:5173`, the CloudFront domain and `https://portal.dataquarry.app`; CloudFront's `connect-src` named the API; the API's CORS listed both origins. Verification only — nothing was added. |
+| The deployed trust policy | **PASS.** `dat-portal-user-role` carried **two** statements: the federated one, and `TheApiMayActAsAUser` admitting the API role with `sts:AssumeRole` + `sts:TagSession` and an eleven-key `sts:TagKeys` ceiling. SPEC-196's statement applied, so merge 1 would leave the role assumable. |
+| FR-002 AC3 — the container's `appUrl` | **PASS.** Task definition `dat-prod-spa:48` set `CONFIG_appUrl=https://portal.dataquarry.app`. A container naming CloudFront here sends every sign-in to the other origin. |
+| FR-008 — the `connect-src` before-state | Recorded: ten terms, including `cognito-identity.`, `athena.`, `glue.` and `sqs.`. Merge 1 takes those four. |
+| FR-008 AC4 — `Server` absent | **Contradiction, not a failure.** The origin returns `server: nginx`; nginx cannot strip it without a third-party module. SPEC-194's first recorded divergence, and the criterion was written before the container was measured — the spec was corrected, not the deployment. |
+
+### Post-merge-1 (2026-08-31)
+
+| Check | Result |
+|---|---|
+| `describe-identity-pool` on the recorded id | **PASS — `ResourceNotFoundException`.** A positive absence, not "gone from the plan". |
+| `get-role`, one trust statement | **PASS.** Exactly `TheApiMayActAsAUser`; no `Federated` principal remains. |
+| **FR-010 — the portal role, simulated against the DEPLOYED role** | **PASS.** `s3:GetObject` and `s3:PutObject` on `alice/` **allowed**; the same two on `bob/` **implicitDeny**. Every denial paired with an `allowed` control on the same bucket, so an ungranted action is distinguishable from a mistyped ARN. The retired browser grants stay retired: `sqs:SendMessage` and `athena:StartQueryExecution` both `implicitDeny`. **No row changed from SPEC-196's pre-retirement table.** |
+| FR-010 — the API execution role | **PASS.** `sts:AssumeRole` on the portal role **allowed** (the control); `s3:GetObject` on a user-space key **implicitDeny** — the one worth the trouble, since a stray direct grant would make every route work while silently bypassing the tag. |
+| FR-010 — the SPA task role | **PASS, asserted by ABSENCE.** `list-attached-role-policies` and `list-role-policies` both `[]`. Not by simulation: a role with no policies returns `implicitDeny` for everything with no control available, and an unpaired `implicitDeny` presented as a pass is the failure the rest of FR-010 exists to avoid. |
+| FR-008 — the deployed `connect-src` | **PASS.** Exactly `'self'`, `cognito-idp`, the Hosted UI host, both S3 endpoints, `api_origin`. `athena.`, `glue.`, `sqs.` and `cognito-identity.` gone; both Cognito hosts remain, which is its own criterion. |
+| FR-008 — the header set | **PASS (headers).** CSP (never `-Report-Only`), HSTS `max-age=31536000; includeSubDomains`, `X-Frame-Options: DENY`, nosniff, `Referrer-Policy`, `Permissions-Policy` all present; `server: nginx` present as the recorded divergence. **A header name is not evidence of enforcement** — that is the next row. |
+| FR-004 — the runtime document | **PASS.** Ten keys and no `cognitoIdentityPoolId`; running image tag `85ea5457…` = `main`. (Eleven keys since SPEC-216 added `maxUploadBytes`.) |
+| **The CSP is enforcing, with a negative control** (Chromium) | **PASS.** A `fetch` to `athena.us-east-1.amazonaws.com` raised a positive `securitypolicyviolation`, `effectiveDirective: "connect-src"`, `disposition: "enforce"`; `/config.json` returned **200 in the same run**. **The method is measured, not assumed:** CDP evaluation is exempt from `script-src`, NOT from `connect-src` — SPEC-140's prescription over-generalised from a `script-src` measurement, and this is the correction. |
+| **FR-008 — four absences and two presences, in one run** (Chromium) | **PASS.** Blocked: `cognito-identity.`, `athena.`, `glue.`, `sqs.` — four violations, no more and no fewer, every one `connect-src`/`enforce`. Allowed: `cognito-idp.`, the Hosted UI host, `api.dataquarry.app`, the user-space S3 endpoint. The two Cognito presences are the criterion whose omission broke fresh sign-in for a day. |
+| **The rollback rehearsal** (Chromium, post-merge-1 and pre-merge-2) | **PASS.** The CloudFront domain loaded the app and completed a real cross-origin API call: `GET /healthz` → 200, `version` = `85ea5457…` = `main`; same ten config keys, no `cognitoIdentityPoolId`, `appUrl` its own origin. **A CloudFront-served HEAD bundle talking to the API — it does NOT restore browser-direct AWS**, because that code was gone from HEAD and so was the pool. Run in the only window where it was both meaningful and possible. |
+| §3 (fresh sign-in) and §6 (deep link, clocks) | **NOT RUN.** Needed a sign-in in a clean profile, or a token-clock change nobody had asked for. |
+| §6 — deep link while signed out, first half | **PARTIAL.** `/query?db=demo` while signed out lands on `/` and stores `portal.returnPath`. The half that matters — landing back on it **after** sign-in — is unrun, and so is the private-browsing repeat. Recorded as partial because a working capture and a failing restore look identical from here. |
+| §9 — the breakpoints, desktop only | **PARTIAL.** At 1512px both compiled breakpoints resolve. **400px unrun**: not reachable by window resize on macOS. Safari's half was **retired at its premise** on 2026-09-01 — the audience has no Safari — rather than left owed. |
+
+### Post-merge-1 (2026-09-01, Chromium) — the ported surface and the planes
+
+| Check | Result |
+|---|---|
+| **§5 steps 1–4, 9 — the object surface** | **PASS.** Counted in-page (`fetch` + XHR wrapped) because the extension's network reader drops requests. Listing page = **1** call; details = 1 `metadata`; folder create = 1 `PUT /v1/objects/content`; copy = 1 `POST /objects/copy`; single delete = 1 `DELETE`. A 12 MiB upload = **one `PUT` over XHR**, with **51 progress samples, first at 1.6%** — a `fetch` upload emits none, which is the silent loss that row exists to catch. Download: SigV4, `response-content-disposition` `attachment` naming the file, **12,582,912 bytes**, exact. Free name = `name (4).txt` from **one** `/free-name` call, not 4 and not 999. |
+| §5 step 1 — the collision path | **PASS.** Moving a copy back onto its original is refused **server-side** (`POST /v1/objects/move` → 409), surfaced as "1 item(s) already exist at the destination" with Overwrite all / Cancel, and Cancel reports **"Moved 0 items."** rather than a false success. |
+| **§5 step 5 — saved queries** | **PASS.** Personal save, edit and re-save are **one `PUT` each**. Saving into a shared space issued **two** `PUT`s: the `.sql` plus `ensureSavedQueriesFolder`'s marker, written `overwrite: false` once per space per session with `Conflict` as its success case. Checked, not assumed. |
+| **§5 step 6 — the NULL clause is filed against the wrong surface** | **PASS on rows; clause reassigned.** 10 rows, and the `sql` on the wire is byte-identical to the editor. NULL and `''` render identically in the **Query** grid, deliberately; the API distinguishes them correctly on the wire. The criterion belongs to step 7, where `CellValue.tsx` renders italic `NULL` vs `(empty)`. Nearly written up as an app defect; it was a script defect. |
+| **§5 step 7 — Data Explorer** | **PASS.** Opening the table = 1 execution. Paging past row 100 = **0 new executions** and the billing line unchanged. The `O'Brien` filter is a new execution, and the generated SQL is `WHERE "name" = 'O''Brien'` — quote **doubled**, the Trino/DML escaper, with double-quoted identifiers. The wrong escaper here is a predicate that silently matches nothing. |
+| **§5 step 8 — Lake Formation still filters, with a paired control** | **PASS.** As the member, the rail lists only their own database and the one space they belong to. A rail can be filtered client-side, so the query was run: `SELECT * FROM agriffith.arcb_report` → **Failed, "You don't have permission to run that query"**, terminal, with **no `/results` fetch** and **no re-login**. Control, same user and minute: `agriffith_three.employees` → **Succeeded, 2 rows, 112 B**. One database denied and another allowed through the same route, so the grant is on the **assumed** role. |
+| §5 step 10 — membership propagation | **PARTIAL.** The member added shows **Pending** on the owner's roster, and after a fresh sign-in the space appears, lists files and the cloned table queries. The **pre-refresh refusal was not observed** and cannot be from one browser: switching accounts mints a token that already carries the membership, so the refusal and the fix are indistinguishable. |
+| **§8 — seven of the eight planes, each through the API** | **PASS (7/8).** One `POST /v1/enqueue/{plane}` per gesture and **no browser `sqs:SendMessage` anywhere**: shared-space, notifications, table-build, table-share, data-quality, file-send, file-ops. Every one produced its notification. File-send told the sender once ("Sent \"arcb_send\" (4 files)" — the count includes the nested file, so the walk recursed) and the recipient once, with the four files really under `shared_files/agriffith/arcb_send/`, `nested/` intact. Table-share cloned **150 rows** into the recipient's database and they can query it. |
+| **§8 — the links, and two rows that carry none** | **PASS with a finding.** Links resolve for file-ops, file-send and data-quality (the report renders 150 rows, 1 file, 0 duplicates, `name` 20.0% null-or-blank, with the space taken **from the route**). **table-build and table-share carry no `link` at all**, against the section's "with a link" — deliberate in `tbcommon/notify.py`, which does pass one for the `columns_removed` failure. Still open: either those planes gain a link or the clause goes. |
+| §8 — the archive row | **NOT RUN.** The only irreversible gesture in the section: a restore is 3–5 billed, uncancellable hours. Held for an explicit go-ahead. |
+| §9 — 400px | **PARTIAL.** `resize_window` reports success at 400×800 while the page reports `innerWidth: 606` — macOS clamps the window. It is **not inert** (both breakpoints correctly flip to `false`), it simply cannot reach 400. At 606: hamburger nav, `scrollWidth === innerWidth`, no horizontal overflow. Only `tablet:` and `desktop:` are compiled, so 400 and 606 are the **same CSS branch**; what stays unproven is overflow at the narrower width. |
+| **The pre-merge-2 waiver** | **WAIVED by user decision — not run, and not passed:** §3, §6, §8's archive row, §9's 400px and §5 step 10's first half. Merge 2 was taken with these open. **The one that gates that merge specifically is §3** — merge 2 narrows the Cognito lists, §3 is the only check that exercises them, and a broken fresh sign-in is invisible to every signed-in session. §12 re-runs it after the irreversible step instead of before it, which is the risk accepted. The rest are arc-completeness: merge 2 touches none of their machinery. |
 
 ---
 

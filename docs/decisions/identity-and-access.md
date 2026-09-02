@@ -74,7 +74,10 @@ Browser → AWS direct. Cognito **trigger Lambdas** are allowed (service config,
 > **no second API** and **no new browser-side AWS SDK call on a path an API route already serves**.
 > (Updated 2026-08-29: this marker used to say the browser still called S3, Athena and Glue directly
 > for most reads. SPEC-198 and SPEC-199 ported both surfaces; what the browser reaches without the API
-> is presigned S3 bytes, Cognito, and the control-plane `sqs:SendMessage` enqueues.) Full
+> is presigned S3 bytes, Cognito, and the control-plane `sqs:SendMessage` enqueues. **Updated again
+> for SPEC-202 (2026-09-02):** the enqueues went with SPEC-200's grant removal and the Identity Pool
+> went with SPEC-202, so the browser holds **no AWS credentials and no AWS grant at all** — what it
+> reaches without the API is presigned S3 bytes and Cognito through Amplify, and nothing else.) Full
 > entries: [`control-planes.md`](control-planes.md) and the API entries below. Shape:
 > `docs/architecture.md` → *The control planes* and *The API layer*.
 
@@ -84,7 +87,7 @@ Usernames are the S3 prefix = principal tag = Glue DB name → validated at sign
 
 ## Bucket 2 (shared-space)
 
-User-created shared connections via a privileged async control plane (FIFO SQS → EventBridge Pipe → Standard Step Function) — reverses "no backend" for shared-space mutations only; access = a membership principal tag (SPEC-056). **The tag set is ten slots PER USER** — Cognito `custom:shared_space_1..10`, each holding one space name — because the Identity Pool maps a claim to exactly one single-valued tag and IAM cannot iterate a list inside a `Resource` ARN. A space's own member count is unbounded; what is capped is how many spaces one person can be in. The Step Function **orchestrates single-task verb Lambdas** (`validate-authorize → Choice(action) → create-space | add-members | remove-members | leave | delete-space`) sharing a **`shared-space-common` Lambda layer** — **not** one monolithic provisioner (SPEC-062 refactor; the 050→054 monolith is decomposed). The six Lambdas + the Step Function keep **one shared `orchestrator` role** (per-verb roles were descoped — user decision, SPEC-062 FR-005); the layer is CI-built/published (deploy-lambdas) with TF `ignore_changes=[layers]`. **Create is creator-only** (members added later via add-members from the Connections tab). Decision record: `lambdas/info/planes/shared-spaces.md`; Lambda rules: `lambdas/info/best-practices/lambdas/lambdas.md`. Do NOT build the old daily-IAM-pipeline / user-managed-keys models.
+User-created shared connections via a privileged async control plane (FIFO SQS → EventBridge Pipe → Standard Step Function) — reverses "no backend" for shared-space mutations only; access = a membership principal tag (SPEC-056). **The tag set is ten slots PER USER** — Cognito `custom:shared_space_1..10`, each holding one space name — because a session tag holds exactly **one value** and IAM cannot iterate a list inside a `Resource` ARN. (The Identity Pool's one-claim-to-one-tag mapping was the original statement of that constraint; SPEC-202 retired the pool and the constraint is unchanged, because the API stamps one tag per claim for the same reason.) A space's own member count is unbounded; what is capped is how many spaces one person can be in. The Step Function **orchestrates single-task verb Lambdas** (`validate-authorize → Choice(action) → create-space | add-members | remove-members | leave | delete-space`) sharing a **`shared-space-common` Lambda layer** — **not** one monolithic provisioner (SPEC-062 refactor; the 050→054 monolith is decomposed). The six Lambdas + the Step Function keep **one shared `orchestrator` role** (per-verb roles were descoped — user decision, SPEC-062 FR-005); the layer is CI-built/published (deploy-lambdas) with TF `ignore_changes=[layers]`. **Create is creator-only** (members added later via add-members from the Connections tab). Decision record: `lambdas/info/planes/shared-spaces.md`; Lambda rules: `lambdas/info/best-practices/lambdas/lambdas.md`. Do NOT build the old daily-IAM-pipeline / user-managed-keys models.
 
 ## Member join status (SPEC-073)
 

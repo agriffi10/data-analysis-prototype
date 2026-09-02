@@ -2,7 +2,7 @@ name: Publish Config
 
 # Publishes the feature-flag document to every environment's user-space bucket (SPEC-162).
 #
-# SEPARATE FROM Deploy App ON PURPOSE. Flipping a flag must not require rebuilding and
+# SEPARATE FROM THE SPA'S OWN DEPLOY ON PURPOSE. Flipping a flag must not require rebuilding and
 # redeploying the SPA — the document is fetched at runtime, so a publish is the whole change.
 # That is also why the upload carries `no-cache`: a flag flipped now must be in force on the
 # next fetch, not after a bundle's worth of cache lifetime.

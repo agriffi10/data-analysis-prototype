@@ -222,8 +222,12 @@ enclosing-target reading.
 ### SPEC-196's live verification — PARTLY RUN 2026-08-27, the rest owed
 
 **Six items ran on 2026-08-27** and are struck through below, with the evidence in
-[`sessions.md`](sessions.md). The rest of the arc script's §E is still owed (see the note at the
-top of this section for where that script lives now).
+[`sessions.md`](sessions.md). **§E items 1 and 9 — the trust statement and the IAM simulation
+against the deployed roles — were discharged on 2026-08-31 by SPEC-202 FR-010**, which is the
+overlap the arc script recorded deliberately: whichever ran first discharged both. Row for row
+against SPEC-196's pre-retirement table, with no row changed; the evidence is the ported execution
+log in [`sessions.md`](sessions.md). The rest of §E is still owed (see the note at the top of this
+section for where that script lives now).
 
 The 2026-08-27 decision to run Arc B's live verification once at SPEC-202 was **narrowed for this
 section**: SPEC-197 deletes the probe routes §E is driven through, so running it at 202 would have
@@ -348,7 +352,7 @@ rows 14 and 15, and the Data Explorer surfaces generally, were **not** reached.
 | **A live 403 on the user plane** (SPEC-197) | Cannot be staged against a bucket-wide grant. **Passed to SPEC-198.** |
 | **What `setUnauthenticatedHandler` should DO** (SPEC-197 FR-007) | The hook ships with **no handler registered**, deliberately: `apiRequest` never navigates, and what a genuinely-dead session should do to the UI is a product decision this spec's scope excludes. Until one is registered, a surviving 401 resolves to "Your session expired. Sign in again." and nothing else happens. |
 | **A 429 mid-walk, observed live** (SPEC-199 FR-007) | API Gateway account throttling cannot be staged. The degradation is unit-tested — a failed page leaves `total: null` and raises no banner — and the live half is the one that would show whether a real burst produces it at all. |
-| **Stale root-level static assets** (SPEC-141) | An accepted orphan class, not a check. Removals are by hand, and **not verifiable by status code** — the distribution maps `403/404 → /index.html` with a **200**, so check `content-type` and `x-cache: Error from cloudfront`. |
+| ~~**Stale root-level static assets** (SPEC-141)~~ — **VOID 2026-09-02** | The S3 delivery path is retired: the image IS the file set, so there is no reconciliation pass and no orphan class, and an asset the build did not produce is an honest 404. Kept for the reasoning only. An accepted orphan class, not a check. Removals were by hand, and **not verifiable by status code** — the distribution maps `403/404 → /index.html` with a **200**, so check `content-type` and `x-cache: Error from cloudfront`. |
 
 ### Accepted exposure, with an owner
 
@@ -852,6 +856,21 @@ referenced after this change, of which **eleven are actually set**; the other th
 (`TF_VAR_project_name`, `TF_VAR_environment`, `TF_VAR_verification_principal_arns`) are deliberately
 unset and every reference supplies a `||` fallback. `VITE_APP_URL` is the one that reads like a
 leftover and is not: Cognito's callback list is built from it.
+
+## Arc B's recipes that outlived their script (ported 2026-09-02)
+
+These were the arc script's own steps, and each is owed with the recipe that makes it runnable.
+Without the recipe every one of them is a check somebody would design badly a second time.
+
+| Owed | The recipe, and why the obvious version does not work |
+|---|---|
+| **A ZAP baseline against the container origin** (SPEC-194 §C.7, non-blocking) | Diff against `security-baseline.md` **per alert ID, never by total** — a clearing and an appearing finding once cancelled at 305 and made the total look untouched. Expect the `style-src 'unsafe-inline'` **Medium** and the COEP **Info** to persist **by decision**. Expect **no new *Server Leaks Version Information*** row: that alert fires on a version, and `server_tokens off` is what keeps it clear. |
+| **A rolling deployment, watched** (SPEC-194 §C.5) | A task serves exactly one image's file set, so a browser holding the **old** shell routed to a **new** task 404s a lazily-imported chunk. Leave a tab open, merge any change under `apps/portal/`, let `Deploy SPA image` run, then navigate to a lazy route in the old tab: it may 404 inside the Suspense boundary, and **a reload recovers**, because the shell is `no-cache`. |
+| **The health check doing its job** (SPEC-194 §C.6) | The break has to be **env-only, on the task-definition side, in a variable the image defaults** — add `PORTAL_LOG_LEVEL = "chatty"` to the container definition's `environment` and apply. Two obvious alternatives prove nothing: an entrypoint that exits 1 reddens at the **matrix** and never reaches the deploy gate, and adding a key to the entrypoint's `REQUIRED` list (or removing one from `local.spa_runtime_config`) reddens `pytest` before anything builds. Expect the ECS deployment **not** to reach `COMPLETED` and the workflow to go red **on `rolloutState`**, not on a timeout. Revert and confirm green. Before writing any new recipe here, confirm no test pins what you are about to change. |
+| **A genuinely expired token against the API** (SPEC-195 §D.3) | **Do NOT mint it from a throwaway app client**: `oidc_audience` is a *single* client id, so a second client's token is refused on **audience** — the verifier never reaches the expiry check, and `verification_failed` is one reason code covering signature, issuer, audience and expiry alike, so the check passes while proving the opposite. What works is temporarily shortening the **existing** app client's ID-token validity to its 5-minute minimum, signing in fresh, and waiting six minutes. **Restore the validity afterwards**, or every session in the environment expires in five minutes. Expect 401 with a body hashing identically to the no-token refusal. |
+| **The stack scrub against a REAL token** (SPEC-195 §D.6) | **It has to be driven by a refusal.** The success path emits no `error` at all, so grepping after a 200 returns 0 for the same reason an empty file does; and a query parameter forces nothing, because the handler passes only the method, path and headers. Send a bit-flipped real token, then sweep the day's `logs/service=api/` for the token's **header** and **signature** segments — with `'"reason": "verification_failed"'` counted **≥ 1** as the positive control, or the two zeros mean the window was empty. |
+
+---
 
 ## SPEC-202 — the retirement's checks: the CLI half run 2026-09-02, the browser half owed
 

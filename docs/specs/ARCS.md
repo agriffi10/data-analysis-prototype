@@ -1797,7 +1797,7 @@ per (side × operation), enumerated against the real constants, and read that fi
 > reversing either boundary fails all eight planes closed on the first request after deploy.
 > **(Since run.)** SPEC-200's Phase 5 was owed here; seven of the eight planes were exercised
 > through the API on 2026-09-01 with no browser `sqs:SendMessage` anywhere, and the grants
-> simulation ran on 2026-08-31. What is left of it is in [`owed.md`](../testing/owed.md).
+> simulation ran on 2026-08-30. What is left of it is in [`owed.md`](../testing/owed.md).
 >
 > **(Since observed, 2026-09-01.)** The arc's central claim — that Lake Formation keeps enforcing
 > against the assumed-role session — was an argument when this was written and is now a measurement:

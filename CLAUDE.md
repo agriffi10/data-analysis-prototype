@@ -351,6 +351,11 @@ is a smell.
 
 - **Raw AWS/Cognito/Athena text is NEVER shown.** `lib/errorMessages.ts` is the single source of
   wording; never render `error.message`.
+- **The `@aws-sdk/*` ban is a lint rule AND a `package.json` sweep.** The rule is declared in
+  **every** clause governing `src/` because flat config REPLACES rather than merges, and the sweep
+  reads the **manifest, never `node_modules`** — Amplify vendors the SDK, so a tree assertion would
+  fail permanently and be deleted. A dependency nobody imports is invisible to an import rule, and
+  that leftover is how the next import arrives.
 - **`components/` may not import from `features/`** — enforced by lint. A leaf feature that becomes a
   shared layer gets **extracted before its second consumer**, not after.
 - **Dialogs:** Enter submits from **one** field, not implicitly; Escape dispatches by **tree depth**
@@ -509,7 +514,7 @@ only reads; the API enqueues on its behalf.
 No **second** API (one HTTP API, one `$default` route — a feature does not get its own service) ·
 no **new** browser-side AWS SDK call on a path an API route already serves · no in-browser file
 preview · no admin UI · no second **user-space** bucket
-(several buckets exist — shared-space, admin, artifacts, static; the constraint is one bucket of
+(several buckets exist — shared-space, admin, artifacts; the constraint is one bucket of
 personal prefixes).
 
 ---
@@ -526,7 +531,7 @@ points, because a summary that restates the contract drifts from it, and this on
 the `@docs/decisions/<area>.md` entry, a dependency's delivery doc; read `architecture.md` whole
 only for a part of the system you don't already hold, and never read the inventory or delivery docs
 in full. (4) Confirm `gh run list --branch main --limit 5` is green (esp. Deploy Infrastructure /
-Lambdas / App); investigate failures before building. (5) Branch from fresh `main`
+Lambdas / SPA image / Publish Config); investigate failures before building. (5) Branch from fresh `main`
 (`git fetch && git switch -c <branch> origin/main`). (6) Plan from the spec's phases, validate it
 against the spec, and send it to a **fresh-context reviewer**; (7) send the **PR grouping** to one
 too, before the first push — as few PRs as the dependencies allow.

@@ -319,12 +319,12 @@ never tests the token path.
 | As user A, `GET /v1/objects` naming user B's personal space | **403 `AccessDenied`**, envelope-shaped, `detail` carrying no AWS text, and **no re-login**. |
 | As user A, `GET /v1/objects` naming a shared space A is not a member of | The same 403. |
 | `curl` a `PUT /v1/objects/content` under `{root}archive/` | Refused — and record it as the **route-layer** refusal it is. It is byte-identical to an IAM denial and is issued before IAM sees anything; the credential-layer half is SPEC-196 Phase 5 item 6's dated `_identity/self` result, **cited, never re-run here**. |
-| `curl -X OPTIONS` the presign path from a foreign `Origin`, from the SPA origin, and from the CloudFront origin | No `access-control-allow-origin` for the foreign one; allowed for **both** of the others — the CloudFront one is the rollback FR-011 preserves. `DELETE` and `HEAD` are still in `access-control-allow-methods`; SPEC-202 is where that changes. |
+| `curl -X OPTIONS` the presign path from a foreign `Origin`, and from `$APP_URL` | No `access-control-allow-origin` for the foreign one; allowed for `$APP_URL`. `allow_origins` is **one deployed origin** since SPEC-202 narrowed it — the CloudFront entry that used to be the second is gone with the distribution. `allow_methods` carries `GET, POST, PUT, PATCH, DELETE, OPTIONS` and **not** `HEAD`. |
 | Read one record in `logs/service=api/` | Present: `env`, a real build sha, `route_id`, `actor`. **Absent:** any bearer substring, any email, any object body, and any presigned-URL signature — sweep for **all six** of `X-Amz-Signature`, `X-Amz-Credential`, `X-Amz-Security-Token`, `AWSAccessKeyId`, `x-amz-security-token` and `Signature=`. **Name both families, always.** This sweep has already been unfailable once in each direction: it searched only for `X-Amz-Signature` against a deployment minting SigV2 (measured 2026-08-31), and was then narrowed to the SigV2 spelling, which the SigV4 pin of 2026-09-01 made the dead half. A sweep naming only the family currently deployed goes unfailable on a one-keyword change in a different tree. `Signature=` matches inside `X-Amz-Signature=` and is the backstop for a family nobody has thought of. A **hit is not automatically a leak**: `error.stack` carries source lines, and `botocore/auth.py` contains every one of these tokens as a string literal, so an exception raised inside signing puts them in a traceback with no credential present. Read the record before concluding. |
 
 **Multipart uploads (SPEC-216).** Everything above a threshold the browser never sees is cut into
-parts server-side. Run these **in the container origin**, not CloudFront — the ETag row is a
-cross-origin claim and only a real response settles it.
+parts server-side. Run these against a real response, not offline — the ETag row is a cross-origin
+claim and nothing else settles it.
 
 | Do | Expect |
 |---|---|
@@ -941,6 +941,24 @@ its per-spec sections and their dated results are in git history and in [`sessio
 `portal.dataquarry.app` is a container on Fargate and **the only front door**; the CloudFront
 distribution and the Identity Pool are destroyed. Run this section on any change to the API, the
 image, the CSP, the origins or the credential path — none of it is observable offline.
+
+**The variables this section uses**, read once per run (every one is a root output — check the name against
+`infra/outputs.tf` rather than guessing it: the user-space bucket's is `s3_user_space_bucket_name`,
+not the `user_space_` spelling the others use):
+
+```bash
+APP_URL=$(tofu -chdir=infra output -raw spa_origin)
+API_ORIGIN=$(tofu -chdir=infra output -raw api_origin)
+USER_BUCKET=$(tofu -chdir=infra output -raw s3_user_space_bucket_name)
+SHARED_BUCKET=$(tofu -chdir=infra output -raw shared_space_bucket_name)
+HOSTED_UI=$(tofu -chdir=infra output -raw cognito_domain)
+REGION=$(tofu -chdir=infra output -raw aws_region)
+```
+
+**Classify every other arc's owed checks against this one before trusting them.** Anything asserting
+a URL, a CSP, a browser AWS call or a bucket-CORS behaviour was **invalidated by the origin change
+and must be re-run**; anything asserting a Lambda, a state machine, an IAM simulation or a `logs/`
+record is **unaffected**. Leaving one unclassified is how a discharged check silently becomes stale.
 
 **The two cheap CLI checks, worth a glance on every run.**
 
