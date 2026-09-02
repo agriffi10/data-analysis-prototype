@@ -12,9 +12,10 @@ resource "aws_apigatewayv2_api" "api" {
 
   # CORS is the API's alone — AWS IGNORES CORS headers returned by the integration.
   cors_configuration {
-    # Exact origins, never "*", and ADDITIVE — naming one leaves the other an app that
-    # loads and can do nothing.
-    allow_origins = compact([var.spa_origin, var.app_url])
+    # Exact origins, never "*". This was two entries through the cutover — naming one would
+    # have left the other an app that loads and can do nothing — and it narrows to one with
+    # the origin that needed the second.
+    allow_origins = compact([var.spa_origin])
 
     allow_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 

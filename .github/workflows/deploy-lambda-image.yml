@@ -9,7 +9,7 @@ name: Deploy Lambda image
 # deliberate rather than unfinished.
 #
 # NO `paths:` FILTER, deliberately, and it is not an oversight. The image has to track main exactly,
-# the same way deploy-app.yml and deploy-spa-image.yml do: a filter means the newest image and HEAD
+# the same way deploy-spa-image.yml does: a filter means the newest image and HEAD
 # diverge on any commit the filter misses, and "which commit is in the registry" stops having an
 # answer — which is the question the sha tagging exists to answer. The PR-side gate
 # (lambda-image.yml) IS filtered, because it only proves the image.

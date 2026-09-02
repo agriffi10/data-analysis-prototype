@@ -314,7 +314,7 @@ rows stay, and three findings survive by decision.
 **The counts, measured rather than estimated.** The `.tf` scan over `infra/` reports **918 passed /
 736 failed**, 474 resources, against 508/373 when this file was written. The enforce list went from
 **52 IDs to 89**: 37 newly-passing IDs joined it, **none disappeared then**, and the gate script itself
-reports `enforcing 88 check ID(s); 0 finding(s) on them`. It was 89 until `CKV_AWS_366` left with the Identity Pool — the entry above records why, as this file is where an enforce-list removal has to be argued.
+reports `enforcing 79 check ID(s); 0 finding(s) on them`. It was 89 until the Identity Pool and then CloudFront were retired — the entries above record why, as this file is where an enforce-list removal has to be argued.
 
 **Thirty-five of the 37 came with the new families. Two did not**, and the exception is the useful
 part: `CKV_AWS_251` and `CKV_AWS_36` both evaluate
@@ -421,6 +421,23 @@ API's execution role and nothing else, so no browser can assume it at all.
 `54`, `72` and `CKV_AWS_34`, `216`, `259`, `305` with it, for the same reason. `CKV_AWS_70` is the
 one to measure rather than reason about — the distribution's bucket policy is one of five, and
 whether it is that ID's only subject cannot be settled by reading.
+
+### Enforce-list removal — nine IDs, with CloudFront (2026-08-31)
+
+Retiring the distribution, its origin access control, its response-headers policy and its static
+bucket leaves nine enforced check IDs with nothing to evaluate: `CKV2_AWS_32`, `CKV2_AWS_46`,
+`CKV2_AWS_54`, `CKV2_AWS_72`, `CKV_AWS_34`, `CKV_AWS_216`, `CKV_AWS_259`, `CKV_AWS_305` and
+`CKV_AWS_70`. Not suppressions — an enforced ID with no subject is a hard error by design, which
+is how `checkov-enforced.sh` holds *"did not run is never clean"*.
+
+**The ninth is the finding worth keeping.** The enforce file predicted eight, and reasoned
+`CKV_AWS_70` (*Ensure S3 bucket does not allow an action with any Principal*) would survive because
+the distribution's bucket policy is one of five in the tree. It was that ID's only subject: the
+other four bucket policies all *do* name a principal, so they fail the check and were never
+enforced. Measured with the file's own regeneration command against the post-deletion tree —
+**79 passing IDs, nine fewer, nothing newly passing left unenforced**. Reasoning about which IDs a
+deletion takes was wrong by one, and that one would have failed the very apply that removed the
+resource.
 
 ### Design finding — notifications `create` spoofing (not scanner-derived)
 

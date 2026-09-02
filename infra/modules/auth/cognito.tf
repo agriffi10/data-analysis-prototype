@@ -98,12 +98,13 @@ resource "aws_cognito_user_pool" "portal" {
 # principal-tag mapping on every infra merge. README.md.
 
 locals {
-  # BOTH deployed origins, deliberately — naming one makes the other unable to complete a
-  # sign-in, and removing either here deletes the rollback.
+  # ONE deployed origin. It was two through the cutover, because naming one made the other
+  # unable to complete a sign-in — that is what made CloudFront a rollback rather than a URL.
+  # The distribution is gone, so a second entry would now admit an origin nothing serves.
   #
-  # distinct() is load-bearing: the cutover re-points app_url AT the container origin before
-  # removing the entry, and Cognito REJECTS a duplicate rather than deduplicating.
-  callback_urls = distinct(compact(["http://localhost:5173", var.app_url, var.spa_origin]))
+  # distinct() and compact() both stay: Cognito REJECTS a duplicate rather than deduplicating,
+  # and an unset spa_origin must drop out rather than reach Cognito as an empty string.
+  callback_urls = distinct(compact(["http://localhost:5173", var.spa_origin]))
 
   # Hosted UI domain prefix must be globally unique across all AWS accounts.
   domain_prefix = var.cognito_domain_prefix != "" ? var.cognito_domain_prefix : "${var.project_name}-${var.environment}-portal"

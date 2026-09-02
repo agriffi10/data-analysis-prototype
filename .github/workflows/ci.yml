@@ -1,7 +1,7 @@
 name: CI
 
 # Checks run on PRs only. main never tests or lints — it builds and deploys
-# (deploy-app / deploy-lambdas / deploy-infra).
+# (deploy-spa-image / deploy-lambdas / deploy-infra / deploy-config).
 #
 # The Build step below is the TYPECHECK gate, and it is here because relying on a
 # local run did not hold: SPEC-145 added a member to a shared prop type, missed one
@@ -23,7 +23,7 @@ on:
 #
 # Safe here in a way it would NOT be in the deploy workflows: this workflow only runs
 # tests, lint and a build. Cancelling a `tofu apply` or an `update-function-code`
-# mid-flight is how you get a half-applied deploy, which is why deploy-app.yml sets
+# mid-flight is how you get a half-applied deploy, which is why every deploy workflow sets
 # `cancel-in-progress: false` rather than true.
 concurrency:
   group: ci-${{ github.ref }}
@@ -87,7 +87,6 @@ jobs:
             ^package-lock\.json$
             ^\.nvmrc$
             ^\.github/workflows/ci\.yml$
-            ^\.github/workflows/deploy-app\.yml$
             ^config/feature-flags\.json$
             ^infra/main\.tf$
             ^infra/modules/[^/]+/policies/[^/]+\.json\.tftpl$
@@ -143,11 +142,11 @@ jobs:
         working-directory: apps/portal
         run: npm run format:check
 
-      # Runs the SAME command deploy-app.yml does, so a green PR means that build
-      # will compile. Deliberately BEFORE the test step: a type error surfaces in
+      # Runs the SAME command the SPA image's Dockerfile does, so a green PR means the
+      # image will build. Deliberately BEFORE the test step: a type error surfaces in
       # under a minute instead of behind a ~5-minute suite. No VITE_* env is passed
-      # — every one of them is a runtime value baked into the bundle, and this job
-      # discards the bundle. What is being gated is `tsc -b`.
+      # — every one of them is a runtime value the container serves from /config.json,
+      # and this job discards the bundle. What is being gated is `tsc -b`.
       - name: Build (typecheck + bundle)
         if: steps.scope.outputs.app == 'true'
         working-directory: apps/portal

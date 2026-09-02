@@ -22,13 +22,14 @@ const FALLBACK_BODY = 'Reloading usually fixes it. If it keeps happening, contac
  * Catches a render/lifecycle throw beneath it and offers a reload instead of
  * unmounting the tree.
  *
- * The motivating case is the accepted deploy race documented on
- * `deploy-app.yml`'s "Reconcile deletions" pass: a user with the SPA already open
- * triggers a lazy import after that pass has removed the old chunk, and the import
- * rejects inside a `Suspense` boundary. Suspense has no error path, so
- * with no boundary the whole app unmounted to a white screen. That workflow's own
- * note says "once the shell revalidates, a reload recovers" — which is exactly
- * what the fallback offers, and why reload is the action rather than a retry.
+ * The motivating case is the accepted deploy race. It first appeared against a
+ * reconciling S3 sync, and it survived that delivery path's retirement: a rolling
+ * container replacement serves two image versions at once, so a user with the SPA
+ * already open triggers a lazy import, the request lands on a task built from a
+ * different commit, and the import rejects inside a `Suspense` boundary. Suspense
+ * has no error path, so with no boundary the whole app unmounted to a white screen.
+ * The window closes on its own once the rollover finishes, which is why the fallback
+ * offers a reload rather than a retry.
  *
  * A class component on purpose: `getDerivedStateFromError` / `componentDidCatch`
  * have no hook equivalent, and this is the sanctioned exception to the

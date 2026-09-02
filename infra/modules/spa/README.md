@@ -1,8 +1,9 @@
 # `spa` — the container delivery path
 
 The SPA served from a Fargate container behind an internet-facing ALB, with its own ECR
-repository. **CloudFront (`modules/app`) is still production and still the rollback**; this path
-reproduces every job it does, with three deliberate divergences.
+repository. **This is the only delivery path**: the CloudFront distribution it was built to
+reproduce is retired, and with it the rollback. It reproduced every job that distribution did, with
+three deliberate divergences, and those divergences are now simply what the portal serves.
 
 | File | Holds |
 |---|---|
@@ -69,10 +70,13 @@ hand-written list is how a container ships serving seven of twenty-one values** 
 present, every optional one missing, and a portal with no shared spaces, no notifications and no
 queues.
 
-The prefix and the camelCase key are exactly what `deploy-app.yml`'s render step uses, so **the two
-producers of `/config.json` name their inputs identically**.
+The prefix and the camelCase key are the document's own, and this is now the **only** producer of
+`/config.json` — the CloudFront render step that used the same naming is retired. The convention is
+kept: it is what the entrypoint's `KEYS` list is compared against, so a key added to the
+classification and not here fails a test rather than shipping a container missing one value.
 
-`csp_connect_src` arrives whole from root, so one computation feeds both delivery paths. **nginx has
+`csp_connect_src` arrives whole from root, which is the one computation the image's baked
+directives are asserted against. **nginx has
 no escaping**, so anything interpolated in is allowlisted — a quote truncates the policy on a
 container reporting healthy.
 

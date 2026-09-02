@@ -107,7 +107,6 @@ def test_every_tofu_init_names_the_same_backend_configuration() -> None:
             per_file.setdefault(path.name, set()).add(keys)
 
     assert per_file, "no `tofu init` with backend configuration found — no subject"
-    assert "deploy-app.yml" in per_file, "deploy-app.yml does not init the backend"
     assert "deploy-config.yml" in per_file, "deploy-config.yml does not init the backend"
 
     distinct = {keys for entries in per_file.values() for keys in entries}
@@ -177,8 +176,8 @@ def test_the_resolve_refusal_lands_before_any_aws_write() -> None:
     """
     resolvers = {path.name: path.read_text() for path in _workflows() if RESOLVE_STEP in path.read_text()}
 
-    assert resolvers.keys() >= {"deploy-app.yml", "deploy-config.yml"}, (
-        f"expected both deploy workflows to resolve, found {sorted(resolvers)}"
+    assert resolvers.keys() >= {"deploy-config.yml"}, (
+        f"expected the publishing workflow to resolve, found {sorted(resolvers)}"
     )
 
     early: dict[str, list[str]] = {}

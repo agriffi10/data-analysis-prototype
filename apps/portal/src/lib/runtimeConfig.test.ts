@@ -251,16 +251,12 @@ describe('runtimeConfig — every key has a source in every environment', () => 
 
   const ENV_EXAMPLE = readEnvExample();
 
-  const DEPLOY_WORKFLOW = Object.values(
-    import.meta.glob('../../../../.github/workflows/deploy-app.yml', {
-      query: '?raw',
-      import: 'default',
-      eager: true
-    })
-  )[0] as string;
-
   /**
-   * The fifth wiring point: the ECS task definition that serves the container's document.
+   * The task definition that serves the container's document — and, since `deploy-app.yml`
+   * was deleted with the distribution it fed, the ONLY infrastructure statement of the key
+   * set. The four tests that compared this classification against that workflow's build env,
+   * its render step and its own `KEYS` list went with it: a test asserting the shape of a
+   * deleted file is not a guard, it is a parse error waiting for the next run.
    * Two files, because the wiring is split on purpose — root names the keys and their
    * values, and the module renders one environment entry per key without naming any of them.
    *
@@ -289,14 +285,6 @@ describe('runtimeConfig — every key has a source in every environment', () => 
 
   const ALL_KEYS = [...REQUIRED_CONFIG, ...OPTIONAL_CONFIG];
 
-  /** The step's body, so the two `env:` blocks in this workflow are never confused. */
-  function stepBody(name: string): string {
-    const start = DEPLOY_WORKFLOW.indexOf(`- name: ${name}`);
-    expect(start).toBeGreaterThan(-1);
-    const next = DEPLOY_WORKFLOW.indexOf('\n      - name: ', start + 1);
-    return DEPLOY_WORKFLOW.slice(start, next === -1 ? undefined : next);
-  }
-
   it('names every classified key in .env.example, and nothing it does not classify', () => {
     // ASSIGNMENT LINES ONLY. A free-text scrape also finds the variable a comment
     // records as removed, which is history worth keeping and not a variable at all.
@@ -305,61 +293,6 @@ describe('runtimeConfig — every key has a source in every environment', () => 
 
     expect([...assigned].filter((name) => !classified.has(name))).toEqual([]);
     expect([...classified].filter((name) => !assigned.has(name))).toEqual([]);
-  });
-
-  it('passes every classified variable to the build', () => {
-    const build = stepBody('Build');
-    const passed = new Set([...build.matchAll(/^\s+(VITE_[A-Z0-9_]+):/gm)].map(([, name]) => name));
-    const classified = [...ALL_KEYS.map((key) => VITE_NAME[key]).filter((name) => name !== null)];
-
-    expect(classified.filter((name) => !passed.has(name as string))).toEqual([]);
-  });
-
-  it('renders each key from the same source the build reads', () => {
-    // Both blocks must name ONE source per key. Sourcing the document from a different
-    // one than the bundle is the drift this whole test exists to catch, and it is
-    // invisible in every environment where both happen to be set.
-    //
-    // The WHOLE expression is captured, not its trailing name. Most keys now resolve from
-    // `steps.config.outputs.<key>` while the two genuine inputs stay on `vars.<NAME>`, and
-    // comparing trailing names alone would accept `vars.userSpaceBucket` against
-    // `steps.config.outputs.userSpaceBucket` — two different sources agreeing on a word.
-    const build = stepBody('Build');
-    const buildSource = new Map(
-      [...build.matchAll(/^\s+(VITE_[A-Z0-9_]+):\s*\$\{\{\s*(\S+)\s*\}\}/gm)].map(([, name, source]) => [name, source])
-    );
-    const render = stepBody('Render the runtime configuration document');
-    const renderSource = new Map(
-      [...render.matchAll(/^\s+CONFIG_(\w+):\s*\$\{\{\s*(\S+)\s*\}\}/gm)].map(([, key, source]) => [key, source])
-    );
-
-    // Guard-the-guard: a regex that stopped matching would make every comparison below
-    // compare undefined with undefined and pass.
-    expect(buildSource.size).toBeGreaterThan(0);
-    expect(renderSource.size).toBeGreaterThan(0);
-
-    for (const key of ALL_KEYS) {
-      // EVERY key must have matched, not just some. Comparing two `undefined`s passes, so a
-      // key whose expression stopped matching both regexes would drop silently out of the
-      // comparison — reachable, because `(\S+)` cannot match a spaced expression and this
-      // repo already writes `${{ vars.X || 'default' }}` elsewhere.
-      expect(renderSource.get(key)).toBeTruthy();
-
-      const viteName = VITE_NAME[key];
-      if (viteName === null) continue;
-      expect(buildSource.get(viteName)).toBeTruthy();
-      expect(renderSource.get(key)).toBe(buildSource.get(viteName));
-    }
-  });
-
-  it('renders exactly the keys this build classifies, and no same-prefixed stray', () => {
-    // The step names its own allowed set rather than publishing whatever `CONFIG_*`
-    // variable the runner happens to carry — into a world-readable document. That list
-    // is the one thing standing between a stray and a disclosure, so it is pinned here.
-    const render = stepBody('Render the runtime configuration document');
-    const declared = /KEYS='([^']+)'/.exec(render)?.[1]?.split(' ') ?? [];
-
-    expect(declared.slice().sort()).toEqual([...ALL_KEYS].sort());
   });
 
   it('names every classified key in the ECS task definition\u2019s source map', () => {
@@ -386,13 +319,5 @@ describe('runtimeConfig — every key has a source in every environment', () => 
 
     expect(body).toMatch(/^\s+appUrl\s*=\s*local\.spa_origin$/m);
     expect(body).not.toMatch(/^\s+appUrl\s*=\s*var\.app_url$/m);
-  });
-
-  it('uploads the document with no-store, outside the passes that own dist/', () => {
-    // A cached document is the failure this spec exists to prevent and the one nothing on
-    // screen distinguishes, and a file touched by two sync passes silently takes the
-    // second one's header.
-    expect(DEPLOY_WORKFLOW).toMatch(/aws s3 cp[^\n]*config\.json[\s\S]{0,200}--cache-control 'no-store'/);
-    expect(DEPLOY_WORKFLOW).not.toMatch(/dist\/config\.json/);
   });
 });

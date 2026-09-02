@@ -4,11 +4,13 @@ name: Deploy SPA image
 # commit sha, registers a task-definition revision carrying that tag, points the service at it and
 # WAITS — then asserts the service actually settled on what this run built.
 #
-# NO `paths:` FILTER, deliberately, and it is not an oversight. deploy-app.yml deploys the
-# CloudFront bundle on every push to main, and the container has to track main the same way: a
-# filter means the running image and HEAD diverge on any commit the filter misses, and "which
-# commit is in production" stops having an answer — which is the question the sha tagging exists to
-# answer. The PR-side gate (spa-image.yml) IS filtered, because it only proves the image.
+# NO `paths:` FILTER, deliberately, and it is not an oversight. This is now the ONLY deploy of the
+# SPA — the CloudFront bundle and its workflow are retired — so the running image is the whole
+# answer to "which commit is in production", and the sha tagging exists to answer exactly that. A
+# filter means the running image and HEAD diverge on any commit the filter misses, and nothing else
+# is left to make up the difference. The PR-side gate (spa-image.yml) IS filtered, because it only
+# proves the image. Cost, stated because it is real: every merge rebuilds and redeploys, including
+# a documentation-only one.
 #
 # THE DISPATCH PATH IS NOT A CONVENIENCE. Two situations need it and neither is hypothetical.
 # Terraform registers task-definition revisions of its own — the service carries
@@ -30,7 +32,7 @@ on:
 
 # Two overlapping deploys of one service is last-writer-wins, and cancelling one mid-flight leaves
 # a half-rolled service — so runs queue rather than race, and none is cancelled. The same reasoning
-# deploy-app.yml carries.
+# every deploy workflow here carries.
 concurrency:
   group: deploy-spa-image
   cancel-in-progress: false

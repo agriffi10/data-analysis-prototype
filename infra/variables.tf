@@ -30,12 +30,6 @@ variable "state_lock_table" {
   type        = string
 }
 
-variable "app_url" {
-  description = "Public URL of the deployed app (e.g. the CloudFront domain). Used for Cognito OAuth callback URLs when auth IaC is added."
-  type        = string
-  default     = ""
-}
-
 variable "cognito_domain_prefix" {
   description = "Hosted UI domain prefix (must be globally unique across all AWS accounts). When empty, defaults to {project_name}-{environment}-portal."
   type        = string
@@ -208,7 +202,7 @@ variable "spa_image_tag" {
 }
 
 variable "max_upload_bytes" {
-  description = "Largest single upload the portal offers, carried to the container as the runtime document's maxUploadBytes. Supplied from the SAME VITE_MAX_UPLOAD_BYTES repo variable deploy-app.yml renders the CloudFront document from — one source, because two renderers of one document that read different variables disagree with no symptom on either screen. The default is the fallback for an unset variable, matching the workflow's."
+  description = "Largest single upload the portal offers, carried to the container as the runtime document's maxUploadBytes. The default is the fallback for an unset repo variable. It was once supplied from the same VITE_MAX_UPLOAD_BYTES the CloudFront renderer read, so the two documents could not disagree with no symptom on either screen; there is one renderer now, and one document."
   type        = number
   default     = 5368709120
 

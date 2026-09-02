@@ -9,7 +9,6 @@ Attributes:
   INFRA: The IaC tree.
   API: The API module's directory.
   ROOT_MAIN: The composition that builds the origins and the connect-src.
-  APP_CLOUDFRONT: The CloudFront policy that READS the connect-src instead of building it.
   AUTH_COGNITO: The app client whose callback list gains the container origin.
   CSP_CONNECT_SRC_TERMS: Every term the deployed connect-src must carry, named independently.
   FORBIDDEN_IN_API_MODULE: Block types whose presence means a network attachment was started.
@@ -61,7 +60,6 @@ from tf_blocks import blocks
 INFRA = pathlib.Path(__file__).resolve().parent.parent / "infra"
 API = INFRA / "modules" / "api"
 ROOT_MAIN = INFRA / "main.tf"
-APP_CLOUDFRONT = INFRA / "modules" / "app" / "cloudfront.tf"
 AUTH_COGNITO = INFRA / "modules" / "auth" / "cognito.tf"
 API_CLIENT = INFRA.parent / "apps" / "portal" / "src" / "lib" / "apiClient.ts"
 
@@ -526,9 +524,11 @@ def test_the_browser_is_admitted_by_cors_the_csp_and_the_callback_list() -> None
     gateway = (API / "apigateway.tf").read_text()
     client = API_CLIENT.read_text()
 
-    assert re.search(
-        r"allow_origins\s*=\s*compact\(\[var\.spa_origin,\s*var\.app_url\]\)", source
-    ), "allow_origins must be the two exact origins, compacted so an unset app_url drops out"
+    assert re.search(r"allow_origins\s*=\s*compact\(\[var\.spa_origin\]\)", source), (
+        "allow_origins must be the one exact origin, compacted so an unset spa_origin drops out "
+        "rather than reaching the gateway as an empty string. It was two through the cutover; "
+        "the second was CloudFront's and went with the distribution"
+    )
     assert '"*"' not in source.split("cors_configuration")[1].split("}")[0]
     assert re.search(r"allow_credentials\s*=\s*false", source), (
         "allow_credentials must be explicitly false, not merely absent"
@@ -591,24 +591,35 @@ def test_the_browser_is_admitted_by_cors_the_csp_and_the_callback_list() -> None
         f"root's connect-src is {sorted(found_terms)}; expected {sorted(CSP_CONNECT_SRC_TERMS)}. "
         "A term dropped here breaks one feature, only in a browser, and nothing offline sees it"
     )
-    app_source = APP_CLOUDFRONT.read_text()
-    assert "csp_connect_src = join(" not in app_source
-    assert "content_security_policy = join(" not in app_source, (
-        "modules/app must not assemble the policy — root does, so one computation feeds both the "
-        "distribution and the container, and this module's retirement orphans nothing"
+    # The policy is assembled at ROOT and nowhere else. It used to be worth asserting that
+    # modules/app did not assemble its own copy; that module is retired, so what is left to
+    # assert is that no module reintroduced one — checked across the whole tree rather than
+    # against a single file, since the next one to try would be a different file.
+    assemblers = [
+        path
+        for path in (INFRA / "modules").rglob("*.tf")
+        if "content_security_policy = join(" in path.read_text()
+    ]
+    assert assemblers == [], (
+        f"{[str(p) for p in assemblers]} assembles a Content-Security-Policy. Root computes it "
+        "once, and the container's image is asserted against that computation — a second "
+        "assembly is a second policy nothing compares"
     )
-    assert "content_security_policy = var.content_security_policy" in app_source
 
     callbacks = re.search(
         r"callback_urls\s*=\s*distinct\(compact\(\[([^\]]*)\]\)\)", AUTH_COGNITO.read_text()
     )
     assert callbacks, (
         "the callback list must be distinct(compact([...])) — compact so an unset origin drops "
-        "out, distinct because the cutover re-points app_url AT the container origin before it "
-        "removes the entry, and Cognito rejects a duplicated URL rather than deduplicating it"
+        "out rather than reaching Cognito as an empty string, distinct because Cognito rejects "
+        "a duplicated URL rather than deduplicating it"
     )
-    for required in ('"http://localhost:5173"', "var.app_url", "var.spa_origin"):
-        assert required in callbacks.group(1), f"the callback list omits {required}"
+    entries = [entry.strip() for entry in callbacks.group(1).split(",") if entry.strip()]
+    assert entries == ['"http://localhost:5173"', "var.spa_origin"], (
+        f"the callback list is {entries}. EQUALITY, not containment: the CloudFront entry was "
+        "removed with the distribution, and a list that merely CONTAINS the two right entries "
+        "would still pass while admitting an origin nothing serves"
+    )
 
 
 def test_the_provider_block_is_complete_and_cannot_be_silently_disabled() -> None:

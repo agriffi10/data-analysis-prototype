@@ -31,7 +31,7 @@ or belongs to no tree at all.
 |---|---|---|
 | The app | `apps/portal/info/component-inventory/INDEX.md` | a **router** to per-area inventories of what already exists — read the area(s) your spec touches, never all |
 | | `apps/portal/info/best-practices/` | the React and accessibility rulebooks |
-| | `apps/portal/info/runtime-configuration.md` | the `/config.json` contract and the six places a key is wired |
+| | `apps/portal/info/runtime-configuration.md` | the `/config.json` contract and the five places a key is wired |
 | The lambdas | `lambdas/info/INDEX.md` | every function, grouped by control plane — a lookup, not a description |
 | | `lambdas/info/planes/<plane>.md` | one page per plane: its machine, what it accepts, its fences, its layer, and the evidence behind its caps |
 | | `lambdas/info/shared-layer.md` | `cpcommon`'s module map and the long-form *why* behind it |
@@ -457,8 +457,8 @@ These pass locally and fail later — check them as part of the work, not as an 
   `npm run test -w apps/portal`.
 - **`import.meta.env.VITE_*` read at module top level** is captured at import — `vi.stubEnv` in
   `beforeEach` is too late and CI has no `.env`. Stub at top level **and dynamic-import** the module.
-- **A new configuration key is wired in SIX places, and `deploy-app.yml`'s build env is not the one
-  that reaches production.** Production reads a runtime `/config.json`; a `VITE_*` value is the **dev
+- **A new configuration key is wired in FIVE places, and none of them is a build env.** Production
+  reads a runtime `/config.json`; a `VITE_*` value is the **dev
   fallback only**, and `npm run check:bundle` asserts the production bundle carries no `VITE_` names
   at all. Wiring the build env and stopping there ships a key that exists nowhere the browser can
   see it. The list — including the render step and the container entrypoint's

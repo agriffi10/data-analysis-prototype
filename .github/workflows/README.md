@@ -6,7 +6,6 @@ record, so a workflow without one is a workflow nobody has described:
 | File | Trigger | Purpose |
 |---|---|---|
 | `ci.yml` | PR → `main` | Web app: lint + format + `tsc -b` build + unit/component tests. Those steps are **scoped**: a pull request touching none of `apps/portal/**`, the root manifests, `.nvmrc` or this workflow skips them and the job costs one billed minute instead of six. The scoping is per-STEP, not a workflow-level `paths:` filter, so the job always runs and always reports — a required check by that name can never sit pending. An unreachable base runs everything. Lambdas: `ruff` + `mypy` + `pytest` + the doc, contract and feature-flag validators (separate `lambdas` job, never scoped) |
-| `deploy-app.yml` | Push to `main` | Resolve the configuration from Terraform state, build the SPA, render `/config.json`, sync to S3, invalidate CloudFront. The derived values are read by `tofu output -json` through [`config-outputs.json`](../config-outputs.json); only the genuine inputs are still repository variables |
 | `deploy-config.yml` | Push to `main` (paths: `config/**`, its own file, the flag validator, the configuration map and the resolver); manual dispatch | Validate the feature-flag document, then publish it to the user-space bucket — whose name it resolves from Terraform state through the same map |
 | `deploy-infra.yml` | PR → `main` (paths: `infra/**`, own workflow file); push to `main` (same); manual dispatch (optional `skip_refresh` recovery input) | `tofu fmt -check` + `tofu plan` on PRs (posts plan as PR comment); `tofu plan` + `tofu apply` on merge |
 | `security.yml` | PR → `main`; weekly (Mon 06:17 UTC); manual dispatch | Security scanning: Semgrep SAST, `npm audit` (runtime + full), `pip-audit`, gitleaks, Checkov, OWASP ZAP baseline. All **report-only** — see the `GATE_*` block in the workflow and `docs/security-baseline.md` (SPEC-138) |
@@ -31,8 +30,8 @@ All deploy workflows authenticate to AWS via GitHub OIDC — no long-lived crede
 ### Step 1 — Capture IaC outputs
 
 **Only the secrets below are captured by hand now.** The deploy workflows read every derived
-*variable* straight from Terraform state: `deploy-app.yml` and `deploy-config.yml` init the same
-backend and run one `tofu output -json`, mapping output names to configuration keys through
+*variable* straight from Terraform state: `deploy-config.yml` inits the backend and runs one
+`tofu output -json`, mapping output names to configuration keys through
 [`.github/config-outputs.json`](../config-outputs.json). Copying a derived value into a settings
 page is no longer a setup step, and doing it anyway creates a second copy that nothing reconciles.
 
@@ -40,9 +39,7 @@ From `infra/` after a successful `tofu apply`:
 
 ```bash
 tofu output github_actions_role_arn      # → AWS_DEPLOY_ROLE_ARN
-tofu output s3_static_assets_bucket_name # → S3_STATIC_BUCKET
-tofu output cloudfront_distribution_id   # → CLOUDFRONT_DISTRIBUTION_ID
-tofu output cloudfront_domain            # → VITE_APP_URL (see the note below — it is an INPUT)
+tofu output spa_origin                   # → VITE_APP_URL (see the note below)
 ```
 
 ### Step 2 — Populate GitHub Actions Secrets
@@ -52,8 +49,6 @@ Go to **Settings → Secrets and variables → Actions → Secrets**.
 | Secret | Value source |
 |---|---|
 | `AWS_DEPLOY_ROLE_ARN` | `tofu output github_actions_role_arn` |
-| `S3_STATIC_BUCKET` | `tofu output s3_static_assets_bucket_name` |
-| `CLOUDFRONT_DISTRIBUTION_ID` | `tofu output cloudfront_distribution_id` |
 | `TF_VAR_state_bucket` | Name of your bootstrap S3 state bucket |
 | `TF_VAR_state_lock_table` | Name of your bootstrap DynamoDB lock table |
 
@@ -74,7 +69,7 @@ Go to **Settings → Secrets and variables → Actions → Variables**.
 | Variable | Why it is an input | Notes |
 |---|---|---|
 | `AWS_REGION` | Names where the state lives, so it is needed to assume the role and read state **before** any output can be resolved | Must match the region of all provisioned resources |
-| `VITE_APP_URL` | Feeds `TF_VAR_app_url`, from which Cognito's callback and logout lists are built — Terraform consumes it | Use the `https://` origin. `deploy-app.yml` refuses to deploy if it disagrees with the resolved `appUrl`, because that divergence is a broken sign-in with nothing else red |
+| `VITE_APP_URL` | **No longer a Terraform input.** `variable "app_url"` is deleted and the three module blocks that consumed it take `local.spa_origin`, which Terraform builds from the subdomain and the parent domain | Its one remaining consumer is `security.yml`'s ZAP target. A stale value there does **not** fail the job — it scans a dead host and reports a clean baseline, the worst shape a security check can take. Set it to `tofu output spa_origin` |
 | `VITE_ENVIRONMENT` | Which feature-flag block this deployment resolves; no resource can tell you which environment it is | Unset ships a bundle that ignores every per-environment override while looking healthy |
 | `VITE_MAX_UPLOAD_BYTES` | A policy number, not a resource attribute | Also feeds `TF_VAR_max_upload_bytes`, so the container and the bundle agree |
 | `TF_VAR_github_repo` | Scopes the OIDC trust policy | `owner/repo-name`; must match exactly |
@@ -93,23 +88,21 @@ not a completed one.** Six were retired by the move to Terraform state: `API_BAS
 read when the browser's control-plane enqueues moved behind the API: the eight queue URLs,
 `VITE_ATHENA_WORKGROUP` and `VITE_COGNITO_IDENTITY_POOL_ID`. The list and the ordering are in
 [`docs/testing/owed.md`](../../docs/testing/owed.md) — **delete them only after a green post-merge
-`Deploy App` and `Publish Config`**, because until then they are what a revert falls back to. The
+`Publish Config`**, because until then they are what a revert falls back to. `Deploy App` is gone,
+so `Publish Config` is the only workflow still resolving configuration from Terraform state — which
+is what makes re-pointing `.github/config-outputs.json` part of this retirement, not a follow-up. The
 queue URLs are wired straight from each module's output onto the API function by Terraform, with no
 repository variable and no build env in between.
 
-> **Chicken-and-egg note for `VITE_APP_URL`:** on the very first deploy the CloudFront domain is not
-> known yet. Set it to a placeholder (or empty), let the first deploy complete, then set it to
-> `tofu output cloudfront_domain` and redeploy. The agreement check in `deploy-app.yml` skips an
-> empty value for exactly this reason, and enforces it once you set one.
-
 ### Step 4 — Trigger the first app deploy
 
-Push a commit to `main` (or merge a PR). The `deploy-app.yml` workflow will:
-1. Render `/config.json` and build the SPA
-2. Sync `apps/portal/dist/` to the static assets S3 bucket
-3. Invalidate the CloudFront distribution
+Push a commit to `main` (or merge a PR). `deploy-spa-image.yml` builds the SPA image, proves it
+against the container matrix, pushes it to ECR under the commit sha, and **points the service at
+the new revision** — Terraform ignores `task_definition`, so a pipeline that only registers a
+revision leaves the old task running.
 
-The app should load at the CloudFront domain once the invalidation completes (typically under 60 seconds).
+The app loads at `spa_origin` once the rolling deployment finishes. There is no invalidation step
+and no sync: the image IS the file set, so there is no reconciliation and no orphan class.
 
 ### Step 5 — Test the infra workflow
 
@@ -125,11 +118,10 @@ Several workflow values are derived rather than stored as separate GitHub variab
 
 - `VITE_AWS_REGION` is set to `${{ vars.AWS_REGION }}` in the build step — no separate variable needed.
 - `TF_VAR_aws_region` is set to `${{ vars.AWS_REGION }}` in the plan/apply steps — no separate variable needed.
-- `TF_VAR_app_url` is set to `${{ vars.VITE_APP_URL }}` — declared in `infra/variables.tf` for Cognito OAuth callback URLs when auth IaC is added.
-- The three Cognito values and the two bucket names are rendered into `/config.json` by
-  `deploy-app.yml` from **Terraform outputs**, resolved by `.github/scripts/resolve-config.sh`.
-  There is nothing to populate: an absent or empty output fails the deploy, naming both the
-  configuration key and the output it came from.
+- The three Cognito values and the two bucket names reach `/config.json` through the **container
+  entrypoint**, from the ECS task definition that root's `local.spa_runtime_config` renders. There is
+  nothing to populate. `.github/scripts/resolve-config.sh` still reads the same Terraform outputs for
+  `Publish Config`, and still refuses an absent or empty one by name.
 - `VITE_IAM_ROLE_ARN` and `VITE_COGNITO_IDENTITY_POOL_ID` have both been **removed**. The first went when the Identity Pool took over credential issuance; the second went with the pool itself, once the browser stopped making AWS calls. The app handles neither a role ARN nor a pool id.
 - `TF_VAR_state_bucket` and `TF_VAR_state_lock_table` are stored as **secrets** (not variables) because they are used both as OpenTofu input variables (scoping IAM permissions in `iam.tf`) and as backend configuration passed to `tofu init`.
 
