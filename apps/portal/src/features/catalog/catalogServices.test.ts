@@ -1,4 +1,4 @@
-import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {mockApi, apiFailure} from '../../test/apiMock';
 import type {ApiMock} from '../../test/apiMock';
 import {
@@ -78,6 +78,10 @@ describe('the catalog services over the API', () => {
   });
 
   describe('runStatementToCompletion', () => {
+    // Restored here as well as in the `finally`: a poller that never settles would hang the
+    // case past the `finally`, and fake timers would leak into every case after it.
+    afterEach(() => vi.useRealTimers());
+
     it('gives up with `Timeout` at the poll ceiling, and stops polling', async () => {
       // The ceiling is a constant the service keeps to itself (90 polls, 400 ms apart);
       // the number here is that constant, and a change to it is a change to this test.
