@@ -630,3 +630,89 @@ def test_a_real_vpc_change_is_still_caught():
     problems = GUARD.check({"resource_changes": [after]}, fixture, "Zip", None,
                            [{"name": "vpc-thing"}], "dat", "prod")
     assert any("vpc_config moved" in p for p in problems), problems
+
+
+def test_the_parity_list_covers_every_field_the_spec_promises():
+    """`PARITY_FIELDS` is the guard's whole subject, and dropping one from it fails nothing else.
+
+    Measured: removing `vpc_config` left every other test in this file green while the guard
+    stopped reporting a real VPC move. FR-002 names the set, so it is pinned here.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the guard stops comparing something the spec promises is unchanged.
+    """
+    assert set(GUARD.PARITY_FIELDS) == {
+        "environment", "timeout", "memory_size", "architectures", "role",
+        "reserved_concurrent_executions", "vpc_config",
+    }, (
+        f"PARITY_FIELDS is {sorted(GUARD.PARITY_FIELDS)}; FR-002 promises the cutover changes "
+        "none of environment, timeout, memory, architecture, role, reserved concurrency or VPC "
+        "configuration, and a field missing from this tuple is one nothing compares"
+    )
+
+
+def test_the_repository_check_requires_the_tag_separator(fixture):
+    """`repo` and `repo-something-else` share a prefix; only the colon distinguishes them.
+
+    Measured: dropping the `:` from the prefix test left all ten of this file's other assertions
+    green while the guard accepted a neighbouring repository whose name merely starts the same.
+
+    Args:
+      fixture: The capture.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a lookalike repository is accepted.
+    """
+    repo = "123.dkr.ecr.us-east-1.amazonaws.com/dat-prod-lambda"
+    lookalike = {
+        "resource_changes": [
+            _resource("dat-prod-archive-copy-objects", _zip_after(
+                package_type="Image", handler=None,
+                image_uri=f"{repo}-experimental:abc",
+                image_config=[{"command": ["archive_copy_objects.handler"]}])),
+            _resource("dat-prod-api", _zip_after(
+                package_type="Image", handler=None, timeout=29, memory_size=256,
+                image_uri=f"{repo}:abc", image_config=[{"command": ["handler.handler"]}])),
+        ]
+    }
+    problems = _check(lookalike, fixture, "Image", repo)
+    assert any("does not name the fleet's repository" in p for p in problems), problems
+
+
+def test_a_destroyed_function_is_skipped_rather_than_aborting_the_guard():
+    """A delete carries `after: null`, which is not a function whose name is unknown.
+
+    Measured against OpenTofu: a destroy is `{"actions": ["delete"], "after": null}`. Reading that
+    as a nameless function aborted the whole guard with a diagnosis naming the wrong problem. A
+    REPLACE — one entry with both actions — describes a function that WILL exist and is kept.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a destroy aborts the guard, or a replacement is dropped.
+    """
+    plan = {
+        "resource_changes": [
+            {"address": "module.old.aws_lambda_function.gone", "type": "aws_lambda_function",
+             "change": {"actions": ["delete"], "after": None, "after_unknown": {}}},
+            {"address": "module.new.aws_lambda_function.this", "type": "aws_lambda_function",
+             "change": {"actions": ["delete", "create"],
+                        "after": {"function_name": "dat-prod-api", **_zip_after(
+                            timeout=29, memory_size=256, handler="handler.handler")},
+                        "after_unknown": REAL_CREATE_UNKNOWN}},
+        ]
+    }
+    assert sorted(GUARD._functions(plan)) == ["dat-prod-api"]

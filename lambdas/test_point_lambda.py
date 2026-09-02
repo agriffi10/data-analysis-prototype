@@ -91,6 +91,12 @@ def _harness(tmp_path, package_type, *, landed=None, status="Successful",
         f'#!/usr/bin/env bash\necho "DEPLOY_LAMBDA_SH_RAN $1" >> {log}\n'
     )
     (binary / "deploy-lambda.sh").chmod(0o755)
+
+    # WITHOUT THIS the two longest refusal paths are unreachable: both poll 30 times at 10s, which
+    # no sane test timeout survives. `_harness` advertised `image_present` and `function_present`
+    # from the start and neither was usable until the sleep was stubbed out.
+    (binary / "sleep").write_text("#!/usr/bin/env bash\nexit 0\n")
+    (binary / "sleep").chmod(0o755)
     return binary, log
 
 
@@ -195,6 +201,13 @@ def test_an_image_function_is_pointed_at_this_commit_s_image(tmp_path, staged):
     assert result.returncode == 0, result.stderr + calls
     assert f"update-function-code --function-name dat-prod-archive-copy-objects --image-uri {REPOSITORY}:abc123" in calls
     assert "wait function-updated-v2" in calls, "a container update is asynchronous"
+    # The OTHER waiter, pinned separately: a just-created function sits in Pending and
+    # update-function-code against it is a ResourceConflictException (SPEC-088). Deleting this
+    # wait passed every other assertion in this file.
+    assert "wait function-active-v2" in calls, (
+        "the script must wait for the function to be Active before updating it; the cutover is "
+        "the run most likely to catch one mid-create"
+    )
     assert "--query Code.ImageUri" in calls, (
         "the script must read the effect back; the API call returning is not the deploy landing"
     )
@@ -294,4 +307,56 @@ def test_an_unknown_package_type_is_refused_rather_than_guessed(tmp_path, staged
 
     assert result.returncode != 0
     assert "neither Zip nor Image" in result.stdout + result.stderr
+    assert "update-function-code" not in log.read_text()
+
+
+def test_a_function_that_never_appears_is_refused_by_name(tmp_path, staged):
+    """The race this script exists to survive, at its limit.
+
+    Deploy Infrastructure and Deploy Lambdas fire on the same push, so the function may not exist
+    yet. What must not happen is an update against a function that is not there.
+
+    Args:
+      tmp_path: Temporary directory.
+      staged: The staged script directory.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the refusal is silent or an update is attempted anyway.
+    """
+    binary, log = _harness(tmp_path, "Image", function_present=False)
+    result = _run(binary, staged)
+    output = result.stdout + result.stderr
+
+    assert result.returncode != 0
+    assert "not ready after" in output, output
+    assert "Deploy Infrastructure" in output, "the refusal must name what to run"
+    assert "update-function-code" not in log.read_text()
+
+
+def test_an_image_tag_that_never_appears_is_refused_naming_the_image_workflow(tmp_path, staged):
+    """Pointing at a tag the registry does not hold fails with a message about the FUNCTION.
+
+    So the script waits for the tag itself and refuses with a message about the IMAGE, naming the
+    workflow that produces it — the image build fires on the same push and can lose the race.
+
+    Args:
+      tmp_path: Temporary directory.
+      staged: The staged script directory.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the refusal blames the wrong thing, or an update is attempted.
+    """
+    binary, log = _harness(tmp_path, "Image", image_present=False)
+    result = _run(binary, staged)
+    output = result.stdout + result.stderr
+
+    assert result.returncode != 0
+    assert "not in the registry" in output, output
+    assert "Deploy Lambda image" in output, "the refusal must name the workflow to look at"
     assert "update-function-code" not in log.read_text()

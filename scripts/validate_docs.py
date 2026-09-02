@@ -131,13 +131,17 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 #: link-checked. Add the tree in the same commit that creates it.
 DOC_TREES = ("docs", "apps/portal/info", "lambdas/info", "infra/info", "infra/modules")
 
-#: Directories a doc walk must not descend into. `.terraform` holds a vendored copy of every
-#: provider, each with its own README and CHANGELOG carrying links this repo does not own — three
-#: of them dangle. It is gitignored, so it never reaches CI, which is exactly why this was easy to
-#: miss: the gate every reviewer is told to run locally breaks the moment anyone runs
-#: `tofu init` inside a module directory, and it breaks with a message about a link in HashiCorp's
-#: changelog.
-VENDORED = (".terraform", "node_modules", "__pycache__", ".venv")
+#: Directories no walk in this file descends into. `.terraform` holds a vendored copy of every
+#: provider, each with its own README and CHANGELOG carrying links this repo does not own —
+#: measured, twelve dangling links across four provider READMEs. It is gitignored, so it never
+#: reaches CI, which is exactly why this was easy to miss: the gate every reviewer is told to run
+#: locally breaks the moment anyone runs `tofu init` inside a module directory, and it breaks with
+#: a message about a link in HashiCorp's changelog.
+#:
+#: ONE TUPLE. `check_doc_paths_everywhere` had its own differently-spelled copy of this rule, which
+#: is how the two came to disagree — the markdown walks skipped nothing while the source walk
+#: skipped six directories.
+VENDORED = (".terraform", "node_modules", "__pycache__", ".venv", "dist", "coverage", ".git", ".claude")
 
 
 def _docs_in(tree):
@@ -889,7 +893,7 @@ def check_doc_paths_everywhere() -> list[str]:
       None.
     """
     suffixes = {".tf", ".tftpl", ".yml", ".yaml", ".py", ".ts", ".tsx", ".sh", ".toml"}
-    skip = ("node_modules", ".terraform", "dist", "coverage", ".git", ".claude")
+    skip = VENDORED
     pattern = re.compile(
         r"(?:" + "|".join(re.escape(tree) for tree in DOC_TREES) + r")/[A-Za-z0-9_./-]+\.md"
     )

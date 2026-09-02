@@ -75,7 +75,8 @@ def _build_version():
     ``update-function-configuration --environment`` replaces it whole, so an env-borne version
     would either race an apply or be reverted by the next one, and Deploy Infrastructure is
     path-filtered to ``infra/**``, so a Tofu-set value would name the last infra commit rather
-    than the running code. A test in ``test_api_module.py`` holds Terraform to that.
+    than the running code. ``test_fleet_environment.py`` holds Terraform to that across
+    EVERY module, and ``test_api_module.py`` separately for the API's own.
 
     TWO PIPELINES WRITE THAT FILE and the path is the same for both, which is the whole reason
     this function needed no change when the fleet moved to a container image: ``Deploy Lambdas``

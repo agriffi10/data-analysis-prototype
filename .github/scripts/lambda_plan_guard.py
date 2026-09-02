@@ -138,6 +138,14 @@ def _functions(plan: dict) -> dict[str, dict]:
     for change in plan.get("resource_changes", []):
         if change.get("type") != "aws_lambda_function":
             continue
+        actions = (change.get("change") or {}).get("actions") or []
+        # A resource being DESTROYED is not part of the fleet this plan builds, and its `after` is
+        # null — which reached the "unknown function_name" refusal below and aborted the whole
+        # guard with a diagnosis naming the wrong problem. A REPLACE is a single entry whose
+        # actions are ["delete", "create"] (or the create-before-destroy order), and it is kept:
+        # it does describe a function that will exist.
+        if actions == ["delete"]:
+            continue
         after = (change.get("change") or {}).get("after") or {}
         unknown = (change.get("change") or {}).get("after_unknown") or {}
         name = after.get("function_name")
