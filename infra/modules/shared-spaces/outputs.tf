@@ -28,3 +28,11 @@ output "state_machine_arn" {
   description = "ARN of the orchestrator Step Function state machine."
   value       = aws_sfn_state_machine.orchestrator.arn
 }
+
+output "function_names" {
+  description = "Every Lambda this module deploys, by deployed name. Aggregated at the root into `lambda_function_names`; the reasoning lives there rather than in fourteen copies of it."
+  value = concat(
+    [for function in module.functions : function.function_name],
+    [module.transfer_reader.function_name],
+  )
+}

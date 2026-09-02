@@ -27,3 +27,8 @@ output "fscommon_layer_name" {
   description = "Name of the file-send-common (fscommon) Lambda layer CI builds + publishes. Named after the PLANE, not the Python package, so it matches the deploy role's *-file-send-* layer wildcard. The version ARN is produced by deploy-lambdas.yml, not Terraform (CI-owned layer pattern)."
   value       = local.fscommon_layer_name
 }
+
+output "function_names" {
+  description = "Every Lambda this module deploys, by deployed name. Aggregated at the root into `lambda_function_names`; the reasoning lives there rather than in fourteen copies of it."
+  value       = [for function in module.functions : function.function_name]
+}

@@ -17,3 +17,8 @@ output "polars_layer_name" {
   description = "Name of the polars Lambda layer CI builds + publishes (attached to infer-schema). The version ARN is produced by deploy-lambdas.yml, not Terraform (the layer artifact is too large to vendor — same CI-owned pattern as shared-space-common)."
   value       = local.polars_layer_name
 }
+
+output "function_names" {
+  description = "Every Lambda this module deploys, by deployed name. Aggregated at the root into `lambda_function_names`; the reasoning lives there rather than in fourteen copies of it."
+  value       = [for function in module.functions : function.function_name]
+}

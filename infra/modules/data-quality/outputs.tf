@@ -24,3 +24,8 @@ output "polars_layer_name" {
   description = "Name of the data-quality polars Lambda layer CI builds + publishes (attached to inspect-source ONLY — it must read Parquet footers because Athena needs an explicit column list and does not auto-detect a Parquet schema)."
   value       = local.polars_layer_name
 }
+
+output "function_names" {
+  description = "Every Lambda this module deploys, by deployed name. Aggregated at the root into `lambda_function_names`; the reasoning lives there rather than in fourteen copies of it."
+  value       = [for function in module.functions : function.function_name]
+}

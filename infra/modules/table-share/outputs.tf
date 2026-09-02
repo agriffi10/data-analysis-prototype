@@ -24,3 +24,8 @@ output "tscommon_layer_name" {
   description = "Name of the table-share-common (tscommon) Lambda layer CI builds + publishes (attached to every verb that carries this plane's wording; copy-objects is deliberately without it). The version ARN is produced by deploy-lambdas.yml, not Terraform (CI-owned layer pattern)."
   value       = local.tscommon_layer_name
 }
+
+output "function_names" {
+  description = "Every Lambda this module deploys, by deployed name. Aggregated at the root into `lambda_function_names`; the reasoning lives there rather than in fourteen copies of it."
+  value       = [for function in module.functions : function.function_name]
+}

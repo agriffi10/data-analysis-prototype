@@ -80,6 +80,32 @@ def blocks(text: str, kind: str) -> dict[str, str]:
     )
 
 
+def output_blocks(text: str) -> dict[str, str]:
+    """Splits Terraform source into top-level ``output`` blocks, keyed by output name.
+
+    The third kind of named declaration these suites read, and it goes through the same scanner
+    as the other two rather than being regexed at its call site. The reason is worth stating,
+    because the call-site version was written first and was wrong: ``strip_noise`` blanks string
+    BODIES, so a pattern capturing ``"([^"]+)"`` over its output captures spaces and every block
+    comes back keyed by whitespace. The offsets come from the blanked text and the NAME is re-read
+    from the original, which is the split ``_declarations`` exists to hold.
+
+    Args:
+      text: The Terraform source to read.
+
+    Returns:
+      Each output's name mapped to its body.
+
+    Raises:
+      None.
+    """
+    return _declarations(
+        text,
+        r'(?<![\w-])output\s+"[^"]*"\s*\{',
+        r'(?<![\w-])output\s+"([^"]+)"\s*\{',
+    )
+
+
 def module_calls(text: str) -> dict[str, str]:
     """Splits Terraform source into top-level ``module`` blocks, keyed by call name.
 

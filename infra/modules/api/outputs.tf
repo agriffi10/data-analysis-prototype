@@ -24,3 +24,8 @@ output "api_execution_role_arn" {
   description = "ARN of this function's execution role. Consumed by the portal role's trust policy, and it is a REAL reference rather than a constructed string on purpose: IAM validates a trust policy's Principal and refuses an ARN naming a role that does not exist yet, so the dependency edge is what makes a from-scratch apply order the two correctly."
   value       = aws_iam_role.api.arn
 }
+
+output "function_names" {
+  description = "Every Lambda this module deploys, by deployed name. Aggregated at the root into `lambda_function_names`; the reasoning lives there rather than in fourteen copies of it."
+  value       = [module.api.function_name]
+}
