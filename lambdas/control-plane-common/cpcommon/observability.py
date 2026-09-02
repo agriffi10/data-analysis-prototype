@@ -70,13 +70,22 @@ def _build_version():
     Before the stamp shipped in the package every record carried ``"0.0.0"``, because
     nothing set ``BUILD_VERSION``. The field exists to correlate a record with a deploy.
 
-    The stamp travels IN THE PACKAGE (``BUILD_VERSION`` beside the handler, written by
-    ``Deploy Lambdas``) rather than in the function's environment, because Tofu owns the
-    environment map: ``update-function-configuration --environment`` replaces it whole, so an
-    env-borne version would either race an apply or be reverted by the next one — and Deploy
-    Infrastructure is path-filtered to ``infra/**``, so a Tofu-set value would name the last
-    infra commit rather than the running code. The environment variable is still honoured
-    first, so a test or a future release tag can override without a rebuild.
+    The stamp travels IN THE ARTEFACT — ``BUILD_VERSION`` in the task root — rather than in the
+    function's environment, because Tofu owns the environment map:
+    ``update-function-configuration --environment`` replaces it whole, so an env-borne version
+    would either race an apply or be reverted by the next one, and Deploy Infrastructure is
+    path-filtered to ``infra/**``, so a Tofu-set value would name the last infra commit rather
+    than the running code. ``test_fleet_environment.py`` holds Terraform to that across
+    EVERY module, and ``test_api_module.py`` separately for the API's own.
+
+    TWO PIPELINES WRITE THAT FILE and the path is the same for both, which is the whole reason
+    this function needed no change when the fleet moved to a container image: ``Deploy Lambdas``
+    writes it into each zip beside the handler, and ``lambdas/Dockerfile`` writes it into the
+    image's task root from a build argument. A zip function and a container function therefore
+    answer this identically.
+
+    The environment variable is still honoured first, so a test or a future release tag can
+    override without a rebuild.
 
     Read at import and never again: the answer cannot change within a container, and a
     per-record file read would pay for that on every event.

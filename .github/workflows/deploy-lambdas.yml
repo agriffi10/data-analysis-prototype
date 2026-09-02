@@ -34,6 +34,9 @@ on:
       - '.github/lambda-functions.json'
       - '.github/lambda-layers.json'
       - '.github/scripts/deploy-lambda.sh'
+      # The file the shard loop actually calls since the fleet gained a second packaging.
+      # Without it a push that only fixes the deploy dispatcher runs NO deploy at all.
+      - '.github/scripts/point-lambda.sh'
       - '.github/scripts/build-layer.sh'
       # The planner decides what this workflow does. Without it here, a push that fixes a
       # planner bug never runs the workflow — and plan_deploy.py's own HARD_GLOBAL_PATHS
@@ -425,10 +428,14 @@ jobs:
           # at the end naming all of them. Under one-job-per-function an unrelated
           # failure never stopped a deploy, and sharding must not quietly change that.
           FAILED=()
+          : > "deployed-${SHARD}.txt"
           for NAME in "${FUNCS[@]}"; do
             echo "::group::${NAME}"
-            if bash .github/scripts/deploy-lambda.sh "$NAME"; then
+            if bash .github/scripts/point-lambda.sh "$NAME"; then
               echo "✓ ${NAME}"
+              # Written only on success, and read back by the `pointed` job below. A shard that
+              # dies mid-loop contributes what it actually did rather than what it intended.
+              echo "$NAME" >> "deployed-${SHARD}.txt"
             else
               echo "::error::${NAME} failed to deploy."
               FAILED+=("$NAME")
@@ -441,3 +448,87 @@ jobs:
             exit 1
           fi
           echo "Shard ${SHARD}: all ${#FUNCS[@]} functions deployed."
+
+      # Uploaded even when the shard failed, so the reconciliation below sees the partial truth.
+      - name: Record what this shard pointed
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pointed-${{ matrix.shard }}
+          path: deployed-${{ matrix.shard }}.txt
+          retention-days: 3
+          if-no-files-found: ignore
+
+  # ── Did every function actually get pointed? ────────────────────────────────
+  # THE TRAP THIS JOB EXISTS FOR, and it is the one this whole arc is written around. Terraform
+  # ignores `image_uri` after creation, so it will never move a function onto a new image; only
+  # `update-function-code` does. A pipeline that builds an image, pushes it, and points nothing at
+  # it leaves every function on the previous image — and every one of them KEEPS WORKING. Nothing
+  # goes red. The SPA's ECS service hit exactly this, where a pipeline that only registered a task
+  # definition left a CannotPullContainerError indistinguishable from the endpoint failure the
+  # platform was tested for.
+  #
+  # It reconciles NAMES, not a count. A count tells you a number is wrong; the names tell you which
+  # functions are running last week's code, which is the question anyone reading this actually has.
+  #
+  # `if: always()` and a `needs` on a job with `fail-fast: false`: a shard that failed must still
+  # be reconciled, or the one run where this matters most is the one where it does not run.
+  pointed:
+    needs: [plan, deploy]
+    if: always() && needs.plan.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download every shard's record
+        uses: actions/download-artifact@v4
+        with:
+          pattern: pointed-*
+          path: pointed
+          merge-multiple: true
+
+      - name: Reconcile against what the deploy planned
+        env:
+          PLANNED: ${{ needs.plan.outputs.functions }}
+        run: |
+          set -euo pipefail
+
+          cat pointed/*.txt 2>/dev/null | sort -u > pointed.txt || : > pointed.txt
+          jq -r '.[]' <<<"$PLANNED" | sort -u > planned.txt
+
+          # A reconciliation over two empty files agrees perfectly. The plan job only reaches here
+          # with a non-empty set, so an empty planned.txt means the output did not survive.
+          if [ ! -s planned.txt ]; then
+            echo "::error::the deploy plan named no functions, so this reconciliation would pass having compared nothing."
+            exit 1
+          fi
+
+          # THE PLANNER IS NOT TERRAFORM, and FR-005 asks for the latter. The chain that closes
+          # that is: this job holds pointed == planned; `plan_deploy.py` draws `planned` from
+          # .github/lambda-functions.json; and deploy-infra.yml's plan guard holds that table equal
+          # to the functions Terraform actually declares. What is NOT yet closed is a planner that
+          # narrows wrongly — a function it omits is absent from both sides here and agrees. So the
+          # one thing this can check on its own is that the planner invented nothing, and the
+          # equality lands with the cutover, when every function needs pointing on every deploy and
+          # the narrowing goes away.
+          jq -r '.[].name' .github/lambda-functions.json | sort -u > table.txt
+          INVENTED=$(comm -23 planned.txt table.txt)
+          if [ -n "$INVENTED" ]; then
+            echo "::error::the deploy planned functions the deploy table does not name:"
+            printf '  %s\n' $INVENTED
+            exit 1
+          fi
+
+          MISSED=$(comm -23 planned.txt pointed.txt)
+          if [ -n "$MISSED" ]; then
+            echo "::error::these functions were planned but never pointed at this commit's code:"
+            printf '  %s\n' $MISSED
+            echo "::error::$(wc -l <<<"$MISSED" | tr -d ' ') function(s) are running an earlier image or package."
+            exit 1
+          fi
+          echo "All $(wc -l < planned.txt | tr -d ' ') planned functions were pointed at ${GITHUB_SHA}."

@@ -123,6 +123,7 @@ python_version = "3.12"
 mypy_path = "lambdas/control-plane-common:lambdas/table-builder-common:lambdas/table-share-common:lambdas/data-quality-common:lambdas/shared-space-common:lambdas/file-send-common:lambdas/archive-common:lambdas/file-ops-common"
 
 files = [
+    ".github/scripts/lambda_plan_guard.py",
     "lambdas/control-plane-common/cpcommon",
     "lambdas/table-builder-common/tbcommon",
     "lambdas/table-share-common/tscommon",

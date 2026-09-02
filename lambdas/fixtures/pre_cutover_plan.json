@@ -1,0 +1,2106 @@
+{
+  "functions": {
+    "dat-prod-api": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ARCHIVE_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-archive-requests.fifo",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "DATA_QUALITY_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-data-quality-requests.fifo",
+            "ENV_NAME": "prod",
+            "FEEDBACK_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-feedback-requests.fifo",
+            "FILE_OPS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-file-ops-requests.fifo",
+            "FILE_SEND_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-file-send-requests.fifo",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "MAX_SHARED_MEMBERSHIPS": "10",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "OIDC_AUDIENCE": "ghcrpmsdgdt53p0hcu8915405",
+            "OIDC_ISSUER": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_zOlWYrE9K",
+            "OIDC_JWKS_URI": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_zOlWYrE9K/.well-known/jwks.json",
+            "OIDC_REQUIRED_CLAIMS": "{\"token_use\":\"id\"}",
+            "OIDC_USERNAME_CLAIM": "cognito:username",
+            "PORTAL_ROLE_ARN": "arn:aws:iam::696000197480:role/dat-portal-user-role",
+            "PRINCIPAL_TAG_KEY": "username",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "SHARED_SPACE_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-shared-space-requests.fifo",
+            "TABLE_BUILD_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-table-builder-requests.fifo",
+            "TABLE_SHARE_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-table-share-requests.fifo",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "handler.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-api-role",
+      "timeout": 29,
+      "vpc_config": []
+    },
+    "dat-prod-archive-build-restore-manifest": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ARCHIVE_BUCKET": "dat-prod-archive",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "archive_build_restore_manifest.handler",
+      "memory_size": 2048,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-archive-execution-role",
+      "timeout": 300,
+      "vpc_config": []
+    },
+    "dat-prod-archive-build-transfer-manifest": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ARCHIVE_BUCKET": "dat-prod-archive",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "archive_build_transfer_manifest.handler",
+      "memory_size": 2048,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-archive-execution-role",
+      "timeout": 300,
+      "vpc_config": []
+    },
+    "dat-prod-archive-check-destination-clear": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ARCHIVE_BUCKET": "dat-prod-archive",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "archive_check_destination_clear.handler",
+      "memory_size": 1024,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-archive-execution-role",
+      "timeout": 600,
+      "vpc_config": []
+    },
+    "dat-prod-archive-collect-transfer-results": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ARCHIVE_BUCKET": "dat-prod-archive",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "archive_collect_transfer_results.handler",
+      "memory_size": 2048,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-archive-execution-role",
+      "timeout": 300,
+      "vpc_config": []
+    },
+    "dat-prod-archive-copy-objects": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ARCHIVE_BUCKET": "dat-prod-archive",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "archive_copy_objects.handler",
+      "memory_size": 1024,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-archive-execution-role",
+      "timeout": 900,
+      "vpc_config": []
+    },
+    "dat-prod-archive-delete-archived": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ARCHIVE_BUCKET": "dat-prod-archive",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "archive_delete_archived.handler",
+      "memory_size": 1024,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-archive-execution-role",
+      "timeout": 300,
+      "vpc_config": []
+    },
+    "dat-prod-archive-delete-source": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ARCHIVE_BUCKET": "dat-prod-archive",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "archive_delete_source.handler",
+      "memory_size": 1024,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-archive-execution-role",
+      "timeout": 300,
+      "vpc_config": []
+    },
+    "dat-prod-archive-initiate-restore": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ARCHIVE_BUCKET": "dat-prod-archive",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "archive_initiate_restore.handler",
+      "memory_size": 512,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-archive-execution-role",
+      "timeout": 60,
+      "vpc_config": []
+    },
+    "dat-prod-archive-inspect-archive": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ARCHIVE_BUCKET": "dat-prod-archive",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "archive_inspect_archive.handler",
+      "memory_size": 1024,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-archive-execution-role",
+      "timeout": 120,
+      "vpc_config": []
+    },
+    "dat-prod-archive-inspect-source": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ARCHIVE_BUCKET": "dat-prod-archive",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "archive_inspect_source.handler",
+      "memory_size": 1024,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-archive-execution-role",
+      "timeout": 120,
+      "vpc_config": []
+    },
+    "dat-prod-archive-notify": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ARCHIVE_BUCKET": "dat-prod-archive",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "archive_notify.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-archive-execution-role",
+      "timeout": 30,
+      "vpc_config": []
+    },
+    "dat-prod-archive-notify-failure": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ARCHIVE_BUCKET": "dat-prod-archive",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "ar_notify_failure.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-archive-execution-role",
+      "timeout": 60,
+      "vpc_config": []
+    },
+    "dat-prod-archive-poll-restore": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ARCHIVE_BUCKET": "dat-prod-archive",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "archive_poll_restore.handler",
+      "memory_size": 1024,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-archive-execution-role",
+      "timeout": 600,
+      "vpc_config": []
+    },
+    "dat-prod-archive-rollback": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ARCHIVE_BUCKET": "dat-prod-archive",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "archive_rollback.handler",
+      "memory_size": 1024,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-archive-execution-role",
+      "timeout": 300,
+      "vpc_config": []
+    },
+    "dat-prod-archive-update-receipt": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ARCHIVE_BUCKET": "dat-prod-archive",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "archive_update_receipt.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-archive-execution-role",
+      "timeout": 30,
+      "vpc_config": []
+    },
+    "dat-prod-archive-validate-authorize": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ARCHIVE_BUCKET": "dat-prod-archive",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "archive_validate_authorize.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-archive-execution-role",
+      "timeout": 15,
+      "vpc_config": []
+    },
+    "dat-prod-archive-write-manifest": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ARCHIVE_BUCKET": "dat-prod-archive",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "archive_write_manifest.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-archive-execution-role",
+      "timeout": 30,
+      "vpc_config": []
+    },
+    "dat-prod-archive-write-receipt": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ARCHIVE_BUCKET": "dat-prod-archive",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "archive_write_receipt.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-archive-execution-role",
+      "timeout": 30,
+      "vpc_config": []
+    },
+    "dat-prod-control-plane-dlq-drain": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "DLQ_ARNS": "[\"arn:aws:sqs:us-east-1:696000197480:dat-prod-data-quality-requests-dlq.fifo\",\"arn:aws:sqs:us-east-1:696000197480:dat-prod-table-builder-requests-dlq.fifo\",\"arn:aws:sqs:us-east-1:696000197480:dat-prod-table-share-requests-dlq.fifo\",\"arn:aws:sqs:us-east-1:696000197480:dat-prod-shared-space-requests-dlq.fifo\",\"arn:aws:sqs:us-east-1:696000197480:dat-prod-file-send-requests-dlq.fifo\",\"arn:aws:sqs:us-east-1:696000197480:dat-prod-archive-requests-dlq.fifo\",\"arn:aws:sqs:us-east-1:696000197480:dat-prod-file-ops-requests-dlq.fifo\"]",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "dlq_drain.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-control-plane-dlq-drain",
+      "timeout": 60,
+      "vpc_config": []
+    },
+    "dat-prod-data-quality-assemble-report": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "dq_assemble_report.handler",
+      "memory_size": 1024,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-data-quality-execution-role",
+      "timeout": 120,
+      "vpc_config": []
+    },
+    "dat-prod-data-quality-byte-scan": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "dq_byte_scan.handler",
+      "memory_size": 1024,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-data-quality-execution-role",
+      "timeout": 300,
+      "vpc_config": []
+    },
+    "dat-prod-data-quality-check-query": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "dq_check_query.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-data-quality-execution-role",
+      "timeout": 15,
+      "vpc_config": []
+    },
+    "dat-prod-data-quality-create-temp-tables": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "dq_create_temp_tables.handler",
+      "memory_size": 512,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-data-quality-execution-role",
+      "timeout": 60,
+      "vpc_config": []
+    },
+    "dat-prod-data-quality-drop-temp-tables": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "dq_drop_temp_tables.handler",
+      "memory_size": 512,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-data-quality-execution-role",
+      "timeout": 60,
+      "vpc_config": []
+    },
+    "dat-prod-data-quality-inspect-source": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "dq_inspect_source.handler",
+      "memory_size": 1024,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-data-quality-execution-role",
+      "timeout": 120,
+      "vpc_config": []
+    },
+    "dat-prod-data-quality-notify-failure": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "dq_notify_failure.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-data-quality-execution-role",
+      "timeout": 15,
+      "vpc_config": []
+    },
+    "dat-prod-data-quality-start-profile-query": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "dq_start_profile_query.handler",
+      "memory_size": 512,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-data-quality-execution-role",
+      "timeout": 30,
+      "vpc_config": []
+    },
+    "dat-prod-data-quality-validate-authorize": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "dq_validate_authorize.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-data-quality-execution-role",
+      "timeout": 15,
+      "vpc_config": []
+    },
+    "dat-prod-feedback-writer": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo"
+          }
+        }
+      ],
+      "handler": "feedback_writer.handler",
+      "memory_size": 512,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-feedback-writer-role",
+      "timeout": 30,
+      "vpc_config": []
+    },
+    "dat-prod-file-ops-acquire-lock": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "file_ops_acquire_lock.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-file-ops-execution-role",
+      "timeout": 15,
+      "vpc_config": []
+    },
+    "dat-prod-file-ops-build-transfer-manifest": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "file_ops_build_transfer_manifest.handler",
+      "memory_size": 1024,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-file-ops-execution-role",
+      "timeout": 300,
+      "vpc_config": []
+    },
+    "dat-prod-file-ops-check-destinations": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "file_ops_check_destinations.handler",
+      "memory_size": 1024,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-file-ops-execution-role",
+      "timeout": 600,
+      "vpc_config": []
+    },
+    "dat-prod-file-ops-collect-transfer-results": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "file_ops_collect_transfer_results.handler",
+      "memory_size": 1024,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-file-ops-execution-role",
+      "timeout": 300,
+      "vpc_config": []
+    },
+    "dat-prod-file-ops-copy-objects": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "file_ops_copy_objects.handler",
+      "memory_size": 512,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-file-ops-execution-role",
+      "timeout": 900,
+      "vpc_config": []
+    },
+    "dat-prod-file-ops-delete-source": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "file_ops_delete_source.handler",
+      "memory_size": 1024,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-file-ops-execution-role",
+      "timeout": 600,
+      "vpc_config": []
+    },
+    "dat-prod-file-ops-finalise-outcomes": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "file_ops_finalise_outcomes.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-file-ops-execution-role",
+      "timeout": 60,
+      "vpc_config": []
+    },
+    "dat-prod-file-ops-inspect-source": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "file_ops_inspect_source.handler",
+      "memory_size": 1024,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-file-ops-execution-role",
+      "timeout": 600,
+      "vpc_config": []
+    },
+    "dat-prod-file-ops-notify": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "file_ops_notify.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-file-ops-execution-role",
+      "timeout": 60,
+      "vpc_config": []
+    },
+    "dat-prod-file-ops-notify-failure": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "fo_notify_failure.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-file-ops-execution-role",
+      "timeout": 60,
+      "vpc_config": []
+    },
+    "dat-prod-file-ops-release-lock": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "file_ops_release_lock.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-file-ops-execution-role",
+      "timeout": 15,
+      "vpc_config": []
+    },
+    "dat-prod-file-ops-validate-authorize": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "file_ops_validate_authorize.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-file-ops-execution-role",
+      "timeout": 15,
+      "vpc_config": []
+    },
+    "dat-prod-file-send-build-transfer-manifest": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "file_send_build_transfer_manifest.handler",
+      "memory_size": 2048,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-file-send-execution-role",
+      "timeout": 300,
+      "vpc_config": []
+    },
+    "dat-prod-file-send-check-target-absent": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "file_send_check_target_absent.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-file-send-execution-role",
+      "timeout": 60,
+      "vpc_config": []
+    },
+    "dat-prod-file-send-collect-transfer-results": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "file_send_collect_transfer_results.handler",
+      "memory_size": 2048,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-file-send-execution-role",
+      "timeout": 300,
+      "vpc_config": []
+    },
+    "dat-prod-file-send-copy-objects": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "file_send_copy_objects.handler",
+      "memory_size": 1024,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-file-send-execution-role",
+      "timeout": 900,
+      "vpc_config": []
+    },
+    "dat-prod-file-send-inspect-source": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "file_send_inspect_source.handler",
+      "memory_size": 1024,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-file-send-execution-role",
+      "timeout": 120,
+      "vpc_config": []
+    },
+    "dat-prod-file-send-notify": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "file_send_notify.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-file-send-execution-role",
+      "timeout": 60,
+      "vpc_config": []
+    },
+    "dat-prod-file-send-notify-failure": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "fs_notify_failure.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-file-send-execution-role",
+      "timeout": 60,
+      "vpc_config": []
+    },
+    "dat-prod-file-send-validate-authorize": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "file_send_validate_authorize.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-file-send-execution-role",
+      "timeout": 15,
+      "vpc_config": []
+    },
+    "dat-prod-log-sweep": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "log_sweep.handler",
+      "memory_size": 512,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-log-sweep",
+      "timeout": 300,
+      "vpc_config": []
+    },
+    "dat-prod-notifications-writer": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_MAX": "200",
+            "NOTIFICATIONS_UNTRUSTED_SENDER_ID": "AROA2EDGYGNUCQJ24WOYE",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "notifications_writer.handler",
+      "memory_size": 128,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-notifications-writer-role",
+      "timeout": 30,
+      "vpc_config": []
+    },
+    "dat-prod-post-confirmation": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "PORTAL_ROLE_ARN": "arn:aws:iam::696000197480:role/dat-portal-user-role"
+          }
+        }
+      ],
+      "handler": "post_confirmation.handler",
+      "memory_size": 128,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-post-confirmation-role",
+      "timeout": 3,
+      "vpc_config": []
+    },
+    "dat-prod-pre-signup": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo"
+          }
+        }
+      ],
+      "handler": "pre_signup.handler",
+      "memory_size": 128,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-pre-signup-role",
+      "timeout": 3,
+      "vpc_config": []
+    },
+    "dat-prod-shared-space-acknowledge-membership": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "MAX_SHARED_MEMBERSHIPS": "10",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "PORTAL_ROLE_ARN": "arn:aws:iam::696000197480:role/dat-portal-user-role",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "SHARED_SPACE_TRANSFER_READER_ROLE_ID": "AROA2EDGYGNUEC5LGGOOL",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "acknowledge_membership.handler",
+      "memory_size": 128,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-shared-space-orchestrator-role",
+      "timeout": 60,
+      "vpc_config": []
+    },
+    "dat-prod-shared-space-add-members": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "MAX_SHARED_MEMBERSHIPS": "10",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "PORTAL_ROLE_ARN": "arn:aws:iam::696000197480:role/dat-portal-user-role",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "SHARED_SPACE_TRANSFER_READER_ROLE_ID": "AROA2EDGYGNUEC5LGGOOL",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "add_members.handler",
+      "memory_size": 128,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-shared-space-orchestrator-role",
+      "timeout": 60,
+      "vpc_config": []
+    },
+    "dat-prod-shared-space-backfill-ever-active": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "MAX_SHARED_MEMBERSHIPS": "10",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "PORTAL_ROLE_ARN": "arn:aws:iam::696000197480:role/dat-portal-user-role",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "SHARED_SPACE_TRANSFER_READER_ROLE_ID": "AROA2EDGYGNUEC5LGGOOL",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "backfill_ever_active.handler",
+      "memory_size": 128,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-shared-space-orchestrator-role",
+      "timeout": 900,
+      "vpc_config": []
+    },
+    "dat-prod-shared-space-create": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "MAX_SHARED_MEMBERSHIPS": "10",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "PORTAL_ROLE_ARN": "arn:aws:iam::696000197480:role/dat-portal-user-role",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "SHARED_SPACE_TRANSFER_READER_ROLE_ID": "AROA2EDGYGNUEC5LGGOOL",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "create_space.handler",
+      "memory_size": 128,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-shared-space-orchestrator-role",
+      "timeout": 60,
+      "vpc_config": []
+    },
+    "dat-prod-shared-space-delete": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "MAX_SHARED_MEMBERSHIPS": "10",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "PORTAL_ROLE_ARN": "arn:aws:iam::696000197480:role/dat-portal-user-role",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "SHARED_SPACE_TRANSFER_READER_ROLE_ID": "AROA2EDGYGNUEC5LGGOOL",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "delete_space.handler",
+      "memory_size": 128,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-shared-space-orchestrator-role",
+      "timeout": 60,
+      "vpc_config": []
+    },
+    "dat-prod-shared-space-forget": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "MAX_SHARED_MEMBERSHIPS": "10",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "PORTAL_ROLE_ARN": "arn:aws:iam::696000197480:role/dat-portal-user-role",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "SHARED_SPACE_TRANSFER_READER_ROLE_ID": "AROA2EDGYGNUEC5LGGOOL",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "forget_space.handler",
+      "memory_size": 128,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-shared-space-orchestrator-role",
+      "timeout": 60,
+      "vpc_config": []
+    },
+    "dat-prod-shared-space-leave": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "MAX_SHARED_MEMBERSHIPS": "10",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "PORTAL_ROLE_ARN": "arn:aws:iam::696000197480:role/dat-portal-user-role",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "SHARED_SPACE_TRANSFER_READER_ROLE_ID": "AROA2EDGYGNUEC5LGGOOL",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "leave.handler",
+      "memory_size": 128,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-shared-space-orchestrator-role",
+      "timeout": 60,
+      "vpc_config": []
+    },
+    "dat-prod-shared-space-notify-failure": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "MAX_SHARED_MEMBERSHIPS": "10",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "PORTAL_ROLE_ARN": "arn:aws:iam::696000197480:role/dat-portal-user-role",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "SHARED_SPACE_TRANSFER_READER_ROLE_ID": "AROA2EDGYGNUEC5LGGOOL",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "ss_notify_failure.handler",
+      "memory_size": 128,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-shared-space-orchestrator-role",
+      "timeout": 60,
+      "vpc_config": []
+    },
+    "dat-prod-shared-space-remove-members": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "MAX_SHARED_MEMBERSHIPS": "10",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "PORTAL_ROLE_ARN": "arn:aws:iam::696000197480:role/dat-portal-user-role",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "SHARED_SPACE_TRANSFER_READER_ROLE_ID": "AROA2EDGYGNUEC5LGGOOL",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "remove_members.handler",
+      "memory_size": 128,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-shared-space-orchestrator-role",
+      "timeout": 60,
+      "vpc_config": []
+    },
+    "dat-prod-shared-space-transfer-ownership": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "MAX_SHARED_MEMBERSHIPS": "10",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "PORTAL_ROLE_ARN": "arn:aws:iam::696000197480:role/dat-portal-user-role",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "SHARED_SPACE_TRANSFER_READER_ROLE_ID": "AROA2EDGYGNUEC5LGGOOL",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "transfer_ownership.handler",
+      "memory_size": 128,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-shared-space-orchestrator-role",
+      "timeout": 60,
+      "vpc_config": []
+    },
+    "dat-prod-shared-space-transfer-reader": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "SHARED_SPACE_REQUESTS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-shared-space-requests.fifo"
+          }
+        }
+      ],
+      "handler": "transfer_reader.handler",
+      "memory_size": 128,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-shared-space-transfer-reader-role",
+      "timeout": 60,
+      "vpc_config": []
+    },
+    "dat-prod-shared-space-validate": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "MAX_SHARED_MEMBERSHIPS": "10",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "PORTAL_ROLE_ARN": "arn:aws:iam::696000197480:role/dat-portal-user-role",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "SHARED_SPACE_TRANSFER_READER_ROLE_ID": "AROA2EDGYGNUEC5LGGOOL",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "validate.handler",
+      "memory_size": 128,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-shared-space-orchestrator-role",
+      "timeout": 60,
+      "vpc_config": []
+    },
+    "dat-prod-table-builder-acquire-refresh-lock": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "acquire_refresh_lock.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-table-builder-execution-role",
+      "timeout": 15,
+      "vpc_config": []
+    },
+    "dat-prod-table-builder-apply-refresh": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "apply_refresh.handler",
+      "memory_size": 512,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-table-builder-execution-role",
+      "timeout": 300,
+      "vpc_config": []
+    },
+    "dat-prod-table-builder-check-table-absent": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "check_table_absent.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-table-builder-execution-role",
+      "timeout": 15,
+      "vpc_config": []
+    },
+    "dat-prod-table-builder-diff-schema": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "diff_schema.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-table-builder-execution-role",
+      "timeout": 15,
+      "vpc_config": []
+    },
+    "dat-prod-table-builder-execute-ddl": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "execute_ddl.handler",
+      "memory_size": 512,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-table-builder-execution-role",
+      "timeout": 300,
+      "vpc_config": []
+    },
+    "dat-prod-table-builder-infer-schema": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "infer_schema.handler",
+      "memory_size": 1024,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-table-builder-execution-role",
+      "timeout": 120,
+      "vpc_config": []
+    },
+    "dat-prod-table-builder-inspect-source": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "inspect_source.handler",
+      "memory_size": 512,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-table-builder-execution-role",
+      "timeout": 60,
+      "vpc_config": []
+    },
+    "dat-prod-table-builder-load-table-definition": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "load_table_definition.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-table-builder-execution-role",
+      "timeout": 15,
+      "vpc_config": []
+    },
+    "dat-prod-table-builder-notify-failure": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "tb_notify_failure.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-table-builder-execution-role",
+      "timeout": 15,
+      "vpc_config": []
+    },
+    "dat-prod-table-builder-release-refresh-lock": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "release_refresh_lock.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-table-builder-execution-role",
+      "timeout": 15,
+      "vpc_config": []
+    },
+    "dat-prod-table-builder-validate-authorize": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "validate_authorize.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-table-builder-execution-role",
+      "timeout": 15,
+      "vpc_config": []
+    },
+    "dat-prod-table-share-build-transfer-manifest": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "table_share_build_transfer_manifest.handler",
+      "memory_size": 2048,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-table-share-execution-role",
+      "timeout": 300,
+      "vpc_config": []
+    },
+    "dat-prod-table-share-check-target-absent": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "table_share_check_target_absent.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-table-share-execution-role",
+      "timeout": 15,
+      "vpc_config": []
+    },
+    "dat-prod-table-share-collect-transfer-results": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "table_share_collect_transfer_results.handler",
+      "memory_size": 2048,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-table-share-execution-role",
+      "timeout": 300,
+      "vpc_config": []
+    },
+    "dat-prod-table-share-copy-objects": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "table_share_copy_objects.handler",
+      "memory_size": 1024,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-table-share-execution-role",
+      "timeout": 900,
+      "vpc_config": []
+    },
+    "dat-prod-table-share-create-table": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "table_share_create_table.handler",
+      "memory_size": 512,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-table-share-execution-role",
+      "timeout": 300,
+      "vpc_config": []
+    },
+    "dat-prod-table-share-inspect-source": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "table_share_inspect_source.handler",
+      "memory_size": 1024,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-table-share-execution-role",
+      "timeout": 120,
+      "vpc_config": []
+    },
+    "dat-prod-table-share-notify-failure": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "ts_notify_failure.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-table-share-execution-role",
+      "timeout": 60,
+      "vpc_config": []
+    },
+    "dat-prod-table-share-validate-authorize": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "COGNITO_USER_POOL_ID": "us-east-1_zOlWYrE9K",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "NOTIFICATIONS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-notifications-requests.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "table_share_validate_authorize.handler",
+      "memory_size": 256,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-table-share-execution-role",
+      "timeout": 15,
+      "vpc_config": []
+    },
+    "dat-prod-user-directory-build": {
+      "architectures": [
+        "x86_64"
+      ],
+      "environment": [
+        {
+          "variables": {
+            "ADMIN_BUCKET": "dat-prod-athena-admin",
+            "ATHENA_WORKGROUP": "dat-prod-portal-wg",
+            "ENV_NAME": "prod",
+            "LOGS_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/696000197480/dat-prod-logs.fifo",
+            "SHARED_SPACE_BUCKET": "dat-prod-shared-space",
+            "USER_SPACE_BUCKET": "dat-prod-user-space"
+          }
+        }
+      ],
+      "handler": "build_directory.handler",
+      "memory_size": 512,
+      "reserved_concurrent_executions": -1,
+      "role": "arn:aws:iam::696000197480:role/dat-prod-user-directory-build",
+      "timeout": 300,
+      "vpc_config": []
+    }
+  },
+  "note": "FROZEN. Captured from the pre-cutover plan and never regenerated: the whole point is to compare the cutover against what was there before, and re-capturing from post-cutover code makes both sides derive from the same source and agree with nothing. The handler is here because it is the string the image command must equal."
+}

@@ -47,7 +47,17 @@ around.
 - **Adding or removing a function.**
 - **Moving the API function into the VPC**, or moving any function out of one. The API function is
   deliberately not in the VPC and stays that way.
-- **Changing the image.** SPEC-212's artifact is consumed as built.
+- **Changing the image**, with ONE carve-out. SPEC-212's artifact is consumed as built, except
+  that it gains a `BUILD_VERSION` stamp. SPEC-212's delivery doc handed that forward in terms —
+  *"the stamp belongs to the cutover, where a function's identity is decided. Named here so
+  SPEC-213 does not discover it"* — and this bullet as first written contradicted it. Without the
+  stamp every record all 86 functions emit carries the `0.0.0` sentinel from the moment they move,
+  and correlating a record with a deploy is the field's only purpose. The env-borne alternative is
+  closed: Tofu owns the environment map and a test already forbids Terraform setting the variable.
+  So the Dockerfile takes a build argument and writes the file to the task root, which
+  `cpcommon.observability` already reads — no code change, and the zip and container fleets answer
+  identically. Amended mid-build under §3's rule that a scope change updates the spec rather than
+  diverging from it silently.
 
 ---
 

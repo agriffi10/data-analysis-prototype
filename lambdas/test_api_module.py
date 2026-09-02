@@ -413,8 +413,9 @@ def test_the_function_is_an_isolated_front_door_holding_only_what_it_needs() -> 
     for key in REQUIRED_ENVIRONMENT_KEYS:
         assert key in environment, f"the function environment omits {key}"
     assert "BUILD_VERSION" not in source, (
-        "BUILD_VERSION must NOT be set by Terraform — the stamp travels in the package, and an "
-        "env-borne one would name the last infra commit rather than the running code"
+        "BUILD_VERSION must NOT be set by Terraform — the stamp travels in the artefact (the "
+        "zip's package or the image's task root), and an env-borne one would name the last "
+        "infra commit rather than the running code"
     )
     assert 'data "archive_file" "api_placeholder"' in source
     ignored = re.search(r"ignore_changes\s*=\s*\[([^\]]*)\]", source)

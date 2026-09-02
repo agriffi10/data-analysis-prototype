@@ -201,6 +201,20 @@ variable "spa_image_tag" {
   }
 }
 
+variable "lambda_image_tag" {
+  description = "Commit sha of the Lambda fleet image every function is CREATED from. Supplied as TF_VAR_lambda_image_tag from github.sha — a genuine INPUT, not a value Terraform derives, which is why it is a variable rather than a read through the state resolver. NO DEFAULT, deliberately: a default would let an apply create 86 functions from whatever tag was written here months ago, and the value is ignored after creation so nothing would ever correct it."
+  type        = string
+
+  validation {
+    # An EMPTY TF_VAR_ is not an unset one. It satisfies a required variable AND overrides a
+    # default, and an unset repository variable renders as exactly that — so the empty string has
+    # to be refused explicitly rather than guarded by the absence of a default. The rest of the
+    # pattern is ECR's tag grammar; a leading dot or hyphen is refused by the registry itself.
+    condition     = can(regex("^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$", var.lambda_image_tag))
+    error_message = "lambda_image_tag must be a valid ECR tag: it starts with a letter, digit or underscore, continues with those plus dot and hyphen, and is at most 128 characters. An empty value means TF_VAR_lambda_image_tag was not supplied."
+  }
+}
+
 variable "max_upload_bytes" {
   description = "Largest single upload the portal offers, carried to the container as the runtime document's maxUploadBytes. The default is the fallback for an unset repo variable. It was once supplied from the same VITE_MAX_UPLOAD_BYTES the CloudFront renderer read, so the two documents could not disagree with no symptom on either screen; there is one renderer now, and one document."
   type        = number

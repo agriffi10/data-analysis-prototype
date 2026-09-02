@@ -38,6 +38,7 @@ import sys
 HARD_GLOBAL_PATHS = (
     ".github/workflows/deploy-lambdas.yml",
     ".github/scripts/deploy-lambda.sh",
+    ".github/scripts/point-lambda.sh",
     ".github/scripts/build-layer.sh",
     ".github/scripts/plan_deploy.py",
     # Bundled into any function that attaches none of the dependency-bearing layers.

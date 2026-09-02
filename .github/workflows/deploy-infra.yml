@@ -7,10 +7,16 @@ on:
   # executed, which is how a security check ships broken and looks fine.
   pull_request:
     branches: [main]
-    paths: ['infra/**', '.github/workflows/deploy-infra.yml']
+    paths: ['infra/**', '.github/workflows/deploy-infra.yml',
+            '.github/scripts/lambda_plan_guard.py',
+            'lambdas/fixtures/pre_cutover_plan.json',
+            '.github/lambda-functions.json']
   push:
     branches: [main]
-    paths: ['infra/**', '.github/workflows/deploy-infra.yml']
+    paths: ['infra/**', '.github/workflows/deploy-infra.yml',
+            '.github/scripts/lambda_plan_guard.py',
+            'lambdas/fixtures/pre_cutover_plan.json',
+            '.github/lambda-functions.json']
   # Manual recovery lever. The push trigger above is the normal path, but GitHub
   # can silently DROP a push event (it did for the SPEC-111 merge 930c12e — zero
   # workflow runs were created, so the apply never happened and the deployed state
@@ -117,6 +123,25 @@ jobs:
         working-directory: infra
         run: tofu validate
 
+      # `tofu validate` walks the ROOT's module graph, so a module nothing calls yet is checked by
+      # nothing at all — measured: a module referencing an undeclared variable leaves the root
+      # validate reporting "Success!". `docker-lambda` is in exactly that state until the cutover
+      # calls it, which is the one window where a mistake in it would surface for the first time
+      # on the apply that replaces all 86 functions.
+      - name: Validate every module the root does not reach
+        run: |
+          set -euo pipefail
+          checked=0
+          for module in infra/modules/*/; do
+            grep -qE "\./modules/$(basename "$module")\"?$|\./modules/$(basename "$module")\"" infra/*.tf && continue
+            echo "::group::$(basename "$module")"
+            tofu -chdir="$module" init -backend=false >/dev/null
+            tofu -chdir="$module" validate
+            checked=$((checked + 1))
+            echo "::endgroup::"
+          done
+          echo "validated ${checked} module(s) the root does not call."
+
       - name: OpenTofu plan
         working-directory: infra
         # -out saves the plan so `tofu show -json` can render it for Checkov (SPEC-139).
@@ -143,6 +168,10 @@ jobs:
           # careless edit away from being lost.
           TF_VAR_spa_desired_count: ${{ vars.TF_VAR_spa_desired_count || '0' }}
           TF_VAR_spa_image_tag: ${{ vars.TF_VAR_spa_image_tag || 'placeholder' }}
+          # The commit being applied. Unlike spa_image_tag this carries no fallback and no
+          # repository variable: it is an input github.sha already knows, and a stale
+          # default would create functions from an image nobody meant.
+          TF_VAR_lambda_image_tag: ${{ github.sha }}
           # THE SAME repository variable the task definition renders CONFIG_maxUploadBytes from,
           # which is what the container serves in /config.json. One renderer now, but the variable
           # still feeds Terraform here as well — sourcing either from anywhere else makes the
@@ -188,6 +217,48 @@ jobs:
             echo "::error title=Checkov (plan)::plan.json is not valid plan output — refusing to report zero."
             exit 1
           fi
+
+      # The fixture SPEC-213 FR-002 compares the cutover against, captured from the plan as it is
+      # BEFORE anything moves. It is uploaded rather than written into the repo by CI: a fixture a
+      # pipeline can regenerate is a fixture that agrees with whatever the code currently says,
+      # which is the one thing it must never do. Committed by hand, once, and frozen.
+      #
+      # This step is not the gate — `Assert the planned Lambda fleet`, two steps below, is. That
+      # one hard-fails when the fixture is missing rather than skipping; this one only extracts.
+      - name: Capture the Lambda parity fixture
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/lambda_plan_guard.py capture \
+            --plan infra/plan.json --out /tmp/pre_cutover_plan.json
+          head -c 400 /tmp/pre_cutover_plan.json
+
+      - name: Upload the Lambda parity fixture
+        uses: actions/upload-artifact@v4
+        with:
+          name: lambda-parity-fixture
+          path: /tmp/pre_cutover_plan.json
+          retention-days: 7
+
+      # THE GATE. Invoked directly, never guarded: a missing fixture is a hard error rather than a
+      # skip, because a check that passes when its own input is absent reads as enforcement while
+      # enforcing nothing.
+      #
+      # `--package-type Zip` is the world as it is. SPEC-213's cutover flips this one word to
+      # Image, which is the whole reason this lands a PR early: the gate is proven against the
+      # fleet before it is asked to judge the change to it.
+      - name: Assert the planned Lambda fleet
+        env:
+          PROJECT: ${{ vars.TF_VAR_project_name || 'dat' }}
+          ENVIRONMENT: ${{ vars.TF_VAR_environment || 'prod' }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/lambda_plan_guard.py check \
+            --plan infra/plan.json \
+            --fixture lambdas/fixtures/pre_cutover_plan.json \
+            --package-type Zip \
+            --table .github/lambda-functions.json \
+            --project "$PROJECT" \
+            --environment "$ENVIRONMENT"
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -389,6 +460,10 @@ jobs:
           # careless edit away from being lost.
           TF_VAR_spa_desired_count: ${{ vars.TF_VAR_spa_desired_count || '0' }}
           TF_VAR_spa_image_tag: ${{ vars.TF_VAR_spa_image_tag || 'placeholder' }}
+          # The commit being applied. Unlike spa_image_tag this carries no fallback and no
+          # repository variable: it is an input github.sha already knows, and a stale
+          # default would create functions from an image nobody meant.
+          TF_VAR_lambda_image_tag: ${{ github.sha }}
           # THE SAME repository variable the task definition renders CONFIG_maxUploadBytes from,
           # which is what the container serves in /config.json. One renderer now, but the variable
           # still feeds Terraform here as well — sourcing either from anywhere else makes the

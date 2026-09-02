@@ -735,3 +735,39 @@ def test_the_required_set_is_still_the_four_this_file_was_measured_against():
         f"can reach the new name must set it, and the reachability guard above cannot tell you "
         f"that until something reads it — check the environment blocks before widening this"
     )
+
+
+def test_no_module_lets_terraform_set_the_build_stamp() -> None:
+    """`BUILD_VERSION` travels in the artefact, and Terraform must not set it ANYWHERE.
+
+    `test_api_module.py` asserts this for the API's own `lambda.tf`, and
+    `cpcommon.observability` states it as a property of the whole fleet. One module's guard cannot
+    carry a fleet-wide claim, so this sweeps every module that declares a function.
+
+    The reason is unchanged by the move to containers and is worth restating where the sweep lives:
+    `update-function-configuration --environment` replaces the map whole, so an env-borne version
+    would either race an apply or be reverted by the next one — and Deploy Infrastructure is
+    path-filtered to `infra/**`, so a Tofu-set value would name the last INFRA commit rather than
+    the code that is running. Both pipelines write the file instead: `Deploy Lambdas` into each
+    zip beside the handler, `lambdas/Dockerfile` into the image's task root.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When any module's Terraform sets the stamp.
+    """
+    offenders = sorted(
+        path.relative_to(MODULES.parent).as_posix()
+        for path in MODULES.glob("*/*.tf")
+        if "BUILD_VERSION" in path.read_text(encoding="utf-8")
+    )
+
+    assert offenders == [], (
+        f"Terraform sets BUILD_VERSION in {offenders}. The stamp travels in the artefact — the "
+        "zip's package or the image's task root — because an env-borne one names the last infra "
+        "commit rather than the running code, and an apply would revert whatever CI set."
+    )

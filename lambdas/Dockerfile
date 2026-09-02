@@ -86,5 +86,22 @@ COPY .github/lambda-layers.json /tmp/source/.github/lambda-layers.json
 RUN python /tmp/source/lambdas/docker/assemble.py /tmp/source "/opt/python" "${LAMBDA_TASK_ROOT}" \
  && rm -rf /tmp/source
 
+# THE BUILD STAMP, AS A FILE IN THE TASK ROOT rather than an environment variable. That is not a
+# style choice — it is the only place it can live. Tofu owns each function's environment map and
+# `update-function-configuration --environment` replaces it whole, so an env-borne version would
+# either race an apply or be reverted by the next one; a test in test_api_module.py forbids
+# Terraform setting it for exactly that reason. `cpcommon.observability._build_version` already
+# reads `$LAMBDA_TASK_ROOT/BUILD_VERSION` — the path the zip pipeline writes — so putting the file
+# there needs no code change at all, and the zip and container fleets answer the same way.
+#
+# LAST LAYER ON PURPOSE: the argument changes on every commit, so anything below it would rebuild
+# every time. The dependency install and the assemble step above stay cached.
+#
+# The ARG is declared AFTER `FROM`. One before it is scoped to the FROM line alone and would
+# expand to nothing here — the trap spa-image-matrix.sh records for its own multi-stage build,
+# which this single-stage one does not have but would fail the same way.
+ARG BUILD_VERSION=""
+RUN printf '%s' "${BUILD_VERSION}" > "${LAMBDA_TASK_ROOT}/BUILD_VERSION"
+
 # NO CMD, DELIBERATELY. Every function supplies its own command; an image with a default handler
 # would let a function that forgot to declare one start and quietly do the wrong thing.

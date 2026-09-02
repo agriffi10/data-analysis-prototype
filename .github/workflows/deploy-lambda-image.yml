@@ -142,6 +142,7 @@ jobs:
         run: |
           set -euo pipefail
           docker build --platform linux/amd64 \
+            --build-arg BUILD_VERSION="$TAG" \
             -f lambdas/Dockerfile \
             -t "lambda-fleet:${TAG}" .
 
