@@ -243,7 +243,7 @@ See [`.github/workflows/README.md`](.github/workflows/README.md) for the full co
 ## Environment & configuration reference
 
 - **App configuration** — the app reads a runtime `/config.json` document rather than build-time
-  `VITE_*` values in production. Every key, and the six places it is wired, is
+  `VITE_*` values in production. Every key, and the five places it is wired, is
   [`apps/portal/info/runtime-configuration.md`](apps/portal/info/runtime-configuration.md); the dev
   fallback variables are [`apps/portal/.env.example`](apps/portal/.env.example).
 - **IaC inputs** — [`infra/variables.tf`](infra/variables.tf) /
