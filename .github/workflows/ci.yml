@@ -22,7 +22,7 @@ on:
 # it landed. `security.yml` has had this since it shipped; `ci.yml` never got it.
 #
 # Safe here in a way it would NOT be in the deploy workflows: this workflow only runs
-# tests, lint and a build. Cancelling a `tofu apply` or an `update-function-code`
+# a build and a handful of cheap checks. Cancelling a `tofu apply` or an `update-function-code`
 # mid-flight is how you get a half-applied deploy, which is why every deploy workflow sets
 # `cancel-in-progress: false` rather than true.
 concurrency:
@@ -47,15 +47,19 @@ jobs:
           fetch-depth: 0
 
       # WHAT THIS JOB CAN POSSIBLY LEARN. Every step after it is scoped to this answer, so a
-      # pull request touching none of the app's inputs costs one billed minute instead of
-      # seven — the Test step alone is 294 of this job's 366 seconds.
+      # pull request touching none of the app's inputs skips the install, the build and the
+      # bundle check.
       #
-      # Replayed against the last 60 merges to main: 29 skip, 31 run, so the average pull
-      # request costs 4 minutes instead of 7. It is NOT the 67% that counting `apps/portal/`
-      # alone gives — the suite's out-of-tree reads below, the 88 IAM templates especially,
-      # buy a third of the saving back. That is the honest number, and the cheaper one was
-      # wrong rather than optimistic: it was measured before anyone checked what the suite
-      # actually reads.
+      # Every number this step was sized against — one billed minute instead of seven, 29 of the
+      # last 60 merges skipping, the Test step alone 294 of the job's 366 seconds — was measured
+      # while Lint and Test were still IN this job. The disabled block below removed exactly the
+      # expensive ones, so those figures are historical: re-measure before citing any of them,
+      # and do not read the old saving as this step's current value.
+      #
+      # What the change does NOT touch is the SHAPE, which is the part worth keeping: the pattern
+      # list is every input the remaining steps read, and that is not the same as "the app's
+      # source" — the out-of-tree reads below, the 88 IAM templates especially, are how a real
+      # set-equality guard reports green on a change that breaks it.
       #
       # The job still RUNS and still reports under the same check name — this is a step-level
       # skip, not a workflow-level `paths:` filter, precisely so that a required check by that
@@ -79,7 +83,9 @@ jobs:
           # step said `app=false`, and both appear in the last two merges to main.
           #
           # `lambdas/test_ci_scope.py` sweeps the suite for out-of-tree reads and fails if
-          # one is not covered here, so the list cannot drift as a ninth import is added.
+          # one is not covered here, so the list cannot drift as a ninth import is added — but
+          # that test now runs ONLY in a session's local pytest, never on a pull request, so a
+          # drifting list is caught by the pre-push discipline or not at all.
           SCOPE_PATTERNS: |
             ^apps/portal/
             ^packages/
@@ -119,7 +125,7 @@ jobs:
             echo 'app=true' >> "$GITHUB_OUTPUT"
           else
             echo 'app=false' >> "$GITHUB_OUTPUT"
-            echo "::notice title=Scope::no app input changed; lint, build and the suite are skipped"
+            echo "::notice title=Scope::no app input changed; install, build and the bundle check are skipped"
           fi
 
       - name: Set up Node.js
@@ -132,10 +138,14 @@ jobs:
         if: steps.scope.outputs.app == 'true'
         run: npm ci
 
-      - name: Lint
-        if: steps.scope.outputs.app == 'true'
-        working-directory: apps/portal
-        run: npm run lint
+      # DISABLED to save Actions minutes. Lint and the suites now run LOCALLY on
+      # every PR, after the diff reviews and before the push -- docs/process.md S3.
+      # Restore all four steps (Lint + Test here, Lint (ruff) + Test (pytest) in the
+      # lambdas job) together; a half-restored gate reads as a full one.
+      # - name: Lint
+      #   if: steps.scope.outputs.app == 'true'
+      #   working-directory: apps/portal
+      #   run: npm run lint
 
       - name: Format check (prettier)
         if: steps.scope.outputs.app == 'true'
@@ -161,10 +171,14 @@ jobs:
         working-directory: apps/portal
         run: npm run check:bundle
 
-      - name: Test
-        if: steps.scope.outputs.app == 'true'
-        working-directory: apps/portal
-        run: npm run test:coverage
+      # DISABLED to save Actions minutes. Lint and the suites now run LOCALLY on
+      # every PR, after the diff reviews and before the push -- docs/process.md S3.
+      # Restore all four steps (Lint + Test here, Lint (ruff) + Test (pytest) in the
+      # lambdas job) together; a half-restored gate reads as a full one.
+      # - name: Test
+      #   if: steps.scope.outputs.app == 'true'
+      #   working-directory: apps/portal
+      #   run: npm run test:coverage
 
   lambdas:
     runs-on: ubuntu-latest
@@ -240,10 +254,14 @@ jobs:
           pip install -r lambdas/table-builder-infer-schema/requirements.txt
           pip install -r lambdas/data-quality-polars/requirements.txt
 
-      - name: Lint (ruff)
-        # `scripts/` joins the scan because SPEC-162 put a Python module there
-        # (validate_feature_flags.py). Nothing else in that directory is Python today.
-        run: ruff check lambdas/ scripts/ .github/scripts/
+      # DISABLED to save Actions minutes. Lint and the suites now run LOCALLY on
+      # every PR, after the diff reviews and before the push -- docs/process.md S3.
+      # Restore all four steps (Lint + Test here, Lint (ruff) + Test (pytest) in the
+      # lambdas job) together; a half-restored gate reads as a full one.
+      # - name: Lint (ruff)
+      #   # `scripts/` joins the scan because SPEC-162 put a Python module there
+      #   # (validate_feature_flags.py). Nothing else in that directory is Python today.
+      #   run: ruff check lambdas/ scripts/ .github/scripts/
 
       # GATE ONE on the two-language contract. The wire is declared once in Python and the
       # TypeScript is emitted from it, so this catches drift in BOTH directions: a Python type
@@ -293,5 +311,9 @@ jobs:
       - name: Typecheck (mypy)
         run: mypy
 
-      - name: Test (pytest)
-        run: pytest lambdas/
+      # DISABLED to save Actions minutes. Lint and the suites now run LOCALLY on
+      # every PR, after the diff reviews and before the push -- docs/process.md S3.
+      # Restore all four steps (Lint + Test here, Lint (ruff) + Test (pytest) in the
+      # lambdas job) together; a half-restored gate reads as a full one.
+      # - name: Test (pytest)
+      #   run: pytest lambdas/
