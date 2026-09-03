@@ -92,6 +92,12 @@ Every one of these contradicted a plausible expectation, and two contradicted a 
   superset of it. Asserted as identity rather than assumed to degenerate.
 - **The deploy workflow has no `paths:` filter.** The container must track `main` exactly as the
   bundle does, or "which commit is in production" stops having an answer. The PR gate is filtered.
+  > **Superseded on the second half; the first half stands.** There is still no `paths:` filter —
+  > the workflow runs on every push — but it now decides whether to build and whether to point by
+  > diffing this commit against **the one the service is running**, read back from the service.
+  > "Which commit is in production" is still answered exactly, by that tag; it is simply no longer
+  > the same answer as "the tip of `main`". A filter stays rejected for the reason a diff is not:
+  > it cannot see a revision Terraform registered on its own, or a previous run that failed.
 
 ## Did anything ship green and wrong?
 

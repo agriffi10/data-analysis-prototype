@@ -9,16 +9,25 @@ name: SPA image
 # image before it pushes, but a gate that only runs after merge cannot block anything — it can only
 # redden main and tell you afterwards.
 #
-# PATH-FILTERED, unlike the deploy workflow. This job only proves the image, so a commit that
-# changes no input to it has nothing to prove. The deploy workflow is deliberately NOT filtered:
-# the container has to track main commit for commit — it is production, and the bundle that used to
-# share that job is gone — or "which commit is in production" stops having an answer.
+# PATH-FILTERED. This job only proves the image, so a commit changing no input to it has nothing
+# to prove.
+#
+# THE LIST BELOW IS ALSO THE DEPLOY'S. `deploy-spa-image.yml` runs unfiltered and decides what it
+# has to DO by testing its change set against the same set of paths, written there as anchored
+# regular expressions; `lambdas/test_ci_scope.py` asserts the two select identically. So a path
+# added here and not there stops the image being REBUILT as well as unproven — which is
+# production running the previous bundle behind a green deploy. Add to both, or to neither.
 
 on:
   pull_request:
     branches: [main]
     paths:
       - 'apps/portal/**'
+      # A workspace `npm ci` installs and the bundle may import. Empty today, which is exactly
+      # why it was missing: a list is easiest to get wrong about the directory that has nothing
+      # in it yet, and the first package to land there would change the bundle with this gate
+      # and the deploy's scope check both looking away.
+      - 'packages/**'
       # The Dockerfile's first COPY, and `npm ci` runs off them: a root lockfile bump changes the
       # bundle and can break the build, which is exactly the change class that would otherwise
       # land without this gate running.
