@@ -1,6 +1,8 @@
-# Dependencies for the infer-schema verb, packaged as the table-builder-polars Lambda
-# LAYER (deploy-lambdas.yml builds + publishes it; the layer is attached to the
-# infer-schema function via update-function-configuration). polars' Rust-native readers
-# cover Parquet / CSV / JSON without pyarrow, keeping the layer within Lambda's 250 MB
-# unzipped limit (SPEC-066 FR-003; the actual schema inference lands in SPEC-069).
+# Dependencies for the infer-schema verb. polars' Rust-native readers cover Parquet / CSV /
+# JSON without pyarrow, which is what kept this inside Lambda's 250 MB unzipped limit when it
+# was a separate layer attached to one function.
+#
+# It is no longer isolated to that function: the image installs every requirements file into
+# one site-packages, so polars is importable fleet-wide and this declaration says who is
+# MEANT to read Parquet footers rather than who can.
 polars==1.12.0

@@ -1,10 +1,10 @@
 # table-share-common
 
-Shared helpers for the table-share verb Lambdas, published as the
-`table-share-common` Lambda layer (the `tscommon` package) and attached to all five
-verbs by deploy-lambdas.yml — mirroring `table-builder-common`/`tbcommon`.
+Shared helpers for the table-share verb Lambdas, as the `tscommon` package — mirroring
+`table-builder-common`/`tbcommon`. The fleet's container image copies it to `/opt/python`,
+so every verb can import it; nothing is published or attached.
 
-**Stubbed in SPEC-088** — the namespaces exist so the layer/package layout is stable;
+**Stubbed in SPEC-088** — the namespaces exist so the package layout is stable;
 they are filled in as the verb logic lands:
 
 - SPEC-089 — `auth.py` (offline ID-token → actor), `registry.py` (shared-spaces

@@ -41,9 +41,9 @@ module "functions" {
     LOGS_QUEUE_URL = var.logs_queue_url
     # Same source of truth as the feature-flag document's `environments` keys.
     ENV_NAME = var.environment
-    # NOT read by any verb here — set because the cpcommon layer's config requires it, and
-    # it LANDED AND APPLIED BEFORE the code that imports cpcommon deployed, so the layer
-    # attach can never reach a function whose env cannot satisfy it.
+    # NOT read by any verb here — set because cpcommon's config requires it, and it LANDED
+    # AND APPLIED BEFORE the code that imports cpcommon deployed, so no function could reach
+    # that import with an environment it could not satisfy.
     ATHENA_WORKGROUP = var.athena_workgroup
     # The operator boundary's one input: the reader role's unique ID, which is the half of the
     # SQS SenderId before the colon. Read LAZILY by the domain config rather than through

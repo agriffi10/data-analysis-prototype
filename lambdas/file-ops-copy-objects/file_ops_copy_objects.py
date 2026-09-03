@@ -28,11 +28,12 @@ The service name is the control plane, not the function, so one operation's invo
 fan-out stay one queryable set. The per-verb identity rides as the ``verb`` field.
 
 Attributes:
-  COPY_FAILED: This plane's reason code for an object that did not copy. Declared here rather than
-    imported because this verb attaches the cpcommon layer ALONE — it imports no domain module, so
-    the domain layer is not on its path. The same deliberate twin the sibling planes' batch verbs
-    carry, and the reason the fleet accepts it: the alternative is attaching a whole layer to a
-    function that needs one string from it.
+  COPY_FAILED: This plane's reason code for an object that did not copy. A deliberate twin of
+    ``focommon``'s, as the sibling planes' batch verbs carry. **Its original reason has expired:**
+    it was declared here because the verb attached ``cpcommon`` alone, so ``focommon`` was not on
+    its path, and the image now puts every shared package on ``/opt/python`` for every function.
+    Importing it would work. Whether to collapse the twin is a code decision nobody has made, and
+    the duplication is recorded here rather than silently kept for a reason that no longer holds.
   ITEM_KEY: The manifest-line field echoed onto every failure record, which is this plane's
     attribution vocabulary. Bounded by construction — one key per line, never a list.
 """

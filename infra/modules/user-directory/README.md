@@ -75,11 +75,11 @@ works.
 
 ## Environment variables it does not use
 
-`USER_SPACE_BUCKET` is the one variable the function actually reads. The rest are set because the
-`cpcommon` layer's config requires them of every function that attaches it. That read happens on
+`USER_SPACE_BUCKET` is the one variable the function actually reads. The rest are set because
+`cpcommon`'s config requires them of every function that imports it. That read happens on
 **first access** rather than at import, so a missing one no longer crashes at cold start — it fails
 on whichever branch reads it, which is narrower and no less broken. Still set them: the union is
-what any code path in the layer may demand, and "the function does not use it" is not a reason to
+what any code path in `cpcommon` may demand, and "the function does not use it" is not a reason to
 remove one.
 
 `LOGS_QUEUE_URL` is the exception, deliberately: `cpcommon.observability` reads it with

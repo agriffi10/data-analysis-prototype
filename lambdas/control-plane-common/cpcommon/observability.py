@@ -30,7 +30,7 @@ shape can see, and a filter that looked like enforcement would be worse than non
 would be trusted. Shape notes, the stack-trace exemption and the one-run-is-nine-traces
 caveat are in ``lambdas/info/shared-layer.md``.
 
-Import-safety is the point of this module's shape. The cpcommon layer attaches to every
+Import-safety is the point of this module's shape. ``cpcommon`` is resolved by every
 control-plane verb, including three that set almost none of ``config``'s environment — and
 when ``config._require`` ran at import, one missing variable was a cold-start crash across a
 whole control plane, this fleet's own recorded outage. That read moved
@@ -112,9 +112,9 @@ def _build_version():
         with open(os.path.join(root, "BUILD_VERSION"), encoding="utf-8") as handle:
             return handle.read().strip() or UNSTAMPED_VERSION
     except OSError:
-        # A missing or unreadable stamp must never keep a function from starting: this module
-        # is on the layer that attaches to every control-plane verb, and a real outage is what an
-        # import-time failure there costs.
+        # A missing or unreadable stamp must never keep a function from starting: every
+        # control-plane verb resolves this module, and a real outage is what an import-time
+        # failure here costs.
         return UNSTAMPED_VERSION
 
 

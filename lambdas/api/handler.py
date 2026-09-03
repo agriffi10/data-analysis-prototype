@@ -10,10 +10,10 @@ span sees a raise and records it with its stack; the conversion goes on the outs
 still receives an envelope rather than a bare gateway 500. Swap them and every failed request ends
 its span successfully, and the fault is recorded nowhere.
 
-The pipeline this rides on has a silent failure mode — a layer that is not attached, a matrix row that is not
-added, an environment that is missing a key. All three pass every offline gate: ``conftest.py`` puts
-the layer on ``sys.path`` so imports resolve in tests, and ``update-function-code`` succeeds against
-a function that cannot import what it needs. Only a real invocation sees it, which is why the first
+The pipeline this rides on has a silent failure mode — a matrix row that is not added, an
+environment that is missing a key. Both pass every offline gate: ``conftest.py`` puts the shared
+roots on ``sys.path`` so imports resolve in tests, and pointing a function at an image succeeds
+against one that cannot import what it needs. Only a real invocation sees it, which is why the first
 invocation after a deploy is a live check rather than a formality.
 
 The event is API Gateway's payload format 2.0, and the method and path come from

@@ -1,8 +1,8 @@
-"""Shared helpers for the archive control-plane verbs, published as a Lambda layer.
+"""Shared helpers for the archive control-plane verbs, shipped in the fleet's container image.
 
 Imported as a package (``from arcommon import authz``) so its module names cannot collide with
-another domain layer's under one pytest run. Every archive verb attaches this layer alongside
-``cpcommon``.
+another domain package's — under one pytest run, and now also on ``/opt/python``, where the image
+puts every shared package in ONE directory. Every archive verb can import it; nothing is attached.
 
 The split with ``cpcommon`` is the and is not negotiable per plane: **cpcommon owns the
 algorithm, this layer owns archive's tables, key layout and wording**. Nothing here

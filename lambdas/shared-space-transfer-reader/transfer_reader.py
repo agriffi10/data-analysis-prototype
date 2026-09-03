@@ -10,11 +10,12 @@ on the other side mean anything. The plane trusts an operator message because th
 stamps on it names this role; sharing the orchestrator's role would make that comparison admit every
 verb in the fleet, and would do it while every test stayed green.
 
-It also carries **no domain layer**, deliberately. ``shared-space-common``'s configuration requires
-the portal role ARN at import, and this function has no use for it — attaching the layer would buy a
+It **imports no domain module**, deliberately. ``shared-space-common``'s configuration requires the
+portal role ARN at import, and this function has no use for it — importing it would buy a
 schema-version constant at the price of a cold-start crash on a variable nobody here reads, which is
-the failure that once took this plane down for nine days. The constant is local and a test pins it
-to the layer's.
+the failure that once took this plane down for nine days. The image puts the package on
+``/opt/python`` for every function, so what holds this open is the absent import and nothing else.
+The constant is local and a test pins it to the shared one's.
 
 The reader knows nothing about spaces. It does not read the registry, does not check that a space
 exists or that the named member belongs to it, and holds no grant that would let it — every one of

@@ -9,9 +9,10 @@ text never reaches a notification body; it stays in CloudWatch and the execution
 
 Every code is registered here rather than in the spec that introduced its verb, and that is
 load-bearing. A terminal error validates its reason at construction against a process-global set
-that each domain layer extends at import. The deployed functions attach only their own layers
-and never import another domain's, but the test suite imports every layer into one process,
-where a sibling domain happens to register several of the same names. Deferring registration
+that each domain package extends at import. A deployed function imports only its own domain, but
+the test suite imports every one into a single process — and the image now puts them all on
+``/opt/python``, so nothing but the import list keeps them apart — where a sibling domain happens
+to register several of the same names. Deferring registration
 would therefore have shipped codes that pass CI and raise in production, and the failure state
 would record that raw validation text as the user-facing reason — the exact leak the messaging
 rule forbids. The tests assert against the table below, never against the global registry, for

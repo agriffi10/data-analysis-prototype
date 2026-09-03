@@ -338,9 +338,15 @@ a test rather than left to be rediscovered in an inbox. **Reading three implemen
 would not have found it** — that is the argument for rendering both and diffing, on any future
 consolidation.
 
-**Do NOT** read this as licence to merge the domain layers into `cpcommon`. The layers stay; only
-genuinely cross-plane helpers moved, and a move that would change which layer a function attaches to
-is a `deploy-lambdas.yml` matrix change with SPEC-137's failure mode attached.
+**Do NOT** read this as licence to merge the domain layers into `cpcommon`. The packages stay; only
+genuinely cross-plane helpers moved.
+
+> **The FENCE stands; its mechanism is superseded by SPEC-214.** There is no attach step and no
+> matrix row to change — the image copies every `lambdas/*-common/` package to `/opt/python`, so a
+> move between packages is an import change and nothing else. That makes the separation a code
+> decision with no packaging left to enforce it, which is a reason to hold the fence more firmly
+> rather than less. Full entry: *A guard is retired by proving its replacement, then deleting* in
+> [`infrastructure.md`](infrastructure.md).
 
 ## The copy is a top-level Distributed Map, and attribution is a verb (SPEC-160)
 

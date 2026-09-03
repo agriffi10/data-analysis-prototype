@@ -726,7 +726,7 @@ module "shared_spaces" {
   athena_admin_bucket_name = local.athena_admin_bucket_name
   spa_origin               = local.spa_origin
 
-  # Not used by any shared-space verb — required by the cpcommon layer's config.
+  # Not used by any shared-space verb — required by cpcommon's config.
   # That config resolves on FIRST READ, not at import, so a missing one is no
   # longer a cold-start crash but a failure on whichever branch reads it first. The
   # union is still what must be set; do not prune one as "unused". Wired and applied here, one
@@ -1190,8 +1190,8 @@ module "data_quality" {
   # authorization by the verbs; this workgroup's FALLBACK Athena result location).
   # Constructed names (not module outputs) so this module plans standalone.
   #
-  # These are wired now — before any verb uses them — because every verb attaches the
-  # cpcommon layer and its config requires them. That requirement moved from
+  # These are wired now — before any verb uses them — because every verb resolves
+  # cpcommon and its config requires them. That requirement moved from
   # import to FIRST READ, so a verb missing one no longer crashes at cold start — it
   # fails on whichever branch reads it. The union is still what must be set; do not prune one
   # as "unused". Same reason the Cognito pair is passed here.
@@ -1254,7 +1254,7 @@ module "control_plane_dlq_drain" {
   logs_queue_url = module.observability.logs_queue_url
 
 
-  # Required by the cpcommon layer's config, not used by the drain.
+  # Required by cpcommon's config, not used by the drain.
   # (that config resolves on FIRST READ, not at import, so a missing one is
   # no longer a cold-start crash, but a failure on whichever branch reads it
   # first. The union is still what must be set; do not prune one as "unused".)
@@ -1286,7 +1286,7 @@ module "observability" {
   admin_bucket_arn  = "arn:aws:s3:::${local.athena_admin_bucket_name}"
 
 
-  # Required by the cpcommon layer's config, not used by the sweep.
+  # Required by cpcommon's config, not used by the sweep.
   # (that config resolves on FIRST READ, not at import, so a missing one is
   # no longer a cold-start crash, but a failure on whichever branch reads it
   # first. The union is still what must be set; do not prune one as "unused".)
@@ -1327,7 +1327,7 @@ module "user_directory" {
   logs_queue_arn = local.logs_queue_arn
   logs_queue_url = local.logs_queue_url
 
-  # Required by the cpcommon layer's config, not used by the builder.
+  # Required by cpcommon's config, not used by the builder.
   # (that config resolves on FIRST READ, not at import, so a missing one is
   # no longer a cold-start crash, but a failure on whichever branch reads it
   # first. The union is still what must be set; do not prune one as "unused".)
@@ -1399,7 +1399,7 @@ module "verification" {
 #
 # It takes the six cpcommon required values as ENVIRONMENT, which is not the same as taking
 # them as permissions: the function's role names logs and one queue and nothing else, and a
-# test asserts that against the rendered policy. The layer resolves config lazily, so an
+# test asserts that against the rendered policy. cpcommon resolves config lazily, so an
 # unset one would fail at first read rather than at import — the environment is complete
 # anyway, so the spec that starts verifying tokens inherits no surprise.
 module "api" {

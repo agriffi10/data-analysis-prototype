@@ -17,8 +17,9 @@ prove the one right: a verb that composed its own would pass every one of them w
 somewhere else, and on a move that is the source deleted after the copy went to the wrong place.
 
 ``item_name`` is copied from ``fscommon.paths`` rather than imported, and the copy is deliberate:
-the two layers are packaged and attached separately, and ``fscommon`` carries file-send's wording,
-so importing it would merge two domain layers to save nine lines. What is **not** copied is
+``fscommon`` carries file-send's wording, so importing it would merge two planes' domain
+vocabularies to save nine lines. The image puts both on ``/opt/python``, so the import would
+resolve — the separation is a code decision, not a packaging one. What is **not** copied is
 ``fscommon.paths.destination_key``, which prepends an inbox prefix this plane has no business
 writing to.
 """
