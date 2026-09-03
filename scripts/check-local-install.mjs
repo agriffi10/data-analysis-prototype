@@ -28,23 +28,43 @@ import {fileURLToPath} from 'node:url';
 const DEFAULT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
- * Decide whether `root` owns an installed dependency tree.
+ * Binaries the four guarded gates actually execute. Named rather than counted, because an
+ * interrupted install leaves a `.bin` that exists and is populated with whatever got there first
+ * -- "non-empty" would pass a tree that cannot run eslint. Naming them also lets the refusal say
+ * which one is missing, and a rename here is a loud, correct failure rather than a silent one.
+ */
+const REQUIRED_BINARIES = ['eslint', 'prettier', 'vitest', 'tsc'];
+
+/**
+ * Decide whether `root` owns an installed dependency tree that can actually run the gates.
  *
  * Deliberately a filesystem check on the ROOT specifically, never a module resolution: resolution
  * is the thing that walks up and produces the false pass, so asking Node to resolve a binary
- * would answer the question this is trying to ask.
+ * would answer the question this is trying to ask. The same reason is why the binaries are
+ * checked by path rather than by spawning them -- npm builds a lifecycle script's PATH by
+ * prepending `node_modules/.bin` from EVERY ancestor directory up to `/`, so a tree whose own
+ * `.bin` is empty still runs eslint, from the parent checkout, and exits 0.
  *
  * @param {string} root Absolute path to the workspace root to inspect.
  * @returns {{ok: boolean, reason: string}} `ok` false with a one-line `reason` when the tree is
- *   missing or unpopulated; `ok` true and an empty `reason` otherwise.
+ *   missing, has no `.bin`, or cannot supply one of REQUIRED_BINARIES; `ok` true and an empty
+ *   `reason` otherwise.
  */
 export function checkLocalInstall(root) {
   const modules = join(root, 'node_modules');
   if (!existsSync(modules)) {
     return {ok: false, reason: `no node_modules in ${root}`};
   }
-  if (!existsSync(join(modules, '.bin'))) {
+  const bin = join(modules, '.bin');
+  if (!existsSync(bin)) {
     return {ok: false, reason: `node_modules in ${root} has no .bin, so the install is partial`};
+  }
+  const missing = REQUIRED_BINARIES.filter((name) => !existsSync(join(bin, name)));
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      reason: `node_modules/.bin in ${root} is missing ${missing.join(', ')}, so the install is partial`,
+    };
   }
   return {ok: true, reason: ''};
 }
