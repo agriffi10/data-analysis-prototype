@@ -7,7 +7,8 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
 import remove_members as r
-from fakes import install
+from cpcommon.errors import TerminalError
+from fakes import install, raises
 
 
 def _active_reg(name="sales", owner="alice", members=None):
@@ -47,6 +48,9 @@ def test_remove_members_clears_slot_registry_and_cache_leaves_data():
 
 
 def test_remove_members_never_removes_the_owner():
+    """Defence in depth since the validator began refusing the whole request by name: the drop
+    here is what made that refusal necessary — it reported success having removed nobody — and
+    it stays because the verb must not depend on the predicate having run."""
     s3, _glue, _lf, _cognito = install()
     reg = _active_reg(members=["alice", "bob"])
     _seed_reg(s3, reg)
@@ -79,3 +83,62 @@ if __name__ == "__main__":
         fn()
     print(f"All {len(fns)} remove-members tests passed.")
     sys.exit(0)
+
+
+# ── FR-006: the verb refuses a refused request, and records who asked ────────
+
+
+def test_a_refused_context_reaching_the_verb_is_a_TERMINAL_refusal_not_a_removal():
+    """The router's Choice is the fast path; this is the fence. Reaching the handler with a
+    refusal on the context means the routing did not hold, and a removal that ran anyway would
+    revoke someone's access on a request the plane had already decided against."""
+    s3, *_ = install()
+    reg_doc = _active_reg(members=["alice", "bob"])
+    _seed_reg(s3, reg_doc)
+    before = dict(s3.store)
+
+    raises(
+        lambda: r.handler(
+            {
+                "space": "sales",
+                "requestId": "r1",
+                "registry": reg_doc,
+                "payload": {"members": ["bob"]},
+                "refusal": {"code": "MemberNotOwner", "message": "no"},
+            },
+            None,
+        ),
+        TerminalError,
+        "MemberNotOwner",
+    )
+    assert s3.store == before, "a refused removal wrote something"
+
+
+def test_an_operator_driven_removal_is_attributable_to_an_actor_and_an_origin(captured_events):
+    """This verb emitted no actor at all, so an operator-driven removal was attributable to
+    nobody. `@traced` clears baggage per invocation, so the origin is re-stamped inside the
+    handler or the span records the owner removing people from their own space."""
+    s3, _glue, _lf, cognito = install()
+    cognito.users = {"bob": {"custom:shared_space_1": "sales"}}
+    reg_doc = _active_reg(members=["alice", "bob"])
+    _seed_reg(s3, reg_doc)
+
+    r.handler(
+        {
+            "space": "sales",
+            "requestId": "r1",
+            "registry": reg_doc,
+            "origin": "operator",
+            "payload": {"members": ["bob"]},
+        },
+        None,
+    )
+
+    removed = [e for e in captured_events.events if e.get("message") == "members removed"]
+    assert removed and removed[0]["fields"]["actor"] == "alice", removed
+    origins = {
+        event["fields"]["origin"]
+        for event in captured_events.events
+        if "origin" in (event.get("fields") or {})
+    }
+    assert origins == {"operator"}, f"the span recorded {origins}"

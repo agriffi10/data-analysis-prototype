@@ -1,5 +1,6 @@
 """The failure wording tables, held against the vocabulary they are supposed to cover."""
 
+import auth
 import messages
 
 import config
@@ -56,3 +57,57 @@ def test_a_missing_space_or_target_renders_blank_rather_than_the_word_None():
         messages.refusal_message("SomethingUnregistered", None, None),
     ):
         assert "None" not in rendered, rendered
+
+
+def test_every_registered_refusal_key_has_a_sentence_and_every_sentence_has_a_key():
+    """Enumerated from the constant rather than swept from call sites, so the guard needs no
+    positive control — an empty sweep and a complete one look identical, a set equality does not.
+
+    Key equality alone is not enough, which is why the test below it exists: `refusal_message`
+    consults ONE table and degrades an unregistered code to a sentence about a TRANSFER, so a
+    second table would satisfy this assertion while every member refusal told the user their
+    workspace could not be transferred.
+    """
+    assert set(messages._REFUSALS) == auth.REFUSAL_MESSAGE_KEYS
+    assert auth.MEMBER_REFUSAL_CODES <= auth.REFUSAL_MESSAGE_KEYS
+
+
+def test_every_member_refusal_renders_its_OWN_sentence_and_not_the_transfer_fallback():
+    fallback = messages.refusal_message("NotARegisteredCode", "sales", "bob")
+    for code in sorted(auth.MEMBER_REFUSAL_CODES | {"MemberRequestRefused"}):
+        rendered = messages.refusal_message(code, "sales", "bob")
+        assert rendered != fallback, f"{code} renders the generic transfer sentence"
+        assert "transfer" not in rendered.lower() or code == "MemberRemoveOwner", (
+            f"{code} tells the user about a transfer they did not ask for: {rendered}"
+        )
+        assert "sales" in rendered, f"{code} names no space: {rendered}"
+
+
+def test_an_unregistered_key_is_refused_at_composition_rather_than_rendered_generically():
+    """`_refusal` is the only composer, so this is where a code with no sentence has to stop.
+    Left to the resolver it would render the transfer fallback — silently, and to a user who
+    asked about something else entirely."""
+    try:
+        auth._refusal("NotARegisteredCode", "sales")
+    except ValueError as exc:
+        assert "NotARegisteredCode" in str(exc)
+    else:
+        raise AssertionError("an unregistered code composed a sentence")
+
+    try:
+        auth._refusal("MemberNotOwner", "sales", wording="AlsoNotRegistered")
+    except ValueError as exc:
+        assert "AlsoNotRegistered" in str(exc)
+    else:
+        raise AssertionError("an unregistered WORDING key composed a sentence")
+
+    # The third case is the one the pair exists for, and the two above do not cover it: both are
+    # satisfied by checking `wording or code` alone, so the CODE arm can be deleted with the suite
+    # green. An unregistered code carried under a REGISTERED wording is what distinguishes them —
+    # it is the shape that would return a code nothing can render while reading as fine.
+    try:
+        auth._refusal("NotARegisteredCode", "sales", wording="MemberRequestRefused")
+    except ValueError as exc:
+        assert "NotARegisteredCode" in str(exc)
+    else:
+        raise AssertionError("an unregistered CODE composed a sentence under a registered wording")

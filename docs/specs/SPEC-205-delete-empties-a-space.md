@@ -284,7 +284,15 @@ not have today.
       by its creator**, and the destroying route is that same creator explicitly discarding their own
       failed create. Nobody else's data can be lost.
 - [ ] **"Reachable only by its creator" is itself FALSE, and the remedy is a status gate on
-      `add_members`, not a roster check on the destroying route.** `authorize` has no status gate —
+      `add_members`, not a roster check on the destroying route.**
+      > **Superseded in part by SPEC-217:** `add_members` and `remove_members` left
+      > `OWNER_ONLY_ACTIONS` for `auth.member_refusal`, which refuses a record whose `status` is
+      > not `active` before any membership question runs — so the missing status gate described
+      > below is now closed in the validator as well as in `save_members`. The `save_members`
+      > refusal stays and is still the one holding a fresh record. `delete` is unchanged and its
+      > missing status gate below is still a live fact.
+
+      `authorize` has no status gate —
       `OWNER_ONLY_ACTIONS` checks the owner and nothing else — so an owner may `add_members` to a
       `provisioning` or failed-create record, and `assign_or_find_slot` stamps each new member's
       slot, which *is* the S3 and Glue grant, before `save_members` commits. A never-`active` space

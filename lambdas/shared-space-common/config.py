@@ -10,14 +10,24 @@ at call time rather than importing the names, so a test patch takes effect.
 
 Attributes:
   SCHEMA_VERSION: The registry record's schema version.
-  OWNER_ONLY_ACTIONS: Actions the authorizer restricts to the space's owner. Transfer is not one
-    of them: those raise, and a raise in the validator loses the actor and the space, so the
-    refusal reaches nobody. Transfer returns its refusal instead.
+  OWNER_ONLY_ACTIONS: Actions the authorizer restricts to the space's owner, by raising. Only
+    ``delete`` is left. The three that decide by RETURNING a refusal are not here: a raise in
+    the validator loses the actor and the space, so the refusal reaches nobody, and all three
+    have to name the space and the person they are about.
+  MEMBER_ACTIONS: The two actions ``auth.member_refusal`` decides. One constant rather than a
+    literal pair at each site: the validator dispatches on it, ``authorize`` returns on it, and
+    a site that fell out of step with the others would let a member change through ``authorize``
+    with no predicate having run — an open door rather than a refusal.
   VALID_ACTIONS: Every action the authorizer recognises.
   OPERATOR_ACTIONS: The actions an operator-origin message may ask for. Every other action is
-    refused on that origin even though the queue accepts it from the API, because the operator
-    door exists for the one case the UI cannot serve and widening it later should be a decision
-    rather than an oversight.
+    refused on that origin even though the queue accepts it from the API. Widening this to the
+    two member actions was the decision this attribute's earlier note asked for, and it changes
+    the threat model: a row now grants a stranger live access to a space's data, where before
+    the door could only move ownership between people who were already members. What stands in
+    front of it is who can write the operator inbox, and that set is wider than "an operator" —
+    the deploy role holds ``s3:*`` on the admin bucket and its trust admits ``pull_request``.
+    The ``SenderId`` comparison is not a second fence against them, only against a forged
+    message from somewhere else. Pre-existing, unwidened here, and recorded in the register.
   OPERATOR_ORIGIN: The origin value an operator message declares. A message carrying any other
     value is refused rather than treated as a UI request, so an unknown origin fails closed the
     way an unknown assurance does.
@@ -44,7 +54,8 @@ import os
 from cpcommon.config import require
 
 SCHEMA_VERSION = 1
-OWNER_ONLY_ACTIONS = frozenset({"add_members", "remove_members", "delete"})
+OWNER_ONLY_ACTIONS = frozenset({"delete"})
+MEMBER_ACTIONS = frozenset({"add_members", "remove_members"})
 VALID_ACTIONS = frozenset(
     {
         "create",
@@ -58,7 +69,7 @@ VALID_ACTIONS = frozenset(
     }
 )
 
-OPERATOR_ACTIONS = frozenset({"transfer_ownership"})
+OPERATOR_ACTIONS = frozenset({"transfer_ownership", "add_members", "remove_members"})
 OPERATOR_ORIGIN = "operator"
 TRANSFER_READER_ROLE_ID = os.environ.get("SHARED_SPACE_TRANSFER_READER_ROLE_ID", "")
 

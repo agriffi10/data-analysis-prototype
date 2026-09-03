@@ -40,6 +40,7 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [A control-plane queue may have a second producer, admitted by SenderId (SPEC-208)](#a-control-plane-queue-may-have-a-second-producer-admitted-by-senderid-spec-208)
 - [A transfer's refusals are RETURN VALUES, because a raise in the validator reaches nobody (SPEC-208)](#a-transfers-refusals-are-return-values-because-a-raise-in-the-validator-reaches-nobody-spec-208)
 - [A single-verb write pipeline is a queue and a writer, and its DLQ is undrained for a reason of its own (SPEC-211)](#a-single-verb-write-pipeline-is-a-queue-and-a-writer-and-its-dlq-is-undrained-for-a-reason-of-its-own-spec-211)
+- [The operator door widens to member management, and that is a threat-model decision (SPEC-217)](#the-operator-door-widens-to-member-management-and-that-is-a-threat-model-decision-spec-217)
 
 ## Everything unbounded on the state travels by pointer — including the definition (SPEC-161, extending SPEC-090/160)
 
@@ -871,6 +872,16 @@ authorization path reads it**.
 **The inert-state test is driven as the ORIGINAL OWNER.** As a stranger it passes over the defect,
 because the field `authorize` reads is exactly the one a delete clears.
 
+> **Superseded in part by SPEC-217, for `add_members` and `remove_members` only.** Those two left
+> `OWNER_ONLY_ACTIONS` for `auth.member_refusal`, which refuses an emptied record on `emptiedAt`
+> **before any actor is consulted** — so for them the inertness no longer rests on the cleared
+> `owner` field, and an assertion driven as the original owner would pass as a stranger too. The
+> test keeps its discrimination by **pairing** the emptied assertion with a live-record one: the
+> original owner allowed, a non-owner refused by code. `delete`, `leave` and `acknowledge_membership`
+> are unchanged and still read the cleared field. Full entry:
+> [*The operator door widens to member management, and that is a threat-model decision
+> (SPEC-217)*](#the-operator-door-widens-to-member-management-and-that-is-a-threat-model-decision-spec-217).
+
 Three further doors are closed, and each was found separately: `_resolve_reserve_collision`'s
 failed-retry overwrite additionally requires `not everActive`, or a failed *delete* is re-provisioned
 into a revived space with the roster reset to its owner alone; `save_members` refuses an addition to a
@@ -945,9 +956,14 @@ row. That is recorded in `docs/testing/owed.md` rather than solved.
 
 ## A transfer's refusals are RETURN VALUES, because a raise in the validator reaches nobody (SPEC-208)
 
-Every other refusal on this plane raises `AuthorizationError` from `shared-space-validate`. That is
-correct for them and would be silently wrong for a transfer, for a reason that is a property of the
-state machine rather than of the code: the validator's `Catch` carries **no `ResultPath`** — you
+> **Widened by SPEC-217:** `add_members` and `remove_members` now decide the same way, through
+> `auth.member_refusal`, for the same reason and through the same `RefusedSeed` arm — the branch
+> was written action-independent, so it needed no change. Read every "a transfer" below as "any of
+> the three actions that return", and "every other refusal" as the ones that still raise.
+
+The refusals that still raise on this plane raise `AuthorizationError` from `shared-space-validate`.
+That is correct for them and would be silently wrong for a transfer, for a reason that is a property
+of the state machine rather than of the code: the validator's `Catch` carries **no `ResultPath`** — you
 cannot merge a key into the raw SQS array it was handed — so the state is *replaced* by the error,
 and `ValidateFailureSeed` seeds `actor: null` and `space: null`. The notifier treats a null actor as
 no trustworthy recipient and stays silent. **A raised transfer refusal is a refusal nobody is ever
@@ -1066,3 +1082,72 @@ fan-out. **Rejected: any read surface.** No list, no admin view, no notification
 records are read with the AWS CLI by whoever wants them, and write-only from the browser's side is
 what keeps feedback out of every rendering and escaping question in the app. **Rejected: a shared
 DLQ.** A malformed feedback submission must not dead-letter somebody's file operation.
+
+
+## The operator door widens to member management, and that is a threat-model decision (SPEC-217)
+
+`OPERATOR_ACTIONS` was `{transfer_ownership}` and is now `{transfer_ownership, add_members,
+remove_members}`. `shared-space-common/config.py` asked that widening it "be a decision rather than
+an oversight"; this is the decision, and what makes it one is that the door changes kind rather than
+size.
+
+**What changed about the risk.** Under SPEC-208 a row could only move ownership *between people who
+were already members*: it granted access to nobody. A row now grants a stranger live S3, Glue and
+Lake Formation access to a space's data. What stands in front of that is **who can write the
+inbox** — the `SenderId` comparison is not a second fence against them, only against a forged
+message from somewhere else, because a file placed in the inbox is enqueued by the reader role and
+therefore carries exactly the sender the boundary accepts.
+
+**That write set is wider than "an operator", and the residual is recorded rather than closed.** The
+deploy role holds `s3:*` on the admin bucket (`base/policies/github-actions-deploy.json.tftpl`) and
+its trust policy admits `repo:<repo>:pull_request` (`github-actions-trust.json.tftpl`), while
+`deploy-infra.yml` runs on `pull_request` under that role. So a PR-triggered job can place a file in
+the operator inbox. **Pre-existing and unwidened here** — the same path could already move a space's
+ownership — but the consequence is larger now, and a doc that described the door as narrower than it
+is would be the more dangerous artifact.
+
+**The authorization opens one PR BEFORE the producer, deliberately.** The plane admits the two
+actions while the reader still emits `transfer_ownership` only, so the widening is inert: the only
+message that can carry the reader's `SenderId` is one the reader sent. The reverse order would put
+messages on the queue that the plane refuses. This is the one place the repo's "grants land before
+the resources that need them" rule reads backwards, and it reads backwards for the same reason.
+
+**The owner check moved rather than went.** `add_members` and `remove_members` left
+`OWNER_ONLY_ACTIONS` for `auth.member_refusal`, which returns a `(code, message)` pair instead of
+raising — a raise in the validator loses the actor and the space, so the refusal reaches nobody, and
+until this spec a member change that refused was a request the user watched disappear. `authorize`
+gained an explicit `return` for each and a **terminal `raise`**: two actions are now deliberately
+allowed there and gated elsewhere, so the fall-through that used to be unreachable became the
+failure mode, and losing the predicate call would be an open door rather than a refusal.
+
+**`requester=None` is the operator skip, and it cannot be a flag.** The validator records an operator
+request's `actor` as the space's own current owner, so an owner check written against that field
+passes for an operator without any skip — and the skip could then be deleted with every test green.
+`None` compares equal to no owner, so removing the guard makes every operator request refuse,
+loudly. The same trap one action over is already recorded under SPEC-208.
+
+**Four refusals, one sentence, distinct codes.** Unknown space, emptied, not-active and not-owner are
+each true and each answers "does this space exist and who owns it" for any name a signed-in user
+cares to try — delivered into their own notification inbox. That is the disclosure this project
+declined when it refused to publish a shared-space directory. So a **requester** gets one sentence
+that distinguishes nothing while the reason **code** stays distinct on `$.error`, and an **operator**
+keeps the detail, because the space's owner is who their refusal reaches and is entitled to it.
+
+> **The same oracle is still open on `transfer_ownership`, and is a named follow-up.**
+> `transfer_refusal` composes without the collapse, so `TransferNotOwner` and
+> `TransferSpaceUnknown` are byte-distinguishable to a non-owner over any space name. Pre-existing;
+> SPEC-217 deliberately did not inherit it into two more actions and deliberately did not smuggle
+> its fix in here. `_refusal` already takes the `wording=` argument the narrowing would need.
+
+**Two replay residuals, in both directions.** The schedule is hourly and the FIFO deduplication
+window is five minutes, so no two sweeps fall inside one, and replay safety rests on the verbs'
+idempotency. What that does not cover is a change made in between: a replayed `remove` removes a
+member who was legitimately re-added, and a replayed `add` **re-grants** access to someone the owner
+removed. The second is the worse one. Recorded, not solved — the fix is a request ledger the plane
+does not have.
+
+**A removal does not revoke a live session.** The principal tag is stamped when credentials are
+vended, nothing in the fleet revokes a token, and the pool client sets no token validity, so the ID
+token's one-hour Cognito default is the window plus the life of any presigned URL already minted.
+Revocation is what this door is for, so the reader's own module docstring says it where an operator
+reads it.

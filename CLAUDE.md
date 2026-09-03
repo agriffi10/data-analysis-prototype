@@ -240,7 +240,8 @@ DLQ lets one malformed request dead-letter someone else's work.
   live `status`, which moves `active → deleting → failed` over intact data, and where `deleting` is
   **not** evidence a space was usable (delete is gated on ownership alone). **One predicate**,
   `is_destroyable`, routes the delete AND refuses the add; complements written twice drift silently
-  both ways. Inert because the `owner` **field** is cleared — so test it **as the original owner**.
+  both ways. Inert because the `owner` **field** is cleared, or for the member actions `emptiedAt` — so
+  test it **as the original owner** AND on a live record.
   A name is never reusable.
 - **The planes do not verify — they read the API's `identity` block**, whose writers are
   enumerated: the API, and one reader by `SenderId`. Dropping a verification is NOT dropping an authorization:

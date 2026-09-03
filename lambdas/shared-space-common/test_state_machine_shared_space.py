@@ -73,6 +73,15 @@ def test_the_refusal_branch_is_first_and_cannot_match_a_present_null():
     assert conditions[("$.refusal", "IsNull")] is False, (
         "IsPresent alone matches a present-and-null field, which is every request on this plane"
     )
+    # And it is action-INDEPENDENT, which is the whole reason a second and third predicate could
+    # start returning refusals with no change to this machine at all. A branch that also tested
+    # `$.action` would have admitted the transfer's refusals and silently let a member change's
+    # fall through to the verb.
+    assert "Variable" not in first, first
+    assert {c["Variable"] for c in first["And"]} == {"$.refusal"}, (
+        "the refusal branch must not condition on the action: a refusal it did not name would "
+        "route straight to the verb"
+    )
 
 
 @pytest.mark.parametrize("state", ["RefusedSeed", "TransferOwnership"])

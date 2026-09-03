@@ -10,7 +10,7 @@ import delete_space as d
 import membership as membership_module
 import registry as teardown_registry
 import teardown
-from auth import AuthorizationError, authorize
+from auth import AuthorizationError, authorize, member_refusal
 from cpcommon import clients
 from cpcommon import config as cpconfig
 from fakes import install, raises
@@ -86,19 +86,35 @@ def test_delete_removes_every_member_and_destroys_nothing():
 
 
 def test_the_emptied_record_is_inert_to_its_ORIGINAL_OWNER():
-    # Driven as alice, not as a stranger: `authorize` reads the owner FIELD, so the original
-    # owner is the only actor who could have survived the clearing.
+    """Driven as alice, not as a stranger: the original owner is the only actor who could have
+    survived the clearing, so an assertion made as anyone else would pass without the mechanism.
+
+    The two member actions moved out of `authorize` into `member_refusal`, so they are asserted
+    through the predicate that decides them now — and that alone would be WEAKER than what it
+    replaces. `authorize` refused because the owner field was cleared, which is what made the
+    actor load-bearing; the predicate's emptied branch fires before any actor is consulted, so
+    the emptied half would pass driven as a stranger too. The live-record pair below it is what
+    pins the actor.
+    """
     s3, glue, _lf, cognito = install()
     _seed_full_space(s3, glue, cognito)
     reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+    live = json.loads(json.dumps(reg))
     d.delete_space("sales", "alice", "req-d", reg)
     emptied = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
 
-    for action in ("add_members", "remove_members", "leave", "acknowledge_membership", "delete"):
+    for action in ("leave", "acknowledge_membership", "delete"):
         raises(
             lambda action=action: authorize(action, "sales", "alice", emptied),
             AuthorizationError,
         )
+    for action in ("add_members", "remove_members"):
+        code, _ = member_refusal("alice", "sales", action, ["bob"], emptied)
+        assert code == "MemberSpaceEmptied", f"{action} on an emptied record: {code}"
+        # The pair: on the LIVE record the same call is allowed for the original owner and
+        # refused for anyone else, so the actor is what the assertion above is really about.
+        assert member_refusal("alice", "sales", action, ["bob"], live) is None
+        assert member_refusal("mallory", "sales", action, ["bob"], live)[0] == "MemberNotOwner"
     # previousOwner is for an operator to read, and no authorization path may consult it.
     assert emptied["previousOwner"] == "alice"
 
