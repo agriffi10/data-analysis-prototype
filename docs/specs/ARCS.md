@@ -2624,7 +2624,13 @@ create.
 with the members. `shared-space-common/auth.py`'s `authorize` gates every owner-only action on
 `actor != registry.get("owner")` — the field, never the roster — so an `owner` retained through a
 delete leaves the original owner able to `add-members` on the emptied space and revive it in one
-call, with the previous cohort's files intact and no confirmation. The previous owner survives as
+call, with the previous cohort's files intact and no confirmation.
+
+> **Superseded in part by SPEC-217 for the example it uses.** `add_members` and `remove_members`
+> left `OWNER_ONLY_ACTIONS` for `auth.member_refusal`, which refuses an emptied record on the
+> cleared `owner` or `emptiedAt` **before any actor is compared** — so for those two the inertness
+> no longer rests on the field the way this paragraph describes. `delete`, `leave` and
+> `acknowledge_membership` are unchanged and still do. The previous owner survives as
 `previousOwner`, which no authorization path reads, so an operator can still restore it. The
 inert-state test is driven **as the original owner**, because as a stranger it passes over the
 defect.

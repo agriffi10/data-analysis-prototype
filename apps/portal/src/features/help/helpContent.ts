@@ -563,11 +563,13 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Add members',
         subtitle: 'Give other people access to a space you own.',
         intro:
-          'Ready to bring your team in? As the owner, you can add members at any time, and each one immediately gets access to all the shared files and tables in the space.',
+          'Ready to bring your team in? As the owner, you can add members at any time, and each one gets access to all the shared files and tables in the space.',
         steps: [
           'Open <b>Manage</b> on a space you own, then click <b>Add members</b>.',
           'Start typing a <b>Username</b> — existing usernames are suggested as you type. Pick one, or press <b>Enter</b> to add the name you typed. You can also paste several at once, separated by spaces, commas, or new lines.',
-          'Click <b>Add</b> once you have everyone. They all get access to the same shared files and tables.'
+          'Click <b>Add</b> once you have everyone. They all get access to the same shared files and tables.',
+          'Someone who is already signed in may not see the space straight away — permissions are issued at sign-in, so they may need to sign out and back in.',
+          'If the change can’t go ahead, you’ll get a notification telling you it didn’t go through.'
         ],
         callout: {
           kind: 'tip',
@@ -587,7 +589,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         ],
         callout: {
           kind: 'tip',
-          text: 'Pending vs Active only reflects whether someone has opened the space yet — their access is granted the moment you add them, not when they first show up.'
+          text: 'Pending vs Active only reflects whether someone has opened the space yet — their access is granted the moment you add them, not when they first show up — though someone already signed in may need to sign in again before they can reach the space.'
         }
       },
       {
@@ -595,10 +597,12 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Remove a member',
         subtitle: 'Revoke someone’s access to a space you own.',
         intro:
-          'If someone no longer needs to be in a space, you can remove them as the owner. Their access ends, but nothing they contributed goes away.',
+          'If someone no longer needs to be in a space, you can remove them as the owner. Nothing they contributed goes away.',
         steps: [
           'In the <b>Manage</b> member list, click <b>Remove</b> next to a member and confirm.',
-          'They lose access, but the shared files and tables stay put. The owner can’t be removed.'
+          'They lose access, but the shared files and tables stay put. The owner can’t be removed — transfer the space first if the owner is the one leaving.',
+          'Access does not end the instant you confirm. Their permissions were issued when they signed in, so someone already signed in can keep reading the space until their session refreshes — up to about an hour. If that matters, tell them to sign out.',
+          'If the removal can’t go ahead, you’ll get a notification telling you it didn’t go through.'
         ]
       },
       {

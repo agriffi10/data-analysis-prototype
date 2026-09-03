@@ -1,7 +1,7 @@
 # Spec: Operator-Driven Shared-Space Membership
 
 **ID:** SPEC-217
-**Status:** In Progress
+**Status:** Completed
 **Last Updated:** 2026-09-02
 **Depends On:** SPEC-208 (the operator CSV door, the `SenderId` boundary, refusals as return values, the verb's own refusal fence), SPEC-206 (the `SenderId` role-id comparison), SPEC-205 (a delete empties a space; `emptiedAt`, the cleared `owner`, and the inertness test this spec re-points), SPEC-051/053 (the shared-space plane, `add_members` and `remove_members`), SPEC-082 (registry CAS), SPEC-125 (`shared-space-common`), SPEC-152 (a pre-verb failure notifies), SPEC-201 (the API stamps the identity block the plane reads)
 

@@ -220,8 +220,8 @@ DLQ lets one malformed request dead-letter someone else's work.
 - **`TimeoutSeconds` is TOP-LEVEL and cannot notify on its own**: catchers do not cover top-level
   execution failures, so a ceiling ships **with** an EventBridge `TIMED_OUT` rule (never `FAILED`, or
   every caught failure double-notifies).
-- **An expected refusal is a RETURN VALUE**; only unpredicted faults raise. A `TerminalError` cannot
-  name the colliding item, and the user needs it named.
+- **An expected refusal is a RETURN VALUE** — a raise in a validator reaches nobody, and a
+  `TerminalError` cannot name the item. Collapse what a REQUESTER reads, or it is an oracle.
 - **ONE producer says every per-recipient outcome**, at the end of the machine — not each verb.
 - **Locks are objects claimed under ETag CAS**, released by **overwriting**: with `DeleteObject`
   denied, "free" is a state rather than an absence. The holder is the **execution ARN**, because a

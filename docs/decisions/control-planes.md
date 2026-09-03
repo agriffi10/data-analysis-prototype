@@ -1124,7 +1124,7 @@ the resources that need them" rule reads backwards, and it reads backwards for t
 `OWNER_ONLY_ACTIONS` for `auth.member_refusal`, which returns a `(code, message)` pair instead of
 raising — a raise in the validator loses the actor and the space, so the refusal reaches nobody, and
 until this spec a member change that refused was a request the user watched disappear. `authorize`
-gained an explicit `return` for each and a **terminal `raise`**: two actions are now deliberately
+gained one explicit `return` covering both and a **terminal `raise`**: two actions are now deliberately
 allowed there and gated elsewhere, so the fall-through that used to be unreachable became the
 failure mode, and losing the predicate call would be an open door rather than a refusal.
 
