@@ -28,8 +28,8 @@ Lambda. That is this plane's key structural difference, and Standard executions 
 time ceiling. What remains is the **account-level Athena DML quota — 30 minutes by default, 240 by
 support ticket** — which is the real ceiling on the feature.
 
-`inspect-source` writes a **manifest to S3** and probes every file's header and schema; it carries
-the polars layer, because Athena needs an explicit column list for Parquet and JSON.
+`inspect-source` writes a **manifest to S3** and probes every file's header and schema; it reads
+Parquet footers with polars, because Athena needs an explicit column list for Parquet and JSON.
 
 The dedicated workgroup leaves `bytes_scanned_cutoff_per_query` **unset**, because the portal
 workgroup's 10 GiB cutoff would fail every real check; the result location is set per query.
@@ -95,8 +95,9 @@ Revisit before real users arrive.
 | `results` | where the temp-table verbs' DDL writes, beside the request's report |
 | `sql` | Athena SQL generation for the checks |
 
-`data-quality-polars/` is a second layer with no source of ours — polars, installed from its
-`requirements.txt`, for the byte scan. The bounded reader that feeds it is
+`data-quality-polars/` holds a `requirements.txt` and no source of ours — polars, installed into
+the image for the byte scan. It is named in `assemble.NOT_SHARED` for exactly that reason: it is
+neither a function nor shared code, and a directory that is neither has to say so. The bounded reader that feeds it is
 `cpcommon.bounded_read`, which exists so the probe does not need polars' cloud reader.
 
 The verbs are listed in [`../INDEX.md`](../INDEX.md).

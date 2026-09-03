@@ -83,19 +83,25 @@ sustained through one Lambda — **it would pass on a three-file fixture and tim
 ## Module names are `dq_<verb>.py`, never a uniform `handler.py`
 
 An earlier version chose the uniform name on the grounds that "the verb directory already
-disambiguates". **That is true for Lambda — each function is its own zip — and false for pytest,
-which flattens every verb directory into one module namespace.** With nine `handler.py` files the
-first `import handler` wins for the whole session, so **the tests silently imported one handler and
-asserted against the wrong module**. Reversed by user decision, 2026-07-16, before the remaining
-seven verbs inherited it.
+disambiguates". **It was true of the zip packaging of the day — each function was its own zip — and
+false for pytest, which flattens every verb directory into one module namespace.** With nine
+`handler.py` files the first `import handler` wins for the whole session, so **the tests silently
+imported one handler and asserted against the wrong module**. Reversed by user decision,
+2026-07-16, before the remaining seven verbs inherited it.
+
+**The container image removed the half of that reasoning that was ever true.** All 86 functions
+share one task root, so a module name repeated across two verb directories does not collide — it
+silently wins for the whole fleet. `lambdas/test_image_layout.py` refuses that at build time, and
+the matrix asserts it against the built image; the `dq_` prefix is what keeps either from having to
+fire.
 
 **The `dq_` prefix is required on top of that**: table-builder already owns the bare `inspect_source`
 and `validate_authorize` module names, and table-share prefixes its own for the same reason.
 
-**The `handler` string here also drives the placeholder's filename** (`lambda.tf` derives it via
-`split(".", handler)[0]`), so this map and `lambdas/data-quality-<verb>/dq_<verb>.py` **must move
-together** — a mismatch deploys a function whose entrypoint does not exist, **and nothing but a live
-invoke would catch it**.
+**The `handler` string here is the image's `command`**, so this map and
+`lambdas/data-quality-<verb>/dq_<verb>.py` **must move together** — a mismatch deploys a function
+whose entrypoint does not exist. The deploy's cold-start probe is what catches it now; before the
+container arc, nothing but a live invoke would have.
 
 ## `MessageGroupId` is a hash, and content dedup is OFF
 
@@ -110,16 +116,20 @@ are byte-different anyway — but **a re-check of the same location with the sam
 re-run the user asked for**, and content dedup would collapse it into a no-op inside the 5-minute
 window.
 
-## The two layers
+## The two shared modules, and why polars is one of the plane's costs
 
 `dqcommon` carries the **domain surface only** — no polars, no Excel engine, and **no
 PyJWT/cryptography** (those live once, in `cpcommon`).
 
-**polars is attached to `inspect-source` only, and the layer is unavoidable:** Athena requires an
-**explicit column list** for a Parquet or JSON external table and does **not** auto-detect a Parquet
-schema, so that list must come from `inspect-source`'s per-file probe — and reading a Parquet footer
-needs a Parquet reader. "This arc needs no polars" would make its own Parquet support impossible to
-build.
+**polars is unavoidable for `inspect-source`:** Athena requires an **explicit column list** for a
+Parquet or JSON external table and does **not** auto-detect a Parquet schema, so that list must come
+from `inspect-source`'s per-file probe — and reading a Parquet footer needs a Parquet reader. "This
+arc needs no polars" would make its own Parquet support impossible to build.
+
+**It used to be a layer attached to that one verb, and it is now installed once in the image**, so
+every function in the fleet can import it. That is the strictly wider import surface the container
+arc names as the one thing it makes worse, and what pays for it is an AST sweep over what each verb
+imports rather than the packaging.
 
 **No `fastexcel`:** this plane does not support Excel. Convert it first, then check the Parquet.
 

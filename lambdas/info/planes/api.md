@@ -49,7 +49,7 @@ between the browser and S3.
 | `handler.py` | the entry point — one span per request, and a name on the wire for every fault |
 | `router.py` | matching, authentication, and the preflight answer |
 | `routes/` | one module per route |
-| `apicommon/` | the layer: contract, envelope, errors, identity, memberships, planes, principal, context, config |
+| `apicommon/` | the API's own shared modules — contract, envelope, errors, identity, memberships, planes, principal, context, config. It ships INSIDE the function directory, so it never reaches `/opt/python` and no other function can import it |
 
 ## The fences
 

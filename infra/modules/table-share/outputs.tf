@@ -21,7 +21,7 @@ output "execution_role_arn" {
 }
 
 output "tscommon_layer_name" {
-  description = "Name of the table-share-common (tscommon) Lambda layer CI builds + publishes (attached to every verb that carries this plane's wording; copy-objects is deliberately without it). The version ARN is produced by deploy-lambdas.yml, not Terraform (CI-owned layer pattern)."
+  description = "Name of the table-share-common (tscommon) Lambda layer CI built and published while the fleet was zip-packaged (attached to every verb that carried this plane's wording; copy-objects was deliberately without it). Nothing builds or publishes a layer any more — the name survives so the published versions can be found and destroyed, and it goes with the deploy-role wildcard it was shaped to match."
   value       = local.tscommon_layer_name
 }
 

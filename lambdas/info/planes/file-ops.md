@@ -139,8 +139,9 @@ admin bucket are the only places it may write, and it is on the user-space bucke
 | `protected` | the portal's own folders |
 
 `focommon` deliberately keeps its own copy of `item_name` rather than importing `fscommon.paths` —
-two domain layers are packaged separately, so the import would merge them to save nine lines. That
-exemption, and the rules it sits beside, are asserted in
+the import would merge two domain layers to save nine lines. That was once enforced by the
+packaging, which shipped them separately; one image can resolve both, so the separation now stands
+as a code rule and nothing else. That exemption, and the rules it sits beside, are asserted in
 `file-ops-common/test_layer_discipline_focommon.py`.
 
 The verbs are listed in [`../INDEX.md`](../INDEX.md).

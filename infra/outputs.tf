@@ -40,7 +40,7 @@ output "s3_user_space_bucket_name" {
 }
 
 output "lambda_artifacts_bucket_name" {
-  description = "Lambda deployment artifacts bucket. The deploy-lambdas workflow uploads packages here before update-function-code."
+  description = "Lambda deployment artifacts bucket. It staged a zip per function while the fleet was zip-packaged; nothing writes to it or reads it now that every function runs a container image."
   value       = module.lambda_artifacts.bucket_name
 }
 
@@ -197,7 +197,7 @@ output "alb_dns_name" {
 }
 
 output "lambda_image_repository_url" {
-  description = "The Lambda image's registry URI. CI pushes a commit-sha tag here; nothing runs it yet."
+  description = "The Lambda image's registry URI. CI pushes a commit-sha tag here and points every function at it."
   value       = module.lambda_image.repository_url
 }
 

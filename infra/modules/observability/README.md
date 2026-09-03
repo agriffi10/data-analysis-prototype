@@ -84,11 +84,11 @@ what proves the whole path end to end without instrumenting a control plane.
 
 ## The cpcommon required union
 
-The sweep attaches the `cpcommon` layer, whose config requires `COGNITO_USER_POOL_ID`,
+The sweep imports `cpcommon`, whose config requires `COGNITO_USER_POOL_ID`,
 `COGNITO_APP_CLIENT_ID`, `USER_SPACE_BUCKET`, `SHARED_SPACE_BUCKET` and `ATHENA_WORKGROUP`. The sweep
 reads none of them. That config once resolved **at import**, so a function missing one crashed at
-cold start with an error naming neither the layer nor the variable; it resolves on **first read**
+cold start with an error naming neither the module nor the variable; it resolves on **first read**
 now, so the failure lands on whichever branch reads it instead.
 
-**Still set them.** The union is what any code path in the layer may demand, and "the function does
+**Still set them.** The union is what any code path in `cpcommon` may demand, and "the function does
 not use it" is not a reason to remove one.

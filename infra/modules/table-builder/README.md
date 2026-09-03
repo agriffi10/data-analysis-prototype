@@ -84,12 +84,13 @@ either without the other is caught by `test_table_lock_timeout.py`.**
 requires lives in the **common** env instead. The Cognito pair and the workgroup moved there for
 exactly that reason after the 2026-07-05 cold-start break.
 
-## The polars layer
+## polars, which used to be a layer
 
-CI builds and publishes it (`deploy-lambdas.yml`) and attaches it to `infer-schema` via
-`update-function-configuration` — the artifact is too large to vendor into Terraform, the same
-CI-owned pattern as the domain layers. It is named here for the deploy-role wildcard's benefit and
-**referenced for documentation and parity only**.
+`infer-schema` needs a Parquet reader, and polars was too large to vendor into Terraform — so CI
+built and published it as a layer and attached it to that one function, the same CI-owned pattern
+the domain layers used. **The image installs it once for the whole fleet now**, so there is no
+attachment and no artifact to build; the name local survives only until the published versions are
+destroyed, and it goes with the deploy-role wildcard that reads it.
 
 ## Logs are scoped by wildcard, deliberately
 

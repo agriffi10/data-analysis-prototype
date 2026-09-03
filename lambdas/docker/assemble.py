@@ -9,36 +9,51 @@ It is Python rather than shell for a measured reason: the AWS Lambda Python base
 ``find`` and no ``xargs``. A ``RUN find … -delete`` prune fails with exit 127, and the interpreter
 is the one tool a Python runtime image is guaranteed to have.
 
-**The layout reproduces what a layer and a zip produce today**, so no import statement anywhere in
-``lambdas/`` changes:
+**The layout reproduced what a layer and a zip produced**, so no import statement anywhere in
+``lambdas/`` changed when the fleet moved onto the image, and none changed when the layers were
+retired behind it:
 
-* every layer's package at ``/opt/python/<package>/``, and ``shared-space-common``'s flat modules
-  as top-level modules beside them — which is where a Lambda layer lands its ``python/`` directory;
+* every shared source's package at ``/opt/python/<package>/``, and ``shared-space-common``'s flat
+  modules as top-level modules beside them — which is where a Lambda layer landed its ``python/``
+  directory, and is why that path is the one used;
 * every function directory's modules at ``${LAMBDA_TASK_ROOT}``, with the function directory's own
   level stripped and anything below it preserved, which is exactly what a zip of that directory
   gives — so ``api/routes/objects_upload.py`` becomes ``/var/task/routes/objects_upload.py``.
 
 That second half is a **flatten**, not a copy-then-prune, and the difference is the whole hazard.
-A recursive copy of ``lambdas/`` would carry the ten directories that are not functions — seven
-layer packages and the flat-module source — into the task root, where they sit ahead of
-``/opt/python`` on the runtime's search path and shadow the very modules they are copies of. A
-second copy of every shared module, winning a resolution it is supposed to lose, at cold start.
+A recursive copy of ``lambdas/`` would carry every directory that is not a function into the task
+root — the shared sources among them — where they sit ahead of ``/opt/python`` on the runtime's
+search path and shadow the very modules they are copies of. A second copy of every shared module,
+winning a resolution it is supposed to lose, at cold start.
 
 Dependencies are deliberately NOT placed on ``/opt/python``; the Dockerfile installs them into the
-interpreter's own site-packages. Today a layer mixes its package with its pip-installed
-dependencies in one directory, so reproducing that exactly would make "the set of packages under
-``/opt/python`` equals the set the layer table declares" false by construction, and the guard would
-decay into a hand-maintained dependency list. Both locations are on the search path either way.
+interpreter's own site-packages. A layer mixed its package with its pip-installed dependencies in
+one directory, so reproducing that exactly would make "the set of packages under ``/opt/python``
+equals what the shared sources publish" false by construction, and the guard would decay into a
+hand-maintained dependency list. Both locations are on the search path either way.
 
 Attributes:
-  PRUNE_PREFIXES: Filename prefixes never copied, by name at any depth rather than by a top-level
-    glob — the shallow version of this rule once shipped two functions' ``conftest.py``.
-  PRUNE_NAMES: Exact filenames never copied, for the same reason.
+  PRUNE_PREFIXES: Filename prefixes never copied from a FUNCTION directory, by name at any depth
+    rather than by a top-level glob — the shallow version of this rule once shipped two functions'
+    ``conftest.py``.
+  PRUNE_NAMES: Exact filenames never copied from a function directory, for the same reason.
+  NOT_SHIPPED: What a SHARED directory does not publish AT ITS TOP LEVEL, matched as a PREFIX —
+    which is exact for the three filenames, since a candidate has already been filtered to
+    ``.py``. Deliberately a different rule from the two above and not to be merged with them: a
+    function ships its own ``fakes.py`` and its ``__init__.py`` like any other module, and a
+    shared directory must publish neither at its top level. **Inside a package the pruning is
+    ``copytree``'s, not this**, and the two lists differ: that one drops ``test_*`` and
+    ``conftest.py`` but not ``fakes.py``, so a test double nested inside a package would ship.
+    No shared source has one today — every suite, ``conftest.py`` and ``fakes.py`` under
+    ``lambdas/*-common/`` sits at the top level — and the layer build this replaced pruned less
+    still, dropping only ``__pycache__``. Stated rather than quietly assumed, because the gap is
+    exactly one filename wide.
+  NOT_SHARED: The directories that are neither functions nor shared code, each with its reason.
+  SHARED_SUFFIX: What makes a directory shared code.
 """
 
 import argparse
 import ast
-import json
 import pathlib
 import shutil
 
@@ -47,7 +62,7 @@ PRUNE_NAMES = ("conftest.py",)
 
 
 class LayoutError(Exception):
-    """A layout the layer table and the tree cannot jointly satisfy.
+    """A layout the tree cannot satisfy.
 
     Raised rather than asserted because these are build-time refusals: an ``assert`` is stripped
     under ``-O``, and every one of these checks exists to stop an image being built that is wrong
@@ -133,12 +148,66 @@ def packaged_modules(directory: pathlib.Path) -> list[pathlib.PurePath]:
     return modules
 
 
-def shared_layout(repo: pathlib.Path) -> tuple[dict[str, pathlib.Path], dict[str, pathlib.Path]]:
-    """Resolves what belongs on ``/opt/python``, from the layer table rather than a list.
+#: Directories under ``lambdas/`` that are neither a function nor shared code, each with the
+#: reason it contributes nothing to ``/opt/python``. The partition guard in
+#: ``test_image_layout.py`` fails on any directory that is none of the three, so a new one has to
+#: be classified rather than silently defaulting into shared code — which is how a heuristic
+#: quietly starts shipping a test double to the whole fleet.
+NOT_SHARED = {
+    "docker": "the assembler itself, deleted in the layer it runs in",
+    "fixtures": "test data, no importable module",
+    "info": "documentation",
+    "data-quality-polars": "a requirements file only; the Dockerfile installs it into site-packages",
+}
 
-    The table is the same one the layer build reads, so a package added there ships here without
-    a second edit. ``shared-space-common``'s flat modules are the one layer packaged by an
-    explicit module list, and that list is read rather than restated.
+#: Files in a shared source directory that are deliberately NOT shipped. ``fakes.py`` is the one
+#: worth naming: it matches none of the image's offender patterns, so shipping it would put a test
+#: double carrying bare ``assert``s on every function's import surface, entirely green.
+NOT_SHIPPED = ("test_", "conftest.py", "fakes.py", "__init__.py")
+
+#: What makes a directory shared code. A POSITIVE recognizer, and that is the whole point: with
+#: shared code as the default bucket, the partition is total by construction and its guard cannot
+#: fail — measured, on a planted ``lambdas/notes-scratch/`` that joined ``/opt/python`` in silence.
+#: Verified over all 98 directories: every shared source ends in this, no function directory does,
+#: and no exemption does.
+SHARED_SUFFIX = "-common"
+
+
+def shared_sources(lambdas: pathlib.Path) -> list[pathlib.Path]:
+    """Every directory whose contents belong on ``/opt/python``.
+
+    Args:
+      lambdas: The ``lambdas/`` tree.
+
+    Returns:
+      The shared source directories, sorted.
+
+    Raises:
+      None.
+    """
+    return sorted(
+        directory
+        for directory in lambdas.iterdir()
+        if directory.is_dir()
+        and not directory.name.startswith((".", "_"))
+        and directory.name.endswith(SHARED_SUFFIX)
+    )
+
+
+def shared_layout(repo: pathlib.Path) -> tuple[dict[str, pathlib.Path], dict[str, pathlib.Path]]:
+    """Resolves what belongs on ``/opt/python``, from the tree rather than a declaration.
+
+    **This read a JSON table until the layers were retired.** The table said which package each
+    layer published and listed ``shared-space-common``'s flat modules by name, and both the image
+    build and its guards read it. It is gone, and with it the whole class of failure where a
+    module sits on disk, is missing from a hand-written list, never ships, and raises
+    ``ModuleNotFoundError`` at a cold start behind a green suite and a green deploy. There is no
+    list to be missing from now: a shared directory ships what it contains.
+
+    What replaces the table's other job — saying which directories are shared at all — is a
+    positive recognizer plus a named exemption for each directory that is neither shared nor a
+    function. A directory matching none of the three fails the partition guard rather than
+    defaulting into either bucket.
 
     Args:
       repo: The repository root.
@@ -148,26 +217,63 @@ def shared_layout(repo: pathlib.Path) -> tuple[dict[str, pathlib.Path], dict[str
       file.
 
     Raises:
-      LayoutError: When the table names a source that does not exist, which would otherwise
-        produce an image missing a layer nobody notices until a cold start.
+      LayoutError: When a shared source contributes nothing at all, or when two of them claim one
+        name. An empty shared directory is not a harmless no-op — it is the shape of a source that
+        has been emptied or renamed, and the layer build it replaces refused the same case for the
+        same reason: an empty layer published fine and failed every function that attached it at
+        cold start.
     """
-    table = json.loads((repo / ".github" / "lambda-layers.json").read_text())
     packages: dict[str, pathlib.Path] = {}
     flat: dict[str, pathlib.Path] = {}
-    for entry in table:
-        package = entry.get("package")
-        if package:
-            source = repo / package
-            if not source.is_dir():
-                raise LayoutError(f"{entry['flag']}: {package} is not a directory")
-            packages[source.name] = source
-        source_dir = entry.get("sourceDir")
-        if source_dir:
-            for module in entry.get("modules", []):
-                source = repo / source_dir / f"{module}.py"
-                if not source.is_file():
-                    raise LayoutError(f"{entry['flag']}: {source} is missing")
-                flat[module] = source
+    owners: dict[str, str] = {}
+
+    def claim(name: str, directory: pathlib.Path) -> None:
+        """Records one name against the directory publishing it, refusing a second claim.
+
+        ``/opt/python`` is ONE namespace, so a package and a flat module compete in it exactly as
+        two packages do — hence one owner map rather than one per kind.
+
+        Args:
+          name: The importable name being published.
+          directory: The shared source publishing it.
+
+        Returns:
+          None.
+
+        Raises:
+          LayoutError: When another shared source already publishes that name.
+        """
+        if name in owners:
+            where = (
+                f"{directory.name} publishes {name!r} to /opt/python twice — as a package and as "
+                "a module"
+                if owners[name] == directory.name
+                else f"{directory.name} and {owners[name]} both publish {name!r} to /opt/python"
+            )
+            raise LayoutError(
+                f"{where}, which is one namespace. One would silently win for all 86 functions "
+                "and the other would never be imported again — the same hazard task_root_layout "
+                "refuses, on the other half of the search path. Rename one."
+            )
+        owners[name] = directory.name
+
+    for directory in shared_sources(repo / "lambdas"):
+        contributed = 0
+        for child in sorted(directory.iterdir()):
+            if child.is_dir() and (child / "__init__.py").is_file():
+                claim(child.name, directory)
+                packages[child.name] = child
+                contributed += 1
+            elif child.is_file() and child.suffix == ".py" and not child.name.startswith(NOT_SHIPPED):
+                claim(child.stem, directory)
+                flat[child.stem] = child
+                contributed += 1
+        if not contributed:
+            raise LayoutError(
+                f"{directory.name} is a shared source and contributes nothing to /opt/python. An "
+                "empty one is the shape of a directory that was emptied or renamed, and it ships "
+                "an image whose functions fail at cold start on an import that resolves here."
+            )
     return packages, flat
 
 
@@ -180,8 +286,8 @@ def shared_roots(repo: pathlib.Path) -> list[pathlib.Path]:
     named anything else would leave the environment guard under-reporting demand, which is a false
     pass on exactly the failure it exists to catch, and the import probe granting too little.
 
-    Derived from the same table this module assembles from, so the roots a test puts on
-    ``sys.path`` are the directories the image actually copies.
+    Derived the same way this module assembles, so the roots a test puts on ``sys.path`` are the
+    directories the image actually copies.
 
     Args:
       repo: The repository root.
@@ -265,7 +371,7 @@ def assemble(repo: pathlib.Path, opt_python: pathlib.Path, task_root: pathlib.Pa
         shutil.copy2(source, destination)
 
     print(
-        f"assembled {len(packages)} layer packages, {len(flat)} flat modules, "
+        f"assembled {len(packages)} shared packages, {len(flat)} flat modules, "
         f"{len(task_layout)} function modules"
     )
 
@@ -280,7 +386,7 @@ def main() -> None:
       None.
 
     Raises:
-      LayoutError: Propagated, so a layout the table cannot satisfy fails the BUILD rather
+      LayoutError: Propagated, so a tree the assembler cannot lay out fails the BUILD rather
         than producing an image that is wrong in a way only a cold start reveals.
     """
     parser = argparse.ArgumentParser(description=__doc__)

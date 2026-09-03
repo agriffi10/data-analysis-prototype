@@ -19,11 +19,11 @@ on:
   pull_request:
     branches: [main]
     paths:
+      # Everything the image is built from. What lands on /opt/python is now decided by
+      # `lambdas/docker/assemble.py` reading this tree, so the JSON table that used to need a line
+      # of its own here is gone along with the class of change that could alter the image without
+      # touching a file under `lambdas/`.
       - 'lambdas/**'
-      # The layer table decides what lands on /opt/python, so a change to it changes the image
-      # even when no Python file moves. The source-side guard in the pytest job would catch a
-      # divergence, but the image-side set-equality check would not run at all without this line.
-      - '.github/lambda-layers.json'
       # The matrix's EXPECTED handler count comes from the Terraform that DECLARES the fleet —
       # deliberately a different derivation from the image's own, so renaming a handler stays
       # visible. `infra/**` is here for that reason and is the surprising one: a plane gaining a

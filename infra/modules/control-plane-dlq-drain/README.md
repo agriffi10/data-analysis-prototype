@@ -60,7 +60,6 @@ The notifications DLQ itself is not swept, deliberately: draining it is circular
 ## The cpcommon required union
 
 `COGNITO_USER_POOL_ID`, `COGNITO_APP_CLIENT_ID`, `NOTIFICATIONS_QUEUE_URL` and `DLQ_ARNS` are
-genuinely used. The buckets and the workgroup are the `cpcommon` layer's required union — set
-because any code path in the layer may demand them, and "the drain does not use it" is not a reason
-to prune one. `LOGS_QUEUE_URL` is the exception: `cpcommon.observability` reads it with
+genuinely used. The buckets and the workgroup are `cpcommon`'s required union — set because any
+code path in it may demand them, and "the drain does not use it" is not a reason to prune one. `LOGS_QUEUE_URL` is the exception: `cpcommon.observability` reads it with
 `os.environ.get`, so a drain that loses it logs to stdout and still drains.

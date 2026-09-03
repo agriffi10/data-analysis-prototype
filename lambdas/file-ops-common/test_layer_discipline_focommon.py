@@ -19,9 +19,10 @@ _PACKAGE = pathlib.Path(__file__).parent / "focommon"
 #: Names that would mean an algorithm was re-implemented here rather than called.
 #:
 #: ``item_name`` is deliberately ABSENT, and that exemption is the one worth stating: it IS a copy
-#: of ``fscommon.paths.item_name``, argued in this plane's own paths module — two domain layers are
-#: packaged and attached separately, so importing one from the other would merge them to save nine
-#: lines. It is nine lines of leaf-name arithmetic with no state, no retry and no conditional write;
+#: of ``fscommon.paths.item_name``, argued in this plane's own paths module — importing one domain
+#: layer from another would merge them to save nine lines. The packaging used to enforce that and
+#: no longer does: one image resolves both, so the separation is a code rule now, which is what
+#: this suite is. It is nine lines of leaf-name arithmetic with no state, no retry and no conditional write;
 #: the rules below are about the algorithms where a divergent second copy is a live defect.
 _FORBIDDEN_CALLS = {
     "cas_mutate": "the CAS retry loop belongs to cpcommon.cas",

@@ -147,7 +147,9 @@ The recurring non-scopable actions, each isolated in its own wildcard statement:
   access.
 - **No layer grant on most plane policies.** `deploy_control_plane_common` covers the shared
   `cpcommon` layer, deliberately scoped to the **layer ARN and nothing else** — so every verb that
-  attaches it is covered by its own policy's function-manage grant plus that one layer grant.
+  attached it was covered by its own policy's function-manage grant plus that one layer grant.
+  **No function attaches a layer any more and nothing publishes one**; these grants are what the
+  published versions are destroyed with, and they come out after that.
 - **An `events:` statement means one of two things, and they are not the same thing.** The commoner
   is a `TIMED_OUT` rule: a machine that validates and stops has none to manage, so the grant arrives
   with the transfer that adds the ceiling. **`file-ops` is the exception among those and carries it

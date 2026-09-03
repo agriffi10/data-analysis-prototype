@@ -2680,9 +2680,10 @@ to settle, and fails loudly on a shortfall.
 > container logs.
 
 **214's risk is the mirror image: it is a deletion, and the danger is a guard nobody misses.**
-Its surface grew slightly when 213 removed `point-lambda.sh`'s zip branch: `deploy-lambda.sh` is now
-called by nothing, while `lambdas/test_deploy_packaging.py` still extracts and RUNS its copy block —
-a suite pinning unreachable shell, green forever. Both are named in 214's In Scope.
+Its surface grew slightly when 213 removed `point-lambda.sh`'s zip branch: `deploy-lambda.sh` was
+left called by nothing, while `lambdas/test_deploy_packaging.py` still extracted and RAN its copy
+block — a suite pinning unreachable shell, green forever. Both were named in 214's In Scope and
+both are deleted.
 `lambdas/test_deploy_matrix.py` **was** the only thing standing between a missing layer and that
 cold start — before 213, when layers still attached. Deleting it removes real protection unless something already replaced it, and a review will
 not catch that — a reviewer reads what is there, and a deletion leaves nothing to read. So 214 does

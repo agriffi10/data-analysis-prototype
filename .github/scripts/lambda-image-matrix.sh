@@ -97,39 +97,61 @@ trap cleanup EXIT
 echo "Lambda image matrix: ${IMAGE}"
 
 # ── What the repository says, computed before the container starts ─────────────
-# The layer table is the declaration of what shared code exists. TERRAFORM is the declaration of
-# how many Lambdas there are — and it is deliberately not the AST sweep the assembler uses.
+# TWO EXPECTATIONS, AND ONLY ONE OF THEM IS INDEPENDENT OF THE IMAGE. That asymmetry is stated
+# here rather than left to be discovered, because it decides what each check below is worth.
 #
-# THAT CHOICE IS THE DIFFERENCE BETWEEN A GUARD AND A TAUTOLOGY, and it was measured rather than
-# reasoned about. The image-side sweep decides "is this a Lambda" by looking for a top-level
-# `handler`. An earlier version of this script computed the expected count the same way, from the
-# same source tree — so renaming a function's `handler` removed it from BOTH sides at once, the
-# two numbers agreed at 85, and a planted mutation that broke a function's entry point passed the
-# whole matrix. The table is maintained separately and still says 86, so the shortfall is visible.
-# `lambdas/test_image_layout.py` is what keeps the Terraform declaration and the directories
-# honest with each other; this script leans on that rather than repeating it.
-#
-# THAT REPOINT HAS NOW HAPPENED, and it honoured the instruction above. The function count comes
-# from `lambdas/fleet.py`, which reads the fleet out of the Terraform that DECLARES it — a
-# derivation maintained separately from the tree, exactly as the table was. It is deliberately NOT
+# THE FUNCTION COUNT IS INDEPENDENT, and deliberately so. It comes from `lambdas/fleet.py`, which
+# reads the fleet out of the Terraform that DECLARES it — never the AST sweep the assembler and
+# the image-side probe both use. That choice was measured, not reasoned about: an earlier version
+# computed the expected count the same way the image does, from the same tree, so renaming a
+# function's `handler` removed it from BOTH sides at once, the two numbers agreed at 85, and a
+# planted mutation that broke a function's entry point passed the whole matrix. What made the
+# shortfall visible was a declaration maintained separately from the tree — the deploy table then,
+# Terraform's own module calls now, both saying 86 while the sweep said 85. It is deliberately NOT
 # `tofu output`: this job runs on pull requests with no AWS credentials at all.
+# `lambdas/test_image_layout.py` keeps the Terraform declaration and the directories honest with
+# each other; this script leans on that rather than repeating it.
+#
+# THE SHARED-CODE EXPECTATION IS NOT INDEPENDENT, AND WAS NOT BEFORE EITHER. Until the layers were
+# retired both sides of it read `.github/lambda-layers.json` — the image because the assembler
+# laid `/opt/python` out from the table, this script because it read the same table. The table is
+# gone and both sides now read `assemble.shared_layout`, which is the same coupling with one fewer
+# file in it: a bug in that one function moves the expectation and the artefact together, and this
+# comparison agrees. It is kept because it still catches everything BETWEEN the assembler and the
+# shipped image — a COPY that silently dropped a directory, a prune that removed too much, a base
+# image already carrying something at that path.
+#
+# WHAT IS INDEPENDENT OF THE ASSEMBLER is the handler-import block at the bottom of this file. It
+# imports every function's module inside the real artefact under the real bootstrap, so a package
+# the assembler failed to ship raises ModuleNotFoundError there whatever this expectation says.
+# That is the check to reach for when asking whether shared code is really present; the set
+# equality below is the cheap, fast, coupled half.
 EXPECTED=$(python3 - "$REPO" <<'PY'
 import json, pathlib, sys
 
 repo = pathlib.Path(sys.argv[1])
-table = json.loads((repo / ".github" / "lambda-layers.json").read_text())
-packages = sorted(pathlib.Path(e["package"]).name for e in table if e.get("package"))
-flat = sorted(m for e in table if e.get("sourceDir") for m in e.get("modules", []))
-
+sys.path.insert(0, str(repo / "lambdas" / "docker"))
 sys.path.insert(0, str(repo / "lambdas"))
+import assemble
 import fleet
 
-print(json.dumps({"packages": packages, "flat": flat, "functions": len(fleet.function_names(repo))}))
+packages, flat = assemble.shared_layout(repo)
+
+print(
+    json.dumps(
+        {
+            "packages": sorted(packages),
+            "flat": sorted(flat),
+            "functions": len(fleet.function_names(repo)),
+        }
+    )
+)
 PY
 )
 if [ -z "$EXPECTED" ]; then
-  echo "  FAIL could not read the repository's layer table, or could not derive the fleet from" >&2
-  echo "       its Terraform — a refusal there is deliberate and is never an empty expectation." >&2
+  echo "  FAIL could not resolve the repository's shared layout, or could not derive the fleet" >&2
+  echo "       from its Terraform — a refusal there is deliberate and is never an empty" >&2
+  echo "       expectation." >&2
   exit 1
 fi
 EXPECTED_PACKAGES=$(jq -r '.packages | join(" ")' <<<"$EXPECTED")
@@ -234,9 +256,9 @@ else
 fi
 
 # ── /opt/python is what a layer provides, and only that ───────────────────────
-check_eq "/opt/python holds exactly the layer table's packages" \
+check_eq "/opt/python holds exactly the shared sources' packages" \
   "$(jq -r '.opt_packages | join(" ")' <<<"$REPORT")" "$EXPECTED_PACKAGES"
-check_eq "/opt/python holds exactly the flat layer's declared modules" \
+check_eq "/opt/python holds exactly the flat shared source's modules" \
   "$(jq -r '.opt_flat_modules | join(" ")' <<<"$REPORT")" "$EXPECTED_FLAT"
 
 # ── Nothing shadows anything ──────────────────────────────────────────────────

@@ -28,9 +28,10 @@ to all of them are in [`infra/info/control-plane-shape.md`](../../infra/info/con
 How code reaches any of them: [`deployment.md`](deployment.md).
 
 `cpcommon` owns the **algorithm**; a domain layer owns its **wording**. Do not merge the domain
-layers, and do not import one from another — they are packaged and attached separately, so an import
-across them used to silently merge two layers; the image makes the reverse hazard live —
-one task root, where a duplicate top-level name wins fleet-wide. Rules: [`best-practices/lambdas/lambdas.md`](best-practices/lambdas/lambdas.md).
+layers, and do not import one from another. They were once packaged and attached separately, so an
+import across them silently merged two layers; **one image made that separation a code decision
+rather than a packaging one**, and it stands on its own terms. What the image makes live is the
+reverse hazard — one task root, where a duplicate top-level name wins fleet-wide. Rules: [`best-practices/lambdas/lambdas.md`](best-practices/lambdas/lambdas.md).
 
 ## Control planes
 
@@ -184,14 +185,19 @@ directly — by Cognito, by a schedule, or by its own queue. Triggers and traps:
 | `post-confirmation/` | `post_confirmation.py` | Cognito post-confirmation trigger: provisions the new user's Glue database and prefix. |
 | `pre-signup/` | `pre_signup.py` | Cognito pre-signup trigger: username validation and a disposable-email blocklist. |
 | `user-directory-build/` | `build_directory.py` | Publishes the username directory: every personal workspace on the user-space bucket. |
-## Layers
+## Shared code
 
-| Layer | Package | Was attached to |
+The eight `*-common/` directories are what `lambdas/docker/assemble.py` copies onto `/opt/python`,
+so every function can import all of them and the *plane* column says who each one is **for**, not
+who can reach it. `data-quality-polars/` is the odd one out and is named in `assemble.NOT_SHARED`:
+it holds a requirements file and no importable module of ours.
+
+| Source | Package | Written for |
 |---|---|---|
 | `control-plane-common/` | `cpcommon` | every control-plane verb, and the API |
 | `archive-common/` | `arcommon` | the archive plane |
 | `data-quality-common/` | `dqcommon` | the data-quality plane |
-| `data-quality-polars/` | *(pip)* | the data-quality verbs that read bytes — polars, installed from `requirements.txt`, no source of ours |
+| `data-quality-polars/` | *(pip only)* | the data-quality verbs that read bytes — polars, installed into the image from `requirements.txt`, no source of ours |
 | `file-ops-common/` | `focommon` | the file-operations plane |
 | `file-send-common/` | `fscommon` | the file-send plane |
 | `shared-space-common/` | *(top-level modules)* | the shared-spaces plane |
@@ -203,7 +209,7 @@ directly — by Cognito, by a schedule, or by its own queue. Triggers and traps:
 1. Create `lambdas/<plane>-<verb>/` with one handler module and its test file.
 2. Add the state to that plane's `infra/modules/<plane>/state-machine.asl.json.tftpl`, and the
    function to its `lambda.tf` — see [`infra/info/INDEX.md`](../../infra/info/INDEX.md).
-3. Add it to the deploy tables and the deploy role — [`deployment.md`](deployment.md) → *Adding a
+3. Add it to the deploy role — [`deployment.md`](deployment.md) → *Adding a
    function*, which is the one recipe for getting code onto a function.
 4. Add a row to this index, and to the plane's page under [`planes/`](planes/) if the verb changes
    the flow rather than extending it.

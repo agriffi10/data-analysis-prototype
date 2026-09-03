@@ -1,9 +1,9 @@
 # `lambda-image` — the Lambda container image's registry
 
 One ECR repository, its lifecycle policy, and nothing else. The image that fills it, the behaviour
-matrix that proves it and the pipeline that pushes it live outside this module; **no Lambda runs
-from it yet**, and until the fleet is cut over this repository is a place CI puts an artifact
-nobody starts.
+matrix that proves it and the pipeline that pushes it live outside this module; **every function in
+the fleet runs from it**, so a lifecycle rule that expired a tag still in use would take the fleet
+down rather than tidy a shelf.
 
 ## Why it is not the SPA's repository
 

@@ -1,8 +1,10 @@
 """The singleton Lambdas must import with NO environment set (SPEC-137 FR-001, SPEC-156 FR-004).
 
 This is the premise ``pre-signup``, ``post-confirmation`` and ``notifications-writer`` rest on.
-They attach the ``cpcommon`` layer without setting the four variables its ``config.py`` governs —
-the shape of PR #196, where one missing variable crashed a whole control plane at cold start.
+They import ``cpcommon`` without setting the four variables its ``config.py`` governs — the shape
+of PR #196, where one missing variable crashed a whole control plane at cold start. They did it by
+attaching a layer once and they do it by resolving a name on ``/opt/python`` now; what is under
+test is the import, which is unchanged.
 
 **SPEC-156 added a second mechanism; it did not replace the first, and the reason is that
 neither covers the other.**
@@ -40,7 +42,7 @@ import pytest
 LAYER_ROOT = pathlib.Path(__file__).resolve().parent
 LAMBDAS = LAYER_ROOT.parent
 
-#: The functions that attach the layer without setting the environment its `config` governs.
+#: The functions that import `cpcommon` without setting the environment its `config` governs.
 #: `observability` is what they all reach for; two of them are granted a little more, each
 #: entry in the allowlist below carrying the reason. Read as "observability alone" this
 #: understates two of the four (SPEC-137 FR-001).
@@ -85,7 +87,7 @@ def test_observability_imports_and_emits_with_no_environment_at_all():
     )
     assert result.returncode == 0, (
         "`from cpcommon import observability` failed with an empty environment — the three "
-        f"singleton Lambdas cannot attach the layer:\n{result.stderr}"
+        f"singleton Lambdas cannot import it:\n{result.stderr}"
     )
     assert "IMPORT_OK" in result.stderr
     # Not merely importable: usable. With no LOGS_QUEUE_URL the StdoutSink fallback runs, which
@@ -268,8 +270,8 @@ def test_the_package_init_stays_import_free():
     """``cpcommon/__init__.py`` is what makes the import chain shallow enough to be safe.
 
     Asserted structurally rather than trusted to the docstring: an ``import`` added here reaches
-    every function attaching the layer, including the three that set almost none of its
-    environment.
+    every function that imports ``cpcommon`` at all, including the three that set almost none of
+    its environment.
     """
     tree = ast.parse((LAYER_ROOT / "cpcommon" / "__init__.py").read_text())
     imports = [

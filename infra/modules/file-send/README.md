@@ -89,8 +89,10 @@ machine, and this plane's outcome is a notification rather than a response.
 
 The deploy policy matches `${project_name}-*-file-send-*`, which requires the literal `-file-send-`
 infix **and** a trailing segment. A name built from the Python package instead —
-`dat-prod-fscommon` — **matches nothing, and the failure surfaces as an implicit deny in `Deploy
+`dat-prod-fscommon` — **matches nothing, and the failure surfaced as an implicit deny in `Deploy
 Lambdas`, not as a plan error**.
+
+**Nothing publishes a layer any more.** No workflow builds one, a container function cannot attach one, and the layer table is deleted. The name local and the deploy-role wildcard it was shaped to match both survive only until the published versions are destroyed, and they are removed in that order in their own PRs — so this section describes a rule that is still enforced and no longer reachable.
 
 **There is no `execution_role_arn` local here**, deliberately. Root constructs its own twin for the
 user-space bucket-policy allowlist, and a second construction of the same string in this module would

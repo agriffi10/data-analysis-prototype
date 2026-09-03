@@ -249,13 +249,20 @@ module present on disk but absent from a layer's *build* is invisible to it. Eve
 explicit `for m in config casio auth …` list in the workflow — so a new module there ships only if
 someone remembers to name it. Review confirmed the gap was live: deleting `messages` from that list left
 the entire suite green while the deployed layer lost it. A test now joins the workflow's list against the
-directory — SPEC-153 moved it to the packaging harness and generalised it; **SPEC-214 moved it again, to
-`lambdas/test_image_layout.py`**, when the harness it lived in went with the function table. That second move
-was nearly a silent loss and is worth the sentence: the reasoning that retired it — "there is no list any
-more, the assembler copies the directory" — is true of where SPEC-214 ENDS and was applied a PR too early,
-while `assemble.shared_layout` still read the list. Measured on the commit that dropped it: a module planted
-on disk and absent from the list passed all 2,388 tests, and importing it lazily from a verb passed the
-image's behaviour matrix too. See *A layer gate must check the copy list, not the flag map* below.
+directory — SPEC-153 moved it to the packaging harness and generalised it; ~~SPEC-214 moved it again, to
+`lambdas/test_image_layout.py`~~, when the harness it lived in went with the function table. **SPEC-214's
+next PR then RETIRED it, because the list itself is gone**: `assemble.shared_layout` publishes what a
+`lambdas/*-common/` directory holds, so there is nothing a module can be missing from. What now holds
+`/opt/python` honest is `test_the_shared_layout_is_exactly_what_the_shared_sources_publish`, which walks
+those directories independently of the assembler and compares.
+
+That intermediate move was nearly a silent loss and is worth the sentence, because the trap is general:
+the reasoning that first retired the guard — "there is no list any more, the assembler copies the
+directory" — was true of where SPEC-214 ENDS and false a PR earlier, while `assemble.shared_layout` still
+read the list. Measured on the commit that dropped it: a module planted on disk and absent from the list
+passed all 2,388 tests, and importing it lazily from a verb passed the image's behaviour matrix too. The
+retirement was safe only once the same plant reached `/opt/python` on its own. See *A layer gate must
+check the copy list, not the flag map* below.
 
 ---
 
@@ -268,19 +275,28 @@ so adding a module to `lambdas/shared-space-common/`, importing it from a functi
 reads `layer: true`, passed every check, deployed green, and raised `ModuleNotFoundError` at cold
 start. SPEC-137 again, straight through the gate built to stop it.
 
-**The rule: for any layer packaged by an explicit per-file list, assert SET EQUALITY between that list
-and the directory.** Both directions — a module in the directory and not the list never ships; a
+**The rule: for any shared code packaged by an explicit per-file list, assert SET EQUALITY between that
+list and the directory.** ~~`shared-space-common` was the only such layer.~~ **Superseded by SPEC-214:
+there is no per-file list anywhere any more** — the container image's assembler ships what a shared
+directory contains, so the rule has no subject left in this repository. It is kept because the *reason*
+outlives it: a declaration maintained beside the thing it declares drifts, and the drift is invisible
+until a cold start. The set equality survives in a different shape — the assembler's output against an
+independent walk of the same directories. Both directions — a module in the directory and not the list never ships; a
 module in the list and not the directory fails the `cp` at deploy time. Completing the flag map does
 **not** substitute: all nine shared-space modules ship in one layer behind one flag, so a module that
 never reaches the zip is invisible to the flag map no matter how complete it is. `LAYER_PACKAGES` was
 corrected to all nine anyway, with a comment saying exactly that.
 
-`shared-space-common` is the **only** such layer — every other copies a whole package directory or
-pip-installs, so a new module ships by existing, and those are exempt for that named reason.
-`test_no_unchecked_explicit_copy_list_was_added` — now in `lambdas/test_image_layout.py` — fails if a
-second one appears, so the exemption
-cannot quietly widen. A guard-the-guard asserts the parsed set is non-trivial: two empty sets are
-equal, and a regex that stops matching would otherwise pass vacuously.
+`shared-space-common` was the **only** such layer — every other copied a whole package directory or
+pip-installed, so a new module shipped by existing, and those were exempt for that named reason.
+~~`test_no_unchecked_explicit_copy_list_was_added` fails if a second one appears, so the exemption cannot
+quietly widen.~~ **Retired with the list by SPEC-214**, and nothing replaced it because nothing can: the
+exemption it policed does not exist once every shared directory ships what it holds. Its structural
+successor is a different guard for a different hazard —
+`test_every_directory_under_lambdas_is_a_function_shared_code_or_named_exempt`, which refuses a directory
+the assembler cannot classify, so a new one has to be declared rather than defaulting into shared code.
+The guard-the-guard habit carried over: every comparison there asserts its inputs are non-trivial first,
+because two empty sets are equal.
 
 SPEC-152 shipped the shared-space half of this in
 `test_notify_failure_import_safety.py`; SPEC-153 moved it to the packaging harness and generalised it,

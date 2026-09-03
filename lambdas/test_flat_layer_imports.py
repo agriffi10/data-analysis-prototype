@@ -1,44 +1,45 @@
 """No function outside the shared-space plane may import its flat top-level modules.
 
-**This spec makes the fleet's import surface strictly larger, and this sweep is what keeps that
-from mattering — the packaging does not.** Today a function can import only the layers attached to
-it, so a table decides the surface. In one image every function can import everything on
-`/opt/python`, including `shared-space-common`'s flat modules, whose names — `config`, `auth`,
+**The container image made the fleet's import surface strictly larger, and this sweep is what
+keeps that from mattering — the packaging does not.** A function used to import only the layers
+attached to it, so a table decided the surface. In one image every function can import everything
+on `/opt/python`, including `shared-space-common`'s flat modules, whose names — `config`, `auth`,
 `registry`, `cache`, `notify`, `messages`, `membership`, `membership_index`, `casio`, `teardown` —
 are generic enough to be imported from another plane by accident and would resolve.
 
 Stated plainly rather than dressed as parity: the image gives every function a wider surface than
-its zip has. Nothing about that is fixed by copying files differently, and the honest guard is a
+its zip had. Nothing about that is fixed by copying files differently, and the honest guard is a
 sweep over what the code actually imports.
 
 **Attribute-style usage counts.** `import registry` followed by `registry.load()` is a consumer,
 and a scan that only looks at `from x import y` undercounts them — this repository has measured
 that undercount before.
 
-**The guarded names are read from the layer table, not written out.** Ten today; nine when this
-spec was drafted, because `membership_index` landed after it was written. A list in this file
-would have been wrong on the day it was committed.
+**The guarded names are resolved, not written out.** Ten today; nine when this spec was drafted,
+because `membership_index` landed after it was written. A list in this file would have been wrong
+on the day it was committed. They came from `.github/lambda-layers.json` until the layers were
+retired, and now come from the assembler that lays `/opt/python` out — the same answer from the
+one place that decides it. `test_image_layout.py` is what holds that answer honest against the
+source directories on disk, so this module consumes it rather than deriving it a third time.
 
 Attributes:
   ROOT: The repository root.
   LAMBDAS: The Lambda source tree.
-  LAYER_TABLE: Where the flat module names are declared.
   EXEMPT_DIRECTORIES: The function directories allowed to import them, by EXACT path — the
     shared-space plane's own verbs, which is the plane the modules belong to. Exact paths rather
     than a prefix so a new `shared-space-`-named directory does not inherit the exemption by
     being called the right thing.
 
 The swept population is the FUNCTION directories, which is not the same as every directory under
-`lambdas/`. `shared-space-common` is the flat layer's own source, and its modules import each
-other by design; sweeping it would report four offenders and invite the wrong repair — adding a
+`lambdas/`. `shared-space-common` is the flat modules' own source, and they import each other by
+design; sweeping it would report four offenders and invite the wrong repair — adding a
 non-function directory to the exemption list, which would widen the sweep's blind spot rather
 than narrow it. The definition of a function directory is `assemble.function_directories`, shared
-with the image assembler and the deploy matrix so the three cannot drift into covering different
-sets.
+with the image assembler and every other sweep over the fleet so they cannot drift into covering
+different sets.
 """
 
 import ast
-import json
 import pathlib
 import sys
 
@@ -46,8 +47,6 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 LAMBDAS = ROOT / "lambdas"
-
-LAYER_TABLE = ROOT / ".github" / "lambda-layers.json"
 
 sys.path.insert(0, str(LAMBDAS / "docker"))
 import assemble
@@ -68,21 +67,21 @@ EXEMPT_DIRECTORIES = (
 
 
 def guarded_names() -> set[str]:
-    """Reads the flat layer's declared module names from the layer table.
+    """The flat top-level module names the shared sources publish.
 
     Args:
       None.
 
     Returns:
-      Every module name the flat layer publishes.
+      Every module name that lands on `/opt/python` without a package around it.
 
     Raises:
-      AssertionError: When the table declares none, which would make the sweep vacuous.
+      AssertionError: When none resolve, which would make the sweep vacuous.
     """
-    table = json.loads(LAYER_TABLE.read_text())
-    names = {m for entry in table if entry.get("sourceDir") for m in entry.get("modules", [])}
+    _, flat = assemble.shared_layout(ROOT)
+    names = set(flat)
     assert names, (
-        f"{LAYER_TABLE.name} declares no flat modules. A sweep with an empty guarded set matches "
+        "no flat module resolves onto /opt/python. A sweep with an empty guarded set matches "
         "nothing and passes over any import at all."
     )
     return names

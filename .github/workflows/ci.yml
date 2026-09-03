@@ -223,9 +223,9 @@ jobs:
       - name: Install lint + test tools
         # control-plane-common/requirements.txt is installed so cpcommon's own layer
         # dependencies are importable under test — log-foundry (SPEC-127) is declared only
-        # there, and cpcommon.observability imports it at module scope. Packaging already
-        # reads that file in deploy-lambdas.yml's layer job; this is the test side of the
-        # same declaration, so the two can't drift.
+        # there, and cpcommon.observability imports it at module scope. The image build
+        # installs that same file (lambdas/Dockerfile copies it in); this is the test side of
+        # the same declaration, so the two can't drift.
         #
         # polars (from the two polars layer requirements) so the table-builder
         # type-mapping + infer-schema tests (SPEC-069) and the data-quality
@@ -287,7 +287,7 @@ jobs:
       # a type error in
       # the shared layers now fails the build, which is the whole point of a ratchet — the
       # cleared number is only worth clearing if nothing can put findings back. Scope is
-      # still the five shared layers; widening it to the verb packages is notch 3, and lands
+      # the shared sources; widening it to the verb packages is notch 3, and lands
       # report-only again. Config and the full ratchet path live in pyproject.toml's
       # [tool.mypy] block.
       - name: Typecheck (mypy)
