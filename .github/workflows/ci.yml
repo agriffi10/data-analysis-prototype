@@ -11,6 +11,25 @@ name: CI
 # config is solution-style: project references only, no files/include). `tsc -b`,
 # which `npm run build` runs, is the only invocation that covers the app AND its
 # *.test.tsx files.
+#
+# WHAT IS DISABLED, AND THE RESTORE RULE
+#
+# SIX steps are commented out to save Actions minutes. They run LOCALLY instead, on every
+# pull request, after the diff reviews and immediately before the push -- docs/process.md S3.
+#
+#   this job:     Lint (eslint) · Format check (prettier) · Test (vitest coverage)
+#   lambdas job:  Lint (ruff) · Typecheck (mypy) · Test (pytest)
+#
+# Restore them TOGETHER or not at all: a half-restored gate reads as a full one, and the
+# whole point of listing all six in one place is that no reader has to reconstruct the set.
+#
+# What this costs, stated rather than left to be discovered. A green check on this workflow
+# is NO evidence that lint, the suites or either typecheck ran -- only that the app builds,
+# carries no VITE_ names, and that the contract, docs and feature-flag documents are valid.
+# The eslint pass carried two things nothing else covers: the `@aws-sdk/*` import ban, and
+# `eslint-plugin-security` + `no-unsanitized`, which `security.yml` and `eslint.config.js`
+# both described as the blocking half of SPEC-138. Those are now enforced by the pre-push
+# run alone, so a session that skips it puts an injection sink on main behind a green PR.
 on:
   pull_request:
     branches: [main]
@@ -22,7 +41,7 @@ on:
 # it landed. `security.yml` has had this since it shipped; `ci.yml` never got it.
 #
 # Safe here in a way it would NOT be in the deploy workflows: this workflow only runs
-# tests, lint and a build. Cancelling a `tofu apply` or an `update-function-code`
+# a build and a handful of cheap checks. Cancelling a `tofu apply` or an `update-function-code`
 # mid-flight is how you get a half-applied deploy, which is why every deploy workflow sets
 # `cancel-in-progress: false` rather than true.
 concurrency:
@@ -47,15 +66,19 @@ jobs:
           fetch-depth: 0
 
       # WHAT THIS JOB CAN POSSIBLY LEARN. Every step after it is scoped to this answer, so a
-      # pull request touching none of the app's inputs costs one billed minute instead of
-      # seven — the Test step alone is 294 of this job's 366 seconds.
+      # pull request touching none of the app's inputs skips the install, the build and the
+      # bundle check.
       #
-      # Replayed against the last 60 merges to main: 29 skip, 31 run, so the average pull
-      # request costs 4 minutes instead of 7. It is NOT the 67% that counting `apps/portal/`
-      # alone gives — the suite's out-of-tree reads below, the 88 IAM templates especially,
-      # buy a third of the saving back. That is the honest number, and the cheaper one was
-      # wrong rather than optimistic: it was measured before anyone checked what the suite
-      # actually reads.
+      # Every number this step was sized against — one billed minute instead of seven, 29 of the
+      # last 60 merges skipping, the Test step alone 294 of the job's 366 seconds — was measured
+      # while Lint and Test were still IN this job. The disabled block below removed exactly the
+      # expensive ones, so those figures are historical: re-measure before citing any of them,
+      # and do not read the old saving as this step's current value.
+      #
+      # What the change does NOT touch is the SHAPE, which is the part worth keeping: the pattern
+      # list is every input the remaining steps read, and that is not the same as "the app's
+      # source" — the out-of-tree reads below, the 88 IAM templates especially, are how a real
+      # set-equality guard reports green on a change that breaks it.
       #
       # The job still RUNS and still reports under the same check name — this is a step-level
       # skip, not a workflow-level `paths:` filter, precisely so that a required check by that
@@ -79,7 +102,9 @@ jobs:
           # step said `app=false`, and both appear in the last two merges to main.
           #
           # `lambdas/test_ci_scope.py` sweeps the suite for out-of-tree reads and fails if
-          # one is not covered here, so the list cannot drift as a ninth import is added.
+          # one is not covered here, so the list cannot drift as a ninth import is added — but
+          # that test now runs ONLY in a session's local pytest, never on a pull request, so a
+          # drifting list is caught by the pre-push discipline or not at all.
           SCOPE_PATTERNS: |
             ^apps/portal/
             ^packages/
@@ -119,7 +144,7 @@ jobs:
             echo 'app=true' >> "$GITHUB_OUTPUT"
           else
             echo 'app=false' >> "$GITHUB_OUTPUT"
-            echo "::notice title=Scope::no app input changed; lint, build and the suite are skipped"
+            echo "::notice title=Scope::no app input changed; install, build and the bundle check are skipped"
           fi
 
       - name: Set up Node.js
@@ -132,19 +157,22 @@ jobs:
         if: steps.scope.outputs.app == 'true'
         run: npm ci
 
-      - name: Lint
-        if: steps.scope.outputs.app == 'true'
-        working-directory: apps/portal
-        run: npm run lint
+      # DISABLED -- see "WHAT IS DISABLED, AND THE RESTORE RULE" in the header above.
+      # - name: Lint
+      #   if: steps.scope.outputs.app == 'true'
+      #   working-directory: apps/portal
+      #   run: npm run lint
 
-      - name: Format check (prettier)
-        if: steps.scope.outputs.app == 'true'
-        working-directory: apps/portal
-        run: npm run format:check
+      # DISABLED -- see "WHAT IS DISABLED, AND THE RESTORE RULE" in the header above.
+      # - name: Format check (prettier)
+      #   if: steps.scope.outputs.app == 'true'
+      #   working-directory: apps/portal
+      #   run: npm run format:check
 
       # Runs the SAME command the SPA image's Dockerfile does, so a green PR means the
-      # image will build. Deliberately BEFORE the test step: a type error surfaces in
-      # under a minute instead of behind a ~5-minute suite. No VITE_* env is passed
+      # image will build. It sat before the test step so a type error surfaced in under a
+      # minute rather than behind a ~5-minute suite; that suite is disabled now, so the
+      # ordering buys nothing and this is simply the first real step. No VITE_* env is passed
       # — every one of them is a runtime value the container serves from /config.json,
       # and this job discards the bundle. What is being gated is `tsc -b`.
       - name: Build (typecheck + bundle)
@@ -161,10 +189,11 @@ jobs:
         working-directory: apps/portal
         run: npm run check:bundle
 
-      - name: Test
-        if: steps.scope.outputs.app == 'true'
-        working-directory: apps/portal
-        run: npm run test:coverage
+      # DISABLED -- see "WHAT IS DISABLED, AND THE RESTORE RULE" in the header above.
+      # - name: Test
+      #   if: steps.scope.outputs.app == 'true'
+      #   working-directory: apps/portal
+      #   run: npm run test:coverage
 
   lambdas:
     runs-on: ubuntu-latest
@@ -240,10 +269,11 @@ jobs:
           pip install -r lambdas/table-builder-infer-schema/requirements.txt
           pip install -r lambdas/data-quality-polars/requirements.txt
 
-      - name: Lint (ruff)
-        # `scripts/` joins the scan because SPEC-162 put a Python module there
-        # (validate_feature_flags.py). Nothing else in that directory is Python today.
-        run: ruff check lambdas/ scripts/ .github/scripts/
+      # DISABLED -- see "WHAT IS DISABLED, AND THE RESTORE RULE" in the header above.
+      # - name: Lint (ruff)
+      #   # `scripts/` joins the scan because SPEC-162 put a Python module there
+      #   # (validate_feature_flags.py). Nothing else in that directory is Python today.
+      #   run: ruff check lambdas/ scripts/ .github/scripts/
 
       # GATE ONE on the two-language contract. The wire is declared once in Python and the
       # TypeScript is emitted from it, so this catches drift in BOTH directions: a Python type
@@ -290,8 +320,13 @@ jobs:
       # the shared sources; widening it to the verb packages is notch 3, and lands
       # report-only again. Config and the full ratchet path live in pyproject.toml's
       # [tool.mypy] block.
-      - name: Typecheck (mypy)
-        run: mypy
+      # DISABLED -- see "WHAT IS DISABLED, AND THE RESTORE RULE" in the header above.
+      # The ratchet reasoning above still holds; only the place it is enforced has moved, so
+      # a type error in the shared layers now reaches main behind a green PR unless the
+      # pushing session ran mypy and honoured its exit code.
+      # - name: Typecheck (mypy)
+      #   run: mypy
 
-      - name: Test (pytest)
-        run: pytest lambdas/
+      # DISABLED -- see "WHAT IS DISABLED, AND THE RESTORE RULE" in the header above.
+      # - name: Test (pytest)
+      #   run: pytest lambdas/

@@ -40,9 +40,10 @@ export default defineConfig([
       reactHooks.configs.flat.recommended,
       reactRefresh.configs.vite,
       // SPEC-138 FR-003. The injection/XSS half of security scanning lives here rather
-      // than in security.yml, because this pass already blocks CI: a dangerous sink in
-      // code being written now stops the PR, instead of becoming a line in a report
-      // nobody reads. Everything else in SPEC-138 ships report-only; these two do not.
+      // than in security.yml. It was put here because this pass blocked CI -- but ci.yml's
+      // Lint step is disabled now to save Actions minutes, so it blocks the PRE-PUSH run
+      // and nothing else. A dangerous sink stops a session that runs the gate and reaches
+      // main behind a green PR when one does not. Everything else in SPEC-138 is report-only.
       security.configs.recommended,
       noUnsanitized.configs.recommended
     ],

@@ -350,7 +350,7 @@ router.
 
 | Workflow | Runs on | Does |
 |---|---|---|
-| `ci.yml` | pull requests | lint, format check, `tsc -b`, unit tests, ruff, mypy, pytest, contract regeneration, doc-layout validation |
+| `ci.yml` | pull requests | `tsc -b` build, the VITE_ bundle check, contract regeneration, doc-layout validation, feature-flag validation — lint, format check, both suites, ruff and mypy are disabled here and run in the local pre-push gate instead (`docs/process.md` §6) |
 | `spa-image.yml` | pull requests | builds the container and asserts its behaviour against every criterion the image is built to meet |
 | `deploy-infra.yml` | pull requests (`plan`) and push to `main` (`apply`) | `tofu plan` with a Checkov scan of the rendered plan, then `tofu apply`, with a `skip_refresh` break-glass |
 | `deploy-spa-image.yml` | push to `main` | builds the image, pushes it to ECR tagged by commit sha, and points the ECS service |
