@@ -96,20 +96,6 @@
       "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-shared-space-backfill-*"
     },
     {
-      "Sid": "SharedSpaceLayerManage",
-      "Effect": "Allow",
-      "Action": [
-        "lambda:PublishLayerVersion",
-        "lambda:DeleteLayerVersion",
-        "lambda:GetLayerVersion",
-        "lambda:ListLayerVersions"
-      ],
-      "Resource": [
-        "arn:aws:lambda:${aws_region}:*:layer:${project_name}-*-shared-space-*",
-        "arn:aws:lambda:${aws_region}:*:layer:${project_name}-*-shared-space-*:*"
-      ]
-    },
-    {
       "Sid": "SharedSpaceRolesManage",
       "Effect": "Allow",
       "Action": [

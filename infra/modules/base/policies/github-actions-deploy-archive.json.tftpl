@@ -96,20 +96,6 @@
       "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-archive-*"
     },
     {
-      "Sid": "ArchiveLayerManage",
-      "Effect": "Allow",
-      "Action": [
-        "lambda:PublishLayerVersion",
-        "lambda:DeleteLayerVersion",
-        "lambda:GetLayerVersion",
-        "lambda:ListLayerVersions"
-      ],
-      "Resource": [
-        "arn:aws:lambda:${aws_region}:*:layer:${project_name}-*-archive-*",
-        "arn:aws:lambda:${aws_region}:*:layer:${project_name}-*-archive-*:*"
-      ]
-    },
-    {
       "Sid": "ArchiveRolesManage",
       "Effect": "Allow",
       "Action": [

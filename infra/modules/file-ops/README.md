@@ -180,13 +180,19 @@ make a lock "lost" rather than "free".
 is the verb's own decision, and **a second home for it is a number that can drift**. The archive
 plane's poll loop records the same split.
 
-## The layer is named after the PLANE, not the package
+## The layer was named after the PLANE, not the package — and layers are gone
 
-The deploy policy matches `${project_name}-*-file-ops-*`, needing the literal `-file-ops-` infix
-**and** a trailing segment. `dat-prod-focommon` matches nothing, **and the failure surfaced as an
-implicit deny in `Deploy Lambdas`, not as a plan error**.
+**Kept as history, not as a live rule.** There is no layer here any more: the image installs the
+shared code once for the whole fleet, the published versions are destroyed, and the deploy role's
+layer wildcard is removed. The name local went with it.
 
-**Nothing publishes a layer any more.** No workflow builds one, a container function cannot attach one, and the layer table is deleted. The name local and the deploy-role wildcard it was shaped to match both survive only until the published versions are destroyed, and they are removed in that order in their own PRs — so this section describes a rule that is still enforced and no longer reachable.
+While it existed, the deploy policy matched `${project_name}-*-file-ops-*`, needing the literal
+`-file-ops-` infix **and** a trailing segment. A name built from the Python package instead —
+`dat-prod-focommon` — matched nothing, **and the failure surfaced as an implicit deny in
+`Deploy Lambdas`, not as a plan error**. **The wildcard itself is not gone** — the same
+`${project_name}-*-file-ops-*` shape still scopes the function, role and log-group grants, so the naming
+contract this section describes is live for everything except the layer that prompted it. A
+name-scoped wildcard grant fails at the API call, not at the plan.
 
 **There is no `execution_role_arn` local here** — root constructs its own twin for the bucket-policy
 allowlist, and a second construction would be one more place to drift, **with the failure appearing as

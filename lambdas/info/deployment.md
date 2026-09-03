@@ -81,11 +81,20 @@ function (it holds a module defining a top-level `handler`), it is shared code (
 classified before it can ship — shared code is deliberately **not** the default bucket, because a
 default makes that partition total by construction and its guard unable to fail.
 
-**Two things outlive the repo change and are removed separately.** The layer *versions* published by
-the old pipeline still exist in AWS, and the deploy role still holds the grants that published them.
-Nothing can reach either — attaching a layer to a container function is an error, and no workflow
-publishes one — but they are AWS state rather than repository state, so the destroy runs in CI (the
-deploy role holds `DeleteLayerVersion`; a local identity does not) and the grants come out after it.
+**Nothing about layers outlives this any more.** The 923 versions the old pipeline published across
+ten layers were destroyed in CI — that is AWS state rather than repository state, and the deploy role
+held `DeleteLayerVersion` where a local identity did not — and the grants that authorised it came off
+in the apply after. The ordering was forced: a grant removed first would have stranded the versions
+with no identity able to reach them. A test now fails on a layer ARN, a layer IAM action, a layer API
+call, a `*_layer_name` declaration or a project-and-environment-qualified layer name reappearing in
+a workflow, a script or a `.tf` file.
+
+Two things about that destroy are worth carrying. The layer names could not come from Terraform,
+which declared eight of the ten as layer-name locals. `control-plane-common` appeared only as a
+wildcard ARN pattern in a deploy policy, and `table-builder-common` nowhere in Terraform at all — so
+neither full name was derivable from it. And an absent layer and a just-emptied one are the
+same API answer (`{"LayerVersions": []}`, not an exception), so a sweep of the wrong names would have
+reported a completed destroy of nothing; the run had to carry the count its own report found.
 
 ## The deployed artefact is proved to start
 

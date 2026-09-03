@@ -82,9 +82,9 @@ recorded nowhere else** — when a spec closes, prune here rather than appending
 
 ### Current work
 
-- **Container Lambdas (214 in progress)** — a DELETION, so its risk is a guard nobody misses. Both
-  tables are gone; left are the published layer versions and their grants, in that order — the
-  destroy needs `DeleteLayerVersion`. `ARCS.md`.
+- **Container Lambdas (214 in progress)** — a DELETION, so its risk is a guard nobody misses. The
+  tables, the 923 published versions and the deploy role's layer grants are all gone; what is left
+  is the spec's close. `ARCS.md`.
 
 
 ## Key Decisions (settled — don't re-litigate)

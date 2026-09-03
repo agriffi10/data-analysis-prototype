@@ -85,14 +85,19 @@ drain, never redelivery.**
 `FIRE_AND_FORGET` is not merely chosen — `REQUEST_RESPONSE` is **impossible** for a Standard state
 machine, and this plane's outcome is a notification rather than a response.
 
-## The layer is named after the PLANE, not the package
+## The layer was named after the PLANE, not the package — and layers are gone
 
-The deploy policy matches `${project_name}-*-file-send-*`, which requires the literal `-file-send-`
-infix **and** a trailing segment. A name built from the Python package instead —
-`dat-prod-fscommon` — **matches nothing, and the failure surfaced as an implicit deny in `Deploy
-Lambdas`, not as a plan error**.
+**Kept as history, not as a live rule.** There is no layer here any more: the image installs the
+shared code once for the whole fleet, the published versions are destroyed, and the deploy role's
+layer wildcard is removed. The name local went with it.
 
-**Nothing publishes a layer any more.** No workflow builds one, a container function cannot attach one, and the layer table is deleted. The name local and the deploy-role wildcard it was shaped to match both survive only until the published versions are destroyed, and they are removed in that order in their own PRs — so this section describes a rule that is still enforced and no longer reachable.
+While it existed, the deploy policy matched `${project_name}-*-file-send-*`, requiring the literal
+`-file-send-` infix **and** a trailing segment. A name built from the Python package instead —
+`dat-prod-fscommon` — **matched nothing, and the failure surfaced as an implicit deny in
+`Deploy Lambdas`, not as a plan error**. **The wildcard itself is not gone** — the same
+`${project_name}-*-file-send-*` shape still scopes the function, role and log-group grants, so the naming
+contract this section describes is live for everything except the layer that prompted it. A
+name-scoped wildcard grant fails at the API call, not at the plan.
 
 **There is no `execution_role_arn` local here**, deliberately. Root constructs its own twin for the
 user-space bucket-policy allowlist, and a second construction of the same string in this module would

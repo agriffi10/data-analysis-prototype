@@ -89,8 +89,8 @@ exactly that reason after the 2026-07-05 cold-start break.
 `infer-schema` needs a Parquet reader, and polars was too large to vendor into Terraform — so CI
 built and published it as a layer and attached it to that one function, the same CI-owned pattern
 the domain layers used. **The image installs it once for the whole fleet now**, so there is no
-attachment and no artifact to build; the name local survives only until the published versions are
-destroyed, and it goes with the deploy-role wildcard that reads it.
+attachment and no artifact to build. The published versions are destroyed and the name local and
+the deploy-role wildcard that read it are both removed.
 
 ## Logs are scoped by wildcard, deliberately
 

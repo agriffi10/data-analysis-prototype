@@ -67,10 +67,6 @@ locals {
   # The shared role writes to EVERY verb's log group, so one wildcard statement covers them.
   table_share_log_group_wildcard_arn = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/lambda/${var.project_name}-${var.environment}-table-share-*"
 
-  # CI builds, publishes and attaches this. Named here for the deploy-role wildcard's
-  # benefit, and referenced for parity only.
-  tscommon_layer_name = "${var.project_name}-${var.environment}-table-share-common"
-
   # THE BATCH EQUALS COPY_CONCURRENCY (8) ON PURPOSE. copy_batch gives one WHOLE object to
   # each worker, so a batch costs ceil(items/workers) rounds of its SLOWEST object — a
   # MAKESPAN, not bytes over a bandwidth. At 10 it was two rounds and 859s against a 900s

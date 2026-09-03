@@ -60,15 +60,6 @@ locals {
   # The shared role writes to EVERY verb's log group, so one wildcard statement covers them.
   data_quality_log_group_wildcard_arn = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/lambda/${var.project_name}-${var.environment}-data-quality-*"
 
-  # CI builds, publishes and attaches these. dqcommon carries the DOMAIN surface only — no
-  # polars, no Excel engine, and NO PyJWT/cryptography, which live once in cpcommon.
-  dqcommon_layer_name = "${var.project_name}-${var.environment}-data-quality-common"
-
-  # polars, on inspect-source ONLY, and UNAVOIDABLE: Athena needs an EXPLICIT COLUMN LIST for
-  # a Parquet or JSON external table and does not auto-detect a schema, so the list comes from
-  # a per-file probe — which needs a Parquet reader. No fastexcel: convert first. README.md.
-  polars_layer_name = "${var.project_name}-${var.environment}-data-quality-polars"
-
   sfn_log_group_name = "/aws/vendedlogs/states/${local.state_machine_name}"
   sfn_log_group_arn  = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:${local.sfn_log_group_name}"
   state_machine_arn  = "arn:aws:states:${var.aws_region}:${var.account_id}:stateMachine:${local.state_machine_name}"

@@ -95,10 +95,6 @@ locals {
   # The shared role writes to EVERY verb's log group, so one wildcard covers them.
   file_ops_log_group_wildcard_arn = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/lambda/${var.project_name}-${var.environment}-file-ops-*"
 
-  # CI builds, publishes and attaches this. NAMED AFTER THE PLANE, NOT THE PACKAGE, so it
-  # matches the deploy-role wildcard — see the header note.
-  focommon_layer_name = "${var.project_name}-${var.environment}-file-ops-common"
-
   # Mirrored from focommon/config.py; a test asserts the two agree, because two homes for one
   # prefix is a lock the verbs write and the policy does not permit.
   lock_prefix = "locks/file-ops"

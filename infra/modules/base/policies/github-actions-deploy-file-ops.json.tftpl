@@ -87,20 +87,6 @@
       "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-file-ops-*"
     },
     {
-      "Sid": "FileOpsLayerManage",
-      "Effect": "Allow",
-      "Action": [
-        "lambda:PublishLayerVersion",
-        "lambda:DeleteLayerVersion",
-        "lambda:GetLayerVersion",
-        "lambda:ListLayerVersions"
-      ],
-      "Resource": [
-        "arn:aws:lambda:${aws_region}:*:layer:${project_name}-*-file-ops-*",
-        "arn:aws:lambda:${aws_region}:*:layer:${project_name}-*-file-ops-*:*"
-      ]
-    },
-    {
       "Sid": "FileOpsRolesManage",
       "Effect": "Allow",
       "Action": [
