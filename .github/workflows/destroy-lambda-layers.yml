@@ -1,0 +1,131 @@
+# ── One-shot: delete every layer version the retired zip pipeline published ────────────────
+#
+# Manual only, and DELETED by the PR that follows this one. It exists for a single window: the
+# deploy role's layer grants are what authorise the deletion, and those grants come off once the
+# layers are gone. Run this, read its verdict, then remove the grants — in that order, because a
+# grant removed first strands 923 versions nobody can reach.
+#
+# It runs here rather than from a laptop because the deploy role holds `DeleteLayerVersion` and a
+# local identity does not.
+#
+# Run it from `main`. The deploy role's trust policy admits `refs/heads/main` and pull requests and
+# nothing else, so a dispatch from another ref fails at the assume with an opaque STS error.
+#
+# `report` first, always: it writes nothing, and the whole point of the two modes is that the list
+# is read before the deletion happens rather than after.
+
+name: Destroy Lambda layers
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'report (writes nothing) · apply (deletes every version)'
+        required: true
+        default: report
+        type: choice
+        options: [report, apply]
+      expect_versions:
+        description: >-
+          REQUIRED BY apply: the version total the report printed. The sweep refuses unless the
+          live total still agrees, so a wrong project or environment — which would otherwise
+          report ten absent layers as "empty", delete nothing and exit 0 — fails instead.
+        required: false
+        type: string
+
+# Two runs deleting the same versions is harmless — DeleteLayerVersion is idempotent — but the
+# second one's re-list would race the first one's deletes and report a layer as surviving that is
+# being emptied underneath it. Serialise rather than explain that failure later.
+concurrency:
+  group: destroy-lambda-layers
+  cancel-in-progress: false
+
+env:
+  PROJECT_NAME: ${{ vars.TF_VAR_project_name || 'dat' }}
+  ENVIRONMENT: ${{ vars.TF_VAR_environment || 'prod' }}
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    # 923 versions across ten layers is minutes of sequential API calls, not hours. The ceiling is
+    # here so a throttled run that retries forever fails visibly instead of burning the default six.
+    timeout-minutes: 30
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      # boto3 is not on the runner image and this repository pins it nowhere — it is the one
+      # dependency deliberately left unpinned, because the Lambda runtime ships its own and a pin
+      # here would describe a version nothing runs.
+      - name: Install boto3
+        run: pip install boto3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          retry-max-attempts: 3
+
+      - name: Sweep the layers
+        env:
+          MODE: ${{ inputs.mode }}
+          REGION: ${{ vars.AWS_REGION }}
+          EXPECT: ${{ inputs.expect_versions }}
+        run: |
+          set -euo pipefail
+          # The flag is passed unconditionally, empty or not: the script reads "" as
+          # not-supplied. The conditional-array form it replaces expands to an unbound-variable
+          # error under `set -u` on bash 3.2 — harmless on this runner's bash 5, but the empty
+          # array is the DEFAULT `report` path, so it would have been a silent dependency on
+          # the image's bash version.
+          python3 .github/scripts/destroy_lambda_layers.py \
+            --mode "$MODE" \
+            --project "$PROJECT_NAME" \
+            --environment "$ENVIRONMENT" \
+            --region "$REGION" \
+            --expect-versions "$EXPECT" | tee verdict.json
+
+      # `always()`, because the run this most needs to report is the one that failed: the
+      # deletion is irreversible, the verdict only prints once every layer is swept, and a
+      # partial sweep's record is the per-layer progress in the step log above.
+      - name: Report what it found
+        if: always()
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          {
+            echo "### Layer sweep (\`$MODE\`)"
+            echo ''
+            if [ -s verdict.json ]; then
+              echo '```json'
+              cat verdict.json
+              echo '```'
+            else
+              echo '**The sweep did not finish.** No verdict was written. Read the step log above:'
+              echo 'it names every layer that was swept, in order, so a re-run knows what remains.'
+              echo 'Re-running is safe — `DeleteLayerVersion` is idempotent and an emptied layer'
+              echo 'lists as absent.'
+            fi
+            echo ''
+            if [ '${{ job.status }}' != 'success' ]; then
+              echo 'This run did NOT succeed — nothing below claims the sweep completed.'
+            elif [ "$MODE" = 'report' ]; then
+              echo 'Nothing was deleted. Re-run in `apply` mode, passing the version total above as `expect_versions`.'
+            else
+              echo 'Every layer above was re-listed after its deletions and reported no versions; a survivor would have failed this job. In Lambda a layer with no versions does not exist, so that IS the absence — it is not an exception the API raises, which was measured against the live service rather than assumed.'
+              echo ''
+              echo 'The sweep also refused to start unless the live version total still matched the count carried over from the report, so a wrong project or environment — which resolves to layers that do not exist, deletes nothing and would otherwise look identical to a completed run — fails instead of passing.'
+              echo ''
+              echo 'What this does NOT prove is that no ELEVENTH layer exists: the deploy role holds no `lambda:ListLayers`, so this job cannot enumerate the account. Completeness rests on the deploy role never having held a layer grant outside these eight ARN families, plus an account-wide `aws lambda list-layers` from an admin identity before and after, recorded on the PR. A layer published by some other identity is the residual, and nothing here can see it.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
