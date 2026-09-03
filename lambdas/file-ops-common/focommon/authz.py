@@ -7,9 +7,10 @@ execution role does the write and the sender's own access question was about the
 destination is a place the actor chose inside a space they claim, so it is authorized
 independently and by the same rules.
 
-Written here rather than borrowed from ``fscommon.authz``: that module carries file-send's wording
-and ships in a separately-attached layer, so importing it would merge two domain layers to save a
-dozen lines. What IS shared is the registry read and its predicates, from ``cpcommon.registry``.
+Written here rather than borrowed from ``fscommon.authz``: that module carries file-send's wording,
+so importing it would merge two planes' domain vocabularies to save a dozen lines. The image now
+puts both on ``/opt/python``, so the import would resolve — the separation is a code decision, not
+a packaging one, and that is exactly the split the register says not to collapse. What IS shared is the registry read and its predicates, from ``cpcommon.registry``.
 
 **Neither refusal may act as an existence oracle.** A destination the actor cannot reach must read
 identically whether the space does not exist or exists and excludes them — otherwise this plane

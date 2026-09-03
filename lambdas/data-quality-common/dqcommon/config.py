@@ -154,7 +154,7 @@ def _validate_caps() -> None:
 
     The call sits at the very BOTTOM of this module, and must stay there: it reads every cap,
     including the ones declared after its own ``def``. Moving the call up — the obvious tidy —
-    is a NameError at cold start on every verb that attaches the layer.
+    is a NameError at cold start on every verb that imports this module.
 
     Args:
       None.

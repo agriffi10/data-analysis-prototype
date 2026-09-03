@@ -1,21 +1,24 @@
-# External dependencies for the control-plane-common (cpcommon) Lambda LAYER (SPEC-107).
+# External dependencies for the shared control-plane package (cpcommon).
 #
 # PyJWT[crypto] — the API verifies the caller's bearer against the provider's JWKS
 # (cpcommon.auth), and it is the ONLY caller left: the control planes read the trusted actor
-# out of the message instead, so no verb attaching this layer decodes a token any more. The
-# dependency stays because the layer is what the API attaches. It is declared HERE, once, for the cpcommon layer that all
-# control-plane verbs attach; the domain layers (tbcommon / tscommon / dqcommon /
-# fccommon) no longer declare it (SPEC-107 FR-001). deploy-lambdas.yml's cpcommon layer
-# job installs this into the layer, so the verbs don't bundle it.
+# out of the message instead, so no verb decodes a token any more. The dependency stays
+# because the API resolves cpcommon. It is declared HERE, once; the domain packages
+# (tbcommon / tscommon / dqcommon) do not declare it. The image installs this file into the
+# fleet's single site-packages, so nothing bundles it per function.
 PyJWT[crypto]>=2.8,<3
 
 # polars is DELIBERATELY NOT HERE, even though cpcommon/type_mapping.py imports it.
 #
-# This layer attaches to EVERY control-plane verb (15+), and polars is ~100 MB unzipped
-# against Lambda's 250 MB per-function ceiling (package + all layers). Adding it here
-# would spend that ceiling on every verb to serve the two that actually read Parquet
-# footers — table-builder-infer-schema and data-quality-inspect-source — each of which
-# already attaches its own polars layer in deploy-lambdas.yml's matrix.
+# The original reason was size: this was attached to every control-plane verb, and polars is
+# ~100 MB unzipped against Lambda's 250 MB per-function ceiling. That reason is GONE — the
+# image installs every requirements file into one site-packages, so polars ships to all 86
+# functions whether or not this line exists.
+#
+# What the omission still does is say WHO is meant to read Parquet footers:
+# table-builder-infer-schema and data-quality-inspect-source declare it, and a verb that
+# imports type_mapping without declaring polars is now a successful import rather than a
+# cold-start error, which is a quieter failure than the one this comment used to prevent.
 #
 # type_mapping.py is safe to live in this layer because cpcommon/__init__.py imports no
 # submodules, so the polars import only runs for a verb that explicitly imports
@@ -24,9 +27,9 @@ PyJWT[crypto]>=2.8,<3
 
 # log-foundry — structured logging for the control-plane verbs (SPEC-127).
 #
-# PINNED EXACTLY, not >=. This layer attaches to every control-plane verb, so an unattended
-# minor bump would change the behaviour of all of them at once, at cold start, with no PR to
-# review it.
+# PINNED EXACTLY, not >=. Every control-plane verb resolves this package — and one image now
+# carries it to all 86 functions — so an unattended minor bump would change the behaviour of
+# all of them at once, at cold start, with no PR to review it.
 #
 # The CORE package, deliberately NOT the [aws] extra. The extra exists only to pull boto3;
 # SQSSink imports it lazily inside __init__, and the Lambda runtime already provides boto3 —

@@ -10,12 +10,12 @@ The write is a compare-and-swap because checks of different locations run in par
 request queue serialises only same-location checks — so two report assemblies can
 read-modify-write this object at once and one would silently lose the other's run.
 
-The loop is ``cpcommon.cas``'s. It used to be duplicated here — the equivalent primitive lived
-in a Lambda layer these functions do not attach, so it was copied and labelled "a deliberate
-twin, not drift; keep the semantics identical", naming a later spec as the convergence point.
+The loop is ``cpcommon.cas``'s. It used to be duplicated here — the equivalent primitive lived in
+a Lambda layer these functions did not attach, so it was copied and labelled "a deliberate twin,
+not drift; keep the semantics identical", naming a later spec as the convergence point.
 That shipped and the twin drifted anyway: this copy handled the racing 409 that the
 original had not yet grown, and the caps diverged. The loop moved into
-``cpcommon``, which every data-quality verb already attaches, so there is no twin to keep in
+``cpcommon``, which every data-quality verb imports, so there is no twin to keep in
 sync and nothing here to re-derive.
 
 The index is a convenience, never a dependency. Every failure here is logged and swallowed. The

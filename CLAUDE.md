@@ -80,13 +80,6 @@ Status lives in `@docs/specs/INDEX.md`, narrative in `ARCS.md`, what shipped in
 `@docs/spec-delivery/`, live checks in `@docs/testing/`. **This section carries only what is live and
 recorded nowhere else** — when a spec closes, prune here rather than appending.
 
-### Current work
-
-- **Container Lambdas (214 in progress)** — a DELETION, so its risk is a guard nobody misses. The
-  tables, the 923 published versions and the deploy role's layer grants are all gone; what is left
-  is the spec's close. `ARCS.md`.
-
-
 ## Key Decisions (settled — don't re-litigate)
 
 **Grouped by area, not by spec.** Each block is the settled shape, then the fences and the traps —
@@ -449,6 +442,9 @@ only reads; the API enqueues on its behalf.
   the sweep uses, or renaming a handler drops **both** sides and agrees. **The fleet's membership
   is `fleet.py`, read from the Terraform SOURCES** — a `tofu output` is last-applied state and the
   deploy workflows race on the push adding a function. No `.github/` list names functions.
+- **Retire a guard by PROVING its replacement, then deleting** — the matrix reasoned about a table;
+  the image RUNS every handler. Absence is what the API ANSWERS: a destroy of the wrong names
+  deletes nothing and looks finished.
 - **`package_type` is FORCE-NEW: the cutover replaced all 86**, ordered only by **172 `moved`
   blocks** — without one, Terraform plans a create and a destroy with **no edge between them**, and
   it tolerates a `moved` whose `from` is not in state **silently**. So **reverting is not a

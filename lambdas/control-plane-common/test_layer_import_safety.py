@@ -280,6 +280,6 @@ def test_the_package_init_stays_import_free():
         if isinstance(node, (ast.Import, ast.ImportFrom))
     ]
     assert not imports, (
-        f"cpcommon/__init__.py imports {imports} — every function attaching the layer now pays "
-        "for it at cold start, whether or not it uses the module"
+        f"cpcommon/__init__.py imports {imports} — every function in the fleet resolves this "
+        "package, so all 86 pay for it at cold start whether or not they use the module"
     )

@@ -105,10 +105,10 @@ def require(name: str) -> str:
     every verb on that plane makes Lake Formation grants to it, so there is no invocation that
     would rather find out later, and a missing value surfaces as a named cold-start error rather
     than an opaque Lake Formation failure mid-request. The rule is therefore about the READER, not
-    the shape: resolve at import only where the value is common to every verb the layer attaches
-    to. Anywhere else, a constant resolved at import runs for every attaching function whether or
-    not it uses the value, and an unset variable crashes at COLD START, where no test and no
-    deploy can see it.
+    the shape: resolve at import only where the value is common to every verb that imports the
+    module. Anywhere else, a constant resolved at import runs for every function that resolves the
+    package whether or not it uses the value — and with one image, that is the whole fleet — while
+    an unset variable crashes at COLD START, where no test and no deploy can see it.
 
     Args:
       name: The environment variable to read.

@@ -1,8 +1,8 @@
 # Spec: Container Lambdas — Retiring the Layers and the Deploy Tables
 
 **ID:** SPEC-214
-**Status:** In Progress
-**Last Updated:** 2026-08-28
+**Status:** Completed
+**Last Updated:** 2026-09-03
 **Depends On:** SPEC-212 (the image and its import smoke test — the replacement guard), SPEC-213 (every function already running the image)
 
 **Arc:** Container Lambdas (212 → 213 → 214). Narrative in `ARCS.md`.
@@ -179,13 +179,24 @@ to say which functions exist, and Terraform already knows.
       memory and a cross-site review found nineteen further sites — most of them a *second* stale
       paragraph in a file whose first had already been corrected, which is the signature of a sweep
       that fixed what someone remembered. Run
-      `grep -rniE 'placeholder|attach|layer|zip|artifacts bucket|lambda-layers' docs/ lambdas/info/ infra/info/ apps/portal/info/ infra/modules/*/README.md .github/ README.md 2>/dev/null`
+      `grep -rniE 'placeholder|attach|layer|zip|artifacts bucket|lambda-layers' docs/ lambdas/info/ lambdas/*/README.md infra/info/ apps/portal/info/ infra/modules/*/README.md .github/ README.md 2>/dev/null`
       — **corrected during the build.** As first written the command had two paths that match nothing
       in this repository (`*/README.md`, and `CLAIMS.md`, which does not exist) and `*/info/` reached
       only two of the three `info/` trees. It therefore never saw `infra/modules/*/README.md`, **18 of
       which carry a hit**, nor `apps/portal/info/`. A criterion whose command cannot reach the files
       the criterion separately requires is a false clean, which is the exact failure this FR was
       written against.
+      **Corrected a SECOND time during the build, and the repeat IS the finding.** Even the
+      corrected command could not reach `lambdas/*/README.md` — the per-package READMEs, as
+      distinct from `lambdas/info/` — and **both files of that class were stale**:
+      `table-share-common/README.md` said its package was "published as the `table-share-common`
+      Lambda layer ... and attached to all five verbs by deploy-lambdas.yml", and
+      `table-builder-common/README.md` said deploy-lambdas.yml "will publish them as a layer". A
+      diff review found them, plus one hit the corrected command DOES reach and the sweep had
+      simply missed (`infra/modules/user-directory/README.md`). The command above now appends that
+      path. The lesson is that widening it once did not make it complete: a path-glob criterion is
+      only as good as the file classes someone thought to enumerate, and the way to find the
+      missing class is to ask what the glob CANNOT match, not to re-run it and read the output.
       and dispose of **every** hit as still-true, false-and-fixed, or false-and-marked-as-history.
       A hit left undisposed fails this criterion.
 
@@ -205,8 +216,19 @@ to say which functions exist, and Terraform already knows.
 - [ ] Every `.py` docstring, `.tf` comment and `.yml` step that points at a deleted file is fixed.
       A markdown-only sweep reports the tree clean and would be wrong: the pointers that rot unseen
       are in source files.
-- [ ] **Seven `.py` docstrings inside the image are DEFERRED to FR-004's PR, and the reason is the
-      one this spec's own amendment gives.** `focommon/authz.py`, `dqcommon/config.py`,
+- [ ] **The in-image docstrings are DEFERRED, and the count below is WRONG — corrected during the
+      build.** The population is **23 files**, not seven: measured with a packaging-claim sweep
+      (attached / published-as-a-layer) rather than the bare word "layer". The seven named here are
+      all real; sixteen more carry the same class of claim, including every domain package's
+      `__init__.py`, `focommon/paths.py`, `dqcommon/messages.py`, `cpcommon/type_mapping.py`,
+      `transfer_reader.py` and `api/handler.py`. Three `requirements.txt` files carry it too. They
+      landed with the completion PR rather than FR-004's, since FR-004's is an AWS-state change and
+      this is documentation; the deferral itself is unchanged, only its size and its destination.
+      **One of them was materially false rather than dated:** `type_mapping.py` said importing it
+      from a verb without a polars layer is an ImportError at cold start, and the image installs
+      polars for every function, so it now succeeds — a quieter failure than the one the comment
+      was written to prevent. **Seven `.py` docstrings inside the image are DEFERRED to FR-004's
+      PR, and the reason is the one this spec's own amendment gives.** `focommon/authz.py`, `dqcommon/config.py`,
       `dqcommon/__init__.py`, `file_ops_copy_objects.py`, `cpcommon/config.py`,
       `cpcommon/observability.py` and `cpcommon/__init__.py` still describe a layer being attached —
       wording SPEC-213 left behind, not this spec. All seven are copied into the image verbatim, so

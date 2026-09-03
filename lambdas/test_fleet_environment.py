@@ -19,7 +19,7 @@ reader, walked from its own modules through every shared source — which is wha
 its path. What a function cannot reach, it cannot be broken by.
 
 **That computation is also what replaces an exemption list.** Four functions — the ones
-``test_layer_import_safety`` calls the singletons — attach the shared layer for its logging and a
+``test_layer_import_safety`` calls the singletons — import the shared package for its logging and a
 short allowlist beside it, and set almost none of the required set on purpose. A hand-written
 exception naming them would be a hidden coupling: it would go on passing after one of them grew a
 read that made the exemption false. Here they are exempt only because the scan finds they demand

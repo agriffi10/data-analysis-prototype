@@ -2679,7 +2679,7 @@ to settle, and fails loudly on a shortfall.
 > diverges from Lambda on the init-failure path, so it cannot settle a question about what a failed
 > container logs.
 
-**214's risk is the mirror image: it is a deletion, and the danger is a guard nobody misses.**
+**214's risk was the mirror image: a deletion, where the danger is a guard nobody misses.**
 Its surface grew slightly when 213 removed `point-lambda.sh`'s zip branch: `deploy-lambda.sh` was
 left called by nothing, while `lambdas/test_deploy_packaging.py` still extracted and RAN its copy
 block — a suite pinning unreachable shell, green forever. Both were named in 214's In Scope and
@@ -2687,10 +2687,19 @@ both are deleted.
 `lambdas/test_deploy_matrix.py` **was** the only thing standing between a missing layer and that
 cold start — before 213, when layers still attached. Deleting it removes real protection unless something already replaced it, and a review will
 not catch that — a reviewer reads what is there, and a deletion leaves nothing to read. So 214 does
-not begin with a deletion. It begins with a sweep that enumerates every function, every assertion
-the matrix makes, and what now covers each one, and it prints that report before anything is
-removed. Three counts — functions the image matrix imports, functions Terraform declares, function
-directories on disk — are asserted equal.
+not begin with a deletion. It began with a sweep that enumerated every function, every assertion
+the matrix makes, and what now covers each one, printed before anything was removed. Three counts —
+functions the image matrix imports, functions Terraform declares, function directories on disk —
+are asserted equal.
+
+**How it finished.** The 923 published layer versions were destroyed in CI and proved gone
+account-wide, and the deploy role's layer grants came off in the apply after — that order forced,
+since a grant removed first strands the versions with no identity able to reach them. Three fences
+came out of it, each recorded in `docs/decisions/infrastructure.md`: Terraform named only eight of
+the ten layers, so the enumeration could not be derived from it; **absence is zero versions, not an
+exception**, measured against the live API rather than inferred from its documentation; and a sweep
+of the wrong names deletes nothing while looking identical to a completed one, so the destroy
+carried the count its own report found and refused a non-positive one.
 
 ### What the arc does not do
 
@@ -2713,15 +2722,22 @@ sweep, not the packaging — and the sweep has to count attribute-style usage (`
 
 ### Its relationship to SPEC-215
 
-214 wants CI's function list to come from a Terraform output rather than a hand-maintained JSON file,
+214 moved CI's function list off a hand-maintained JSON file and onto the Terraform sources,
 which is the same move SPEC-215 makes for the configuration values — the same idea arriving twice:
 **a value Terraform computes is consumed from Terraform, not copied by a human into a settings page
 or a JSON file.**
 
 **They are order-independent, not independent**, and the distinction matters because an earlier
 draft of this paragraph said the looser thing while both spec bodies described a coupling. Either
-order works and each spec states its own obligation for both: if 215 lands first, 214 reads through
-its resolver; if 214 lands first, it adds the read directly and 215 folds it in. The one thing that
+order works and each spec stated its own obligation for both. **What actually happened is neither
+branch as written, and it is worth recording because the obligation was phrased around a read that
+turned out to be the wrong one.** 215 landed first, but `deploy-lambdas.yml` does not go through
+its `resolve-config.sh`: that resolver serves the configuration DOCUMENT, and the fleet is a
+different read. The workflow shards over the commit's own `lambdas/fleet.py --plan` — deliberately
+not a `tofu output`, which is last-applied state and would miss a function the same push adds — and
+reads `tofu output -json lambda_function_names` only in the reconciliation, behind its own pinned
+`tofu_version: '~1.8'`. So it joins 215 FR-001's version agreement on the predicate that spec
+settled (*declares an OpenTofu version*, not *runs the resolver*), and adds the read directly. The one thing that
 had to be settled between them is the predicate SPEC-215's version-agreement test derives — it is
 *declares an OpenTofu version*, not *runs `tofu init`*, because a workflow using the resolver runs no
 init of its own and an init-based predicate would exclude the very workflow the derivation was

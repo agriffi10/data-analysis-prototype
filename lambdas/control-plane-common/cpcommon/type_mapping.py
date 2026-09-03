@@ -5,11 +5,12 @@ CREATE EXTERNAL TABLE column list. Nested types recurse. An unmappable dtype rai
 ``UnmappableTypeError`` carrying the dtype; each caller adds the column name and turns it
 into its own domain's terminal reason.
 
-This module imports polars, and cpcommon is attached to every control-plane verb — but only
-two of them attach a polars layer. Importing this from any other verb is an ImportError at
-cold start. Living here is safe only because ``cpcommon/__init__.py`` imports no submodules,
-so this file loads if and only if something explicitly imports it. Never add it to that
-``__init__``. Read ``lambdas/info/shared-layer.md`` before adding a polars-carrying verb.
+This module imports polars, and every control-plane verb resolves cpcommon. **The old hazard has
+inverted:** importing this from a verb without a polars layer used to be an ImportError at cold
+start, and the image installs polars for every function, so it now succeeds — quietly, and at the
+cost of polars' import time on a verb that has no use for it. Living here is safe only because
+``cpcommon/__init__.py`` imports no submodules, so this file loads if and only if something
+explicitly imports it. Never add it to that ``__init__``. Read ``lambdas/info/shared-layer.md`` before adding a polars-carrying verb.
 
 Attributes:
   _SIMPLE: Non-parametric dtypes to Hive. Parametric ones carry parameters and are handled

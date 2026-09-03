@@ -402,7 +402,7 @@ central claim.
 | Stop a running query, then stop it again | Both succeed. The second is a no-op on a terminal execution, not an error. |
 | Read one record in `logs/service=api/` for a catalog route | Present: `env`, a real build sha, `route_id`, `actor`, `sql_bytes`, `state`. **Absent:** the SQL text, any `stateChangeReason`, any result cell, any bearer substring, any email. Records arrive on the 10-minute sweep — wait for it rather than concluding from an empty query. |
 | **The load-bearing negative**, after exercising this section and §4.5 end to end | **Zero** requests to `athena.*.amazonaws.com` and `glue.*.amazonaws.com`. |
-| The **first** invocation after a deploy | Succeeds. Cold start is where a layer imported and not attached fails, and it is silent everywhere else. |
+| The **first** invocation after a deploy | Succeeds. Cold start is where an import that cannot resolve fails, and it is silent everywhere else. The layer-attachment form of that is gone — one image carries every shared package — but the class is not: a module missing from the image, or an environment variable read at import, still surfaces only here. |
 
 **Safari**, since that is the browser in use; a Chromium pass corroborates and cannot discharge.
 
@@ -975,8 +975,10 @@ record is **unaffected**. Leaving one unclassified is how a discharged check sil
 **The two cheap CLI checks, worth a glance on every run.**
 
 - `curl -s https://api.dataquarry.app/healthz` returns `{"status": "ok", "version": "<sha>"}`. The sha
-  is the last commit that changed the function **or any layer it packages** — so it is usually HEAD,
-  and is older only when the deploy genuinely skipped the function. Resolve it with
+  is the commit whose image the function runs. One image carries the whole fleet and CI points
+  every function on every run, so it is HEAD unless a deploy failed — there is no per-function
+  "changed since" any more, and the older-sha case now means a failed or skipped deploy rather than
+  an untouched function. Resolve it with
   `git log -1 --format=%h -- lambdas/api/ lambdas/control-plane-common/`, never by grepping
   `lambdas/api/` alone: on 2026-09-01 healthz reported HEAD because that commit changed
   `cpcommon/config.py`, while `lambdas/api/` alone pointed four commits back. Reading it either way
