@@ -222,7 +222,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 214 — Container Lambdas: Retiring the Layers and the Deploy Tables | Completed |
 | 215 — Configuration from Terraform State (retiring the repository variables) | Completed |
 | 216 — Multipart Upload & Part-Level Retry | Completed |
-| 217 — Operator-Driven Shared-Space Membership | In Progress |
+| 217 — Operator-Driven Shared-Space Membership | Completed |
 
 ## Arcs
 

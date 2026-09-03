@@ -368,6 +368,12 @@ not have today.
 roster. An `owner` retained through a delete leaves the original owner able to `add-members` on the
 emptied space and revive it, with the previous cohort's files intact.
 
+> **Superseded in part by SPEC-217.** `add_members` and `remove_members` left `OWNER_ONLY_ACTIONS`
+> for `auth.member_refusal`, which refuses an emptied record before any actor is compared — so the
+> `add-members` example above, and those two names in the inert-state criterion below, are now
+> asserted through that predicate instead. `delete`, `leave` and `acknowledge_membership` still
+> raise from `authorize` exactly as described.
+
 #### Acceptance Criteria:
 
 - [ ] The rewrite removes the `owner` key. With it absent and `members` empty, `authorize` refuses

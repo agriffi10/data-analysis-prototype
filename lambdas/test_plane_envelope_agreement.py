@@ -450,9 +450,9 @@ def test_the_shared_space_verb_is_exempt_by_NAME_and_here_is_why():
     """A second producer, and declaring its field on the API would hand the browser the door.
 
     This plane now takes requests from two places. The API is one, and everything it may send is
-    declared. The other is the scheduled reader that turns an operator's CSV of ownership
-    transfers into requests, and it marks its messages with a top-level ``origin`` the API has no
-    way to produce.
+    declared. The other is the scheduled reader that turns an operator's CSV of membership changes
+    into requests, and it marks its messages with a top-level ``origin`` the API has no way to
+    produce.
 
     So the verb's read set can never be a subset of one producer's declared fields, exactly as the
     notifications writer's cannot. And the repair a build session reaches for — adding ``origin``

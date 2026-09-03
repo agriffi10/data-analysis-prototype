@@ -163,16 +163,23 @@ unconditionally, which let a membership write racing a delete return a `deleting
 `active` — the cascade would then run against a record claiming to be healthy. Only a
 `setdefault` remains, to heal a record written before the field existed.
 
-### The transfer verb — why its refusals return where every other one raises
+### Why some refusals return where the rest raise
 
-`shared-space-transfer-ownership` is the only verb on this plane whose refusals travel as a value
-on the validated context rather than as a raised `AuthorizationError`. That is not a style choice
+Three actions on this plane decide by RETURNING a `(code, message)` pair on the validated context
+rather than by raising `AuthorizationError`: `transfer_ownership` through `auth.transfer_refusal`,
+and `add_members` and `remove_members` through `auth.member_refusal`. That is not a style choice
 and it is not optional.
+
+> **SPEC-217 widened this from the transfer verb alone.** The two member actions left
+> `OWNER_ONLY_ACTIONS` and now decide the same way, for the same reason and through the same
+> `RefusedSeed` arm — which needed no change, having been written action-independent. Read "a
+> transfer" below as any of the three. Full entry:
+> [*The operator door widens to member management*](../../../docs/decisions/control-planes.md#the-operator-door-widens-to-member-management-and-that-is-a-threat-model-decision-spec-217).
 
 The validator's `Catch` carries no `ResultPath` — you cannot merge a key into the raw SQS array it
 was handed — so a raise there **replaces** the state, and `ValidateFailureSeed` seeds `actor: null`.
-The notifier reads a null actor as no trustworthy recipient and stays silent. Every other refusal on
-this plane can afford that; a transfer cannot, because a refusal that says "that person is not a
+The notifier reads a null actor as no trustworthy recipient and stays silent. The refusals that
+still raise can afford that; these three cannot, because a refusal that says "that person is not a
 member" is useless without naming the person, and the composed failure wording is handed only an
 action and a space.
 
