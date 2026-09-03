@@ -61,9 +61,6 @@ locals {
   transfer_reader_role_name = "${var.project_name}-${var.environment}-shared-space-transfer-reader-role"
   transfer_schedule_name    = "${local.transfer_reader_name}-schedule"
 
-  # CI builds, publishes and attaches this. Named to match the deploy-role wildcard.
-  common_layer_name = "${var.project_name}-${var.environment}-shared-space-common"
-
   sfn_log_group_name = "/aws/vendedlogs/states/${local.state_machine_name}"
 
   # One wildcard covers every function's group — the orchestrator is the exec role for all.

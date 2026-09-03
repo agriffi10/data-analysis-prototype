@@ -87,20 +87,6 @@
       "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-data-quality-*"
     },
     {
-      "Sid": "DataQualityLayerManage",
-      "Effect": "Allow",
-      "Action": [
-        "lambda:PublishLayerVersion",
-        "lambda:DeleteLayerVersion",
-        "lambda:GetLayerVersion",
-        "lambda:ListLayerVersions"
-      ],
-      "Resource": [
-        "arn:aws:lambda:${aws_region}:*:layer:${project_name}-*-data-quality-*",
-        "arn:aws:lambda:${aws_region}:*:layer:${project_name}-*-data-quality-*:*"
-      ]
-    },
-    {
       "Sid": "DataQualityRolesManage",
       "Effect": "Allow",
       "Action": [

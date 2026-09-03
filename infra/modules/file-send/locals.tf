@@ -80,10 +80,6 @@ locals {
   # The shared role writes to EVERY verb's log group, so one wildcard statement covers them.
   file_send_log_group_wildcard_arn = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/lambda/${var.project_name}-${var.environment}-file-send-*"
 
-  # CI builds, publishes and attaches this. NAMED AFTER THE PLANE, NOT THE PACKAGE, so it
-  # matches the deploy-role wildcard — see the header note.
-  fscommon_layer_name = "${var.project_name}-${var.environment}-file-send-common"
-
   # Mirrored from cpcommon/transfer/config.py, where the two numbers are REASONED about.
   # Terraform cannot import Python, so a test asserts the rendered numbers still equal the
   # constants — two homes for one number is how a batch silently grows past its limit.

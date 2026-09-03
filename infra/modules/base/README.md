@@ -145,11 +145,11 @@ The recurring non-scopable actions, each isolated in its own wildcard statement:
   that bucket it already holds via `S3UserSpaceBucketManage`. **A second S3 statement would be a
   duplicate, not a tightening**, and the same applies to the observability policy's admin-bucket
   access.
-- **No layer grant on most plane policies.** `deploy_control_plane_common` covers the shared
-  `cpcommon` layer, deliberately scoped to the **layer ARN and nothing else** — so every verb that
-  attached it was covered by its own policy's function-manage grant plus that one layer grant.
-  **No function attaches a layer any more and nothing publishes one**; these grants are what the
-  published versions are destroyed with, and they come out after that.
+- **No layer grant anywhere, and no `deploy_control_plane_common` policy.** Every function runs the
+  fleet's container image, so nothing publishes or attaches a layer and the published versions are
+  destroyed. The grants outlived the resources by exactly one apply — the destroy needed them — and
+  came off immediately after. A policy whose only statement was a layer grant was deleted whole
+  rather than emptied: a document with no statements is not valid IAM.
 - **An `events:` statement means one of two things, and they are not the same thing.** The commoner
   is a `TIMED_OUT` rule: a machine that validates and stops has none to manage, so the grant arrives
   with the transfer that adds the ceiling. **`file-ops` is the exception among those and carries it

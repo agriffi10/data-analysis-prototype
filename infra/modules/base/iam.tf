@@ -152,27 +152,6 @@ resource "aws_iam_role_policy_attachment" "deploy_table_share" {
   policy_arn = aws_iam_policy.deploy_table_share.arn
 }
 
-# The shared cpcommon layer, and DELIBERATELY NOTHING ELSE — scoped to the LAYER ARN, not to
-# any function, so every verb that attaches it is covered by its own policy's function-manage
-# grant plus this one. Every other layer grant is name-scoped to a plane and matches nothing
-# here, so CI cannot publish the layer until this applies.
-resource "aws_iam_policy" "deploy_control_plane_common" {
-  name        = "${var.project_name}-deploy-control-plane-common"
-  description = "Deploy-role grant to publish/attach the shared control-plane-common (cpcommon) Lambda layer, kept off the role's inline-policy aggregate limit."
-
-  policy = templatefile("${path.module}/policies/github-actions-deploy-control-plane-common.json.tftpl", {
-    project_name = var.project_name
-    aws_region   = var.aws_region
-  })
-
-  depends_on = [time_sleep.wait_for_self_grant]
-}
-
-resource "aws_iam_role_policy_attachment" "deploy_control_plane_common" {
-  role       = aws_iam_role.github_actions_deploy.name
-  policy_arn = aws_iam_policy.deploy_control_plane_common.arn
-}
-
 # Data-quality. NO workgroup grant: these verbs run in the SHARED portal Athena workgroup,
 # because a dedicated one breaks Lake Formation, so there is no plane-specific one to grant on.
 resource "aws_iam_policy" "deploy_data_quality" {

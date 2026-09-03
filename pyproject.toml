@@ -124,7 +124,6 @@ mypy_path = "lambdas/control-plane-common:lambdas/table-builder-common:lambdas/t
 
 files = [
     ".github/scripts/lambda_plan_guard.py",
-    ".github/scripts/destroy_lambda_layers.py",
     "lambdas/control-plane-common/cpcommon",
     "lambdas/table-builder-common/tbcommon",
     "lambdas/table-share-common/tscommon",

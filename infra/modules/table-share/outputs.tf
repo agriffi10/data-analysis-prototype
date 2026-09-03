@@ -20,11 +20,6 @@ output "execution_role_arn" {
   value       = aws_iam_role.execution.arn
 }
 
-output "tscommon_layer_name" {
-  description = "Name of the table-share-common (tscommon) Lambda layer CI built and published while the fleet was zip-packaged (attached to every verb that carried this plane's wording; copy-objects was deliberately without it). Nothing builds or publishes a layer any more — the name survives so the published versions can be found and destroyed, and it goes with the deploy-role wildcard it was shaped to match."
-  value       = local.tscommon_layer_name
-}
-
 output "function_names" {
   description = "Every Lambda this module deploys, by deployed name. Aggregated at the root into `lambda_function_names`; the reasoning lives there rather than in fourteen copies of it."
   value       = [for function in module.functions : function.function_name]

@@ -55,10 +55,6 @@ locals {
   # rather than a per-verb ARN.
   table_builder_log_group_wildcard_arn = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/lambda/${var.project_name}-${var.environment}-table-builder-*"
 
-  # CI builds, publishes and attaches this — the artifact is too large to vendor. Named here
-  # for the deploy-role wildcard's benefit, and referenced for parity only.
-  polars_layer_name = "${var.project_name}-${var.environment}-table-builder-polars"
-
   sfn_log_group_name = "/aws/vendedlogs/states/${local.state_machine_name}"
   sfn_log_group_arn  = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:${local.sfn_log_group_name}"
   state_machine_arn  = "arn:aws:states:${var.aws_region}:${var.account_id}:stateMachine:${local.state_machine_name}"
