@@ -191,7 +191,18 @@ operator origin and no identity block, in the envelope SPEC-208 established.
       deduplication window is five minutes, so no two sweeps ever fall inside one window. A re-add
       of a current member is skipped, a re-removal of an absent member is skipped, and a re-transfer
       to the current owner is refused as a no-op.
-- [ ] **The `MessageDeduplicationId` is random, and is NOT the derived request id.** SPEC-208 passes
+- [ ] **The `MessageDeduplicationId` is NOT the derived request id.** *(Amended during the build:
+      the criterion said "random", and random turned out to reintroduce a different fault. The
+      sweep is invoked ASYNCHRONOUSLY by EventBridge with no `maximum_retry_attempts` set, so
+      Lambda's own two retries fire about a minute and three minutes later — **inside** the
+      five-minute deduplication window, unlike the hourly schedule this criterion reasons about.
+      A random id therefore lets a crash between a send and the file move deliver the whole set
+      twice, and a duplicate `transfer_ownership` refuses as `TransferTargetIsOwner` and tells the
+      new owner it failed a minute after telling them it worked. The shipped id is salted with the
+      source object's `ETag`: stable across a retry of the same bytes, so SQS collapses it, and
+      not computable by the caller below, who can guess the object key but cannot read the
+      bucket. The criterion's own reasoning is unchanged and is why the request id alone is not
+      used.)* SPEC-208 passes
       the derived value as both, and that is safe only while the operator is the queue's only
       producer of these ids. The API's dedup id for this queue is `payload["requestId"]` — the
       *caller's own*, unaltered — on the same queue and the same single message group. So a derived

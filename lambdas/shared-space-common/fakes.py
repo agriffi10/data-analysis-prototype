@@ -232,7 +232,13 @@ class FakeS3:
         if ContinuationToken is not None:
             keys = [k for k in keys if k > ContinuationToken]
         page, truncated = keys[: self.page_size], len(keys) > self.page_size
-        response = {"Contents": [{"Key": k} for k in page], "IsTruncated": truncated}
+        # `Size` rides along because S3 always sends it and a caller may refuse an object on it
+        # WITHOUT fetching it. A fake omitting it lets such a guard be written against a default
+        # that real S3 never supplies, so the guard would be tested against a fiction.
+        response = {
+            "Contents": [{"Key": k, "Size": len(self.store[(Bucket, k)])} for k in page],
+            "IsTruncated": truncated,
+        }
         if truncated:
             response["NextContinuationToken"] = page[-1]
         return response

@@ -224,6 +224,13 @@ The owner's Manage members drawer gains a transfer action per member row, behind
 `<admin-bucket>/ownership-transfers/inbox/`, and for each CSV object enqueues one shared-space
 request per data row, then moves the object aside.
 
+> **Superseded by SPEC-217.** The prefix is now `<admin-bucket>/operator-requests/inbox/`, the
+> header is `space,action,username`, and the rows sharing a `(space, action)` become **one**
+> request rather than one per row. The `space,new_owner` header below is rejected by name. Every
+> other criterion in this FR — the whole-file refusal, the move to `processed/` and `rejected/`,
+> the listing order, the row cap and the deferral — still holds. Full entry:
+> [`decisions/control-planes.md`](../decisions/control-planes.md#the-operator-door-widens-to-member-management-and-that-is-a-threat-model-decision-spec-217).
+
 #### Acceptance Criteria:
 
 - [ ] The CSV's header row is exactly `space,new_owner` — any other header set rejects the whole

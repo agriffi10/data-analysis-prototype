@@ -276,9 +276,9 @@ browser ──▶ API ──sqs:SendMessage──▶ FIFO request queue ──�
   the only principal that may write a request queue (SPEC-200).
   The request body carries the caller's ID token.
 
-  > **Superseded in part by SPEC-208 (row 46).** A request queue's writers are *enumerated*, and
-  > the shared-space queue now has two: the API, and a scheduled reader that turns an operator's
-  > CSV of ownership transfers into requests. It carries no identity block and is admitted by the
+  > **Superseded in part by SPEC-208 (row 46), widened by SPEC-217.** A request queue's writers are
+  > *enumerated*, and the shared-space queue now has two: the API, and a scheduled reader that turns
+  > an operator's CSV of membership changes — adds, removals and transfers — into requests. It carries no identity block and is admitted by the
   > `SenderId` SQS stamps on its message. The browser still has no privilege on any plane — that
   > half is unchanged. Full entry:
   > [`decisions/control-planes.md`](decisions/control-planes.md#a-control-plane-queue-may-have-a-second-producer-admitted-by-senderid-spec-208).

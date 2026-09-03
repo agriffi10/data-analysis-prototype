@@ -5,7 +5,7 @@ than the spoofable body actor, loads the registry, and authorizes the action. A 
 raises so the Catch routes to the fail state and no verb runs.
 
 **This queue now has two producers.** The API is one, and everything above describes it. The
-other is the scheduled reader that turns an operator's CSV of ownership transfers into requests,
+other is the scheduled reader that turns an operator's CSV of membership changes into requests,
 and it has no bearer to present — so its messages declare an ``origin`` and carry no identity
 block, and the only thing that can be trusted about one is the ``SenderId`` SQS stamps on the
 record. That comparison is the boundary; ``auth.operator_refusal`` is where it lives.

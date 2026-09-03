@@ -14,10 +14,18 @@ creator-only** — members are added after the fact.
 This plane is a `Choice`-routed fan-out rather than a pipeline — one verb runs per request.
 
 **Its queue has TWO producers**, which is true of no other plane. The API is one. The other is
-`shared-space-transfer-reader`, a scheduled Lambda that reads an operator's CSV of ownership
-transfers out of the admin bucket and enqueues one request per row — the door for the one case the
-UI cannot serve, an owner who has already left. It runs under its **own** execution role, because
-the boundary that admits its messages compares the `SenderId` against exactly that role.
+`shared-space-transfer-reader`, a scheduled Lambda that reads an operator's CSV out of
+`<admin-bucket>/operator-requests/inbox/` and enqueues requests — the door for the cases where the
+person who should act is the person who is absent. Its header is `space,action,username`, its
+`action` column is one of **`add`, `remove`, `transfer`**, and the rows sharing a `(space, action)`
+become **one** request, so an operator-driven add is the same verb, the same authorization and the
+same notifications as an owner-driven one. It runs under its **own** execution role, because the
+boundary that admits its messages compares the `SenderId` against exactly that role.
+
+Its name under-describes what it reads and is kept anyway: the role's unique id is half of that
+`SenderId` comparison, so renaming rotates the value the boundary compares against, and any operator
+file consumed in that window is filed away with every one of its rows refused. A misleading name is
+paid for in a docstring; a rotated role id is paid for in lost work.
 
 ## The machine
 
