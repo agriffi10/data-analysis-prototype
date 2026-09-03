@@ -9,11 +9,17 @@ name: Deploy Lambda image
 # there, and `Deploy Infrastructure` waits on this workflow's tag before it may create a function
 # from it.
 #
-# NO `paths:` FILTER, deliberately, and it is not an oversight. The image has to track main exactly,
-# the same way deploy-spa-image.yml does: a filter means the newest image and HEAD
-# diverge on any commit the filter misses, and "which commit is in the registry" stops having an
-# answer — which is the question the sha tagging exists to answer. The PR-side gate
-# (lambda-image.yml) IS filtered, because it only proves the image.
+# NO `paths:` FILTER, deliberately, and it is not an oversight — and the reason is NOT the one
+# deploy-spa-image.yml used to give, which no longer applies to that workflow either. Two
+# downstream workflows name `github.sha` as this image's tag and both fire on trigger sets WIDER
+# than this image's own inputs: `deploy-infra.yml` polls the registry for `<sha>` for ten minutes
+# and then hard-errors, and `deploy-lambdas.yml` fires on `infra/modules/**` while
+# `point-lambda.sh` waits per function. Filtering this build turns a routine infrastructure merge
+# into a red main — 19 of the 40 merges measured for the SPA change touched `infra/`. The saving
+# would be about a minute on the 10 in 40 that touch no Lambda input. Full reasoning, including
+# the content-addressed scheme that WOULD work and why it is still the wrong trade:
+# docs/decisions/infrastructure.md, "The SPA deploy decides from what is running". The PR-side
+# gate (lambda-image.yml) IS filtered, because it only proves the image.
 #
 # THE DISPATCH PATH IS NOT A CONVENIENCE. If this pipeline lands broken, the registry is IMMUTABLE:
 # the failing sha cannot be re-pushed, and no local identity may write to production. A dispatch

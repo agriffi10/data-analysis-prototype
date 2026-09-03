@@ -4,13 +4,24 @@ name: Deploy SPA image
 # commit sha, registers a task-definition revision carrying that tag, points the service at it and
 # WAITS — then asserts the service actually settled on what this run built.
 #
-# NO `paths:` FILTER, deliberately, and it is not an oversight. This is now the ONLY deploy of the
-# SPA — the CloudFront bundle and its workflow are retired — so the running image is the whole
-# answer to "which commit is in production", and the sha tagging exists to answer exactly that. A
-# filter means the running image and HEAD diverge on any commit the filter misses, and nothing else
-# is left to make up the difference. The PR-side gate (spa-image.yml) IS filtered, because it only
-# proves the image. Cost, stated because it is real: every merge rebuilds and redeploys, including
-# a documentation-only one.
+# STILL NO `paths:` FILTER — the workflow runs on every push — but it now decides what it has to
+# DO by comparing this commit against the one the service is RUNNING. A filter cannot see the two
+# things that make a deploy necessary with no image change at all: a task-definition revision
+# Terraform registered on its own, and a previous run that failed. The comparison sees both,
+# because its baseline is read back from the service rather than assumed.
+#
+# WHAT IS TRADED, said plainly because it is the whole point. The running image is no longer HEAD;
+# it is the last commit that changed an input to the image. "Which commit is in production" is
+# still answered exactly — by the tag the service runs, which is still a commit sha and still an
+# image in the registry — it is just no longer the same answer as "the tip of main". Replayed over
+# the 40 merges before this change, running both path tests exactly as the step does: 15 would have
+# built, 4 would have re-pointed without building, and 21 would have done neither.
+#
+# THE BASELINE IS THE DEPLOYED COMMIT, never HEAD~1. A run that skips, and a run that fails, both
+# leave the next one comparing against what is still actually running — so a missed deploy heals on
+# the next merge instead of compounding, which a comparison against the previous commit would not.
+# Every unreadable answer fails in the EXPENSIVE direction: no service, a placeholder image, a tag
+# that is not a commit, a commit this clone cannot reach, and the run builds and deploys.
 #
 # THE DISPATCH PATH IS NOT A CONVENIENCE. Two situations need it and neither is hypothetical.
 # Terraform registers task-definition revisions of its own — the service carries
@@ -50,6 +61,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # The scope step below diffs against the commit the service is running, and the default
+          # shallow clone does not contain it. The same three seconds `ci.yml` already pays.
+          fetch-depth: 0
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
@@ -81,8 +96,6 @@ jobs:
             exit 1
           fi
 
-          TAG="${TAG_INPUT:-$GITHUB_SHA}"
-
           # A DISPATCH NAMES AN IMAGE THAT ALREADY EXISTS; it does not name a new one. Building
           # under an arbitrary string bakes it as BUILD_VERSION and as the revision label, so the
           # stamp stops being the commit that produced the image — which is the one question the
@@ -97,28 +110,282 @@ jobs:
             echo "family=$NAME"
             echo "cluster=$NAME"
             echo "service=$NAME"
-            echo "tag=$TAG"
           } >> "$GITHUB_OUTPUT"
 
-          # An existing tag means this run only re-points. The repository is IMMUTABLE, so a tag
-          # cannot be overwritten — treating that as a failure would make the workflow unrunnable
-          # exactly when only the pointing is needed.
-          if aws ecr describe-images --repository-name "$NAME" --image-ids imageTag="$TAG" >/dev/null 2>&1; then
-            echo "build=skip" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Already present::$NAME:$TAG is in the registry; this run only points the service."
+      # WHAT THIS RUN HAS TO DO — two questions with different answers, so there are two outputs.
+      # Whether this commit can change the IMAGE, and whether the SERVICE needs pointing at
+      # anything. A documentation merge answers no to both and the job ends after this step.
+      #
+      # THE IMAGE LIST IS `spa-image.yml`'s `paths:`, and reusing it is the point rather than a
+      # convenience. That gate already skips PROVING the image when none of those paths changed,
+      # so the repository has already committed to that set being the image's inputs; using it
+      # here adds no new assumption, and `lambdas/test_ci_scope.py` asserts the two stay identical.
+      # What does change is the price of the list being wrong. A miss on the pull-request side
+      # left an image unproven and main built it anyway; a miss here leaves production running the
+      # old bundle behind a green deploy. Add a path to both lists or to neither.
+      #
+      # THE TASK LIST IS SEPARATE, AND SMALLER. Terraform registers task-definition revisions of
+      # its own out of `infra/main.tf` (the runtime-configuration map) and `infra/modules/spa/`
+      # (the definition itself), and the service carries `ignore_changes = [task_definition]`
+      # precisely so nothing but this workflow points at one. The revision comparison at the end
+      # catches a revision that already exists; this list is for the RACE, where the apply has not
+      # registered it yet — the two workflows fire on the same push with no ordering between them,
+      # which is the same race the register step already polls through.
+      - name: Work out whether this commit can change what is running
+        id: scope
+        env:
+          NAME: ${{ steps.names.outputs.family }}
+          CLUSTER: ${{ steps.names.outputs.cluster }}
+          SERVICE: ${{ steps.names.outputs.service }}
+          TAG_INPUT: ${{ inputs.image_tag }}
+          DISPATCHED: ${{ github.event_name == 'workflow_dispatch' }}
+          IMAGE_PATTERNS: |
+            ^apps/portal/
+            ^packages/
+            ^package\.json$
+            ^package-lock\.json$
+            ^\.nvmrc$
+            ^\.dockerignore$
+            ^\.github/scripts/spa-image-matrix\.sh$
+            ^\.github/workflows/spa-image\.yml$
+            ^\.github/workflows/deploy-spa-image\.yml$
+          TASK_PATTERNS: |
+            ^infra/main\.tf$
+            ^infra/modules/spa/
+        run: |
+          set -euo pipefail
+
+          emit() {
+            {
+              echo "tag=$1"
+              echo "build=$2"
+              echo "deploy=$3"
+            } >> "$GITHUB_OUTPUT"
+            echo "::notice title=Plan::tag=$1 build=$2 deploy=$3"
+          }
+
+          # A RE-RUN FINDS ITS OWN TAG ALREADY PUSHED, and the repository is IMMUTABLE — so a
+          # rebuild would get all the way to the push and fail there. Present means built.
+          # Assigns rather than echoes: a `::notice` inside a command substitution is captured
+          # instead of printed, and would then be read back as the answer.
+          #
+          # ONLY EVER ASKED ABOUT THIS COMMIT, and the refusal below is what keeps it that way.
+          # The `else` cannot tell `ImageNotFoundException` from a throttle or an expired
+          # credential, which is harmless for HEAD — building HEAD and tagging it HEAD is right
+          # either way — and is not harmless for an OLDER sha: a failed read would answer "absent",
+          # this run would build the CURRENT tree, stamp it with the previous commit's sha, and
+          # push it under that tag. Against an IMMUTABLE repository that fails at the push blaming
+          # tag immutability rather than the throttle; against one whose lifecycle policy had
+          # expired the image it succeeds, and the tag permanently names a build of a different
+          # tree. Every re-point path answers `skip` by construction instead: it points at the
+          # image the service is already running, which therefore exists.
+          decide_build() {
+            if [ "$1" != "$GITHUB_SHA" ]; then
+              echo "::error title=Internal::decide_build was asked about $1, which is not this commit. A re-point must answer skip by construction rather than asking the registry."
+              exit 1
+            fi
+            if aws ecr describe-images --repository-name "$NAME" --image-ids imageTag="$1" >/dev/null 2>&1; then
+              echo "::notice title=Already present::$NAME:$1 is in the registry; this run only points the service."
+              BUILD=skip
+            else
+              BUILD=run
+            fi
+          }
+
+          # A DISPATCH NEVER SKIPS. It is the recovery lever, and the reason to reach for it is
+          # always something this step's own reasoning cannot see — so it does what the workflow
+          # did before this step existed: build this commit, or re-point at a tag that exists.
+          if [ "$DISPATCHED" = 'true' ]; then
+            TAG="${TAG_INPUT:-$GITHUB_SHA}"
+            decide_build "$TAG"
+            emit "$TAG" "$BUILD" run
+            exit 0
+          fi
+
+          # THE BASELINE IS READ BACK FROM THE SERVICE. Reading it rather than assuming it is what
+          # makes a skipped or failed previous run heal on the next merge: the diff is always
+          # against what is genuinely running, never against the previous commit.
+          aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
+            --query 'services[0]' --output json > /tmp/scope-service.json 2>/dev/null \
+            || echo 'null' > /tmp/scope-service.json
+          running_arn=$(jq -r '.taskDefinition // ""' /tmp/scope-service.json)
+          rollout=$(jq -r '[.deployments[]? | select(.status == "PRIMARY")][0].rolloutState // "NONE"' /tmp/scope-service.json)
+          desired=$(jq -r '.desiredCount // 0' /tmp/scope-service.json)
+          running=$(jq -r '.runningCount // 0' /tmp/scope-service.json)
+          deployed_image=''
+          # ONE EMPTINESS TEST, AND IT DECIDES NOTHING — it only skips a call that would fail.
+          # jq collapses both shapes an absent service takes (`services[0]` over an empty list is
+          # `null`, and an errored call was replaced with `null` above) into the empty string, so
+          # a comparison against the literal `null` or `None` could never fire; and removing this
+          # test entirely changes no answer, because describing an empty task definition errors,
+          # `|| true` empties the image, and the no-baseline branch below reaches the same verdict.
+          # It survives mutation for that reason, which is worth saying rather than covering with
+          # a test that would be asserting the branch is redundant.
+          if [ -n "$running_arn" ]; then
+            deployed_image=$(aws ecs describe-task-definition --task-definition "$running_arn" \
+                               --query 'taskDefinition.containerDefinitions[?name==`spa`].image' \
+                               --output text 2>/dev/null || true)
+          fi
+          deployed_tag="${deployed_image##*:}"
+
+          # NO BASELINE MEANS BUILD AND DEPLOY. A service that does not exist yet, the placeholder
+          # image, a tag that is not a commit, a commit this clone cannot reach: each leaves the
+          # comparison below with nothing to compare against, and a cheap green that deployed
+          # nothing is indistinguishable from a real one.
+          if ! grep -qE '^[0-9a-f]{40}$' <<<"$deployed_tag"; then
+            echo "::notice title=No baseline::the service runs [${deployed_image:-nothing}]; building and deploying this commit"
+            decide_build "$GITHUB_SHA"
+            emit "$GITHUB_SHA" "$BUILD" run
+            exit 0
+          fi
+          if ! git cat-file -e "${deployed_tag}^{commit}" 2>/dev/null; then
+            echo "::notice title=No baseline::deployed commit $deployed_tag is unreachable here; building and deploying this commit"
+            decide_build "$GITHUB_SHA"
+            emit "$GITHUB_SHA" "$BUILD" run
+            exit 0
+          fi
+
+          # Assigned rather than tested inside the `if`: a `git diff` that fails must kill the job,
+          # and inside a condition its exit status is swallowed — which would read a broken diff as
+          # "nothing changed" and skip a deploy that was needed.
+          #
+          # --no-renames because `--name-only` reports only a rename's DESTINATION. A file moved
+          # OUT of apps/portal would otherwise not appear under an apps/portal path at all, and the
+          # bundle would go stale behind a green run.
+          #
+          # `-z` because `--name-only` C-QUOTES a path that is not plain ASCII — wrapping it in
+          # double quotes and escaping the bytes, so `"apps/portal/src/caf\303\251.tsx"` matches
+          # no anchored pattern and a file that changes the bundle reads as "nothing changed".
+          # `core.quotePath=false` fixes that for high bytes ALONE and leaves `"`, `\` and control
+          # characters still quoted; `-z` emits every path raw, which closes the class rather than
+          # one member of it. A newline inside a filename then splits one path into two, and both
+          # halves are tested — which over-selects, in the expensive direction.
+          CHANGED=$(git diff -z --name-only --no-renames "$deployed_tag" HEAD | tr '\0' '\n')
+
+          # THE RACE IS A PROPERTY OF THIS PUSH, so the task-definition list is tested against this
+          # push's own change set rather than against `$CHANGED`. `$CHANGED` is measured from the
+          # image the service runs and does NOT advance when a run only re-points, so one merge
+          # touching `infra/main.tf` would go on matching for every merge after it — registering a
+          # revision and rolling the production tasks, having changed nothing, until the next
+          # commit that builds. Measured before this was fixed: 11 of 15 re-points were that.
+          #
+          # `HEAD^` AND NOT `github.event.before`, with the bound stated rather than discovered.
+          # Every merge to main here is a squash, so a push is one commit and the two agree. They
+          # differ for a push carrying SEVERAL commits, where a configuration change in any but
+          # the tip is missed — and the cost of that is one merge of latency, because the
+          # newest-revision comparison below re-points as soon as the apply has landed. Closing it
+          # exactly means `github.event.before`, which is all-zeros on a first push and can name
+          # an orphan after a force-push, so it would need this same guard for a case that does
+          # not arise. Accepted deliberately.
+          if git rev-parse --verify --quiet 'HEAD^' >/dev/null; then
+            PUSHED=$(git diff -z --name-only --no-renames 'HEAD^' HEAD | tr '\0' '\n')
           else
-            echo "build=run" >> "$GITHUB_OUTPUT"
+            PUSHED="$CHANGED"
+          fi
+
+          # GREP ANSWERS THREE WAYS AND ONLY TWO OF THEM ARE ANSWERS: 0 matched, 1 did not,
+          # anything above that is grep failing to perform the test at all. Written as a bare `if`
+          # the third collapses into the second — so a pattern list GNU grep refuses, which is what
+          # one PCRE construct in the block below produces, reads as "nothing changed" and skips
+          # the deploy. Tested rather than assumed, and a failure to test is fatal.
+          #
+          # A here-string, NOT `printf … | grep -q`. Under `pipefail` grep exits at the first
+          # match, printf takes SIGPIPE, and the pipeline reports 141 — which would now be read as
+          # grep failing rather than as a match. Measured in `ci.yml`, over the same idiom.
+          matches() {
+            local status
+            set +e
+            grep -qE -f <(printf '%s' "$1") <<<"$2"
+            status=$?
+            set -e
+            if [ "$status" -gt 1 ]; then
+              echo "::error title=Scope::grep exited $status testing the change set. The pattern list is unusable — POSIX ERE has no non-capturing group or lookaround — so this run cannot decide what to do and will not guess."
+              exit 1
+            fi
+            return "$status"
+          }
+
+          if matches "$IMAGE_PATTERNS" "$CHANGED"; then
+            decide_build "$GITHUB_SHA"
+            emit "$GITHUB_SHA" "$BUILD" run
+            exit 0
+          fi
+
+          if matches "$TASK_PATTERNS" "$PUSHED"; then
+            echo "::notice title=Configuration::this commit changes an input to the task definition; pointing the service without rebuilding, in case the apply has not registered its revision yet"
+            emit "$deployed_tag" skip run
+            exit 0
+          fi
+
+          # THE REVISION TERRAFORM ALREADY REGISTERED. `describe-task-definition` on the FAMILY
+          # answers with its newest ACTIVE revision, so a disagreement with what the service runs
+          # is a revision nobody has pointed at — the state the dispatch lever used to be the only
+          # cure for.
+          # FAILS THE WAY THE OTHER TWO READS DO. Left bare this was the only AWS call in the
+          # step that could kill it, and it did so with no annotation at all — so a throttle on the
+          # first read deployed and a throttle on this one reddened main, from a step whose name
+          # gives an operator nothing to go on.
+          newest_arn=$(aws ecs describe-task-definition --task-definition "$NAME" \
+                         --query 'taskDefinition.taskDefinitionArn' --output text 2>/dev/null || true)
+          if [ -z "$newest_arn" ] || [ "$newest_arn" = 'None' ]; then
+            echo "::warning title=Unreadable::could not read the newest revision of $NAME, so this run cannot tell whether one is unpointed; deploying rather than guessing."
+            emit "$deployed_tag" skip run
+            exit 0
+          fi
+          if [ "$newest_arn" != "$running_arn" ]; then
+            echo "::notice title=Newer revision::the newest revision is $newest_arn and the service runs $running_arn; pointing without rebuilding"
+            emit "$deployed_tag" skip run
+            exit 0
+          fi
+
+          # A REVISION THE SERVICE WAS POINTED AT IS NOT A DEPLOYMENT THAT LANDED, and this is
+          # the last place that difference can be caught. The circuit breaker runs with rollback
+          # DISABLED — deliberately, so a bad image fails the workflow — which means a failed
+          # rollout leaves PRIMARY sitting on the revision that failed, and `describe-services`
+          # reports it as the service's task definition. Skipping on that reading is how a failed
+          # deploy becomes permanent: the re-run diffs against a commit whose tasks never started,
+          # finds no change, and reports green over the bundle from before it.
+          #
+          # It is also the per-merge health assertion. `Assert the service settled` cannot run on
+          # a skipped deploy, so without this a run that checked nothing would look exactly like a
+          # run that checked everything.
+          if [ "$rollout" != 'COMPLETED' ] || [ "$running" != "$desired" ] || [ "$desired" = '0' ]; then
+            echo "::notice title=Not settled::nothing changed since $deployed_tag, but the service is at rollout=$rollout with $running/$desired tasks — re-pointing rather than skipping."
+            emit "$deployed_tag" skip run
+            exit 0
+          fi
+
+          # THE ANSWER FIRST, THE EVIDENCE AFTER, and neither through a pipe. The failure this
+          # design is exposed to is an IMAGE_PATTERNS list missing a real input: the bundle
+          # changes, this step says nothing changed, and production serves the old one behind a
+          # green run. Printing the change set is what turns "why is my change not live" into
+          # reading the log. But printing it MUST NOT be able to lose the answer — `printf … |
+          # head -n 60` is the SIGPIPE trap this file documents for `grep` seventy lines above,
+          # arriving by the back door: past the 64 KiB pipe buffer `head` leaves after 60 lines,
+          # printf takes SIGPIPE, `pipefail` reports 141 and `errexit` kills the step before it
+          # emits anything — a red main on the one merge this whole change exists to make a
+          # no-op. Measured on ubuntu at ~3000 paths. So `emit` runs first, and the printing uses
+          # here-strings, which have no pipe to break.
+          emit "$deployed_tag" skip skip
+          echo "::notice title=Nothing to do::no input to the image or to the task definition changed since $deployed_tag, which is the settled commit the service is running ($running/$desired tasks)."
+          if [ -n "$CHANGED" ]; then
+            count=$(grep -c '' <<<"$CHANGED")
+            echo "the $count changed path(s) this decision was made over, none of which matched either list:"
+            head -n 60 <<<"$CHANGED"
+            if [ "$count" -gt 60 ]; then
+              echo "  … and $((count - 60)) more, not printed"
+            fi
           fi
 
       # linux/amd64 EXPLICITLY: the task definition declares X86_64, and an arm64 image fails at
       # task start with a manifest error that reads nothing like the architecture mismatch it is.
       - name: Build
-        if: steps.names.outputs.build == 'run'
+        if: steps.scope.outputs.build == 'run'
         # Through `env:`, like every other value here. The tag can originate in a dispatch input,
         # and a value interpolated straight into `run:` is a command-injection sink — and one
         # carrying a newline could write a second line into $GITHUB_OUTPUT above.
         env:
-          TAG: ${{ steps.names.outputs.tag }}
+          TAG: ${{ steps.scope.outputs.tag }}
         run: |
           set -euo pipefail
           docker build --platform linux/amd64 \
@@ -129,16 +396,16 @@ jobs:
       # BEFORE THE PUSH, so a wrong cache header never reaches a registry it cannot be deleted from.
       # This is the same script the pull-request gate runs, against the same image.
       - name: Assert the behaviour matrix
-        if: steps.names.outputs.build == 'run'
+        if: steps.scope.outputs.build == 'run'
         env:
-          TAG: ${{ steps.names.outputs.tag }}
+          TAG: ${{ steps.scope.outputs.tag }}
         run: .github/scripts/spa-image-matrix.sh "spa:$TAG" "$TAG"
 
       - name: Push
-        if: steps.names.outputs.build == 'run'
+        if: steps.scope.outputs.build == 'run'
         env:
           REPO: ${{ steps.names.outputs.repo }}
-          TAG: ${{ steps.names.outputs.tag }}
+          TAG: ${{ steps.scope.outputs.tag }}
         run: |
           set -euo pipefail
           aws ecr get-login-password --region "${{ vars.AWS_REGION }}" \
@@ -148,10 +415,11 @@ jobs:
 
       - name: Register a revision carrying this image
         id: register
+        if: steps.scope.outputs.deploy == 'run'
         env:
           FAMILY: ${{ steps.names.outputs.family }}
           REPO: ${{ steps.names.outputs.repo }}
-          TAG: ${{ steps.names.outputs.tag }}
+          TAG: ${{ steps.scope.outputs.tag }}
         run: |
           set -euo pipefail
 
@@ -240,6 +508,7 @@ jobs:
           echo "::notice title=Registered::$ARN carrying ${TAG} and $carried configuration keys"
 
       - name: Point the service and wait for it to settle
+        if: steps.scope.outputs.deploy == 'run'
         env:
           CLUSTER: ${{ steps.names.outputs.cluster }}
           SERVICE: ${{ steps.names.outputs.service }}
@@ -264,7 +533,7 @@ jobs:
           CLUSTER: ${{ steps.names.outputs.cluster }}
           SERVICE: ${{ steps.names.outputs.service }}
           ARN: ${{ steps.register.outputs.arn }}
-          EXPECTED_TAG: ${{ steps.names.outputs.tag }}
+          EXPECTED_TAG: ${{ steps.scope.outputs.tag }}
         run: |
           set -euo pipefail
 

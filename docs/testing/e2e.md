@@ -27,7 +27,7 @@ looks right" is never one. Record the outcome in a dated session file (§5).
 
 | Gate | How |
 |---|---|
-| `main` is green, and you know the deployed sha | `gh run list --branch main --limit 5`, then `git rev-parse HEAD`. A red **Deploy SPA image** or **Publish Config** means you are testing something that is not there. |
+| `main` is green, and you know the deployed sha | `gh run list --branch main --limit 5`. A red **Deploy SPA image** or **Publish Config** means you are testing something that is not there. **The deployed sha is NOT `git rev-parse HEAD`** — that workflow deploys only when an input to the image changed, so the running bundle is the last commit that changed one. Read it from the service: `aws ecs describe-services --cluster dat-prod-spa --services dat-prod-spa --query 'services[0].taskDefinition'`, then `aws ecs describe-task-definition --task-definition <arn> --query 'taskDefinition.containerDefinitions[?name==\`spa\`].image'` — the tag is the sha. A *green* Deploy SPA image no longer implies HEAD is live. |
 | You are signed in, and you know as whom | Every result below is meaningless without the username it was observed under. |
 | Feature flags are all on | `config/feature-flags.json` → `environments.prod` is `{}`. A surface that is *absent* under a flag reads exactly like a broken one. |
 
