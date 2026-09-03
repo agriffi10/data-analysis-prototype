@@ -479,7 +479,7 @@ These pass locally and fail later — check them as part of the work, not as an 
   reinstates the failure the resolver exists to prevent, and it fails quietly, because an unset
   variable interpolates to the empty string, which satisfies a required Terraform variable and
   overrides its default.
-- **`lambdas/` has a second CI-only gate beside ruff: `mypy` is BLOCKING** at zero errors over every
+- **`lambdas/` has a second local-only gate beside ruff: `mypy` is BLOCKING** at zero errors over every
   shared layer, plus the API and the contract generator. The list is `pyproject.toml`'s `[tool.mypy]`
   `files` block and nowhere else — a **new shared layer joins the ratchet with the spec that creates
   it**, because added later it is a baseline of existing errors to argue about and added now it is

@@ -67,7 +67,7 @@ Don't add dependencies without noting them here first.
 
 ```bash
 npm run dev|build|test|lint -w apps/portal   # from repo root (or omit -w inside apps/portal/)
-npm run format|format:check -w apps/portal   # Prettier (prettier.config.js); format:check gates CI before tests
+npm run format|format:check -w apps/portal   # Prettier (prettier.config.js); format:check is a pre-push gate
 tofu -chdir=infra validate|plan|apply        # init: tofu -chdir=infra init -backend-config=backend.conf
 python3 scripts/watch_ci.py --pr <n>         # watch CI for ONE sha; exit 0 only if settled AND green
 python3 scripts/watch_ci.py --branch main    # after a merge; --once for a single poll
@@ -565,9 +565,8 @@ compresses, and §4 the FR ceiling and the `SPEC_OVERSIZE_MAX` ratchet.
 The method — how many reviewers, briefing one, rotating the frame — is `@docs/reviewer-contract.md`,
 pulled when you are about to spend one.
 
-**PRs & main:** formatter, both linters, both suites **and `npm run build`** green locally before
-pushing — **CI runs none of them now**, so that run is the only gate; `build` (`tsc -b`) is the
-only typecheck (§6). **When several sessions share this repo** — they routinely do — the remote is serialised by a PR queue: one PR open at a time, taken in the order agents asked, `main` green before the next, and you get in line only once your gates and reviews are green. The scripts are `scripts/pr-queue/`; a queue is **inert until `install.sh` runs**, and it fails open for branches outside its configured pattern. **A queue is already installed and running here, at a path derived from this checkout's directory name.** `install.sh` derives its own path from the origin slug — which is `data-analysis-prototype`, not `s3-upload-portal` — so running it bare would stand up a SECOND, empty queue while sessions kept using the first, and neither would see the other. It also writes a different holder-file format, so a re-install while a lock is held strands that lock until the 90-minute reap. Re-install only while the queue is idle, and only with `PR_QUEUE_DIR` pointed at the queue already in use. Protocol: `scripts/pr-queue/PROTOCOL.md`; brief each session from `@docs/templates/multi-agent-briefing.md`. Watch every PR to completion and merge as soon as CI is green — never open-and-abandon.
+**PRs & main:** formatter, both linters, both suites, mypy **and `npm run build`** green locally
+before pushing — **CI runs none**, so that run is the only gate; `tsc -b` and mypy are local (§6). **When several sessions share this repo** — they routinely do — the remote is serialised by a PR queue: one PR open at a time, taken in the order agents asked, `main` green before the next, and you get in line only once your gates and reviews are green. The scripts are `scripts/pr-queue/`; a queue is **inert until `install.sh` runs**, and it fails open for branches outside its configured pattern. **A queue is already installed and running here, at a path derived from this checkout's directory name.** `install.sh` derives its own path from the origin slug — which is `data-analysis-prototype`, not `s3-upload-portal` — so running it bare would stand up a SECOND, empty queue while sessions kept using the first, and neither would see the other. It also writes a different holder-file format, so a re-install while a lock is held strands that lock until the 90-minute reap. Re-install only while the queue is idle, and only with `PR_QUEUE_DIR` pointed at the queue already in use. Protocol: `scripts/pr-queue/PROTOCOL.md`; brief each session from `@docs/templates/multi-agent-briefing.md`. Watch every PR to completion and merge as soon as CI is green — never open-and-abandon.
 `main` is always watched: if it fails, fix it with a new PR before anything else. **Watch with
 `scripts/watch_ci.py`, never a hand-rolled loop** — it keys on one sha and its exit condition is
 tested, which two hand-written watches were not.
