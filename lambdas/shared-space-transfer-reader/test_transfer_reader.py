@@ -3,6 +3,7 @@
 import json
 import os
 import pathlib
+import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
@@ -670,6 +671,65 @@ def test_the_reader_touches_only_the_operator_requests_prefix():
     assert touched, "the sweep recorded nothing, so this asserts nothing"
     stray = [key for key in touched if not key.startswith("operator-requests/")]
     assert stray == [], f"the reader reached outside its prefix: {stray}"
+
+
+def test_the_GRANT_is_scoped_to_the_prefix_the_code_actually_reads():
+    """The prefix now lives in four independent places — three constants here, two statements in
+    the reader's IAM template, two lifecycle rules, and this file. Nothing tied them together, and
+    a drift in any one is green in every gate: the reader would simply take `AccessDenied` on its
+    listing once an hour, outside any handler try, on a function in no probe list, with the
+    operator's only channel being the log it can no longer write to.
+
+    The expected value is derived from `reader.INBOX` — the code — and the Terraform is asserted
+    to match it. Deriving it from the template instead would only prove the template agrees with
+    itself.
+
+    It also asserts the grant reaches NOTHING ELSE on the admin bucket. The prefix was admitted
+    additively across the cutover, deliberately, and this is what makes the narrowing visible: a
+    second prefix reappearing here is a widening somebody has to have meant.
+    """
+    prefix = reader.INBOX.split("/")[0]
+    assert prefix and "/" not in prefix
+
+    module = pathlib.Path(__file__).resolve().parents[2] / "infra" / "modules" / "shared-spaces"
+    policy = (module / "policies" / "transfer-reader-permissions.json.tftpl").read_text()
+    rendered = json.loads(
+        re.sub(r"\$\{[a-z_]+\}", "arn:aws:test", policy)
+    )
+
+    bucket_statements = [
+        s for s in rendered["Statement"] if "s3" in json.dumps(s["Action"])
+    ]
+    assert bucket_statements, "no S3 statement found, so this test asserts nothing"
+
+    scopes = []
+    for statement in bucket_statements:
+        resource = statement["Resource"]
+        scopes.extend([resource] if isinstance(resource, str) else resource)
+        condition = statement.get("Condition", {}).get("StringLike", {})
+        for value in condition.values():
+            scopes.extend([value] if isinstance(value, str) else value)
+
+    keyed = [s for s in scopes if s.endswith("/*")]
+    assert keyed, "the grant names no prefix at all"
+    for scope in keyed:
+        assert scope.endswith(f"{prefix}/*"), (
+            f"the reader lists {reader.INBOX!r} but its grant covers {scope!r} — a drift here is "
+            "an hourly AccessDenied on a function nothing probes"
+        )
+
+    lifecycle = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "infra" / "modules" / "analytics" / "s3.tf"
+    ).read_text()
+    for sub in ("processed", "rejected"):
+        assert f'prefix = "{prefix}/{sub}/"' in lifecycle, (
+            f"no lifecycle rule expires {prefix}/{sub}/, so files pile up there forever"
+        )
+    assert f'prefix = "{prefix}/inbox/"' not in lifecycle, (
+        "the inbox gained an expiring rule, which deletes an operator's file out from under the "
+        "tick that was going to retry it"
+    )
 
 
 def test_a_request_id_is_STABLE_across_a_replay_and_KEYED_on_the_file_it_came_from():

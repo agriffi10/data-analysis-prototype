@@ -155,46 +155,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
     }
   }
 
-  # The operator's processed ownership-transfer files. A separate rule from the rejected ones
-  # below for the reason the file-send comment gives: S3 lifecycle takes ONE PREFIX PER RULE, and
-  # the prefix covering both — `ownership-transfers/` — would also match `inbox/`.
-  rule {
-    id     = "expire-ownership-transfers-processed"
-    status = "Enabled"
-
-    filter {
-      prefix = "ownership-transfers/processed/"
-    }
-
-    expiration {
-      days = var.admin_results_retention_days
-    }
-  }
-
-  # The rejected ones, and their sibling reason files.
-  #
-  # ⚠ `ownership-transfers/inbox/` GETS NO RULE AT ALL, and that absence is the decision. A file
-  # sitting in the inbox is one the reader has not managed to process — a tick that timed out, a
-  # row cap it hit, a queue it could not reach — and expiring it would delete an operator's
-  # request out from under the function whose next tick is going to retry it. Silently: the tick
-  # after that finds an empty inbox, which is indistinguishable from success.
-  rule {
-    id     = "expire-ownership-transfers-rejected"
-    status = "Enabled"
-
-    filter {
-      prefix = "ownership-transfers/rejected/"
-    }
-
-    expiration {
-      days = var.admin_results_retention_days
-    }
-  }
-
-  # The operator's processed request files, under the prefix that replaces the one above. Added
-  # BESIDE the old pair rather than in place of it: the reader's code and its grant are deployed
-  # by two workflows that race on one push, so the new prefix is admitted first and the old one
-  # retired only once nothing reads it.
+  # The operator's processed request files. A separate rule from the rejected ones below for the
+  # reason the file-send comment gives: S3 lifecycle takes ONE PREFIX PER RULE, and the prefix
+  # covering both — `operator-requests/` — would also match `inbox/`, which must never expire.
   rule {
     id     = "expire-operator-requests-processed"
     status = "Enabled"
@@ -210,9 +173,11 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
 
   # The rejected ones, and their sibling reason files.
   #
-  # ⚠ `operator-requests/inbox/` GETS NO RULE AT ALL, for the reason the retired inbox above has
-  # none: a file sitting there is one the reader has not managed to process, and expiring it
-  # would delete an operator's request out from under the tick that is going to retry it.
+  # ⚠ `operator-requests/inbox/` GETS NO RULE AT ALL, and that absence is the decision. A file
+  # sitting in the inbox is one the reader has not managed to process — a tick that timed out, a
+  # cap it hit, a queue it could not reach — and expiring it would delete an operator's request
+  # out from under the function whose next tick is going to retry it. Silently: the tick after
+  # that finds an empty inbox, which is indistinguishable from success.
   rule {
     id     = "expire-operator-requests-rejected"
     status = "Enabled"
