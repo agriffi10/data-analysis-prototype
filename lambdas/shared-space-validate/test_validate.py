@@ -668,9 +668,9 @@ def test_authorize_refuses_an_action_it_has_no_branch_for_rather_than_falling_th
     `member_refusal` call an open door rather than a refusal.
     """
     install()
-    # Restored in a finally: the vocabulary is a module constant the conftest snapshot does not
-    # cover, and leaking a synthetic action out of here reddens the wording table's own
-    # enumeration in a different file.
+    # Restored in a finally as well as by the conftest's snapshot fixture, which does cover this
+    # module: a test that widens the vocabulary reads better putting it back where it widened it,
+    # and a synthetic action has no business outliving the single assertion that wants it.
     original = config.VALID_ACTIONS
     config.VALID_ACTIONS = frozenset(original | {"annex_space"})
     try:

@@ -53,6 +53,9 @@ import pytest
 # so its test restores locally), and five files hand-rolled
 # try/finally around `observability.info`. Matching by PREFIX rather than by name means a
 # new module in an existing layer is covered the day it is written, which a hand-list is not.
+# The FLAT half of that claim went untrue and unnoticed for as long as it stood, because a
+# matcher that yields nothing and a population with nothing to restore are the same green
+# run. `test_conftest_restores_flat_shared_modules.py` is the control that says it collects.
 #
 # `log_foundry` is deliberately absent: it is a vendored library, not one of this repo's
 # layers, and its process-wide worker/config already has purpose-built save-and-restore in
@@ -70,12 +73,43 @@ _LAYER_PREFIXES = (
 #: shared-space-common publishes FLAT modules, so they have no package prefix to match on.
 #: DERIVED FROM THE DIRECTORY, never hand-listed: a hand-list drifts silently, and the leak
 #: this fixture exists to stop would reopen behind a comment claiming it cannot.
+#: A bare name is not enough to identify one — `config`, `auth` and `registry` are names any
+#: function directory could also publish flat — so the module's own file has to place it in this
+#: directory, and that comparison is what `_is_flat_shared` exists to get right.
 _SHARED_SPACE_DIR = os.path.join(_HERE, "shared-space-common")
+_SHARED_SPACE_REALPATH = os.path.realpath(_SHARED_SPACE_DIR)
 _FLAT_SHARED_MODULES = frozenset(
     name[:-3]
     for name in os.listdir(_SHARED_SPACE_DIR)
     if name.endswith(".py") and not name.startswith(("test_", "conftest.", "fakes."))
 )
+
+
+def _is_flat_shared(name, module):
+    """Whether an imported module is one of shared-space-common's flat modules.
+
+    The path is compared REALPATH to REALPATH, and that is the whole point of this function
+    rather than a substring test inline. Every shared-space suite puts the layer on
+    ``sys.path`` as ``<its own dir>/../shared-space-common``, so the imported module's
+    ``__file__`` keeps the literal ``..`` segment and no substring of the normalised
+    directory appears anywhere in it. A substring test is therefore False for every flat
+    module, always — which is silent, because an empty snapshot restores nothing and a
+    fixture that restores nothing looks exactly like one with nothing to restore.
+
+    Args:
+      name: The module's ``sys.modules`` key.
+      module: The module object itself.
+
+    Returns:
+      True when the module is a flat shared-space module, False otherwise.
+
+    Raises:
+      None.
+    """
+    if name not in _FLAT_SHARED_MODULES:
+        return False
+    path = getattr(module, "__file__", "") or ""
+    return bool(path) and os.path.dirname(os.path.realpath(path)) == _SHARED_SPACE_REALPATH
 
 
 def _shared_modules():
@@ -84,14 +118,25 @@ def _shared_modules():
     Read from ``sys.modules`` rather than imported: a suite that never touches a layer
     should not pay to import it, and a module imported mid-test is out of scope for a
     snapshot taken before it existed.
+
+    Two matchers, and only one of them touches the filesystem. A LAYER package is
+    identified by its import name alone, which no ``sys.path`` spelling can change; a FLAT
+    shared-space module shares its bare name with modules elsewhere in the fleet, so it is
+    identified by the directory its file sits in as well.
+
+    Args:
+      None.
+
+    Yields:
+      Each imported module the snapshot fixture is responsible for restoring.
+
+    Raises:
+      None.
     """
     for name, module in list(sys.modules.items()):
         if module is None:
             continue
-        flat = name in _FLAT_SHARED_MODULES and _SHARED_SPACE_DIR in (
-            getattr(module, "__file__", "") or ""
-        )
-        if flat or name.split(".")[0] in _LAYER_PREFIXES:
+        if _is_flat_shared(name, module) or name.split(".")[0] in _LAYER_PREFIXES:
             yield module
 
 
