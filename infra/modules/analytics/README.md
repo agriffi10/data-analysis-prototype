@@ -6,7 +6,7 @@ Formation bootstrap the whole catalog model rests on**.
 | File | Holds |
 |---|---|
 | `athena.tf` | the shared workgroup and the IAM propagation guard |
-| `s3.tf` | the admin bucket, its **six** lifecycle rules and the `check` that pins them |
+| `s3.tf` | the admin bucket, its **nine** lifecycle rules and the `check` that pins them |
 | `iam.tf` | the LF registration role, and the portal role's analytics policy |
 | `lakeformation.tf` | data-lake settings, hybrid registration, the `portal-managed` LF-Tag and every tag grant |
 | `variables.tf` | the module interface |

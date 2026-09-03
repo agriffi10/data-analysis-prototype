@@ -158,7 +158,7 @@ The recurring non-scopable actions, each isolated in its own wildcard statement:
   here or the first apply fails on the rule rather than on anything to do with the plane's purpose**.
   The other is a **schedule**, which has nothing to do with a ceiling: `user-directory`,
   `observability` and `control-plane-dlq-drain` are all schedules, and **`shared-spaces` now holds
-  one too** — for the reader that picks operator-driven ownership transfers out of the admin bucket
+  one too** — for the reader that picks operator-driven membership changes out of the admin bucket
   — while that plane still carries no `TimeoutSeconds` at all. Reading the grant as evidence of a
   ceiling gets that plane exactly backwards.
 - **No data-quality workgroup grant.** Those verbs run in the **shared** portal Athena workgroup,

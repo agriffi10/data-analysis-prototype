@@ -61,7 +61,7 @@ module "functions" {
   ]
 }
 
-# ── The operator's transfer reader ────────────────────────────────────────────
+# ── The operator's request reader ─────────────────────────────────────────────
 # Deliberately NOT a row in local.shared_space_functions. That map's for_each hard-codes the
 # orchestrator role and one shared environment block, and the whole of this plane's operator
 # boundary is that a message declaring `origin: operator` is accepted only when the SenderId SQS
@@ -110,7 +110,7 @@ module "transfer_reader" {
 
 resource "aws_cloudwatch_event_rule" "transfer_schedule" {
   name                = local.transfer_schedule_name
-  description         = "Sweep the admin bucket's ownership-transfer inbox and enqueue one shared-space request per CSV row."
+  description         = "Sweep the admin bucket's operator-request inbox and enqueue one shared-space request per coalesced (space, action) group."
   schedule_expression = "rate(1 hour)"
 
   depends_on = [time_sleep.wait_for_deploy_policy]

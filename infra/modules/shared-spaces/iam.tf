@@ -80,11 +80,19 @@ resource "aws_iam_role_policy" "pipe" {
 # because a test supplies the SenderId itself.
 #
 # It reaches ONE prefix and ONE queue. It holds nothing on the registry: whether a space exists,
-# whether the named member belongs to it and whether the caller may transfer it are all the
+# whether the named member belongs to it and whether the caller may make the change are all the
 # validator's questions, and a reader that could answer them is a second authority that will
 # eventually disagree with the first. The ListBucket is conditioned to the same prefix its
 # objects live under — a role that cannot list a bucket is told AccessDenied rather than
 # NoSuchKey, so an absent inbox would read as a fault instead of an empty sweep.
+#
+# ⚠ THE PREFIX IN THAT POLICY IS THIS FUNCTION'S ROLLBACK FLOOR. The fleet's rollback lever is a
+# `Deploy Lambdas` dispatch at an earlier sha, which restores an older IMAGE but not older IAM —
+# so a sha from before the prefix moved restores a reader that lists `ownership-transfers/`,
+# which this policy denies. That failure is close to invisible: the listing raises outside any
+# handler try, the function is in no probe list, and the operator's only channel is its own log,
+# so it simply errors once an hour. Rolling this function back past that commit means reverting
+# the policy with it, and there is no dispatch that does the IAM half — it is a revert PR.
 resource "aws_iam_role" "transfer_reader" {
   name               = local.transfer_reader_role_name
   assume_role_policy = templatefile("${path.module}/policies/transfer-reader-trust.json.tftpl", {})
