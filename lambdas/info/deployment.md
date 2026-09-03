@@ -53,22 +53,39 @@ whole arc is written around.
 
 The cost is real and was paid deliberately: six shard jobs of ~15 functions on every `lambdas/**`
 push, against a median of four before. That is the price of the guarantee, and the reconciliation is
-what makes it worth paying — the `pointed` job compares the functions actually deployed against the
-deploy table by NAME, because a count tells you a number is wrong and the names tell you which
-functions are running last week's image.
+what makes it worth paying — the `pointed` job reconciles by NAME, because a count tells you a number
+is wrong and the names tell you which functions are running last week's image. It does so on **two**
+axes, and they read different things: what this commit's Terraform sources declare against what the
+shards recorded pointing (a function planned and never pointed), and those same sources against
+Terraform's applied state (a function deployed that this commit does not declare, running an image
+nobody pointed). The *Which functions exist* section below says why the two readers are different.
 
-## The layer machinery is still here, and nothing reaches it
+## The layer machinery is gone, and what is left is in AWS rather than in the repo
 
-`.github/lambda-layers.json` still describes the layers and `build-layer.sh` still knows how to
-build them. **Nothing deploys through any of it** — the attach script is already deleted, and the
-table survives only because the image assembler still reads it. `point-lambda.sh`'s zip branch
-is gone and a non-`Image` packaging is now refused by name, so there is no path from a deploy to a
-layer — and attaching a layer to a container function is an error anyway.
+There is no layer table, no layer build script and no attach loop. What a function can import is a
+property of the **image**, which `.github/scripts/lambda-image-matrix.sh` proves by importing every
+handler module inside it, through the real runtime bootstrap.
 
-It survives until SPEC-214, which deletes it against a coverage proof rather than on the strength of
-being unreachable. What a function can import is a property of the **image**, which
-`.github/scripts/lambda-image-matrix.sh` proves by importing every handler module inside it, through
-the real runtime bootstrap.
+**What decides the shared surface now is the tree.** `lambdas/docker/assemble.py` reads
+`lambdas/*-common/` and copies what each directory holds onto `/opt/python` — a package is a
+subdirectory with an `__init__.py`, a flat module is a top-level `.py` that is not a suite, a
+`conftest.py`, a `fakes.py` or an `__init__.py`. There is no list a module can be missing from,
+which was the whole failure the table made possible: a module on disk, absent from the list, never
+shipped, and raised `ModuleNotFoundError` at the next cold start behind a green suite and a green
+deploy. That cost nine days once.
+
+**A directory under `lambdas/` is therefore one of three things, and never by default.** It is a
+function (it holds a module defining a top-level `handler`), it is shared code (its name ends
+`-common`), or it is named in `assemble.NOT_SHARED` with the reason it is neither.
+`test_image_layout.py` fails on a directory that is none of the three, so a new one has to be
+classified before it can ship — shared code is deliberately **not** the default bucket, because a
+default makes that partition total by construction and its guard unable to fail.
+
+**Two things outlive the repo change and are removed separately.** The layer *versions* published by
+the old pipeline still exist in AWS, and the deploy role still holds the grants that published them.
+Nothing can reach either — attaching a layer to a container function is an error, and no workflow
+publishes one — but they are AWS state rather than repository state, so the destroy runs in CI (the
+deploy role holds `DeleteLayerVersion`; a local identity does not) and the grants come out after it.
 
 ## The deployed artefact is proved to start
 

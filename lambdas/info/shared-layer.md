@@ -1,6 +1,6 @@
 # The shared layer — `control-plane-common/cpcommon/`
 
-Every control-plane verb attaches this layer, and the API attaches it too. `cpcommon` owns the
+Every control-plane verb imports this code, and so does the API. `cpcommon` owns the
 **algorithm**; a domain layer owns its **wording**. The rule that keeps it that way, and the reason a
 domain layer must never import another, are in
 [`best-practices/lambdas/lambdas.md`](best-practices/lambdas/lambdas.md).
@@ -44,9 +44,9 @@ not need the rest. Where a claim is a settled project decision, the authority is
 `cpcommon/__init__.py` must not import anything, and this is load-bearing rather than
 tidiness (SPEC-137 FR-001).
 
-Anything imported from the package root runs for every function that attaches the layer,
-whether or not that function uses it. Three functions — `pre-signup`, `post-confirmation`
-and `notifications-writer` — attach the layer for one or two modules and set almost none of
+Anything imported from the package root runs for every function that imports `cpcommon` at
+all, whether or not that function uses it. Three functions — `pre-signup`, `post-confirmation`
+and `notifications-writer` — reach for one or two modules and set almost none of
 `cpcommon.config`'s environment.
 
 **The original reason was a fail-fast, and it expired.** `cpcommon.config` used to call
@@ -70,9 +70,10 @@ the six variables withheld (it sees what a module actually *touches*, including 
 module it never names). An in-process test can do neither, because `conftest.py` stamps the
 six variables before collection.
 
-The package is a package (`python/cpcommon/`) rather than flat modules so its module names
-(`config`, `auth`, …) cannot collide with the domain layers' or `shared-space-common`'s
-under one pytest run.
+The package is a package (`/opt/python/cpcommon/` in the image) rather than flat modules so its
+module names (`config`, `auth`, …) cannot collide with the domain layers' or
+`shared-space-common`'s under one pytest run — and, in one image where every function can resolve
+everything on `/opt/python`, cannot collide with a function's own modules either.
 
 ## `cpcommon/actor.py` — why the reader may not verify
 
@@ -140,7 +141,7 @@ wrong, and must not exist twice.
 This module imports **polars**, and `cpcommon` is reachable from every control-plane verb.
 
 > **The import barrier is GONE.** While the fleet shipped as zips, importing this from a verb
-> that did not also attach a polars layer was an `ImportError` at **cold start**, and only
+> that did not also carry a polars layer was an `ImportError` at **cold start**, and only
 > `table-builder-infer-schema` and `data-quality-inspect-source` carried polars. One image now
 > installs it once, so **every** function can import this file successfully. That is the
 > "strictly wider import surface" the container arc names as the one thing it makes worse.

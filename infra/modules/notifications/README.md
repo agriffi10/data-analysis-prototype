@@ -99,10 +99,10 @@ applied and propagated in an earlier deploy, so there is no self-grant race for 
 two-PR split is exactly what removes the need for the in-module propagation pause the shared-spaces
 module carries.
 
-## The layer import that was once impossible
+## The shared import that was once impossible
 
 The writer imports `cpcommon.auth` and `cpcommon.clients`, which it could not before: `cpcommon.config`
-`_require`d six variables **at import** and only three are set here, so the layer's auth was
+`_require`d six variables **at import** and only three are set here, so `cpcommon.auth` was
 unimportable and the function carried a second copy of the fleet's JWKS verifier. Config resolves on
 **first access** now, so the import is safe and only the variables actually read are needed. The
 three still absent — `ADMIN_BUCKET`, `SHARED_SPACE_BUCKET`, `ATHENA_WORKGROUP` — are absent on

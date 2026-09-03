@@ -84,9 +84,9 @@ those calls race the propagation.
 
 ## The `cpcommon` variable that is set and never read
 
-No shared-space verb uses it. It is set because the layer's config requires it and any code path may
-read it — **and it landed and applied *before* the code that imports `cpcommon` deployed**, so the
-layer attach can never arrive at a function whose environment cannot satisfy it.
+No shared-space verb uses it. It is set because `cpcommon`'s config requires it and any code path may
+read it — **and it landed and applied *before* the code that imports `cpcommon` deployed**, which is
+the ordering that stopped a function ever reaching shared code its environment could not satisfy.
 
 `NOTIFICATIONS_QUEUE_URL` is deliberately **not** mirrored by a `config._require`: a verb that loses it
 must **log to stdout and keep working**, never crash the plane at cold start.

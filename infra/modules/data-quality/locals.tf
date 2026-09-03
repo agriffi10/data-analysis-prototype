@@ -27,8 +27,10 @@ locals {
   #
   # ⚠ Modules are dq_<verb>.py, NEVER a uniform handler.py: pytest flattens every verb
   # directory into ONE module namespace, so nine handler.py files mean the first import wins
-  # and the tests assert against the wrong module. The `handler` string here also drives the
-  # placeholder filename, so this map and the source file MUST move together. README.md.
+  # and the tests assert against the wrong module — and the image gives the whole fleet ONE
+  # task root, where a repeated module name does not collide but silently wins. The `handler`
+  # string here is the image's command, so this map and the source file MUST move together.
+  # README.md.
   data_quality_functions = {
     "validate-authorize"  = { handler = "dq_validate_authorize.handler", timeout = 15, memory = 256 }
     "inspect-source"      = { handler = "dq_inspect_source.handler", timeout = 120, memory = 1024 }

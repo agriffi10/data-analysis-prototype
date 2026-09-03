@@ -502,7 +502,7 @@ module "auth" {
   # Identity-Pool shared_space_1..N principal-tag mappings.
   max_shared_memberships = var.max_shared_memberships
 
-  # Both triggers attach the cpcommon layer for `observability` and emit
+  # Both triggers import `cpcommon.observability` and emit
   # under service="auth". CONSTRUCTED strings, not module.observability's outputs — that
   # module consumes user_pool_id from this one, so a real reference is a module cycle.
   logs_queue_arn = local.logs_queue_arn
@@ -610,9 +610,9 @@ module "lambda_artifacts" {
   depends_on = [module.base]
 }
 
-# The Lambda container image's registry. Nothing is deployed from it yet — the fleet still ships
-# as zips with layers — so this creates a repository and stops. The image, its behaviour matrix
-# and the pipeline that fills this are the rest of the arc.
+# The Lambda container image's registry. Every function in the fleet runs an image from it; the
+# image, its behaviour matrix and the pipeline that fills this live outside Terraform, which owns
+# the repository and its lifecycle bound and nothing else.
 module "lambda_image" {
   source = "./modules/lambda-image"
 
@@ -812,7 +812,7 @@ module "notifications" {
   # A resource attribute rather than a name: SenderId carries the unique ID and nothing else.
   portal_role_unique_id = module.data.portal_role_unique_id
 
-  # The writer attaches the cpcommon layer for `observability` and emits
+  # The writer imports `cpcommon.observability` and emits
   # under service="notifications". A real reference is safe here (unlike module.auth's —
   # module.observability does not consume anything from this module), so it also orders
   # the queue's creation before the grant that scopes to it.
@@ -849,7 +849,7 @@ module "feedback" {
   # rule expires it, and a test asserts no expiring rule's prefix could ever match it.
   admin_bucket_name = local.athena_admin_bucket_name
 
-  # The writer attaches the cpcommon layer for `observability` and emits under service="feedback".
+  # The writer imports `cpcommon.observability` and emits under service="feedback".
   # A real reference is safe here (module.observability consumes nothing from this module), so it
   # also orders the logs queue's creation before the grant that scopes to it.
   logs_queue_arn = module.observability.logs_queue_arn

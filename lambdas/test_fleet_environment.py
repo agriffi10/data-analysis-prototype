@@ -15,8 +15,8 @@ config module requires the same names through a different map; and it is too str
 planes that legitimately set three — archive, file-ops and file-send reach no Athena workgroup
 on any branch, and their Terraform omitting it is correct rather than drift. So each function's
 demand is the set of required names its import closure can actually reach through a fail-fast
-reader, walked from its own modules through exactly the layers the deployment manifest attaches
-to it. What a function cannot reach, it cannot be broken by.
+reader, walked from its own modules through every shared source — which is what the image puts on
+its path. What a function cannot reach, it cannot be broken by.
 
 **That computation is also what replaces an exemption list.** Four functions — the ones
 ``test_layer_import_safety`` calls the singletons — attach the shared layer for its logging and a
@@ -646,8 +646,8 @@ def test_every_function_exempt_from_the_required_set_demands_nothing():
     out the exempt four, and the converse would be false. What is asserted is the half that can
     go wrong: an exempt function must not have grown a demand.
 
-    The functions that attach the layer for its logging alone set almost none of the required
-    set. Naming them in a list here would be a coupling that keeps passing after one of them
+    The functions that reach for `cpcommon` for its logging alone set almost none of the
+    required set. Naming them in a list here would be a coupling that keeps passing after one of them
     grows a read — the exemption would then be hiding a real requirement rather than recording
     an absent one. So the list is imported from the suite that already owns that property, and
     what is asserted is that the two agree: each of those functions demands nothing, and its
@@ -658,7 +658,7 @@ def test_every_function_exempt_from_the_required_set_demands_nothing():
     still_demanding = {name: sorted(demand(name)) for name in SINGLETONS if demand(name)}
 
     assert not still_demanding, (
-        f"{still_demanding} attach the layer for logging alone and set almost none of the "
+        f"{still_demanding} import cpcommon for logging alone and set almost none of the "
         f"required set, yet now reach one. Either the read is a mistake or the function's "
         f"Terraform must start setting the variable — the exemption cannot simply absorb it"
     )

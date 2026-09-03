@@ -17,7 +17,20 @@ Attributes:
   ROOT: The repository root.
   LAMBDAS: The Lambda source tree.
   DOCKERFILE: The image recipe, read as text by the reproducibility guard.
-  LAYER_TABLE: The declaration of what shared code exists, which the assembler reads.
+  SHARED_SOURCES: The directories whose contents make up `/opt/python`, DECLARED here rather than
+    asked of the assembler. An expectation derived from the thing under test cannot see a shrink:
+    delete a shared source and both sides lose it together, and the comparison agrees.
+  SHARED_PACKAGES / SHARED_FLAT_MODULES: What those directories publish, declared for the same
+    reason and at the granularity that matters. Pinning the directories alone leaves the CONTENTS
+    unpinned in both directions, and both were reachable: a stray package added inside a shared
+    source ships to all 86 functions, and a deleted flat module vanishes — in each case the walk
+    below and the assembler move together and agree. Measured on a planted
+    `table-builder-common/helpers/` and a deleted `shared-space-common/teardown.py`, each of which
+    left the whole suite green. Under the layer table these were a table entry and a `LayoutError`
+    respectively; nothing replaced either until this pair.
+  NOT_SHIPPED: What a shared source does not publish, written out here rather than imported from
+    the assembler for the same reason — it is the expectation, and an expectation that moves when
+    the rule moves is not one.
   MATRIX_SCRIPT: The behaviour matrix, whose fixture environment is compared against what the
     fleet actually reads at import time.
   RUNTIME_PROVIDED_ENV: Variables the Lambda runtime sets on every invocation, which the matrix
@@ -32,9 +45,10 @@ Attributes:
 """
 
 import ast
-import json
 import pathlib
 import re
+import shutil
+import subprocess
 import sys
 
 import pytest
@@ -42,8 +56,37 @@ import pytest
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 LAMBDAS = ROOT / "lambdas"
 DOCKERFILE = LAMBDAS / "Dockerfile"
-LAYER_TABLE = ROOT / ".github" / "lambda-layers.json"
 MATRIX_SCRIPT = ROOT / ".github" / "scripts" / "lambda-image-matrix.sh"
+
+SHARED_SOURCES = (
+    "archive-common",
+    "control-plane-common",
+    "data-quality-common",
+    "file-ops-common",
+    "file-send-common",
+    "shared-space-common",
+    "table-builder-common",
+    "table-share-common",
+)
+NOT_SHIPPED = ("test_", "conftest.py", "fakes.py", "__init__.py")
+
+SHARED_PACKAGES = frozenset(
+    {"arcommon", "cpcommon", "dqcommon", "focommon", "fscommon", "tbcommon", "tscommon"}
+)
+SHARED_FLAT_MODULES = frozenset(
+    {
+        "auth",
+        "cache",
+        "casio",
+        "config",
+        "membership",
+        "membership_index",
+        "messages",
+        "notify",
+        "registry",
+        "teardown",
+    }
+)
 
 RUNTIME_PROVIDED_ENV = frozenset({"AWS_REGION", "AWS_DEFAULT_REGION"})
 HARNESS_ONLY_ENV = frozenset({"AWS_LAMBDA_FUNCTION_TIMEOUT"})
@@ -54,146 +97,90 @@ import assemble
 import fleet
 
 
-def _table() -> list[dict]:
-    """Reads the layer table.
+def _publishes(directory: pathlib.Path) -> tuple[set[str], set[str]]:
+    """What one shared source directory puts on `/opt/python`, walked independently.
+
+    A second implementation of `assemble.shared_layout`'s inner rule, on purpose. The point of
+    the comparison below is that two derivations agree; importing the assembler's own walk would
+    make it one derivation compared with itself, which passes however wrong it is. When the two
+    diverge this reddens — including when someone widens `assemble.NOT_SHIPPED` and a real module
+    silently stops shipping.
+
+    That last case is **mostly** covered elsewhere, and the measurement is worth stating rather
+    than the usual over-claim: nine of the ten flat modules are imported at module scope by a
+    handler outside `*-common/`, so dropping one raises `ModuleNotFoundError` in the image
+    matrix's own import block. `casio` is the tenth and has no such importer. What this guard
+    adds for the other nine is not coverage but LATENCY — it reddens in the pytest job, seconds
+    in, rather than after a Docker build.
 
     Args:
-      None.
+      directory: One shared source directory.
 
     Returns:
-      Its entries.
+      Its package names, and its flat module names.
 
     Raises:
       None.
     """
-    return json.loads(LAYER_TABLE.read_text())
-
-
-def test_the_shared_layout_is_exactly_what_the_layer_table_declares() -> None:
-    """`/opt/python` must hold every layer package and flat module, and nothing invented.
-
-    This is the guard SPEC-214 inherits rather than deletes: when the layer table goes, this
-    expectation repoints at the layer source directories. It is named here so the coupling is
-    visible from both ends.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When the assembler and the table disagree.
-    """
-    packages, flat = assemble.shared_layout(ROOT)
-    expected_packages = {pathlib.Path(e["package"]).name for e in _table() if e.get("package")}
-    expected_flat = {m for e in _table() if e.get("sourceDir") for m in e.get("modules", [])}
-
-    assert expected_packages, "the layer table declares no packages — it is not being read."
-    assert expected_flat, "the layer table declares no flat modules — it is not being read."
-    assert set(packages) == expected_packages
-    assert set(flat) == expected_flat
-
-
-#: Layer source directories packaged by an EXPLICIT per-file module list (a ``modules`` key in the
-#: layer table), mapped to nothing — the set is what matters. Every other layer copies a whole
-#: package directory, so a new module there ships automatically and there is no list to drift from.
-EXPLICIT_COPY_LISTS = {"shared-space-common"}
-
-#: Files under a layer source directory that are deliberately NOT shipped.
-_NOT_SHIPPED = ("test_", "conftest.py", "fakes.py", "__init__.py")
-
-
-def _copy_list(directory: str) -> set[str]:
-    """The module names the layer table lists for one source directory.
-
-    Args:
-      directory: The layer source directory's name.
-
-    Returns:
-      The listed module names.
-
-    Raises:
-      AssertionError: When the table has no entry for it, or the entry names no modules — either
-        way the comparison below would have nothing to compare and would pass.
-    """
-    for entry in _table():
-        if entry.get("sourceDir", "").endswith(directory):
-            listed = set(entry.get("modules", []))
-            assert listed, f"the layer entry for {directory} names no modules"
-            return listed
-    raise AssertionError(f"no layer entry with a sourceDir for {directory} in {LAYER_TABLE.name}")
-
-
-def test_the_layer_copy_list_matches_the_layer_directory() -> None:
-    """The explicit module list and the directory it is built from agree, both directions.
-
-    **This is the guard SPEC-137 cost this project nine days of broken sign-ups to learn.** All ten
-    flat modules ship behind ONE table entry, so nothing that reasons about the ENTRY can see
-    whether a given module reached `/opt/python`: a module added to the directory and left out of
-    the list simply never ships, and the function importing it raises `ModuleNotFoundError` at cold
-    start, after a green suite and a green deploy.
-
-    **It lives here because its previous home was deleted a PR too early.** It was in
-    `test_deploy_matrix.py`, which went when the FUNCTION table did — and the reasoning that
-    retired it ("there is no list any more, the assembler copies the directory") is true of where
-    this spec ENDS, not of here: `assemble.shared_layout` still reads this list. Measured on the
-    commit that dropped it: a module planted on disk and absent from the list passed all 2,388
-    tests, and importing it lazily from a verb passed the image's behaviour matrix too. The guard
-    goes when the list does, and not before.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: If the list and the directory disagree in either direction.
-    """
-    for directory in sorted(EXPLICIT_COPY_LISTS):
-        listed = _copy_list(directory)
-        on_disk = {
-            path.stem
-            for path in (LAMBDAS / directory).glob("*.py")
-            if not path.name.startswith(_NOT_SHIPPED)
-        }
-        assert listed == on_disk, (
-            f"{directory}'s copy list and its directory disagree: only in the list "
-            f"{sorted(listed - on_disk)}, only on disk {sorted(on_disk - listed)}. A module on "
-            "disk and not in the list never reaches /opt/python, and the function importing it "
-            "raises ModuleNotFoundError at cold start"
-        )
-
-
-def test_no_unchecked_explicit_copy_list_was_added() -> None:
-    """A second layer built from a hand-written list would be exempt by omission.
-
-    `EXPLICIT_COPY_LISTS` is what the test above iterates, so a new `modules` entry that nobody
-    adds here ships with no agreement check at all — the same silent exemption that cost this
-    fleet an outage once already.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: If a layer names a module list and is not declared here.
-    """
-    declared = {
-        pathlib.Path(entry["sourceDir"]).name for entry in _table() if entry.get("modules")
+    packages = {
+        child.name
+        for child in directory.iterdir()
+        if child.is_dir() and (child / "__init__.py").is_file()
     }
-    assert declared == EXPLICIT_COPY_LISTS, (
-        f"layers built from an explicit module list: {sorted(declared)}, declared here: "
-        f"{sorted(EXPLICIT_COPY_LISTS)}. An undeclared one is exempt from the agreement check "
-        "above, which is the whole failure this pair exists to prevent"
+    flat = {
+        child.stem
+        for child in directory.iterdir()
+        if child.is_file() and child.suffix == ".py" and not child.name.startswith(NOT_SHIPPED)
+    }
+    return packages, flat
+
+
+def test_the_declared_shared_sources_are_the_ones_the_assembler_finds() -> None:
+    """The population of `/opt/python`'s sources is pinned, so a deletion cannot pass quietly.
+
+    Everything else about the shared layout is now derived from the tree, which is what retired
+    the layer table and the whole class of failure where a module on disk is missing from a list.
+    A derived expectation has one blind spot the table did not: it shrinks with the thing it
+    measures. Delete `archive-common` and `assemble.shared_sources` returns seven directories, an
+    expectation asking it the same question returns seven, and they agree. This is the one place
+    that answer is written down instead.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a declared source is missing, or an undeclared one has appeared.
+    """
+    for name in SHARED_SOURCES:
+        assert (LAMBDAS / name).is_dir(), (
+            f"{name} is declared as a shared source and is not a directory. Every function that "
+            "imports from it fails at cold start on an image built from this tree."
+        )
+    found = {directory.name for directory in assemble.shared_sources(LAMBDAS)}
+    assert found == set(SHARED_SOURCES), (
+        f"the assembler finds {sorted(found)} shared sources; this file declares "
+        f"{sorted(SHARED_SOURCES)}. Only found: {sorted(found - set(SHARED_SOURCES))}. Only "
+        f"declared: {sorted(set(SHARED_SOURCES) - found)}."
     )
 
 
-def test_every_declared_layer_source_exists() -> None:
-    """A table entry naming a source that is gone must fail here, not at a cold start.
+def test_the_shared_layout_is_exactly_what_the_shared_sources_publish() -> None:
+    """`/opt/python` must hold every shared package and flat module, and nothing invented.
+
+    This is the guard SPEC-214 inherited rather than deleted. It asked the layer table what the
+    answer should be; the table is gone, so it asks the source directories on disk — walked here
+    rather than through the assembler, so the two sides remain two.
+
+    **Three sides, not two, and the third is what a derived expectation cannot give.** The walk
+    catches the assembler computing the wrong answer from a right tree — widen
+    `assemble.NOT_SHIPPED` and it reddens. It cannot catch the TREE changing, because the walk
+    changes with it: add a package inside a shared source and both sides gain it, delete a flat
+    module and both sides lose it, and the comparison agrees either way. So what is published is
+    declared here as well. Adding shared code that the whole fleet can import is then a
+    deliberate two-line change rather than a side effect of dropping a file in a directory.
 
     Args:
       None.
@@ -202,11 +189,152 @@ def test_every_declared_layer_source_exists() -> None:
       None.
 
     Raises:
-      AssertionError: Propagated from the resolver, which checks each source as it reads it.
+      AssertionError: When the assembler, the directories and the declaration do not all agree.
     """
     packages, flat = assemble.shared_layout(ROOT)
-    for name, source in {**packages, **flat}.items():
-        assert source.exists(), f"{name} resolves to {source}, which does not exist"
+
+    walked_packages: set[str] = set()
+    walked_flat: set[str] = set()
+    for name in SHARED_SOURCES:
+        directory_packages, directory_flat = _publishes(LAMBDAS / name)
+        walked_packages |= directory_packages
+        walked_flat |= directory_flat
+
+    assert walked_packages, "the shared sources publish no package — the walk is not working."
+    assert walked_flat, "the shared sources publish no flat module — the walk is not working."
+
+    assert walked_packages == set(SHARED_PACKAGES), (
+        f"the shared source directories hold packages {sorted(walked_packages)}; this file "
+        f"declares {sorted(SHARED_PACKAGES)}. Everything under a `*-common/` directory reaches "
+        "/opt/python for all 86 functions, so a package appearing there is a change to the "
+        "fleet's whole import surface and is declared here deliberately."
+    )
+    assert walked_flat == set(SHARED_FLAT_MODULES), (
+        f"the shared source directories hold flat modules {sorted(walked_flat)}; this file "
+        f"declares {sorted(SHARED_FLAT_MODULES)}. A flat module that disappears is an import "
+        "failure at cold start for whoever used it; one that appears is a new top-level name "
+        "every function in the fleet can resolve."
+    )
+
+    assert set(packages) == walked_packages, (
+        f"the assembler puts {sorted(packages)} on /opt/python; the shared sources hold "
+        f"{sorted(walked_packages)}. A package the assembler drops is a ModuleNotFoundError at "
+        "the first cold start of every function that imports it."
+    )
+    assert set(flat) == walked_flat, (
+        f"the assembler puts {sorted(flat)} on /opt/python as flat modules; the shared sources "
+        f"hold {sorted(walked_flat)}."
+    )
+
+
+def _classifiable_directories() -> set[str]:
+    """Every directory directly under `lambdas/` that git does not ignore.
+
+    Scoped by `git check-ignore` rather than by `git ls-files`, and the difference matters in both
+    directions. `lambdas/htmlcov/` is a coverage report — gitignored, but not hidden, so a name
+    filter would sweep it in. A directory added in the working tree and not yet staged is the
+    opposite case: `git ls-files` cannot see it, so a new plane's source would sit unclassified
+    until someone ran `git add`, which is exactly when nobody is looking at the test output.
+
+    Args:
+      None.
+
+    Returns:
+      The directory names to classify.
+
+    Raises:
+      AssertionError: When git cannot answer. A failed command returns no output, and no output
+        subtracts to nothing — a broken read would otherwise leave every directory looking clean.
+    """
+    on_disk = sorted(
+        directory.name
+        for directory in LAMBDAS.iterdir()
+        if directory.is_dir() and not directory.name.startswith((".", "_"))
+    )
+    assert len(on_disk) > 50, (
+        f"only {len(on_disk)} directories found under lambdas/ — the fleet is 86 functions plus "
+        "its shared sources, so this walk has stopped working and the partition below would be "
+        "over almost nothing."
+    )
+
+    git = shutil.which("git") or "git"
+    finished = subprocess.run(  # noqa: S603 — resolved binary, arguments built here
+        [git, "check-ignore", "--stdin"],
+        cwd=ROOT,
+        input="\n".join(f"lambdas/{name}" for name in on_disk),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert finished.returncode in (0, 1), (
+        f"`git check-ignore` exited {finished.returncode}: {finished.stderr.strip()!r}. It reports "
+        "0 when something is ignored and 1 when nothing is; anything else means the read failed, "
+        "and a failed read here reports every directory as classifiable."
+    )
+    ignored = {
+        line.split("/", 1)[1] for line in finished.stdout.splitlines() if line.startswith("lambdas/")
+    }
+    return set(on_disk) - ignored
+
+
+def test_every_directory_under_lambdas_is_a_function_shared_code_or_named_exempt() -> None:
+    """The partition has to be total, and it is not total by construction.
+
+    The assembler decides what a directory is by asking two positive questions — does it hold a
+    module defining a top-level `handler`, and does its name end in `-common` — and everything
+    else is named in `assemble.NOT_SHARED` with a reason. Nothing is a default, and that is the
+    whole design: an earlier draft made shared code the default bucket, which made the partition
+    total by construction and this guard unable to fail. Measured on a planted
+    `lambdas/notes-scratch/`, which joined `/opt/python` in silence.
+
+    So a new directory has to be classified before it can ship. It is a function, or it is shared
+    code every function in the fleet can import, or someone says in one line why it is neither.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a directory is none of the three, or an exemption names one that has
+        gone.
+    """
+    directories = _classifiable_directories()
+    functions = set(assemble.function_directories(LAMBDAS))
+    shared = {directory.name for directory in assemble.shared_sources(LAMBDAS)}
+    exempt = set(assemble.NOT_SHARED)
+
+    assert functions and shared, (
+        f"{len(functions)} function directories and {len(shared)} shared sources resolved. With "
+        "either side empty the subtraction below reports every directory as unclassified or none "
+        "of them, and neither answer is a measurement."
+    )
+
+    unclassified = sorted(directories - functions - shared - exempt)
+    assert not unclassified, (
+        f"{unclassified} under lambdas/ are neither a function directory, a shared source, nor "
+        f"named in assemble.NOT_SHARED. A directory the assembler cannot classify is one whose "
+        "contents reach the image, or fail to, by accident — add a handler, rename it to "
+        f"*{assemble.SHARED_SUFFIX}, or name it in NOT_SHARED with its reason."
+    )
+
+    vanished = sorted(exempt - directories)
+    assert not vanished, (
+        f"{vanished} are named in assemble.NOT_SHARED and are not directories under lambdas/. An "
+        "exemption for something that is gone reads as coverage and provides none — and if the "
+        "directory was renamed rather than deleted, the new name is now unclassified and this "
+        "test would have said so."
+    )
+
+    contradicted = sorted(exempt & (functions | shared))
+    assert not contradicted, (
+        f"{contradicted} are named in assemble.NOT_SHARED and are also a function directory or a "
+        "shared source. The partition has to be DISJOINT as well as total: a subtraction is "
+        "satisfied by an over-wide exemption exactly as it is by a correct one, so an entry "
+        "claiming a live shared source contributes nothing would pass while documenting the "
+        "opposite of what the assembler does with it."
+    )
 
 
 def test_no_two_function_directories_collide_in_the_task_root() -> None:
@@ -487,18 +615,24 @@ def test_each_import_time_variable_is_read_by_a_module_that_exists(name: str) ->
     assert (LAMBDAS / module).is_file(), f"{name} was reported from {module}, which is missing"
 
 
-def _tree(tmp_path: pathlib.Path, layers: list[dict], functions: dict[str, dict]) -> pathlib.Path:
+def _tree(
+    tmp_path: pathlib.Path,
+    functions: dict[str, dict],
+    shared: dict[str, dict] | None = None,
+) -> pathlib.Path:
     """Builds a miniature repository the assembler can be pointed at.
 
     Built under ``tmp_path`` and never under ``lambdas/``, deliberately. A fixture module written
     into the real tree would be copied into the image by the assembler, would be reported by the
-    sweep in ``test_flat_layer_imports`` that it is meant to validate, and would show up in a diff
-    this spec promises leaves ``lambdas/**/*.py`` unchanged.
+    sweep in ``test_flat_layer_imports`` that it is meant to validate, and would be classified by
+    the partition guard above as a directory nobody named.
 
     Args:
       tmp_path: pytest's per-test temporary directory.
-      layers: Layer-table entries to write.
       functions: Directory name to a map of relative path to file contents.
+      shared: Shared source directory name to the same, for the refusals that need one. Names
+        here have to end in the assembler's shared suffix or they are not shared sources at all,
+        which would make a refusal test pass for the wrong reason.
 
     Returns:
       The repository root of the miniature tree.
@@ -506,11 +640,11 @@ def _tree(tmp_path: pathlib.Path, layers: list[dict], functions: dict[str, dict]
     Raises:
       None.
     """
-    (tmp_path / ".github").mkdir()
-    (tmp_path / ".github" / "lambda-layers.json").write_text(json.dumps(layers))
-    for name, files in functions.items():
+    for name, files in {**functions, **(shared or {})}.items():
+        directory = tmp_path / "lambdas" / name
+        directory.mkdir(parents=True, exist_ok=True)
         for relative, contents in files.items():
-            path = tmp_path / "lambdas" / name / relative
+            path = directory / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(contents)
     return tmp_path
@@ -538,7 +672,6 @@ def test_the_assembler_refuses_two_directories_contributing_one_path(
     """
     repo = _tree(
         tmp_path,
-        [],
         {
             "alpha": {"alpha.py": HANDLER, "shared/util.py": "X = 1\n"},
             "beta": {"beta.py": HANDLER, "shared/util.py": "X = 2\n"},
@@ -552,32 +685,20 @@ def test_the_assembler_refuses_two_directories_contributing_one_path(
     )
 
 
-def test_the_assembler_refuses_a_layer_package_that_is_not_there(
+def test_the_assembler_refuses_a_shared_source_that_publishes_nothing(
     tmp_path: pathlib.Path,
 ) -> None:
-    """A table entry naming a source that has gone must fail the BUILD.
+    """A shared source contributing nothing must fail the BUILD, and must be named.
 
-    Args:
-      tmp_path: pytest's per-test temporary directory.
+    **This replaces the two refusals the layer table used to own.** Those fired when the table
+    named a package or a module that was not on disk, and the table is gone: there is no name to
+    be wrong any more, because a shared directory now ships what it contains. What is left is the
+    case that survived the change — a directory that is a shared source and publishes nothing —
+    which is the shape of one that has been emptied or renamed. The layer build refused it for
+    the same reason: an empty layer published fine and failed every function that attached it.
 
-    Returns:
-      None.
-
-    Raises:
-      None.
-    """
-    repo = _tree(tmp_path, [{"flag": "ghost", "package": "lambdas/ghost-common/ghost"}], {})
-    with pytest.raises(assemble.LayoutError, match="ghost"):
-        assemble.shared_layout(repo)
-
-
-def test_the_assembler_refuses_a_flat_module_that_is_not_there(
-    tmp_path: pathlib.Path,
-) -> None:
-    """The same for the one layer packaged by an explicit module list.
-
-    That list is the single thing in the layer build that can silently drift from its source
-    directory, which is why it is refused rather than skipped.
+    The fixture holds a healthy shared source beside the broken one, so a refusal that fired for
+    any other reason would name the wrong directory and this would still catch it.
 
     Args:
       tmp_path: pytest's per-test temporary directory.
@@ -590,9 +711,103 @@ def test_the_assembler_refuses_a_flat_module_that_is_not_there(
     """
     repo = _tree(
         tmp_path,
-        [{"flag": "layer", "sourceDir": "lambdas/flat-common", "modules": ["absent"]}],
-        {},
+        {"alpha": {"alpha.py": HANDLER}},
+        shared={
+            "good-common": {"goodpkg/__init__.py": "", "goodpkg/thing.py": "X = 1\n"},
+            "ghost-common": {"conftest.py": "", "test_ghost.py": "", "__init__.py": ""},
+        },
     )
-    with pytest.raises(assemble.LayoutError, match="absent"):
+    with pytest.raises(assemble.LayoutError) as raised:
         assemble.shared_layout(repo)
+    message = str(raised.value)
+    assert "ghost-common" in message and "contributes nothing" in message, (
+        f"the refusal does not name the empty shared source and its reason: {message}"
+    )
+    assert "good-common" not in message, (
+        f"the refusal names the healthy shared source: {message}. It fired for something other "
+        "than the empty directory, so this test would pass with the guard it is meant to prove "
+        "removed."
+    )
 
+
+def test_the_assembler_refuses_two_shared_sources_publishing_one_name(
+    tmp_path: pathlib.Path,
+) -> None:
+    """`/opt/python` is one namespace, so a repeated name is a silent win, not a collision.
+
+    **This refusal is new with the layer table's retirement, and it is new because the hazard is.**
+    The table published a named package per entry and one explicit module list, so a `.py` dropped
+    into another shared directory reached nothing at all. Now every `*-common/` directory publishes
+    what it holds, and two publishing one name resolve by directory sort order: the loser never
+    ships and every function in the fleet imports the winner. Measured before this guard existed —
+    a planted `table-builder-common/config.py` shadowed `shared-space-common`'s `config` for the
+    whole fleet, the flat NAME set was unchanged so every layout guard compared equal, and the
+    suite stayed green at 2385 passed.
+
+    `task_root_layout` has refused the same hazard on the other half of the search path since the
+    image was built. This is its `/opt/python` half.
+
+    Args:
+      tmp_path: pytest's per-test temporary directory.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    repo = _tree(
+        tmp_path,
+        {"alpha": {"alpha.py": HANDLER}},
+        shared={
+            "first-common": {"config.py": "X = 1\n"},
+            "second-common": {"config.py": "X = 2\n"},
+        },
+    )
+    with pytest.raises(assemble.LayoutError) as raised:
+        assemble.shared_layout(repo)
+    message = str(raised.value)
+    assert "first-common" in message and "second-common" in message, (
+        f"the refusal names fewer than both owners: {message}. Which directories collide is the "
+        "only thing the reader needs and the only thing they cannot work out from the name."
+    )
+    assert "config" in message, f"the refusal does not name the colliding name: {message}"
+
+
+def test_a_package_and_a_flat_module_cannot_share_a_name(tmp_path: pathlib.Path) -> None:
+    """The two kinds compete in the same namespace, so the guard cannot be per-kind.
+
+    A package directory and a top-level module publishing one name both land in `/opt/python`, and
+    the package wins the import. Keeping one owner map rather than one per kind is what makes this
+    reachable; two maps would let this pair through while refusing each kind against itself.
+
+    Args:
+      tmp_path: pytest's per-test temporary directory.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    repo = _tree(
+        tmp_path,
+        {"alpha": {"alpha.py": HANDLER}},
+        shared={
+            "first-common": {"shared/__init__.py": "", "shared/thing.py": "X = 1\n"},
+            "second-common": {"shared.py": "X = 2\n"},
+        },
+    )
+    with pytest.raises(assemble.LayoutError) as raised:
+        assemble.shared_layout(repo)
+    message = str(raised.value)
+    assert "both publish" in message, (
+        f"a LayoutError was raised, but not the collision one: {message}. `shared_layout` has two "
+        "refusals and the other one — an empty shared source — says 'is a shared source and "
+        "contributes nothing', so matching on a fixture name or on the word 'shared' catches "
+        "either. Measured: with every flat module suppressed this test passed while its sibling "
+        "correctly failed."
+    )
+    assert "first-common" in message and "second-common" in message, (
+        f"the refusal names fewer than both owners: {message}"
+    )

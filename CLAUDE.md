@@ -82,9 +82,9 @@ recorded nowhere else** — when a spec closes, prune here rather than appending
 
 ### Current work
 
-- **Container Lambdas (214 in progress)** — a DELETION, so its risk is a guard nobody misses. The
-  function table is gone; left are the layer table (the image ASSEMBLER reads it), the layer
-  versions and their grants, in that order — the destroy needs `DeleteLayerVersion`. `ARCS.md`.
+- **Container Lambdas (214 in progress)** — a DELETION, so its risk is a guard nobody misses. Both
+  tables are gone; left are the published layer versions and their grants, in that order — the
+  destroy needs `DeleteLayerVersion`. `ARCS.md`.
 
 
 ## Key Decisions (settled — don't re-litigate)
@@ -273,8 +273,7 @@ DLQ lets one malformed request dead-letter someone else's work.
   no actor, no token), and hoisting the reader above that branch refuses **every notification the
   fleet produces**, silently.
 - **`cpcommon` owns the algorithm; a domain layer owns its wording.** Do **NOT** merge the domain
-  layers wholesale. Where a layer is packaged by an explicit file list, a test asserts **set
-  equality** with the directory — completing a flag map closes nothing.
+  layers wholesale.
 - **A notification's optional `link` is gated by `isSafeInAppPath`**, and a route that renders one
   must not become an existence oracle: the data-quality report view takes its space **from the route,
   never derived**, and an unreachable space renders denied while issuing **no S3 request at all**.
@@ -440,7 +439,8 @@ only reads; the API enqueues on its behalf.
   exact-match, or a probe falls through and a broken container reads healthy.
 - **ONE image, and all 86 Lambdas now RUN it** — shared code on `/opt/python`, function
   modules flat at the task root, **dependencies deliberately in site-packages** so the layout
-  guard is a real set equality. One shared task root is the new hazard: a duplicate name does not
+  guard is a real set equality. **Shared code is what `lambdas/*-common/` HOLDS**, no list to be
+  missing from, and a directory that is neither that nor a function is REFUSED, never defaulted. One shared task root is the new hazard: a duplicate name does not
   collide, it **silently wins** for the whole fleet, so collisions and shadowing are asserted
   **against the built image**. The import sweep runs through the runtime's **own bootstrap** —
   `--entrypoint python` omits `/opt/python`, and a reconstructed path that is a superset passes

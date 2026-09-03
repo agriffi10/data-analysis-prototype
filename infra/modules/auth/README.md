@@ -114,7 +114,7 @@ moves to 6.x.
 - **`post-confirmation`** creates the user's Glue database (named exactly as the username) and
   Lake-Formation-grants the shared portal role on it, so its role carries Glue + LF on top of logs.
 
-Both attach the `cpcommon` layer for **one import — `observability`** — and emit under
+Both reach into `cpcommon` for **one import — `observability`** — and emit under
 `service="auth"`. **None of the six variables `cpcommon.config` requires is set on either**,
 deliberately: `observability` never reaches `config`. That was once enforced by a crash at import;
 config resolves on **first access** now, so the guard is no longer "does the import crash" but "does

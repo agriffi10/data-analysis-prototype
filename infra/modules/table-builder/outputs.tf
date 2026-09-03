@@ -14,7 +14,7 @@ output "state_machine_arn" {
 }
 
 output "polars_layer_name" {
-  description = "Name of the polars Lambda layer CI builds + publishes (attached to infer-schema). The version ARN is produced by deploy-lambdas.yml, not Terraform (the layer artifact is too large to vendor — same CI-owned pattern as shared-space-common)."
+  description = "Name of the polars Lambda layer CI built and published while the fleet was zip-packaged (attached to infer-schema, because the artifact was too large to vendor into Terraform; the image installs polars once for the whole fleet instead). Nothing builds or publishes a layer any more — the name survives so the published versions can be found and destroyed, and it goes with the deploy-role wildcard it was shaped to match."
   value       = local.polars_layer_name
 }
 

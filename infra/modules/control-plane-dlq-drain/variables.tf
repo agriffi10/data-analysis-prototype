@@ -50,7 +50,7 @@ variable "notifications_queue_url" {
 }
 
 variable "user_space_bucket_name" {
-  description = "Not used by the drain. Required by the cpcommon layer's config, which resolves on first READ rather than at import — so a missing value is no longer a cold-start crash but a failure on whichever branch reads it first. STILL SET IT: the union is what any code path in the layer may demand, and 'the function does not use it' is not a reason to remove it."
+  description = "Not used by the drain. Required by `cpcommon`'s config, which resolves on first READ rather than at import — so a missing value is no longer a cold-start crash but a failure on whichever branch reads it first. STILL SET IT: the union is what any code path in `cpcommon` may demand, and 'the function does not use it' is not a reason to remove it."
   type        = string
 }
 

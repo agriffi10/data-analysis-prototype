@@ -16,12 +16,12 @@ output "state_machine_arn" {
 
 
 output "dqcommon_layer_name" {
-  description = "Name of the dqcommon Lambda layer CI builds + publishes (attached to all nine verbs alongside cpcommon). The version ARN is produced by deploy-lambdas.yml, not Terraform (CI owns the layer artifact)."
+  description = "Name of the dqcommon Lambda layer CI built and published while the fleet was zip-packaged (attached to all nine verbs alongside cpcommon). Nothing builds or publishes a layer any more — the name survives so the published versions can be found and destroyed, and it goes with the deploy-role wildcard it was shaped to match."
   value       = local.dqcommon_layer_name
 }
 
 output "polars_layer_name" {
-  description = "Name of the data-quality polars Lambda layer CI builds + publishes (attached to inspect-source ONLY — it must read Parquet footers because Athena needs an explicit column list and does not auto-detect a Parquet schema)."
+  description = "Name of the data-quality polars Lambda layer CI built and published while the fleet was zip-packaged (attached to inspect-source ONLY — it must read Parquet footers because Athena needs an explicit column list and does not auto-detect a Parquet schema; the image installs polars once for the whole fleet instead). Nothing builds or publishes a layer any more — the name survives so the published versions can be found and destroyed, and it goes with the deploy-role wildcard it was shaped to match."
   value       = local.polars_layer_name
 }
 

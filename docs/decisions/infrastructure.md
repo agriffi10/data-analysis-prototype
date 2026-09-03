@@ -478,8 +478,10 @@ involved**, so both a package and a flat module resolve and no import statement 
 
 **Dependencies are NOT on `/opt/python`, and that is the one deliberate divergence.** A layer today
 mixes its package with its pip-installed dependencies in one directory; reproducing that would make
-"the set of packages under `/opt/python` equals the set the layer table declares" false by
-construction, and the guard would decay into a hand-maintained dependency list. The cost is that
+"the set of packages under `/opt/python` equals what the shared sources publish" false by
+construction, and the guard would decay into a hand-maintained dependency list. (That guard read
+"the set the layer table declares" until SPEC-214 deleted the table; it is the same set equality
+against the `lambdas/*-common/` directories.) The cost is that
 repository code now sits **ahead** of the dependencies on the search path, which a layer never did —
 so a third guard asserts no repository module shadows an installed one.
 
@@ -510,9 +512,14 @@ to reconstruct and nothing to police.
 **A count compared with itself is not a guard.** The first version derived the expected number of
 handlers the same way the image-side sweep did — a module defining a top-level `handler`. Renaming
 one removed it from **both** sides, the two numbers agreed at 85, and a planted mutation that broke
-a function's entry point passed the whole matrix. The expectation now comes from the deploy table,
-which is maintained separately. SPEC-214 deletes that table; when it does, this expectation
-repoints at whatever replaces it and does **not** fall back to the sweep.
+a function's entry point passed the whole matrix. ~~The expectation now comes from the deploy
+table, which is maintained separately.~~ **SPEC-214 deleted both tables, and the instruction was
+honoured rather than dropped:** the expected count comes from `lambdas/fleet.py`, which reads the
+fleet out of the Terraform that declares it — still a derivation maintained separately from the
+tree, and still **not** the sweep. The *shared-code* half of the expectation had no such
+independent source and does not pretend to one: it and the assembler both read
+`assemble.shared_layout` now, and what is independent of the assembler is the fleet-wide handler
+import inside the artefact.
 
 **The fences.**
 

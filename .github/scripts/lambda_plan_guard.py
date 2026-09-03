@@ -193,7 +193,7 @@ def _permissions(plan: dict) -> dict[str, dict]:
 
 
 def _short(name: str, project: str, environment: str) -> str:
-    """Strips the project/environment prefix, giving the name the deploy table uses.
+    """Strips the project/environment prefix, giving the name the fleet derivation uses.
 
     Args:
       name: A deployed function name.
@@ -201,7 +201,7 @@ def _short(name: str, project: str, environment: str) -> str:
       environment: The environment segment.
 
     Returns:
-      The suffix the deploy table and the `lambdas/` directories use.
+      The suffix the fleet derivation and the `lambdas/` directories use.
 
     Raises:
       None.
@@ -261,7 +261,7 @@ def check(plan: dict, fixture: dict, package_type: str, image_repository: str | 
       package_type: The packaging every function must have — `Zip` before the cutover, `Image`
         after, so this file lands proven against the world as it is.
       image_repository: The registry URI every `image_uri` must name, for the Image case.
-      table: The parsed deploy table.
+      table: The fleet as `lambdas/fleet.py` reads it out of Terraform's sources.
       project: The project prefix.
       environment: The environment segment.
 
@@ -331,7 +331,7 @@ def check(plan: dict, fixture: dict, package_type: str, image_repository: str | 
                 "policy with it. Bind it to the module's function_arn output."
             )
 
-    # ── Population: the plan and the deploy table must name the same fleet ──
+    # ── Population: the plan and Terraform's own sources must name the same fleet ──
     planned = {_short(n, project, environment) for n in functions}
     declared = {row["name"] for row in table}
     for missing in sorted(declared - planned):

@@ -55,7 +55,7 @@ def _deployed() -> list[str]:
       None.
 
     Returns:
-      The names from the deploy table.
+      The names Terraform's sources declare.
 
     Raises:
       None.
@@ -110,7 +110,7 @@ def _granted() -> set[str]:
                 matched = {name for name in deployed if fnmatch.fnmatch(name, pattern)}
                 assert matched, (
                     f"{path.name}: {target} matches no deployed function. Either the grant is dead "
-                    "or the deploy table lost a row"
+                    "or Terraform's sources lost the function"
                 )
                 resolved |= matched
 
@@ -160,12 +160,12 @@ def test_every_exemption_carries_a_reason_and_is_still_granted() -> None:
 
 
 def test_every_probed_function_is_one_the_fleet_actually_deploys() -> None:
-    """The other end of the chain: a probe name the deploy table does not carry is a typo that
+    """The other end of the chain: a probe name Terraform does not declare is a typo that
     would fail at invoke time, long after the deploy it was meant to guard."""
     document = json.loads(PROBES.read_text(encoding="utf-8"))
     unknown = sorted(set(document["probe"]) - set(_deployed()))
 
-    assert not unknown, f"{unknown} are probed but named by no row in the deploy table"
+    assert not unknown, f"{unknown} are probed but declared in none of Terraform's sources"
 
 
 @pytest.mark.parametrize(

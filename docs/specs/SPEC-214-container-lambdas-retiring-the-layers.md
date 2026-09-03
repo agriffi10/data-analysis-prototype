@@ -64,6 +64,12 @@ because a review samples and the risk here is absence.
   copying them to one directory does not change it. `docs/decisions/` says do **not** merge them,
   and this spec does not.
 - **Changing any import.**
+- **The `lambda-artifacts` bucket.** It staged a zip per function and nothing writes to it or reads
+  it, so it looks like part of this deletion and is not: its objects are the only copies of the
+  artefacts the pre-container fleet ran, which is a separate argument from "the machinery that
+  built them is gone". Added during the build because `infra/modules/lambda-artifacts/README.md`
+  claimed this spec removed it and the Scope above never said so. **No spec owns its retirement**,
+  and that is recorded here rather than left as an unowned resource nobody notices.
 
 ---
 
@@ -102,7 +108,13 @@ The deletion is conditional on a coverage proof, and the proof is mechanical.
       Out of Scope says a needed image change means the deletion was premature: it is not the image
       that changes, it is where the test reads its expectation.
 - [ ] No workflow, script or `.tf` file references a layer version, a layer ARN or a layer name; a
-      test greps for each and fails on a hit.
+      test greps for each and fails on a hit. **Lands with FR-004's PR, not with this one, and the
+      ordering is forced rather than chosen:** the deploy role's layer grants are the thing that
+      destroys the published versions, so they are still declared in
+      `infra/modules/base/policies/github-actions-deploy-*.json.tftpl` and the module locals still
+      carry the layer names the destroy resolves. A test asserting their absence cannot pass until
+      after the destroy has run. Named here because the machinery it would grep is deleted in the
+      table's PR, which is exactly when "the layer work is done" starts to read as true.
 - [ ] `ruff check lambdas/ scripts/ .github/scripts/` and the blocking `mypy` both pass — neither is
       run by pytest, and both fail only in CI unless run by hand.
 
@@ -193,6 +205,18 @@ to say which functions exist, and Terraform already knows.
 - [ ] Every `.py` docstring, `.tf` comment and `.yml` step that points at a deleted file is fixed.
       A markdown-only sweep reports the tree clean and would be wrong: the pointers that rot unseen
       are in source files.
+- [ ] **Seven `.py` docstrings inside the image are DEFERRED to FR-004's PR, and the reason is the
+      one this spec's own amendment gives.** `focommon/authz.py`, `dqcommon/config.py`,
+      `dqcommon/__init__.py`, `file_ops_copy_objects.py`, `cpcommon/config.py`,
+      `cpcommon/observability.py` and `cpcommon/__init__.py` still describe a layer being attached —
+      wording SPEC-213 left behind, not this spec. All seven are copied into the image verbatim, so
+      editing them changes its content hash, and the table's PR claims the image does not move by
+      one byte and proves it. That claim is worth more than the wording, so the wording waits one
+      PR. Written down because PRs 4 and 5 are AWS-state and IAM changes with no other reason to
+      open a file under `lambdas/`, and an undeclared deferral is how a half-done sweep reads as a
+      finished one. The equivalents that are NOT shipped — `test_layer_import_safety.py`,
+      `test_layer_discipline_focommon.py`, `test_fleet_environment.py` — were fixed with the
+      table.
 - [ ] `scripts/validate_docs.py` passes, and it is run by every reviewer of this change.
 
 ### FR-006: What was removed is written down once, as a lesson

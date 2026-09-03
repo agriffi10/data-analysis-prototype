@@ -1,14 +1,15 @@
 # One image for the whole Lambda fleet. Dependencies installed once, shared code copied once,
 # every function running the same image with a different command.
 #
-# WHAT THIS REPLACES, and why the replacement is the point: today what a function can import is
-# decided at DEPLOY time, by a join between two JSON tables and a literal attach-order loop, and is
-# observable nowhere else. A missing layer is a ModuleNotFoundError at the next cold start, in
-# production, behind a green suite — which has happened, and lasted nine days. Here it is a
-# property of an artefact that can be pulled and run, and the behaviour matrix runs it.
+# WHAT THIS REPLACED, and why the replacement was the point: what a function could import used to
+# be decided at DEPLOY time, by a join between two JSON tables and a literal attach-order loop, and
+# was observable nowhere else. A missing layer was a ModuleNotFoundError at the next cold start, in
+# production, behind a green suite — which happened, and lasted nine days. Here it is a property of
+# an artefact that can be pulled and run, and the behaviour matrix runs it.
 #
-# NOTHING IS DEPLOYED FROM THIS YET. No aws_lambda_function is touched by the spec that builds it;
-# the fleet still ships as zips with layers, and the cutover is its own change.
+# THE WHOLE FLEET RUNS THIS IMAGE. Every function's `package_type` is `Image`, no function attaches
+# a layer, and the tables, the layer build and the attach loop are deleted. Nothing in this
+# repository can produce a zip-packaged Lambda any more.
 #
 # THE BASE IS PINNED BY DIGEST, not by tag, for the reason the SPA image states: a tag is mutable,
 # so a rebuild of an unchanged commit could produce a different image — which makes "the sha
@@ -23,9 +24,13 @@
 # their absence), so this build needs its own. `apps/portal/Dockerfile` has no sibling ignore
 # file and is therefore untouched by any of this.
 #
-# The root is the context because the layer table lives at `.github/lambda-layers.json`, outside
-# `lambdas/`. Copying the table into `lambdas/` to narrow the context would be a second copy of
-# the one declaration this image's shared layout is derived from.
+# THE ROOT IS THE CONTEXT AND NOTHING OUTSIDE `lambdas/` IS COPIED ANY MORE. It used to be the
+# context because the layer table sat at `.github/lambda-layers.json`, outside `lambdas/`, and the
+# assembler read it; the table is gone and the assembler reads the tree. Narrowing the context to
+# `lambdas/` is therefore possible and is deliberately NOT done here: it would move every path in
+# every COPY below, in the one change whose whole claim is that the image's contents do not move.
+# It is a change worth making on its own, where a byte-for-byte comparison of the two images is
+# the evidence rather than a side effect.
 #
 # NO NETWORK BEYOND TWO HOSTS. Every layer below reaches the package index or the base image
 # registry and nothing else: no curl, no wget, no system package manager, no AWS call. A test
@@ -34,8 +39,8 @@
 
 FROM public.ecr.aws/lambda/python:3.12@sha256:3f57e489de055cfcd849d91c480bd4d50f95ec6c2a51616d45808dabfcbe105f
 
-# The union of every layer's dependencies plus the shared file, copied first so the install layer
-# survives a source-only change. Renamed on the way in because three of the four are called
+# The union of every shared source's dependencies plus the fleet-wide file, copied first so the
+# install layer survives a source-only change. Renamed on the way in because three of the four are called
 # `requirements.txt` and a single COPY of all four would collapse them onto one destination.
 COPY lambdas/requirements.txt /tmp/requirements/base.txt
 COPY lambdas/control-plane-common/requirements.txt /tmp/requirements/cpcommon.txt
@@ -72,15 +77,15 @@ sys.exit('\n'.join(f'{f}:{n} {l!r} carries no version constraint' for f, n, l in
       --requirement /tmp/requirements/data-quality-polars.txt \
  && rm -rf /tmp/requirements
 
-# The tree, and the layer table the assembler reads to decide what is shared code.
+# The tree. What is shared code and what is a function is decided by the assembler from the tree
+# itself, so this is the whole of the build's input.
 COPY lambdas /tmp/source/lambdas
-COPY .github/lambda-layers.json /tmp/source/.github/lambda-layers.json
 
 # BOTH LAYOUTS, WRITTEN BY ONE MODULE, which is also the module the layout tests import — so the
 # image and its guard cannot drift apart. It strips each function directory's own level and
-# preserves everything below it, which a COPY cannot express: a recursive copy would carry the ten
-# directories that are NOT functions into the task root, where they would shadow the /opt/python
-# copies of themselves for every function in the fleet.
+# preserves everything below it, which a COPY cannot express: a recursive copy would carry the
+# directories that are NOT functions into the task root, where the shared sources among them would
+# shadow the /opt/python copies of themselves for every function in the fleet.
 #
 # The assembler is deleted in the same layer it runs in, so it is not in the shipped image.
 RUN python /tmp/source/lambdas/docker/assemble.py /tmp/source "/opt/python" "${LAMBDA_TASK_ROOT}" \
@@ -91,8 +96,9 @@ RUN python /tmp/source/lambdas/docker/assemble.py /tmp/source "/opt/python" "${L
 # `update-function-configuration --environment` replaces it whole, so an env-borne version would
 # either race an apply or be reverted by the next one; a test in test_api_module.py forbids
 # Terraform setting it for exactly that reason. `cpcommon.observability._build_version` already
-# reads `$LAMBDA_TASK_ROOT/BUILD_VERSION` — the path the zip pipeline writes — so putting the file
-# there needs no code change at all, and the zip and container fleets answer the same way.
+# reads `$LAMBDA_TASK_ROOT/BUILD_VERSION` — the path the zip pipeline wrote — so putting the file
+# there needed no code change at all, and the zip and container fleets answered the same way while
+# both existed.
 #
 # LAST LAYER ON PURPOSE: the argument changes on every commit, so anything below it would rebuild
 # every time. The dependency install and the assemble step above stay cached.

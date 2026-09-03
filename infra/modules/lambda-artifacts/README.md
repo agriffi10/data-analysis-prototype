@@ -1,9 +1,11 @@
 # `lambda-artifacts` — the Lambda code staging bucket
 
-One private S3 bucket, and **nothing writes to it any more.** It staged each function's zip under
-`{function}/{git-sha}.zip` while the fleet was zip-packaged; every function now runs a container
-image and `deploy-lambdas.yml` uploads nothing at all. The bucket survives until SPEC-214, which
-removes the zip machinery against a coverage proof rather than on the strength of being unused.
+One private S3 bucket, and **nothing writes to it or reads it any more.** It staged each function's
+zip under `{function}/{git-sha}.zip` while the fleet was zip-packaged; every function now runs a
+container image and `deploy-lambdas.yml` uploads nothing at all. SPEC-214 removed the zip and layer
+machinery from the repository and **does not touch this bucket** — its objects are the only copies
+of the artefacts the pre-container fleet ran, so deleting it is a separate decision with a separate
+argument, and no spec owns it yet.
 
 | File | Holds |
 |---|---|

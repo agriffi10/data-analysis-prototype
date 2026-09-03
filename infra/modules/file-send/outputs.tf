@@ -24,7 +24,7 @@ output "execution_role_arn" {
 }
 
 output "fscommon_layer_name" {
-  description = "Name of the file-send-common (fscommon) Lambda layer CI builds + publishes. Named after the PLANE, not the Python package, so it matches the deploy role's *-file-send-* layer wildcard. The version ARN is produced by deploy-lambdas.yml, not Terraform (CI-owned layer pattern)."
+  description = "Name of the file-send-common (fscommon) Lambda layer CI built and published while the fleet was zip-packaged. Named after the PLANE, not the Python package, so it matches the deploy role's *-file-send-* layer wildcard. Nothing builds or publishes a layer any more — the name survives so the published versions can be found and destroyed, and it goes with the deploy-role wildcard it was shaped to match."
   value       = local.fscommon_layer_name
 }
 

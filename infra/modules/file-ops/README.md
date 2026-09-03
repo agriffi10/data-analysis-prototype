@@ -183,8 +183,10 @@ plane's poll loop records the same split.
 ## The layer is named after the PLANE, not the package
 
 The deploy policy matches `${project_name}-*-file-ops-*`, needing the literal `-file-ops-` infix
-**and** a trailing segment. `dat-prod-focommon` matches nothing, **and the failure surfaces as an
+**and** a trailing segment. `dat-prod-focommon` matches nothing, **and the failure surfaced as an
 implicit deny in `Deploy Lambdas`, not as a plan error**.
+
+**Nothing publishes a layer any more.** No workflow builds one, a container function cannot attach one, and the layer table is deleted. The name local and the deploy-role wildcard it was shaped to match both survive only until the published versions are destroyed, and they are removed in that order in their own PRs — so this section describes a rule that is still enforced and no longer reachable.
 
 **There is no `execution_role_arn` local here** — root constructs its own twin for the bucket-policy
 allowlist, and a second construction would be one more place to drift, **with the failure appearing as

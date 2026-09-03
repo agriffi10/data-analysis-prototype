@@ -12,7 +12,7 @@ CI, so its behaviour has to be pinned against documents written by hand.
 
 Attributes:
   GUARD: The script under test, imported by path because `.github/scripts` is not a package.
-  TABLE: A deploy table naming the two functions the fixtures use.
+  TABLE: The fleet derivation's shape, naming the two functions the fixtures use.
 """
 
 import importlib.util
@@ -150,12 +150,12 @@ GOOD_PERMISSION = _permission("arn:aws:lambda:us-east-1:1:function:dat-prod-api"
 
 
 def _check_with_table(plan, fixture, table, package_type="Zip", image_repository=None):
-    """`_check` for the cases that supply their own deploy table.
+    """`_check` for the cases that supply their own fleet derivation.
 
     Args:
       plan: The plan to check.
       fixture: The frozen capture.
-      table: The deploy table to compare the plan against.
+      table: The fleet derivation to compare the plan against.
       package_type: The packaging every function must have.
       image_repository: The registry every image_uri must name.
 
@@ -459,7 +459,7 @@ FIXTURE = ROOT / "lambdas" / "fixtures" / "pre_cutover_plan.json"
 
 
 def test_the_committed_fixture_covers_exactly_the_deployed_fleet():
-    """The fixture and the deploy table are two independent lists of one fleet.
+    """The fixture and the fleet derivation are two independent lists of one fleet.
 
     Not self-referential: the fixture was CAPTURED from a `tofu plan` run before the cutover, and
     the declaration is derived from today's Terraform sources — so a divergence means one of them

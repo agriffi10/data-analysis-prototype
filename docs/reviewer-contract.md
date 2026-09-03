@@ -175,8 +175,8 @@ was fixed, and a fourth site shipped broken.
 - When a finding is an instance of a **rule**, the fix is a test or lint rule that enumerates
   **every** site of that rule and asserts each one — the discipline SPEC-152's fleet test (every
   state machine carries `NotifyFailure`), SPEC-155's `components/`-may-not-import-`features/` ESLint
-  rule and `lambdas/test_deploy_matrix.py` already use, and for the same reason: a hand-maintained
-  list rots and a derived one does not.
+  rule and `lambdas/test_image_layout.py`'s directory partition already use, and for the same
+  reason: a hand-maintained list rots and a derived one does not.
 - **Scope added mid-review restarts the clock.** Widening a spec in response to a finding is often
   right, but the widening arrives late, gets the least scrutiny, and inherits confidence it has not
   earned.

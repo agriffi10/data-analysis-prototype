@@ -23,7 +23,7 @@ variable "admin_bucket_arn" {
   type        = string
 }
 
-# ── The cpcommon layer's required union ──────────────────────────────────────
+# ── `cpcommon`'s required union ──────────────────────────────────────────────
 # The sweep reads none of these. That is not a reason to remove one. See README.md.
 
 variable "user_space_bucket_name" {
