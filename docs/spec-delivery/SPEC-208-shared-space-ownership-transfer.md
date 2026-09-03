@@ -15,7 +15,8 @@ prefix, the Glue database, the roster, the data — is untouched.
   control on `MembersList` (owner's drawer only), wired through `ConnectionsPage`.
 - **The operator path.** `shared-space-transfer-reader`, a scheduled Lambda with its **own IAM
   role**, reading `<admin-bucket>/ownership-transfers/inbox/` and enqueuing one request per CSV row
-  onto the plane's existing queue.
+  onto the plane's existing queue. **Superseded by SPEC-217:** the prefix is `operator-requests/`,
+  the header is `space,action,username`, and one request is coalesced per `(space, action)`.
 - **Help.** One guide under Shared connections. Nothing documents the operator path.
 
 ### Deliberate deviations

@@ -919,9 +919,11 @@ because it is the one path by which the thing retention exists to preserve can s
 
 Until now one sentence covered the whole fleet: only the API writes a request queue, and every
 plane's trust in the `identity` block rests on that. The shared-space queue now has two writers.
-The second is `shared-space-transfer-reader`, a scheduled Lambda that turns an operator's CSV of
-ownership transfers into ordinary requests — the path for the case the UI cannot serve, an owner
-who has already left.
+The second is `shared-space-transfer-reader`, a scheduled Lambda that turns an operator's CSV into
+ordinary requests — the path for the case the UI cannot serve, an owner who has already left.
+(SPEC-217 widened that CSV from ownership transfers alone to adds and removals as well; the fence
+described here is unchanged, and the threat model it now stands in front of is not — see *The
+operator door widens to member management*.)
 
 **The reuse is the point, and it is what forces the fence.** An operator-driven transfer and a
 user-driven one are the same verb, the same authorization and the same notifications; only the
@@ -1151,6 +1153,15 @@ idempotency. What that does not cover is a change made in between: a replayed `r
 member who was legitimately re-added, and a replayed `add` **re-grants** access to someone the owner
 removed. The second is the worse one. Recorded, not solved — the fix is a request ledger the plane
 does not have.
+
+**The prefix move was gated on the old prefix being empty, and the gate was run.**
+`aws s3api list-objects-v2 --bucket <admin-bucket> --prefix 'ownership-transfers/'` returned no
+contents — all three sub-prefixes, not just the inbox — immediately before each of the two merges
+that depended on it: the one that re-pointed the reader's code, and the one that narrowed its IAM
+and deleted the old lifecycle rules. That order matters in both directions. Once the reader points
+at `operator-requests/*`, a file under the old inbox is unreadable by the only thing that could
+drain it, in a prefix that deliberately has no expiry; and removing an expiring rule while objects
+sit under it leaves them with no expiry at all. Neither hazard had a reaper other than the check.
 
 **A removal does not revoke a live session.** The principal tag is stamped when credentials are
 vended, nothing in the fleet revokes a token, and the pool client sets no token validity, so the ID
