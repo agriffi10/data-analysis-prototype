@@ -10,11 +10,12 @@ and it has no bearer to present — so its messages declare an ``origin`` and ca
 block, and the only thing that can be trusted about one is the ``SenderId`` SQS stamps on the
 record. That comparison is the boundary; ``auth.operator_refusal`` is where it lives.
 
-**A transfer's refusals are RETURNED on the context, not raised**, and the router has a branch
-for them. Every other refusal here raises, and a raise is caught by a state whose input was the
-raw queue batch — so it seeds a null actor and a null space, and the notifier reads a null actor
-as no trustworthy recipient and stays silent. A transfer has to say which space and which member
-it is refusing about, so it cannot travel that way. The key is set only when there IS a refusal:
+**A transfer's and a member change's refusals are RETURNED on the context, not raised**, and
+the router has one branch for them all. The refusals that still raise are caught by a state whose
+input was the raw queue batch — so it seeds a null actor and a null space, and the notifier reads
+a null actor as no trustworthy recipient and stays silent. All three of those actions have to say
+which space and which member they are refusing about, so they cannot travel that way. The key is
+set only when there IS a refusal:
 ``IsPresent`` is true for a field that is present and null, so seeding one would route every
 request on this plane into the refusal branch. For an authorized create or
 delete it also durably records the in-flight state in the actor's cache and emits a start
@@ -148,6 +149,12 @@ def handler(event, context):
     vanishing between validation and execution, leaving a space in no list at all, and whether it
     happened is exactly what you want to know when one has.
 
+    **Both predicates run INSIDE the ``refusal is None`` guard, which is load-bearing.**
+    ``requester`` is set to None for ANY non-None origin, before ``operator_refusal``'s verdict
+    has been read — so a member predicate called outside that guard, or one whose result
+    overwrote the origin refusal, would let a message declaring any origin string at all skip
+    the owner check.
+
     The acting identity for an operator-origin request is recorded as ``origin``, and the
     context's ``actor`` is the space's own current owner. That split is deliberate: on this plane
     ``actor`` decides who is notified, and the notifications writer builds an S3 key straight out
@@ -203,6 +210,10 @@ def handler(event, context):
         if action == "transfer_ownership":
             refusal = auth.transfer_refusal(
                 requester, space, (req.get("payload") or {}).get("newOwner"), registry_doc
+            )
+        elif action in config.MEMBER_ACTIONS:
+            refusal = auth.member_refusal(
+                requester, space, action, (req.get("payload") or {}).get("members"), registry_doc
             )
         if refusal is None:
             auth.authorize(action, space, actor, registry_doc)

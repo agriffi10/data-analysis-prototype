@@ -191,6 +191,41 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
     }
   }
 
+  # The operator's processed request files, under the prefix that replaces the one above. Added
+  # BESIDE the old pair rather than in place of it: the reader's code and its grant are deployed
+  # by two workflows that race on one push, so the new prefix is admitted first and the old one
+  # retired only once nothing reads it.
+  rule {
+    id     = "expire-operator-requests-processed"
+    status = "Enabled"
+
+    filter {
+      prefix = "operator-requests/processed/"
+    }
+
+    expiration {
+      days = var.admin_results_retention_days
+    }
+  }
+
+  # The rejected ones, and their sibling reason files.
+  #
+  # ⚠ `operator-requests/inbox/` GETS NO RULE AT ALL, for the reason the retired inbox above has
+  # none: a file sitting there is one the reader has not managed to process, and expiring it
+  # would delete an operator's request out from under the tick that is going to retry it.
+  rule {
+    id     = "expire-operator-requests-rejected"
+    status = "Enabled"
+
+    filter {
+      prefix = "operator-requests/rejected/"
+    }
+
+    expiration {
+      days = var.admin_results_retention_days
+    }
+  }
+
   # Bucket-wide and deliberately UNFILTERED (CKV_AWS_300) — orphaned parts can appear
   # anywhere, so scoping to today's prefixes would leave a new one unprotected.
   #

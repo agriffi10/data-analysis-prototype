@@ -1,7 +1,7 @@
 # Spec: Operator-Driven Shared-Space Membership
 
 **ID:** SPEC-217
-**Status:** Draft
+**Status:** In Progress
 **Last Updated:** 2026-09-02
 **Depends On:** SPEC-208 (the operator CSV door, the `SenderId` boundary, refusals as return values, the verb's own refusal fence), SPEC-206 (the `SenderId` role-id comparison), SPEC-205 (a delete empties a space; `emptiedAt`, the cleared `owner`, and the inertness test this spec re-points), SPEC-051/053 (the shared-space plane, `add_members` and `remove_members`), SPEC-082 (registry CAS), SPEC-125 (`shared-space-common`), SPEC-152 (a pre-verb failure notifies), SPEC-201 (the API stamps the identity block the plane reads)
 
@@ -289,9 +289,12 @@ that no existing test would catch — the browser only ever sends an owner's req
       anyway — the validator records an operator request's `actor` as the space's own current owner,
       so it compares equal — and the skip could then be deleted with every test still green. This is
       the trap `transfer_refusal` already documents, one action over.
-- [ ] `targets` is a **list**, because that is what the wire carries: the contract declares
-      `members: list[str]` as a TypedDict, which is not a runtime check, and nothing between the
-      browser and the predicate validates it. An absent, empty, or non-list `members` is refused with
+- [ ] `targets` is a **list**, because that is what the wire carries. The API's contract *does*
+      refuse a browser's `members` that is not a list of strings (measured against
+      `sharedSpace.enqueue`), so what the check covers is the **other producer**: the operator
+      reader builds its own body and nothing validates that one. Two shapes reach the predicate
+      from either side — a `payload` carrying no `members` key, and a list that normalises to
+      nothing, such as `["  "]`. An absent, empty, or non-list `members` is refused with
       its own code rather than normalising to `[]` and succeeding as a no-op — `transfer_refusal` has
       exactly this in `TransferTargetMissing` and the member path is given none. It is reachable
       immediately: FR-005's enumeration drives every action through one operator envelope, so

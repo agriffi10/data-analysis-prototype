@@ -18,6 +18,7 @@ import membership
 import membership_index
 import registry as reg
 from cpcommon import observability
+from cpcommon.errors import TerminalError
 from notify import emit_notification
 
 logger = logging.getLogger()
@@ -86,6 +87,7 @@ def remove_members(space, members, request_id, registry):
     observability.info(
         "members removed",
         space=space,
+        actor=owner,
         store="registry",
         members_applied=len(removed),
         removed=removed,
@@ -102,6 +104,17 @@ def handler(event, context):
     the handler rather than through a decorator, so the ordering rule that governs the other
     three planes does not apply here.
 
+    **It refuses a context carrying a refusal, and that is not belt and braces.** The router has a
+    branch that sends a refused request to the notifier instead of here, so reaching this line
+    means the routing did not hold — and one action over, the plane page already records why the
+    same fence is not optional for a transfer: without it, any failure of the routing completes a
+    real one. The same sentence here is a stranger gaining live access to a space's data.
+
+    ``origin`` is re-stamped because observability baggage is per-invocation and ``traced`` clears
+    it: without this the span records the space's own owner removing people
+    from their space, which is what an
+    operator-driven change must not look like in the record.
+
     Args:
       event: The validated context from the validator, carrying the space, request id, registry
         record and the requested members.
@@ -111,8 +124,20 @@ def handler(event, context):
       The verb result.
 
     Raises:
+      TerminalError: When the context carries a refusal.
       KeyError: When the validated context is missing a required field.
     """
+    refusal = event.get("refusal")
+    if refusal:
+        raise TerminalError(
+            "unauthorized",
+            f"a refused remove_members reached the verb: {refusal.get('code')}",
+        )
+
+    origin = event.get("origin")
+    if origin:
+        observability.stamp(origin=origin)
+
     space = event["space"]
     request_id = event.get("requestId")
     registry = event["registry"]

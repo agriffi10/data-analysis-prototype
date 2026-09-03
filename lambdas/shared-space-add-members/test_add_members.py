@@ -10,6 +10,7 @@ import add_members as a
 import registry as reg
 from cpcommon import clients
 from cpcommon import config as cpconfig
+from cpcommon.errors import TerminalError
 from fakes import install, raises
 
 
@@ -220,3 +221,93 @@ def test_adding_to_a_space_whose_delete_failed_AFTER_it_emptied_is_refused():
 
     assert cognito.users["mallory"].get("custom:shared_space_1", "") == ""
     assert json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])["members"] == []
+
+
+# ── FR-006: the verb refuses a refused request, and records who asked ────────
+
+
+def test_a_refused_context_reaching_the_verb_is_a_TERMINAL_refusal_not_an_add():
+    """The router's Choice sends a refused request to the notifier instead of here, so reaching
+    the handler means the routing did not hold. One action over, the plane page already records
+    why the same fence is not optional for a transfer; here the failure is a stranger gaining
+    live access to a space's data.
+    """
+    s3, _glue, _lf, cognito = install()
+    cognito.users = {"mallory": {}}
+    reg_doc = _active_reg(members=["alice"])
+    _seed_reg(s3, reg_doc)
+    before = dict(s3.store)
+
+    raises(
+        lambda: a.handler(
+            {
+                "space": "sales",
+                "requestId": "r1",
+                "registry": reg_doc,
+                "payload": {"members": ["mallory"]},
+                "refusal": {"code": "MemberNotOwner", "message": "no"},
+            },
+            None,
+        ),
+        TerminalError,
+        "MemberNotOwner",
+    )
+    assert s3.store == before, "a refused add wrote something"
+    assert "custom:shared_space_1" not in cognito.users["mallory"]
+
+
+def test_an_operator_driven_add_is_not_recorded_as_the_owner_adding_to_their_own_space(
+    captured_events,
+):
+    """`@traced` clears observability baggage per invocation, so the origin has to be re-stamped
+    inside the handler or the span describes the owner doing this to their own space."""
+    s3, _glue, _lf, cognito = install()
+    cognito.users = {"bob": {}}
+    reg_doc = _active_reg(members=["alice"])
+    _seed_reg(s3, reg_doc)
+
+    a.handler(
+        {
+            "space": "sales",
+            "requestId": "r1",
+            "registry": reg_doc,
+            "origin": "operator",
+            "payload": {"members": ["bob"]},
+        },
+        None,
+    )
+
+    origins = {
+        event["fields"]["origin"]
+        for event in captured_events.events
+        if "origin" in (event.get("fields") or {})
+    }
+    assert origins == {"operator"}, f"the span recorded {origins}"
+
+
+def test_an_operator_add_of_an_unknown_user_still_names_them_TO_THE_OWNER():
+    """The diagnostic goes to the space's owner — who, in the case that motivates an operator
+    file, is exactly the person whose absence prompted it. Pinned rather than assumed, because
+    it is the only channel either fact travels on, and an operator sees neither.
+    """
+    s3, _glue, _lf, cognito = install(max_memberships=1)
+    cognito.users = {"bob": {"custom:shared_space_1": "other"}}
+    sqs = _enable_notifications()
+    reg_doc = _active_reg(members=["alice"])
+    _seed_reg(s3, reg_doc)
+
+    out = a.handler(
+        {
+            "space": "sales",
+            "requestId": "r1",
+            "registry": reg_doc,
+            "origin": "operator",
+            "payload": {"members": ["nosuchuser", "bob"]},
+        },
+        None,
+    )
+
+    assert out["ignoredUnknown"] == ["nosuchuser"] and out["skippedAtLimit"] == ["bob"]
+    messages = [message for who, message in _sent(sqs) if who == "alice"]
+    assert any("nosuchuser" in m and "no such user" in m for m in messages), messages
+    assert any("bob" in m and "workspace limit" in m for m in messages), messages

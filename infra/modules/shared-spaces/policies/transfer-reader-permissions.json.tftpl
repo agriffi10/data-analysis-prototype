@@ -2,23 +2,29 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "OwnershipTransferInboxObjects",
+      "Sid": "OperatorRequestInboxObjects",
       "Effect": "Allow",
       "Action": [
         "s3:GetObject",
         "s3:PutObject",
         "s3:DeleteObject"
       ],
-      "Resource": "${admin_bucket_arn}/ownership-transfers/*"
+      "Resource": [
+        "${admin_bucket_arn}/operator-requests/*",
+        "${admin_bucket_arn}/ownership-transfers/*"
+      ]
     },
     {
-      "Sid": "OwnershipTransferInboxList",
+      "Sid": "OperatorRequestInboxList",
       "Effect": "Allow",
       "Action": "s3:ListBucket",
       "Resource": "${admin_bucket_arn}",
       "Condition": {
         "StringLike": {
-          "s3:prefix": "ownership-transfers/*"
+          "s3:prefix": [
+            "operator-requests/*",
+            "ownership-transfers/*"
+          ]
         }
       }
     },

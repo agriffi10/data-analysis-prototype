@@ -39,10 +39,15 @@ Attributes:
     marker. The create phrase reads without an article on purpose, copied from the verb that
     already emits it — matching what users already receive beats an internal tidiness they will
     never see.
-  _TRANSFER_REFUSALS: Reason code to the sentence a REFUSED transfer is reported with. Separate
-    from the table above because these name the target, which the failure path cannot: the
-    notifier's input carries an action and a space and nothing else, so a refusal that has to say
-    WHICH member is not a member must arrive with its sentence already composed.
+  _REFUSALS: Reason code to the sentence a REFUSED request is reported with. Separate from the
+    table above because these name the target, which the failure path cannot: the notifier's
+    input carries an action and a space and nothing else, so a refusal that has to say WHICH
+    member is not a member must arrive with its sentence already composed. **One table, not one
+    per action** — a second table would satisfy a key-set equality test while every member
+    refusal told the user their TRANSFER had failed, because that is what this table's fallback
+    says. ``MemberRequestRefused`` is the odd entry: it is a wording no code returns, rendered in
+    place of the four request-level member refusals when a requester rather than an operator
+    asked, so that four true sentences do not become an oracle for whether a space exists.
   _UNKNOWN_ACTION: What an unrecognised or absent action reads as. It is reachable: a failure
     before the validator has bound the context has no action at all, and an envelope from a
     producer newer than this layer can carry one this table has never heard of. Naming nothing
@@ -76,7 +81,7 @@ _DOMAIN_REASONS = {
     "OwnerChanged": "that workspace changed hands while your request was being processed",
 }
 
-_TRANSFER_REFUSALS = {
+_REFUSALS = {
     "TransferSpaceUnknown": 'We couldn\'t find a shared workspace called "{space}".',
     "TransferTargetMissing": 'That request to transfer "{space}" named nobody to transfer it to.',
     "TransferNotOwner": 'Only the owner of "{space}" can transfer it.',
@@ -87,18 +92,34 @@ _TRANSFER_REFUSALS = {
     "TransferTargetIsOwner": '{target} already owns "{space}", so there is nothing to transfer.',
     "TransferSpaceNotActive": 'The shared workspace "{space}" is still being set up, so it cannot be transferred yet.',
     "TransferSpaceEmptied": 'The shared workspace "{space}" has been deleted, so it cannot be transferred.',
-    "TransferOriginUntrusted": 'That request to transfer "{space}" did not come from a trusted sender, so it was refused.',
+    "TransferOriginUntrusted": 'That request against "{space}" did not come from a trusted sender, so it was refused.',
     "TransferOriginNotConfigured": (
-        'That request to transfer "{space}" could not be checked, so it was refused. '
+        'That request against "{space}" could not be checked, so it was refused. '
         "Please contact the Administrator."
     ),
     "TransferOriginBothCredentials": (
-        'That request to transfer "{space}" carried two conflicting identities, so it was refused.'
+        'That request against "{space}" carried two conflicting identities, so it was refused.'
     ),
     "TransferOriginActionNotAllowed": (
         'That request against "{space}" is not one an operator may make, so it was refused.'
     ),
     "TransferOriginUnknown": 'That request against "{space}" declared an origin this service does not accept.',
+    "MemberSpaceUnknown": 'We couldn\'t find a shared workspace called "{space}".',
+    "MemberSpaceEmptied": (
+        'The shared workspace "{space}" has been deleted, so its members cannot be changed.'
+    ),
+    "MemberSpaceNotActive": (
+        'The shared workspace "{space}" is still being set up, so its members cannot be changed yet.'
+    ),
+    "MemberNotOwner": 'Only the owner of "{space}" can change who belongs to it.',
+    "MemberTargetsMissing": 'That request against "{space}" named nobody to add or remove.',
+    "MemberRemoveOwner": (
+        '{target} owns "{space}", so they cannot be removed from it. '
+        "Transfer the workspace to someone else first."
+    ),
+    "MemberRequestRefused": (
+        'We couldn\'t change who belongs to the shared workspace "{space}".'
+    ),
 }
 
 _resolver = _cpmessages.register(_DOMAIN_REASONS)
@@ -131,7 +152,7 @@ def refusal_message(code: str, space: str = "", target: str = "") -> str:
     """
     space = space or ""
     target = target or ""
-    template = _TRANSFER_REFUSALS.get(code)
+    template = _REFUSALS.get(code)
     if template is None:
         return f'We couldn\'t transfer the shared workspace "{space}".'
     return template.format(space=space, target=target)

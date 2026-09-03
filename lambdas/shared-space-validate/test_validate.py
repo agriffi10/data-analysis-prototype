@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import auth
 import cache
 import validate as v
+from cpcommon import clients
 from fakes import install, raises
 
 import config
@@ -373,15 +374,35 @@ def test_every_operator_refusal_names_the_space_it_is_about(captured_events):
         ("TransferOriginUnknown",
          _event("transfer_ownership", identity=False, origin="cron", new_owner="bob", sender="x:y")),
     ]
-    for code, event in cases:
-        ctx = v.handler(event, None)
+    def _check(code, ctx):
+        """Asserts one origin refusal names its space and does not name an action nobody asked for.
+
+        Args:
+          code: The reason code expected.
+          ctx: The validated context the handler produced.
+
+        Returns:
+          None.
+
+        Raises:
+          AssertionError: On the wrong code, a missing space, or a transfer-specific sentence.
+        """
         assert ctx["refusal"]["code"] == code
-        assert "sales" in ctx["refusal"]["message"], f"{code} names no space: {ctx['refusal']['message']}"
+        message = ctx["refusal"]["message"]
+        assert "sales" in message, f"{code} names no space: {message}"
+        # ACTION-NEUTRAL, now that the door admits three actions. These five reach the space's
+        # OWNER, so a sentence saying "to transfer" tells them someone tried to transfer their
+        # workspace when the forged request was an add — and the reason codes are identical
+        # either way, which is exactly why asserting them is not enough.
+        assert "transfer" not in message.lower(), (
+            f"{code} tells the owner about a transfer nobody asked for: {message}"
+        )
+
+    for code, event in cases:
+        _check(code, v.handler(event, None))
 
     config.TRANSFER_READER_ROLE_ID = ""
-    ctx = v.handler(_operator_event(new_owner="bob", sender=""), None)
-    assert ctx["refusal"]["code"] == "TransferOriginNotConfigured"
-    assert "sales" in ctx["refusal"]["message"]
+    _check("TransferOriginNotConfigured", v.handler(_operator_event(new_owner="bob", sender=""), None))
 
     origins = {
         event["fields"]["origin"]
@@ -395,21 +416,50 @@ def test_every_operator_refusal_names_the_space_it_is_about(captured_events):
     )
 
 
-def test_the_operator_door_is_open_for_transfer_ONLY_enumerated_over_every_action():
-    """Enumerated from the action vocabulary itself, so an action added later arrives here without
-    anyone remembering to add it — and arrives refused, which is the safe default."""
+def test_the_operator_door_admits_exactly_three_actions_and_refuses_every_other_one():
+    """The admitted set is asserted by EXACT CONTENTS, and the refused set is enumerated from the
+    difference — and the first half is what makes the second mean anything.
+
+    A test that only walked `VALID_ACTIONS - OPERATOR_ACTIONS` stays green when `delete` joins the
+    admitted set, because the set it asserts over shrinks with it. So the door's own contents are
+    pinned first, and the loop then covers whatever is left.
+    """
     s3, *_ = install()
     config.TRANSFER_READER_ROLE_ID = _READER_ROLE
     _seed_reg(s3, owner="alice", members=["alice", "bob"])
 
-    others = sorted(config.VALID_ACTIONS - {"transfer_ownership"})
+    assert frozenset(
+        {"transfer_ownership", "add_members", "remove_members"}
+    ) == config.OPERATOR_ACTIONS
+
+    others = sorted(config.VALID_ACTIONS - config.OPERATOR_ACTIONS)
     assert others, "the enumeration found nothing, so this test asserts nothing"
+    assert set(others) == {"create", "delete", "leave", "forget", "acknowledge_membership"}
 
     for action in others:
         ctx = v.handler(_operator_event(action=action, new_owner="bob"), None)
         assert ctx["refusal"]["code"] == "TransferOriginActionNotAllowed", (
             f"an operator-origin {action!r} was not refused"
         )
+
+
+def test_the_sender_comparison_is_the_only_fence_left_in_front_of_a_member_action():
+    """Before the door widened, a forged operator `add_members` was refused for naming an action
+    the door did not admit. It is now admitted, so the SenderId comparison is the whole fence —
+    and no test drove a MEMBER action against it until this one.
+    """
+    s3, *_ = install()
+    _seed_reg(s3, owner="alice", members=["alice", "bob"])
+
+    config.TRANSFER_READER_ROLE_ID = _READER_ROLE
+    for action in sorted(config.MEMBER_ACTIONS):
+        ctx = v.handler(_operator_event(action=action, members=["mallory"], sender="AROAOTHER:s"), None)
+        assert ctx["refusal"]["code"] == "TransferOriginUntrusted", action
+
+    config.TRANSFER_READER_ROLE_ID = ""
+    for action in sorted(config.MEMBER_ACTIONS):
+        ctx = v.handler(_operator_event(action=action, members=["mallory"]), None)
+        assert ctx["refusal"]["code"] == "TransferOriginNotConfigured", action
 
 
 def test_an_operator_transfer_skips_only_the_owner_check_and_enforces_every_other_one():
@@ -425,6 +475,267 @@ def test_an_operator_transfer_skips_only_the_owner_check_and_enforces_every_othe
     record["status"] = "deleting"
     s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(record).encode()
     assert _refusal(_operator_event(new_owner="bob"))["code"] == "TransferSpaceNotActive"
+
+
+# ── FR-003 / FR-004: one member-refusal predicate, for both origins ──────────
+#
+# The owner-only branch in `authorize` used to be the only thing between any signed-in user and
+# any space's roster. It now lives in `auth.member_refusal`, so every one of these asserts the
+# REASON CODE by name — "the request did not succeed" is equally true of a predicate that never
+# ran and a router that lost the branch.
+
+
+def _member_event(action="add_members", actor="alice", members=("carol",), **kw):
+    """A UI member-change envelope: a verified identity block and a members payload.
+
+    Args:
+      action: `add_members` or `remove_members`.
+      actor: The verified username the identity block carries.
+      members: The payload's member list, or None to omit the key entirely. Passed through
+        UNCHANGED unless it is the tuple default — a `list()` around it would turn the non-list
+        cases these tests exist for, a bare string most of all, into a list of characters that
+        normalises to something and is allowed.
+      **kw: Passed through to the envelope builder.
+
+    Returns:
+      The Pipe envelope.
+
+    Raises:
+      None.
+    """
+    if isinstance(members, tuple):
+        members = list(members)
+    return _event(action, actor=actor, members=members, **kw)
+
+
+def test_a_non_owner_member_change_is_refused_by_code_and_travels_as_a_VALUE():
+    """It reaches the requester, which it does not today: `authorize` raised, the validator's
+    Catch carries no ResultPath, the seed nulls the actor and the notifier stays silent on one.
+    A member change that refuses is currently a request the user watches disappear.
+    """
+    s3, *_ = install()
+    _seed_reg(s3, owner="alice", members=["alice", "bob", "mallory"])
+
+    for action in sorted(config.MEMBER_ACTIONS):
+        ctx = v.handler(_member_event(action, actor="mallory", members=["bob"]), None)
+        assert ctx["refusal"]["code"] == "MemberNotOwner", action
+        assert ctx["actor"] == "mallory", "the refusal must reach whoever asked"
+
+
+def test_the_four_request_level_refusals_say_ONE_thing_to_a_requester_and_the_DETAIL_to_an_operator():
+    """Four discriminating sentences, delivered into the inbox of whoever asked for any space name
+    they care to try, is an existence oracle over every shared space — the disclosure this project
+    already declined when it refused to publish a shared-space directory. The CODES stay distinct,
+    so the run still records which fired; only the sentence collapses.
+    """
+    s3, *_ = install()
+    config.TRANSFER_READER_ROLE_ID = _READER_ROLE
+
+    def _seed(**fields):
+        record = {"name": "sales", "owner": "alice", "members": ["alice", "bob"], "status": "active"}
+        record.update(fields)
+        s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(record).encode()
+
+    ui_messages, operator_messages = {}, {}
+
+    # 1. unknown space: nothing seeded.
+    ui = v.handler(_member_event(actor="alice"), None)["refusal"]
+    op = v.handler(_operator_event(action="add_members", members=["carol"]), None)["refusal"]
+    assert ui["code"] == op["code"] == "MemberSpaceUnknown"
+    ui_messages[ui["code"]], operator_messages[op["code"]] = ui["message"], op["message"]
+
+    # 2-4. the three that need a record.
+    for code, seed, ui_actor in (
+        ("MemberSpaceEmptied", {"owner": "", "emptiedAt": "t1", "members": []}, "alice"),
+        ("MemberSpaceNotActive", {"status": "deleting"}, "alice"),
+        ("MemberNotOwner", {}, "mallory"),
+    ):
+        _seed(**seed)
+        ui = v.handler(_member_event(actor=ui_actor, members=["carol"]), None)["refusal"]
+        assert ui["code"] == code, f"expected {code}, got {ui['code']}"
+        ui_messages[code] = ui["message"]
+        if code != "MemberNotOwner":
+            op = v.handler(_operator_event(action="add_members", members=["carol"]), None)["refusal"]
+            assert op["code"] == code
+            operator_messages[code] = op["message"]
+
+    assert len(ui_messages) == 4
+    assert len(set(ui_messages.values())) == 1, (
+        f"a requester can tell these four apart, which is an existence oracle: {ui_messages}"
+    )
+    assert "sales" in next(iter(ui_messages.values())), "the collapsed sentence still names the space"
+    # The operator is entitled to the detail, and the three reachable as an operator differ.
+    # Three, not four: `MemberNotOwner` is unreachable on the operator path by construction, since
+    # `requester is None` is exactly what skips that check.
+    assert len(set(operator_messages.values())) == len(operator_messages) == 3, operator_messages
+    assert not set(operator_messages.values()) & set(ui_messages.values())
+
+
+def test_a_members_list_that_normalises_to_NOTHING_is_refused_rather_than_a_silent_no_op():
+    """A raw-shape test alone lets `["  "]` through to a verb that reports success having done
+    nothing at all.
+
+    The API's contract does refuse a browser's `members` that is not a list of strings, so the
+    shapes below that a browser could never send are here for the OTHER producer: the operator
+    reader builds its own body and nothing validates that one. `["  "]` and a `payload` carrying
+    no `members` key reach the predicate from either side.
+    """
+    s3, *_ = install()
+    _seed_reg(s3, owner="alice", members=["alice", "bob"])
+
+    for payload in (None, [], ["   "], [12], "carol"):
+        ctx = v.handler(_member_event(actor="alice", members=payload), None)
+        assert ctx["refusal"]["code"] == "MemberTargetsMissing", repr(payload)
+
+
+def test_removing_the_space_owner_is_refused_BY_NAME_rather_than_dropped_silently():
+    """`normalize_members` drops the owner, so today the request succeeds having removed nobody
+    and notified no one — and "remove the owner who left" is the single most likely thing an
+    operator writes in this file. The comparison is in the NORMALISED form, or `Alice` against
+    owner `alice` passes the predicate and is silently dropped by the verb instead.
+    """
+    s3, *_ = install()
+    config.TRANSFER_READER_ROLE_ID = _READER_ROLE
+    _seed_reg(s3, owner="alice", members=["alice", "bob"])
+
+    for spelling in ("alice", "Alice", "  ALICE  "):
+        ctx = v.handler(_member_event("remove_members", actor="alice", members=[spelling]), None)
+        assert ctx["refusal"]["code"] == "MemberRemoveOwner", spelling
+        assert "alice" in ctx["refusal"]["message"]
+
+    # The whole request refuses, rather than that one name being dropped and the rest served.
+    ctx = v.handler(_member_event("remove_members", actor="alice", members=["bob", "alice"]), None)
+    assert ctx["refusal"]["code"] == "MemberRemoveOwner"
+
+    # The OWNER side of that comparison is normalised too, and this is the one input where the
+    # predicate is strictly load-bearing over the verb: `normalize_members` compares a normalised
+    # name against a RAW owner, so with the owner stored as `Alice` the verb does NOT drop them
+    # and the removal would go through. Every fixture above seeds a lowercase owner, so without
+    # this case `owner.strip().lower()` could be reduced to `owner` with the suite still green.
+    odd = {"name": "sales", "owner": "Alice", "members": ["Alice", "bob"], "status": "active"}
+    assert auth.member_refusal("Alice", "sales", "remove_members", ["alice"], odd)[0] == (
+        "MemberRemoveOwner"
+    )
+
+    # An ADD naming the owner keeps today's behaviour: normalised out, idempotent success. Both
+    # shapes are pinned, because they are not the same case — with `bob` beside them the add does
+    # real work, while the owner ALONE reaches the verb and adds nobody. That second one is a
+    # silent no-op and is allowed deliberately: the owner is already a member, and FR-004 keeps an
+    # add of an existing member an idempotent success because replay safety is worth more than the
+    # diagnostic. Refusing it would contradict that and break the derived request ids that rest on
+    # it. Pinned rather than implied, so the decision is visible if someone later reads the no-op
+    # as a defect.
+    assert "refusal" not in v.handler(
+        _member_event("add_members", actor="alice", members=["alice", "bob"]), None
+    )
+    assert "refusal" not in v.handler(
+        _member_event("add_members", actor="alice", members=["alice"]), None
+    )
+
+
+def test_a_registry_whose_owner_is_not_a_STRING_refuses_rather_than_raising():
+    """The owner is compared in its normalised form for the removal check, which calls a string
+    method on it. A truthiness test alone would pass a number or a list straight into `.strip()`,
+    and an AttributeError in the validator reaches nobody: the Catch nulls the actor and the
+    notifier stays silent. Not attacker-reachable — the registry is plane-written from a
+    catalog-checked username — so what this pins is that the failure stays a refusal.
+    """
+    install()
+    for owner in (123, ["alice"], {"name": "alice"}, None):
+        record = {"name": "sales", "owner": owner, "members": [], "status": "active"}
+        code, _ = auth.member_refusal(None, "sales", "remove_members", ["alice"], record)
+        assert code == "MemberSpaceEmptied", f"owner={owner!r} gave {code}"
+
+
+def test_the_predicate_is_the_only_authority_on_the_two_member_actions():
+    """An owner check written in both places is the complement that drifts. `authorize` must not
+    decide these at all — and `OWNER_ONLY_ACTIONS` is pinned by exact contents so that removing
+    its last member cannot pass as tidying.
+    """
+    install()
+    assert frozenset({"delete"}) == config.OWNER_ONLY_ACTIONS
+
+    record = {"name": "sales", "owner": "alice", "members": ["alice", "bob"], "status": "active"}
+    for action in sorted(config.MEMBER_ACTIONS):
+        assert auth.authorize(action, "sales", "mallory", record) is None, (
+            f"authorize still decides {action}, so the owner check is written twice"
+        )
+
+
+def test_authorize_refuses_an_action_it_has_no_branch_for_rather_than_falling_through():
+    """The fall-through used to be unreachable, so returning None from the bottom was harmless.
+    Two actions are now deliberately allowed there and gated elsewhere, which makes losing the
+    `member_refusal` call an open door rather than a refusal.
+    """
+    install()
+    # Restored in a finally: the vocabulary is a module constant the conftest snapshot does not
+    # cover, and leaking a synthetic action out of here reddens the wording table's own
+    # enumeration in a different file.
+    original = config.VALID_ACTIONS
+    config.VALID_ACTIONS = frozenset(original | {"annex_space"})
+    try:
+        raises(
+            lambda: auth.authorize("annex_space", "sales", "mallory", {"owner": "alice"}),
+            auth.AuthorizationError,
+            "unhandled action",
+        )
+    finally:
+        config.VALID_ACTIONS = original
+
+
+def test_a_message_declaring_ANY_origin_cannot_skip_the_owner_check():
+    """The validator sets `requester = None` for any non-None origin, BEFORE `operator_refusal`'s
+    verdict has been consulted. That is safe only while the member predicate runs inside the same
+    `refusal is None` guard the transfer predicate sits in — called outside it, or with its result
+    overwriting the origin refusal, a message declaring any origin string at all skips the check.
+    """
+    s3, *_ = install()
+    config.TRANSFER_READER_ROLE_ID = _READER_ROLE
+    _seed_reg(s3, owner="alice", members=["alice", "bob"])
+
+    for action in sorted(config.MEMBER_ACTIONS):
+        ctx = v.handler(
+            _event(action, identity=False, origin="anything", members=["mallory"], sender="x:y"),
+            None,
+        )
+        assert ctx["refusal"]["code"] == "TransferOriginUnknown", (
+            f"a member {action} declaring an unrecognised origin survived as "
+            f"{ctx['refusal']['code']}"
+        )
+
+
+def test_an_operator_member_change_proceeds_where_the_same_change_from_a_non_owner_refuses():
+    """Both halves are needed. The first alone passes with the owner check deleted; the second
+    alone passes with the operator skip deleted."""
+    s3, *_ = install()
+    config.TRANSFER_READER_ROLE_ID = _READER_ROLE
+    _seed_reg(s3, owner="alice", members=["alice", "bob"])
+
+    for action in sorted(config.MEMBER_ACTIONS):
+        allowed = v.handler(_operator_event(action=action, members=["bob"]), None)
+        assert "refusal" not in allowed, f"an operator {action} was refused: {allowed.get('refusal')}"
+        assert allowed["actor"] == "alice", "the operator's request is attributed to the owner"
+        refused = v.handler(_member_event(action, actor="mallory", members=["bob"]), None)
+        assert refused["refusal"]["code"] == "MemberNotOwner", action
+
+
+def test_member_refusal_makes_no_aws_call_at_all():
+    """Pure, like the two predicates beside it. A predicate that read anything would be a second
+    authority on a question the validator has already loaded the answer to.
+    """
+    s3, glue, lf, cognito = install()
+    calls = []
+    for fake in (s3, glue, lf, cognito, clients._sqs):
+        for name in [n for n in dir(fake) if not n.startswith("_") and callable(getattr(fake, n))]:
+            def watch(*a, _n=name, **kw):
+                calls.append(_n)
+            setattr(fake, name, watch)
+
+    record = {"name": "sales", "owner": "alice", "members": ["alice", "bob"], "status": "active"}
+    assert auth.member_refusal("alice", "sales", "add_members", ["carol"], record) is None
+    assert auth.member_refusal("mallory", "sales", "add_members", ["carol"], record)[0]
+    assert auth.member_refusal(None, "sales", "remove_members", ["alice"], record)[0]
+    assert calls == [], f"member_refusal called {calls}"
 
 
 if __name__ == "__main__":
