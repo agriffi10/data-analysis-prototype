@@ -214,60 +214,32 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-          # Every requirements file the install step below reads, named explicitly. The
-          # default key is the ROOT requirements.txt alone, which this repository does not
-          # have — a cache keyed on a file that does not exist restores nothing and reports
-          # success, which is the failure mode that looks like a working cache.
-          #
-          # This buys wall-clock and one less network dependency on the critical path; it
-          # does NOT move this job under the per-job billing minute (measured median 71 s,
-          # of which the install is 12 and pytest is 37).
-          cache: 'pip'
-          cache-dependency-path: |
-            lambdas/requirements.txt
-            lambdas/requirements-dev.txt
-            lambdas/control-plane-common/requirements.txt
-            lambdas/table-builder-infer-schema/requirements.txt
-            lambdas/data-quality-polars/requirements.txt
+          # NO pip cache, because there is no pip install to cache. It keyed five requirements
+          # files for the install step below, which is disabled with the suites it fed. A cache
+          # keyed on files nothing reads restores nothing and reports success -- the failure
+          # mode that looks like a working cache. Restore it WITH that step, not before.
 
-      # This job already owns the repo's Terraform suite — test_api_module, test_network_module,
-      # test_spa_module and test_csp_policy all read infra/ as text. One of them now RUNS tofu
-      # instead of reading it, because a variable's validation block can be asserted present
-      # while its condition has been weakened to something that accepts anything, and only
-      # evaluating it can tell those apart. The module under test declares no provider, so the
-      # init is offline and needs no credentials.
-      - name: Set up OpenTofu
-        uses: opentofu/setup-opentofu@v2
-        with:
-          # The same constraint Deploy Infrastructure resolves, so the validations are
-          # evaluated by the OpenTofu that will actually apply them.
-          tofu_version: '~1.8'
-          # The real binary, not the action's default Node wrapper. The wrapper exists to
-          # capture stdout for step outputs and needs the full runner environment; the test
-          # invokes tofu from Python with a deliberately minimal one, so that an outer
-          # TF_VAR_* cannot contaminate what it is measuring. Under the wrapper `tofu init`
-          # exits 1 before doing anything.
-          tofu_wrapper: false
-
-      - name: Install lint + test tools
-        # control-plane-common/requirements.txt is installed so cpcommon's own layer
-        # dependencies are importable under test — log-foundry (SPEC-127) is declared only
-        # there, and cpcommon.observability imports it at module scope. The image build
-        # installs that same file (lambdas/Dockerfile copies it in); this is the test side of
-        # the same declaration, so the two can't drift.
-        #
-        # polars (from the two polars layer requirements) so the table-builder
-        # type-mapping + infer-schema tests (SPEC-069) and the data-quality
-        # inspect-source probe tests (SPEC-110) run for real in CI rather than being
-        # skipped. Both files pin the SAME polars version deliberately, so the second
-        # install is a no-op — it is listed because the DQ tests genuinely depend on it,
-        # and a future version split must surface here rather than silently resolving to
-        # whichever was installed last.
-        run: |
-          pip install -r lambdas/requirements.txt -r lambdas/requirements-dev.txt
-          pip install -r lambdas/control-plane-common/requirements.txt
-          pip install -r lambdas/table-builder-infer-schema/requirements.txt
-          pip install -r lambdas/data-quality-polars/requirements.txt
+      # SET UP OPENTOFU AND INSTALL LINT + TEST TOOLS BOTH LIVED HERE, AND BOTH ARE GONE.
+      #
+      # OpenTofu was here for the Terraform suite (test_api_module, test_network_module,
+      # test_spa_module, test_csp_policy), one of which RUNS tofu rather than reading infra/ as
+      # text -- a variable's validation block can be asserted present while its condition has
+      # been weakened to accept anything, and only evaluating it tells those apart. The install
+      # was here for pytest: cpcommon's layer dependencies, and polars twice for the
+      # table-builder type-mapping and data-quality probe tests. Every one of those is a pytest
+      # test, and pytest is disabled.
+      #
+      # What is left in this job reads NO third-party package at all -- the four validators are
+      # stdlib plus local imports, proven by running each under `python3 -S`, which excludes
+      # site-packages (positive control: `python3 -S -c "import boto3"` raises). So the job is
+      # now HERMETIC, and that is the point rather than the seconds: with no pip install and no
+      # tofu download it has no supply-chain surface and no network dependency, so a yanked
+      # wheel or a registry outage cannot redden it.
+      #
+      # RESTORING THE SIX DISABLED STEPS MEANS RESTORING THESE TWO AS WELL. `Lint (ruff)`,
+      # `Typecheck (mypy)` and `Test (pytest)` all need the install; the Terraform tests inside
+      # pytest need tofu. Bringing back the steps alone gives a job that fails at the first
+      # import, which is the half-restore the header's restore-together rule is about.
 
       # DISABLED -- see "WHAT IS DISABLED, AND THE RESTORE RULE" in the header above.
       # - name: Lint (ruff)

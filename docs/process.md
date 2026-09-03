@@ -448,12 +448,13 @@ When a spec is done, in the same pass:
 
 These pass locally and fail later — check them as part of the work, not as an afterthought.
 
-- **Six steps now fail NOWHERE but your machine** — `Lint`, `Format check`, `Test`, `Lint (ruff)`,
-  `Typecheck (mypy)` and `Test (pytest)` are all commented out in `ci.yml`, so a green PR is no
-  evidence any ran. `tsc -b` (via `npm run build`) is the only check of either kind CI still makes;
-  `npm run test` never typechecks and `tsc -p tsconfig.json` silently checks nothing. The Python
-  linter is `ruff check lambdas/ scripts/ .github/scripts/` — **all three trees**, since `scripts/`
-  holds the doc gate every reviewer is told to run — and `pytest` never sees it. All, by exit code.
+- **Six steps now fail NOWHERE but your machine** — lint, both suites and mypy are commented out in
+  `ci.yml`, whose header names all six and carries the restore rule, so a green PR is no evidence
+  any ran. `tsc -b` (via `npm run build`) is the only check CI still makes; `npm run test` never
+  typechecks and `tsc -p tsconfig.json` checks nothing. The Python linter is `ruff check lambdas/
+  scripts/ .github/scripts/` — **all three trees**; `pytest` never sees it. All, by exit code.
+- **A fresh worktree borrows the parent's `node_modules`, so the JS gates pass wrongly. `npm ci`
+  first** — a guard refuses them until you do.
 - **Never hand-roll a CI watch.** `gh pr checks --watch` can exit clean against the **previous**
   commit's checks, and a hand-written shell condition inverted and printed "settled" while two
   deploys were still running — both reported a green that was not there. Use
@@ -479,11 +480,10 @@ These pass locally and fail later — check them as part of the work, not as an 
   reinstates the failure the resolver exists to prevent, and it fails quietly, because an unset
   variable interpolates to the empty string, which satisfies a required Terraform variable and
   overrides its default.
-- **`lambdas/` has a second local-only gate beside ruff: `mypy` is BLOCKING** at zero errors over every
-  shared layer, plus the API and the contract generator. The list is `pyproject.toml`'s `[tool.mypy]`
-  `files` block and nowhere else — a **new shared layer joins the ratchet with the spec that creates
-  it**, because added later it is a baseline of existing errors to argue about and added now it is
-  free.
+- **`lambdas/` has a second local-only gate beside ruff: `mypy` is BLOCKING** at zero errors over
+  the shared layers, the API and the contract generator. The list is `pyproject.toml`'s
+  `[tool.mypy]` `files` block and nowhere else — a **new shared layer joins the ratchet with the
+  spec that creates it**: added later it is a baseline to argue about, added now it is free.
 - **Never `tofu apply` from a laptop.** The deploy role is GitHub-OIDC-only and the local CLI
   identity is an IAM *user* that is on no data bucket's policy allowlist, so tofu reads those
   buckets as **absent** and plans to destroy and recreate them (measured: `25 to add, 3 to change,
