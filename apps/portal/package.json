@@ -14,7 +14,11 @@
     "test:coverage": "vitest run --coverage",
     "test:a11y": "vitest run a11y",
     "test:ui": "vitest --ui",
-    "check:bundle": "node scripts/assert-bundle-has-no-vite-names.mjs"
+    "check:bundle": "node scripts/assert-bundle-has-no-vite-names.mjs",
+    "prelint": "node ../../scripts/check-local-install.mjs",
+    "preformat:check": "node ../../scripts/check-local-install.mjs",
+    "pretest": "node ../../scripts/check-local-install.mjs",
+    "pretest:coverage": "node ../../scripts/check-local-install.mjs"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
