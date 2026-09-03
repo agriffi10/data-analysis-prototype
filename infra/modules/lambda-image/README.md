@@ -70,7 +70,8 @@ Two constraints that decision inherits, and that the next specs in this arc inhe
 The repository's name is built here and matched there, in two files, and IAM matches ARNs
 literally — so a rename on either side is a grant that reads correct to a human and authorizes
 nothing. `test_the_repository_name_is_the_one_the_deploy_role_was_granted` is what makes that
-fail in CI instead of at a push.
+fail in a local `pytest lambdas/` run before the push, rather than at the push itself. CI
+no longer runs pytest (`docs/process.md` §6), so that guard is only as good as the pre-push run.
 
 ## Encryption
 

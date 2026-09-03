@@ -11,6 +11,25 @@ name: CI
 # config is solution-style: project references only, no files/include). `tsc -b`,
 # which `npm run build` runs, is the only invocation that covers the app AND its
 # *.test.tsx files.
+#
+# WHAT IS DISABLED, AND THE RESTORE RULE
+#
+# SIX steps are commented out to save Actions minutes. They run LOCALLY instead, on every
+# pull request, after the diff reviews and immediately before the push -- docs/process.md S3.
+#
+#   this job:     Lint (eslint) · Format check (prettier) · Test (vitest coverage)
+#   lambdas job:  Lint (ruff) · Typecheck (mypy) · Test (pytest)
+#
+# Restore them TOGETHER or not at all: a half-restored gate reads as a full one, and the
+# whole point of listing all six in one place is that no reader has to reconstruct the set.
+#
+# What this costs, stated rather than left to be discovered. A green check on this workflow
+# is NO evidence that lint, the suites or either typecheck ran -- only that the app builds,
+# carries no VITE_ names, and that the contract, docs and feature-flag documents are valid.
+# The eslint pass carried two things nothing else covers: the `@aws-sdk/*` import ban, and
+# `eslint-plugin-security` + `no-unsanitized`, which `security.yml` and `eslint.config.js`
+# both described as the blocking half of SPEC-138. Those are now enforced by the pre-push
+# run alone, so a session that skips it puts an injection sink on main behind a green PR.
 on:
   pull_request:
     branches: [main]
@@ -138,23 +157,22 @@ jobs:
         if: steps.scope.outputs.app == 'true'
         run: npm ci
 
-      # DISABLED to save Actions minutes. Lint and the suites now run LOCALLY on
-      # every PR, after the diff reviews and before the push -- docs/process.md S3.
-      # Restore all four steps (Lint + Test here, Lint (ruff) + Test (pytest) in the
-      # lambdas job) together; a half-restored gate reads as a full one.
+      # DISABLED -- see "WHAT IS DISABLED, AND THE RESTORE RULE" in the header above.
       # - name: Lint
       #   if: steps.scope.outputs.app == 'true'
       #   working-directory: apps/portal
       #   run: npm run lint
 
-      - name: Format check (prettier)
-        if: steps.scope.outputs.app == 'true'
-        working-directory: apps/portal
-        run: npm run format:check
+      # DISABLED -- see "WHAT IS DISABLED, AND THE RESTORE RULE" in the header above.
+      # - name: Format check (prettier)
+      #   if: steps.scope.outputs.app == 'true'
+      #   working-directory: apps/portal
+      #   run: npm run format:check
 
       # Runs the SAME command the SPA image's Dockerfile does, so a green PR means the
-      # image will build. Deliberately BEFORE the test step: a type error surfaces in
-      # under a minute instead of behind a ~5-minute suite. No VITE_* env is passed
+      # image will build. It sat before the test step so a type error surfaced in under a
+      # minute rather than behind a ~5-minute suite; that suite is disabled now, so the
+      # ordering buys nothing and this is simply the first real step. No VITE_* env is passed
       # — every one of them is a runtime value the container serves from /config.json,
       # and this job discards the bundle. What is being gated is `tsc -b`.
       - name: Build (typecheck + bundle)
@@ -171,10 +189,7 @@ jobs:
         working-directory: apps/portal
         run: npm run check:bundle
 
-      # DISABLED to save Actions minutes. Lint and the suites now run LOCALLY on
-      # every PR, after the diff reviews and before the push -- docs/process.md S3.
-      # Restore all four steps (Lint + Test here, Lint (ruff) + Test (pytest) in the
-      # lambdas job) together; a half-restored gate reads as a full one.
+      # DISABLED -- see "WHAT IS DISABLED, AND THE RESTORE RULE" in the header above.
       # - name: Test
       #   if: steps.scope.outputs.app == 'true'
       #   working-directory: apps/portal
@@ -254,10 +269,7 @@ jobs:
           pip install -r lambdas/table-builder-infer-schema/requirements.txt
           pip install -r lambdas/data-quality-polars/requirements.txt
 
-      # DISABLED to save Actions minutes. Lint and the suites now run LOCALLY on
-      # every PR, after the diff reviews and before the push -- docs/process.md S3.
-      # Restore all four steps (Lint + Test here, Lint (ruff) + Test (pytest) in the
-      # lambdas job) together; a half-restored gate reads as a full one.
+      # DISABLED -- see "WHAT IS DISABLED, AND THE RESTORE RULE" in the header above.
       # - name: Lint (ruff)
       #   # `scripts/` joins the scan because SPEC-162 put a Python module there
       #   # (validate_feature_flags.py). Nothing else in that directory is Python today.
@@ -308,12 +320,13 @@ jobs:
       # the shared sources; widening it to the verb packages is notch 3, and lands
       # report-only again. Config and the full ratchet path live in pyproject.toml's
       # [tool.mypy] block.
-      - name: Typecheck (mypy)
-        run: mypy
+      # DISABLED -- see "WHAT IS DISABLED, AND THE RESTORE RULE" in the header above.
+      # The ratchet reasoning above still holds; only the place it is enforced has moved, so
+      # a type error in the shared layers now reaches main behind a green PR unless the
+      # pushing session ran mypy and honoured its exit code.
+      # - name: Typecheck (mypy)
+      #   run: mypy
 
-      # DISABLED to save Actions minutes. Lint and the suites now run LOCALLY on
-      # every PR, after the diff reviews and before the push -- docs/process.md S3.
-      # Restore all four steps (Lint + Test here, Lint (ruff) + Test (pytest) in the
-      # lambdas job) together; a half-restored gate reads as a full one.
+      # DISABLED -- see "WHAT IS DISABLED, AND THE RESTORE RULE" in the header above.
       # - name: Test (pytest)
       #   run: pytest lambdas/

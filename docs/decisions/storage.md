@@ -519,7 +519,8 @@ write, list and delete the store needs is already granted by `UserPrefixObjects`
 
 **It is the arc's load-bearing premise, so it is pinned and it owes a live check.** A test reads
 the two `.tftpl` files and asserts each `Deny` still ends in `/*/DO_NOT_DELETE.txt`, so a later IAM
-edit that narrows the wildcard fails in CI rather than in production. But a passing test over a
+edit that narrows the wildcard fails in a local `pytest lambdas/` run rather than in production
+— CI no longer runs pytest (`docs/process.md` §6), so the guard is only as good as the pre-push run. But a passing test over a
 template is not a refusal: **a real delete of a real marker, refused, is owed** (SPEC-173 FR-009),
 in both a personal and a shared space. Until it is run the reading is corroborated, not discharged
 — the same class of evidence that had SPEC-144 FR-001 reversed mid-build.

@@ -54,9 +54,11 @@ env:
   # through monaco, which vendors its own copy). It fails on findings > 0, so the count is not
   # what stands in the way — the acceptance is. See docs/security-baseline.md.
   #
-  # Note what is NOT listed here: the two ESLint security plugins (SPEC-138 FR-003) run
-  # in ci.yml's existing `npm run lint`, which already blocks. Injection sinks in code
-  # being written now stop the PR; they do not become baseline entries.
+  # Note what is NOT listed here: the two ESLint security plugins (SPEC-138 FR-003). They
+  # run in `npm run lint`, which ci.yml NO LONGER INVOKES -- that step is disabled to save
+  # Actions minutes -- so the pass that catches injection sinks now runs only in a session's
+  # local pre-push gate. Nothing in this workflow covers it and nothing turns red to say so,
+  # which means a sink reaches main behind a green PR whenever that gate is skipped.
   GATE_SEMGREP: block
   GATE_NPM_AUDIT: report
   GATE_PIP_AUDIT: block

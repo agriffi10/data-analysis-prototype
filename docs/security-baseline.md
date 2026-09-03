@@ -21,8 +21,8 @@ CI run reproduces them.
 | Surface | Scanner | Result |
 |---|---|---|
 | SPA + Lambdas | Semgrep `p/owasp-top-ten` + language rulesets | 1 finding, 5 partial parses |
-| SPA | `eslint-plugin-security`, `no-unsanitized` (**blocking**) | clean — 10 pre-existing violations resolved in SPEC-138 |
-| Lambdas | ruff `S` (bandit) — pre-existing, **blocking** | clean |
+| SPA | `eslint-plugin-security`, `no-unsanitized` (**blocking pre-push, not in CI** — `docs/process.md` §6) | clean — 10 pre-existing violations resolved in SPEC-138 |
+| Lambdas | ruff `S` (bandit) — pre-existing, **blocking pre-push, not in CI** — `docs/process.md` §6 | clean |
 | SPA deps | `npm audit --omit=dev` (runtime) | 4 → **2** (2026-08-05, `react-router` pair cleared) |
 | SPA deps | `npm audit` (full) | 6 → **4** (2026-08-03, `postcss` + `brace-expansion` cleared) → **2** (2026-08-05, `react-router`; see below) |
 | Lambda deps | `pip-audit`, 13 packages | 0 |
@@ -219,7 +219,7 @@ narrowing the ruleset.
 
 The SPA is clean under Semgrep.
 
-### SAST — ESLint (blocking, resolved in SPEC-138)
+### SAST — ESLint (blocking in the pre-push gate, not in CI; resolved in SPEC-138)
 
 Ten pre-existing violations, all resolved rather than carried into this baseline, because this
 scanner blocks:

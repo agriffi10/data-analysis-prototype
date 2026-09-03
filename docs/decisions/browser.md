@@ -993,8 +993,9 @@ advertising coverage it cannot provide, which is worse than a disabled one, beca
 as checking something it never checks.
 
 **Superseded on the last clause, 2026-09-01:** the rule is now **disabled** with its reason, and a
-static sweep covers the part a class name can answer. "Nothing in CI can catch this" no longer holds
-for a control sized from the spacing scale — it does still hold for one whose height is its line box
+static sweep covers the part a class name can answer. "Nothing can catch this automatically" no longer holds
+for a control sized from the spacing scale (the sweep is a Vitest test, so it is the pre-push run
+that catches it now, not CI — `docs/process.md` §6) — it does still hold for one whose height is its line box
 plus padding, and for whether the spacing exception covers a small target. See
 *An axe rule that cannot measure is disabled, and what replaces it* in
 [`gates-and-tests.md`](gates-and-tests.md).

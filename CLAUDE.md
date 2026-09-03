@@ -46,7 +46,7 @@ production users yet.
 | Routing / state | `react-router` v8 (**not** `react-router-dom` — that package is gone in v8; import everything from `react-router`); TanStack Query (server state) + Context/`useReducer` (UI state); no Redux |
 | Testing / lint | Vitest + React Testing Library + `@testing-library/user-event`; `@vitest/coverage-v8` (`npm run test:coverage`); `vitest-axe` (axe-core a11y assertions, SPEC-045); ESLint + Prettier. Tests are **integration-style** — **import only the component under test**, render real hooks/children, mock only the service boundary (`*.service.ts` / `lib/apiClient`); **1–3 scenarios each** (4–5 where earned; a dozen means the unit is scoped wrong), **arrange/act/assert**, happy path and failure path first; shared harness `src/test/renderWithProviders.tsx`. Rules: `apps/portal/info/best-practices/react/react.md` §21, `lambdas/info/best-practices/lambdas/lambdas.md` §11 |
 | IaC | OpenTofu (HCL, S3 remote state) |
-| Security | `eslint-plugin-security` + `eslint-plugin-no-unsanitized` (in `npm run lint`, **blocking**); Semgrep / `pip-audit` / gitleaks / Checkov **block** in `security.yml`; `npm audit` and the OWASP ZAP baseline **report** (SPEC-138 — the modes are the `GATE_*` block at the top of the workflow). Every scanner version-pinned — see the VERSIONS block and #311 |
+| Security | `eslint-plugin-security` + `eslint-plugin-no-unsanitized` (in `npm run lint`, **pre-push**); Semgrep / `pip-audit` / gitleaks / Checkov **block** in `security.yml`; `npm audit` and the OWASP ZAP baseline **report** (SPEC-138 — the modes are the `GATE_*` block at the top of the workflow). Every scanner version-pinned — see the VERSIONS block and #311 |
 
 Don't add dependencies without noting them here first.
 

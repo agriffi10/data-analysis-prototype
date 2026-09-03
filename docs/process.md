@@ -154,9 +154,9 @@ answered, and on a twelve-phase spec it asks it twelve times.
   happened rather than as the thing that decides whether it should. Rotating the frame
   (`docs/reviewer-contract.md`) happens in the same window. A push is the point of no return for the review, the same way the merge is the
   point of no return for CI.
-- Before pushing, run the **formatter, both linters, both suites and `npm run build`** locally and
-  get them green by **exit code**. **CI runs no lint or test step now**, so this is the ONLY place
-  they run: a skipped suite reaches `main` behind a green PR. Typecheck caveats: §6.
+- Before pushing, run the **formatter, both linters, both suites, mypy and `npm run build`**
+  locally, green by **exit code**. **CI runs the build and the validators, nothing else**, so this
+  is the ONLY place the rest run: skip one and it reaches `main` behind a green PR. Traps: §6.
 - Work the **reviewed** plan's phases in order, **straight through to completion**. Summarize a phase
   in passing where it is worth saying, but do not end the turn on it — a summary that ends the turn
   *is* a request for approval, whatever its wording says. Re-review the plan only if the phase
@@ -448,12 +448,12 @@ When a spec is done, in the same pass:
 
 These pass locally and fail later — check them as part of the work, not as an afterthought.
 
-- **Lint and both suites now fail NOWHERE but your machine** — `Lint`, `Test`, `Lint (ruff)` and
-  `Test (pytest)` are commented out in `ci.yml`, so a green PR is no evidence they ran. `tsc -b`
-  (via `npm run build`) is still the only typecheck — `npm run test` never typechecks and
-  `tsc -p tsconfig.json` silently checks nothing. The Python linter is
-  `ruff check lambdas/ scripts/ .github/scripts/` — **all three trees**, since `scripts/` holds the
-  doc gate every reviewer is told to run — and `pytest` never sees it. Run all by exit code.
+- **Six steps now fail NOWHERE but your machine** — `Lint`, `Format check`, `Test`, `Lint (ruff)`,
+  `Typecheck (mypy)` and `Test (pytest)` are all commented out in `ci.yml`, so a green PR is no
+  evidence any ran. `tsc -b` (via `npm run build`) is the only check of either kind CI still makes;
+  `npm run test` never typechecks and `tsc -p tsconfig.json` silently checks nothing. The Python
+  linter is `ruff check lambdas/ scripts/ .github/scripts/` — **all three trees**, since `scripts/`
+  holds the doc gate every reviewer is told to run — and `pytest` never sees it. All, by exit code.
 - **Never hand-roll a CI watch.** `gh pr checks --watch` can exit clean against the **previous**
   commit's checks, and a hand-written shell condition inverted and printed "settled" while two
   deploys were still running — both reported a green that was not there. Use
