@@ -144,6 +144,7 @@ DOC_TREES = ("docs", "apps/portal/info", "lambdas/info", "infra/info", "infra/mo
 VENDORED = (".terraform", "node_modules", "__pycache__", ".venv", "dist", "coverage", ".git", ".claude")
 
 
+
 def _docs_in(tree):
     """Every markdown file in a doc tree, skipping vendored directories.
 
@@ -159,7 +160,7 @@ def _docs_in(tree):
     return sorted(
         path
         for path in (ROOT / tree).rglob("*.md")
-        if not any(part in VENDORED for part in path.parts)
+        if not any(part in VENDORED for part in path.relative_to(ROOT).parts)
     )
 
 TESTING_PERMANENT = frozenset({"e2e.md", "owed.md", "sessions.md"})
@@ -894,13 +895,18 @@ def check_doc_paths_everywhere() -> list[str]:
     """
     suffixes = {".tf", ".tftpl", ".yml", ".yaml", ".py", ".ts", ".tsx", ".sh", ".toml"}
     skip = VENDORED
+    candidates = scanned = 0
     pattern = re.compile(
         r"(?:" + "|".join(re.escape(tree) for tree in DOC_TREES) + r")/[A-Za-z0-9_./-]+\.md"
     )
     errors = []
     for path in sorted(ROOT.rglob("*")):
-        if path.suffix not in suffixes or any(part in skip for part in path.parts):
+        if path.suffix not in suffixes:
             continue
+        candidates += 1
+        if any(part in skip for part in path.relative_to(ROOT).parts):
+            continue
+        scanned += 1
         try:
             text = path.read_text()
         except (UnicodeDecodeError, OSError):
@@ -908,6 +914,18 @@ def check_doc_paths_everywhere() -> list[str]:
         for target in sorted(set(pattern.findall(text))):
             if not (ROOT / target).exists():
                 errors.append(f"{path.relative_to(ROOT)}: references a missing doc -> {target}")
+
+    if candidates and not scanned:
+        errors.append(
+            f"this check found {candidates} source files and skipped every one of them as "
+            "vendored. It has not passed, it has not run — and a check that did not run reads "
+            "exactly like a clean one. The cause this control was written for: the skip compared "
+            "ABSOLUTE path parts, so a checkout nested inside any directory named in VENDORED "
+            "excluded its own entire tree. A git worktree under `.claude/worktrees/` is exactly "
+            "that, and this check reported OK having read none of it. The control is "
+            "all-or-nothing because the fault is: a prefix match applies to every path in the "
+            "tree alike. It would NOT catch a skip that swallowed merely most of them."
+        )
     return errors
 
 

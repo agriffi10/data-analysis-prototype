@@ -77,7 +77,7 @@ jobs:
       #
       # What the change does NOT touch is the SHAPE, which is the part worth keeping: the pattern
       # list is every input the remaining steps read, and that is not the same as "the app's
-      # source" — the out-of-tree reads below, the 88 IAM templates especially, are how a real
+      # source" — the out-of-tree reads below, the IAM policy templates especially, are how a real
       # set-equality guard reports green on a change that breaks it.
       #
       # The job still RUNS and still reports under the same check name — this is a step-level
@@ -85,9 +85,10 @@ jobs:
       # name can never sit pending forever.
       #
       # It fails in the EXPENSIVE direction on purpose. An unreachable base sets `app=true`
-      # and runs everything, and a `git diff` that cannot be computed fails the job outright
-      # rather than reporting an empty change set — a cheap green that tested nothing is
-      # indistinguishable from a real one, which is the whole failure mode being avoided.
+      # and runs everything; a `git diff` that cannot be computed, and a pattern list `grep`
+      # cannot compile, each fail the job outright rather than reporting an empty change set —
+      # a cheap green that tested nothing is indistinguishable from a real one, which is the
+      # whole failure mode being avoided.
       - name: Work out whether this pull request can change the app
         id: scope
         env:
@@ -133,18 +134,82 @@ jobs:
           # --no-renames because `--name-only` reports only a rename's DESTINATION. Moving a
           # file out of apps/portal would otherwise show up as the destination alone, answer
           # `app=false`, and break `tsc -b` on main with a green PR.
-          CHANGED=$(git diff --name-only --no-renames "$BASE" HEAD)
+          #
+          # `-z` because `--name-only` C-QUOTES a path that is not plain ASCII — wrapping it in
+          # double quotes and escaping the bytes, so `"apps/portal/src/caf\303\251.tsx"` matches
+          # no anchored pattern and a pull request that genuinely changes the app answers
+          # `app=false`. `core.quotePath=false` fixes that for high bytes ALONE and leaves `"`,
+          # `\` and control characters still quoted; `-z` emits every path raw, which closes the
+          # class rather than one member of it. A newline inside a filename then splits one path
+          # into two and both halves are tested, which for the PREFIX anchors over-selects in the
+          # expensive direction — but not for the fully anchored IAM-template pattern, where
+          # neither half matches and the path is lost in the cheap one. Measured, and left alone:
+          # closing it means abandoning line-oriented matching for a filename nobody writes.
+          CHANGED=$(git diff -z --name-only --no-renames "$BASE" HEAD | tr '\0' '\n')
 
+          # THE CANARY, AND WHY IT IS A CANARY RATHER THAN A LIST OF FAILURE MODES.
+          #
+          # Every way this pattern list can stop working reads as `app=false` — "nothing
+          # changed" — which skips the install, the build and the bundle check while printing
+          # the same reassuring notice a genuine skip prints. Self-concealing, too:
+          # `^\.github/workflows/ci\.yml$` is itself in the list, so the pull request that
+          # breaks it skips its OWN build, merges green, and every later one skips as well.
+          #
+          # Enumerating those ways does not work, and that was learned by trying. Checking only
+          # for grep exit >= 1 catches an unbalanced bracket and nothing else: GNU grep answers
+          # a non-capturing group, a lookaround and a stray `\d` with exit ONE — an ordinary
+          # "no match" — and two of those it does not even diagnose. An empty list is a third.
+          # So the check is a POSITIVE CONTROL instead: a path the list must always select is
+          # run through the very same invocation, and anything but a match stops the job. That
+          # covers a list that is empty, uncompilable, silently reinterpreted, or edited until
+          # it no longer selects the app — including ways nobody has thought of, which is the
+          # point of a control over an enumeration. Measured against both engines this repo
+          # meets: GNU grep 3.11 (the runner) is caught on all five, BSD grep 2.6 (a session's
+          # own machine) on four, the exception being a non-capturing group it happens to match.
+          #
+          # It is deliberately coupled to `^apps/portal/`. That pattern going away is not a
+          # refactor this job should survive quietly.
+          canary='apps/portal/src/App.tsx'
+          set +e
+          grep -qE -f <(printf '%s' "$SCOPE_PATTERNS") <<<"$canary"
+          canary_status=$?
+          set -e
+          if [ "$canary_status" -ne 0 ]; then
+            echo "::error title=Scope::the pattern list no longer selects [$canary] (grep exited $canary_status). It is empty, unusable, or has stopped covering the app — this run cannot decide what to skip and will not guess."
+            exit 1
+          fi
+
+          # The status is still read rather than tested inside an `if`, because grep answers
+          # three ways and only two of them are answers: 0 matched, 1 did not, anything above
+          # that is grep failing to perform the test at all. The canary above already refuses
+          # the lists that produce the third, so this is the narrower diagnostic rather than
+          # the guard — it says which of the two the run got.
+          #
           # A here-string, NOT `printf ... | grep -q`. Under `pipefail` grep exits at the
-          # first match, printf takes SIGPIPE, and the pipeline reports 141 — so the `if`
-          # takes the else branch and answers `app=false` for a pull request that DID touch
-          # the app. It inverts once the change set passes the 64 KiB pipe buffer: measured
-          # correct at 45 KB and inverted at 75 KB, in the cheap direction, silently.
-          if grep -qE -f <(printf '%s' "$SCOPE_PATTERNS") <<<"$CHANGED"; then
+          # first match, printf takes SIGPIPE, and the pipeline reports 141 — which would now
+          # be read as grep failing rather than as a match. It inverts once the change set
+          # passes the 64 KiB pipe buffer: measured correct at 45 KB and inverted at 75 KB, in
+          # the cheap direction, silently.
+          set +e
+          grep -qE -f <(printf '%s' "$SCOPE_PATTERNS") <<<"$CHANGED"
+          matched=$?
+          set -e
+          if [ "$matched" -gt 1 ]; then
+            echo "::error title=Scope::grep exited $matched testing the change set, having matched the canary — so this is the change set it could not read, not the pattern list. This run cannot decide what to skip and will not guess."
+            exit 1
+          fi
+
+          if [ "$matched" -eq 0 ]; then
             echo 'app=true' >> "$GITHUB_OUTPUT"
           else
             echo 'app=false' >> "$GITHUB_OUTPUT"
             echo "::notice title=Scope::no app input changed; install, build and the bundle check are skipped"
+            # The verdict with the evidence under it. A wrong `app=false` is the failure this
+            # step keeps having, and without the change set in the log there is nothing to
+            # diagnose one from — the notice alone cannot distinguish an honest skip from a
+            # pattern list that has stopped covering an input.
+            echo "The change set this verdict was taken over:"
+            printf '%s\n' "$CHANGED"
           fi
 
       - name: Set up Node.js

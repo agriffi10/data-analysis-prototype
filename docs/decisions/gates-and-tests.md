@@ -13,6 +13,7 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [`ACCEPTED_` tripwires: what the project knows it has not verified (SPEC-153)](#accepted_-tripwires-what-the-project-knows-it-has-not-verified-spec-153)
 - [A refusal is the half of the system no user exercises (2026-08-28)](#a-refusal-is-the-half-of-the-system-no-user-exercises-2026-08-28)
 - [An axe rule that cannot measure is disabled, and what replaces it (2026-09-01)](#an-axe-rule-that-cannot-measure-is-disabled-and-what-replaces-it-2026-09-01)
+- [A change-detection gate answers three ways, and one of them is not an answer (2026-09-04)](#a-change-detection-gate-answers-three-ways-and-one-of-them-is-not-an-answer-2026-09-04)
 
 ## Security scanning (SPEC-138)
 
@@ -277,3 +278,75 @@ A rem step expresses visual rhythm, and rhythm is not what this value is for.
 > the tab-strip closes, sit INSIDE a clickable tab, which is the one geometry the spacing exception
 > cannot rescue — they need a design decision rather than a resize. `docs/testing/owed.md` carries
 > what is owed.
+
+## A change-detection gate answers three ways, and one of them is not an answer (2026-09-04)
+
+Two workflows skip expensive steps when a change set touches nothing they read: `ci.yml`'s scope
+step, which gates the install, the build and the bundle check on a pull request, and
+`deploy-spa-image.yml`'s, which gates the image build. Both decide by matching `git`'s path list
+against an anchored pattern list. Every way that decision can go wrong answers "nothing changed"
+— the **cheap** direction, behind a green check, with the same reassuring annotation an honest
+skip prints. `ci.yml` had two such ways and has been fixed; `deploy-spa-image.yml` was written
+with both guards already in it and never had either, so this entry is about the class rather than
+about a defect the two shared.
+
+**Read paths RAW.** `git diff --name-only` (and `ls-files`, and `ls-tree --name-only`) C-quotes any
+path that is not plain ASCII: `apps/portal/src/café.tsx` comes back as
+`"apps/portal/src/caf\303\251.tsx"`, wrapped in double quotes with the bytes escaped, which matches
+`^apps/portal/` and every other anchored pattern. **`core.quotePath=false` is not the fix** — it
+covers bytes >= 0x80 alone and leaves `"`, `\` and control characters still quoted, so it closes one
+member of the class. `-z` plus `tr '\0' '\n'` closes the class. The residual is a newline inside a
+filename, which splits one path into two: for a prefix anchor both halves are tested and it
+over-selects, in the expensive direction; for a `$`-anchored pattern with a wildcard segment —
+`^infra/modules/[^/]+/policies/[^/]+\.json\.tftpl$` is the only one — neither half matches and the
+path is lost in the cheap one. Measured and accepted: closing it means abandoning line-oriented
+matching for a filename nobody writes. The same defect was found and fixed in two IAM guards
+reading `ls-files` and `ls-tree`, where it dropped a template out of a guarded population.
+
+**Guard a broken pattern list with a POSITIVE CONTROL, not an enumeration of failure modes.**
+This was learned by getting it wrong. `grep` answers three ways and only two are answers — 0
+matched, 1 did not, anything above is grep failing to perform the test at all — so a bare `if`
+collapses the third into the second and an unusable list reads as "nothing changed". It is
+**self-concealing** in `ci.yml`, because the workflow is in its own pattern list: the pull request
+that breaks it skips its own build, merges green, and every later one skips too.
+
+Reading the status and hard-erroring above 1 was the first fix, and it covers **one** shape.
+Measured on GNU grep 3.11, the runner's engine: an unbalanced bracket exits 2, but a non-capturing
+group, a lookaround and a stray `\d` all exit **1** — an ordinary "no match" — and two of the three
+are not diagnosed at all. An empty list is a fourth. So the step now runs a path the list must
+always select through the same invocation and refuses anything but a match. That covers empty,
+uncompilable, silently reinterpreted, and edited-until-it-no-longer-selects-the-app, including
+shapes nobody has enumerated. The status check stays as the narrower diagnostic — with the canary
+matched, a failure above 1 is grep failing on the *change set*, which wants a different message.
+
+Do **not** reach for the static sanity tests instead: they run only in a session's local pytest.
+And note which way that asymmetry runs, because the intuitive version of it is backwards — Python's
+`re` **rejects** the unbalanced bracket the step now catches on its own, and **accepts** the `(?:`
+and `(?=` it does not.
+
+**The step's own claim to fail expensively is now load-bearing on `pipefail`.** As a simple
+assignment, a failing `git diff` killed the job under `set -e` alone. As a pipeline, the status is
+`tr`'s, and `tr` succeeds over nothing — so without `pipefail` every pull request answers
+`app=false`, silently. Asserted both ways: the flag is read out of the step, and a diff that cannot
+be computed is exercised.
+
+**A skip prints the change set it decided over.** A verdict with no evidence under it makes a wrong
+`app=false` undiagnosable from the log — the notice alone cannot distinguish an honest skip from a
+pattern list that has stopped covering an input.
+
+**What the guards over this owe, beyond the verdicts.** `lambdas/test_ci_scope.py` runs both steps'
+real scripts, taken from the workflow rather than restated, against throwaway repositories. Two
+controls make the rest worth anything. On the **answer** side: a harness that answered `app=true`
+unconditionally would satisfy every quoted-path case while proving nothing, and the step takes
+exactly that branch by design when the base is unreachable — so a documentation-only commit must
+still skip and neither verdict may reach that escape. On the **input** side: for any fixture path
+that is not plain ASCII, the un-`-z`'d diff must still be shown to quote it, or the fixture has
+stopped provoking the hazard and the guard over it is vacuous. That one is reachable without a code
+edit — a developer with `core.quotePath=false` in their own git config — which is why the harnesses
+scrub git's configuration out of the environment. Pointing `GIT_CONFIG_GLOBAL` and
+`GIT_CONFIG_SYSTEM` at `/dev/null` is **not** sufficient on its own: `GIT_CONFIG_COUNT` with its
+numbered key/value pairs, and `GIT_CONFIG_PARAMETERS`, set the same option with no file involved,
+so all of them go. `GIT_DIR` goes with them for a different and worse reason — inheriting it does
+not merely break hermeticity, the fixture commits land in **that** repository. Measured before the scrub: a decoy
+repo came back with its `HEAD` moved onto a fixture commit and its original orphaned, while the
+suite passed green.
