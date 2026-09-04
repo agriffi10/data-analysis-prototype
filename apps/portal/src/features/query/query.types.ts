@@ -2,7 +2,7 @@
 // it also uses live in `features/catalog/`, and the saved-query types in
 // `features/saved-queries/`.
 
-import type {QueryState} from '../catalog/catalog.types';
+import type {QueryState, QueryStatus} from '../catalog/catalog.types';
 import type {SavedQueryLink} from '../saved-queries/savedQueries.types';
 
 export type QueryHistoryEntry = {
@@ -49,8 +49,14 @@ export type ResultTab = {
   executionId: string;
   /** Tab label (1-based index + short statement hint). */
   label: string;
-  /** The execution's result object, captured at finalize so Save-results works per tab. */
-  outputLocation?: string;
+  /**
+   * This statement's terminal status, captured at finalize. It carries the result
+   * object Save-results copies from, and the scanned/duration figures the status bar
+   * prints beside the row count — all three describe the DISPLAYED statement, so a
+   * flip between tabs moves them together instead of stranding them on whichever
+   * statement ran last.
+   */
+  status: QueryStatus;
 };
 
 /**

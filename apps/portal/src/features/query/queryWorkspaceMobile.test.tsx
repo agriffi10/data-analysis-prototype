@@ -9,14 +9,17 @@ import {
   NavRailProbe,
   fail,
   installWorkspaceMocks,
+  mockGetResults,
   mockListSaved,
   mockReadSaved,
   mockRunQuery,
   ok,
+  queueRuns,
   renderWorkspace,
   resetViewport,
   savedListing,
-  seedSingle
+  seedSingle,
+  statusMap
 } from '../../test/queryWorkspaceSupport';
 
 // The below-`tablet` surface, driven through the workspace: the browse-first home, the results
@@ -148,6 +151,31 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
     // Back returns to the browse-first home.
     await user.click(screen.getByRole('button', {name: 'Back to queries'}));
     expect(await screen.findByRole('button', {name: 'Run saved query Revenue'})).toBeInTheDocument();
+  });
+
+  // The mobile surface submits the WHOLE buffer at `script-single`, so a saved query holding
+  // more than one statement lands here too. A trailing DDL earns no result tab, so the row
+  // cards keep showing the SELECT while the tab's status has moved on to the CREATE — and the
+  // status bar is the same component the editor shell renders. There is no tab strip to flip,
+  // which is exactly why nothing else can see this call site.
+  it('reports the displayed statement in the status bar, not a trailing DDL', async () => {
+    mockListSaved.mockResolvedValue(savedListing('Revenue'));
+    mockReadSaved.mockResolvedValue(ok('SELECT region FROM alice.sales; CREATE TABLE alice.t (id int);'));
+    queueRuns('q-1', 'q-2');
+    statusMap['q-1'] = {dataScannedBytes: 8192, engineExecutionTimeMillis: 1750};
+    statusMap['q-2'] = {dataScannedBytes: 1024, engineExecutionTimeMillis: 250};
+    mockGetResults.mockImplementation(async ({queryExecutionId}: {queryExecutionId: string}) =>
+      ok({
+        columns: [{name: 'region', type: 'string'}],
+        rows: queryExecutionId === 'q-1' ? [['us-east'], ['eu-west']] : [['ap-south']]
+      })
+    );
+    const {user} = renderMobileWorkspace();
+
+    await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
+
+    await waitFor(() => expect(mockRunQuery).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByText(/scanned ·/)).toHaveTextContent('2 rows · 8.0 KB scanned · 1.8s'));
   });
 
   it('never shows one query’s results under another query’s name', async () => {

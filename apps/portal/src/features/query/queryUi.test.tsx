@@ -15,7 +15,7 @@ import {QueryTabStrip} from './QueryTabStrip';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import type {QueryHistoryEntry, QueryTab, ResultTab} from './query.types';
 import type {SavedQuery, SavedQueryLink} from '../saved-queries/savedQueries.types';
-import type {QuerySpace} from '../catalog/catalog.types';
+import type {QuerySpace, QueryStatus} from '../catalog/catalog.types';
 
 // A tab's link to the file it was opened from (SPEC-173) — the key IS the identity.
 const LINK: SavedQueryLink = {
@@ -172,10 +172,13 @@ describe('QueryHistoryRow', () => {
 
 // ─── from ResultTabs.test.tsx ───
 describe('ResultTabs', () => {
+  // The strip renders the label and keys on the execution id; the captured status is
+  // the workspace's business, so these carry the bare shape the type requires.
+  const status = (id: string): QueryStatus => ({queryExecutionId: id, state: 'SUCCEEDED'});
   const tabs: ResultTab[] = [
-    {statementIndex: 0, executionId: 'q-1', label: '1 · SELECT a'},
-    {statementIndex: 2, executionId: 'q-3', label: '3 · SELECT b'},
-    {statementIndex: 3, executionId: 'q-4', label: '4 · SHOW TABLES'}
+    {statementIndex: 0, executionId: 'q-1', label: '1 · SELECT a', status: status('q-1')},
+    {statementIndex: 2, executionId: 'q-3', label: '3 · SELECT b', status: status('q-3')},
+    {statementIndex: 3, executionId: 'q-4', label: '4 · SHOW TABLES', status: status('q-4')}
   ];
 
   function renderTabs(activeIndex = 0, onSelect = vi.fn()) {
