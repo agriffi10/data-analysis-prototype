@@ -120,6 +120,48 @@ REFUSED_BY_SCOPE = (
     "infra/variables.tf",
 )
 
+#: Git settings the harnesses below must not inherit from whoever is running the suite.
+#: ``GIT_DIR`` and its neighbours point git at a DIFFERENT repository, and the fixture commits
+#: then land there — measured: a decoy repo came back with its HEAD moved onto a fixture commit
+#: and its original orphaned, while the suite passed. ``GIT_CONFIG_GLOBAL`` matters for a second
+#: reason: ``core.quotePath=false`` in a developer's own config un-quotes the high-byte fixture,
+#: which would let the quoting guard below pass against a workflow that has no ``-z``.
+HERMETIC_GIT_ENV = {
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_SYSTEM": os.devnull,
+    "GIT_DIR": None,
+    "GIT_WORK_TREE": None,
+    "GIT_INDEX_FILE": None,
+    "GIT_OBJECT_DIRECTORY": None,
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES": None,
+    "GIT_COMMON_DIR": None,
+    "GIT_CEILING_DIRECTORIES": None,
+}
+
+
+def _hermetic_env(**overrides: str) -> dict[str, str]:
+    """Return an environment that cannot reach the caller's repository or git configuration.
+
+    Args:
+        **overrides: Variables to set on top of the scrubbed environment.
+
+    Returns:
+        dict[str, str]: The caller's environment with every entry of ``HERMETIC_GIT_ENV`` either
+            replaced or removed, plus the overrides.
+
+    Raises:
+        None.
+    """
+    environment = dict(os.environ)
+    for name, value in HERMETIC_GIT_ENV.items():
+        if value is None:
+            environment.pop(name, None)
+        else:
+            environment[name] = value
+    environment.update(overrides)
+    return environment
+
+
 #: The floor for the glob-derived half. 88 templates exist; a lower bound lets one be added or
 #: removed without editing this file, while still failing if the glob stops being swept at all.
 MINIMUM_IAM_TEMPLATE_READS = 80
@@ -396,6 +438,82 @@ def test_no_scope_pattern_matches_every_path():
     _assert_pattern_list_is_sane(_scope_patterns(), "SCOPE_PATTERNS")
 
 
+def _seed_repo(repo: pathlib.Path) -> tuple[list[str], str]:
+    """Initialise a throwaway repository holding one commit, and return the way back into it.
+
+    Both scope steps below diff against a commit they are handed, so both need a repository
+    with a baseline. Shared rather than written twice because the two copies drifted apart in
+    exactly one place — the message that says which step could not find a shell — and a message
+    naming the wrong step is worse than no message.
+
+    Every git invocation takes the scrubbed environment. Inheriting ``GIT_DIR`` from whoever ran
+    the suite does not merely break hermeticity: the fixture commits land in THAT repository.
+
+    Args:
+        repo: An existing empty directory to initialise.
+
+    Returns:
+        tuple[list[str], str]: The ``git`` argv prefix that operates on it, and the seed
+            commit's sha.
+
+    Raises:
+        subprocess.CalledProcessError: If any of the git commands fails.
+    """
+    git = ["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t"]
+    environment = _hermetic_env()
+    subprocess.run([*git, "init", "-q", "-b", "main"], check=True, env=environment)  # noqa: S603
+    (repo / "seed.txt").write_text("seed\n", encoding="utf-8")
+    subprocess.run([*git, "add", "-A"], check=True, env=environment)  # noqa: S603
+    subprocess.run([*git, "commit", "-qm", "baseline"], check=True, env=environment)  # noqa: S603
+    head = subprocess.run(  # noqa: S603
+        [*git, "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+    ).stdout.strip()
+    return git, head
+
+
+def _locate_bash(label: str) -> str:
+    """Find the shell a scope step is written in, naming the step that needs it.
+
+    Args:
+        label: The workflow whose step is about to be run, for the refusal message.
+
+    Returns:
+        str: An absolute path to ``bash``.
+
+    Raises:
+        AssertionError: If there is no ``bash`` on PATH.
+    """
+    bash = shutil.which("bash")
+    assert bash, (
+        f"no bash on PATH; {label}'s scope step is a bash script and cannot be exercised "
+        "without one"
+    )
+    return bash
+
+
+def _read_github_output(path: pathlib.Path) -> dict[str, str]:
+    """Parse a step's ``$GITHUB_OUTPUT`` file into the answers it wrote.
+
+    Args:
+        path: The file the step was handed as ``GITHUB_OUTPUT``.
+
+    Returns:
+        dict[str, str]: One entry per ``key=value`` line, later lines winning.
+
+    Raises:
+        None.
+    """
+    return dict(
+        line.split("=", 1)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if "=" in line
+    )
+
+
 def _ci_scope_step() -> dict:
     """Return the ``ci`` job's scope step, by id rather than by position.
 
@@ -419,7 +537,54 @@ def _ci_scope_step() -> dict:
     return steps[0]
 
 
-def _run_ci_scope(changed: tuple[str, ...]) -> dict[str, str]:
+def _assert_the_hazard_is_present(
+    git: list[str], environment: dict[str, str], changed: tuple[str, ...]
+) -> None:
+    """Prove the fixture still provokes the quoting the step is guarded against.
+
+    The verdict tests below police what the step ANSWERS; nothing polices whether the hazard
+    arose at all. A fixture that stopped being quoted — a git that changed its default, an
+    environment that un-quotes it — would let the quoting guard pass against a workflow with no
+    ``-z`` at all, and read exactly like a fix that works. So the control is over the INPUT:
+    for any fixture path that is not plain ASCII, the un-``-z``'d diff must still C-quote it.
+
+    Args:
+        git: The ``git`` argv prefix for the fixture repository.
+        environment: The scrubbed environment those commands run under.
+        changed: The paths the head commit touched.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If a non-ASCII fixture path is not quoted by a plain ``--name-only``,
+            which makes the guard over it vacuous.
+    """
+    hazardous = [name for name in changed if not name.isascii()]
+    if not hazardous:
+        return
+    plain = subprocess.run(  # noqa: S603
+        [*git, "diff", "--name-only", "--no-renames", environment["BASE"], "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+    ).stdout
+    for name in hazardous:
+        assert name not in plain, (
+            f"[{name}] came back from a plain `--name-only` unquoted, so this fixture no longer "
+            "provokes the quoting the step is guarded against and the guard over it is vacuous"
+        )
+
+
+def _run_ci_scope(
+    changed: tuple[str, ...],
+    *,
+    renamed: tuple[tuple[str, str], ...] = (),
+    patterns: str | None = None,
+    break_diff: bool = False,
+    expect_failure: bool = False,
+) -> dict[str, str]:
     """Run the pull-request scope step's real script over a throwaway repository.
 
     The static tests above ask what the pattern list means; this asks what the STEP answers,
@@ -434,13 +599,21 @@ def _run_ci_scope(changed: tuple[str, ...]) -> dict[str, str]:
     Args:
         changed: Repository-relative paths the pull request's head commit touches, written and
             committed on top of a seed commit that stands in for the base.
+        renamed: ``(from, to)`` pairs created in the base commit and moved with ``git mv`` in
+            the head commit, which is the only way to exercise ``--no-renames``.
+        patterns: Replaces the workflow's own pattern list, for exercising a list ``grep``
+            cannot compile.
+        break_diff: Put a ``git`` on PATH that fails ``diff`` and passes everything else, which
+            is the only way past the reachability guard to the pipeline behind it.
+        expect_failure: Assert the step exits non-zero instead of emitting an answer.
 
     Returns:
         dict[str, str]: The step's ``$GITHUB_OUTPUT`` — ``app`` — plus its ``stdout``, which
-            carries the annotations that say WHY it answered as it did.
+            carries the annotations that say WHY it answered as it did. On a refusal, its
+            ``stdout``, its ``stderr``, and whatever it managed to ``record``.
 
     Raises:
-        AssertionError: If the step exits non-zero, with its output attached.
+        AssertionError: If the step's exit status disagrees with ``expect_failure``.
     """
     step = _ci_scope_step()
     with tempfile.TemporaryDirectory() as work:
@@ -448,51 +621,85 @@ def _run_ci_scope(changed: tuple[str, ...]) -> dict[str, str]:
         repo = root / "repo"
         repo.mkdir()
 
-        git = ["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t"]
-        subprocess.run([*git, "init", "-q", "-b", "main"], check=True)  # noqa: S603
-        (repo / "seed.txt").write_text("seed\n", encoding="utf-8")
-        subprocess.run([*git, "add", "-A"], check=True)  # noqa: S603
-        subprocess.run([*git, "commit", "-qm", "base"], check=True)  # noqa: S603
-        base = subprocess.run(  # noqa: S603
-            [*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True
-        ).stdout.strip()
+        git, base = _seed_repo(repo)
+        environment = _hermetic_env(
+            GITHUB_OUTPUT=str(root / "output.txt"),
+            BASE=base,
+            SCOPE_PATTERNS=step["env"]["SCOPE_PATTERNS"]
+            if patterns is None
+            else patterns,
+        )
+        for source, _destination in renamed:
+            written = repo / source
+            written.parent.mkdir(parents=True, exist_ok=True)
+            written.write_text("to be moved\n", encoding="utf-8")
+        if renamed:
+            subprocess.run([*git, "add", "-A"], check=True, env=environment)  # noqa: S603
+            subprocess.run(  # noqa: S603
+                [*git, "commit", "-qm", "before the move"], check=True, env=environment
+            )
+            environment["BASE"] = subprocess.run(  # noqa: S603
+                [*git, "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+                env=environment,
+            ).stdout.strip()
+        for source, destination in renamed:
+            (repo / destination).parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run(  # noqa: S603
+                [*git, "mv", source, destination], check=True, env=environment
+            )
 
         for name in changed:
             written = repo / name
             written.parent.mkdir(parents=True, exist_ok=True)
             written.write_text("under test\n", encoding="utf-8")
-        subprocess.run([*git, "add", "-A"], check=True)  # noqa: S603
-        subprocess.run([*git, "commit", "-qm", "under test"], check=True)  # noqa: S603
+        subprocess.run([*git, "add", "-A"], check=True, env=environment)  # noqa: S603
+        subprocess.run(  # noqa: S603
+            [*git, "commit", "-qm", "under test"], check=True, env=environment
+        )
 
-        output = root / "output.txt"
+        output = pathlib.Path(environment["GITHUB_OUTPUT"])
         output.touch()
+        _assert_the_hazard_is_present(git, environment, changed)
+
+        if break_diff:
+            real_git = shutil.which("git")
+            assert real_git, "no git on PATH"
+            shim = root / "bin"
+            shim.mkdir()
+            (shim / "git").write_text(
+                f'#!/bin/sh\nif [ "$1" = diff ]; then exit 128; fi\nexec {real_git} "$@"\n',
+                encoding="utf-8",
+            )
+            (shim / "git").chmod(0o755)
+            environment["PATH"] = f"{shim}{os.pathsep}{environment['PATH']}"
+
         script = root / "scope.sh"
         script.write_text(step["run"], encoding="utf-8")
-        bash = shutil.which("bash")
-        assert bash, (
-            "no bash on PATH; the scope step is a bash script and cannot be exercised without one"
-        )
         finished = subprocess.run(  # noqa: S603
-            [bash, str(script)],
+            [_locate_bash("ci.yml"), str(script)],
             cwd=repo,
-            env={
-                **os.environ,
-                "GITHUB_OUTPUT": str(output),
-                "BASE": base,
-                "SCOPE_PATTERNS": step["env"]["SCOPE_PATTERNS"],
-            },
+            env=environment,
             capture_output=True,
             text=True,
         )
+        if expect_failure:
+            assert finished.returncode != 0, (
+                "the scope step was expected to refuse and did not:\n"
+                f"{finished.stdout}\n{finished.stderr}"
+            )
+            return {
+                "stdout": finished.stdout,
+                "stderr": finished.stderr,
+                "record": output.read_text(encoding="utf-8"),
+            }
         assert finished.returncode == 0, (
             f"the scope step failed:\n{finished.stdout}\n{finished.stderr}"
         )
 
-        answers = dict(
-            line.split("=", 1)
-            for line in output.read_text(encoding="utf-8").splitlines()
-            if "=" in line
-        )
+        answers = _read_github_output(output)
         answers["stdout"] = finished.stdout
         return answers
 
@@ -504,7 +711,8 @@ def test_the_pull_request_scope_step_answers_both_ways_over_a_real_repository():
     the step takes that branch by design — would satisfy every quoted-path case here while
     proving nothing. So the pair is asserted together: a documentation-only commit skips, an
     ordinary portal source builds, and neither reaches the unreachable-base escape, which is
-    what the annotation discriminates.
+    what the annotation discriminates. The skip also has to show the change set it decided over,
+    or a wrong `app=false` leaves nothing in the log to diagnose it from.
 
     Args:
         None.
@@ -521,6 +729,10 @@ def test_the_pull_request_scope_step_answers_both_ways_over_a_real_repository():
     )
     assert "no app input changed" in skipped["stdout"], (
         "the skip path did not say why it skipped"
+    )
+    assert "docs/process.md" in skipped["stdout"], (
+        "the skip path printed a verdict with no evidence under it; a wrong `app=false` is then "
+        "undiagnosable from the log, which is the failure this step keeps having"
     )
 
     built = _run_ci_scope(("apps/portal/src/App.tsx",))
@@ -561,6 +773,104 @@ def test_no_shape_of_quoted_path_can_fall_out_of_the_pull_request_change_set():
         assert answers["app"] == "true", (
             f"[{name}] was quoted out of the change set; the diff needs -z"
         )
+
+
+def test_a_file_moved_out_of_the_portal_still_runs_the_build():
+    """``--name-only`` reports only a rename's DESTINATION, and the destination is the miss.
+
+    Moving `apps/portal/src/App.tsx` to `packages/` shows up under a pattern that selects, so
+    the flag looks harmless. Moving one OUT of both — to `docs/` — shows up as the destination
+    alone, answers ``app=false``, and breaks ``tsc -b`` on main behind a green pull request.
+    The step's comment has claimed this since it was written and nothing measured it; a refactor
+    that moves a file is far likelier than a filename nobody would type.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If a file moved out of the portal skips the build.
+    """
+    answers = _run_ci_scope(
+        (), renamed=(("apps/portal/src/Moved.tsx", "docs/moved.md"),)
+    )
+    assert answers["app"] == "true", (
+        "a file moved out of apps/portal was reported by its destination alone; "
+        "the diff needs --no-renames"
+    )
+
+
+def test_the_scope_step_still_dies_on_a_diff_it_cannot_compute():
+    """Making the assignment a PIPELINE moved that guarantee onto one shell flag.
+
+    The step's header advertises that a `git diff` which cannot be computed fails the job
+    outright rather than reporting an empty change set. As a simple assignment that held under
+    `set -e` alone; as `git diff -z … | tr`, it holds only while `pipefail` is also set, because
+    a pipeline's status is its LAST command's and `tr` succeeds over nothing. Dropping the flag
+    would answer `app=false` for every pull request, silently, with the reassuring notice.
+
+    Both halves are asserted: the flag is present, and a diff that fails really does kill the
+    step rather than emitting a verdict. The second is what makes the first more than a spelling
+    check — the fixture points BASE at a commit whose object has been removed after the
+    reachability guard would have accepted it.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If the flag is gone, or if an uncomputable diff produces an answer.
+    """
+    assert "set -euo pipefail" in _ci_scope_step()["run"], (
+        "the scope step no longer sets `pipefail`, so a failing `git diff` in its pipeline "
+        "reports the exit status of `tr` and answers `app=false` for every pull request"
+    )
+
+    answers = _run_ci_scope(
+        ("apps/portal/src/App.tsx",), break_diff=True, expect_failure=True
+    )
+    assert "app=" not in answers["record"], (
+        f"the step emitted a verdict over a change set it could not compute: {answers['record']!r}"
+    )
+
+
+def test_a_pattern_list_grep_cannot_compile_stops_the_job_rather_than_skipping():
+    """``grep`` answers three ways and a bare ``if`` collapses two of them.
+
+    0 matched, 1 did not, anything above that is grep failing to perform the test at all. Read
+    as "did not match", a list this runner's grep refuses answers ``app=false`` and skips the
+    install, the build and the bundle check — printing the same notice a genuine skip prints,
+    which is what makes it silent. It is self-concealing too: the workflow is in its own pattern
+    list, so the pull request that malforms it skips its own build and every later one skips as
+    well.
+
+    The fixture is an unbalanced bracket rather than a lookaround because every grep refuses it,
+    where the PCRE case depends on the runner's implementation. Both are patterns Python's
+    ``re`` accepts or rejects on its own schedule, which is why the sanity tests above cannot
+    stand in for this one.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If a refused pattern list produces an answer rather than a refusal.
+    """
+    answers = _run_ci_scope(
+        ("apps/portal/src/App.tsx",),
+        patterns="^apps/portal/[\n",
+        expect_failure=True,
+    )
+    assert "The pattern list is unusable" in answers["stdout"], (
+        "the job died without saying the pattern list was what it could not use:\n"
+        f"{answers['stdout']}\n{answers['stderr']}"
+    )
 
 
 def test_every_scanner_step_is_ordered_after_the_gate_validation():
@@ -920,28 +1230,28 @@ def _run_scope(
         stub.write_text(FAKE_AWS, encoding="utf-8")
         stub.chmod(0o755)
 
-        git = ["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t"]
-        subprocess.run([*git, "init", "-q", "-b", "main"], check=True)  # noqa: S603
-        (repo / "seed.txt").write_text("seed\n", encoding="utf-8")
-        subprocess.run([*git, "add", "-A"], check=True)  # noqa: S603
-        subprocess.run([*git, "commit", "-qm", "baseline"], check=True)  # noqa: S603
-        baseline = subprocess.run(  # noqa: S603
-            [*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True
-        ).stdout.strip()
+        git, baseline = _seed_repo(repo)
+        clean = _hermetic_env()
 
         def commit(paths: tuple[str, ...], message: str) -> None:
             for name in paths:
                 target = repo / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(f"{message}\n", encoding="utf-8")
-            subprocess.run([*git, "add", "-A"], check=True)  # noqa: S603
-            subprocess.run([*git, "commit", "-qm", message], check=True)  # noqa: S603
+            subprocess.run([*git, "add", "-A"], check=True, env=clean)  # noqa: S603
+            subprocess.run(  # noqa: S603
+                [*git, "commit", "-qm", message], check=True, env=clean
+            )
 
         if intermediate:
             commit(intermediate, "already deployed")
         commit(changed, "under test")
         head = subprocess.run(  # noqa: S603
-            [*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+            [*git, "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=clean,
         ).stdout.strip()
 
         image = {
@@ -971,7 +1281,7 @@ def _run_scope(
         output = root / "output.txt"
         output.touch()
         environment = {
-            **os.environ,
+            **_hermetic_env(),
             "PATH": f"{binaries}{os.pathsep}{os.environ['PATH']}",
             "GITHUB_OUTPUT": str(output),
             "GITHUB_SHA": head,
@@ -1004,12 +1314,8 @@ def _run_scope(
 
         script = root / "scope.sh"
         script.write_text(step["run"], encoding="utf-8")
-        bash = shutil.which("bash")
-        assert bash, (
-            "no bash on PATH; the scope step is a bash script and cannot be exercised without one"
-        )
         finished = subprocess.run(  # noqa: S603
-            [bash, str(script)],
+            [_locate_bash("deploy-spa-image.yml"), str(script)],
             cwd=repo,
             env=environment,
             capture_output=True,
@@ -1024,11 +1330,7 @@ def _run_scope(
             f"the scope step failed:\n{finished.stdout}\n{finished.stderr}"
         )
 
-        answers = dict(
-            line.split("=", 1)
-            for line in output.read_text(encoding="utf-8").splitlines()
-            if "=" in line
-        )
+        answers = _read_github_output(output)
         answers["baseline"] = baseline
         answers["head"] = head
         answers["stdout"] = finished.stdout
@@ -1314,7 +1616,7 @@ def test_a_non_ascii_path_is_not_quoted_out_of_the_change_set():
     """
     answers = _run_scope(("apps/portal/src/café.tsx",))
     assert (answers["build"], answers["deploy"]) == ("run", "run"), (
-        "a non-ASCII path was quoted out of the change set; the diff needs core.quotePath=false"
+        "a non-ASCII path was quoted out of the change set; the diff needs -z"
     )
 
 

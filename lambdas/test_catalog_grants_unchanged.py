@@ -73,9 +73,9 @@ def _templates() -> list[str]:
     Raises:
       AssertionError: If git fails.
     """
-    listed = _git("ls-files", "infra/modules")
+    listed = _git("ls-files", "-z", "infra/modules")
     return sorted(
-        path for path in listed.splitlines() if POLICY_PATTERN.fullmatch(path)
+        path for path in listed.split("\0") if POLICY_PATTERN.fullmatch(path)
     )
 
 

@@ -180,10 +180,10 @@ def _permission_templates(commit: str) -> set[str]:
     Raises:
       AssertionError: If git fails.
     """
-    listed = _git("ls-tree", "-r", "--name-only", commit, "--", "infra/modules")
+    listed = _git("ls-tree", "-r", "-z", "--name-only", commit, "--", "infra/modules")
     return {
         path
-        for path in listed.splitlines()
+        for path in listed.split("\0")
         if re.fullmatch(
             r"infra/modules/[^/]+/policies/portal-role-.*\.json\.tftpl", path
         )

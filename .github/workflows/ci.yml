@@ -85,9 +85,10 @@ jobs:
       # name can never sit pending forever.
       #
       # It fails in the EXPENSIVE direction on purpose. An unreachable base sets `app=true`
-      # and runs everything, and a `git diff` that cannot be computed fails the job outright
-      # rather than reporting an empty change set — a cheap green that tested nothing is
-      # indistinguishable from a real one, which is the whole failure mode being avoided.
+      # and runs everything; a `git diff` that cannot be computed, and a pattern list `grep`
+      # cannot compile, each fail the job outright rather than reporting an empty change set —
+      # a cheap green that tested nothing is indistinguishable from a real one, which is the
+      # whole failure mode being avoided.
       - name: Work out whether this pull request can change the app
         id: scope
         env:
@@ -140,19 +141,49 @@ jobs:
           # `app=false`. `core.quotePath=false` fixes that for high bytes ALONE and leaves `"`,
           # `\` and control characters still quoted; `-z` emits every path raw, which closes the
           # class rather than one member of it. A newline inside a filename then splits one path
-          # into two, and both halves are tested — which over-selects, in the expensive direction.
+          # into two and both halves are tested, which for the PREFIX anchors over-selects in the
+          # expensive direction — but not for the fully anchored IAM-template pattern, where
+          # neither half matches and the path is lost in the cheap one. Measured, and left alone:
+          # closing it means abandoning line-oriented matching for a filename nobody writes.
           CHANGED=$(git diff -z --name-only --no-renames "$BASE" HEAD | tr '\0' '\n')
 
+          # GREP ANSWERS THREE WAYS AND ONLY TWO OF THEM ARE ANSWERS: 0 matched, 1 did not,
+          # anything above that is grep failing to perform the test at all. Written as a bare
+          # `if` the third collapses into the second, so a pattern list this runner's grep
+          # refuses — a POSIX ERE has no lookaround and no non-capturing group, and an
+          # unbalanced bracket is refused by every grep — answers `app=false` and skips the
+          # install, the build and the bundle check while printing the same reassuring notice a
+          # genuine skip prints. Self-concealing, too: `^\.github/workflows/ci\.yml$` is itself
+          # in the list, so the pull request that malforms it skips its OWN build and every
+          # later one skips as well. The pattern-list sanity tests do not cover this — they run
+          # in a session's local pytest, and the escape is a pattern Python's `re` accepts and
+          # grep does not.
+          #
           # A here-string, NOT `printf ... | grep -q`. Under `pipefail` grep exits at the
-          # first match, printf takes SIGPIPE, and the pipeline reports 141 — so the `if`
-          # takes the else branch and answers `app=false` for a pull request that DID touch
-          # the app. It inverts once the change set passes the 64 KiB pipe buffer: measured
-          # correct at 45 KB and inverted at 75 KB, in the cheap direction, silently.
-          if grep -qE -f <(printf '%s' "$SCOPE_PATTERNS") <<<"$CHANGED"; then
+          # first match, printf takes SIGPIPE, and the pipeline reports 141 — which would now
+          # be read as grep failing rather than as a match. It inverts once the change set
+          # passes the 64 KiB pipe buffer: measured correct at 45 KB and inverted at 75 KB, in
+          # the cheap direction, silently.
+          set +e
+          grep -qE -f <(printf '%s' "$SCOPE_PATTERNS") <<<"$CHANGED"
+          matched=$?
+          set -e
+          if [ "$matched" -gt 1 ]; then
+            echo "::error title=Scope::grep exited $matched testing the change set. The pattern list is unusable — POSIX ERE has no non-capturing group or lookaround — so this run cannot decide what to skip and will not guess."
+            exit 1
+          fi
+
+          if [ "$matched" -eq 0 ]; then
             echo 'app=true' >> "$GITHUB_OUTPUT"
           else
             echo 'app=false' >> "$GITHUB_OUTPUT"
             echo "::notice title=Scope::no app input changed; install, build and the bundle check are skipped"
+            # The verdict with the evidence under it. A wrong `app=false` is the failure this
+            # step keeps having, and without the change set in the log there is nothing to
+            # diagnose one from — the notice alone cannot distinguish an honest skip from a
+            # pattern list that has stopped covering an input.
+            echo "The change set this verdict was taken over:"
+            printf '%s\n' "$CHANGED"
           fi
 
       - name: Set up Node.js
