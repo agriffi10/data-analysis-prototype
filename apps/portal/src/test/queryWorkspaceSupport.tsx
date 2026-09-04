@@ -29,7 +29,7 @@ import {QueryWorkspace} from '../features/query/QueryWorkspace';
 import {QUERY_TABS_STORAGE_PREFIX} from '../features/query/query.constants';
 import type {QueryClient} from '@tanstack/react-query';
 import type {QueryTabsState} from '../features/query/query.types';
-import type {QueryState} from '../features/catalog/catalog.types';
+import type {QueryState, QueryStatus} from '../features/catalog/catalog.types';
 
 /*
  * Shared setup for the query workspace suites — the mocked service spies, the fixtures, the
@@ -124,9 +124,17 @@ export const foreignTable = {name: 'foreign', location: 's3://user-bucket/bob/x/
 export const strayBucketTable = {name: 'stray', location: 's3://other-bucket/alice/stray/', columns: []};
 export const viewObj = {name: 'revenue_view', tableType: 'VIRTUAL_VIEW', columns: []};
 
-/** Per-execution status overrides consulted by the getQueryStatus mock (live). */
-export const statusMap: Record<string, {state?: QueryState; stateChangeReason?: string}> = {};
-export const succeeded = (id: string, over: {state?: QueryState; stateChangeReason?: string} = {}) => ({
+/**
+ * Per-execution status overrides consulted by the getQueryStatus mock (live). Any field
+ * of the status may be overridden, so a case can give two executions in one batch
+ * DIFFERENT scanned/duration figures — equal ones agree whichever execution is read.
+ *
+ * `exactOptionalPropertyTypes` is off, so an explicit `undefined` here type-checks and
+ * BLANKS the default below rather than leaving it. Omit a field to keep its default.
+ */
+export type StatusOverride = Partial<Omit<QueryStatus, 'queryExecutionId'>>;
+export const statusMap: Record<string, StatusOverride> = {};
+export const succeeded = (id: string, over: StatusOverride = {}) => ({
   queryExecutionId: id,
   state: 'SUCCEEDED' as QueryState,
   dataScannedBytes: 2048,

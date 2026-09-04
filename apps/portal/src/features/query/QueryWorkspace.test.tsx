@@ -899,6 +899,96 @@ describe('QueryWorkspace', () => {
       await waitFor(() => expect(screen.getByText(/\b2 rows\b/)).toBeInTheDocument());
     });
 
+    // The scanned/duration figures sit in the SAME sentence as the row count, so they
+    // must move with it. They used to be read off the editor tab's status — one per
+    // editor tab however many statements ran — which left statement 1's rows beside
+    // statement 3's bytes with nothing distinguishing them.
+    //
+    // Every figure differs per execution, in both directions: an equal-valued fixture
+    // agrees whichever status is read, and reading the batch default (2.0 KB / 800 ms)
+    // would match neither statement.
+    it('moves the scanned bytes and the duration with the row count when you flip result tabs', async () => {
+      queueRuns('q-1', 'q-2', 'q-3');
+      statusMap['q-1'] = {dataScannedBytes: 1024, engineExecutionTimeMillis: 250};
+      statusMap['q-3'] = {dataScannedBytes: 8192, engineExecutionTimeMillis: 1750};
+      mockGetResults.mockImplementation(async ({queryExecutionId}: {queryExecutionId: string}) =>
+        ok({
+          columns: [{name: 'region', type: 'string'}],
+          rows: queryExecutionId === 'q-1' ? [['us-east'], ['eu-west']] : [['ap-south']]
+        })
+      );
+      seedScript();
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await runScriptTabs(user);
+
+      // Statement 3 is auto-selected: its one row, its bytes, its duration. The plural is
+      // left open — the bar says "1 rows" today, and pinning that here would make an
+      // unrelated fix to `rowCountLabel` look like a regression in this one.
+      const stats = () => screen.getByText(/scanned ·/);
+      await waitFor(() => expect(stats()).toHaveTextContent(/1 rows? · 8\.0 KB scanned · 1\.8s/));
+
+      const strip = await screen.findByRole('tablist', {name: 'Result tabs'});
+      await user.click(within(strip).getAllByRole('tab')[0]);
+
+      // Statement 1: all three figures moved together.
+      await waitFor(() => expect(stats()).toHaveTextContent('2 rows · 1.0 KB scanned · 250 ms'));
+    });
+
+    // The same pairing, in the scope that has no tab strip to flip. A trailing DDL earns
+    // no result tab, so the grid keeps showing the SELECT while the editor tab's status
+    // has moved on to the CREATE — the mismatch is static here rather than reachable by a
+    // click, and the mobile surface runs this scope over a saved query's whole buffer.
+    it('reports the displayed statement, not a trailing DDL, in the single-result scope', async () => {
+      queueRuns('q-1', 'q-2');
+      // The displayed statement is the LARGER of the two here, where the flip test has it
+      // smaller — so neither test can be satisfied by a reducer over the batch.
+      statusMap['q-1'] = {dataScannedBytes: 8192, engineExecutionTimeMillis: 1750};
+      statusMap['q-2'] = {dataScannedBytes: 1024, engineExecutionTimeMillis: 250};
+      mockGetResults.mockImplementation(async ({queryExecutionId}: {queryExecutionId: string}) =>
+        ok({
+          columns: [{name: 'region', type: 'string'}],
+          rows: queryExecutionId === 'q-1' ? [['us-east'], ['eu-west']] : [['ap-south']]
+        })
+      );
+      seedScript('SELECT 1; CREATE TABLE alice.t (id int);');
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await runScriptSingle(user);
+
+      await waitFor(() => expect(screen.getByText(/scanned ·/)).toHaveTextContent('2 rows · 8.0 KB scanned · 1.8s'));
+    });
+
+    // The REFUSAL half of the same swap, which the two tests above cannot see. A batch that
+    // failed at statement 3 still displays statement 1's succeeded result tab, and the bar
+    // keeps the batch's verdict rather than that tab's: the failure banner is dismissible, so
+    // the indicator is the only terminal signal left on screen. Swapping unconditionally
+    // prints "Succeeded" over a script that failed, and every other test here stays green.
+    it('keeps the batch verdict when a later statement fails under a displayed result tab', async () => {
+      queueRuns('q-1', 'q-2', 'q-3');
+      statusMap['q-1'] = {dataScannedBytes: 1024, engineExecutionTimeMillis: 250};
+      statusMap['q-3'] = {state: 'FAILED', stateChangeReason: 'SYNTAX_ERROR: line 1'};
+      seedScript();
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await runScriptTabs(user);
+
+      // Statement 1 earned the only result tab, and the grid is showing it.
+      const strip = await screen.findByRole('tablist', {name: 'Result tabs'});
+      expect(
+        within(strip)
+          .getAllByRole('tab')
+          .map((t) => t.textContent)
+      ).toEqual(['1 · SELECT 1']);
+      expect(await screen.findByText('Failed')).toBeInTheDocument();
+      // Not its figures, and not a stray "Succeeded" beside them.
+      expect(screen.queryByText(/scanned ·/)).not.toBeInTheDocument();
+      expect(screen.queryByText('Succeeded')).not.toBeInTheDocument();
+    });
+
     it('Run Statement executes the selection, else the statement under the cursor (FR-006)', async () => {
       queueRuns('q-1', 'q-2');
       seedScript('SELECT 1;\nSELECT 2;');

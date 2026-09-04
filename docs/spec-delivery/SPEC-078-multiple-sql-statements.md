@@ -21,7 +21,7 @@ with one history entry per statement. Frontend-only (`features/query/`); no serv
 - **Result tabs (FR-007, `ResultTabs.tsx`):** WAI-ARIA tablist (QueryTabStrip keyboard model), one tab
   per result-producing statement, ephemeral per run + scoped to the query tab; each tab keeps its own
   pager position (`useQueryResults` page index is now per execution id), column widths, row-count stats,
-  and Save-results source (`outputLocation` captured per tab at finalize).
+  and Save-results source (the statement's terminal status, captured per tab at finalize).
 - **Progress + failure UX (FR-004):** status bar shows "Statement k of N" while running and
   "Script finished · N statements" on full completion; the danger banner names the failing statement
   and which statements did not run.

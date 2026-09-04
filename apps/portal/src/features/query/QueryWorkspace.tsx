@@ -232,7 +232,23 @@ export function QueryWorkspace() {
   const soleStatementSucceeded =
     activeBatchDone && activeRun.statements.length === 1 && activeStatus?.state === 'SUCCEEDED';
   const displayExecutionId = displayedResultTab?.executionId ?? (soleStatementSucceeded ? activeRun.executionId : null);
-  const displayOutputLocation = displayedResultTab?.outputLocation ?? activeStatus?.outputLocation;
+  // A displayed result tab ANSWERS for its own output object rather than falling through:
+  // `??` would hand Save-results a different execution's CSV if a captured status ever
+  // arrived without one, and the fallthrough also hid a dropped capture from the save tests.
+  const displayOutputLocation = displayedResultTab
+    ? displayedResultTab.status.outputLocation
+    : activeStatus?.outputLocation;
+
+  // The status the bar narrates. Its scanned/duration figures sit in the same
+  // sentence as the row count, which follows `displayExecutionId` — so reading them off
+  // the editor tab's status paired one statement's rows with another's bytes, with
+  // nothing on screen saying they came from different executions.
+  //
+  // Only a SUCCEEDED batch swaps. A failure or a Stop keeps its own verdict: the bar's
+  // indicator is the only terminal signal left once the user dismisses the banner, and a
+  // batch that failed at statement 3 still displays statement 1's succeeded result tab.
+  const displayStatus =
+    activeStatus?.state === 'SUCCEEDED' && displayedResultTab ? displayedResultTab.status : activeStatus;
 
   // The Save-results dialog, its destination list, the overwrite
   // warn-and-confirm and the default file name.
@@ -492,7 +508,7 @@ export function QueryWorkspace() {
               onBack={mobile.back}
               onRun={() => mobile.runSql(mobileView.sql, mobileView.title)}
               runDisabled={activeIsInFlight || mobile.pending}
-              status={mobile.ownsRun ? activeStatus : undefined}
+              status={mobile.ownsRun ? displayStatus : undefined}
               isInFlight={mobile.pending || (mobile.ownsRun && activeIsInFlight)}
               startedAt={mobile.ownsRun ? (activeRun?.startedAt ?? null) : null}
               hasResultSet={mobile.ownsRun && hasResultSet}
@@ -581,7 +597,7 @@ export function QueryWorkspace() {
                 <div className="flex min-h-0 flex-1 flex-col">
                   <QueryResultsRegion
                     run={activeRun}
-                    status={activeStatus}
+                    status={displayStatus}
                     isInFlight={activeIsInFlight}
                     batchDone={activeBatchDone}
                     editorOwnsRun={editorOwnsRun}

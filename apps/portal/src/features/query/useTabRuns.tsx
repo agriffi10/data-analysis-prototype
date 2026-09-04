@@ -139,7 +139,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
               statementIndex: run.currentIndex,
               executionId,
               label: `${run.currentIndex + 1} · ${statementHint(sql)}`,
-              outputLocation: status.outputLocation
+              status
             }
           : null;
       const withResult = (cur: TabRun): TabRun => {
