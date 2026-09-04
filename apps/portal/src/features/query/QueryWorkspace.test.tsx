@@ -1,6 +1,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {render, screen, waitFor, within} from '@testing-library/react';
 import {DEFAULT_RESULTS_PAGE_SIZE} from './query.constants';
+import {ROW_COUNT_PAGE_SIZE} from '../catalog/catalog.constants';
 import {
   editor,
   fail,
@@ -827,6 +828,40 @@ describe('QueryWorkspace', () => {
       expect(screen.queryByRole('tablist', {name: 'Result tabs'})).not.toBeInTheDocument();
     });
 
+    // The count follows the SELECTED statement, not the last one that ran. Each execution
+    // returns a different number of rows, so reading the wrong one is a wrong number rather
+    // than a coincidence — an equal-sized fixture would pass whichever was read.
+    //
+    // Scope, measured rather than assumed: this passes against the pre-change gate too, so
+    // it does NOT prove the walk now opens earlier. What it pins is that flipping re-derives
+    // at all, which is the half of the report that was already working and is easy to break
+    // — the eventual value is assertable, the removal of the gap in between is not without a
+    // timing assertion that would be flaky. The earlier opening is covered by the DDL test,
+    // which asserts the gate itself.
+    it('re-derives the total row count when you flip between result tabs', async () => {
+      queueRuns('q-1', 'q-2', 'q-3');
+      mockGetResults.mockImplementation(async ({queryExecutionId}: {queryExecutionId: string}) =>
+        ok({
+          columns: [{name: 'region', type: 'string'}],
+          rows: queryExecutionId === 'q-1' ? [['us-east'], ['eu-west']] : [['ap-south']]
+        })
+      );
+      seedScript();
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await runScriptTabs(user);
+
+      const strip = await screen.findByRole('tablist', {name: 'Result tabs'});
+      // Statement 3 is auto-selected and returned one row.
+      expect(await screen.findByText(/\b1 rows?\b/)).toBeInTheDocument();
+
+      await user.click(within(strip).getAllByRole('tab')[0]);
+
+      // Statement 1 returned two — the stat moved with the tab.
+      await waitFor(() => expect(screen.getByText(/\b2 rows\b/)).toBeInTheDocument());
+    });
+
     it('Run Statement executes the selection, else the statement under the cursor (FR-006)', async () => {
       queueRuns('q-1', 'q-2');
       seedScript('SELECT 1;\nSELECT 2;');
@@ -1033,6 +1068,34 @@ describe('QueryWorkspace', () => {
         nextToken: 't-2',
         maxRows: DEFAULT_RESULTS_PAGE_SIZE
       });
+    });
+
+    // The paging-derived total is null until the last page has been loaded, so before this
+    // the pager showed no total until you clicked Next to the very end — on a real result
+    // that is every page of it. The exact background walk already knew the answer.
+    it('shows the exact total in the pager on the FIRST page, without paging to the end', async () => {
+      seedTwoPages();
+      seedSingle('SELECT 1');
+      const {user} = renderWorkspace();
+      await runOnce(user);
+      expect(await screen.findByText('us-east')).toBeInTheDocument();
+
+      // 3 rows across both server pages, and we are still standing on page 1.
+      expect(await screen.findByText(/Rows 1–2 of 3/)).toBeInTheDocument();
+      expect(screen.getByRole('button', {name: 'Next'})).toBeEnabled();
+    });
+
+    // DDL opens neither of the two gates, so the walker must not run for it. Asserts the
+    // CALL, not the absence of a number: the label is separately gated on `hasResultSet`,
+    // so "no total on screen" is satisfied whether or not the request went out.
+    it('walks no pages for a statement that returns no rows', async () => {
+      mockGetResults.mockResolvedValue(ok({columns: [], rows: []}));
+      seedSingle('CREATE TABLE t (a int)');
+      const {user} = renderWorkspace();
+      await runOnce(user);
+
+      await waitFor(() => expect(screen.getByText('Succeeded')).toBeInTheDocument());
+      expect(mockGetResults).not.toHaveBeenCalledWith(expect.objectContaining({maxRows: ROW_COUNT_PAGE_SIZE}));
     });
   });
 

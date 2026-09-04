@@ -261,11 +261,22 @@ export function QueryWorkspace() {
   const resultsPageSize = useResultsPageSize(username || null);
   const results = useQueryResults(displayExecutionId, resultsPageSize.pageSize);
 
-  // Exact total row count via a background page-walk. Gated on a result
-  // set actually existing (columns present) so DDL/no-result statements show no
-  // row-count stat; scoped to the execution id so a new run / tab switch recomputes.
+  // Exact total row count via a background page-walk, scoped to the execution id so a new
+  // run / result-tab switch recomputes.
+  //
+  // Opened by the BATCH's verdict, not by the arrival of the first page. A result tab is
+  // only ever created for a statement that produces rows, so its presence says so before
+  // any page comes back — and the walk is a separate request that never needed the display
+  // fetch. Waiting for `columns` made the total two chained round-trips late on a first run
+  // and made it vanish and re-count on every flip between statements, because the newly
+  // selected execution has no columns yet.
+  //
+  // `columns.length > 0` stays as a second opener rather than being replaced: a statement
+  // the batch did not classify as row-returning, but which returned columns anyway, counted
+  // before and still does. DDL opens neither, so it still walks nothing.
   const hasResultSet = displayExecutionId !== null && results.columns.length > 0;
-  const rowCount = useResultRowCount(hasResultSet ? displayExecutionId : null);
+  const producesRows = displayedResultTab !== null || results.columns.length > 0;
+  const rowCount = useResultRowCount(displayExecutionId !== null && producesRows ? displayExecutionId : null);
 
   // Result-column widths, keyed by execution id. Lives here (not in
   // QueryResultsTable, which unmounts when the active tab has no results) so a

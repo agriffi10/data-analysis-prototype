@@ -150,7 +150,9 @@ export function QueryResultsMobile({
           label={
             <>
               Rows {results.rangeStart}–{results.rangeEnd}
-              {results.totalRowCount !== null && ` of ${results.totalRowCount}`}
+              {/* The exact background total first — the paging-derived one is null until
+                  the last page is loaded, so it showed no total on a first run. */}
+              {(totalRowCount ?? results.totalRowCount) !== null && ` of ${totalRowCount ?? results.totalRowCount}`}
             </>
           }
         />

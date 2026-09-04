@@ -262,6 +262,19 @@ describe('QueryResultsTable', () => {
     {name: 'revenue', type: 'double'}
   ];
 
+  // Both halves are load-bearing and neither works alone. The POSITIVE half proves the
+  // reset reached the name; the CONTROL is asserted on that same `th` — not on some other
+  // caption elsewhere — so that deleting SECTION_CAPTION from this header reddens the test
+  // instead of satisfying it. jsdom loads no Tailwind, so `text-transform` itself is not
+  // observable and the classes are all there is to assert on.
+  it('shows a column name as spelled, inside a header that still uses the caption style', () => {
+    renderTable();
+
+    const name = screen.getByTitle('region');
+    expect(name).toHaveClass('normal-case');
+    expect(name.closest('th')).toHaveClass('uppercase');
+  });
+
   // Sensible defaults for a single-page result; each test overrides what it needs.
   // Widths are controlled (owned by the parent's useColumnWidths) — default to the
   // two data columns at DEFAULT_COLUMN_WIDTH.

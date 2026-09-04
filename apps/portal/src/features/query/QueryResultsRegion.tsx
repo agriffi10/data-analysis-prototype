@@ -140,7 +140,12 @@ export function QueryResultsRegion({
               pageIndex={results.pageIndex}
               rangeStart={results.rangeStart}
               rangeEnd={results.rangeEnd}
-              totalRowCount={results.totalRowCount}
+              // Prefer the exact background total, which the status bar above already has.
+              // The paging-derived one is null until the LAST page has been loaded, by
+              // construction, so the pager read "Rows 1–100" with no total on every first run
+              // of a multi-page result while the real number sat one component up. It stays
+              // as the fallback for the window before the walk settles.
+              totalRowCount={totalRowCount ?? results.totalRowCount}
               hasPrev={results.hasPrev}
               hasNext={results.hasNext}
               isFetchingNext={results.isFetchingNext}
