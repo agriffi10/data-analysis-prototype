@@ -1,16 +1,8 @@
-import {useTheme} from '../lib/useTheme';
-import type {ThemePreference} from '../lib/theme.types';
+import {useTheme, THEME_OPTIONS} from '../lib/useTheme';
 import {IconButton} from './IconButton';
 import {ThemeIcon} from './icons';
 import {Menu, type MenuItem} from './Menu';
 import {SegmentedFilter} from './SegmentedFilter';
-
-/** The three choices, in the one order they are ever offered. */
-const THEME_OPTIONS: readonly {value: ThemePreference; label: string}[] = [
-  {value: 'light', label: 'Light'},
-  {value: 'dark', label: 'Dark'},
-  {value: 'system', label: 'System'}
-];
 
 /**
  * The theme control as a header icon button opening a menu of Light / Dark / System.

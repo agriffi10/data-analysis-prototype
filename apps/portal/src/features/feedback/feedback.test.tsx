@@ -45,10 +45,22 @@ describe('Give feedback', () => {
     return renderWithProviders(<Header />, {auth: authenticated('acarter'), route});
   }
 
+  /**
+   * Reach Give feedback, which is an item in the account menu rather than a header button.
+   * One helper rather than the two lines inline everywhere, so the menu's shape lives in one
+   * place — the same reason the Data Explorer's options menu has a testkit.
+   */
+  async function openFeedback(user: ReturnType<typeof renderHeader>['user']) {
+    await user.click(screen.getByRole('button', {name: 'Account: acarter'}));
+    await user.click(
+      within(screen.getByRole('menu', {name: 'Account'})).getByRole('menuitem', {name: 'Give feedback'})
+    );
+  }
+
   it('sends the category, the trimmed message and the page you were on, then thanks you', async () => {
     const {user} = renderHeader('/query');
 
-    await user.click(screen.getByRole('button', {name: 'Give feedback'}));
+    await openFeedback(user);
     await user.selectOptions(screen.getByLabelText('What is this about?'), 'bug');
     await user.type(screen.getByLabelText('Your feedback'), '  The upload bar sticks at 0%.  ');
     await user.click(screen.getByRole('button', {name: 'Send'}));
@@ -68,7 +80,7 @@ describe('Give feedback', () => {
     // hits something odd, opens the dialog, and the app navigates underneath them.
     const {user} = renderHeader('/files');
 
-    await user.click(screen.getByRole('button', {name: 'Give feedback'}));
+    await openFeedback(user);
     await user.selectOptions(screen.getByLabelText('What is this about?'), 'idea');
     await user.type(screen.getByLabelText('Your feedback'), 'A thought.');
     await user.click(screen.getByRole('link', {name: 'Data Explorer'}));
@@ -81,7 +93,7 @@ describe('Give feedback', () => {
     api.on('feedback.submit', apiFailure('RateLimited'));
     const {user} = renderHeader();
 
-    await user.click(screen.getByRole('button', {name: 'Give feedback'}));
+    await openFeedback(user);
     await user.selectOptions(screen.getByLabelText('What is this about?'), 'question');
     await user.type(screen.getByLabelText('Your feedback'), 'Where do exports go?');
     await user.click(screen.getByRole('button', {name: 'Send'}));
@@ -95,7 +107,7 @@ describe('Give feedback', () => {
   it('refuses to submit until both fields are filled, and preselects no category', async () => {
     const {user} = renderHeader();
 
-    await user.click(screen.getByRole('button', {name: 'Give feedback'}));
+    await openFeedback(user);
     // A default category would be the modal answer to every submission; the field records a choice.
     expect(screen.getByLabelText('What is this about?')).toHaveValue('');
     expect(screen.getByRole('button', {name: 'Send'})).toBeDisabled();
@@ -114,7 +126,7 @@ describe('Give feedback', () => {
   it('submits from the category field on Enter and inserts a newline in the message', async () => {
     const {user} = renderHeader();
 
-    await user.click(screen.getByRole('button', {name: 'Give feedback'}));
+    await openFeedback(user);
     await user.type(screen.getByLabelText('Your feedback'), 'line one{Enter}line two');
     expect(screen.getByLabelText('Your feedback')).toHaveValue('line one\nline two');
     expect(api.countOf('feedback.submit')).toBe(0);
@@ -141,7 +153,7 @@ describe('Give feedback', () => {
     api.on('feedback.submit', new Promise((resolve) => (release = resolve)) as never);
     const {user} = renderHeader();
 
-    await user.click(screen.getByRole('button', {name: 'Give feedback'}));
+    await openFeedback(user);
     await user.selectOptions(screen.getByLabelText('What is this about?'), 'bug');
     await user.type(screen.getByLabelText('Your feedback'), 'Stuck at 0%.');
     await user.click(screen.getByRole('button', {name: 'Send'}));
@@ -163,13 +175,13 @@ describe('Give feedback', () => {
     // criterion true if the dialog is ever kept mounted, and nothing here can prove that.
     const {user} = renderHeader();
 
-    await user.click(screen.getByRole('button', {name: 'Give feedback'}));
+    await openFeedback(user);
     await user.selectOptions(screen.getByLabelText('What is this about?'), 'idea');
     await user.type(screen.getByLabelText('Your feedback'), 'The first one.');
     await user.click(screen.getByRole('button', {name: 'Send'}));
     await screen.findByText('Thanks — your feedback has been sent.');
 
-    await user.click(screen.getByRole('button', {name: 'Give feedback'}));
+    await openFeedback(user);
     expect(screen.getByLabelText('Your feedback')).toHaveValue('');
     expect(screen.getByLabelText('What is this about?')).toHaveValue('');
   });
@@ -180,7 +192,7 @@ describe('Give feedback', () => {
     // the submission over a path the user never typed.
     const {user} = renderHeader(`/${'x'.repeat(400)}`);
 
-    await user.click(screen.getByRole('button', {name: 'Give feedback'}));
+    await openFeedback(user);
     await user.selectOptions(screen.getByLabelText('What is this about?'), 'bug');
     await user.type(screen.getByLabelText('Your feedback'), 'This page is broken.');
     await user.click(screen.getByRole('button', {name: 'Send'}));
@@ -200,7 +212,7 @@ describe('Give feedback', () => {
   describe('at mobile width', () => {
     beforeEach(() => setWidth(PHONE));
 
-    it('adds NOTHING to the header and offers the control in the drawer instead', async () => {
+    it('adds NOTHING to the header, and reaches the control through the account menu', async () => {
       // FR-007, and the criterion SPEC-207 and SPEC-210 both build against. Asserted by MOUNT,
       // not by class: jsdom loads no Tailwind, so a `tablet:hidden` button is indistinguishable
       // from a visible one here and this test would pass over a header that gained a control.
@@ -214,13 +226,20 @@ describe('Give feedback', () => {
         (el) => el.getAttribute('aria-label') ?? el.textContent?.trim()
       );
 
-      // The criterion FR-007 owns, and the half two other specs build against.
+      // Still the criterion FR-007 owns: no Give feedback control of its own on the bar.
       expect(controls).not.toContain('Give feedback');
 
       // Pinned whole, as a tripwire. It lists the PrimaryNav tabs because jsdom loads no
-      // Tailwind, so `hidden tablet:flex` does not remove them — which is the same reason this
-      // spec's own control is gated by MOUNTING rather than by a class. A header change in any
-      // spec reddens this and sends the next author back to FR-007's measurement.
+      // Tailwind, so `hidden tablet:flex` does not remove them. A header change in any spec
+      // reddens this and sends the next author back to FR-007's measurement.
+      //
+      // THE MEASUREMENT, re-taken because that is what this tripwire is for. The bar's
+      // fixed-width chrome was a hamburger, the brand mark, help, the bell, an avatar and a
+      // text "Sign out" button — six things, over budget at 375px, which is why theme and
+      // feedback were mount-gated off the phone entirely. It is now a hamburger, the brand
+      // mark, help, the bell and ONE account trigger: five, with the username hidden below
+      // `tablet` so the trigger is the 32px avatar alone. Strictly narrower than before, and
+      // every option the two gated controls carried is now reachable at this width.
       expect(controls).toEqual([
         'Open navigation',
         'Files',
@@ -230,30 +249,28 @@ describe('Give feedback', () => {
         'Data quality',
         'Help for this page',
         'Notifications, none unread',
-        'Sign out'
+        'Account: acarter'
       ]);
 
+      // The drawer no longer carries a copy — one control, reachable at every width.
       await user.click(screen.getByRole('button', {name: 'Open navigation'}));
       const drawer = await screen.findByRole('dialog', {name: 'Navigation'});
-      expect(within(drawer).getByRole('button', {name: 'Give feedback'})).toBeInTheDocument();
+      expect(within(drawer).queryByRole('button', {name: 'Give feedback'})).not.toBeInTheDocument();
     });
 
-    it('opens the same dialog from the drawer', async () => {
+    it('opens the dialog from the account menu at this width too', async () => {
       const {user} = renderHeader();
 
-      await user.click(screen.getByRole('button', {name: 'Open navigation'}));
-      const drawer = await screen.findByRole('dialog', {name: 'Navigation'});
-      await user.click(within(drawer).getByRole('button', {name: 'Give feedback'}));
+      await openFeedback(user);
 
       expect(await screen.findByRole('dialog', {name: 'Give feedback'})).toBeInTheDocument();
-      expect(screen.queryByRole('dialog', {name: 'Navigation'})).not.toBeInTheDocument();
     });
   });
 
   it('has no axe violations with the dialog open', async () => {
     const {user, container} = renderHeader();
 
-    await user.click(screen.getByRole('button', {name: 'Give feedback'}));
+    await openFeedback(user);
     await screen.findByRole('dialog', {name: 'Give feedback'});
 
     // The DRIVEN container, not a fresh render: `expectNoA11yViolations` renders its argument

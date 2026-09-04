@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {cleanup, screen} from '@testing-library/react';
+import {cleanup, screen, within} from '@testing-library/react';
 import {Header} from './Header';
 import {ThemeMenu} from './ThemeMenu';
 import {renderWithProviders} from '../test/renderWithProviders';
@@ -80,40 +80,40 @@ describe('the theme control', () => {
 });
 
 describe('where the theme control lives', () => {
-  it('sits in the header at tablet and above, signed in or out', () => {
-    renderWithProviders(<Header />, {auth: authenticated('alice'), route: '/files'});
-    expect(screen.getByRole('button', {name: 'Change theme'})).toBeInTheDocument();
-    cleanup();
-
-    // The landing page carries its own copy; this is the header a signed-out visitor meets on
-    // any other route.
-    renderWithProviders(<Header />, {auth: unauthenticated(), route: '/files'});
-    expect(screen.getByRole('button', {name: 'Change theme'})).toBeInTheDocument();
-  });
-
-  it('moves into the nav drawer below tablet when signed in, adding nothing to the header', async () => {
-    // The authenticated header is over its width budget at 375px before anything is added — a
-    // hamburger, the brand mark, help, the bell, an avatar and Sign out inside `px-4`.
-    setWidth(375);
+  // SIGNED IN it is in the account menu, at every width. That is the point of the menu: the
+  // choice used to be a header button that had to step aside below `tablet` for want of room,
+  // with a second copy in the drawer to compensate.
+  it.each([1400, 375])('is in the account menu when signed in, at %ipx', async (width) => {
+    setWidth(width);
     const {user} = renderWithProviders(<Header />, {auth: authenticated('alice'), route: '/files'});
 
+    // Not a bare header button any more, at either width.
     expect(screen.queryByRole('button', {name: 'Change theme'})).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', {name: 'Open navigation'}));
-    const group = screen.getByRole('group', {name: 'Theme'});
-    expect(group).toBeInTheDocument();
+    await user.click(screen.getByRole('button', {name: 'Account: alice'}));
+    const menu = screen.getByRole('menu', {name: 'Account'});
+    await user.click(within(menu).getByRole('menuitemradio', {name: 'Dark'}));
 
-    await user.click(screen.getByRole('button', {name: 'Dark'}));
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
-    expect(screen.getByRole('button', {name: 'Dark'})).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('stays in the header below tablet when signed out, where there is no drawer', () => {
-    // The signed-out header carries a brand mark and one button, and mounts no drawer at all,
-    // so the measurement that moved the control does not apply to it.
-    setWidth(375);
+  // SIGNED OUT there is no account menu to hold it and no drawer to fall back to, so the
+  // header keeps its own control — deleting it with the signed-in one would have left a
+  // signed-out visitor no way to change the theme at all, at any width.
+  it.each([1400, 375])('stays a header control when signed out, at %ipx', (width) => {
+    setWidth(width);
     renderWithProviders(<Header />, {auth: unauthenticated(), route: '/files'});
     expect(screen.getByRole('button', {name: 'Change theme'})).toBeInTheDocument();
+  });
+
+  // The drawer's copy is gone with the header's width problem. Two controls setting one value
+  // is a state to keep in step for no benefit.
+  it('no longer duplicates the choice into the nav drawer', async () => {
+    setWidth(375);
+    const {user} = renderWithProviders(<Header />, {auth: authenticated('alice'), route: '/files'});
+    await user.click(screen.getByRole('button', {name: 'Open navigation'}));
+
+    expect(screen.queryByRole('group', {name: 'Theme'})).not.toBeInTheDocument();
   });
 });
 

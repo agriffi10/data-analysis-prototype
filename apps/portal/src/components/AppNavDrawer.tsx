@@ -6,7 +6,6 @@ import {IconButton} from './IconButton';
 import {BellIcon, HelpCircleIcon} from './icons';
 import {useEscapeKey} from '../hooks/useEscapeKey';
 import {SECTION_CAPTION} from './fieldStyles';
-import {ThemeChoiceGroup} from './ThemeMenu';
 
 export type AppNavDrawerProps = {
   open: boolean;
@@ -224,10 +223,9 @@ export function AppNavDrawer({open, onClose, id, contextualRail, isPathEnabled, 
             ))}
           </nav>
 
-          <div className="flex flex-col gap-2 border-t border-border px-3 py-3">
-            <span className={SECTION_CAPTION}>Theme</span>
-            <ThemeChoiceGroup />
-          </div>
+          {/* The theme choice used to be duplicated here, because the header dropped its
+              control below `tablet` for want of width. The account menu carries it now at
+              every width, so a second copy would be two controls setting one value. */}
 
           {actions && <div className="flex flex-col gap-0.5 border-t border-border p-3">{actions}</div>}
 

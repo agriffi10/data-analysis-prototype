@@ -709,7 +709,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         intro:
           'Everything else in the portal tells us what you <b>clicked</b>. This is the only place that tells us what you <b>wanted</b> — so if something is awkward, missing, or just wrong, this is the fastest way to say so.',
         steps: [
-          'Click <b>Give feedback</b> in the top bar, next to the help icon. On a phone, open the menu with the ☰ button and choose <b>Give feedback</b> there.',
+          'Open the menu on your name in the top bar and choose <b>Give feedback</b> — the same place as <b>Help &amp; guides</b>, your theme and <b>Sign out</b>. It is there at every screen size.',
           'Pick <b>What is this about?</b> — <b>Something is broken</b> for a problem, <b>An idea or a request</b> for something you would like, <b>A question</b> when you are unsure how something works, and <b>Something else</b> for anything that fits none of those.',
           'Write your feedback. The more specific the better — what you were doing, what you expected, and what happened instead.',
           'Click <b>Send</b>. The page you were on when you opened the dialog is included automatically, so you do not need to describe where you were.'
