@@ -526,6 +526,25 @@ describe('QueryStatusBar', () => {
       expect(screen.queryByText(/scanned ·/)).not.toBeInTheDocument();
     });
 
+    // `isInFlight` tracks the BATCH, so a non-terminal status can in principle reach a render
+    // that is not in flight. Neither the button nor the note may appear there: no branch draws
+    // a chip for QUEUED/RUNNING, so both would sit on an otherwise empty bar — and the note
+    // would claim rows came from an earlier statement while one is still running.
+    it.each(['QUEUED', 'RUNNING'] as const)('shows no Save affordance beside a non-terminal %s', (state) => {
+      render(
+        <QueryStatusBar
+          status={status({state})}
+          isInFlight={false}
+          startedAt={null}
+          rowCount={4}
+          canSaveResults
+          onSaveResults={vi.fn()}
+        />
+      );
+      expect(screen.queryByRole('button', {name: /Save results/})).not.toBeInTheDocument();
+      expect(screen.queryByText(/from an earlier statement/)).not.toBeInTheDocument();
+    });
+
     it('withholds Save results while a run is still in flight', () => {
       render(
         <QueryStatusBar

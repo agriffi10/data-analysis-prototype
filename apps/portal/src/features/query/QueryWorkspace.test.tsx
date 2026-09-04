@@ -1020,7 +1020,9 @@ describe('QueryWorkspace', () => {
      * the SUCCEEDED gate deleted the button does appear, and a `queryBy` sitting here missed it.
      */
     async function expectSaveNeverAppears() {
-      await expect(screen.findByRole('button', {name: 'Save results to my files'}, {timeout: 400})).rejects.toThrow();
+      await expect(screen.findByRole('button', {name: 'Save results to my files'}, {timeout: 400})).rejects.toThrow(
+        /Unable to find/
+      );
     }
 
     // `soleStatementSucceeded` is the only thing keeping a lone failed statement out of

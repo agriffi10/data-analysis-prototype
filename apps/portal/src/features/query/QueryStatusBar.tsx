@@ -23,8 +23,8 @@ type QueryStatusBarProps = {
   /** Exact total from the background page-walk; null while still counting. */
   totalRowCount?: number | null;
   /**
-   * Whether the displayed result is savable (row-returning, not pure DDL). Offered in
-   * every terminal state, not only success: a batch that failed or was stopped at a later
+   * Whether the displayed result is savable (row-returning, not pure DDL). Offered
+   * alongside any verdict, not only success: a batch that failed or was stopped at a later
    * statement still shows an earlier statement's complete, already-billed result.
    */
   canSaveResults?: boolean;
@@ -80,11 +80,12 @@ export function QueryStatusBar({
 
   const elapsedMs = isInFlight && startedAt && nowTick ? nowTick - startedAt : undefined;
   const state = status?.state;
-  // Anything hanging off the result rather than the verdict still needs a verdict to sit
-  // beside. Between a resubmit clearing the status and the new run being marked in flight,
-  // the previous run is still `done` — so a savable result outlives its status for one
-  // history round-trip, and gating on `!isInFlight` alone paints a lone button on an empty bar.
-  const isTerminal = !isInFlight && state !== undefined;
+  // A settled verdict must be on screen for anything that hangs off the result to have
+  // something to sit beside. Two ways there isn't one, and both leave a lone button on an
+  // otherwise empty bar: a resubmit clears the status a history round-trip before the new run
+  // is marked in flight, leaving the previous run `done` with no status at all; and
+  // `isInFlight` tracks the BATCH, so it is not by itself proof the statement settled.
+  const hasVerdict = !isInFlight && (state === 'SUCCEEDED' || state === 'FAILED' || state === 'CANCELLED');
 
   // The bar wraps onto a second line on a phone; the shipped
   // single-row bar is restored from `tablet:` up.
@@ -157,7 +158,7 @@ export function QueryStatusBar({
           strip naming it — so without this the file's contents are unidentifiable. The row
           count is the displayed execution's; the failed statement's bytes and duration stay
           off the bar, which is what keeps the two executions from reading as one. */}
-      {isTerminal && state !== 'SUCCEEDED' && canSaveResults && (
+      {hasVerdict && state !== 'SUCCEEDED' && canSaveResults && (
         <span className="text-text-2">
           {rowCountLabel({rowCount, hasMoreRows, totalRowCount})} from an earlier statement
         </span>
@@ -165,7 +166,7 @@ export function QueryStatusBar({
 
       {/* Gated on the result, never on the verdict — the rows a failed or stopped batch
           already produced are complete, and re-running to reach Save bills them twice. */}
-      {isTerminal && canSaveResults && (
+      {hasVerdict && canSaveResults && (
         <>
           <div className="flex-1" />
           <button
