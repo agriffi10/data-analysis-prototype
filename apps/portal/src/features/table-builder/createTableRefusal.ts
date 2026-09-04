@@ -1,4 +1,5 @@
 import {isAtRoot} from '../file-browser/fileBrowser.paths';
+import type {SelectableItem} from '../file-browser/selectionContext';
 
 /**
  * The sentence {@link createTableRefusal} returns.
@@ -37,4 +38,60 @@ export const CREATE_TABLE_AT_ROOT_REFUSAL =
  */
 export function createTableRefusal(prefix: string, rootPrefix: string): string | null {
   return isAtRoot(prefix, rootPrefix) ? CREATE_TABLE_AT_ROOT_REFUSAL : null;
+}
+
+/**
+ * Why a table cannot be built from the file browser's current SELECTION.
+ *
+ * Separate wording from {@link CREATE_TABLE_AT_ROOT_REFUSAL}, which stays exactly as it is
+ * because the folder picker imports it by name and remains true there: in a picker, opening
+ * a folder IS choosing it. In the browser it no longer is — the folder must be selected —
+ * so a sentence telling the user to "open the folder and create the table there" would be
+ * false on the one surface it is shown.
+ *
+ * @attribute CREATE_TABLE_NOTHING_SELECTED_REFUSAL - Nothing is ticked.
+ * @attribute CREATE_TABLE_MANY_SELECTED_REFUSAL - More than one row is ticked.
+ * @attribute CREATE_TABLE_FILE_SELECTED_REFUSAL - The one ticked row is a file.
+ */
+export const CREATE_TABLE_NOTHING_SELECTED_REFUSAL =
+  'Select the folder holding your data files, then create the table from it. A table is built ' +
+  'from a whole folder, so it needs one to be chosen.';
+
+export const CREATE_TABLE_MANY_SELECTED_REFUSAL =
+  'A table is built from ONE folder. Select just the folder you want to query.';
+
+export const CREATE_TABLE_FILE_SELECTED_REFUSAL =
+  'A table is built from a folder, not a single file — it reads every file inside, so they can ' +
+  'share one set of columns. Select the folder that holds this file instead.';
+
+/**
+ * Resolve the folder a table would be built from, or the reason there isn't one.
+ *
+ * Both halves travel together deliberately: the caller needs the chosen folder's prefix to
+ * build from AND to suggest a table name, and returning only a refusal would leave it
+ * re-deriving the prefix from the same selection under a second, drifting rule.
+ *
+ * The selection arms are checked BEFORE the space-root arm, and the order is load-bearing
+ * rather than stylistic: standing at the space root with nothing selected satisfies both,
+ * and "select a folder" is the one that tells the user what to do next. The root arm is
+ * still consulted for the selected folder, rather than assumed unreachable because the root
+ * is not a row in its own listing — a rule that holds today and would fail silently.
+ *
+ * @param selected - The file browser's current selection, in no particular order.
+ * @param rootPrefix - The space root, trailing slash.
+ * @returns The folder prefix to build from with a null refusal, or a null prefix with the
+ *   sentence explaining why there is none.
+ */
+export function createTableTarget(
+  selected: readonly SelectableItem[],
+  rootPrefix: string
+): {prefix: string | null; refusal: string | null} {
+  if (selected.length === 0) return {prefix: null, refusal: CREATE_TABLE_NOTHING_SELECTED_REFUSAL};
+  if (selected.length > 1) return {prefix: null, refusal: CREATE_TABLE_MANY_SELECTED_REFUSAL};
+
+  const [item] = selected;
+  if (item.type === 'file') return {prefix: null, refusal: CREATE_TABLE_FILE_SELECTED_REFUSAL};
+
+  const rootRefusal = createTableRefusal(item.prefix, rootPrefix);
+  return rootRefusal ? {prefix: null, refusal: rootRefusal} : {prefix: item.prefix, refusal: null};
 }

@@ -4,44 +4,51 @@ import {useToast} from '../../components/toastContext';
 import {toUserText} from '../../lib/errorMessages';
 import {lastSegment} from '../file-browser/fileBrowser.paths';
 import {CreateTableDialog} from './CreateTableDialog';
-import {createTableRefusal} from './createTableRefusal';
+import {createTableTarget} from './createTableRefusal';
 import {armCatalogCatchUp} from './useCatalogCatchUp';
 import {enqueueTableBuild} from './tableBuild.service';
 import type {PartitionKey} from './tableBuild.types';
+import type {SelectableItem} from '../file-browser/selectionContext';
 
 type Props = {
-  // The active space the current folder belongs to, plus the folder key.
+  // The active space the current folder belongs to.
   spaceKind: 'personal' | 'shared';
   bucket: string;
   database: string; // username (personal) | shared-space name
-  prefix: string; // the current folder key (within the space)
+  /** The browser's current selection — the table is built from the one folder in it. */
+  selected: readonly SelectableItem[];
   rootPrefix: string; // the space root, which is the one folder a table may NOT be built from
 };
 
 /**
- * The file-browser toolbar action. Opens the name/partition
- * prompt and, on confirm, ENQUEUES a create-table request for the current folder in
- * the space's database (the browser never creates the table). Eligibility is otherwise
- * enforced server-side, so a bad case comes back as a notification rather than a
- * pre-flight block. Async: a success toast confirms submission and the outcome arrives
- * via notifications.
+ * The file-browser toolbar action. Opens the name/partition prompt and, on confirm,
+ * ENQUEUES a create-table request in the space's database (the browser never creates the
+ * table). Async: a success toast confirms submission and the outcome arrives via
+ * notifications.
  *
- * The ONE case refused before submission is the space root, because that build succeeds:
- * see `createTableRefusal`. The control plane refuses it too — this is the explanation,
- * not the enforcement.
+ * It builds from the SELECTED folder, not the folder being viewed. A table reads every file
+ * below its location, so which folder it means has to be said rather than inferred from where
+ * the user happens to be standing — and a build from the wrong one succeeds, quietly, over
+ * the wrong files. Exactly one folder, never a file and never several: `createTableTarget`
+ * owns those arms and their wording.
+ *
+ * Eligibility is otherwise enforced server-side, so a bad case comes back as a notification
+ * rather than a pre-flight block. The control plane refuses the space root too — this is the
+ * explanation, not the enforcement.
  *
  * @example
- * <CreateTableButton spaceKind="personal" bucket={bucket} database="alice" prefix="alice/sales/" rootPrefix="alice/" />
+ * <CreateTableButton spaceKind="personal" bucket={bucket} database="alice" selected={selectedItems} rootPrefix="alice/" />
  */
-export function CreateTableButton({spaceKind, bucket, database, prefix, rootPrefix}: Props) {
+export function CreateTableButton({spaceKind, bucket, database, selected, rootPrefix}: Props) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const toast = useToast();
 
-  // Suggestion base: the folder's own name, or the space name at the space root.
-  const folderName = lastSegment(prefix) || database;
-  const refusal = createTableRefusal(prefix, rootPrefix);
+  const {prefix, refusal} = createTableTarget(selected, rootPrefix);
+  // Suggestion base: the chosen folder's own name. Null only while refused, when the dialog
+  // cannot be opened to read it.
+  const folderName = (prefix && lastSegment(prefix)) || database;
 
   const openDialog = () => {
     setSubmitError(null);
@@ -49,6 +56,10 @@ export function CreateTableButton({spaceKind, bucket, database, prefix, rootPref
   };
 
   const handleSubmit = async ({tableName, partitionKeys}: {tableName: string; partitionKeys: PartitionKey[]}) => {
+    // Unreachable while the button is disabled on the same refusal that nulls the prefix;
+    // typed rather than asserted so a future caller that renders the dialog another way
+    // cannot enqueue a build with no folder.
+    if (prefix === null) return;
     setBusy(true);
     setSubmitError(null);
     const result = await enqueueTableBuild({
@@ -84,7 +95,7 @@ export function CreateTableButton({spaceKind, bucket, database, prefix, rootPref
         Create table
       </Button>
 
-      {open && (
+      {open && prefix !== null && (
         <CreateTableDialog
           folderName={folderName}
           folderPath={prefix}

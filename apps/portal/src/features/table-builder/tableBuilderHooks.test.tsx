@@ -3,6 +3,12 @@ import type {MockedFunction} from 'vitest';
 import {act, screen, within} from '@testing-library/react';
 import {renderHookWithProviders, renderWithProviders} from '../../test/renderWithProviders';
 import {CreateTableButton} from './CreateTableButton';
+import {
+  CREATE_TABLE_AT_ROOT_REFUSAL,
+  CREATE_TABLE_FILE_SELECTED_REFUSAL,
+  CREATE_TABLE_MANY_SELECTED_REFUSAL,
+  CREATE_TABLE_NOTHING_SELECTED_REFUSAL
+} from './createTableRefusal';
 import {enqueueTableBuild, enqueueTableRefresh} from './tableBuild.service';
 import {authenticated} from '../../test/authFixtures';
 import {catalogKeys} from '../catalog/catalogKeys';
@@ -29,7 +35,7 @@ describe('CreateTableButton', () => {
         spaceKind="personal"
         bucket="dat-prod-user-space"
         database="alice"
-        prefix="alice/sales/"
+        selected={[{type: 'folder', prefix: 'alice/sales/'}]}
         rootPrefix="alice/"
         {...props}
       />
@@ -68,7 +74,7 @@ describe('CreateTableButton', () => {
         spaceKind: 'shared',
         bucket: 'dat-prod-shared-space',
         database: 'salesdata',
-        prefix: 'salesdata/'
+        selected: [{type: 'folder', prefix: 'salesdata/reports/'}]
       });
       await user.click(screen.getByRole('button', {name: 'Create table'}));
       await user.click(
@@ -86,19 +92,73 @@ describe('CreateTableButton', () => {
     // produces a table over `athenaresults/`, `saved_queries/` and everything else the space
     // keeps there. Refused before submission, with the reason on the control rather than as a
     // notification about a table that already exists.
-    it('refuses a build at the space root and says why, without opening the dialog', async () => {
-      const {user} = renderButton({prefix: 'alice/', rootPrefix: 'alice/'});
+    // Each refusal is asserted by IDENTITY, never by a phrase they happen to share. Several
+    // of these sentences explain the same underlying rule, so a substring like "reads every
+    // file" is satisfied by the wrong arm and the test passes while naming the wrong reason.
+    const refusalOf = () => screen.getByRole('button', {name: 'Create table'}).getAttribute('title');
+
+    async function expectRefused(user: ReturnType<typeof renderButton>['user'], reason: string) {
       const button = screen.getByRole('button', {name: 'Create table'});
       expect(button).toHaveAttribute('aria-disabled', 'true');
-      expect(button.getAttribute('title')).toMatch(/reads every file in the folder/);
+      expect(refusalOf()).toBe(reason);
       await user.click(button);
       expect(screen.queryByRole('dialog', {name: 'Create table from this folder'})).not.toBeInTheDocument();
       expect(mockEnqueue).not.toHaveBeenCalled();
+    }
+
+    it('refuses when nothing is selected', async () => {
+      const {user} = renderButton({selected: []});
+      await expectRefused(user, CREATE_TABLE_NOTHING_SELECTED_REFUSAL);
     });
 
-    it('offers the build in any folder below the root', () => {
-      renderButton({prefix: 'alice/sales/2024/', rootPrefix: 'alice/'});
+    it('refuses when more than one item is selected', async () => {
+      const {user} = renderButton({
+        selected: [
+          {type: 'folder', prefix: 'alice/sales/'},
+          {type: 'folder', prefix: 'alice/costs/'}
+        ]
+      });
+      await expectRefused(user, CREATE_TABLE_MANY_SELECTED_REFUSAL);
+    });
+
+    // A file was previously neither permitted nor refused — the button ignored the selection
+    // entirely and built from whatever folder happened to be open.
+    it('refuses when the one selected item is a file', async () => {
+      const {user} = renderButton({selected: [{type: 'file', key: 'alice/sales/jan.csv'}]});
+      await expectRefused(user, CREATE_TABLE_FILE_SELECTED_REFUSAL);
+    });
+
+    // A table's LOCATION is read recursively, so a build at the space root SUCCEEDS and
+    // produces a table over `athenaresults/`, `saved_queries/` and everything else the space
+    // keeps there. Still refused even when the root arrives as a selected folder.
+    it('refuses a build at the space root and says why, without opening the dialog', async () => {
+      const {user} = renderButton({selected: [{type: 'folder', prefix: 'alice/'}], rootPrefix: 'alice/'});
+      await expectRefused(user, CREATE_TABLE_AT_ROOT_REFUSAL);
+    });
+
+    it('offers the build for one selected folder below the root', () => {
+      renderButton({selected: [{type: 'folder', prefix: 'alice/sales/2024/'}], rootPrefix: 'alice/'});
       expect(screen.getByRole('button', {name: 'Create table'})).not.toHaveAttribute('aria-disabled');
+    });
+
+    // The name is suggested from the SELECTED folder, not the one in view — the two are
+    // routinely different now that selecting is what chooses.
+    it('builds from the selected folder, not the folder in view', async () => {
+      const {user} = renderButton({selected: [{type: 'folder', prefix: 'alice/costs/2025/'}]});
+      await user.click(screen.getByRole('button', {name: 'Create table'}));
+      await user.click(
+        within(screen.getByRole('dialog', {name: 'Create table from this folder'})).getByRole('button', {
+          name: 'Create table'
+        })
+      );
+      expect(mockEnqueue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          space: expect.objectContaining({prefix: 'alice/costs/2025/'}),
+          // `t_` because the real suggestion is running: a table name may not start with a
+          // digit, and the folder here is a year.
+          tableName: 't_2025'
+        })
+      );
     });
   });
 
