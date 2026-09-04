@@ -80,6 +80,11 @@ export function QueryStatusBar({
 
   const elapsedMs = isInFlight && startedAt && nowTick ? nowTick - startedAt : undefined;
   const state = status?.state;
+  // Anything hanging off the result rather than the verdict still needs a verdict to sit
+  // beside. Between a resubmit clearing the status and the new run being marked in flight,
+  // the previous run is still `done` — so a savable result outlives its status for one
+  // history round-trip, and gating on `!isInFlight` alone paints a lone button on an empty bar.
+  const isTerminal = !isInFlight && state !== undefined;
 
   // The bar wraps onto a second line on a phone; the shipped
   // single-row bar is restored from `tablet:` up.
@@ -147,9 +152,20 @@ export function QueryStatusBar({
         </span>
       )}
 
+      {/* Says WHAT Save would write. A non-succeeded run only ever displays a result when an
+          earlier statement produced one, and in `script-single` scope there is no result-tab
+          strip naming it — so without this the file's contents are unidentifiable. The row
+          count is the displayed execution's; the failed statement's bytes and duration stay
+          off the bar, which is what keeps the two executions from reading as one. */}
+      {isTerminal && state !== 'SUCCEEDED' && canSaveResults && (
+        <span className="text-text-2">
+          {rowCountLabel({rowCount, hasMoreRows, totalRowCount})} from an earlier statement
+        </span>
+      )}
+
       {/* Gated on the result, never on the verdict — the rows a failed or stopped batch
           already produced are complete, and re-running to reach Save bills them twice. */}
-      {!isInFlight && canSaveResults && (
+      {isTerminal && canSaveResults && (
         <>
           <div className="flex-1" />
           <button

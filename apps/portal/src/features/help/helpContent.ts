@@ -329,9 +329,9 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Save results to your files',
         subtitle: 'Export a result set back into your files.',
         intro:
-          'Results don’t have to stay in the Query tab. Save a successful query’s output as a file — in your own space or a shared one — and it becomes just another file you can download, share, or even build a new table from.',
+          'Results don’t have to stay in the Query tab. Save a query’s output as a file — in your own space or a shared one — and it becomes just another file you can download, share, or even build a new table from. If a multi-statement script failed or you stopped it part-way, the rows already on screen can still be saved, so you don’t have to re-run to get them.',
         steps: [
-          'After a successful query, click <b>Save results to my files</b> in the status bar.',
+          'Click <b>Save results to my files</b> in the status bar, beside the run’s status.',
           'Choose a destination space and a file name.',
           'The results export in the background, and a notification lets you know when they’re saved.'
         ]

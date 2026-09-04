@@ -1014,6 +1014,46 @@ describe('QueryWorkspace', () => {
       );
     });
 
+    /**
+     * The Save affordance never appears. A plain `queryBy` passes on the render before the
+     * results arrive, which is exactly when a broken gate still looks correct — measured: with
+     * the SUCCEEDED gate deleted the button does appear, and a `queryBy` sitting here missed it.
+     */
+    async function expectSaveNeverAppears() {
+      await expect(screen.findByRole('button', {name: 'Save results to my files'}, {timeout: 400})).rejects.toThrow();
+    }
+
+    // `soleStatementSucceeded` is the only thing keeping a lone failed statement out of
+    // `displayExecutionId`, and it sits two files from the button it now gates. It is also the
+    // client-side "read results only at SUCCEEDED" gate — `useQueryResults` checks the id alone.
+    it('offers no Save when the only statement failed, so there is no earlier result', async () => {
+      queueRuns('q-1');
+      statusMap['q-1'] = {state: 'FAILED', stateChangeReason: 'SYNTAX_ERROR: line 1'};
+      seedSingle('SELECT nope');
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await user.click(screen.getByRole('button', {name: 'Run statement'}));
+      expect(await screen.findByText('Failed')).toBeInTheDocument();
+      await expectSaveNeverAppears();
+    });
+
+    // The displayed tab ANSWERS for its own output object. A `??` fallthrough here would reach
+    // past a tab with no output object to the failed statement's, minting a CSV from the wrong
+    // execution — and every other fixture sets `outputLocation`, so nothing else can see it.
+    it('offers no Save when the displayed result tab carries no output object', async () => {
+      queueRuns('q-1', 'q-2', 'q-3');
+      statusMap['q-1'] = {outputLocation: undefined};
+      statusMap['q-3'] = {state: 'FAILED', stateChangeReason: 'SYNTAX_ERROR: line 1'};
+      seedScript();
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await runScriptTabs(user);
+      expect(await screen.findByText('Failed')).toBeInTheDocument();
+      await expectSaveNeverAppears();
+    });
+
     it('Run Statement executes the selection, else the statement under the cursor (FR-006)', async () => {
       queueRuns('q-1', 'q-2');
       seedScript('SELECT 1;\nSELECT 2;');

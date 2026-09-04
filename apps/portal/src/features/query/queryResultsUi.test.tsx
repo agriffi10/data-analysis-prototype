@@ -492,6 +492,40 @@ describe('QueryStatusBar', () => {
       expect(onSaveResults).toHaveBeenCalledTimes(1);
     });
 
+    // A resubmit clears the status before the new run is marked in flight, and the previous
+    // run is still `done` across that gap — so the savable result outlives its verdict and
+    // the bar would otherwise paint a lone button with nothing to explain it.
+    it('withholds Save results when no status has arrived to sit beside', () => {
+      render(
+        <QueryStatusBar
+          isInFlight={false}
+          startedAt={null}
+          rowCount={4}
+          canSaveResults
+          onSaveResults={vi.fn()}
+        />
+      );
+      expect(screen.queryByRole('button', {name: /Save results/})).not.toBeInTheDocument();
+      expect(screen.queryByText(/from an earlier statement/)).not.toBeInTheDocument();
+    });
+
+    it('names the rows Save would write when the run itself did not succeed', () => {
+      render(
+        <QueryStatusBar
+          status={status({state: 'FAILED'})}
+          isInFlight={false}
+          startedAt={null}
+          rowCount={412}
+          canSaveResults
+          onSaveResults={vi.fn()}
+        />
+      );
+      expect(screen.getByRole('status')).toHaveTextContent('412 rows from an earlier statement');
+      // The failed statement's own figures stay off the bar — pairing them with an earlier
+      // statement's rows is the conflation that reads as one execution.
+      expect(screen.queryByText(/scanned ·/)).not.toBeInTheDocument();
+    });
+
     it('withholds Save results while a run is still in flight', () => {
       render(
         <QueryStatusBar
