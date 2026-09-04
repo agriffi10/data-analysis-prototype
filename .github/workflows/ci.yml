@@ -294,12 +294,16 @@ jobs:
       # table-builder type-mapping and data-quality probe tests. Every one of those is a pytest
       # test, and pytest is disabled.
       #
-      # What is left in this job reads NO third-party package at all -- the four validators are
+      # What is left in this job reads NO third-party package at all -- the five validators are
       # stdlib plus local imports, proven by running each under `python3 -S`, which excludes
       # site-packages (positive control: `python3 -S -c "import boto3"` raises). So the job is
       # now HERMETIC, and that is the point rather than the seconds: with no pip install and no
       # tofu download it has no supply-chain surface and no network dependency, so a yanked
       # wheel or a registry outage cannot redden it.
+      #
+      # The PR-queue corpus is hermetic in the Python sense and needs `git` and `sh` besides,
+      # which are on the runner rather than installed here. That is a weaker claim than the other
+      # four make, so it is stated rather than folded in.
       #
       # RESTORING THE SIX DISABLED STEPS MEANS RESTORING THESE TWO AS WELL. `Lint (ruff)`,
       # `Typecheck (mypy)` and `Test (pytest)` all need the install; the Terraform tests inside
@@ -340,6 +344,19 @@ jobs:
       # validator deliberately: if both fail, the real breakage is the more useful message.
       - name: Prove the doc validator's checks still fire
         run: python3 scripts/validate_docs_test.py
+
+      # The PR queue's pre-push hook is the gate that decides whether a branch reaches the
+      # remote, and it is deployed OUTSIDE the repo -- so nothing else here executes it. Every
+      # way it fails is silent: a pattern that stops matching, a check that stops firing, a
+      # fail-open that swallows a refusal. It shipped enforcing five spec prefixes, those specs
+      # closed, and it then allowed every push while still looking installed.
+      #
+      # This runs the real `install.sh` into a throwaway checkout and drives the wrapper it
+      # writes, in both directions, then breaks each of the hook's checks in turn -- every plant
+      # naming the cases it must break -- to prove no fixture is vacuous. It cannot cover one
+      # thing: CI is GNU grep, sed and awk, and the hook only ever runs on a developer's machine.
+      - name: Prove the PR queue's pre-push hook still refuses
+        run: python3 scripts/pr-queue/pre_push_test.py
 
       # A malformed feature-flag document must never reach a bucket, and the failure it
       # produces is silent — the browser falls back to all-on, which is indistinguishable
