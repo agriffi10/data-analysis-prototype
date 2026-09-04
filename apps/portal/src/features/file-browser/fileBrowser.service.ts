@@ -1,4 +1,5 @@
 import {apiRequest} from '../../lib/apiClient';
+import {SYSTEM_FOLDER_GROUP_NAME} from './systemFolders';
 import {spaceFor} from '../../lib/objectSpace';
 import {fromApiFailure, ok} from '../../lib/serviceResult';
 import type {FileListPage} from '../../types/s3.types';
@@ -405,9 +406,22 @@ export function validateLeafName(name: string, label: string): string | null {
   return null;
 }
 
-/** Validates a new folder name before any request. Returns an error message, or null if valid. */
+/**
+ * Validates a new folder name before any request. Returns an error message, or null if valid.
+ *
+ * Refuses `system_settings` on top of the leaf rules, because the listing spends that name on
+ * the group row that gathers the app-managed folders. A real folder wearing it puts two rows
+ * of the same name at a space root — one openable, one a disclosure — and the path that pays
+ * is archive discovery: a user hunting for the id a restore needs opens the empty one they
+ * made and concludes the receipts are gone. Refused at every depth rather than only at the
+ * root, so the name means one thing wherever it is read.
+ */
 export function validateFolderName(name: string): string | null {
-  return validateLeafName(name, 'Folder name');
+  const leaf = validateLeafName(name, 'Folder name');
+  if (leaf !== null) return leaf;
+  if (name === SYSTEM_FOLDER_GROUP_NAME)
+    return `“${SYSTEM_FOLDER_GROUP_NAME}” is a name the file list uses. Pick another.`;
+  return null;
 }
 
 /**

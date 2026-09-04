@@ -30,6 +30,19 @@ describe('RestoreArchiveDialog', () => {
     expect(screen.getByLabelText('Archive id')).toHaveFocus();
   });
 
+  it('names the path the id is actually reachable at', async () => {
+    // The one instruction a user has when they have nothing else to go on, and it is only
+    // correct while it names the group row: `archive/` no longer appears at the space root,
+    // and a wrong turn here costs the 3-5 billed hours a restore takes to find out.
+    renderDialog();
+
+    const hint = screen.getByText(/find the id/i);
+
+    // Only the group name carries the guard. Asserting /archive/ alone would pass on the old
+    // wording too — the sentence goes on to say "a folder named after its id" regardless.
+    expect(hint).toHaveTextContent(/system_settings/);
+  });
+
   it('submits a valid id from Enter in the field', async () => {
     // FR-003 AC5: the single-field case `submitOnEnterRef` exists for — and the opposite call
     // from ArchiveDialog, for the opposite reason.

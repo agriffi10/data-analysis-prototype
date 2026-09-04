@@ -5,7 +5,8 @@
 //  - `user_settings/` — query history + saved queries. Hidden EVERYWHERE:
 //    the main file browser and the move/copy destination picker.
 //  - `athenaresults/` — Athena query results. Locked out of move/copy
-//    destinations, but still visible in the browser.
+//    destinations, but still visible in the browser — inside the `system_settings` group
+//    row (`systemFolders.ts`), which collapses it rather than hiding it.
 // - `_data-quality-reports/` — the data-quality reports. Hidden
 //    EVERYWHERE, like `user_settings/`.
 // - `_directory/` — the published username directory. Hidden
@@ -27,14 +28,18 @@
 // - `archive/` — the archive receipts, one folder per archive. VISIBLE and
 //    deliberately so: the folder NAMES are the archive ids, and reading one is how a user
 //    finds the id a restore needs, so hiding it would remove the only surface that carries
-//    them. It joins PICKER_LOCKED_FOLDERS and UNDELETABLE_ROOT_FOLDERS and neither of the
+//    them. It now sits inside the `system_settings` group row (`systemFolders.ts`), which is
+//    a collapse and not a hide — the restore dialog and the help both name that path, and
+//    they are what keep the ids findable at one click's remove. It joins
+//    PICKER_LOCKED_FOLDERS and UNDELETABLE_ROOT_FOLDERS and neither of the
 //    other two lists. What is new here is that the folder is also read-only INSIDE — see
 //    `writeLockedPrefix.ts`, which is a rule about the prefix the user is standing in rather
 //    than about a folder's name, and is therefore not one of these lists at all.
 //
 //  - `shared_tables/` — where the table-share pipeline copies tables it has
 // shared with you. VISIBLE, because seeing what has been shared
-//    with you is the point of it, but locked out of move/copy destinations:
+//    with you is the point of it — inside the `system_settings` group row like the two
+//    above — but locked out of move/copy destinations:
 //    the pipeline owns the layout, and a table's files acquiring neighbours is
 //    how a later projection read starts returning rows nobody wrote.
 //
@@ -53,6 +58,10 @@
 //   dqcommon.RESERVED_PREFIXES  — may a data-quality CHECK treat this as source?
 //   HIDDEN_BROWSER_FOLDERS      — does the user SEE it?
 //   PICKER_LOCKED_FOLDERS       — may the user PASTE into it?
+//
+// `SYSTEM_GROUPED_FOLDERS` in `systemFolders.ts` is a fifth, and diverges from all of them
+// on purpose: it asks whether the APP fills the folder, which is a question about where a
+// row belongs in the listing and about nothing else. It grants and denies nothing.
 //
 // `athenaresults/` is the clearest case: visible (you want your results) but
 // never a paste target. So membership differs ON PURPOSE, and the divergence

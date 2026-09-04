@@ -171,8 +171,12 @@ export function SelectionToolbar({
       }`}>
       <input
         type="checkbox"
-        className="h-4 w-4 accent-accent"
+        className="h-4 w-4 accent-accent disabled:cursor-not-allowed disabled:opacity-45"
         checked={allSelected}
+        // Nothing selectable is on screen — a listing whose only rows sit inside a collapsed
+        // group. Clicking would call selectAll([]) and change nothing, which reads as a broken
+        // control rather than an empty one.
+        disabled={allItems.length === 0}
         ref={(el) => {
           if (el) el.indeterminate = someSelected && !allSelected;
         }}

@@ -96,6 +96,15 @@ function listing(prefix: string) {
   return {success: true, data: {...(rows[prefix] ?? {files: [], folders: []}), nextToken: undefined}};
 }
 
+/**
+ * Open the `system_settings` group row. `athenaresults/` and `archive/` are inside it, so
+ * every path that reaches one of them starts here — which is also what these tests are
+ * asserting stays reachable now that the row collapses them by default.
+ */
+async function expandSystemFolders(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole('button', {name: /^system_settings:/}));
+}
+
 function renderBrowser(props: Partial<Parameters<typeof FileBrowser>[0]> = {}) {
   return renderWithProviders(
     <UploadQueueProvider>
@@ -212,6 +221,7 @@ describe('the archive journey', () => {
     const api = programmedApi();
     renderBrowser();
 
+    await expandSystemFolders(user);
     await user.click(await screen.findByRole('checkbox', {name: 'Select folder athenaresults'}));
     const archive = screen.getByRole('button', {name: 'Archive selected items'});
 
@@ -231,6 +241,7 @@ describe('the archive journey', () => {
     const api = programmedApi();
     renderBrowser();
 
+    await expandSystemFolders(user);
     await user.click(await screen.findByRole('button', {name: 'Open folder athenaresults'}));
     await user.click(await screen.findByRole('button', {name: 'Details for q1.csv'}));
     const archive = await screen.findByRole('button', {name: 'Archive this item'});
@@ -294,11 +305,12 @@ describe('the restore journey', () => {
 describe('the archive folder is read-only in the browser', () => {
   async function browseIntoArchive(user: ReturnType<typeof userEvent.setup>) {
     renderBrowser();
+    await expandSystemFolders(user);
     await user.click(await screen.findByRole('button', {name: 'Open folder archive'}));
     return screen.findByText(ARCHIVE_ID);
   }
 
-  it('is visible, because the folder names ARE the archive ids', async () => {
+  it('is reachable in one click, because the folder names ARE the archive ids', async () => {
     const user = userEvent.setup();
     await browseIntoArchive(user);
 

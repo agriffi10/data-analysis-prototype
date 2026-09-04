@@ -79,8 +79,9 @@ export function RestoreArchiveDialog({spaceLabel, busy = false, submitError, onS
       </div>
 
       <p className="mt-2 text-xs text-text-3">
-        You’ll find the id in your <span className="font-medium">archive</span> folder — each archive has a folder named
-        after its id, holding a receipt you can download.
+        You’ll find the id under <span className="font-medium">system_settings</span> →{' '}
+        <span className="font-medium">archive</span> in your files — each archive has a folder named after its id,
+        holding a receipt you can download.
       </p>
 
       <p className="mt-4 text-sm text-text-2">

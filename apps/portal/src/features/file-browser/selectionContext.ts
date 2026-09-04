@@ -20,6 +20,15 @@ export type SelectionContextValue = {
   toggle: (item: SelectableItem) => void;
   /** Replace the selection with exactly these items (header "select all"). */
   selectAll: (items: SelectableItem[]) => void;
+  /**
+   * Drop these ids from the selection, leaving the rest.
+   *
+   * Exists because a row can leave the listing without the prefix changing — collapsing the
+   * `system_settings` group is the case — and the provider's navigate-clear does not fire for
+   * that. An item the user cannot see must not stay selected: the toolbar acts on the
+   * selection, never on what is rendered.
+   */
+  deselect: (ids: readonly string[]) => void;
   clear: () => void;
 };
 
@@ -39,6 +48,7 @@ export type SelectionState = {
 export type SelectionAction =
   | {type: 'toggle'; item: SelectableItem}
   | {type: 'selectAll'; items: SelectableItem[]}
+  | {type: 'deselect'; ids: readonly string[]}
   | {type: 'clear'};
 
 /** An empty selection — the reducer's starting state. */
@@ -64,6 +74,15 @@ export function selectionReducer(state: SelectionState, action: SelectionAction)
       for (const item of action.items) {
         next.set(itemId(item), item);
       }
+      return {items: next};
+    }
+    case 'deselect': {
+      // Referential identity is preserved when nothing matched, so collapsing a group with no
+      // selection inside it does not churn every consumer of the context.
+      const hit = action.ids.some((id) => state.items.has(id));
+      if (!hit) return state;
+      const next = new Map(state.items);
+      for (const id of action.ids) next.delete(id);
       return {items: next};
     }
     case 'clear':

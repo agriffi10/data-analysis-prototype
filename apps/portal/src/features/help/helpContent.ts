@@ -90,7 +90,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'A single file is done straight away. <b>Anything else — a folder, or more than one item — is handed to the portal to do in the background.</b> You get a note that it has been requested, an entry in the in-progress list, and a notification when it finishes.',
           'While one of those is running, anything else in that space that would also run in the background — another folder or multi-item <b>Copy</b>, <b>Move</b> or <b>Delete</b>, and <b>Archive</b> — is unavailable and says so. Nothing is queued, so start it again once the first has finished. Single files are unaffected, and the file list does not update by itself either: press <b>Refresh</b>, or leave the tab and come back.',
           'If the portal’s background service is unavailable, a folder Copy, Move or Delete is refused and says so — the files you picked alongside it still go through, and the message names the folders that did not. Try those again later.',
-          'One folder is managed for you: <b>athenaresults</b>, where your query results are kept. You can browse it, but it can’t be deleted or moved.'
+          'The folders the portal fills for you are gathered under <b>system_settings</b>, below your own folders — <b>athenaresults</b>, where your query results are kept, your <b>archive</b> receipts, and any tables shared with you. Click it to open it up, and browse what is inside as normal. Your query results and your archive receipts are managed for you, so those two can’t be deleted or moved.'
         ],
         callout: {
           kind: 'warning',
@@ -142,13 +142,13 @@ export const HELP_SECTIONS: HelpSection[] = [
           'In the <b>Files</b> tab, tick one or more items and click <b>Archive</b> — or open a single item’s <b>Details</b> and choose <b>Archive</b> there.',
           'Read the confirmation. It names what will go, and says plainly that these files leave this space.',
           'Click <b>Archive</b>. The work happens in the background, and a notification tells you when it has finished — including the <b>archive id</b> you will need to get it back.',
-          'Every archive also leaves a folder in your space’s <b>archive</b> folder, named after its id, holding a receipt you can download and read.',
+          'Every archive also leaves a folder under <b>system_settings</b> → <b>archive</b> in your space, named after its id, holding a receipt you can download and read.',
           'To bring an archive back, click <b>Restore Archived Data</b> in the <b>Files</b> tab, paste the archive id, and click <b>Restore</b>. Everything comes back where it was.',
           'A restore takes <b>several hours</b> — the files have to be retrieved from long-term storage first. You get one notification when it starts and another when it is done.'
         ],
         callout: {
           kind: 'warning',
-          text: 'A restore puts every file back where it came from, and it refuses to overwrite anything: if even one of those files exists again, <b>nothing</b> is restored and the notification names the files in the way. Move, rename or delete them and request the restore again. The <b>archive</b> folder itself is read-only — you can open and download receipts, but not upload into it, rename it or delete it.'
+          text: 'A restore puts every file back where it came from, and it refuses to overwrite anything: if even one of those files exists again, <b>nothing</b> is restored and the notification names the files in the way. Move, rename or delete them and request the restore again. The <b>archive</b> folder itself — under <b>system_settings</b> — is read-only: you can open and download receipts, but not upload into it, rename it or delete it.'
         }
       },
       {

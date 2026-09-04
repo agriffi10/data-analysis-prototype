@@ -18,6 +18,7 @@ import {MobileActionBar} from '../../components/MobileActionBar';
 import {RefreshIcon} from '../../components/icons';
 import {HIDDEN_BROWSER_FOLDERS, isRootFolderNamed, undeletableSelectionRefusal} from './protectedFolders';
 import {SAVED_QUERIES_FOLDER} from './fileBrowser.constants';
+import {partitionSystemFolders} from './systemFolders';
 import {OperationFeedback} from './OperationFeedback';
 import {SelectionToolbar} from './SelectionToolbar';
 import {FileListTable, type FileListProps} from './FileListTable';
@@ -134,7 +135,12 @@ function FileBrowserContent({
     () => (queryEnabled ? HIDDEN_BROWSER_FOLDERS : [...HIDDEN_BROWSER_FOLDERS, SAVED_QUERIES_FOLDER]),
     [queryEnabled]
   );
-  const folders = allFolders.filter((f) => !isRootFolderNamed(f.prefix, rootPrefix, hiddenFolders));
+  const visibleFolders = allFolders.filter((f) => !isRootFolderNamed(f.prefix, rootPrefix, hiddenFolders));
+  // The folders the app fills on the user's behalf collapse behind one row at a space root, so a
+  // user's own folders are what the root leads with. Collapsed is the default because the request
+  // was to get them out of the way; expanding restores the listing exactly as it was.
+  const {ordinary: folders, grouped: systemFolders} = partitionSystemFolders(visibleFolders, rootPrefix);
+  const [systemExpanded, setSystemExpanded] = useState(false);
 
   // Create-folder scoped to the folder currently being viewed. File
   // uploads are now owned by the upload queue, so useFileUpload is used here
@@ -205,12 +211,16 @@ function FileBrowserContent({
   const destinationLabel = breadcrumbs[breadcrumbs.length - 1]?.label;
   // The `..` row shows below the space root only.
   const atRoot = isAtRoot(currentPrefix, rootPrefix);
-  const isEmpty = !isLoading && error === null && files.length === 0 && folders.length === 0;
-  const hasContent = !isLoading && error === null && (files.length > 0 || folders.length > 0);
+  const isEmpty = !isLoading && error === null && files.length === 0 && visibleFolders.length === 0;
+  const hasContent = !isLoading && error === null && (files.length > 0 || visibleFolders.length > 0);
 
   // Every selectable row in the current view, for the header "select all".
+  // Collapsed system folders are NOT here: select-all would otherwise take in rows the user
+  // cannot see, and at a space root those are exactly the rows whose delete is refused. Expanding
+  // puts them back, so the expanded listing selects precisely as it did before the group existed.
   const allItems: SelectableItem[] = [
     ...folders.map((f) => ({type: 'folder' as const, prefix: f.prefix})),
+    ...(systemExpanded ? systemFolders.map((f) => ({type: 'folder' as const, prefix: f.prefix})) : []),
     ...files.map((f) => ({type: 'file' as const, key: f.key}))
   ];
   const selectedItems = [...selection.selected.values()];
@@ -220,6 +230,15 @@ function FileBrowserContent({
   const fileListProps: FileListProps = {
     folders,
     files,
+    systemFolders,
+    systemExpanded,
+    onToggleSystem: () => {
+      // Closing the group takes its members out of the selection with them. The toolbar acts
+      // on the selection rather than on what is rendered, so leaving them in offers Delete,
+      // Move and Copy over rows that are no longer on screen.
+      if (systemExpanded) selection.deselect(systemFolders.map((f) => f.prefix));
+      setSystemExpanded((open) => !open);
+    },
     selectable: canModify,
     atRoot,
     onNavigateUp: () => setPrefix(parentPrefix(currentPrefix, rootPrefix) || undefined),

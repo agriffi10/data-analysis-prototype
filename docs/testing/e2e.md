@@ -291,9 +291,10 @@ curl -sSI "$APP_URL" | grep -io "connect-src[^;]*"
 
 | Folder | Rule |
 |---|---|
-| `athenaresults/` | Visible; undeletable; not a paste target; **Archive** disabled with a reason naming it. |
-| `saved_queries/` | Ordinary inside (upload, subfolders, delete a file); the **folder itself** refuses Delete and Rename. |
-| `archive/` | Read-only throughout — see §4.11. |
+| `athenaresults/` | Reached by opening `system_settings`; undeletable; not a paste target; **Archive** disabled with a reason naming it. |
+| `saved_queries/` | At the space root, NOT in the group; ordinary inside (upload, subfolders, delete a file); the **folder itself** refuses Delete and Rename. |
+| `archive/` | Reached by opening `system_settings`; read-only throughout — see §4.11. |
+| `system_settings` | Collapsed on arrival, holding exactly `athenaresults/`, `archive/` and `shared_tables/`. Assert the **root** listing: those three absent until it is opened, and **select-all** while it is shut selects neither them nor a count including them. It is a row, not a prefix — no navigation, no checkbox of its own. |
 
 **The control is not optional.** Select `marker_control/` beside each one: both controls enabled,
 and its confirm **does** open. Without it a generic failure reads as the guard working.
@@ -629,8 +630,9 @@ desktop-only check):
 - Selecting the receipt: **Move** and **Delete** likewise unavailable with a reason.
 - **Archive** is **gone**, not disabled. An archive of an archive is not a thing.
 - **Details** and **Download** work normally — that is the point of the folder being visible.
-- At the space root: `archive/` refuses Delete and Rename by name, and is absent from the
-  destination picker when you Move or Copy something else.
+- At the space root: open `system_settings` first — `archive/` is inside it, not in the root
+  listing. There it refuses Delete and Rename by name, and it is absent from the destination
+  picker when you Move or Copy something else.
 
 Also archive a **single file from its Details panel** — the only route to archiving something you
 have not ticked, and a different component from the toolbar's.
