@@ -989,6 +989,31 @@ describe('QueryWorkspace', () => {
       expect(screen.queryByText('Succeeded')).not.toBeInTheDocument();
     });
 
+    it('saves the displayed result after a later statement failed, from the displayed execution', async () => {
+      queueRuns('q-1', 'q-2', 'q-3');
+      // q-3 fails but still carries an outputLocation of its own, so a Save wired to the
+      // run's verdict rather than the displayed tab would copy q-3.csv and pass a
+      // button-exists assertion. The sourceKey is what discriminates the two.
+      statusMap['q-3'] = {state: 'FAILED', stateChangeReason: 'SYNTAX_ERROR: line 1'};
+      seedScript();
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await runScriptTabs(user);
+      expect(await screen.findByText('Failed')).toBeInTheDocument();
+
+      await user.click(await screen.findByRole('button', {name: 'Save results to my files'}));
+      const dialog = await screen.findByRole('dialog', {name: 'Save results to my files'});
+      const nameInput = within(dialog).getByLabelText('File name');
+      await user.clear(nameInput);
+      await user.type(nameInput, 'out');
+      await user.click(within(dialog).getByRole('button', {name: 'Save here'}));
+
+      expect(mockCopyObject).toHaveBeenCalledWith(
+        expect.objectContaining({sourceKey: 'alice/athenaresults/q-1.csv', destKey: 'alice/out.csv'})
+      );
+    });
+
     it('Run Statement executes the selection, else the statement under the cursor (FR-006)', async () => {
       queueRuns('q-1', 'q-2');
       seedScript('SELECT 1;\nSELECT 2;');

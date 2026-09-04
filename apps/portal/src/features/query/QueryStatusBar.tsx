@@ -22,7 +22,11 @@ type QueryStatusBarProps = {
   hasResultSet?: boolean;
   /** Exact total from the background page-walk; null while still counting. */
   totalRowCount?: number | null;
-  /** Shown only when the succeeded query produced a savable result (row-returning, not pure DDL). */
+  /**
+   * Whether the displayed result is savable (row-returning, not pure DDL). Offered in
+   * every terminal state, not only success: a batch that failed or was stopped at a later
+   * statement still shows an earlier statement's complete, already-billed result.
+   */
   canSaveResults?: boolean;
   onSaveResults: () => void;
 };
@@ -44,7 +48,8 @@ function rowCountLabel({
 /**
  * Slim execution-status bar below the editor. An accessible live region;
  * state is never color-only (icon/spinner + text). FAILED's reason is shown
- * by the workspace's danger Banner — here it's just a terminal indicator.
+ * by the workspace's danger Banner — here it is only the terminal indicator,
+ * and Save-results sits beside whichever terminal state is showing.
  */
 export function QueryStatusBar({
   status,
@@ -119,28 +124,6 @@ export function QueryStatusBar({
             {hasResultSet && `${rowCountLabel({rowCount, hasMoreRows, totalRowCount})} · `}
             {formatBytes(status?.dataScannedBytes)} scanned · {formatDurationMs(status?.engineExecutionTimeMillis)}
           </span>
-          {canSaveResults && (
-            <>
-              <div className="flex-1" />
-              <button
-                type="button"
-                onClick={onSaveResults}
-                className="inline-flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  className="h-4 w-4"
-                  aria-hidden="true">
-                  <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
-                  <path d="M9 4v5h6" />
-                  <path d="M8 21v-7h8v7" />
-                </svg>
-                Save results to my files
-              </button>
-            </>
-          )}
         </>
       )}
 
@@ -162,6 +145,31 @@ export function QueryStatusBar({
           />
           Cancelled
         </span>
+      )}
+
+      {/* Gated on the result, never on the verdict — the rows a failed or stopped batch
+          already produced are complete, and re-running to reach Save bills them twice. */}
+      {!isInFlight && canSaveResults && (
+        <>
+          <div className="flex-1" />
+          <button
+            type="button"
+            onClick={onSaveResults}
+            className="inline-flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="h-4 w-4"
+              aria-hidden="true">
+              <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
+              <path d="M9 4v5h6" />
+              <path d="M8 21v-7h8v7" />
+            </svg>
+            Save results to my files
+          </button>
+        </>
       )}
     </div>
   );

@@ -472,6 +472,39 @@ describe('QueryStatusBar', () => {
       expect(screen.queryByRole('button', {name: /Save results/})).not.toBeInTheDocument();
     });
 
+    // The results on screen belong to an earlier statement that finished and was billed;
+    // the run's verdict says nothing about whether they are savable.
+    it.each(['FAILED', 'CANCELLED'] as const)('offers Save results in a %s run too', (state) => {
+      const onSaveResults = vi.fn();
+      render(
+        <QueryStatusBar
+          status={status({state})}
+          isInFlight={false}
+          startedAt={null}
+          rowCount={4}
+          canSaveResults
+          onSaveResults={onSaveResults}
+        />
+      );
+
+      expect(screen.getByText(state === 'FAILED' ? 'Failed' : 'Cancelled')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', {name: /Save results to my files/}));
+      expect(onSaveResults).toHaveBeenCalledTimes(1);
+    });
+
+    it('withholds Save results while a run is still in flight', () => {
+      render(
+        <QueryStatusBar
+          status={status({state: 'RUNNING'})}
+          isInFlight
+          startedAt={Date.now()}
+          canSaveResults
+          onSaveResults={vi.fn()}
+        />
+      );
+      expect(screen.queryByRole('button', {name: /Save results/})).not.toBeInTheDocument();
+    });
+
     it('shows the loaded count with "+" while the exact total is still being counted (SPEC-080)', () => {
       render(
         <QueryStatusBar
