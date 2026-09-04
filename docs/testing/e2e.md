@@ -723,6 +723,14 @@ trail answers it — `owed.md` carries the query and the `IsLogging` preconditio
 - While you are there: the panel on `/data-quality` is headed **Files** by design, and
   `/help#delete-space` opens the Help page at Shared connections with that one card expanded and
   scrolled to.
+- **Open three or four guides at once** on `/files`, where the section has ten. The panel must
+  SCROLL; no card may lose height to the ones you opened. The cards are `shrink-0` for this, and
+  jsdom can only assert the class — every rect there is 0×0, so a squashed card and a whole one
+  measure the same. While you are scrolled, check that a CLOSED card's title and subtitle are each
+  one line ending in an ellipsis where the text is too long, and that the card you have open shows
+  both in full. Then open `/help` itself and confirm the SAME closed cards wrap rather than clip —
+  the clamp is the panel's, not the card's, because that page scrolls the document and its text
+  column is narrower than the panel's.
 - **Measure the panel's targets, because no suite can.** axe's `target-size` rule was enabled (it
   is tagged `wcag22aa`), and with no layout in jsdom a probe through the project's own axe config
   put it in `passes` — a pass it never evaluated. It is **disabled** now, in
@@ -898,11 +906,11 @@ whole app actually looks right.
    `/query`. The page must arrive dark. A white flash means `/theme-init.js` did not run before the
    first paint — check the Network panel for a **200** on it and a `Cache-Control: no-cache`, and
    the Console for a CSP refusal (an inline initialiser is the failure this shape exists to avoid).
-2. **The switch, and where it lives.** Signed in, at any width: open the menu on your **name** in
-   the top bar — the three choices sit between separators and the current one carries a tick.
-   Narrow below 900px and it is still there, which is the point of the move; there is no longer a
-   copy in the ☰ drawer. Sign out: the header shows its own **half-circle** button instead, at
-   every width, because a signed-out visitor has neither the account menu nor a drawer.
+2. **The switch, and where it lives.** Signed in or out, at any width: the **half-circle** button
+   labelled **Theme** on the top bar, beside Notifications — the three choices carry a tick on the
+   current one. Narrow below 900px and the word goes but the button stays, and there is no copy in
+   the ☰ drawer and none in the account menu. It spent one release inside that menu; the
+   half-circle on the bar is the state to check.
 3. **System follows the OS.** Choose **System**, then flip macOS *Appearance* between Light and
    Dark with the tab in the foreground. The app must follow **without a reload**. Choose **Light**
    and flip again: it must not move.
@@ -943,8 +951,8 @@ split is why most of this is owed rather than run — see `owed.md`.
 
 | Do | Expect |
 |---|---|
-| At desktop width, signed in | Open the menu on your **name**: **Give feedback** is the second item, with an icon, under **Help & guides**. |
-| Narrow to 375px | The header carries nothing new, and the menu is unchanged — **Give feedback** is in the same place. The ☰ drawer no longer carries a copy. |
+| At desktop width, signed in | Open the **kebab** beside your name: **Give feedback** is the first item, with an icon, above a separator and **Sign out**. Help and the theme are on the bar, not in here. |
+| Narrow to 375px | The bar's three words (Help, Notifications, Theme) go and their icons stay; the menu is unchanged — **Give feedback** is in the same place. The ☰ drawer carries no copy of it. |
 | Open it | A dialog with **no category preselected**, an empty message, and a line naming the page you were on. **Send** is disabled. |
 | Choose a category, leave the message empty | **Send** stays disabled. Type a space or two — still disabled. |
 | Type a message, press Enter inside it | A newline. It does **not** submit. |

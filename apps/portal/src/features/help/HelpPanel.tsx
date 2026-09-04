@@ -62,6 +62,7 @@ export function HelpPanel({sectionId, open, onClose}: HelpPanelProps) {
           guide={guide}
           iconName={section.icon}
           defaultOpen={i === 0}
+          clampHeading
         />
       ))}
     </Drawer>

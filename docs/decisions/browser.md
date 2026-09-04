@@ -580,11 +580,29 @@ for it. When the honest answer is "either would do", write that.
 the CSP is `script-src 'self'` with no nonce and no hash, so an inline initialiser would work in dev
 and be refused in production. It throws on nothing, because it blocks the module script behind it.
 
-**The control is in the header unless the drawer is showing it.** Below `tablet` an authenticated
-header is over its width budget before anything is added (SPEC-211 FR-007), so the three choices go
-into `AppNavDrawer` — but that drawer is mounted only for an authenticated user, so the signed-out
-header keeps the control at every width, and the landing route, which suppresses the app header
+**The control is on the header bar, one instance, both auth states, every width — and it took two
+moves to get there.** It began in the header with a copy in `AppNavDrawer`, because below `tablet`
+the authenticated bar was over its width budget (SPEC-211 FR-007). Then it went into the account
+menu, which removed the duplicate and cost it its name: an unlabelled avatar holding an unrelated
+set of options is not where anyone looks for the theme. It is now a named control beside
+Notifications, and the duplicate stays gone. The landing route, which suppresses the app header
 entirely, carries its own copy.
+
+**What paid for the room is the WORDMARK, and the threshold is `desktop`, not `tablet`.** Naming
+three bar controls costs about 210px, and the words that had to yield are the ones nothing else
+depends on — the tab strip is the navigation and the labels are the point. A `tablet:` threshold is
+the trap here, and it ships looking correct: it fixes the phone, and leaves 900–1023 — an ordinary
+laptop, a half-screen window — wrapping `Data Workspace` onto a second line inside a one-line bar.
+Signed out none of this applies: no hamburger, no tab strip, no user zone.
+
+**The cost is stated rather than mitigated, because the mitigation does not exist.** Between 900 and
+1299 a signed-in user sees the app's name NOWHERE on screen: the wordmark is withheld and
+`AppNavDrawer`, which carries it below `tablet`, is mounted only below `tablet`. Two things make
+that the accepted answer rather than a gap to close. `desktop` is a real compiled breakpoint and
+1024 is not — only `tablet`/`desktop` compile, so hitting the measured 1023 edge means an arbitrary
+variant against that convention. And the band where the words would fit but are withheld is
+1024–1299, which is slack rather than breakage. `document.title` carries the name throughout. If a
+third breakpoint is ever compiled for another reason, this is the first thing that should use it.
 
 ## The URL transformer's encoding is position-dependent, and both simple rules are wrong
 

@@ -5,6 +5,7 @@ import type {RunOptions} from 'axe-core';
 import * as axeConfig from '../test/axe';
 import {RULES_JSDOM_CANNOT_DECIDE} from '../test/axe';
 import {readCss} from '../test/cssTokens';
+import {HEADER_CONTROL} from '../components/headerControl';
 
 // WCAG 2.2 SC 2.5.8 asks for a pointer target of at least 24×24 CSS px, or enough space around a
 // smaller one. axe has a rule for it, the suite runs axe, and the rule cannot fire — jsdom has no
@@ -562,6 +563,33 @@ describe('a control sized from the spacing scale reaches the target floor', () =
         primitive
       ).toEqual([]);
     }
+  });
+
+  it('keeps the shared header-bar control clear of the floor', () => {
+    // NAMED, because the sweep above cannot reach it. `HEADER_CONTROL` lives in a `.ts` file and
+    // the glob is `*.tsx`; even in a `.tsx` the scanner reads a tag's own `className`, and this is
+    // a constant. It USED to be swept — `NotificationsBell` carried `h-8 w-8` on the tag until the
+    // three bar controls were given one owner — so this is a detection that would otherwise have
+    // been lost quietly, which is the whole reason it is written down rather than assumed.
+    // The VALUE, imported, not the file's text — it is the string a control actually receives.
+    // EVERY size class, not the first: reading one made the verdict depend on class ORDER, so
+    // `h-8 w-6` passed on the height and never saw the 21px width. This is the same `matchAll`
+    // the sweep above uses, for the same reason.
+    const sizes = [...HEADER_CONTROL.matchAll(SIZE_CLASS)].map(([cls, value]) => ({
+      cls,
+      px: sizeClassPx(value)
+    }));
+
+    // Counted before it is filtered. A rename or a move to a unit this cannot read leaves the
+    // regex matching nothing, and every assertion about an empty list passes — which is exactly
+    // how this kind of guard goes quiet.
+    expect(sizes.length, 'no size class was found in HEADER_CONTROL — the check below sees nothing').toBeGreaterThan(0);
+    expect(sizes.filter((size) => size.px === null || size.px < MIN_TARGET_PX)).toEqual([]);
+
+    // And unconditional. `SIZE_CLASS`'s lookbehind excludes `-` and word characters but NOT
+    // `:`, so `tablet:h-8` matches and would read as a floor that holds at every width — on a
+    // constant whose own sibling already carries a `tablet:` variant.
+    expect(/[\w-]:(?:h|w|size)-/.exec(HEADER_CONTROL), 'a size class here is variant-gated').toBeNull();
   });
 
   it('cannot see a control whose height comes from its text, and does not pretend to', () => {

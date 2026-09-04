@@ -6,7 +6,6 @@ import {authenticated, unauthenticated} from '../test/authFixtures';
 import {Route, Routes} from 'react-router';
 import {RootLayout} from './RootLayout';
 import type {AuthContextValue} from '../features/auth';
-import {useLocation} from 'react-router';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../test/axe';
 
 // ─── from Header.test.tsx ───
@@ -14,11 +13,6 @@ vi.mock('../features/notifications/notifications.service', () => ({
   getNotifications: vi.fn().mockResolvedValue({success: true, data: []}),
   enqueueNotificationAction: vi.fn().mockResolvedValue({success: true, data: undefined})
 }));
-
-/** Renders the router's current path, so a navigation can be asserted as an outcome. */
-function LocationProbe() {
-  return <span data-testid="where">{useLocation().pathname}</span>;
-}
 
 describe('Header', () => {
   /**
@@ -61,6 +55,37 @@ describe('Header', () => {
       expect(screen.getByText('Data Workspace')).toBeInTheDocument();
     });
 
+    // THE WORDS, not the square — and `desktop`, not `tablet`, which is the whole finding.
+    // A `tablet:` threshold fixes the phone and leaves 900–1023 wrapping `Data Workspace` onto
+    // a second line inside a one-line bar, because that band shows the tab strip and the three
+    // control labels at once. Pinned to the exact class for that reason: `hidden` alone would
+    // pass on the threshold that was wrong. Asserted on the class because jsdom has no layout —
+    // it loads no Tailwind, so a wrapped wordmark and a hidden one measure identically here.
+    it('holds the wordmark back to desktop when signed in, and keeps it when signed out', () => {
+      renderHeader(authenticated('alice'));
+      expect(screen.getByText('Data Workspace')).toHaveClass('hidden', 'desktop:inline');
+      expect(screen.getByText('Data Workspace')).not.toHaveClass('tablet:inline');
+
+      cleanup();
+
+      // Signed out there is no hamburger, no tab strip and no user zone, so there is room at
+      // every width — and the landing page's own mark is a separate instance this cannot reach.
+      renderHeader(unauthenticated());
+      expect(screen.getByText('Data Workspace')).not.toHaveClass('hidden');
+    });
+
+    // The name has to be SOMEWHERE below `tablet`, and this is the only place left. Driven to
+    // the open drawer rather than asserted against the closed tree, so it cannot pass on a
+    // drawer that never mounted.
+    it('names the app in the nav drawer, where the bar no longer can', async () => {
+      setWidth(375);
+      const {user} = renderHeader(authenticated('alice'));
+      await user.click(screen.getByRole('button', {name: 'Open navigation'}));
+
+      const drawer = await screen.findByRole('dialog', {name: 'Navigation'});
+      expect(within(drawer).getByText('Data Workspace')).toBeInTheDocument();
+    });
+
     it('opens the nav drawer on mobile when the hamburger is clicked', () => {
       setWidth(500);
       renderHeader(authenticated('alice'));
@@ -83,9 +108,9 @@ describe('Header', () => {
     });
   });
 
-  // ─── the account menu (the consolidated header controls) ───
+  // ─── the account menu (what is left in it, and the kebab that says it is there) ───
   describe('the account menu', () => {
-    const ITEMS = ['Help & guides', 'Give feedback', 'Light', 'Dark', 'System', 'Sign out'];
+    const ITEMS = ['Give feedback', 'Sign out'];
 
     async function openMenu() {
       const {user} = renderHeader(authenticated('alice'));
@@ -95,8 +120,9 @@ describe('Header', () => {
 
     it('carries every option with an icon, and Sign out last', async () => {
       const {menu} = await openMenu();
-      // Both roles in document order: the theme choices are `menuitemradio`, the rest
-      // `menuitem`, and the ORDER is half of what this asserts.
+      // Pinned WHOLE, in document order. Help and the theme moved back onto the bar as named
+      // controls, and this list is what says they left rather than gained a second home:
+      // asserting only that the two survivors are present would pass over either coming back.
       const items = [...menu.querySelectorAll<HTMLElement>('[role^="menuitem"]')];
 
       expect(items.map((i) => i.textContent?.trim())).toEqual(ITEMS);
@@ -106,8 +132,9 @@ describe('Header', () => {
       expect(items.at(-1)).toHaveTextContent('Sign out');
     });
 
-    // The trigger has to name the user itself: the avatar's initials are aria-hidden and the
-    // username text is CSS-hidden below `tablet`, so neither can supply the accessible name.
+    // The trigger has to name the user itself: the avatar's initials are aria-hidden, the kebab
+    // is decorative, and the username text is CSS-hidden below `tablet`, so none of the three
+    // can supply the accessible name.
     it('names the signed-in user on the trigger, and reports its own expanded state', async () => {
       const {user} = renderHeader(authenticated('alice'));
       const trigger = screen.getByRole('button', {name: 'Account: alice'});
@@ -125,25 +152,37 @@ describe('Header', () => {
       expect(trigger).toHaveAttribute('aria-controls', screen.getByRole('menu', {name: 'Account'}).id);
     });
 
-    // The only item whose EFFECT was unasserted: label, icon and position were all pinned, so
-    // pointing `onHelp` at a no-op left a dead item on the primary chrome with a green suite.
-    // Sign out, Give feedback and the theme rows are each driven somewhere; this one was not.
-    it('navigates to Help & guides from the first item', async () => {
-      const {user} = renderWithProviders(
-        <>
-          <Header />
-          <LocationProbe />
-        </>,
-        {auth: authenticated('alice'), route: '/files'}
-      );
-      expect(screen.getByTestId('where')).toHaveTextContent('/files');
+    // WHY THE KEBAB EXISTS, asserted rather than left to the class string. The trigger was an
+    // avatar and a name, which reads as a status badge — nothing on it said there was a menu
+    // behind it. Counted against the AVATAR's own svg (the gradient initials are a span, but a
+    // future avatar image would not be), so this cannot pass on the icon of some other item.
+    it('shows a kebab on the trigger, so the menu is discoverable', () => {
+      renderHeader(authenticated('alice'));
+      const trigger = screen.getByRole('button', {name: 'Account: alice'});
+
+      expect(trigger.querySelectorAll('svg')).toHaveLength(1);
+      // Three dots, which is what makes it a kebab rather than any other glyph.
+      expect(trigger.querySelectorAll('svg circle')).toHaveLength(3);
+    });
+
+    // Help left this menu for the bar, and BOTH halves of that are asserted here. The absence
+    // alone would pass over a release that dropped help entirely; the bar control alone would
+    // pass over one that kept a second copy in the menu. Driven to its effect rather than
+    // queried — a control that renders and does nothing is the dead affordance the unasserted
+    // menu item used to be. (Where the control goes on a route with no panel is
+    // `helpPanel.test.tsx`; every route in this app but `/help` itself has one.)
+    it('leaves help to the bar, and the bar control works', async () => {
+      const {user} = renderHeader(authenticated('alice'));
 
       await user.click(screen.getByRole('button', {name: 'Account: alice'}));
-      await user.click(
-        within(screen.getByRole('menu', {name: 'Account'})).getByRole('menuitem', {name: 'Help & guides'})
-      );
+      expect(
+        within(screen.getByRole('menu', {name: 'Account'})).queryByRole('menuitem', {name: 'Help & guides'})
+      ).not.toBeInTheDocument();
+      await user.keyboard('{Escape}');
 
-      expect(screen.getByTestId('where')).toHaveTextContent('/help');
+      await user.click(screen.getByRole('button', {name: 'Help for this page'}));
+
+      expect(await screen.findByRole('dialog', {name: 'Files'})).toBeInTheDocument();
     });
 
     it('signs out from the last item', async () => {
@@ -153,14 +192,6 @@ describe('Header', () => {
       await user.click(within(screen.getByRole('menu', {name: 'Account'})).getByRole('menuitem', {name: 'Sign out'}));
 
       expect(auth.signOut).toHaveBeenCalledTimes(1);
-    });
-
-    it('reports the current theme as a checked radio, not by colour alone', async () => {
-      const {menu} = await openMenu();
-      const system = within(menu).getByRole('menuitemradio', {name: 'System'});
-
-      expect(system).toHaveAttribute('aria-checked', 'true');
-      expect(within(menu).getByRole('menuitemradio', {name: 'Dark'})).toHaveAttribute('aria-checked', 'false');
     });
 
     it('closes on Escape and returns focus to the trigger', async () => {

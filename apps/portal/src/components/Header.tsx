@@ -1,5 +1,4 @@
 import {useCallback, useId, useState} from 'react';
-import {useNavigate} from 'react-router';
 import {useAuth} from '../features/auth';
 import {FeedbackDialog} from '../features/feedback';
 import {NAV_PATH_FLAGS, useFeatureSet} from '../features/feature-flags';
@@ -24,7 +23,6 @@ import {UserMenu} from './UserMenu';
  */
 export function Header() {
   const {status, user, error, signIn, signOut} = useAuth();
-  const navigate = useNavigate();
   const [navOpen, setNavOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const isMobile = useIsMobile();
@@ -83,7 +81,17 @@ export function Header() {
           </button>
         )}
 
-        <BrandMark />
+        {/* THE WORDS ARE THE FIRST THING TO GO, and they go until `desktop`. Measured in a
+            browser rather than reasoned about: the signed-in control row is 361px against
+            main's 151, and between 900 and 1023 the wordmark wrapped to a second line inside a
+            one-line bar — a `tablet:` threshold fixed the phone and left that band broken,
+            which is the width an ordinary laptop and a half-screen window sit at. The tab
+            strip outranks the words (it is the navigation) and so do the control labels (they
+            are the point of the change), so the words wait for the width that holds all three.
+            The square still identifies the app and the nav drawer names it in full below
+            `tablet`. Signed out there is no hamburger, no tab strip and no user zone, so they
+            stay at every width. */}
+        <BrandMark wordmarkClassName={authed ? 'hidden desktop:inline' : undefined} />
 
         {authed && (
           <div className="hidden h-full tablet:flex">
@@ -93,17 +101,31 @@ export function Header() {
 
         <div className="flex-1" />
 
-        <div className="flex items-center gap-3">
-          {/* SIGNED OUT ONLY, now that the signed-in theme choice lives in the account menu.
-              Not deleted: the header is what a signed-out visitor sees on every route but the
-              landing page, there is no drawer to fall back to when signed out, and the account
-              menu does not exist without an account — so removing this would leave a
-              signed-out visitor no way to change the theme at all. */}
-          {!authed && <ThemeMenu />}
+        {/* Help, notifications and the theme are three NAMED controls in a row, then the
+            account trigger. Each of the three carries a word beside its icon at `tablet` and
+            up; below that the words go and the icons stay, because the bar's fixed-width
+            chrome is most of a 375px phone before any of them is drawn. */}
+        <div className="flex items-center gap-1 tablet:gap-2">
+          {authed && (
+            <>
+              <HelpLink />
+              <NotificationsBell
+                hasUnread={hasUnread}
+                unreadCount={unreadCount}
+              />
+            </>
+          )}
+
+          {/* ONE instance, for both auth states — signed out it is the whole right-hand side
+              beside `Sign in`, signed in it sits next to notifications. The header is what a
+              signed-out visitor sees on every route but the landing page and there is no
+              drawer to fall back to, so a control gated on `authed` would leave them no way to
+              change the theme at all. */}
+          <ThemeMenu />
 
           {status === 'loading' && (
             <span
-              className="text-sm text-text-3"
+              className="ml-2 text-sm text-text-3"
               aria-hidden="true">
               &hellip;
             </span>
@@ -112,34 +134,18 @@ export function Header() {
           {status === 'unauthenticated' && (
             <Button
               variant="primary"
+              className="ml-2"
               onClick={() => void signIn()}>
               Sign in
             </Button>
           )}
 
           {authed && (
-            <>
-              {/* Stays on the bar while its DESTINATION moves into the menu, because the two
-                  are different things: this is per-page help, and a control whose meaning
-                  changes with the route cannot live in a persistent account menu. On a route
-                  with a help section it opens that section's panel; the menu's `Help & guides`
-                  is the /help route, which is what it always was. */}
-              <HelpLink />
-              <NotificationsBell
-                hasUnread={hasUnread}
-                unreadCount={unreadCount}
-              />
-              {/* One trigger in place of five controls (theme, feedback, the username, the
-                  avatar and Sign out). The header was over its width budget on a phone before
-                  this, which is why theme and feedback were mount-gated away below `tablet`
-                  and duplicated into the drawer; every option now exists at every width. */}
-              <UserMenu
-                username={user.username}
-                onHelp={() => void navigate('/help')}
-                onGiveFeedback={() => setFeedbackOpen(true)}
-                onSignOut={() => void signOut()}
-              />
-            </>
+            <UserMenu
+              username={user.username}
+              onGiveFeedback={() => setFeedbackOpen(true)}
+              onSignOut={() => void signOut()}
+            />
           )}
         </div>
       </div>

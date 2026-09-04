@@ -3,6 +3,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {cleanup, screen, within} from '@testing-library/react';
 import {Header} from './Header';
 import {ThemeMenu} from './ThemeMenu';
+import {HEADER_CONTROL_LABEL} from './headerControl';
 import {renderWithProviders} from '../test/renderWithProviders';
 import {authenticated, unauthenticated} from '../test/authFixtures';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../test/axe';
@@ -80,39 +81,59 @@ describe('the theme control', () => {
 });
 
 describe('where the theme control lives', () => {
-  // SIGNED IN it is in the account menu, at every width. That is the point of the menu: the
-  // choice used to be a header button that had to step aside below `tablet` for want of room,
-  // with a second copy in the drawer to compensate.
-  it.each([1400, 375])('is in the account menu when signed in, at %ipx', async (width) => {
+  // ON THE BAR, both auth states, both widths. It spent one release inside the account menu,
+  // which cost it its name: an unlabelled trigger holding an unrelated set of options is not
+  // somewhere a user looks for the theme.
+  it.each([1400, 375])('is a header control when signed in, at %ipx', async (width) => {
     setWidth(width);
     const {user} = renderWithProviders(<Header />, {auth: authenticated('alice'), route: '/files'});
 
-    // Not a bare header button any more, at either width.
-    expect(screen.queryByRole('button', {name: 'Change theme'})).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', {name: 'Account: alice'}));
-    const menu = screen.getByRole('menu', {name: 'Account'});
-    await user.click(within(menu).getByRole('menuitemradio', {name: 'Dark'}));
+    await user.click(screen.getByRole('button', {name: 'Change theme'}));
+    await user.click(screen.getByRole('menuitemradio', {name: 'Dark'}));
 
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
   });
 
-  // SIGNED OUT there is no account menu to hold it and no drawer to fall back to, so the
-  // header keeps its own control — deleting it with the signed-in one would have left a
-  // signed-out visitor no way to change the theme at all, at any width.
-  it.each([1400, 375])('stays a header control when signed out, at %ipx', (width) => {
+  it.each([1400, 375])('is a header control when signed out, at %ipx', (width) => {
     setWidth(width);
     renderWithProviders(<Header />, {auth: unauthenticated(), route: '/files'});
     expect(screen.getByRole('button', {name: 'Change theme'})).toBeInTheDocument();
   });
 
-  // The drawer's copy is gone with the header's width problem. Two controls setting one value
-  // is a state to keep in step for no benefit.
-  it('no longer duplicates the choice into the nav drawer', async () => {
+  // The word, not the icon alone. The three bar controls are queried by `aria-label`
+  // everywhere else in the suite, which cannot tell a labelled control from a bare icon — this
+  // is the one assertion that would redden if the visible text were dropped again.
+  it('shows the word beside each of the three bar controls', () => {
+    renderWithProviders(<Header />, {auth: authenticated('alice'), route: '/files'});
+    const bar = screen.getByRole('banner');
+
+    expect(within(bar).getByRole('button', {name: 'Change theme'})).toHaveTextContent('Theme');
+    expect(within(bar).getByRole('link', {name: 'Notifications, none unread'})).toHaveTextContent('Notifications');
+    expect(within(bar).getByRole('button', {name: 'Help for this page'})).toHaveTextContent('Help');
+  });
+
+  // AND THE WIDTH THEY APPEAR AT, which the assertion above cannot see: jsdom loads no
+  // Tailwind, so `toHaveTextContent` passes over a label hidden at every width. Narrowing this
+  // constant to `hidden` — or pushing it out to `desktop:` as the wordmark had to be — takes
+  // all three words with it and reddens nothing else in the suite. `tablet` is the threshold
+  // the bar was measured at: at 375px the fixed chrome leaves no room for three labels.
+  it('shows those words from tablet up, and drops them below it', () => {
+    expect(HEADER_CONTROL_LABEL).toBe('hidden tablet:inline');
+  });
+
+  // The choice is on the bar at every width, so neither the drawer nor the account menu
+  // carries a second copy. Two controls setting one value is a state to keep in step for no
+  // benefit, and the menu's copy is what this release removed.
+  it('is in neither the nav drawer nor the account menu', async () => {
     setWidth(375);
     const {user} = renderWithProviders(<Header />, {auth: authenticated('alice'), route: '/files'});
-    await user.click(screen.getByRole('button', {name: 'Open navigation'}));
 
+    await user.click(screen.getByRole('button', {name: 'Account: alice'}));
+    const account = await screen.findByRole('menu', {name: 'Account'});
+    expect(within(account).queryByRole('menuitemradio')).not.toBeInTheDocument();
+    await user.keyboard('{Escape}');
+
+    await user.click(screen.getByRole('button', {name: 'Open navigation'}));
     // Wait for the drawer BEFORE asserting the absence inside it. Without this the negative
     // is satisfied by a drawer that never opened, for any unrelated reason.
     const drawer = await screen.findByRole('dialog', {name: 'Navigation'});

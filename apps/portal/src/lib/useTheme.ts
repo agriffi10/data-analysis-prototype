@@ -164,9 +164,9 @@ export function resetThemeForTest(): void {
 /**
  * The three theme choices, in the one order they are ever offered.
  *
- * Beside the store rather than in a component, because two components offer them now — the
- * signed-out header's own control and the account menu — and a constant exported from a
- * component file breaks fast refresh.
+ * Beside the store rather than in a component, because a constant exported from a component
+ * file breaks fast refresh. `ThemeMenu` is the only consumer today; it was two while the
+ * signed-out header and the account menu each had their own control.
  */
 export const THEME_OPTIONS: readonly {value: ThemePreference; label: string}[] = [
   {value: 'light', label: 'Light'},

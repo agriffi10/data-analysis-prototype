@@ -9,6 +9,19 @@ type HelpGuideCardProps = {
   guide: HelpGuide;
   iconName: HelpIconName;
   defaultOpen?: boolean;
+  /**
+   * Hold a CLOSED card's title and subtitle to one line each. For a list of cards in a narrow
+   * column that is itself the thing being scrolled — the contextual panel — where a subtitle
+   * wrapping to three lines makes the list of headings taller than the panel showing them.
+   *
+   * Off by default, and `/help` leaves it off deliberately. What separates the two is what
+   * scrolls: the panel is a fixed-height sheet whose own body scrolls, so a list of headings
+   * taller than the sheet is the reader scrolling past choices to find one. `/help` scrolls
+   * the document, where a wrapped subtitle costs a reader nothing. The two are not narrow and
+   * wide — at 375 their text columns are within a few px of each other — so width is not the
+   * discriminator and a figure quoted here would only invite the wrong conclusion.
+   */
+  clampHeading?: boolean;
 };
 
 /**
@@ -20,15 +33,21 @@ type HelpGuideCardProps = {
  * @example
  * <HelpGuideCard guide={guide} iconName="files" defaultOpen />
  */
-export function HelpGuideCard({guide, iconName, defaultOpen = false}: HelpGuideCardProps) {
+export function HelpGuideCard({guide, iconName, defaultOpen = false, clampHeading = false}: HelpGuideCardProps) {
   const [open, setOpen] = useState(defaultOpen);
   const panelId = useId();
+  const clamped = clampHeading && !open;
   const Icon = helpIcons[iconName];
 
   return (
+    // `shrink-0` is what makes the panel SCROLL instead of squashing its cards. The drawer
+    // body is a scrolling flex column, and a flex item shrinks before its container scrolls —
+    // `overflow-hidden` on this card (needed for the rounded corners over the accordion's
+    // grid transition) drops its automatic minimum size to zero, so it can be crushed to
+    // nothing. Opening a second guide compressed every other card rather than scrolling.
     <div
       className={cx(
-        'overflow-hidden rounded-[10px] border bg-surface',
+        'shrink-0 overflow-hidden rounded-[10px] border bg-surface',
         open ? 'border-accent-border' : 'border-border'
       )}>
       <button
@@ -48,9 +67,13 @@ export function HelpGuideCard({guide, iconName, defaultOpen = false}: HelpGuideC
           )}>
           <Icon className="h-[19px] w-[19px]" />
         </span>
+        {/* One line each while CLOSED, wrapping in full once open. A closed card is a row in
+            a list of choices, and a subtitle that wraps to three lines makes the list of them
+            taller than the panel — the reader is scrolling past headings to find the one they
+            want. Open, the same text is the thing they chose to read, so it is shown whole. */}
         <span className="min-w-0 flex-1">
-          <span className="block text-[15px] font-semibold text-text">{guide.title}</span>
-          <span className="mt-0.5 block text-[13px] text-text-2">{guide.subtitle}</span>
+          <span className={cx('block text-[15px] font-semibold text-text', clamped && 'truncate')}>{guide.title}</span>
+          <span className={cx('mt-0.5 block text-[13px] text-text-2', clamped && 'truncate')}>{guide.subtitle}</span>
         </span>
         <ChevronDownIcon
           className={cx(

@@ -6,6 +6,13 @@ type BrandMarkProps = {
   size?: 'sm' | 'md';
   /** Render the "Data Workspace" text next to the square; default true. */
   showWordmark?: boolean;
+  /**
+   * Extends the wordmark's own classes — `hidden tablet:inline` to drop the words on a narrow
+   * bar and keep the square. Separate from `showWordmark` because the two answer different
+   * questions: that one is whether this mark has words at all, this one is whether there is
+   * room for them right now.
+   */
+  wordmarkClassName?: string;
   className?: string;
 };
 
@@ -16,7 +23,7 @@ type BrandMarkProps = {
  * @example
  * <BrandMark size="sm" showWordmark={false} />
  */
-export function BrandMark({size = 'md', showWordmark = true, className}: BrandMarkProps) {
+export function BrandMark({size = 'md', showWordmark = true, wordmarkClassName, className}: BrandMarkProps) {
   const square = size === 'sm' ? 'h-6 w-6' : 'h-8 w-8';
   const icon = size === 'sm' ? 'h-3.5 w-3.5' : 'h-4 w-4';
   const wordmark = size === 'sm' ? 'text-base' : 'text-md';
@@ -26,7 +33,9 @@ export function BrandMark({size = 'md', showWordmark = true, className}: BrandMa
       <div className={cx('flex shrink-0 items-center justify-center rounded-md bg-accent', square)}>
         <DatabaseIcon className={cx(icon, 'text-white')} />
       </div>
-      {showWordmark && <span className={cx(wordmark, 'font-semibold text-text')}>Data Workspace</span>}
+      {showWordmark && (
+        <span className={cx(wordmark, 'font-semibold text-text', wordmarkClassName)}>Data Workspace</span>
+      )}
     </div>
   );
 }

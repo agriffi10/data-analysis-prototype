@@ -74,6 +74,65 @@ describe('HelpGuideCard', () => {
       expect(screen.getByRole('button', {name: /Upload files/})).toHaveAttribute('aria-expanded', 'true');
     });
 
+    // ── the panel stays readable with several cards open (a UX report) ──
+
+    // THE SQUISH. The drawer body is a scrolling flex column, and a flex item shrinks before
+    // its container scrolls — this card's own `overflow-hidden` (which the rounded corners
+    // over the accordion's grid transition need) drops its automatic minimum size to zero, so
+    // it could be crushed to nothing. Opening a second guide compressed every card above it
+    // instead of scrolling the panel.
+    //
+    // Asserted on the CLASS because jsdom has no layout: every rect here is 0×0, so a
+    // measured height cannot tell a squashed card from a whole one. `docs/testing/e2e.md`
+    // owns the browser check.
+    it('does not shrink when its container runs out of room', () => {
+      const {container} = render(
+        <HelpGuideCard
+          guide={guide}
+          iconName="files"
+        />
+      );
+      expect(container.firstElementChild).toHaveClass('shrink-0');
+    });
+
+    // OFF by default, which is the half that says the clamp belongs to the panel. `/help`
+    // renders the same card and must keep wrapping: that page scrolls the document, and its
+    // text column is NARROWER than the panel's, so an ellipsis would cut more there and buy
+    // nothing. Without this, moving the clamp into the card unconditionally stays green.
+    it('does not clamp its heading unless asked', () => {
+      render(
+        <HelpGuideCard
+          guide={guide}
+          iconName="files"
+        />
+      );
+      expect(screen.getByText('Upload files')).not.toHaveClass('truncate');
+      expect(screen.getByText('Add files from your computer.')).not.toHaveClass('truncate');
+    });
+
+    it('holds its title to one line while closed, and shows it whole once open', () => {
+      render(
+        <HelpGuideCard
+          guide={guide}
+          iconName="files"
+          clampHeading
+        />
+      );
+      const header = screen.getByRole('button', {name: /Upload files/});
+      // Both lines of the header, not the title alone: the subtitles are the sentences long
+      // enough to wrap, so truncating only the bold line leaves the list as tall as it was.
+      const title = screen.getByText('Upload files');
+      const subtitle = screen.getByText('Add files from your computer.');
+
+      expect(title).toHaveClass('truncate');
+      expect(subtitle).toHaveClass('truncate');
+
+      fireEvent.click(header);
+
+      expect(title).not.toHaveClass('truncate');
+      expect(subtitle).not.toHaveClass('truncate');
+    });
+
     it('renders no callout when the guide has none', async () => {
       render(
         <HelpGuideCard
