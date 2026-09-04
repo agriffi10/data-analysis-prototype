@@ -26,6 +26,7 @@ import {
   resetViewport,
   runScriptSingle,
   runScriptTabs,
+  salesTable,
   savedFile,
   savedListing,
   seedSingle,
@@ -622,10 +623,46 @@ describe('QueryWorkspace', () => {
       const {user} = renderWorkspace();
       await openTableMenu(user, 'sales_2026');
       await user.click(await screen.findByRole('menuitem', {name: 'View source files'}));
-      expect(screen.getByLabelText('probe-location')).toHaveTextContent('/files?prefix=alice%2Fsales%2F');
+      // `space` is part of the assertion: without it the browser resolves the personal
+      // space, which is right here only by accident and wrong for every shared table.
+      expect(screen.getByLabelText('probe-location')).toHaveTextContent(
+        '/files?space=personal&prefix=alice%2Fsales%2F'
+      );
 
       await openTableMenu(user, 'foreign');
       expect(await screen.findByRole('menuitem', {name: 'View source files'})).toBeDisabled();
+    });
+
+    // The two halves of the guard are separately deletable, so each gets a fixture that
+    // only IT refuses. `foreign` above is in the right bucket under someone else's prefix;
+    // `stray` is under the right prefix in a bucket that is not this space's — reachable
+    // because a user can write CREATE EXTERNAL TABLE ... LOCATION pointing anywhere.
+    it('refuses a table whose LOCATION is in another bucket, even under the right prefix', async () => {
+      const {user} = renderWorkspace();
+      await openTableMenu(user, 'stray');
+      expect(await screen.findByRole('menuitem', {name: 'View source files'})).toBeDisabled();
+    });
+
+    // The item this feedback was raised about: it was dead for every shared-space table,
+    // because the old rule asked whether the key started with the signed-in USERNAME.
+    it('View source files works for a shared-space table, and carries its space', async () => {
+      mockReadCache.mockResolvedValue(
+        ok({version: 1, connections: [{name: 'teamspace', role: 'member', status: 'active'}]})
+      );
+      vi.mocked(listTables).mockImplementation(async (database: string) =>
+        database === 'teamspace'
+          ? ok([{name: 'team_sales', location: 's3://shared-bucket/teamspace/sales/', columns: []}])
+          : ok([salesTable])
+      );
+      const {user} = renderWorkspace();
+
+      await user.click(await screen.findByRole('button', {name: /teamspace/}));
+      await openTableMenu(user, 'team_sales');
+      await user.click(await screen.findByRole('menuitem', {name: 'View source files'}));
+
+      expect(screen.getByLabelText('probe-location')).toHaveTextContent(
+        '/files?space=teamspace&prefix=teamspace%2Fsales%2F'
+      );
     });
 
     it('View data opens a "{table}" tab and auto-runs a fully-qualified unbounded SELECT * (no LIMIT) [SPEC-105]', async () => {
@@ -943,13 +980,13 @@ describe('QueryWorkspace', () => {
 
       const dialog = refreshDialog();
       expect(within(dialog).getByText('alice.sales_2026')).toBeInTheDocument();
-      expect(within(dialog).getByText('s3://b/alice/sales/')).toBeInTheDocument();
+      expect(within(dialog).getByText('s3://user-bucket/alice/sales/')).toBeInTheDocument();
 
       await user.click(within(dialog).getByRole('button', {name: 'Refresh table'}));
 
       // The space is derived from the table's own location (FR-004).
       expect(mockEnqueueRefresh).toHaveBeenCalledWith({
-        space: {kind: 'personal', bucket: 'b', prefix: 'alice/sales/', database: 'alice'},
+        space: {kind: 'personal', bucket: 'user-bucket', prefix: 'alice/sales/', database: 'alice'},
         tableName: 'sales_2026'
       });
       expect(await screen.findByText(/Refreshing “alice\.sales_2026”/)).toBeInTheDocument();

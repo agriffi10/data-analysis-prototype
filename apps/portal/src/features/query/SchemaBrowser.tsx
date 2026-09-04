@@ -22,8 +22,14 @@ export type TableActions = {
   /** Base tables only — views can't be shared, so their menu omits the item. */
   onShareTable: (database: string, table: GlueTableSummary) => void;
   onDropTable: (database: string, table: GlueTableSummary) => void;
-  /** True when the table's S3 location is within the user's own space; View source files is disabled otherwise. */
-  canViewSourceFiles: (table: GlueTableSummary) => boolean;
+  /**
+   * True when the table's LOCATION sits inside the space being browsed — its own bucket AND
+   * its own prefix. False for a view, which has no location, and for a table pointed at
+   * somewhere else; View source files is disabled in both cases. Takes the database because
+   * the space is the NODE's, not the signed-in user's: keying it to the username is what made
+   * this dead for every shared space.
+   */
+  canViewSourceFiles: (database: string, table: GlueTableSummary) => boolean;
 };
 
 // A provisioning/failed/leaving shared connection is shown but not expandable

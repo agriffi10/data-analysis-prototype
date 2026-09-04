@@ -90,7 +90,7 @@ function TableRow({
                 key: 'view-source',
                 label: 'View source files',
                 onSelect: () => actions.onViewSourceFiles(database, table),
-                disabled: !actions.canViewSourceFiles(table)
+                disabled: !actions.canViewSourceFiles(database, table)
               },
               {
                 key: 'view-ddl',

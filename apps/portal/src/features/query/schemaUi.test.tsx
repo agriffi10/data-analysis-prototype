@@ -137,7 +137,7 @@ describe('DatabaseNode', () => {
 
     it('offers view-aware actions for a view row and invokes them with (database, table)', async () => {
       const onViewDdl = vi.fn();
-      const actions = makeActions({canViewSourceFiles: (t) => t.tableType !== 'VIRTUAL_VIEW', onViewDdl});
+      const actions = makeActions({canViewSourceFiles: (_db, t) => t.tableType !== 'VIRTUAL_VIEW', onViewDdl});
       const {user} = renderNode({actions});
       await user.click(await screen.findByRole('button', {name: 'Options for revenue_view'}));
       const menu = screen.getByRole('menu');

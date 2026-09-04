@@ -2,6 +2,7 @@ import {useEffect, useMemo, useRef} from 'react';
 import {useNavigate} from 'react-router';
 import {getTableDdl} from '../catalog/athena.service';
 import {parseS3Url} from '../../lib/s3Url';
+import {spaceBuckets} from '../../lib/userSpace';
 import {toUserText} from '../../lib/errorMessages';
 import {splitSqlStatements} from './query.sql';
 import {SchemaTree, type TableActions} from './SchemaBrowser';
@@ -57,22 +58,47 @@ export function useTableActions({
 }: Params): TableActions {
   const navigate = useNavigate();
 
-  // Derive the in-space S3 key (folder) backing a table from its Glue LOCATION;
-  // null when missing or outside the user's own prefix.
-  const tablePrefix = (table: GlueTableSummary): string | null => {
+  // The space a database belongs to, or null when it is not one this user can reach.
+  // `connections` is already this hook's input and carries both halves the deep link needs:
+  // the id `?space=` takes ('personal' for the personal space, the space name for a shared
+  // one) and the kind that says which bucket the space lives in.
+  const spaceFor = (database: string): {id: string; bucket: string} | null => {
+    const connection = connections.find((c) => c.database === database);
+    if (!connection) return null;
+    const buckets = spaceBuckets();
+    const bucket = connection.kind === 'personal' ? buckets.user : buckets.shared;
+    return bucket ? {id: connection.id, bucket} : null;
+  };
+
+  // The in-space S3 key (folder) backing a table, or null when it has no LOCATION — a view
+  // — or that LOCATION is not inside the space being browsed.
+  //
+  // This used to require the key to start with the USERNAME, which is why the action was
+  // dead for every shared-space table: their data sits under the space's own name in a
+  // different bucket. The rule is now the browsed database rather than the signed-in user,
+  // which is the same test for the personal space and a working one for a shared space.
+  //
+  // BOTH halves are checked and neither implies the other. A user can write
+  // CREATE EXTERNAL TABLE ... LOCATION pointing at any bucket, so a link built from the
+  // prefix alone would open THIS space's bucket at a path that is not the table's data.
+  const tablePrefix = (database: string, table: GlueTableSummary): string | null => {
     const parsed = parseS3Url(table.location);
-    if (!parsed) return null;
+    const space = spaceFor(database);
+    if (!parsed || !space) return null;
     const key = parsed.key.endsWith('/') ? parsed.key : `${parsed.key}/`;
-    return username && key.startsWith(`${username}/`) ? key : null;
+    return parsed.bucket === space.bucket && key.startsWith(`${database}/`) ? key : null;
   };
 
   const actions: TableActions = {
-    canViewSourceFiles: (table: GlueTableSummary) => tablePrefix(table) !== null,
-    // Deep-link the file browser to the table's data folder (location-based; no db).
-    onViewSourceFiles: (_database: string, table: GlueTableSummary) => {
-      const key = tablePrefix(table);
-      if (!key) return;
-      navigate(`/files?prefix=${encodeURIComponent(key)}`);
+    canViewSourceFiles: (database: string, table: GlueTableSummary) => tablePrefix(database, table) !== null,
+    // Deep-link the file browser to the table's data folder. `space` is REQUIRED, not
+    // decoration: an absent one resolves to the personal space, so a shared table's link
+    // would open the user's own bucket at the shared prefix.
+    onViewSourceFiles: (database: string, table: GlueTableSummary) => {
+      const key = tablePrefix(database, table);
+      const space = spaceFor(database);
+      if (!key || !space) return;
+      navigate(`/files?space=${encodeURIComponent(space.id)}&prefix=${encodeURIComponent(key)}`);
     },
     // Hand the table to the Data Explorer. `space` and `db` are BOTH the
     // node's own database, which is exact rather than convenient — a shared space's database
@@ -153,7 +179,7 @@ export function useTableActions({
   });
   const railActions = useMemo<TableActions>(
     () => ({
-      canViewSourceFiles: (table) => actionsRef.current.canViewSourceFiles(table),
+      canViewSourceFiles: (database, table) => actionsRef.current.canViewSourceFiles(database, table),
       onViewSourceFiles: (database, table) => actionsRef.current.onViewSourceFiles(database, table),
       onViewDdl: (database, table) => actionsRef.current.onViewDdl(database, table),
       onViewData: (database, table) => actionsRef.current.onViewData(database, table),
