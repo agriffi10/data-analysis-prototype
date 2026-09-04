@@ -14,10 +14,12 @@ type HelpGuideCardProps = {
    * column that is itself the thing being scrolled — the contextual panel — where a subtitle
    * wrapping to three lines makes the list of headings taller than the panel showing them.
    *
-   * Off by default, and `/help` leaves it off deliberately: that page scrolls the whole
-   * document, so a wrapped subtitle costs nothing there and clipping one would lose text a
-   * reader can otherwise have for free. The panel's own column is ~290px and the page's is
-   * ~215px at 375, so the page is where an ellipsis would cut MOST.
+   * Off by default, and `/help` leaves it off deliberately. What separates the two is what
+   * scrolls: the panel is a fixed-height sheet whose own body scrolls, so a list of headings
+   * taller than the sheet is the reader scrolling past choices to find one. `/help` scrolls
+   * the document, where a wrapped subtitle costs a reader nothing. The two are not narrow and
+   * wide — at 375 their text columns are within a few px of each other — so width is not the
+   * discriminator and a figure quoted here would only invite the wrong conclusion.
    */
   clampHeading?: boolean;
 };

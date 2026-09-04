@@ -233,8 +233,9 @@ export function AppNavDrawer({open, onClose, id, contextualRail, isPathEnabled, 
           </nav>
 
           {/* The theme choice used to be duplicated here, because the header dropped its
-              control below `tablet` for want of width. The account menu carries it now at
-              every width, so a second copy would be two controls setting one value. */}
+              control below `tablet` for want of width. The bar carries it at every width now
+              — icon-only below `tablet`, where its label goes but the control does not — so a
+              second copy would be two controls setting one value. */}
 
           {actions && <div className="flex flex-col gap-0.5 border-t border-border p-3">{actions}</div>}
 

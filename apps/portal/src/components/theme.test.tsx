@@ -3,6 +3,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {cleanup, screen, within} from '@testing-library/react';
 import {Header} from './Header';
 import {ThemeMenu} from './ThemeMenu';
+import {HEADER_CONTROL_LABEL} from './headerControl';
 import {renderWithProviders} from '../test/renderWithProviders';
 import {authenticated, unauthenticated} from '../test/authFixtures';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../test/axe';
@@ -109,6 +110,15 @@ describe('where the theme control lives', () => {
     expect(within(bar).getByRole('button', {name: 'Change theme'})).toHaveTextContent('Theme');
     expect(within(bar).getByRole('link', {name: 'Notifications, none unread'})).toHaveTextContent('Notifications');
     expect(within(bar).getByRole('button', {name: 'Help for this page'})).toHaveTextContent('Help');
+  });
+
+  // AND THE WIDTH THEY APPEAR AT, which the assertion above cannot see: jsdom loads no
+  // Tailwind, so `toHaveTextContent` passes over a label hidden at every width. Narrowing this
+  // constant to `hidden` — or pushing it out to `desktop:` as the wordmark had to be — takes
+  // all three words with it and reddens nothing else in the suite. `tablet` is the threshold
+  // the bar was measured at: at 375px the fixed chrome leaves no room for three labels.
+  it('shows those words from tablet up, and drops them below it', () => {
+    expect(HEADER_CONTROL_LABEL).toBe('hidden tablet:inline');
   });
 
   // The choice is on the bar at every width, so neither the drawer nor the account menu

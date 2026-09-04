@@ -108,7 +108,7 @@ describe('Header', () => {
     });
   });
 
-  // ─── the account menu (the consolidated header controls) ───
+  // ─── the account menu (what is left in it, and the kebab that says it is there) ───
   describe('the account menu', () => {
     const ITEMS = ['Give feedback', 'Sign out'];
 

@@ -593,8 +593,16 @@ three bar controls costs about 210px, and the words that had to yield are the on
 depends on — the tab strip is the navigation and the labels are the point. A `tablet:` threshold is
 the trap here, and it ships looking correct: it fixes the phone, and leaves 900–1023 — an ordinary
 laptop, a half-screen window — wrapping `Data Workspace` onto a second line inside a one-line bar.
-Below `tablet` the drawer's header carries the name instead, so it is never absent from the screen.
 Signed out none of this applies: no hamburger, no tab strip, no user zone.
+
+**The cost is stated rather than mitigated, because the mitigation does not exist.** Between 900 and
+1299 a signed-in user sees the app's name NOWHERE on screen: the wordmark is withheld and
+`AppNavDrawer`, which carries it below `tablet`, is mounted only below `tablet`. Two things make
+that the accepted answer rather than a gap to close. `desktop` is a real compiled breakpoint and
+1024 is not — only `tablet`/`desktop` compile, so hitting the measured 1023 edge means an arbitrary
+variant against that convention. And the band where the words would fit but are withheld is
+1024–1299, which is slack rather than breakage. `document.title` carries the name throughout. If a
+third breakpoint is ever compiled for another reason, this is the first thing that should use it.
 
 ## The URL transformer's encoding is position-dependent, and both simple rules are wrong
 
