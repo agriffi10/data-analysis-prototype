@@ -5,7 +5,7 @@ import {DatabaseRowIcon} from '../../components/icons';
 import {RefreshIconButton} from '../../components/RefreshIconButton';
 import {useSchema, invalidateSchema} from '../catalog/useSchema';
 import {TableActionsMenu} from './TableActionsMenu';
-import {partitionSchema} from './schema.partition';
+import {partitionSchema} from '../catalog/schema.partition';
 import type {GlueTableSummary} from '../catalog/catalog.types';
 import type {Connection} from '../connections/connection.types';
 import type {TableActions} from './SchemaBrowser';

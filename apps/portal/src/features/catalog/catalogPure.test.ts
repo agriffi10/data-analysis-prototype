@@ -3,6 +3,8 @@ import {act, renderHook} from '@testing-library/react';
 import {normalizeColumnType} from './catalog.format';
 import {DEFAULT_COLUMN_WIDTH, MIN_COLUMN_WIDTH} from './catalog.constants';
 import {useColumnWidths} from './useColumnWidths';
+import {partitionSchema} from './schema.partition';
+import type {GlueTableSummary} from './catalog.types';
 
 // ─── from catalog.format.test.ts ───
 describe('catalog.format', () => {
@@ -112,6 +114,28 @@ describe('useColumnWidths', () => {
       act(() => result.current.setWidth(5, 300));
       act(() => result.current.resetColumn(-1));
       expect(result.current.widths).toEqual([DEFAULT_COLUMN_WIDTH, DEFAULT_COLUMN_WIDTH]);
+    });
+  });
+});
+
+// ─── from schema.partition.test.ts ───
+describe('schema.partition', () => {
+  const table = (name: string, tableType?: string): GlueTableSummary => ({
+    name,
+    columns: [],
+    tableType
+  });
+
+  describe('partitionSchema', () => {
+    it('splits VIRTUAL_VIEW into views and everything else into tables', () => {
+      const {tables, views} = partitionSchema([
+        table('sales', 'EXTERNAL_TABLE'),
+        table('revenue', 'VIRTUAL_VIEW'),
+        table('orders'), // no tableType → table
+        table('summary', 'VIRTUAL_VIEW')
+      ]);
+      expect(tables.map((t) => t.name)).toEqual(['sales', 'orders']);
+      expect(views.map((t) => t.name)).toEqual(['revenue', 'summary']);
     });
   });
 });
