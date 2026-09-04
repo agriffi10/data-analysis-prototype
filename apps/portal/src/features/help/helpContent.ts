@@ -472,8 +472,8 @@ export const HELP_SECTIONS: HelpSection[] = [
           'This is what the Explorer is for. Everything here is a click, and each one rewrites the query underneath and runs it again — so the rows you end up with are the real answer over the whole table, not just over what was on screen.',
         steps: [
           'Click the <b>⌄</b> on a column header to sort it, or to filter it with <b>is</b>, <b>is not</b>, <b>greater than</b>, <b>is empty</b> and the rest.',
-          'Click a cell and use <b>Filter by this value</b> to filter on what is in it — the quickest way in.',
-          'Use <b>Order and filter</b> for everything at once: several sorts in priority order, several filters, and which columns are hidden or pinned. It applies as one change.',
+          'Click a cell, then open <b>Options</b> and choose <b>Filter by this value</b> to filter on what is in it — the quickest way in.',
+          'Open <b>Options</b> and choose <b>Order and filter</b> for everything at once: several sorts in priority order, several filters, and which columns are hidden or pinned. It applies as one change.',
           'Type your own condition in the <b>Filter expression</b> box and click <b>Apply expression</b> when the menus can’t say it.',
           'Use the <b>back</b> and <b>forward</b> arrows to step through the filters you have already tried, and <b>Clear all</b> to start over.'
         ],

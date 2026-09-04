@@ -2,6 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
+import {chooseExplorationOption, explorationOption} from './explorationOptions.testkit';
 import {authenticated} from '../../test/authFixtures';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import {DataExplorerWorkspace} from './DataExplorerWorkspace';
@@ -240,7 +241,7 @@ describe('filter by this cell’s value', () => {
     const cells = await screen.findAllByRole('gridcell');
     await user.click(cells[1]); // row 1, `note` — O'Brien
 
-    await user.click(screen.getByRole('button', {name: 'Filter by this value'}));
+    await chooseExplorationOption(user, 'Filter by this value');
 
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
     expect(lastSql()).toContain(`WHERE "note" = 'O''Brien'`);
@@ -251,7 +252,7 @@ describe('filter by this cell’s value', () => {
     const cells = await screen.findAllByRole('gridcell');
     await user.click(cells[4]); // row 2, `note` — SQL NULL, drawn as the word NULL
 
-    await user.click(screen.getByRole('button', {name: 'Filter by this value'}));
+    await chooseExplorationOption(user, 'Filter by this value');
 
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
     // The cell READS "NULL"; filtering on what it reads would be `= 'NULL'`, which is a
@@ -272,7 +273,7 @@ describe('filter by this cell’s value', () => {
     // new apply leaves the grid empty for a poll. Waiting on the `runQuery` count alone
     // lands in that window.
     await user.click((await screen.findAllByRole('gridcell'))[1]);
-    await user.click(screen.getByRole('button', {name: 'Filter by this value'}));
+    await chooseExplorationOption(user, 'Filter by this value');
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(3));
 
     const sql = lastSql();
@@ -291,7 +292,7 @@ describe('filter by this cell’s value', () => {
     const cells = await screen.findAllByRole('gridcell');
     await user.click(cells[2]); // row 1, `total amount`
 
-    const control = screen.getByRole('button', {name: 'Filter by this value'});
+    const control = await explorationOption(user, 'Filter by this value');
     await waitFor(() => expect(control).toHaveAttribute('title', UNFILTERABLE_VALUE));
     await user.click(control);
     expect(runQuery).toHaveBeenCalledTimes(1);

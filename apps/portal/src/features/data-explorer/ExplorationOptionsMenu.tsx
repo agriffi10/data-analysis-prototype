@@ -1,6 +1,15 @@
 import {Menu, type MenuItem} from '../../components/Menu';
 
 export type ExplorationOptionsMenuProps = {
+  /** Open the Order-and-filter settings dialog. */
+  onOrderAndFilter: () => void;
+  /** Clear the whole query. Its label reports what there is to clear. */
+  clearAllLabel: string;
+  onClearAll: () => void;
+  clearAllRefusal?: string;
+  /** Filter to the selected cell's value. */
+  onFilterByCell: () => void;
+  filterByCellRefusal?: string;
   /** Panels and dialogs the menu opens, each already knowing its own open state. */
   onColumns: () => void;
   onColours: () => void;
@@ -38,17 +47,24 @@ export type ExplorationOptionsMenuProps = {
 };
 
 /**
- * The Data Explorer's overflow menu: everything the toolbar used to spell out that does not
- * change **which rows** are on screen.
+ * The Data Explorer's overflow menu: every action the toolbar used to spell out.
  *
- * **THE SPLIT IS "DOES THIS CHANGE THE ROWS", NOT "IS THIS IMPORTANT".** What stays on the bar
- * is the query itself — undo/redo, Order and filter, Clear, Filter by this value — plus the
- * view switch, because that is the one control whose current setting has to be readable
- * without opening anything. What moves in either changes how the rows LOOK (Columns, Colours,
- * Transformers), inspects what is already there without issuing anything (Value, Calc), or
- * leaves the page with it (Copy…, Export, Save as query). Grouping is the awkward one: opening
- * it is free but what it applies is a `GROUP BY`, and it sits here because a user reaches for
- * it far less often than for a filter.
+ * **THE SPLIT IS NOW "IS IT A DESTINATION OR A GESTURE", NOT "DOES IT CHANGE THE ROWS".**
+ * What stays on the bar is undo/redo and the view switch — the two things whose current
+ * state has to be readable, and usable repeatedly, without opening anything. Everything
+ * that opens a dialog, applies a change and is done goes in here.
+ *
+ * This REVERSES the earlier rule, deliberately and on user feedback rather than on a fresh
+ * opinion. The old split kept the query-changing controls — Order and filter, Clear, Filter
+ * by this value — on the bar on the grounds that they are what the screen is for. The
+ * complaint was that the bar still reads as a row of buttons; the measurement behind the
+ * original trim (thirteen controls wrapping onto three lines at laptop width) argued for a
+ * shorter bar, and this shortens it further rather than working against it. The cost is one
+ * extra click on three actions that change the rows, which is the thing to weigh if this is
+ * ever revisited.
+ *
+ * Grouping keeps its place here for its original reason: opening it is free, what it applies
+ * is a `GROUP BY`, and a user reaches for it far less often than for a filter.
  *
  * **A REFUSAL SURVIVES THE MOVE.** Copy, Export and Save as query were `aria-disabled` with a
  * reason on the toolbar, and an item that merely greyed out inside a menu would be strictly
@@ -64,6 +80,12 @@ export type ExplorationOptionsMenuProps = {
  * <ExplorationOptionsMenu onColumns={openColumns} calcOpen={calcOpen} … />
  */
 export function ExplorationOptionsMenu({
+  onOrderAndFilter,
+  clearAllLabel,
+  onClearAll,
+  clearAllRefusal,
+  onFilterByCell,
+  filterByCellRefusal,
   onColumns,
   onColours,
   onTransformers,
@@ -85,6 +107,12 @@ export function ExplorationOptionsMenu({
   createViewRefusal
 }: ExplorationOptionsMenuProps) {
   const items: MenuItem[] = [
+    // The query-changing group, first: these are what the screen is for, so they sit above
+    // the presentation and export groups rather than being appended to them.
+    {kind: 'action', label: 'Order and filter', onSelect: onOrderAndFilter},
+    {kind: 'action', label: clearAllLabel, onSelect: onClearAll, disabledReason: clearAllRefusal},
+    {kind: 'action', label: 'Filter by this value', onSelect: onFilterByCell, disabledReason: filterByCellRefusal},
+    {kind: 'separator'},
     {kind: 'action', label: 'Columns', onSelect: onColumns},
     {kind: 'action', label: 'Colours', onSelect: onColours},
     {kind: 'action', label: 'Transformers', onSelect: onTransformers},

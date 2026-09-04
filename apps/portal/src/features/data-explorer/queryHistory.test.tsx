@@ -2,6 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {screen, waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
+import {chooseExplorationOption, explorationOption} from './explorationOptions.testkit';
 import {authenticated} from '../../test/authFixtures';
 import {DataExplorerWorkspace} from './DataExplorerWorkspace';
 import {EXPLORATION_TABS_STORAGE_PREFIX, EXPLORER_FILTER_HISTORY_MAX} from './dataExplorer.constants';
@@ -194,7 +195,7 @@ describe('remove all', () => {
     await user.type(screen.getByLabelText('Filter expression'), "id = '1'{Enter}");
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(4));
 
-    await user.click(screen.getByRole('button', {name: 'Remove all filters'}));
+    await chooseExplorationOption(user, 'Remove all filters');
 
     await waitFor(() => expect(screen.getByLabelText('Filter expression')).toHaveValue(''));
     expect(screen.getByRole('button', {name: 'Column options: status'})).toBeInTheDocument();
@@ -204,11 +205,11 @@ describe('remove all', () => {
   });
 
   it('says why it is unavailable when there is nothing to clear', async () => {
-    render();
+    const {user} = render();
     await screen.findAllByRole('gridcell');
 
     // The grouping is named too, from SPEC-182: it is one of the things this clears.
-    expect(screen.getByRole('button', {name: 'Remove all filters'})).toHaveAttribute(
+    expect(await explorationOption(user, 'Remove all filters')).toHaveAttribute(
       'title',
       'There are no filters, expressions, sorts or grouping to clear.'
     );

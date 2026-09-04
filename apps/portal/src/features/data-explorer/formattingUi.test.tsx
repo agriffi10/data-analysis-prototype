@@ -299,7 +299,7 @@ describe('transformers (FR-005, FR-006)', () => {
     // The filter has to carry the RAW `10`. `"qty" = 10.00` is a different predicate, and
     // against a bigint column Athena would reject it outright.
     await user.click(cell(0, 'qty'));
-    await user.click(screen.getByRole('button', {name: 'Filter by this value'}));
+    await chooseExplorationOption(user, 'Filter by this value');
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
     expect(vi.mocked(runQuery).mock.calls[1][0].sql).toContain('"qty" = 10');
     expect(vi.mocked(runQuery).mock.calls[1][0].sql).not.toContain('10.00');
