@@ -133,7 +133,15 @@ jobs:
           # --no-renames because `--name-only` reports only a rename's DESTINATION. Moving a
           # file out of apps/portal would otherwise show up as the destination alone, answer
           # `app=false`, and break `tsc -b` on main with a green PR.
-          CHANGED=$(git diff --name-only --no-renames "$BASE" HEAD)
+          #
+          # `-z` because `--name-only` C-QUOTES a path that is not plain ASCII — wrapping it in
+          # double quotes and escaping the bytes, so `"apps/portal/src/caf\303\251.tsx"` matches
+          # no anchored pattern and a pull request that genuinely changes the app answers
+          # `app=false`. `core.quotePath=false` fixes that for high bytes ALONE and leaves `"`,
+          # `\` and control characters still quoted; `-z` emits every path raw, which closes the
+          # class rather than one member of it. A newline inside a filename then splits one path
+          # into two, and both halves are tested — which over-selects, in the expensive direction.
+          CHANGED=$(git diff -z --name-only --no-renames "$BASE" HEAD | tr '\0' '\n')
 
           # A here-string, NOT `printf ... | grep -q`. Under `pipefail` grep exits at the
           # first match, printf takes SIGPIPE, and the pipeline reports 141 — so the `if`

@@ -396,6 +396,173 @@ def test_no_scope_pattern_matches_every_path():
     _assert_pattern_list_is_sane(_scope_patterns(), "SCOPE_PATTERNS")
 
 
+def _ci_scope_step() -> dict:
+    """Return the ``ci`` job's scope step, by id rather than by position.
+
+    Args:
+        None.
+
+    Returns:
+        dict: The step mapping, including its ``run`` script and its ``env`` block.
+
+    Raises:
+        AssertionError: If no step carries the id, which means the tests below are asserting
+            about a step that no longer exists.
+    """
+    document = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    steps = [
+        step for step in document["jobs"]["ci"]["steps"] if step.get("id") == "scope"
+    ]
+    assert steps, (
+        "ci.yml no longer has a step with `id: scope` — the execution guards read that step"
+    )
+    return steps[0]
+
+
+def _run_ci_scope(changed: tuple[str, ...]) -> dict[str, str]:
+    """Run the pull-request scope step's real script over a throwaway repository.
+
+    The static tests above ask what the pattern list means; this asks what the STEP answers,
+    which is a different question. Everything between the two — how ``git diff`` spells a path,
+    how the here-string reaches ``grep`` — lives only in the shell body, and the failures it
+    hides are silent: a green ``ci`` check that installed nothing, built nothing and ran no
+    suite looks exactly like one that did.
+
+    The script is taken from the workflow rather than restated, so a fix reverted in ``ci.yml``
+    reddens here instead of leaving a test that passes against a copy of itself.
+
+    Args:
+        changed: Repository-relative paths the pull request's head commit touches, written and
+            committed on top of a seed commit that stands in for the base.
+
+    Returns:
+        dict[str, str]: The step's ``$GITHUB_OUTPUT`` — ``app`` — plus its ``stdout``, which
+            carries the annotations that say WHY it answered as it did.
+
+    Raises:
+        AssertionError: If the step exits non-zero, with its output attached.
+    """
+    step = _ci_scope_step()
+    with tempfile.TemporaryDirectory() as work:
+        root = pathlib.Path(work)
+        repo = root / "repo"
+        repo.mkdir()
+
+        git = ["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t"]
+        subprocess.run([*git, "init", "-q", "-b", "main"], check=True)  # noqa: S603
+        (repo / "seed.txt").write_text("seed\n", encoding="utf-8")
+        subprocess.run([*git, "add", "-A"], check=True)  # noqa: S603
+        subprocess.run([*git, "commit", "-qm", "base"], check=True)  # noqa: S603
+        base = subprocess.run(  # noqa: S603
+            [*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+        ).stdout.strip()
+
+        for name in changed:
+            written = repo / name
+            written.parent.mkdir(parents=True, exist_ok=True)
+            written.write_text("under test\n", encoding="utf-8")
+        subprocess.run([*git, "add", "-A"], check=True)  # noqa: S603
+        subprocess.run([*git, "commit", "-qm", "under test"], check=True)  # noqa: S603
+
+        output = root / "output.txt"
+        output.touch()
+        script = root / "scope.sh"
+        script.write_text(step["run"], encoding="utf-8")
+        bash = shutil.which("bash")
+        assert bash, (
+            "no bash on PATH; the scope step is a bash script and cannot be exercised without one"
+        )
+        finished = subprocess.run(  # noqa: S603
+            [bash, str(script)],
+            cwd=repo,
+            env={
+                **os.environ,
+                "GITHUB_OUTPUT": str(output),
+                "BASE": base,
+                "SCOPE_PATTERNS": step["env"]["SCOPE_PATTERNS"],
+            },
+            capture_output=True,
+            text=True,
+        )
+        assert finished.returncode == 0, (
+            f"the scope step failed:\n{finished.stdout}\n{finished.stderr}"
+        )
+
+        answers = dict(
+            line.split("=", 1)
+            for line in output.read_text(encoding="utf-8").splitlines()
+            if "=" in line
+        )
+        answers["stdout"] = finished.stdout
+        return answers
+
+
+def test_the_pull_request_scope_step_answers_both_ways_over_a_real_repository():
+    """The positive control, without which every assertion below can pass vacuously.
+
+    A harness that answered ``app=true`` unconditionally — an unreachable base is one way, and
+    the step takes that branch by design — would satisfy every quoted-path case here while
+    proving nothing. So the pair is asserted together: a documentation-only commit skips, an
+    ordinary portal source builds, and neither reaches the unreachable-base escape, which is
+    what the annotation discriminates.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If either verdict is wrong, or if a verdict came from the fallback.
+    """
+    skipped = _run_ci_scope(("docs/process.md",))
+    assert skipped["app"] == "false", (
+        "a documentation-only pull request ran the install, the build and the bundle check"
+    )
+    assert "no app input changed" in skipped["stdout"], (
+        "the skip path did not say why it skipped"
+    )
+
+    built = _run_ci_scope(("apps/portal/src/App.tsx",))
+    assert built["app"] == "true", "a portal source change skipped the build"
+    for answers in (skipped, built):
+        assert "is unreachable" not in answers["stdout"], (
+            "the step reached its unreachable-base escape; the fixture's base is not being read, "
+            "so every `app=true` below would be that fallback rather than a match"
+        )
+
+
+def test_no_shape_of_quoted_path_can_fall_out_of_the_pull_request_change_set():
+    """``--name-only`` C-quotes a path, and a quoted path matches no anchored pattern.
+
+    ``"apps/portal/src/caf\\303\\251.tsx"`` — leading double quote, escaped bytes — fails
+    ``^apps/portal/``, so a pull request that genuinely changes the app answers ``app=false``
+    and its install, build and bundle check are skipped behind a green check.
+
+    ``core.quotePath=false`` covers bytes >= 0x80 alone and leaves ``"``, ``\\`` and control
+    characters still wrapped, which is the same outcome for a different character. ``-z`` emits
+    every path raw, closing the class rather than one member of it.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If any quoted shape falls out of the change set.
+    """
+    for name in (
+        "apps/portal/src/café.tsx",
+        'apps/portal/src/a"b.tsx',
+        "apps/portal/src/back\\slash.tsx",
+    ):
+        answers = _run_ci_scope((name,))
+        assert answers["app"] == "true", (
+            f"[{name}] was quoted out of the change set; the diff needs -z"
+        )
+
+
 def test_every_scanner_step_is_ordered_after_the_gate_validation():
     """``needs: gates`` was structural; the condition that replaced it is a repeated string.
 
