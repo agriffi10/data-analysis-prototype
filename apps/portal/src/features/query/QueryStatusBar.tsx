@@ -22,7 +22,11 @@ type QueryStatusBarProps = {
   hasResultSet?: boolean;
   /** Exact total from the background page-walk; null while still counting. */
   totalRowCount?: number | null;
-  /** Shown only when the succeeded query produced a savable result (row-returning, not pure DDL). */
+  /**
+   * Whether the displayed result is savable (row-returning, not pure DDL). Offered
+   * alongside any verdict, not only success: a batch that failed or was stopped at a later
+   * statement still shows an earlier statement's complete, already-billed result.
+   */
   canSaveResults?: boolean;
   onSaveResults: () => void;
 };
@@ -44,7 +48,8 @@ function rowCountLabel({
 /**
  * Slim execution-status bar below the editor. An accessible live region;
  * state is never color-only (icon/spinner + text). FAILED's reason is shown
- * by the workspace's danger Banner — here it's just a terminal indicator.
+ * by the workspace's danger Banner — here it is only the terminal indicator,
+ * and Save-results sits beside whichever terminal state is showing.
  */
 export function QueryStatusBar({
   status,
@@ -75,6 +80,12 @@ export function QueryStatusBar({
 
   const elapsedMs = isInFlight && startedAt && nowTick ? nowTick - startedAt : undefined;
   const state = status?.state;
+  // A settled verdict must be on screen for anything that hangs off the result to have
+  // something to sit beside. Two ways there isn't one, and both leave a lone button on an
+  // otherwise empty bar: a resubmit clears the status a history round-trip before the new run
+  // is marked in flight, leaving the previous run `done` with no status at all; and
+  // `isInFlight` tracks the BATCH, so it is not by itself proof the statement settled.
+  const hasVerdict = !isInFlight && (state === 'SUCCEEDED' || state === 'FAILED' || state === 'CANCELLED');
 
   // The bar wraps onto a second line on a phone; the shipped
   // single-row bar is restored from `tablet:` up.
@@ -119,28 +130,6 @@ export function QueryStatusBar({
             {hasResultSet && `${rowCountLabel({rowCount, hasMoreRows, totalRowCount})} · `}
             {formatBytes(status?.dataScannedBytes)} scanned · {formatDurationMs(status?.engineExecutionTimeMillis)}
           </span>
-          {canSaveResults && (
-            <>
-              <div className="flex-1" />
-              <button
-                type="button"
-                onClick={onSaveResults}
-                className="inline-flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  className="h-4 w-4"
-                  aria-hidden="true">
-                  <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
-                  <path d="M9 4v5h6" />
-                  <path d="M8 21v-7h8v7" />
-                </svg>
-                Save results to my files
-              </button>
-            </>
-          )}
         </>
       )}
 
@@ -162,6 +151,42 @@ export function QueryStatusBar({
           />
           Cancelled
         </span>
+      )}
+
+      {/* Says WHAT Save would write. A non-succeeded run only ever displays a result when an
+          earlier statement produced one, and in `script-single` scope there is no result-tab
+          strip naming it — so without this the file's contents are unidentifiable. The row
+          count is the displayed execution's; the failed statement's bytes and duration stay
+          off the bar, which is what keeps the two executions from reading as one. */}
+      {hasVerdict && state !== 'SUCCEEDED' && canSaveResults && (
+        <span className="text-text-2">
+          {rowCountLabel({rowCount, hasMoreRows, totalRowCount})} from an earlier statement
+        </span>
+      )}
+
+      {/* Gated on the result, never on the verdict — the rows a failed or stopped batch
+          already produced are complete, and re-running to reach Save bills them twice. */}
+      {hasVerdict && canSaveResults && (
+        <>
+          <div className="flex-1" />
+          <button
+            type="button"
+            onClick={onSaveResults}
+            className="inline-flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="h-4 w-4"
+              aria-hidden="true">
+              <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
+              <path d="M9 4v5h6" />
+              <path d="M8 21v-7h8v7" />
+            </svg>
+            Save results to my files
+          </button>
+        </>
       )}
     </div>
   );

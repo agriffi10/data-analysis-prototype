@@ -16,6 +16,14 @@ When a query succeeds, the user should be able to keep its **full** result set i
 ### In Scope
 
 - **Rename/replace** the `QueryStatusBar` action from "Download CSV" to **Save results** (label e.g. "Save results to my files"); it appears only when the active query **SUCCEEDED** and produced a result object (a row-returning query with an `outputLocation`)
+
+  > **SUPERSEDED 2026-09-04.** The **SUCCEEDED** half is retired. The condition never inspected the
+  > execution state, so once a batch could display an earlier statement's result tab it reported
+  > "savable" into a branch that rendered only on success — unreachable over complete, already-billed
+  > rows. The button now appears beside a **FAILED** or **CANCELLED** verdict too, whenever the
+  > displayed result is row-returning. The result-object half stands. Every other statement of the
+  > retired rule in this file is marked in place — both acceptance criteria and Phase 1's
+  > checkpoint — so no unmarked copy of it is left to read as live.
 - A **Save-results modal**: a **destination folder** picker (reuse SPEC-039 `DestinationPicker`, scoped to the user's own space, excluding the protected `athenaresults/` folder) + a **file name** input with a sensible default (e.g. `query-results-{YYYYMMDD-HHmm}`)
 - **Save = server-side copy of the complete result object:** `copyObject` from the query's `{username}/athenaresults/{id}.csv` (parsed from `QueryStatus.outputLocation`) to `{username}/{destPrefix}/{filename}.csv` — captures **all** rows regardless of UI pagination
 - **`.csv` extension** appended/normalized automatically; **file-name validation** (reuse the file-browser leaf-name validation) with inline errors
@@ -46,6 +54,9 @@ The status bar offers "Save results" instead of "Download CSV".
 
 - [ ] The `QueryStatusBar` shows a **Save results** button (label "Save results to my files"; the old "Download CSV" button and its `onDownloadCsv` handler are removed)
 - [ ] It renders **only** when the active query is `SUCCEEDED` **and** has a result object (`outputLocation` present and the query returned rows / is not a pure DDL statement); otherwise it is absent
+
+  > **SUPERSEDED 2026-09-04 (see FR-001).** Not `SUCCEEDED`-only. It renders whenever the displayed
+  > result is row-returning and a verdict is showing, **FAILED** and **CANCELLED** included.
 - [ ] The button is keyboard-focusable with the standard focus ring and an accessible label
 
 ### FR-002: Save-results modal (destination + name)
@@ -88,6 +99,10 @@ Saving copies the complete Athena result object into the chosen location.
 #### Acceptance Criteria:
 
 - [ ] `npm run test` + `npm run lint` pass; tests cover: the button shows only for a succeeded row-returning query and is gone for DDL/no-result/failed; the modal validates + normalizes the `.csv` name and requires a destination; confirm derives the source key from `outputLocation` and issues a single `copyObject` to `{username}/{destPrefix}/{filename}.csv`; collision triggers the overwrite confirm; success invalidates the destination listing and shows a Toast with a Files deep-link; the error path shows an error Toast and writes nothing
+
+  > **SUPERSEDED 2026-09-04 (see FR-001).** "Shows only for a succeeded row-returning query and is
+  > gone for … failed" is retired on BOTH halves — the tests now assert the opposite for a failed
+  > batch still displaying an earlier statement's result. The DDL / no-result absences stand.
 
 ---
 
@@ -136,6 +151,9 @@ apps/portal/src/features/query/
 #### Checkpoint
 
 `npm run dev`: run a `SELECT` that returns rows → **Save results to my files** appears; choosing a folder + name writes `{name}.csv` into the user's space (verify the row count matches the *full* query, not just the loaded page); the button is absent for a DDL or failed query. `npm run test` + `npm run lint` pass.
+
+> **SUPERSEDED 2026-09-04 (see FR-001).** Absent for a DDL query, but **not** for a failed one when
+> an earlier statement's result is the grid on screen.
 
 ### Phase 2: Collision + feedback
 

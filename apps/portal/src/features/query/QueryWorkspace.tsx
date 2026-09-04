@@ -452,9 +452,9 @@ export function QueryWorkspace() {
   const canClear = activeTab.sql.length > 0 && !activeIsInFlight;
   const canSave = !!activeTab.sql.trim(); // disabled only when empty
 
-  // Save results is offered only for a SUCCEEDED, row-returning result
-  // (a result object with columns) — not a DDL / no-result statement.
-  // it saves the displayed result tab's execution.
+  // Savable = a row-returning result object (not a DDL / no-result statement) belonging
+  // to the DISPLAYED result tab. Deliberately blind to the run's verdict: a batch that
+  // failed at a later statement leaves an earlier one's result complete and already paid for.
   const canSaveResults = displayExecutionId !== null && !!displayOutputLocation && results.columns.length > 0;
 
   return (

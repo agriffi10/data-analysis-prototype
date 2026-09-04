@@ -6,6 +6,15 @@
   for a `SUCCEEDED`, row-returning query (`canSaveResults` = succeeded + an `outputLocation` + the
   result has columns) — absent for DDL / no-result / failed. The old `onDownloadCsv` handler and the
   dead `getResultCsvUrl` service (no other caller) are removed.
+
+  > **SUPERSEDED 2026-09-04.** The "renders only for a `SUCCEEDED` query" half no longer holds.
+  > `canSaveResults` never inspected the execution state, so once a batch could display an earlier
+  > statement's result tab, the workspace called that result savable into a branch that only
+  > rendered on success — the button was unreachable over complete, already-billed rows, and the
+  > only recovery was a re-run Athena bills again. The affordance now hangs off the savable-result
+  > condition alone and appears beside **FAILED** and **CANCELLED** too. The rest of the bullet
+  > stands: the condition is still succeeded-result-shaped (an `outputLocation` + columns), and it
+  > is still absent for DDL / no-result statements.
 - **`SaveResultsDialog`** (new) — a destination + filename modal: the SPEC-039 `DestinationPicker`
   scoped to the user's own space (the protected `athenaresults/` folder is already excluded by the
   picker) + a validated **File name** input (reuses the file-browser leaf-name validation;

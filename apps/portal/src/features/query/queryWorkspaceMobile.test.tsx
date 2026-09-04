@@ -178,6 +178,18 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
     await waitFor(() => expect(screen.getByText(/scanned ·/)).toHaveTextContent('2 rows · 8.0 KB scanned · 1.8s'));
   });
 
+  // Mobile passes `canSaveResults={false}` outright — there is no destination-picker flow
+  // below tablet. Pinned because the desktop affordance widened to every terminal state and
+  // nothing else asserts the divergence, so mobile could gain or lose it unnoticed.
+  it('offers no Save results below tablet, even on a succeeded run', async () => {
+    mockListSaved.mockResolvedValue(savedListing('Revenue'));
+    const {user} = renderMobileWorkspace();
+
+    await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
+    expect(await screen.findByText('Succeeded')).toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Save results to my files'})).not.toBeInTheDocument();
+  });
+
   it('never shows one query’s results under another query’s name', async () => {
     mockListSaved.mockResolvedValue(savedListing('Revenue', 'Costs'));
     const {user} = renderMobileWorkspace();

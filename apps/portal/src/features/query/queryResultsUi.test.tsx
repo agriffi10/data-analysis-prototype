@@ -472,6 +472,92 @@ describe('QueryStatusBar', () => {
       expect(screen.queryByRole('button', {name: /Save results/})).not.toBeInTheDocument();
     });
 
+    // The results on screen belong to an earlier statement that finished and was billed;
+    // the run's verdict says nothing about whether they are savable.
+    it.each(['FAILED', 'CANCELLED'] as const)('offers Save results in a %s run too', (state) => {
+      const onSaveResults = vi.fn();
+      render(
+        <QueryStatusBar
+          status={status({state})}
+          isInFlight={false}
+          startedAt={null}
+          rowCount={4}
+          canSaveResults
+          onSaveResults={onSaveResults}
+        />
+      );
+
+      expect(screen.getByText(state === 'FAILED' ? 'Failed' : 'Cancelled')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', {name: /Save results to my files/}));
+      expect(onSaveResults).toHaveBeenCalledTimes(1);
+    });
+
+    // A resubmit clears the status before the new run is marked in flight, and the previous
+    // run is still `done` across that gap — so the savable result outlives its verdict and
+    // the bar would otherwise paint a lone button with nothing to explain it.
+    it('withholds Save results when no status has arrived to sit beside', () => {
+      render(
+        <QueryStatusBar
+          isInFlight={false}
+          startedAt={null}
+          rowCount={4}
+          canSaveResults
+          onSaveResults={vi.fn()}
+        />
+      );
+      expect(screen.queryByRole('button', {name: /Save results/})).not.toBeInTheDocument();
+      expect(screen.queryByText(/from an earlier statement/)).not.toBeInTheDocument();
+    });
+
+    it('names the rows Save would write when the run itself did not succeed', () => {
+      render(
+        <QueryStatusBar
+          status={status({state: 'FAILED'})}
+          isInFlight={false}
+          startedAt={null}
+          rowCount={412}
+          canSaveResults
+          onSaveResults={vi.fn()}
+        />
+      );
+      expect(screen.getByRole('status')).toHaveTextContent('412 rows from an earlier statement');
+      // The failed statement's own figures stay off the bar — pairing them with an earlier
+      // statement's rows is the conflation that reads as one execution.
+      expect(screen.queryByText(/scanned ·/)).not.toBeInTheDocument();
+    });
+
+    // `isInFlight` tracks the BATCH, so a non-terminal status can in principle reach a render
+    // that is not in flight. Neither the button nor the note may appear there: no branch draws
+    // a chip for QUEUED/RUNNING, so both would sit on an otherwise empty bar — and the note
+    // would claim rows came from an earlier statement while one is still running.
+    it.each(['QUEUED', 'RUNNING'] as const)('shows no Save affordance beside a non-terminal %s', (state) => {
+      render(
+        <QueryStatusBar
+          status={status({state})}
+          isInFlight={false}
+          startedAt={null}
+          rowCount={4}
+          canSaveResults
+          onSaveResults={vi.fn()}
+        />
+      );
+      expect(screen.queryByRole('button', {name: /Save results/})).not.toBeInTheDocument();
+      expect(screen.queryByText(/from an earlier statement/)).not.toBeInTheDocument();
+    });
+
+    it('withholds Save results while a run is still in flight', () => {
+      render(
+        <QueryStatusBar
+          status={status({state: 'RUNNING'})}
+          isInFlight
+          startedAt={Date.now()}
+          canSaveResults
+          onSaveResults={vi.fn()}
+        />
+      );
+      expect(screen.queryByRole('button', {name: /Save results/})).not.toBeInTheDocument();
+    });
+
     it('shows the loaded count with "+" while the exact total is still being counted (SPEC-080)', () => {
       render(
         <QueryStatusBar
