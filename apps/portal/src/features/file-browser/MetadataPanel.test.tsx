@@ -101,6 +101,19 @@ describe('MetadataPanel', () => {
     expect(await screen.findByText(/no custom metadata/i)).toBeInTheDocument();
   });
 
+  // A custom metadata key is the user's own string; the labels around it are words this
+  // drawer chose. Both halves are asserted in ONE render: an override applied to every
+  // DetailField would satisfy the first assertion and is caught only by the second.
+  it('shows a custom metadata key as the user typed it, and leaves fixed labels capitalised', async () => {
+    mock.getObjectMetadata.mockResolvedValue(ok({...metadata, userMetadata: {reviewedBy: 'alice'}}));
+    renderPanel();
+
+    const userKey = await screen.findByText('reviewedBy');
+    expect(userKey).toHaveClass('normal-case');
+
+    expect(screen.getByText('Storage class')).not.toHaveClass('normal-case');
+  });
+
   it('renders a fetch error inline as user-safe text, never the raw AWS detail', async () => {
     // SPEC-106: the raw service message is mapped via toUserMessage before rendering,
     // so the raw AWS text (NoSuchKey) never reaches the DOM — an unrecognized message

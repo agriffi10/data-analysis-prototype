@@ -602,39 +602,33 @@ export function ExplorationResultsRegion({
           onBack={queryControls.back}
           onForward={queryControls.forward}
         />
-        <Button
-          size="sm"
-          onClick={() => setSettingsOpen(true)}>
-          Order and filter
-        </Button>
-        <Button
-          size="sm"
-          disabledReason={queryControls.clearAllRefusal ?? undefined}
-          onClick={queryControls.clearAll}>
-          {queryControls.clearAllLabel}
-        </Button>
-        <Button
-          size="sm"
-          disabledReason={filterByCellRefusal ?? undefined}
-          onClick={filterByCell}>
-          Filter by this value
-        </Button>
         <PresentationSwitch
           value={view}
           onChange={setView}
         />
-        {/* Everything that does not change WHICH ROWS are on screen. The bar carried
-            thirteen controls and wrapped onto three lines at a laptop width, which made the
-            four that alter the query no easier to find than the nine that do not.
+        {/* Every action, now — including the three that change the query, which used to sit
+            out here as buttons. The bar is left with undo/redo and the view switch: the
+            controls whose current state has to be readable, and which get used repeatedly
+            rather than once per decision.
+
+            A REFUSAL SURVIVES THE MOVE. Each of these was `aria-disabled` with a reason on
+            the toolbar, and an item that merely greys out inside a menu would be strictly
+            worse than the button it replaced — the reason ends up further from the user, not
+            closer. They ride `MenuItem.disabledReason`, which exists for exactly this.
 
             Copy issues nothing and never has (see `renderCopy`) — the plain Ctrl/Cmd+C is on
             the grid, and `Copy…` is the same copy with the formats a destination other than a
             spreadsheet wants. Export writes the EXECUTION's own results object, so a
             filtered, ordered or grouped exploration exports what is on screen without a
             second query and without a second bill; its refusal comes from the host, which is
-            what knows whether that object exists yet. Both keep their reasons through the
-            move — `MenuItem.disabledReason` exists for that. */}
+            what knows whether that object exists yet. */}
         <ExplorationOptionsMenu
+          onOrderAndFilter={() => setSettingsOpen(true)}
+          clearAllLabel={queryControls.clearAllLabel}
+          onClearAll={queryControls.clearAll}
+          clearAllRefusal={queryControls.clearAllRefusal ?? undefined}
+          onFilterByCell={filterByCell}
+          filterByCellRefusal={filterByCellRefusal ?? undefined}
           onColumns={() => setColumnsOpen(true)}
           onColours={() => setColoursOpen(true)}
           onTransformers={() => setTransformersOpen(true)}

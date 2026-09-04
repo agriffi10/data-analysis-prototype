@@ -116,21 +116,46 @@ afterEach(() => {
 // ─── FR-005: the source picker ──────────────────────────────────────────────
 
 describe('the source picker', () => {
-  it('offers every space personal-first, and the chosen space’s tables AND views', async () => {
+  it('offers every space personal-first, under one name each', async () => {
     render();
 
-    // The database is shown only where it says something the label does not. A shared space's
-    // label IS its database name, so printing both rendered `teamspaceteamspace`.
+    // ONE name per row. Printing the label beside the Glue database doubled a shared space's
+    // name, and suppressing it only there still left the personal row reading `My filesalice`.
     await waitFor(() =>
       expect(screen.getAllByRole('button', {name: /^(My files|teamspace)/}).map((b) => b.textContent)).toEqual([
-        'My filesalice',
+        'My files',
         'teamspace'
       ])
     );
+  });
 
-    expect(await screen.findByRole('button', {name: 'orders'})).toBeInTheDocument();
-    // A view is a perfectly good thing to explore — the renderer does not care which it is.
+  it('groups the chosen space’s objects into Tables and Views', async () => {
+    render();
+
+    expect(await screen.findByRole('heading', {name: 'Tables (1)'})).toBeInTheDocument();
+    expect(screen.getByRole('heading', {name: 'Views (1)'})).toBeInTheDocument();
+
+    // Each object still opens a tab from its own section — a view is a perfectly good thing
+    // to explore, and the renderer does not care which it is reading.
+    expect(screen.getByRole('button', {name: 'orders'})).toBeInTheDocument();
     expect(screen.getByRole('button', {name: /revenue_view/})).toBeInTheDocument();
+
+    // Tables lead. Asserted because the constant claims "the one order they are ever offered",
+    // and two `getByRole` calls prove both headings exist while saying nothing about which
+    // comes first.
+    const headings = screen.getAllByRole('heading', {name: /^(Tables|Views) \(/}).map((h) => h.textContent);
+    expect(headings).toEqual(['Tables (1)', 'Views (1)']);
+  });
+
+  // A space with no views is the ordinary case for a new one, and it is the only shape that
+  // enters the empty-section branch — the fixture above has one of each, so nothing reached it.
+  // An always-present "Views (0)" is a heading that never says anything.
+  it('omits a section with no members rather than showing it empty', async () => {
+    vi.mocked(listTables).mockResolvedValue(ok([TABLE]) as never);
+    render();
+
+    expect(await screen.findByRole('heading', {name: 'Tables (1)'})).toBeInTheDocument();
+    expect(screen.queryByRole('heading', {name: /^Views/})).not.toBeInTheDocument();
   });
 
   it('opens a tab bound to the chosen table and runs its first execution', async () => {

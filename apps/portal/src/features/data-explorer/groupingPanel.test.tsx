@@ -14,7 +14,7 @@ import {getDatabase, listTables} from '../catalog/glue.service';
 import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.service';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import type {ExplorationTabsState} from './dataExplorer.types';
-import {chooseExplorationOption} from './explorationOptions.testkit';
+import {chooseExplorationOption, explorationOption} from './explorationOptions.testkit';
 
 // SPEC-182 FR-003 to FR-006: the Grouping panel and the generated-SQL disclosure. Grouping
 // is the Calc panel's opposite — it renders SQL and mints an execution — so every claim
@@ -291,12 +291,12 @@ describe('grouping’s extras', () => {
     // The cursor can sit in it like any other cell, and this action does not go through
     // that menu.
     await user.click(cell(0, percent));
-    const byValue = screen.getByRole('button', {name: 'Filter by this value'});
+    const byValue = await explorationOption(user, 'Filter by this value');
     await waitFor(() => expect(byValue).toHaveAttribute('title', CALCULATED_COLUMN_REFUSAL));
     await user.click(byValue);
 
     // And the settings dialog, which below `tablet` is the ONLY way to sort or filter.
-    await user.click(screen.getByRole('button', {name: 'Order and filter'}));
+    await chooseExplorationOption(user, 'Order and filter');
     expect(await screen.findByRole('combobox', {name: `Sort ${percent}`})).toBeDisabled();
     expect(screen.getByRole('combobox', {name: `Filter ${percent}`})).toBeDisabled();
     // Geometry still applies to it — only the two controls that reach SQL are refused.
@@ -379,7 +379,7 @@ describe('the generated SQL, and what grouping composes with', () => {
     const {user} = render();
     await screen.findAllByRole('gridcell');
     await user.click(screen.getByText('Generated SQL'));
-    expect(screen.getByRole('button', {name: CLEAR_ALL_LABEL})).toBeInTheDocument();
+    expect(await explorationOption(user, CLEAR_ALL_LABEL)).toBeInTheDocument();
 
     const panel = await openGrouping(user);
     await addColumn(user, panel, 'status');
@@ -388,11 +388,10 @@ describe('the generated SQL, and what grouping composes with', () => {
 
     // The label changes because the ACTION does (FR-006 AC3) — a control that said
     // "filters" while removing a grouping would be lying about the click.
-    const clear = await screen.findByRole('button', {name: CLEAR_ALL_WITH_GROUPING_LABEL});
-    await user.click(clear);
+    await chooseExplorationOption(user, CLEAR_ALL_WITH_GROUPING_LABEL);
     await waitFor(() => expect(screen.getByRole('columnheader', {name: 'qty'})).toBeInTheDocument());
     expect(shownSql()).not.toContain('GROUP BY');
-    expect(screen.getByRole('button', {name: CLEAR_ALL_LABEL})).toBeInTheDocument();
+    expect(await explorationOption(user, CLEAR_ALL_LABEL)).toBeInTheDocument();
   });
 
   it('records a grouping change in the tab’s history like any other change', async () => {

@@ -194,6 +194,19 @@ describe('QueryResultsMobile', () => {
   }
 
   describe('QueryResultsMobile (SPEC-100 FR-006)', () => {
+    // The desktop pager's twin. Both prefer the exact background total over the paging-derived
+    // one, which is null until the last page is loaded — and the rule being written twice is
+    // exactly why this needs its own test: the desktop copy was fenced and this one was not,
+    // so deleting it here restored "no total until you page to the end" on a phone alone.
+    it('shows the exact total while the paging-derived one is still unknown', () => {
+      renderResults({
+        totalRowCount: 2384,
+        results: resultsFixture({totalRowCount: null, hasNext: true, hasMoreServer: true})
+      });
+
+      expect(screen.getByText(/Rows 1–2 of 2384/)).toBeInTheDocument();
+    });
+
     it('shows the SQL read-only — no editor to type into', () => {
       renderResults();
       expect(screen.getByText(SQL)).toBeInTheDocument();
@@ -261,6 +274,19 @@ describe('QueryResultsTable', () => {
     {name: 'region', type: 'string'},
     {name: 'revenue', type: 'double'}
   ];
+
+  // Both halves are load-bearing and neither works alone. The POSITIVE half proves the
+  // reset reached the name; the CONTROL is asserted on that same `th` — not on some other
+  // caption elsewhere — so that deleting SECTION_CAPTION from this header reddens the test
+  // instead of satisfying it. jsdom loads no Tailwind, so `text-transform` itself is not
+  // observable and the classes are all there is to assert on.
+  it('shows a column name as spelled, inside a header that still uses the caption style', () => {
+    renderTable();
+
+    const name = screen.getByTitle('region');
+    expect(name).toHaveClass('normal-case');
+    expect(name.closest('th')).toHaveClass('uppercase');
+  });
 
   // Sensible defaults for a single-page result; each test overrides what it needs.
   // Widths are controlled (owned by the parent's useColumnWidths) — default to the

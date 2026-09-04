@@ -1,6 +1,7 @@
 import {useCallback, useId, useState} from 'react';
+import {useNavigate} from 'react-router';
 import {useAuth} from '../features/auth';
-import {FeedbackButton, FeedbackDialog} from '../features/feedback';
+import {FeedbackDialog} from '../features/feedback';
 import {NAV_PATH_FLAGS, useFeatureSet} from '../features/feature-flags';
 import {HelpLink} from '../features/help';
 import {NotificationsBell, useNotifications} from '../features/notifications';
@@ -8,10 +9,10 @@ import {useIsMobile} from '../lib/useBreakpoint';
 import {AppNavDrawer} from './AppNavDrawer';
 import {BrandMark} from './BrandMark';
 import {Button} from './Button';
-import {FeedbackIcon} from './icons';
 import {useNavRailContent} from './navRailContext';
 import {PrimaryNav} from './PrimaryNav';
 import {ThemeMenu} from './ThemeMenu';
+import {UserMenu} from './UserMenu';
 
 /**
  * Persistent auth-aware top bar: brand mark, primary tabs (authenticated only;
@@ -23,6 +24,7 @@ import {ThemeMenu} from './ThemeMenu';
  */
 export function Header() {
   const {status, user, error, signIn, signOut} = useAuth();
+  const navigate = useNavigate();
   const [navOpen, setNavOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const isMobile = useIsMobile();
@@ -92,13 +94,12 @@ export function Header() {
         <div className="flex-1" />
 
         <div className="flex items-center gap-3">
-          {/* Present signed out too — the header is what a signed-out visitor sees on any
-              route but the landing page, which carries its own copy. It is the one control
-              here that steps aside below `tablet`: the authenticated header is over its width
-              budget at 375px before anything is added, so the drawer takes it instead. There
-              is no drawer when signed out, and that header carries only a brand mark and one
-              button, so it keeps the control at every width. */}
-          {!(authed && isMobile) && <ThemeMenu />}
+          {/* SIGNED OUT ONLY, now that the signed-in theme choice lives in the account menu.
+              Not deleted: the header is what a signed-out visitor sees on every route but the
+              landing page, there is no drawer to fall back to when signed out, and the account
+              menu does not exist without an account — so removing this would leave a
+              signed-out visitor no way to change the theme at all. */}
+          {!authed && <ThemeMenu />}
 
           {status === 'loading' && (
             <span
@@ -118,34 +119,34 @@ export function Header() {
 
           {authed && (
             <>
+              {/* Stays on the bar while its DESTINATION moves into the menu, because the two
+                  are different things: this is per-page help, and a control whose meaning
+                  changes with the route cannot live in a persistent account menu. On a route
+                  with a help section it opens that section's panel; the menu's `Help & guides`
+                  is the /help route, which is what it always was. */}
               <HelpLink />
-              {/* MOUNT-gated, never `tablet:hidden`. The root font-size is 14px, so the header's
-                  fixed-width parts already come to 280 of a phone's 375 before either text label
-                  is drawn — there is no room for a seventh control, so on a phone this one lives
-                  in the drawer. Gated by mounting because a CSS-hidden button is still in the DOM
-                  and still in the accessibility tree, and jsdom would count it. */}
-              {!isMobile && <FeedbackButton onOpen={() => setFeedbackOpen(true)} />}
               <NotificationsBell
                 hasUnread={hasUnread}
                 unreadCount={unreadCount}
               />
-              <span className="hidden text-sm text-text-2 tablet:inline">{user.username}</span>
-              <div
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-accent to-accent-hover text-xs font-semibold text-white"
-                aria-hidden="true">
-                {user.username.slice(0, 2).toUpperCase()}
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => void signOut()}>
-                Sign out
-              </Button>
+              {/* One trigger in place of five controls (theme, feedback, the username, the
+                  avatar and Sign out). The header was over its width budget on a phone before
+                  this, which is why theme and feedback were mount-gated away below `tablet`
+                  and duplicated into the drawer; every option now exists at every width. */}
+              <UserMenu
+                username={user.username}
+                onHelp={() => void navigate('/help')}
+                onGiveFeedback={() => setFeedbackOpen(true)}
+                onSignOut={() => void signOut()}
+              />
             </>
           )}
         </div>
       </div>
 
+      {/* No `actions` slot any more: it existed to give a phone the Give-feedback control the
+          header had no room for, and the account menu now carries it at every width. Two ways
+          to reach one dialog is one more than the user needs and one more to keep in step. */}
       {authed && isMobile && (
         <AppNavDrawer
           id={navDrawerId}
@@ -153,18 +154,6 @@ export function Header() {
           onClose={() => setNavOpen(false)}
           contextualRail={contextualRail}
           isPathEnabled={isPathEnabled}
-          actions={
-            <button
-              type="button"
-              onClick={() => {
-                setNavOpen(false);
-                setFeedbackOpen(true);
-              }}
-              className="flex min-h-11 items-center gap-3 rounded-md px-3 py-2 text-base font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-              <FeedbackIcon className="h-[18px] w-[18px] flex-none" />
-              Give feedback
-            </button>
-          }
         />
       )}
 

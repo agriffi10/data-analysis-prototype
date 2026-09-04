@@ -108,7 +108,9 @@ export function ExplorationGridHeader({
                 dragging.current = null;
                 onColumnDrag?.(null);
               }}
-              className="block cursor-grab truncate active:cursor-grabbing"
+              // A column name is the user's data — shown as they spelled it. The borrowed
+              // caption style is uppercase, which suits a fixed label and misrepresents this.
+              className="block cursor-grab truncate normal-case tracking-normal active:cursor-grabbing"
               title={column.name}>
               {column.name}
             </span>

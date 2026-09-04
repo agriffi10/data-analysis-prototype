@@ -320,15 +320,17 @@ function FileBrowserContent({
             CSS-hidden) so the two never both live in the DOM. */}
         {writable && !isMobile && (
           <div className="flex items-center gap-3">
-            {/* turn the current folder into a Glue/Athena table. Needs the
+            {/* turn the SELECTED folder into a Glue/Athena table. Needs the
                 space's database (= the marker owner: username | shared name), so it's
-                gated on `username` like the other space-scoped actions. */}
+                gated on `username` like the other space-scoped actions. It reads the
+                selection rather than the folder in view: a table sweeps in everything
+                below its location, so the folder it means is stated, not inferred. */}
             {username && queryEnabled && (
               <CreateTableButton
                 spaceKind={spaceKind ?? 'personal'}
                 bucket={bucket}
                 database={username}
-                prefix={currentPrefix}
+                selected={selectedItems}
                 rootPrefix={rootPrefix}
               />
             )}

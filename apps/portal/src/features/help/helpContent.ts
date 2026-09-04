@@ -358,8 +358,8 @@ export const HELP_SECTIONS: HelpSection[] = [
         intro:
           'A long session with the editor is easier on the eyes in the dark. Choose Light or Dark to fix it, or System to let the portal follow whatever your computer or phone is set to — so it turns dark in the evening if your device does.',
         steps: [
-          'Click the <b>half-circle</b> button in the top bar and choose <b>Light</b>, <b>Dark</b>, or <b>System</b>.',
-          'On a phone, open the menu from the <b>☰</b> button instead — the same three choices are near the bottom of the drawer.',
+          'Open the menu on your name in the top bar and choose <b>Light</b>, <b>Dark</b>, or <b>System</b>. It is the same menu that holds <b>Help &amp; guides</b>, <b>Give feedback</b> and <b>Sign out</b>.',
+          'It is in the same place at every screen size, phone included — there is no separate control to find on a small screen.',
           'The change applies straight away, and the editor, the results grid and every other screen follow it.'
         ],
         callout: {
@@ -382,7 +382,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         intro:
           'Have a folder full of data files — CSV, JSON, or Parquet — that you’d like to run SQL against? This turns them into a table without moving or copying anything. The portal reads the files where they already sit and builds the table in the background, then it shows up in the <b>Query</b> tab ready to go. One thing to sort out before you start: <b>column names have to be letters, digits and underscores</b>. A header like <b>Order ID</b> or <b>sales-2024</b> will stop the build, and you’ll get a notification naming the columns to fix. Names are also stored in lowercase, so <b>OrderID</b> becomes <b>orderid</b> — and two headers that differ only by case (<b>Total</b> and <b>TOTAL</b>) become one column, which is refused for the same reason. Your files themselves are never rewritten.',
         steps: [
-          'In the <b>Files</b> tab, open the folder whose files you want to query, then click <b>Create table</b>. You can also start from the <b>Data explorer</b> — when it asks what to explore, use <b>Create table from a folder…</b> and pick the folder there. It has to be a folder — <b>Create table</b> is unavailable at the top of a space, because a table reads everything below it and the top of a space also holds your query results, saved queries and shared files.',
+          'In the <b>Files</b> tab, tick the folder whose files you want to query — exactly one, and it has to be a folder rather than a file — then click <b>Create table</b>. You can also start from the <b>Data explorer</b> — when it asks what to explore, use <b>Create table from a folder…</b> and pick the folder there. <b>Create table</b> is unavailable at the top of a space, because a table reads everything below it and the top of a space also holds your query results, saved queries and shared files.',
           'Enter a <b>Table name</b> (lowercase letters, digits, or underscores, starting with a letter).',
           'If your files sit in <b>key=value</b> folders (for example <b>year=2026/month=01/</b>), click <b>Add partition keys</b> and declare each key in order — coarsest first — along with its type and range.',
           'Click <b>Create table</b>. It’s built in the background, and you’ll get a notification when it’s ready — or if something stopped it from being created.'
@@ -472,10 +472,10 @@ export const HELP_SECTIONS: HelpSection[] = [
           'This is what the Explorer is for. Everything here is a click, and each one rewrites the query underneath and runs it again — so the rows you end up with are the real answer over the whole table, not just over what was on screen.',
         steps: [
           'Click the <b>⌄</b> on a column header to sort it, or to filter it with <b>is</b>, <b>is not</b>, <b>greater than</b>, <b>is empty</b> and the rest.',
-          'Click a cell and use <b>Filter by this value</b> to filter on what is in it — the quickest way in.',
-          'Use <b>Order and filter</b> for everything at once: several sorts in priority order, several filters, and which columns are hidden or pinned. It applies as one change.',
+          'Click a cell, then open <b>Options</b> and choose <b>Filter by this value</b> to filter on what is in it — the quickest way in.',
+          'Open <b>Options</b> and choose <b>Order and filter</b> for everything at once: several sorts in priority order, several filters, and which columns are hidden or pinned. It applies as one change.',
           'Type your own condition in the <b>Filter expression</b> box and click <b>Apply expression</b> when the menus can’t say it.',
-          'Use the <b>back</b> and <b>forward</b> arrows to step through the filters you have already tried, and <b>Clear all</b> to start over.'
+          'Use the <b>back</b> and <b>forward</b> arrows on the bar to step through the filters you have already tried, or choose <b>Remove all filters</b> from <b>Options</b> to start over.'
         ],
         callout: {
           kind: 'warning',
@@ -709,7 +709,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         intro:
           'Everything else in the portal tells us what you <b>clicked</b>. This is the only place that tells us what you <b>wanted</b> — so if something is awkward, missing, or just wrong, this is the fastest way to say so.',
         steps: [
-          'Click <b>Give feedback</b> in the top bar, next to the help icon. On a phone, open the menu with the ☰ button and choose <b>Give feedback</b> there.',
+          'Open the menu on your name in the top bar and choose <b>Give feedback</b> — the same place as <b>Help &amp; guides</b>, your theme and <b>Sign out</b>. It is there at every screen size.',
           'Pick <b>What is this about?</b> — <b>Something is broken</b> for a problem, <b>An idea or a request</b> for something you would like, <b>A question</b> when you are unsure how something works, and <b>Something else</b> for anything that fits none of those.',
           'Write your feedback. The more specific the better — what you were doing, what you expected, and what happened instead.',
           'Click <b>Send</b>. The page you were on when you opened the dialog is included automatically, so you do not need to describe where you were.'

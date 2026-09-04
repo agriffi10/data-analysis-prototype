@@ -138,6 +138,19 @@ describe('column geometry', () => {
     await waitFor(() => expect(handle).toHaveAttribute('aria-valuenow', String(MIN_COLUMN_WIDTH)));
   });
 
+  // The name is the user's data and is shown as spelled; the header around it keeps the
+  // caption style. Asserting the control on the SAME header is what makes this able to
+  // fail if the caption style is dropped rather than overridden — jsdom loads no Tailwind,
+  // so the computed text-transform is not observable and the classes are all there is.
+  it('shows a column name as spelled, inside a header that still uses the caption style', async () => {
+    seedTabs([{id: 't1', table: 'orders'}]);
+    render();
+    const header = await screen.findByRole('columnheader', {name: 'total'});
+
+    expect(within(header).getByTitle('total')).toHaveClass('normal-case');
+    expect(header).toHaveClass('uppercase');
+  });
+
   it('hides a column and shows it again, from the Columns panel', async () => {
     seedTabs([{id: 't1', table: 'orders'}]);
     const {user} = render();

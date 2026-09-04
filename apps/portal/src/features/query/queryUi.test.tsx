@@ -250,6 +250,17 @@ describe('ResultsPageSizeControl', () => {
       expect(input).toHaveValue('100');
     });
 
+    // Asserts the ASSOCIATION, not the presence of the sentence: a hint that renders
+    // beside the input but describes nothing is invisible to a screen reader, and
+    // "the text is on screen" passes either way.
+    it('describes the control with the hint that it does not re-run the query', () => {
+      const {input} = setup();
+      const describedBy = input.getAttribute('aria-describedby');
+      expect(describedBy).toBeTruthy();
+      const hint = document.getElementById(describedBy as string);
+      expect(hint).toHaveTextContent(/doesn’t re-run your query/i);
+    });
+
     it('commits an in-range integer on Enter', async () => {
       const user = userEvent.setup(USER_EVENT_OPTIONS);
       const {onCommit, input} = setup();

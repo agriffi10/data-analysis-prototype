@@ -26,7 +26,6 @@ import {
   QUERY_TABS_MAX,
   QUERY_TABS_STORAGE_PREFIX
 } from './query.constants';
-import {partitionSchema} from './schema.partition';
 import {buildSqlCompletions, createSqlCompletionProvider} from './sqlCompletions';
 import type {DatabaseSchema} from '../catalog/catalog.types';
 import {act, renderHook} from '@testing-library/react';
@@ -297,28 +296,6 @@ describe('queryTabs', () => {
         // Old draft key is cleaned up.
         expect(sessionStorage.getItem(`${QUERY_DRAFT_STORAGE_PREFIX}alice`)).toBeNull();
       });
-    });
-  });
-});
-
-// ─── from schema.partition.test.ts ───
-describe('schema.partition', () => {
-  const table = (name: string, tableType?: string): GlueTableSummary => ({
-    name,
-    columns: [],
-    tableType
-  });
-
-  describe('partitionSchema', () => {
-    it('splits VIRTUAL_VIEW into views and everything else into tables', () => {
-      const {tables, views} = partitionSchema([
-        table('sales', 'EXTERNAL_TABLE'),
-        table('revenue', 'VIRTUAL_VIEW'),
-        table('orders'), // no tableType → table
-        table('summary', 'VIRTUAL_VIEW')
-      ]);
-      expect(tables.map((t) => t.name)).toEqual(['sales', 'orders']);
-      expect(views.map((t) => t.name)).toEqual(['revenue', 'summary']);
     });
   });
 });

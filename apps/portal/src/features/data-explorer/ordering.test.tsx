@@ -2,6 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {fireEvent, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
+import {chooseExplorationOption} from './explorationOptions.testkit';
 import {authenticated} from '../../test/authFixtures';
 import {DataExplorerWorkspace} from './DataExplorerWorkspace';
 import {EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
@@ -182,7 +183,7 @@ describe('multi-column ordering', () => {
 
 describe('the Order and filter dialog', () => {
   const open = async (user: ReturnType<typeof userEvent.setup>) => {
-    await user.click(screen.getByRole('button', {name: 'Order and filter'}));
+    await chooseExplorationOption(user, 'Order and filter');
     return screen.findByRole('dialog', {name: 'Order and filter'});
   };
 

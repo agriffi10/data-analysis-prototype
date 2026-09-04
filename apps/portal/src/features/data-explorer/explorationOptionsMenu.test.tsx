@@ -1,14 +1,14 @@
 import {describe, expect, it, vi} from 'vitest';
-import {screen, within} from '@testing-library/react';
+import {cleanup, screen, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {ExplorationOptionsMenu} from './ExplorationOptionsMenu';
 
 /**
- * The toolbar carried thirteen controls and wrapped onto three lines at a laptop width, which
- * made the four that alter the query no easier to find than the nine that do not. These pin the
- * split itself and the one property that had to survive the move: a refused control still says
- * why.
+ * The toolbar carried thirteen controls and wrapped onto three lines at a laptop width. A first
+ * pass moved the nine that do not change which rows are on screen; user feedback then asked for
+ * the rest, so the bar now keeps only undo/redo and the view switch. These pin the resulting
+ * split and the one property that had to survive both moves: a refused control still says why.
  *
  * The existing suites already drive every moved control THROUGH the menu, so this file does not
  * re-prove that any of them work — only the things that are true of the menu and of nothing else.
@@ -18,6 +18,10 @@ const NOOP = () => {};
 
 function props(over: Partial<React.ComponentProps<typeof ExplorationOptionsMenu>> = {}) {
   return {
+    onOrderAndFilter: NOOP,
+    clearAllLabel: 'Remove all filters',
+    onClearAll: NOOP,
+    onFilterByCell: NOOP,
     onColumns: NOOP,
     onColours: NOOP,
     onTransformers: NOOP,
@@ -45,13 +49,17 @@ async function open(over: Partial<React.ComponentProps<typeof ExplorationOptions
 }
 
 describe('the Data Explorer options menu', () => {
-  it('carries every control that does not change which rows are on screen', async () => {
+  it('carries every action, query-changing ones first', async () => {
     const {menu} = await open();
     expect(
       within(menu)
         .getAllByRole('menuitem')
         .map((i) => i.textContent)
     ).toEqual([
+      // The query-changing group leads: these are what the screen is for.
+      'Order and filter',
+      'Remove all filters',
+      'Filter by this value',
       'Columns',
       'Colours',
       'Transformers',
@@ -126,15 +134,22 @@ describe('the Data Explorer options menu', () => {
     expect(within(menu).queryByRole('menuitem', {name: whenClosed})).not.toBeInTheDocument();
   });
 
-  // REMOVED rather than refused: a reason cannot explain a state the user has no way to change.
   // REMOVED rather than refused, both of them: a reason cannot explain a state the user has no
   // way to change. They follow the SAME flag — creating a Glue view is a Query capability
   // wherever the control lives, so exempting this one would hand it back through another door.
   it('drops both Query capabilities when the query flag is off', async () => {
+    const {menu: withFlag} = await open();
+    const enabledCount = within(withFlag).getAllByRole('menuitem').length;
+    cleanup();
+
     const {menu} = await open({savedQueriesEnabled: false, createViewEnabled: false});
     expect(within(menu).queryByRole('menuitem', {name: 'Save as query'})).not.toBeInTheDocument();
     expect(within(menu).queryByRole('menuitem', {name: 'Create view…'})).not.toBeInTheDocument();
-    expect(within(menu).getAllByRole('menuitem')).toHaveLength(8);
+    // Derived from the flag-on render rather than written as a literal: the point is that
+    // EXACTLY those two went, and a hard-coded number has to be edited by whoever adds an
+    // unrelated item — at which moment the cheapest fix is to bump it, which is also the one
+    // that stops it noticing a third item vanishing.
+    expect(within(menu).getAllByRole('menuitem')).toHaveLength(enabledCount - 2);
   });
 
   it('closes on Escape and returns focus to the trigger', async () => {

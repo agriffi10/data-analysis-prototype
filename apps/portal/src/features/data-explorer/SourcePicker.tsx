@@ -3,10 +3,21 @@ import {cx} from '../../lib/cx';
 import {Button} from '../../components/Button';
 import {DatabaseRowIcon} from '../../components/icons';
 import {useSchema} from '../catalog/useSchema';
+import {partitionSchema} from '../catalog/schema.partition';
+import type {PartitionedSchema} from '../catalog/schema.partition';
 import {spaceDatabase} from './exploreSources';
 import type {ExploreTarget} from './exploreSources';
 import type {QuerySpace} from '../catalog/catalog.types';
 import {SECTION_CAPTION} from '../../components/fieldStyles';
+
+/**
+ * The two groups the object list is split into, in the one order they are ever offered.
+ * Tables first: a view is derived from them, so it reads as the second thing.
+ */
+const SOURCE_GROUPS: readonly {key: keyof PartitionedSchema; heading: string}[] = [
+  {key: 'tables', heading: 'Tables'},
+  {key: 'views', heading: 'Views'}
+];
 
 export type SourcePickerProps = {
   /** Spaces to offer, ALREADY filtered by the caller's `sharedWorkspaces` gate. */
@@ -43,6 +54,7 @@ export function SourcePicker({spaces, username, onChoose, onCreateTable, onCance
   const selected = spaces.find((s) => s.id === selectedId) ?? spaces[0];
   const database = selected ? spaceDatabase(selected, username) : null;
   const {data, isPending, isError} = useSchema(database);
+  const partitioned = partitionSchema(data?.tables ?? []);
 
   // no usable space is a state that explains itself. Rendering an empty picker
   // would leave a user clicking at nothing with no idea whose fault it is.
@@ -66,31 +78,26 @@ export function SourcePicker({spaces, username, onChoose, onCreateTable, onCance
       className="flex min-h-0 flex-1 flex-col tablet:flex-row">
       <div className="flex flex-none flex-col gap-1 border-b border-border p-3 tablet:w-64 tablet:border-b-0 tablet:border-r">
         <h2 className={`px-2 pb-1 ${SECTION_CAPTION}`}>Space</h2>
-        {spaces.map((space) => {
-          // Named apart from the outer `database`, which is the SELECTED space's — this one is
-          // the row's own, and the two differ for every row but one.
-          const rowDatabase = spaceDatabase(space, username);
-          return (
-            <button
-              key={space.id}
-              type="button"
-              aria-pressed={space.id === selected?.id}
-              onClick={() => setSelectedId(space.id)}
-              className={cx(
-                'flex items-center gap-2 rounded-md px-2 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-                space.id === selected?.id ? 'bg-surface-2 font-medium text-text' : 'text-text-2 hover:bg-surface-2'
-              )}>
-              <DatabaseRowIcon />
-              <span className="min-w-0 flex-1 truncate">{space.label}</span>
-              {/* A shared space's label IS its database name, so showing both printed the
-                  name twice. The database is still shown where it says something the label
-                  does not — the personal space, whose label is "My files". */}
-              {rowDatabase !== space.label && (
-                <span className="flex-none font-mono text-xs text-text-3">{rowDatabase}</span>
-              )}
-            </button>
-          );
-        })}
+        {/* ONE name per row. Showing the space label beside its Glue database printed the
+            name twice for a shared space, whose label IS its database; suppressing it only
+            there left the personal row reading "My files alice", and users reported that as a
+            doubled name too. The database is not lost — the generated SQL qualifies every
+            source as `database.table`, so the disclosure below the grid still says it, and
+            the Query editor, where a name is actually typed, is a separate surface. */}
+        {spaces.map((space) => (
+          <button
+            key={space.id}
+            type="button"
+            aria-pressed={space.id === selected?.id}
+            onClick={() => setSelectedId(space.id)}
+            className={cx(
+              'flex items-center gap-2 rounded-md px-2 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+              space.id === selected?.id ? 'bg-surface-2 font-medium text-text' : 'text-text-2 hover:bg-surface-2'
+            )}>
+            <DatabaseRowIcon />
+            <span className="min-w-0 flex-1 truncate">{space.label}</span>
+          </button>
+        ))}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col p-3">
@@ -127,23 +134,38 @@ export function SourcePicker({spaces, username, onChoose, onCreateTable, onCance
           </p>
         )}
         {data && data.tables.length > 0 && (
-          <ul className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-            {data.tables.map((table) => (
-              <li key={table.name}>
-                <button
-                  type="button"
-                  onClick={() => onChoose({spaceId: selected.id, database: database as string, table: table.name})}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-text hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent">
-                  <span className="min-w-0 flex-1 truncate">{table.name}</span>
-                  {table.tableType === 'VIRTUAL_VIEW' && (
-                    <span className="flex-none rounded border border-border px-1.5 py-0.5 text-xs text-text-3">
-                      View
-                    </span>
-                  )}
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+            {/* Grouped rather than one interleaved list: Glue returns tables and views in one
+                order, and a view answers a question someone else already framed, so which of
+                the two a name is changes what you expect from it. A section with no members
+                is omitted, not rendered empty — an always-present "Views (0)" is a heading
+                that never says anything. */}
+            {SOURCE_GROUPS.map(({key, heading}) => {
+              const members = partitioned[key];
+              if (members.length === 0) return null;
+              return (
+                <section key={key}>
+                  <h3 className={`px-2 pb-1 pt-2 ${SECTION_CAPTION}`}>
+                    {heading} ({members.length})
+                  </h3>
+                  <ul className="flex flex-col">
+                    {members.map((table) => (
+                      <li key={table.name}>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onChoose({spaceId: selected.id, database: database as string, table: table.name})
+                          }
+                          className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-text hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent">
+                          <span className="min-w-0 flex-1 truncate">{table.name}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              );
+            })}
+          </div>
         )}
 
         {/* The Create section sits BELOW the list, not above it: the list is what the user came

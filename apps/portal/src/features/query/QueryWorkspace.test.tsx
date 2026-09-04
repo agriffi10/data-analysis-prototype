@@ -1,6 +1,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {render, screen, waitFor, within} from '@testing-library/react';
+import {cleanup, render, screen, waitFor, within} from '@testing-library/react';
 import {DEFAULT_RESULTS_PAGE_SIZE} from './query.constants';
+import {ROW_COUNT_PAGE_SIZE} from '../catalog/catalog.constants';
 import {
   editor,
   fail,
@@ -25,6 +26,7 @@ import {
   resetViewport,
   runScriptSingle,
   runScriptTabs,
+  salesTable,
   savedFile,
   savedListing,
   seedSingle,
@@ -621,10 +623,46 @@ describe('QueryWorkspace', () => {
       const {user} = renderWorkspace();
       await openTableMenu(user, 'sales_2026');
       await user.click(await screen.findByRole('menuitem', {name: 'View source files'}));
-      expect(screen.getByLabelText('probe-location')).toHaveTextContent('/files?prefix=alice%2Fsales%2F');
+      // `space` is part of the assertion: without it the browser resolves the personal
+      // space, which is right here only by accident and wrong for every shared table.
+      expect(screen.getByLabelText('probe-location')).toHaveTextContent(
+        '/files?space=personal&prefix=alice%2Fsales%2F'
+      );
 
       await openTableMenu(user, 'foreign');
       expect(await screen.findByRole('menuitem', {name: 'View source files'})).toBeDisabled();
+    });
+
+    // The two halves of the guard are separately deletable, so each gets a fixture that
+    // only IT refuses. `foreign` above is in the right bucket under someone else's prefix;
+    // `stray` is under the right prefix in a bucket that is not this space's — reachable
+    // because a user can write CREATE EXTERNAL TABLE ... LOCATION pointing anywhere.
+    it('refuses a table whose LOCATION is in another bucket, even under the right prefix', async () => {
+      const {user} = renderWorkspace();
+      await openTableMenu(user, 'stray');
+      expect(await screen.findByRole('menuitem', {name: 'View source files'})).toBeDisabled();
+    });
+
+    // The item this feedback was raised about: it was dead for every shared-space table,
+    // because the old rule asked whether the key started with the signed-in USERNAME.
+    it('View source files works for a shared-space table, and carries its space', async () => {
+      mockReadCache.mockResolvedValue(
+        ok({version: 1, connections: [{name: 'teamspace', role: 'member', status: 'active'}]})
+      );
+      vi.mocked(listTables).mockImplementation(async (database: string) =>
+        database === 'teamspace'
+          ? ok([{name: 'team_sales', location: 's3://shared-bucket/teamspace/sales/', columns: []}])
+          : ok([salesTable])
+      );
+      const {user} = renderWorkspace();
+
+      await user.click(await screen.findByRole('button', {name: /teamspace/}));
+      await openTableMenu(user, 'team_sales');
+      await user.click(await screen.findByRole('menuitem', {name: 'View source files'}));
+
+      expect(screen.getByLabelText('probe-location')).toHaveTextContent(
+        '/files?space=teamspace&prefix=teamspace%2Fsales%2F'
+      );
     });
 
     it('View data opens a "{table}" tab and auto-runs a fully-qualified unbounded SELECT * (no LIMIT) [SPEC-105]', async () => {
@@ -827,6 +865,40 @@ describe('QueryWorkspace', () => {
       expect(screen.queryByRole('tablist', {name: 'Result tabs'})).not.toBeInTheDocument();
     });
 
+    // The count follows the SELECTED statement, not the last one that ran. Each execution
+    // returns a different number of rows, so reading the wrong one is a wrong number rather
+    // than a coincidence — an equal-sized fixture would pass whichever was read.
+    //
+    // Scope, measured rather than assumed: this passes against the pre-change gate too, so
+    // it does NOT prove the walk now opens earlier. What it pins is that flipping re-derives
+    // at all, which is the half of the report that was already working and is easy to break
+    // — the eventual value is assertable, the removal of the gap in between is not without a
+    // timing assertion that would be flaky. The earlier opening is covered by the DDL test,
+    // which asserts the gate itself.
+    it('re-derives the total row count when you flip between result tabs', async () => {
+      queueRuns('q-1', 'q-2', 'q-3');
+      mockGetResults.mockImplementation(async ({queryExecutionId}: {queryExecutionId: string}) =>
+        ok({
+          columns: [{name: 'region', type: 'string'}],
+          rows: queryExecutionId === 'q-1' ? [['us-east'], ['eu-west']] : [['ap-south']]
+        })
+      );
+      seedScript();
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await runScriptTabs(user);
+
+      const strip = await screen.findByRole('tablist', {name: 'Result tabs'});
+      // Statement 3 is auto-selected and returned one row.
+      expect(await screen.findByText(/\b1 rows?\b/)).toBeInTheDocument();
+
+      await user.click(within(strip).getAllByRole('tab')[0]);
+
+      // Statement 1 returned two — the stat moved with the tab.
+      await waitFor(() => expect(screen.getByText(/\b2 rows\b/)).toBeInTheDocument());
+    });
+
     it('Run Statement executes the selection, else the statement under the cursor (FR-006)', async () => {
       queueRuns('q-1', 'q-2');
       seedScript('SELECT 1;\nSELECT 2;');
@@ -908,13 +980,13 @@ describe('QueryWorkspace', () => {
 
       const dialog = refreshDialog();
       expect(within(dialog).getByText('alice.sales_2026')).toBeInTheDocument();
-      expect(within(dialog).getByText('s3://b/alice/sales/')).toBeInTheDocument();
+      expect(within(dialog).getByText('s3://user-bucket/alice/sales/')).toBeInTheDocument();
 
       await user.click(within(dialog).getByRole('button', {name: 'Refresh table'}));
 
       // The space is derived from the table's own location (FR-004).
       expect(mockEnqueueRefresh).toHaveBeenCalledWith({
-        space: {kind: 'personal', bucket: 'b', prefix: 'alice/sales/', database: 'alice'},
+        space: {kind: 'personal', bucket: 'user-bucket', prefix: 'alice/sales/', database: 'alice'},
         tableName: 'sales_2026'
       });
       expect(await screen.findByText(/Refreshing “alice\.sales_2026”/)).toBeInTheDocument();
@@ -1033,6 +1105,87 @@ describe('QueryWorkspace', () => {
         nextToken: 't-2',
         maxRows: DEFAULT_RESULTS_PAGE_SIZE
       });
+    });
+
+    // THE FIRST ARM of the row-count gate, which nothing else reaches. The walk is opened by
+    // the batch's verdict — a result tab exists — rather than by the first page's columns
+    // arriving, and the only way to tell those apart is to keep that page in flight: under the
+    // pre-change gate the walk could not start at all while it hung. The `??` fallback is a
+    // different half of the same commit and is covered by the test below.
+    it('starts the row-count walk while the first page is still in flight', async () => {
+      let displayPageStarted = false;
+      mockGetResults.mockImplementation(async ({maxRows}: {maxRows?: number}) => {
+        if (maxRows === ROW_COUNT_PAGE_SIZE) return ok(page([['us-east'], ['eu-west']]));
+        displayPageStarted = true;
+        return new Promise(() => {}) as never; // never settles
+      });
+      seedSingle('SELECT 1');
+      const {user} = renderWorkspace();
+      await runOnce(user);
+
+      await waitFor(() =>
+        expect(mockGetResults).toHaveBeenCalledWith(expect.objectContaining({maxRows: ROW_COUNT_PAGE_SIZE}))
+      );
+      // The premise the assertion above rests on: the display page really was outstanding, so
+      // the walk cannot have been let through by columns that had already arrived.
+      expect(displayPageStarted).toBe(true);
+    });
+
+    // THE SECOND ARM, which the first cannot cover. `isResultProducingSql` is a shape heuristic
+    // over the SQL, so a statement it declines gets no result tab — and if Athena returns
+    // columns for it anyway, the count worked before this change and has to keep working.
+    // Same statement as the DDL test below; only the fixture differs, which is what makes both
+    // arms mean something.
+    it('still counts a statement the batch declined, when it returns columns anyway', async () => {
+      mockGetResults.mockResolvedValue(ok(page([['us-east'], ['eu-west']])));
+      seedSingle('CREATE TABLE t (a int)');
+      const {user} = renderWorkspace();
+      await runOnce(user);
+
+      await waitFor(() =>
+        expect(mockGetResults).toHaveBeenCalledWith(expect.objectContaining({maxRows: ROW_COUNT_PAGE_SIZE}))
+      );
+    });
+
+    // The paging-derived total is null until the last page has been loaded, so before this
+    // the pager showed no total until you clicked Next to the very end — on a real result
+    // that is every page of it. The exact background walk already knew the answer.
+    it('shows the exact total in the pager on the FIRST page, without paging to the end', async () => {
+      seedTwoPages();
+      seedSingle('SELECT 1');
+      const {user} = renderWorkspace();
+      await runOnce(user);
+      expect(await screen.findByText('us-east')).toBeInTheDocument();
+
+      // 3 rows across both server pages, and we are still standing on page 1.
+      expect(await screen.findByText(/Rows 1–2 of 3/)).toBeInTheDocument();
+      expect(screen.getByRole('button', {name: 'Next'})).toBeEnabled();
+    });
+
+    // DDL opens neither of the two gates, so the walker must not run for it. Asserts the
+    // CALL, not the absence of a number: the label is separately gated on `hasResultSet`,
+    // so "no total on screen" is satisfied whether or not the request went out.
+    it('walks no pages for a statement that returns no rows', async () => {
+      mockGetResults.mockResolvedValue(ok({columns: [], rows: []}));
+      seedSingle('CREATE TABLE t (a int)');
+      const {user} = renderWorkspace();
+      await runOnce(user);
+
+      await waitFor(() => expect(screen.getByText('Succeeded')).toBeInTheDocument());
+      expect(mockGetResults).not.toHaveBeenCalledWith(expect.objectContaining({maxRows: ROW_COUNT_PAGE_SIZE}));
+
+      // The positive control, over the SAME constant and in the same test: a row-returning
+      // statement must walk. Without it, `ROW_COUNT_PAGE_SIZE` ceasing to be what the walker
+      // asks for would make the negative above true for the wrong reason, permanently.
+      cleanup();
+      mockGetResults.mockResolvedValue(ok(page([['us-east']])));
+      seedSingle('SELECT 1');
+      const second = renderWorkspace();
+      await runOnce(second.user);
+
+      await waitFor(() =>
+        expect(mockGetResults).toHaveBeenCalledWith(expect.objectContaining({maxRows: ROW_COUNT_PAGE_SIZE}))
+      );
     });
   });
 

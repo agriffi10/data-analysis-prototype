@@ -167,11 +167,14 @@ function MetadataFields({
           <p className="mt-2 text-sm text-text-3">No custom metadata</p>
         ) : (
           <dl className="mt-2">
+            {/* The only labels in this drawer the user wrote themselves, so the only ones
+                shown as typed — the fixed labels above keep the caption style. */}
             {customEntries.map(([k, v]) => (
               <DetailField
                 key={k}
                 label={k}
                 value={v}
+                preserveLabelCase
               />
             ))}
           </dl>

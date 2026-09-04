@@ -67,7 +67,7 @@ const EXEMPT: Record<string, string> = {
   '/src/components/Drawer.tsx': 'the scrim behind an overlay, which is a shadow rather than a colour',
   '/src/components/AppNavDrawer.tsx': 'the scrim behind the mobile navigation sheet',
   '/src/components/Modal.tsx': 'the scrim behind a modal dialog, deliberately darker than the drawer’s',
-  '/src/components/Header.tsx': 'white initials on the avatar’s accent gradient',
+  '/src/components/UserMenu.tsx': 'white initials on the avatar’s accent gradient',
   '/src/components/RootLayout.tsx': 'white on the accent skip-link',
   '/src/features/notifications/NotificationsBell.tsx': 'white on the accent unread badge',
   '/src/features/query/QueryResultsMobile.tsx': 'white on the accent “save results” button',

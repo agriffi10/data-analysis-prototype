@@ -160,3 +160,16 @@ export function resetThemeForTest(): void {
   snapshot = {preference, effective: preference === 'system' ? systemTheme() : preference};
   bound = false;
 }
+
+/**
+ * The three theme choices, in the one order they are ever offered.
+ *
+ * Beside the store rather than in a component, because two components offer them now — the
+ * signed-out header's own control and the account menu — and a constant exported from a
+ * component file breaks fast refresh.
+ */
+export const THEME_OPTIONS: readonly {value: ThemePreference; label: string}[] = [
+  {value: 'light', label: 'Light'},
+  {value: 'dark', label: 'Dark'},
+  {value: 'system', label: 'System'}
+];

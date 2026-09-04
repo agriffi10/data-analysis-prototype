@@ -6,7 +6,6 @@ import {IconButton} from './IconButton';
 import {BellIcon, HelpCircleIcon} from './icons';
 import {useEscapeKey} from '../hooks/useEscapeKey';
 import {SECTION_CAPTION} from './fieldStyles';
-import {ThemeChoiceGroup} from './ThemeMenu';
 
 export type AppNavDrawerProps = {
   open: boolean;
@@ -33,6 +32,11 @@ export type AppNavDrawerProps = {
    * The slot does NOT close the drawer. A launcher wants to, a toggle does not, and a wrapper
    * that decided for both would make the next control here quietly wrong — so each action closes
    * the drawer itself if that is what it means.
+   *
+   * CURRENTLY UNFILLED. Its one occupant was Give feedback, which moved to the account menu once
+   * that menu made every chrome control reachable at every width. Kept rather than deleted
+   * because the reason it exists has not gone away — the header is still width-constrained — but
+   * nothing passes it today, so it is untested and the next filler owns proving it.
    */
   actions?: ReactNode;
 };
@@ -224,10 +228,9 @@ export function AppNavDrawer({open, onClose, id, contextualRail, isPathEnabled, 
             ))}
           </nav>
 
-          <div className="flex flex-col gap-2 border-t border-border px-3 py-3">
-            <span className={SECTION_CAPTION}>Theme</span>
-            <ThemeChoiceGroup />
-          </div>
+          {/* The theme choice used to be duplicated here, because the header dropped its
+              control below `tablet` for want of width. The account menu carries it now at
+              every width, so a second copy would be two controls setting one value. */}
 
           {actions && <div className="flex flex-col gap-0.5 border-t border-border p-3">{actions}</div>}
 

@@ -101,8 +101,14 @@ export function QueryResultsTable({
                       key={index}
                       scope="col"
                       className={`sticky top-0 z-20 border-b border-border bg-surface-2 px-3 ${SECTION_CAPTION}`}>
+                      {/* A column name is the user's data, so it is shown as they spelled it.
+                          The caption style the header borrows is uppercase, which is right for
+                          a fixed label and wrong here — it made lower-case Athena columns look
+                          renamed. Reset on the inner span, never beside `uppercase` on the
+                          `th`: same-element order is Tailwind's to decide and jsdom cannot
+                          see the result either way. */}
                       <span
-                        className="block truncate"
+                        className="block truncate normal-case tracking-normal"
                         title={column.name}>
                         {column.name}
                       </span>

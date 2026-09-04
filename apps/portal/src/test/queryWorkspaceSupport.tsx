@@ -106,12 +106,22 @@ export const savedFile = (
   size: over.size ?? 24
 });
 export const savedListing = (...names: string[]) => ok({queries: names.map((n) => savedFile(n)), isTruncated: false});
+// The bucket in a LOCATION is load-bearing now, not scenery: View source files checks that
+// the table's bucket IS the browsed space's, so this fixture names the stubbed one.
 export const salesTable = {
   name: 'sales_2026',
-  location: 's3://b/alice/sales/',
+  location: 's3://user-bucket/alice/sales/',
   columns: [{name: 'region', type: 'string'}]
 };
-export const foreignTable = {name: 'foreign', location: 's3://b/bob/x/', columns: []};
+/** Right bucket, someone else's prefix — fails the prefix half alone. */
+export const foreignTable = {name: 'foreign', location: 's3://user-bucket/bob/x/', columns: []};
+/**
+ * Right prefix for its own space, WRONG bucket — fails the bucket half alone.
+ *
+ * Its own fixture because the two halves are separately deletable: a table that fails both
+ * leaves the bucket check untested, since the prefix check already refused it.
+ */
+export const strayBucketTable = {name: 'stray', location: 's3://other-bucket/alice/stray/', columns: []};
 export const viewObj = {name: 'revenue_view', tableType: 'VIRTUAL_VIEW', columns: []};
 
 /** Per-execution status overrides consulted by the getQueryStatus mock (live). */
@@ -177,7 +187,7 @@ export function installWorkspaceMocks() {
 
   mockReadCache.mockResolvedValue(ok({version: 1, connections: []}));
   mockGetDatabase();
-  mockListTables.mockResolvedValue(ok([salesTable, foreignTable, viewObj]));
+  mockListTables.mockResolvedValue(ok([salesTable, foreignTable, strayBucketTable, viewObj]));
   mockGetHistory.mockResolvedValue(ok({version: 1, entries: []}));
   mockListSaved.mockResolvedValue(ok({queries: [], isTruncated: false}));
   mockAppend.mockResolvedValue(ok({version: 1, entries: []}));
