@@ -113,7 +113,10 @@ describe('where the theme control lives', () => {
     const {user} = renderWithProviders(<Header />, {auth: authenticated('alice'), route: '/files'});
     await user.click(screen.getByRole('button', {name: 'Open navigation'}));
 
-    expect(screen.queryByRole('group', {name: 'Theme'})).not.toBeInTheDocument();
+    // Wait for the drawer BEFORE asserting the absence inside it. Without this the negative
+    // is satisfied by a drawer that never opened, for any unrelated reason.
+    const drawer = await screen.findByRole('dialog', {name: 'Navigation'});
+    expect(within(drawer).queryByRole('group', {name: 'Theme'})).not.toBeInTheDocument();
   });
 });
 

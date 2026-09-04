@@ -1,4 +1,3 @@
-export {FeedbackButton} from './FeedbackButton';
 export {FeedbackDialog} from './FeedbackDialog';
 export {submitFeedback} from './feedback.service';
 export {useSubmitFeedback} from './useSubmitFeedback';

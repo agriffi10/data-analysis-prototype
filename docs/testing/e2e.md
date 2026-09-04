@@ -511,7 +511,7 @@ as honestly as a succeeding one.
 | Do | Expect |
 |---|---|
 | Open the picker with no tabs | A **Create** section below the list: *Create table from a folder…*. Its dialog refuses the space ROOT and says why. |
-| **Options** on an open exploration | One menu holding Columns, Colours, Transformers, Value, Calc, Grouping, Copy…, Export, Save as query, Create view…. The bar keeps only undo/redo, Order and filter, Clear, Filter by this value and the view switch. |
+| **Options** on an open exploration | One menu holding Order and filter, Remove all filters, Filter by this value, Columns, Colours, Transformers, Value, Calc, Grouping, Copy…, Export, Save as query, Create view…. The bar keeps only undo/redo and the view switch. |
 | **Options** with nothing selected | **Copy…** sits there `aria-disabled` with its reason on hover AND reachable by Arrow — not missing, not silently inert. |
 | Pick any Options item, then press Tab | Focus is on the **Options** button, not at the top of the page. |
 | **Options → Create view…**, name it, then look in the rail | The view appears. Its statement quotes both identifiers. |
@@ -897,10 +897,11 @@ whole app actually looks right.
    `/query`. The page must arrive dark. A white flash means `/theme-init.js` did not run before the
    first paint — check the Network panel for a **200** on it and a `Cache-Control: no-cache`, and
    the Console for a CSP refusal (an inline initialiser is the failure this shape exists to avoid).
-2. **The switch, and where it lives.** At desktop width use the half-circle button in the top bar;
-   the current choice carries a tick. Narrow the window below 900px while signed in: the header's
-   button is **gone** and the three choices are in the ☰ drawer. Sign out and narrow again: the
-   button is back, because there is no drawer.
+2. **The switch, and where it lives.** Signed in, at any width: open the menu on your **name** in
+   the top bar — the three choices sit between separators and the current one carries a tick.
+   Narrow below 900px and it is still there, which is the point of the move; there is no longer a
+   copy in the ☰ drawer. Sign out: the header shows its own **half-circle** button instead, at
+   every width, because a signed-out visitor has neither the account menu nor a drawer.
 3. **System follows the OS.** Choose **System**, then flip macOS *Appearance* between Light and
    Dark with the tab in the foreground. The app must follow **without a reload**. Choose **Light**
    and flip again: it must not move.
@@ -922,10 +923,11 @@ whole app actually looks right.
    font's content area rather than its line box (15.5px for `text-sm`, measured). §4.13 owns that
    rule in full, along with SC 2.5.8's spacing exception, which is what decides whether an
    undersized target is a violation at all. The three to measure, and what they should be:
-   the header's theme button `h-8` → **28px**; each of the drawer's three options `h-7` →
-   **24.5px**, which clears the floor by half a pixel and is the one to watch if any of this is
-   restyled; and a theme menu row, which has **no height class at all** — 18px line box plus
-   `py-2` (2 × 3.5px, twice) → **32px**. axe's `target-size` rule is **disabled** in the suite,
+   the signed-out header's theme button `h-8` → **28px**; the account-menu trigger, whose avatar
+   is `h-8` → **28px** and which additionally carries an absolute `min-h-[24px]` so the floor
+   survives a change of root size; and a menu row, which has **no height class at all** — 18px
+   line box plus `py-2` (2 × 3.5px, twice) → **32px**. The drawer's three `h-7` options are gone
+   with the drawer's theme block. axe's `target-size` rule is **disabled** in the suite,
    because with no layout engine jsdom made it report a pass it could not make; the static sweep
    that replaced it sees the drawer option's `h-7` directly and the header button's size through
    `IconButton`'s pinned `SIZES` map, and is blind to the menu row — so a browser is still the only
@@ -940,8 +942,8 @@ split is why most of this is owed rather than run — see `owed.md`.
 
 | Do | Expect |
 |---|---|
-| At desktop width, signed in | A **Give feedback** control in the top bar, immediately right of the help control. |
-| Narrow to 375px | The control is **gone from the header**, and the header carries nothing new. Open the ☰ menu: **Give feedback** is there, under the Theme block. |
+| At desktop width, signed in | Open the menu on your **name**: **Give feedback** is the second item, with an icon, under **Help & guides**. |
+| Narrow to 375px | The header carries nothing new, and the menu is unchanged — **Give feedback** is in the same place. The ☰ drawer no longer carries a copy. |
 | Open it | A dialog with **no category preselected**, an empty message, and a line naming the page you were on. **Send** is disabled. |
 | Choose a category, leave the message empty | **Send** stays disabled. Type a space or two — still disabled. |
 | Type a message, press Enter inside it | A newline. It does **not** submit. |

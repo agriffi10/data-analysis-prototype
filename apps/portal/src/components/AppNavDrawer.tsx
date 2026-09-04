@@ -32,6 +32,11 @@ export type AppNavDrawerProps = {
    * The slot does NOT close the drawer. A launcher wants to, a toggle does not, and a wrapper
    * that decided for both would make the next control here quietly wrong — so each action closes
    * the drawer itself if that is what it means.
+   *
+   * CURRENTLY UNFILLED. Its one occupant was Give feedback, which moved to the account menu once
+   * that menu made every chrome control reachable at every width. Kept rather than deleted
+   * because the reason it exists has not gone away — the header is still width-constrained — but
+   * nothing passes it today, so it is untested and the next filler owns proving it.
    */
   actions?: ReactNode;
 };

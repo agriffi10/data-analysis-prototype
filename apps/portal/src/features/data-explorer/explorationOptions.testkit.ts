@@ -4,11 +4,12 @@ import type {UserEvent} from '@testing-library/user-event';
 /**
  * Reach one of the Data Explorer's options-menu items.
  *
- * The nine controls that do not change which rows are on screen moved off the toolbar and
- * behind an **Options** menu. Roughly a hundred assertions reached them as toolbar buttons, and
- * rewriting each into "open the menu, then click the item" would have put the menu's shape in a
- * hundred places — so the next change to it would be the same sweep again. This is that shape,
- * once.
+ * Every action moved off the toolbar and behind an **Options** menu — first the nine that do
+ * not change which rows are on screen, then, on user feedback asking for a shorter bar, the
+ * three that do. Roughly a hundred assertions reached them as toolbar buttons, and rewriting
+ * each into "open the menu, then click the item" would have put the menu's shape in a hundred
+ * places — so the next change to it would be the same sweep again. This is that shape, once,
+ * and the second move cost only the call sites rather than the assertions.
  *
  * A helper rather than a query: the item is not in the document at all until the menu opens, so
  * there is no selector that finds it from a closed toolbar.

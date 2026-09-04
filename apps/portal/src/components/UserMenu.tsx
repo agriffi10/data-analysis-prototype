@@ -73,9 +73,10 @@ export function UserMenu({username, onHelp, onGiveFeedback, onSignOut}: UserMenu
           onClick={toggle}
           className="flex min-h-[24px] items-center gap-2 rounded-full p-0.5 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
           <span className="hidden pl-2 text-sm text-text-2 tablet:inline">{username}</span>
-          {/* 32px, comfortably over the 24px target floor. The floor is written in an
-              absolute unit on the button above because the root font is 14px, which makes
-              every `rem`-derived size understate it. */}
+          {/* 28px, not the 32 `h-8` reads as: the root font is 14px, so `--spacing` is 3.5px
+              and every `rem`-derived size is smaller than it looks. Still clear of the 24px
+              floor, which is why the floor itself is written on the button above in an
+              ABSOLUTE unit — `min-h-7` would be 24.5px here and 21px under a 12px root. */}
           <span
             className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-accent to-accent-hover text-xs font-semibold text-white"
             aria-hidden="true">

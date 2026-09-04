@@ -238,7 +238,8 @@ describe('Give feedback', () => {
       // text "Sign out" button — six things, over budget at 375px, which is why theme and
       // feedback were mount-gated off the phone entirely. It is now a hamburger, the brand
       // mark, help, the bell and ONE account trigger: five, with the username hidden below
-      // `tablet` so the trigger is the 32px avatar alone. Strictly narrower than before, and
+      // `tablet` so the trigger is the 28px avatar alone (`h-8` against a 14px root). Strictly
+      // narrower than before, and
       // every option the two gated controls carried is now reachable at this width.
       expect(controls).toEqual([
         'Open navigation',

@@ -1,5 +1,5 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {render, screen, waitFor, within} from '@testing-library/react';
+import {cleanup, render, screen, waitFor, within} from '@testing-library/react';
 import {DEFAULT_RESULTS_PAGE_SIZE} from './query.constants';
 import {ROW_COUNT_PAGE_SIZE} from '../catalog/catalog.constants';
 import {
@@ -1133,6 +1133,19 @@ describe('QueryWorkspace', () => {
 
       await waitFor(() => expect(screen.getByText('Succeeded')).toBeInTheDocument());
       expect(mockGetResults).not.toHaveBeenCalledWith(expect.objectContaining({maxRows: ROW_COUNT_PAGE_SIZE}));
+
+      // The positive control, over the SAME constant and in the same test: a row-returning
+      // statement must walk. Without it, `ROW_COUNT_PAGE_SIZE` ceasing to be what the walker
+      // asks for would make the negative above true for the wrong reason, permanently.
+      cleanup();
+      mockGetResults.mockResolvedValue(ok(page([['us-east']])));
+      seedSingle('SELECT 1');
+      const second = renderWorkspace();
+      await runOnce(second.user);
+
+      await waitFor(() =>
+        expect(mockGetResults).toHaveBeenCalledWith(expect.objectContaining({maxRows: ROW_COUNT_PAGE_SIZE}))
+      );
     });
   });
 

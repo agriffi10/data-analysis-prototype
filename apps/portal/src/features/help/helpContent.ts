@@ -358,8 +358,8 @@ export const HELP_SECTIONS: HelpSection[] = [
         intro:
           'A long session with the editor is easier on the eyes in the dark. Choose Light or Dark to fix it, or System to let the portal follow whatever your computer or phone is set to — so it turns dark in the evening if your device does.',
         steps: [
-          'Click the <b>half-circle</b> button in the top bar and choose <b>Light</b>, <b>Dark</b>, or <b>System</b>.',
-          'On a phone, open the menu from the <b>☰</b> button instead — the same three choices are near the bottom of the drawer.',
+          'Open the menu on your name in the top bar and choose <b>Light</b>, <b>Dark</b>, or <b>System</b>. It is the same menu that holds <b>Help &amp; guides</b>, <b>Give feedback</b> and <b>Sign out</b>.',
+          'It is in the same place at every screen size, phone included — there is no separate control to find on a small screen.',
           'The change applies straight away, and the editor, the results grid and every other screen follow it.'
         ],
         callout: {
@@ -475,7 +475,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Click a cell, then open <b>Options</b> and choose <b>Filter by this value</b> to filter on what is in it — the quickest way in.',
           'Open <b>Options</b> and choose <b>Order and filter</b> for everything at once: several sorts in priority order, several filters, and which columns are hidden or pinned. It applies as one change.',
           'Type your own condition in the <b>Filter expression</b> box and click <b>Apply expression</b> when the menus can’t say it.',
-          'Use the <b>back</b> and <b>forward</b> arrows to step through the filters you have already tried, and <b>Clear all</b> to start over.'
+          'Use the <b>back</b> and <b>forward</b> arrows on the bar to step through the filters you have already tried, or choose <b>Remove all filters</b> from <b>Options</b> to start over.'
         ],
         callout: {
           kind: 'warning',
