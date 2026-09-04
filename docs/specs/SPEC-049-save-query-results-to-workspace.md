@@ -16,6 +16,13 @@ When a query succeeds, the user should be able to keep its **full** result set i
 ### In Scope
 
 - **Rename/replace** the `QueryStatusBar` action from "Download CSV" to **Save results** (label e.g. "Save results to my files"); it appears only when the active query **SUCCEEDED** and produced a result object (a row-returning query with an `outputLocation`)
+
+  > **SUPERSEDED 2026-09-04.** The **SUCCEEDED** half is retired. The condition never inspected the
+  > execution state, so once a batch could display an earlier statement's result tab it reported
+  > "savable" into a branch that rendered only on success — unreachable over complete, already-billed
+  > rows. The button now appears beside **any** terminal state whose displayed result is
+  > row-returning. The result-object half stands, as does the acceptance criterion below, minus its
+  > "and is gone for … failed" clause.
 - A **Save-results modal**: a **destination folder** picker (reuse SPEC-039 `DestinationPicker`, scoped to the user's own space, excluding the protected `athenaresults/` folder) + a **file name** input with a sensible default (e.g. `query-results-{YYYYMMDD-HHmm}`)
 - **Save = server-side copy of the complete result object:** `copyObject` from the query's `{username}/athenaresults/{id}.csv` (parsed from `QueryStatus.outputLocation`) to `{username}/{destPrefix}/{filename}.csv` — captures **all** rows regardless of UI pagination
 - **`.csv` extension** appended/normalized automatically; **file-name validation** (reuse the file-browser leaf-name validation) with inline errors
