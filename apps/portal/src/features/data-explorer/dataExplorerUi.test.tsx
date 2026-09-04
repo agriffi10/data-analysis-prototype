@@ -139,6 +139,23 @@ describe('the source picker', () => {
     // to explore, and the renderer does not care which it is reading.
     expect(screen.getByRole('button', {name: 'orders'})).toBeInTheDocument();
     expect(screen.getByRole('button', {name: /revenue_view/})).toBeInTheDocument();
+
+    // Tables lead. Asserted because the constant claims "the one order they are ever offered",
+    // and two `getByRole` calls prove both headings exist while saying nothing about which
+    // comes first.
+    const headings = screen.getAllByRole('heading', {name: /^(Tables|Views) \(/}).map((h) => h.textContent);
+    expect(headings).toEqual(['Tables (1)', 'Views (1)']);
+  });
+
+  // A space with no views is the ordinary case for a new one, and it is the only shape that
+  // enters the empty-section branch — the fixture above has one of each, so nothing reached it.
+  // An always-present "Views (0)" is a heading that never says anything.
+  it('omits a section with no members rather than showing it empty', async () => {
+    vi.mocked(listTables).mockResolvedValue(ok([TABLE]) as never);
+    render();
+
+    expect(await screen.findByRole('heading', {name: 'Tables (1)'})).toBeInTheDocument();
+    expect(screen.queryByRole('heading', {name: /^Views/})).not.toBeInTheDocument();
   });
 
   it('opens a tab bound to the chosen table and runs its first execution', async () => {

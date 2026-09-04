@@ -1107,6 +1107,46 @@ describe('QueryWorkspace', () => {
       });
     });
 
+    // THE FIRST ARM of the row-count gate, which nothing else reaches. The walk is opened by
+    // the batch's verdict — a result tab exists — rather than by the first page's columns
+    // arriving, and the only way to tell those apart is to keep that page in flight: under the
+    // pre-change gate the walk could not start at all while it hung. The `??` fallback is a
+    // different half of the same commit and is covered by the test below.
+    it('starts the row-count walk while the first page is still in flight', async () => {
+      let displayPageStarted = false;
+      mockGetResults.mockImplementation(async ({maxRows}: {maxRows?: number}) => {
+        if (maxRows === ROW_COUNT_PAGE_SIZE) return ok(page([['us-east'], ['eu-west']]));
+        displayPageStarted = true;
+        return new Promise(() => {}) as never; // never settles
+      });
+      seedSingle('SELECT 1');
+      const {user} = renderWorkspace();
+      await runOnce(user);
+
+      await waitFor(() =>
+        expect(mockGetResults).toHaveBeenCalledWith(expect.objectContaining({maxRows: ROW_COUNT_PAGE_SIZE}))
+      );
+      // The premise the assertion above rests on: the display page really was outstanding, so
+      // the walk cannot have been let through by columns that had already arrived.
+      expect(displayPageStarted).toBe(true);
+    });
+
+    // THE SECOND ARM, which the first cannot cover. `isResultProducingSql` is a shape heuristic
+    // over the SQL, so a statement it declines gets no result tab — and if Athena returns
+    // columns for it anyway, the count worked before this change and has to keep working.
+    // Same statement as the DDL test below; only the fixture differs, which is what makes both
+    // arms mean something.
+    it('still counts a statement the batch declined, when it returns columns anyway', async () => {
+      mockGetResults.mockResolvedValue(ok(page([['us-east'], ['eu-west']])));
+      seedSingle('CREATE TABLE t (a int)');
+      const {user} = renderWorkspace();
+      await runOnce(user);
+
+      await waitFor(() =>
+        expect(mockGetResults).toHaveBeenCalledWith(expect.objectContaining({maxRows: ROW_COUNT_PAGE_SIZE}))
+      );
+    });
+
     // The paging-derived total is null until the last page has been loaded, so before this
     // the pager showed no total until you clicked Next to the very end — on a real result
     // that is every page of it. The exact background walk already knew the answer.

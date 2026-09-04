@@ -6,6 +6,7 @@ import {authenticated, unauthenticated} from '../test/authFixtures';
 import {Route, Routes} from 'react-router';
 import {RootLayout} from './RootLayout';
 import type {AuthContextValue} from '../features/auth';
+import {useLocation} from 'react-router';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../test/axe';
 
 // ─── from Header.test.tsx ───
@@ -13,6 +14,11 @@ vi.mock('../features/notifications/notifications.service', () => ({
   getNotifications: vi.fn().mockResolvedValue({success: true, data: []}),
   enqueueNotificationAction: vi.fn().mockResolvedValue({success: true, data: undefined})
 }));
+
+/** Renders the router's current path, so a navigation can be asserted as an outcome. */
+function LocationProbe() {
+  return <span data-testid="where">{useLocation().pathname}</span>;
+}
 
 describe('Header', () => {
   /**
@@ -108,8 +114,36 @@ describe('Header', () => {
 
       expect(trigger).toHaveAttribute('aria-haspopup', 'menu');
       expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      // Absent while closed — it must not point at an element that is not rendered.
+      expect(trigger).not.toHaveAttribute('aria-controls');
+
       await user.click(trigger);
+
       expect(trigger).toHaveAttribute('aria-expanded', 'true');
+      // All four attributes the trigger owes `Menu` are asserted, not three: `aria-controls`
+      // has to name the popover that actually appeared, so it is compared against its id.
+      expect(trigger).toHaveAttribute('aria-controls', screen.getByRole('menu', {name: 'Account'}).id);
+    });
+
+    // The only item whose EFFECT was unasserted: label, icon and position were all pinned, so
+    // pointing `onHelp` at a no-op left a dead item on the primary chrome with a green suite.
+    // Sign out, Give feedback and the theme rows are each driven somewhere; this one was not.
+    it('navigates to Help & guides from the first item', async () => {
+      const {user} = renderWithProviders(
+        <>
+          <Header />
+          <LocationProbe />
+        </>,
+        {auth: authenticated('alice'), route: '/files'}
+      );
+      expect(screen.getByTestId('where')).toHaveTextContent('/files');
+
+      await user.click(screen.getByRole('button', {name: 'Account: alice'}));
+      await user.click(
+        within(screen.getByRole('menu', {name: 'Account'})).getByRole('menuitem', {name: 'Help & guides'})
+      );
+
+      expect(screen.getByTestId('where')).toHaveTextContent('/help');
     });
 
     it('signs out from the last item', async () => {

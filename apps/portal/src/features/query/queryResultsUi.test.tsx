@@ -194,6 +194,19 @@ describe('QueryResultsMobile', () => {
   }
 
   describe('QueryResultsMobile (SPEC-100 FR-006)', () => {
+    // The desktop pager's twin. Both prefer the exact background total over the paging-derived
+    // one, which is null until the last page is loaded — and the rule being written twice is
+    // exactly why this needs its own test: the desktop copy was fenced and this one was not,
+    // so deleting it here restored "no total until you page to the end" on a phone alone.
+    it('shows the exact total while the paging-derived one is still unknown', () => {
+      renderResults({
+        totalRowCount: 2384,
+        results: resultsFixture({totalRowCount: null, hasNext: true, hasMoreServer: true})
+      });
+
+      expect(screen.getByText(/Rows 1–2 of 2384/)).toBeInTheDocument();
+    });
+
     it('shows the SQL read-only — no editor to type into', () => {
       renderResults();
       expect(screen.getByText(SQL)).toBeInTheDocument();
