@@ -1,5 +1,6 @@
 import {ParentFolderRow} from './ParentFolderRow';
 import {FileListRowMobile} from './FileListRowMobile';
+import {SystemFolderGroupRow} from './SystemFolderGroupRow';
 import type {FileListProps} from './FileListTable';
 
 /**
@@ -11,6 +12,9 @@ import type {FileListProps} from './FileListTable';
 export function FileListMobile({
   folders,
   files,
+  systemFolders,
+  systemExpanded,
+  onToggleSystem,
   selectable,
   atRoot,
   onNavigateUp,
@@ -45,6 +49,28 @@ export function FileListMobile({
           onToggleSelect={() => onToggleSelect({type: 'folder', prefix: folder.prefix})}
         />
       ))}
+      {systemFolders.length > 0 && (
+        <SystemFolderGroupRow
+          variant="mobile"
+          count={systemFolders.length}
+          expanded={systemExpanded}
+          onToggle={onToggleSystem}
+          selectable={selectable}
+        />
+      )}
+      {systemExpanded &&
+        systemFolders.map((folder) => (
+          <FileListRowMobile
+            key={folder.prefix}
+            kind="folder"
+            folder={folder}
+            onOpen={() => onOpenFolder(folder)}
+            onDetails={onFolderDetails}
+            selectable={selectable}
+            isSelected={isSelected(folder.prefix)}
+            onToggleSelect={() => onToggleSelect({type: 'folder', prefix: folder.prefix})}
+          />
+        ))}
       {files.map((file) => (
         <FileListRowMobile
           key={file.key}

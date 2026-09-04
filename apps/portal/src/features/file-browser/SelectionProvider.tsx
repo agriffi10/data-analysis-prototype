@@ -34,6 +34,10 @@ export function SelectionProvider({prefix, children}: {prefix?: string; children
     (items: Parameters<SelectionContextValue['selectAll']>[0]) => dispatch({type: 'selectAll', items}),
     []
   );
+  const deselect = useCallback(
+    (ids: Parameters<SelectionContextValue['deselect']>[0]) => dispatch({type: 'deselect', ids}),
+    []
+  );
   const clear = useCallback(() => dispatch({type: 'clear'}), []);
 
   const value = useMemo<SelectionContextValue>(
@@ -43,9 +47,10 @@ export function SelectionProvider({prefix, children}: {prefix?: string; children
       isSelected: (id) => state.items.has(id),
       toggle,
       selectAll,
+      deselect,
       clear
     }),
-    [state, toggle, selectAll, clear]
+    [state, toggle, selectAll, deselect, clear]
   );
 
   return <SelectionContext.Provider value={value}>{children}</SelectionContext.Provider>;
