@@ -83,15 +83,43 @@ clears it after 90 minutes.
 ## What is enforced, and what is not
 
 A `pre-push` hook refuses a push of any ref matching `enforce-branches` unless that branch holds the
-lock. It reads the refs git actually hands it on stdin rather than the checked-out branch, so `git
-push origin spec-x/y` from somewhere else, and a `HEAD:refs/heads/spec-x/y` refspec from a detached
-HEAD, are covered too. It **fails open** everywhere else: a branch outside the pattern, a missing
-queue, an unreadable one. Linked worktrees share `.git/hooks` through the common git dir, so this
-hook fires for **every** session on the checkout — including ones that never agreed to the queue and
-have never heard of it, and blocking those would be a worse failure than the one it prevents. The
-hook is reached through a wrapper in `.git/hooks` that `exec`s the real one from the queue
-directory, so enforcement cannot outlive the queue it enforces: delete the queue and the wrapper is
-a no-op. `PR_QUEUE_BYPASS=1 git push …` overrides it; if you need that, say so in your report.
+lock, and `install.sh` sets that to **every branch**. It reads the refs git actually hands it on
+stdin rather than the checked-out branch, so `git push origin spec-x/y` from somewhere else, and a
+`HEAD:refs/heads/spec-x/y` refspec from a detached HEAD, are covered too. The branch it compares is
+always the **remote** one, so `mine:main` is a push to the trunk however it is spelled locally.
+
+**Do not narrow the pattern to a list of branch prefixes.** That was the first design and it fails
+**open**, silently: it enforced the prefixes of five specs, those specs closed, and the hook then
+exited 0 for every branch anyone pushed while still looking installed. Nothing about a queue
+enforcing nothing looks different from a queue enforcing everything.
+
+Four things are exempt, each because no pull request can come of it: a push to a remote that is
+**not this checkout's origin**, a branch **deletion**, a **tag**, and the **trunk**. The trunk
+exemption is why `acquire` refuses to run while you are on it — a lock stamped with the trunk covers
+no push at all.
+
+It still **fails open** wherever the *queue* is what is missing: an empty `enforce-branches`, an
+unreadable one, a deleted queue directory. Linked worktrees share `.git/hooks` through the common
+git dir, so this hook fires for **every** session on the checkout, including ones that never agreed
+to the queue, and an unreadable queue must not stop them. That last case is carried by the wrapper
+in `.git/hooks`, not by the hook: the hook lives *inside* the queue directory, so a deleted queue
+deletes it too, and the wrapper's `exec`-if-present is what lets the push through.
+`PR_QUEUE_BYPASS=1 git push …` overrides everything; if you need that, say so in your report.
+
+**If the refusal names a lock you believe is yours**, read the branch on the holder line. A lock
+acquired from the wrong directory records the wrong branch and then authorises nothing; re-running
+`acquire` from the right worktree re-stamps it, and keeps your place. Reach for the bypass after
+that, not before.
+
+**A detached HEAD cannot hold a lock, and is now refused a push.** `acquire` needs a branch to
+record, so a detached worktree can take a ticket and never acquire, while every branch it pushes is
+enforced. Create a branch and acquire from it; `PR_QUEUE_BYPASS=1` is the other way out and is worth
+mentioning in your report if you take it.
+
+That re-stamp is the one place `acquire` is not a no-op when you already hold the lock: it re-points
+a live lock at whatever branch you are standing on. Two sessions sharing a ticket id can therefore
+take the lock away from each other's push without either noticing, so **one id per session** is a
+rule rather than a convention. Every re-stamp is logged to `$Q/log`.
 
 The queue only orders the agents that use it, so `turn` also asks the remote itself — that is what
 covers sessions outside the set. **Both remote checks fail closed.** The trap they are written
@@ -114,13 +142,14 @@ restart from zero — there is nobody left to jump.) Both reaps are logged to `$
 
 ## Configuration
 
-Single-value files in the queue directory, all written by `install.sh`:
+Single-value files in the queue directory, written by `install.sh` — `repo` and `main-branch` on
+every run, `enforce-branches` only as the row below describes:
 
 | File | What it holds |
 |---|---|
 | `repo` | The checkout the remote checks run from. |
 | `main-branch` | The trunk branch name (default `main`). |
-| `enforce-branches` | ERE for the branches `pre-push` enforces against; `install.sh` writes `^spec-` unless you pass your own. Empty or missing enforces nothing, silently — it must match the branch names the briefing hands out. |
+| `enforce-branches` | ERE for the branches `pre-push` enforces against. `install.sh` writes `.` — every branch — only when the file is **absent or empty**; an existing pattern is KEPT, so **an upgrade must pass the regex explicitly** or it silently keeps whatever was there. The banner says which of the two happened. Empty or missing enforces nothing, silently, which is why narrowing it is the change to think twice about. |
 
 Two environment variables override the files, for a one-off: `PR_QUEUE_DIR` tells `install.sh` where
 to put the queue, and `PR_QUEUE_REPO` overrides `repo` for a single `queue.sh` invocation.

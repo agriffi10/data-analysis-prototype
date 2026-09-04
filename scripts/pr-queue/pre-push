@@ -2,51 +2,146 @@
 # pre-push — makes the PR queue real rather than advisory. Refuses a push of a participating
 # branch by a session that does not hold the lock.
 #
-# It FAILS OPEN by design, and the reason is worktrees: linked worktrees share `.git/hooks`
-# through the common git dir, so this hook fires for every session on the checkout — including
-# ones that never agreed to the queue and have never heard of it. Blocking those would be a worse
-# failure than the one it prevents. So a branch outside the configured pattern, a missing queue,
-# an unreadable one, and an explicit bypass all allow the push.
+# WHAT PARTICIPATES, and why it is not a list of prefixes. `enforce-branches` holds an ERE, and
+# the installer defaults it to every branch. An allowlist of branch prefixes was the first design
+# and it fails OPEN, silently: name a few branch families, and the day naming moves on, every push
+# stops being anybody's business while the queue goes on looking healthy. That is not a
+# hypothetical — the first deployment of this queue named the branch prefixes of five specs, and
+# once those specs closed the hook exited 0 for every branch anyone pushed, with nothing to notice.
 #
-# It lives in the queue directory and is reached by a wrapper in .git/hooks that execs it, so
-# enforcement cannot outlive the queue it enforces: delete the queue and the wrapper
-# becomes a no-op. `install.sh` writes both.
+# Three things are exempt instead, each because no pull request can come of it:
+#   · a push to a remote that is not this checkout's origin — a fork, a backup, a scratch repo;
+#   · a branch DELETION, which closes a branch rather than proposing one;
+#   · the trunk itself, which is what a pull request targets rather than what it comes from.
+# A tag falls out for free: this only ever inspects `refs/heads/*`.
+#
+# It still FAILS OPEN wherever the QUEUE is the thing that is missing, and the reason is
+# worktrees: linked worktrees share `.git/hooks` through the common git dir, so this hook fires
+# for every session on the checkout, including ones that never agreed to the queue. So an empty
+# pattern, an unreadable one and an explicit bypass all allow the push. The MISSING-QUEUE case is
+# not handled here and cannot be: this file lives in the queue directory, so a deleted queue takes
+# it with it. What allows that push is the wrapper `install.sh` writes into `.git/hooks`, which
+# execs this only if it is still there — enforcement cannot outlive the queue it enforces.
 
 Q="$(cd "$(dirname "$0")" && pwd)"
 PATTERN="$(cat "$Q/enforce-branches" 2>/dev/null)"
+MAIN="$(cat "$Q/main-branch" 2>/dev/null)"; [ -n "$MAIN" ] || MAIN=main
 
-[ -d "$Q" ] || exit 0                              # no queue — enforce nothing
 [ -n "$PATTERN" ] || exit 0                        # no pattern configured — enforce nothing
 [ "${PR_QUEUE_BYPASS:-}" = "1" ] && { echo "pre-push: PR_QUEUE_BYPASS=1 — queue check skipped" >&2; exit 0; }
 
-# The holder's branch is compared as a string, never grepped: a substring match would let
-# `spec-207/qu` push under the lock held by `spec-207/queue`.
+# git passes the remote's name in $1 and the URL it resolved in $2. This queue serialises ONE
+# remote — the checkout's origin — so a push anywhere else can open no pull request and is none of
+# its business. The comparison reads origin from git rather than from a file beside this one on
+# purpose: a stored URL that went stale would exempt every push and look exactly like a healthy
+# queue, which is the failure this whole file exists to stop repeating. Both spellings are read
+# because a `pushurl` makes them differ. A checkout whose origin cannot be read is enforced —
+# origin is the overwhelmingly likely target, and the bypass is one line below this in the message.
+#
+# The spellings are normalised first. A trailing slash and a trailing `.git` are the two ways an
+# honest session writes the same remote, and treating either as foreign would exempt a push going
+# straight to origin — silently, which is this file's whole subject. Deliberately NOT normalised:
+# scheme, host, and the scp-style `git@host:path` form against `ssh://git@host/path`. Those are
+# re-spellings rather than typos, a parser for them is more failure surface than the exemption is
+# worth, and anyone re-spelling their origin to dodge this already has `PR_QUEUE_BYPASS=1`. The
+# check exists to stop honest pushes being refused, not to stop dishonest ones.
+# `--all` on both, because a remote may carry SEVERAL urls: git then runs this hook once per url,
+# and reading only the first leaves half of one `git push origin` unenforced.
+norm_url() { printf '%s' "$1" | sed -e 's#/*$##' -e 's#\.git$##' -e 's#/*$##'; }
+ORIGINS="$(git remote get-url --all origin 2>/dev/null
+           git remote get-url --push --all origin 2>/dev/null)"
+TARGET="$(norm_url "${2:-}")"
+if [ -n "${2:-}" ] && [ -n "$ORIGINS" ]; then
+  matched=0
+  # A heredoc rather than a pipe: a piped `while` runs in a subshell and `matched` would never
+  # come back, which reads as "no url matched" and exempts every push.
+  while IFS= read -r origin_url; do
+    [ -n "$origin_url" ] || continue
+    [ "$(norm_url "$origin_url")" = "$TARGET" ] && { matched=1; break; }
+  done <<ORIGIN_URLS
+$ORIGINS
+ORIGIN_URLS
+  [ "$matched" = 1 ] || exit 0
+fi
+
+# The holder's branch is compared as a STRING, never grepped: a substring match would let
+# `spec-207/qu` push under the lock held by `spec-207/queue`. The spec id is read too, because the
+# refusal below has to name the argument `queue.sh` takes.
+holder_spec=""
 holder_branch=""
-[ -d "$Q/lock" ] &&
+if [ -d "$Q/lock" ]; then
+  holder_spec="$(awk '$1=="spec"   { $1=""; sub(/^ /,""); print; exit }' "$Q/lock/holder" 2>/dev/null)"
   holder_branch="$(awk '$1=="branch" { $1=""; sub(/^ /,""); print; exit }' "$Q/lock/holder" 2>/dev/null)"
+fi
 
 # git names the refs actually being pushed on STDIN, one
-# "<local ref> <local sha> <remote ref> <remote sha>" line per ref. Read those rather than the
-# checked-out branch: `git push origin spec-x/y` from a different branch, and
+# "<local ref> <local object> <remote ref> <remote object>" line per ref. Read those rather than
+# the checked-out branch: `git push origin spec-x/y` from a different branch, and
 # `git push origin HEAD:refs/heads/spec-x/y` from a detached HEAD, both bypass a HEAD-based check.
+#
+# Every decision below keys on the REMOTE ref, which is the one that decides what appears on the
+# remote. `git push origin mine:main` is a push to the trunk however it is spelled locally, and
+# `git push origin main:refs/heads/topic` is a topic branch however it is spelled locally.
 refused=""
-while read -r _lref _lsha rref _rsha; do
+while read -r lref _lsha rref _rsha; do
   [ -n "$rref" ] || continue
   case "$rref" in refs/heads/*) branch="${rref#refs/heads/}" ;; *) continue ;; esac
-  echo "$branch" | grep -qE "$PATTERN" || continue   # not a participating branch — not our business
+  # git supplies `(delete)` as the local ref of a deletion, and an all-zero local object beside
+  # it. Either would do; the literal is used because the zero object's WIDTH is 40 or 64
+  # characters depending on the repository's hash algorithm, and a check that quietly stops
+  # matching when a repo moves to sha256 is the shape of bug this file is about.
+  [ "$lref" = "(delete)" ] && continue
+  [ "$branch" = "$MAIN" ] && continue
+  # grep answers three ways and only one of them means "not participating". A malformed ERE —
+  # `spec-[` is enough — exits 2, and treating that as no-match exempts EVERY branch while the
+  # queue looks installed, which is the exact failure this file exists to stop. So exit 2 falls
+  # through to the refusal: a pattern nobody can evaluate refuses loudly instead of allowing
+  # silently. `install.sh` also refuses to write one, so this should be unreachable.
+  echo "$branch" | grep -qE "$PATTERN"
+  case $? in
+    1) continue ;;                                   # not a participating branch — not our business
+    0) ;;                                            # participating
+    *) ;;                                            # grep could not answer — fail closed
+  esac
   [ "$branch" = "$holder_branch" ] && continue
   refused="$refused $branch"
 done
 
 [ -n "$refused" ] || exit 0
 
+if [ -d "$Q/lock" ] && [ -z "$holder_spec" ] && [ -z "$holder_branch" ]; then
+  # A lock exists whose holder file says nothing this can read. Reporting it as free would send
+  # the reader looking for a race that is not happening; the usual cause is a re-install under a
+  # held lock, which swapped the scripts and left a holder in the previous format behind.
+  held="(unreadable — a lock is held but its holder file parses to nothing)"
+  # Do NOT tell the reader to wait for the reap. It only breaks a lock when there is also no open
+  # PR and the trunk is green, and a lock holder is by definition a session with a PR up — so the
+  # wait can be indefinite. Removing the lock by hand is the real recovery, and it is a decision
+  # someone should take deliberately rather than a step to follow.
+  mine="  No release can name that lock while it is unreadable. Recovering means removing
+  $Q/lock by hand, which takes someone else's lock with it — escalate rather than do it quietly.
+"
+elif [ -n "$holder_spec" ] || [ -n "$holder_branch" ]; then
+  held="${holder_spec:-?} on ${holder_branch:-(no branch recorded)}"
+  # The one recovery that is not obvious. A lock acquired from the wrong directory records a
+  # branch this hook will never match, and the session then holds a lock that authorises nothing.
+  # Re-acquiring from the right worktree re-stamps it; without this line the reader reaches for
+  # the bypass, and a gate people routinely override is worse than one that is honestly off.
+  mine="  If that lock is yours, re-run \`$Q/queue.sh acquire $holder_spec\` from THIS worktree —
+  acquiring again re-stamps the branch the lock covers.
+"
+else
+  held="(free)"
+  mine=""
+fi
+
 cat >&2 <<MSG
 
   PUSH REFUSED — you do not hold the PR queue lock.
 
   Refused ref(s):$refused
-  Lock holder:   ${holder_branch:-(free)}
-
+  Lock holder:   $held
+$mine
   Several agent sessions share this repo and only one PR may be open at a time.
   Get in line, wait for your turn, then push:
 
