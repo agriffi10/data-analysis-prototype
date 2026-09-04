@@ -31,6 +31,7 @@ import pathlib
 import re
 import shutil
 import subprocess
+import tempfile
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 BASE_REF = "origin/main"
@@ -41,11 +42,13 @@ _ACTION_BLOCK_RE = re.compile(r'"Action"\s*:\s*(\[[^\]]*\]|"[^"]*")', re.DOTALL)
 _RESOURCE_BLOCK_RE = re.compile(r'"Resource"\s*:\s*(\[[^\]]*\]|"[^"]*")', re.DOTALL)
 
 
-def _git(*args: str) -> str:
+def _git(*args: str, root: pathlib.Path | None = None) -> str:
     """Runs one git command in the repository.
 
     Args:
       *args: The command's arguments.
+      root: The repository to run in, for the fixture that proves the enumeration below reads
+        paths raw. Defaults to this checkout.
 
     Returns:
       Its standard output.
@@ -55,17 +58,23 @@ def _git(*args: str) -> str:
     """
     git = shutil.which("git") or "git"
     finished = subprocess.run(  # noqa: S603
-        [git, *args], cwd=REPO, capture_output=True, text=True, check=False
+        [git, *args], cwd=root or REPO, capture_output=True, text=True, check=False
     )
     assert finished.returncode == 0, f"git {' '.join(args)} failed: {finished.stderr}"
     return finished.stdout
 
 
-def _templates() -> list[str]:
+def _templates(root: pathlib.Path | None = None) -> list[str]:
     """Every portal-role permission template in the working tree.
 
+    ``-z`` rather than plain ``ls-files``: git C-QUOTES a path that is not plain ASCII, wrapping
+    it in double quotes and escaping the bytes, and a quoted path fails the pattern below. The
+    template would then drop out of the population this guard protects, silently and in the
+    direction that reads as clean.
+
     Args:
-      None.
+      root: The repository to enumerate, for the fixture that proves the above. Defaults to this
+        checkout.
 
     Returns:
       Repo-relative paths.
@@ -73,7 +82,7 @@ def _templates() -> list[str]:
     Raises:
       AssertionError: If git fails.
     """
-    listed = _git("ls-files", "-z", "infra/modules")
+    listed = _git("ls-files", "-z", "infra/modules", root=root)
     return sorted(
         path for path in listed.split("\0") if POLICY_PATTERN.fullmatch(path)
     )
@@ -251,4 +260,59 @@ def test_the_comparison_can_actually_FAIL() -> None:
     assert _resources(base), "the resource extractor found nothing to compare"
     assert any(action.startswith(CATALOG_PREFIXES) for action in _actions(base)), (
         "the analytics template names no catalog action, so this guard has no subject"
+    )
+
+
+def _repo_with_a_non_ascii_template(work: str) -> pathlib.Path:
+    """Build a throwaway repository holding three portal-role templates, one non-ASCII.
+
+    Args:
+      work: An existing empty directory to build in.
+
+    Returns:
+      pathlib.Path: The repository root, with one commit.
+
+    Raises:
+      subprocess.CalledProcessError: If any git command fails.
+    """
+    root = pathlib.Path(work)
+    names = (
+        "infra/modules/base/policies/portal-role-plain.json.tftpl",
+        "infra/modules/base/policies/portal-role-café.json.tftpl",
+        "infra/modules/café/policies/portal-role-a.json.tftpl",
+    )
+    for name in names:
+        written = root / name
+        written.parent.mkdir(parents=True, exist_ok=True)
+        written.write_text("{}\n", encoding="utf-8")
+    git = ["git", "-C", str(root), "-c", "user.email=t@t", "-c", "user.name=t"]
+    subprocess.run([*git, "init", "-q", "-b", "main"], check=True)  # noqa: S603
+    subprocess.run([*git, "add", "-A"], check=True)  # noqa: S603
+    subprocess.run([*git, "commit", "-qm", "fixture"], check=True)  # noqa: S603
+    return root
+
+
+def test_the_enumeration_reads_paths_raw_rather_than_quoted():
+    """A guard cannot protect a template git spelled in a way its pattern refuses.
+
+    ``ls-files`` C-quotes any path that is not plain ASCII, and the quoted spelling fails
+    ``POLICY_PATTERN``. The template then drops out of the population silently, which is the
+    direction that reads as a clean guard. Three shapes, two of them non-ASCII: without ``-z``
+    this keeps one of three.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a non-ASCII template is not enumerated.
+    """
+    with tempfile.TemporaryDirectory() as work:
+        root = _repo_with_a_non_ascii_template(work)
+        found = _templates(root=root)
+    assert len(found) == 3, (
+        f"the enumeration kept {len(found)} of 3 templates, so a non-ASCII path was quoted out "
+        f"of the population this guard protects: {found}"
     )

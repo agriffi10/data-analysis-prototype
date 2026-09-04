@@ -20,6 +20,7 @@ import pathlib
 import re
 import shutil
 import subprocess
+import tempfile
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 INFRA = REPO / "infra"
@@ -76,7 +77,7 @@ CONTENT_ASSERTED = frozenset({EDITED, LISTING_EDITED})
 API_ROLE_ARN = "arn:aws:iam::696000197480:role/dat-prod-api-role"
 PORTAL_ROLE_ARN = "arn:aws:iam::696000197480:role/dat-portal-user-role"
 
-def _git(*args: str) -> str:
+def _git(*args: str, root: pathlib.Path | None = None) -> str:
     """Runs a git command in the repository, failing loudly rather than skipping.
 
     A guard that cannot read its baseline has not passed — it has not run, and "did not run" is
@@ -84,6 +85,8 @@ def _git(*args: str) -> str:
 
     Args:
       *args: The git arguments.
+      root: The repository to run in, for the fixture that proves the enumeration below reads
+        paths raw. Defaults to this checkout.
 
     Returns:
       The command's stdout.
@@ -94,7 +97,7 @@ def _git(*args: str) -> str:
     """
     git = shutil.which("git") or "git"
     result = subprocess.run(  # noqa: S603
-        [git, *args], cwd=REPO, capture_output=True, text=True, check=False
+        [git, *args], cwd=root or REPO, capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, (
         f"git {' '.join(args)} failed: {result.stderr.strip()}\n"
@@ -166,13 +169,19 @@ def _rendered_trust() -> dict:
     return json.loads(rendered)
 
 
-def _permission_templates(commit: str) -> set[str]:
+def _permission_templates(commit: str, root: pathlib.Path | None = None) -> set[str]:
     """Every portal-role permission template at a commit, as repo-relative paths.
 
     The trust template is excluded because it is the one this spec edits.
 
+    ``-z`` rather than plain ``--name-only``: git C-QUOTES a path that is not plain ASCII, and a
+    quoted path fails the pattern below — so the template drops out of the population this guard
+    protects, in the direction that reads as clean.
+
     Args:
       commit: The commit to enumerate at.
+      root: The repository to enumerate, for the fixture that proves the above. Defaults to this
+        checkout.
 
     Returns:
       The set of paths.
@@ -180,7 +189,9 @@ def _permission_templates(commit: str) -> set[str]:
     Raises:
       AssertionError: If git fails.
     """
-    listed = _git("ls-tree", "-r", "-z", "--name-only", commit, "--", "infra/modules")
+    listed = _git(
+        "ls-tree", "-r", "-z", "--name-only", commit, "--", "infra/modules", root=root
+    )
     return {
         path
         for path in listed.split("\0")
@@ -549,4 +560,59 @@ def test_the_user_space_template_gained_ONLY_the_shared_document_listing() -> No
     )
     assert re.findall(r'"(_[a-z]+/\*)"', added) == ["_directory/*", "_config/*"], (
         "the document listing may name those two prefixes and nothing else"
+    )
+
+
+def _repo_with_a_non_ascii_template(work: str) -> pathlib.Path:
+    """Build a throwaway repository holding three portal-role templates, one non-ASCII.
+
+    Args:
+      work: An existing empty directory to build in.
+
+    Returns:
+      pathlib.Path: The repository root, with one commit.
+
+    Raises:
+      subprocess.CalledProcessError: If any git command fails.
+    """
+    root = pathlib.Path(work)
+    names = (
+        "infra/modules/base/policies/portal-role-plain.json.tftpl",
+        "infra/modules/base/policies/portal-role-café.json.tftpl",
+        "infra/modules/café/policies/portal-role-a.json.tftpl",
+    )
+    for name in names:
+        written = root / name
+        written.parent.mkdir(parents=True, exist_ok=True)
+        written.write_text("{}\n", encoding="utf-8")
+    git = ["git", "-C", str(root), "-c", "user.email=t@t", "-c", "user.name=t"]
+    subprocess.run([*git, "init", "-q", "-b", "main"], check=True)  # noqa: S603
+    subprocess.run([*git, "add", "-A"], check=True)  # noqa: S603
+    subprocess.run([*git, "commit", "-qm", "fixture"], check=True)  # noqa: S603
+    return root
+
+
+def test_the_enumeration_reads_paths_raw_rather_than_quoted():
+    """A guard cannot preserve a template git spelled in a way its pattern refuses.
+
+    ``ls-tree --name-only`` C-quotes any path that is not plain ASCII, and the quoted spelling
+    fails the pattern in ``_permission_templates``. A widened policy at such a path would then
+    never be compared against its baseline, silently. Three shapes, two of them non-ASCII:
+    without ``-z`` this keeps one of three.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a non-ASCII template is not enumerated.
+    """
+    with tempfile.TemporaryDirectory() as work:
+        root = _repo_with_a_non_ascii_template(work)
+        found = _permission_templates("HEAD", root=root)
+    assert len(found) == 3, (
+        f"the enumeration kept {len(found)} of 3 templates, so a non-ASCII path was quoted out "
+        f"of the population this guard preserves: {found}"
     )

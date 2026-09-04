@@ -4,9 +4,9 @@ Both hold a condition that was structural until it became textual, which is the 
 which a guard starts needing one of its own.
 
 ``ci.yml``'s ``ci`` job skips its lint, build and test steps when a pull request touches none
-of the app's inputs. That set is not "the app's source": the suite reads 93 files from OUTSIDE
-``apps/portal/`` through ``?raw`` and ``import.meta.glob`` — all 88 IAM policy templates among
-them, reached by one glob — in order to assert that the browser agrees with the infrastructure
+of the app's inputs. That set is not "the app's source": the suite reads scores of files from
+OUTSIDE ``apps/portal/`` through ``?raw`` and ``import.meta.glob`` — every IAM policy template
+among them, reached by one glob — in order to assert that the browser agrees with the infrastructure
 and the planes. A read missing from the workflow's pattern list does not make the saving
 smaller, it makes it dishonest: the coupled file changes, the guard that would have caught it
 never runs, and the job is green. The first test sweeps for those reads rather than restating
@@ -35,7 +35,7 @@ a comment into a glob of the whole repository — which then demands scope patte
 
 The shape is ``test_security_gates.py``'s: assert the coupling, then assert the parse did not
 go trivial. A sweep that finds nothing must fail rather than pass vacuously — and a floor alone
-is a weak control here, because 88 of the reads arrive through a single glob and would mask the
+is a weak control here, because all but four of the reads arrive through a single glob and mask the
 disappearance of any individual one. The five that do not come from that glob are named.
 """
 
@@ -125,10 +125,15 @@ REFUSED_BY_SCOPE = (
 #: then land there — measured: a decoy repo came back with its HEAD moved onto a fixture commit
 #: and its original orphaned, while the suite passed. ``GIT_CONFIG_GLOBAL`` matters for a second
 #: reason: ``core.quotePath=false`` in a developer's own config un-quotes the high-byte fixture,
-#: which would let the quoting guard below pass against a workflow that has no ``-z``.
+#: which would let the quoting guard below pass against a workflow that has no ``-z``. Pointing
+#: the two config FILES at ``os.devnull`` is not enough on its own: ``GIT_CONFIG_COUNT`` with its
+#: ``GIT_CONFIG_KEY_n``/``VALUE_n`` pairs, and ``GIT_CONFIG_PARAMETERS``, inject the same setting
+#: without a file. The numbered pairs are dropped alongside the count that activates them.
 HERMETIC_GIT_ENV = {
     "GIT_CONFIG_GLOBAL": os.devnull,
     "GIT_CONFIG_SYSTEM": os.devnull,
+    "GIT_CONFIG_COUNT": None,
+    "GIT_CONFIG_PARAMETERS": None,
     "GIT_DIR": None,
     "GIT_WORK_TREE": None,
     "GIT_INDEX_FILE": None,
@@ -158,12 +163,18 @@ def _hermetic_env(**overrides: str) -> dict[str, str]:
             environment.pop(name, None)
         else:
             environment[name] = value
+    for name in [key for key in environment if key.startswith("GIT_CONFIG_")]:
+        if name not in HERMETIC_GIT_ENV:
+            environment.pop(name, None)
     environment.update(overrides)
     return environment
 
 
-#: The floor for the glob-derived half. 88 templates exist; a lower bound lets one be added or
-#: removed without editing this file, while still failing if the glob stops being swept at all.
+#: The floor for the glob-derived half. A LOWER BOUND deliberately, not the count: templates are
+#: added and removed by ordinary infrastructure work, and a guard pinned to today's number would
+#: redden on a correct change. An exact count written into prose goes stale with nothing to catch
+#: it — this repository carried "88" against a real 87 for long enough to be copied four times —
+#: so the number lives here, where a test reads it, and nowhere else.
 MINIMUM_IAM_TEMPLATE_READS = 80
 
 
@@ -328,7 +339,8 @@ def test_every_file_the_suite_reads_from_outside_the_portal_is_in_ci_scope():
 
     templates = {path for path in reads if path.startswith("infra/modules/")}
     assert len(templates) >= MINIMUM_IAM_TEMPLATE_READS, (
-        f"the sweep found only {len(templates)} IAM policy templates; there are 88 and the glob "
+        f"the sweep found only {len(templates)} IAM policy templates against a floor of "
+        f"{MINIMUM_IAM_TEMPLATE_READS}; the glob "
         "in policyTemplates.guard.test.ts reaches all of them, so the glob has stopped resolving"
     )
 
@@ -538,7 +550,10 @@ def _ci_scope_step() -> dict:
 
 
 def _assert_the_hazard_is_present(
-    git: list[str], environment: dict[str, str], changed: tuple[str, ...]
+    git: list[str],
+    environment: dict[str, str],
+    changed: tuple[str, ...],
+    base: str | None = None,
 ) -> None:
     """Prove the fixture still provokes the quoting the step is guarded against.
 
@@ -552,6 +567,8 @@ def _assert_the_hazard_is_present(
         git: The ``git`` argv prefix for the fixture repository.
         environment: The scrubbed environment those commands run under.
         changed: The paths the head commit touched.
+        base: The commit to diff from. Defaults to the environment's ``BASE``, which is what the
+            pull-request step is handed; the deploy step is handed a tag instead.
 
     Returns:
         None.
@@ -564,7 +581,7 @@ def _assert_the_hazard_is_present(
     if not hazardous:
         return
     plain = subprocess.run(  # noqa: S603
-        [*git, "diff", "--name-only", "--no-renames", environment["BASE"], "HEAD"],
+        [*git, "diff", "--name-only", "--no-renames", base or environment["BASE"], "HEAD"],
         check=True,
         capture_output=True,
         text=True,
@@ -838,20 +855,21 @@ def test_the_scope_step_still_dies_on_a_diff_it_cannot_compute():
     )
 
 
-def test_a_pattern_list_grep_cannot_compile_stops_the_job_rather_than_skipping():
-    """``grep`` answers three ways and a bare ``if`` collapses two of them.
+def test_no_way_of_breaking_the_pattern_list_reads_as_nothing_changed():
+    """The class, not one member of it: every broken list must stop the job.
 
-    0 matched, 1 did not, anything above that is grep failing to perform the test at all. Read
-    as "did not match", a list this runner's grep refuses answers ``app=false`` and skips the
-    install, the build and the bundle check — printing the same notice a genuine skip prints,
-    which is what makes it silent. It is self-concealing too: the workflow is in its own pattern
-    list, so the pull request that malforms it skips its own build and every later one skips as
-    well.
+    Every way this list can stop working answers ``app=false``, which skips the install, the
+    build and the bundle check behind the same notice an honest skip prints. Enumerating the
+    ways does not work — checking for a grep exit above 1 catches an unbalanced bracket alone,
+    because GNU grep answers a lookaround and a stray ``\\d`` with an ordinary "no match" and
+    diagnoses neither. So the step runs a path the list must always select through the same
+    invocation and refuses anything but a match, which is what these fixtures exercise.
 
-    The fixture is an unbalanced bracket rather than a lookaround because every grep refuses it,
-    where the PCRE case depends on the runner's implementation. Both are patterns Python's
-    ``re`` accepts or rejects on its own schedule, which is why the sanity tests above cannot
-    stand in for this one.
+    DROPPED, deliberately, rather than left unsaid: a non-capturing group. GNU grep 3.11 — the
+    runner's engine — answers it with exit 1 and the canary catches it, but BSD grep 2.6 happens
+    to MATCH it, and this suite runs on a session's own machine. Asserting it would redden on
+    macOS and pass in CI. The textual check in ``_assert_pattern_list_is_sane`` is what covers
+    that shape on both.
 
     Args:
         None.
@@ -860,16 +878,52 @@ def test_a_pattern_list_grep_cannot_compile_stops_the_job_rather_than_skipping()
         None.
 
     Raises:
-        AssertionError: If a refused pattern list produces an answer rather than a refusal.
+        AssertionError: If a broken pattern list produces a verdict rather than a refusal.
     """
-    answers = _run_ci_scope(
-        ("apps/portal/src/App.tsx",),
-        patterns="^apps/portal/[\n",
-        expect_failure=True,
+    for label, broken in (
+        ("empty", ""),
+        ("an unbalanced bracket", "^apps/portal/[\n"),
+        ("a lookahead", "^apps/portal(?=/)\n"),
+        ("a stray backslash-d", "^apps/\\dportal/\n"),
+    ):
+        answers = _run_ci_scope(
+            ("apps/portal/src/App.tsx",), patterns=broken, expect_failure=True
+        )
+        assert "no longer selects" in answers["stdout"], (
+            f"a pattern list carrying {label} produced a verdict rather than a refusal:\n"
+            f"{answers['stdout']}\n{answers['stderr']}"
+        )
+        assert "app=" not in answers["record"], (
+            f"a pattern list carrying {label} emitted a verdict it could not stand behind"
+        )
+
+
+def test_a_change_set_grep_cannot_read_stops_the_job_rather_than_skipping():
+    """The narrower diagnostic behind the canary, for when the LIST is fine.
+
+    A list that matches the canary and then makes grep fail over the change set is grep failing
+    on the input rather than on the patterns, and the two want different messages — an operator
+    who is told the pattern list is broken will go and read a pattern list that is fine. There
+    is no fixture that provokes it, so what is asserted is that the branch exists and says which
+    of the two the run got.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If the step no longer distinguishes the two, or stopped refusing.
+    """
+    body = _ci_scope_step()["run"]
+    assert '[ "$matched" -gt 1 ]' in body, (
+        "the step no longer reads grep's third exit status over the change set, so `could not "
+        "perform the test` collapses back into `nothing changed`"
     )
-    assert "The pattern list is unusable" in answers["stdout"], (
-        "the job died without saying the pattern list was what it could not use:\n"
-        f"{answers['stdout']}\n{answers['stderr']}"
+    assert "not the pattern list" in body, (
+        "the change-set refusal no longer distinguishes itself from the canary's, which sends "
+        "an operator to read a pattern list that is fine"
     )
 
 
@@ -1311,6 +1365,8 @@ def _run_scope(
                 + ([baseline] if deployed == "baseline" else [])
             ),
         }
+
+        _assert_the_hazard_is_present(git, environment, changed, base=baseline)
 
         script = root / "scope.sh"
         script.write_text(step["run"], encoding="utf-8")
