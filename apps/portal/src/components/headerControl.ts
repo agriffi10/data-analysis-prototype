@@ -1,5 +1,3 @@
-import {cx} from '../lib/cx';
-
 /**
  * The class strings for a control on the top bar — help, notifications, the theme.
  *
@@ -13,12 +11,15 @@ import {cx} from '../lib/cx';
  * hold it open. `h-8` is 28px against this app's 14px root, and `px-1.5` puts the padding back
  * that the old `w-8` supplied — so an icon-only control is the same 28×28 box it always was.
  *
- * `relative` because the bell hangs its unread badge off the icon inside.
+ * No `relative` here: the bell's unread badge is positioned against the span around its ICON, not
+ * against the control, so that the badge follows the bell rather than the end of a label.
  */
-export const HEADER_CONTROL = cx(
-  'relative inline-flex h-8 items-center gap-1.5 rounded-md px-1.5 text-sm transition-colors',
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
-);
+export const HEADER_CONTROL =
+  // A plain string, not `cx()`: there is nothing conditional to join, and `cx` is typed
+  // `string | undefined` (it returns `undefined` rather than `''`), which would make every
+  // reader of this constant handle an absence that cannot happen.
+  'inline-flex h-8 items-center gap-1.5 rounded-md px-1.5 text-sm transition-colors ' +
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent';
 
 /** The control for the route you are on, or whose panel is open. */
 export const HEADER_CONTROL_ACTIVE = 'bg-surface-2 text-accent-text';

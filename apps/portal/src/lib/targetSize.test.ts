@@ -5,6 +5,7 @@ import type {RunOptions} from 'axe-core';
 import * as axeConfig from '../test/axe';
 import {RULES_JSDOM_CANNOT_DECIDE} from '../test/axe';
 import {readCss} from '../test/cssTokens';
+import {HEADER_CONTROL} from '../components/headerControl';
 
 // WCAG 2.2 SC 2.5.8 asks for a pointer target of at least 24×24 CSS px, or enough space around a
 // smaller one. axe has a rule for it, the suite runs axe, and the rule cannot fire — jsdom has no
@@ -562,6 +563,23 @@ describe('a control sized from the spacing scale reaches the target floor', () =
         primitive
       ).toEqual([]);
     }
+  });
+
+  it('keeps the shared header-bar control clear of the floor', () => {
+    // NAMED, because the sweep above cannot reach it. `HEADER_CONTROL` lives in a `.ts` file and
+    // the glob is `*.tsx`; even in a `.tsx` the scanner reads a tag's own `className`, and this is
+    // a constant. It USED to be swept — `NotificationsBell` carried `h-8 w-8` on the tag until the
+    // three bar controls were given one owner — so this is a detection that would otherwise have
+    // been lost quietly, which is the whole reason it is written down rather than assumed.
+    // The VALUE, imported, not the file's text: `HEADER_CONTROL` is built by `cx()`, so a
+    // source scan would be reading an expression rather than the string a control receives.
+    const height = new RegExp(SIZE_CLASS.source).exec(HEADER_CONTROL)?.[1];
+
+    // Read before judged. A rename or a move to `size-*` leaves the regex matching nothing, and
+    // `sizeClassPx(undefined)` is not less than 24 — so without this the assertion below would
+    // pass on an empty read, which is exactly how this kind of guard goes quiet.
+    expect(height, 'no size class was found in HEADER_CONTROL — the check below sees nothing').toBeDefined();
+    expect(sizeClassPx(height as string)).toBeGreaterThanOrEqual(MIN_TARGET_PX);
   });
 
   it('cannot see a control whose height comes from its text, and does not pretend to', () => {

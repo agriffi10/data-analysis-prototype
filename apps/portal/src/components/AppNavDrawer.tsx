@@ -4,8 +4,8 @@ import {FocusTrap} from 'focus-trap-react';
 import {cx} from '../lib/cx';
 import {IconButton} from './IconButton';
 import {BellIcon, HelpCircleIcon} from './icons';
+import {BrandMark} from './BrandMark';
 import {useEscapeKey} from '../hooks/useEscapeKey';
-import {SECTION_CAPTION} from './fieldStyles';
 
 export type AppNavDrawerProps = {
   open: boolean;
@@ -189,7 +189,11 @@ export function AppNavDrawer({open, onClose, id, contextualRail, isPathEnabled, 
           className="flex h-full w-[300px] max-w-[85vw] flex-col bg-surface shadow-lg"
           onClick={(e) => e.stopPropagation()}>
           <div className="flex min-h-14 shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2">
-            <span className={SECTION_CAPTION}>Menu</span>
+            {/* The app's name, not the caption `Menu` that was here. Below `tablet` the header
+                shows the brand SQUARE alone — there is no room for the words beside a
+                hamburger, five nav tabs' worth of drawer and four controls — so without this
+                the name appears nowhere on screen for a signed-in phone user. */}
+            <BrandMark size="sm" />
             <IconButton
               label="Close navigation"
               onClick={onClose}>

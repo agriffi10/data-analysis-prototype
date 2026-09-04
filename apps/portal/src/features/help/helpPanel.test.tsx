@@ -207,6 +207,22 @@ describe('the header help control', () => {
     expect(screen.getByLabelText('location')).toHaveTextContent('/files');
   });
 
+  // THE WIRING, not the card's own behaviour — `help.test.tsx` owns that. The clamp is opt-in
+  // and only this caller opts in, so a panel that stopped passing the prop would go back to
+  // squashing its own heading list with every other test green.
+  it('clamps a closed guide heading to one line, and lets the open one wrap', async () => {
+    const {user} = renderHeaderAt('/files');
+    await user.click(screen.getByRole('button', {name: 'Help for this page'}));
+    const panel = screen.getByRole('dialog', {name: 'Files'});
+
+    // The FIRST card opens by default, so one of each state is on screen without driving one.
+    const headings = [...panel.querySelectorAll('button[aria-expanded] span > span:first-child')];
+    expect(headings.length, 'no guide headings were found — the check below sees nothing').toBeGreaterThan(1);
+
+    expect(headings[0]).not.toHaveClass('truncate');
+    for (const closed of headings.slice(1)) expect(closed).toHaveClass('truncate');
+  });
+
   it('stays the link to /help on a route with no row', () => {
     renderHeaderAt('/help');
 

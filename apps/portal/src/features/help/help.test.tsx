@@ -95,11 +95,27 @@ describe('HelpGuideCard', () => {
       expect(container.firstElementChild).toHaveClass('shrink-0');
     });
 
+    // OFF by default, which is the half that says the clamp belongs to the panel. `/help`
+    // renders the same card and must keep wrapping: that page scrolls the document, and its
+    // text column is NARROWER than the panel's, so an ellipsis would cut more there and buy
+    // nothing. Without this, moving the clamp into the card unconditionally stays green.
+    it('does not clamp its heading unless asked', () => {
+      render(
+        <HelpGuideCard
+          guide={guide}
+          iconName="files"
+        />
+      );
+      expect(screen.getByText('Upload files')).not.toHaveClass('truncate');
+      expect(screen.getByText('Add files from your computer.')).not.toHaveClass('truncate');
+    });
+
     it('holds its title to one line while closed, and shows it whole once open', () => {
       render(
         <HelpGuideCard
           guide={guide}
           iconName="files"
+          clampHeading
         />
       );
       const header = screen.getByRole('button', {name: /Upload files/});

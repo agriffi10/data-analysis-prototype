@@ -723,12 +723,14 @@ trail answers it — `owed.md` carries the query and the `IsLogging` preconditio
 - While you are there: the panel on `/data-quality` is headed **Files** by design, and
   `/help#delete-space` opens the Help page at Shared connections with that one card expanded and
   scrolled to.
-- **Open three or four guides at once** on `/files`, where the section has eight. The panel must
+- **Open three or four guides at once** on `/files`, where the section has ten. The panel must
   SCROLL; no card may lose height to the ones you opened. The cards are `shrink-0` for this, and
   jsdom can only assert the class — every rect there is 0×0, so a squashed card and a whole one
   measure the same. While you are scrolled, check that a CLOSED card's title and subtitle are each
   one line ending in an ellipsis where the text is too long, and that the card you have open shows
-  both in full.
+  both in full. Then open `/help` itself and confirm the SAME closed cards wrap rather than clip —
+  the clamp is the panel's, not the card's, because that page scrolls the document and its text
+  column is narrower than the panel's.
 - **Measure the panel's targets, because no suite can.** axe's `target-size` rule was enabled (it
   is tagged `wcag22aa`), and with no layout in jsdom a probe through the project's own axe config
   put it in `passes` — a pass it never evaluated. It is **disabled** now, in

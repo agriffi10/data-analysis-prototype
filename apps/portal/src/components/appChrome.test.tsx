@@ -55,20 +55,35 @@ describe('Header', () => {
       expect(screen.getByText('Data Workspace')).toBeInTheDocument();
     });
 
-    // THE WORDS, not the square. Signed in the bar carries a hamburger and four controls, and
-    // at 375px those plus `Data Workspace` do not fit — the wordmark wrapped to a second line
-    // inside a one-line bar. Asserted on the class because jsdom has no layout: it loads no
-    // Tailwind, so a wrapped wordmark and a hidden one measure identically here.
-    it('drops the wordmark on a narrow bar when signed in, and keeps it when signed out', () => {
+    // THE WORDS, not the square — and `desktop`, not `tablet`, which is the whole finding.
+    // A `tablet:` threshold fixes the phone and leaves 900–1023 wrapping `Data Workspace` onto
+    // a second line inside a one-line bar, because that band shows the tab strip and the three
+    // control labels at once. Pinned to the exact class for that reason: `hidden` alone would
+    // pass on the threshold that was wrong. Asserted on the class because jsdom has no layout —
+    // it loads no Tailwind, so a wrapped wordmark and a hidden one measure identically here.
+    it('holds the wordmark back to desktop when signed in, and keeps it when signed out', () => {
       renderHeader(authenticated('alice'));
-      expect(screen.getByText('Data Workspace')).toHaveClass('hidden', 'tablet:inline');
+      expect(screen.getByText('Data Workspace')).toHaveClass('hidden', 'desktop:inline');
+      expect(screen.getByText('Data Workspace')).not.toHaveClass('tablet:inline');
 
       cleanup();
 
-      // Signed out there is no hamburger and no user zone, so there is room at every width —
-      // and the landing page's own mark is a separate instance that this must not reach.
+      // Signed out there is no hamburger, no tab strip and no user zone, so there is room at
+      // every width — and the landing page's own mark is a separate instance this cannot reach.
       renderHeader(unauthenticated());
       expect(screen.getByText('Data Workspace')).not.toHaveClass('hidden');
+    });
+
+    // The name has to be SOMEWHERE below `tablet`, and this is the only place left. Driven to
+    // the open drawer rather than asserted against the closed tree, so it cannot pass on a
+    // drawer that never mounted.
+    it('names the app in the nav drawer, where the bar no longer can', async () => {
+      setWidth(375);
+      const {user} = renderHeader(authenticated('alice'));
+      await user.click(screen.getByRole('button', {name: 'Open navigation'}));
+
+      const drawer = await screen.findByRole('dialog', {name: 'Navigation'});
+      expect(within(drawer).getByText('Data Workspace')).toBeInTheDocument();
     });
 
     it('opens the nav drawer on mobile when the hamburger is clicked', () => {

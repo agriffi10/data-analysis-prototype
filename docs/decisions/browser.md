@@ -580,11 +580,21 @@ for it. When the honest answer is "either would do", write that.
 the CSP is `script-src 'self'` with no nonce and no hash, so an inline initialiser would work in dev
 and be refused in production. It throws on nothing, because it blocks the module script behind it.
 
-**The control is in the header unless the drawer is showing it.** Below `tablet` an authenticated
-header is over its width budget before anything is added (SPEC-211 FR-007), so the three choices go
-into `AppNavDrawer` — but that drawer is mounted only for an authenticated user, so the signed-out
-header keeps the control at every width, and the landing route, which suppresses the app header
+**The control is on the header bar, one instance, both auth states, every width — and it took two
+moves to get there.** It began in the header with a copy in `AppNavDrawer`, because below `tablet`
+the authenticated bar was over its width budget (SPEC-211 FR-007). Then it went into the account
+menu, which removed the duplicate and cost it its name: an unlabelled avatar holding an unrelated
+set of options is not where anyone looks for the theme. It is now a named control beside
+Notifications, and the duplicate stays gone. The landing route, which suppresses the app header
 entirely, carries its own copy.
+
+**What paid for the room is the WORDMARK, and the threshold is `desktop`, not `tablet`.** Naming
+three bar controls costs about 210px, and the words that had to yield are the ones nothing else
+depends on — the tab strip is the navigation and the labels are the point. A `tablet:` threshold is
+the trap here, and it ships looking correct: it fixes the phone, and leaves 900–1023 — an ordinary
+laptop, a half-screen window — wrapping `Data Workspace` onto a second line inside a one-line bar.
+Below `tablet` the drawer's header carries the name instead, so it is never absent from the screen.
+Signed out none of this applies: no hamburger, no tab strip, no user zone.
 
 ## The URL transformer's encoding is position-dependent, and both simple rules are wrong
 

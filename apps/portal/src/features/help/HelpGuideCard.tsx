@@ -9,6 +9,17 @@ type HelpGuideCardProps = {
   guide: HelpGuide;
   iconName: HelpIconName;
   defaultOpen?: boolean;
+  /**
+   * Hold a CLOSED card's title and subtitle to one line each. For a list of cards in a narrow
+   * column that is itself the thing being scrolled — the contextual panel — where a subtitle
+   * wrapping to three lines makes the list of headings taller than the panel showing them.
+   *
+   * Off by default, and `/help` leaves it off deliberately: that page scrolls the whole
+   * document, so a wrapped subtitle costs nothing there and clipping one would lose text a
+   * reader can otherwise have for free. The panel's own column is ~290px and the page's is
+   * ~215px at 375, so the page is where an ellipsis would cut MOST.
+   */
+  clampHeading?: boolean;
 };
 
 /**
@@ -20,9 +31,10 @@ type HelpGuideCardProps = {
  * @example
  * <HelpGuideCard guide={guide} iconName="files" defaultOpen />
  */
-export function HelpGuideCard({guide, iconName, defaultOpen = false}: HelpGuideCardProps) {
+export function HelpGuideCard({guide, iconName, defaultOpen = false, clampHeading = false}: HelpGuideCardProps) {
   const [open, setOpen] = useState(defaultOpen);
   const panelId = useId();
+  const clamped = clampHeading && !open;
   const Icon = helpIcons[iconName];
 
   return (
@@ -58,8 +70,8 @@ export function HelpGuideCard({guide, iconName, defaultOpen = false}: HelpGuideC
             taller than the panel — the reader is scrolling past headings to find the one they
             want. Open, the same text is the thing they chose to read, so it is shown whole. */}
         <span className="min-w-0 flex-1">
-          <span className={cx('block text-[15px] font-semibold text-text', !open && 'truncate')}>{guide.title}</span>
-          <span className={cx('mt-0.5 block text-[13px] text-text-2', !open && 'truncate')}>{guide.subtitle}</span>
+          <span className={cx('block text-[15px] font-semibold text-text', clamped && 'truncate')}>{guide.title}</span>
+          <span className={cx('mt-0.5 block text-[13px] text-text-2', clamped && 'truncate')}>{guide.subtitle}</span>
         </span>
         <ChevronDownIcon
           className={cx(
