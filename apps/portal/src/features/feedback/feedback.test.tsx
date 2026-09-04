@@ -233,14 +233,13 @@ describe('Give feedback', () => {
       // Tailwind, so `hidden tablet:flex` does not remove them. A header change in any spec
       // reddens this and sends the next author back to FR-007's measurement.
       //
-      // THE MEASUREMENT, re-taken because that is what this tripwire is for. The bar's
-      // fixed-width chrome was a hamburger, the brand mark, help, the bell, an avatar and a
-      // text "Sign out" button — six things, over budget at 375px, which is why theme and
-      // feedback were mount-gated off the phone entirely. It is now a hamburger, the brand
-      // mark, help, the bell and ONE account trigger: five, with the username hidden below
-      // `tablet` so the trigger is the 28px avatar alone (`h-8` against a 14px root). Strictly
-      // narrower than before, and
-      // every option the two gated controls carried is now reachable at this width.
+      // THE MEASUREMENT, re-taken because that is what this tripwire is for. It is a
+      // hamburger, the brand mark, help, the bell, the theme and ONE account trigger. Theme
+      // came back onto the bar in the release that gave the three of them words, and it fits
+      // where it did not before because it no longer brings a second copy in the drawer, the
+      // "Sign out" text button is gone into the menu, and — the part that matters at 375px —
+      // all three words are `hidden tablet:inline`, so on a phone this is six ICONS.
+      // Every option the account menu carries is still reachable at this width.
       expect(controls).toEqual([
         'Open navigation',
         'Files',
@@ -250,6 +249,7 @@ describe('Give feedback', () => {
         'Data quality',
         'Help for this page',
         'Notifications, none unread',
+        'Change theme',
         'Account: acarter'
       ]);
 

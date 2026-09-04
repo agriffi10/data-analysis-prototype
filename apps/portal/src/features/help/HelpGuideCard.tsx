@@ -26,9 +26,14 @@ export function HelpGuideCard({guide, iconName, defaultOpen = false}: HelpGuideC
   const Icon = helpIcons[iconName];
 
   return (
+    // `shrink-0` is what makes the panel SCROLL instead of squashing its cards. The drawer
+    // body is a scrolling flex column, and a flex item shrinks before its container scrolls —
+    // `overflow-hidden` on this card (needed for the rounded corners over the accordion's
+    // grid transition) drops its automatic minimum size to zero, so it can be crushed to
+    // nothing. Opening a second guide compressed every other card rather than scrolling.
     <div
       className={cx(
-        'overflow-hidden rounded-[10px] border bg-surface',
+        'shrink-0 overflow-hidden rounded-[10px] border bg-surface',
         open ? 'border-accent-border' : 'border-border'
       )}>
       <button
@@ -48,9 +53,13 @@ export function HelpGuideCard({guide, iconName, defaultOpen = false}: HelpGuideC
           )}>
           <Icon className="h-[19px] w-[19px]" />
         </span>
+        {/* One line each while CLOSED, wrapping in full once open. A closed card is a row in
+            a list of choices, and a subtitle that wraps to three lines makes the list of them
+            taller than the panel — the reader is scrolling past headings to find the one they
+            want. Open, the same text is the thing they chose to read, so it is shown whole. */}
         <span className="min-w-0 flex-1">
-          <span className="block text-[15px] font-semibold text-text">{guide.title}</span>
-          <span className="mt-0.5 block text-[13px] text-text-2">{guide.subtitle}</span>
+          <span className={cx('block text-[15px] font-semibold text-text', !open && 'truncate')}>{guide.title}</span>
+          <span className={cx('mt-0.5 block text-[13px] text-text-2', !open && 'truncate')}>{guide.subtitle}</span>
         </span>
         <ChevronDownIcon
           className={cx(

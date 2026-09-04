@@ -687,3 +687,39 @@ export function SignOutIcon({className = 'h-4 w-4'}: IconProps) {
     </svg>
   );
 }
+
+/**
+ * Three stacked dots — the affordance that says a control opens a menu, on the account
+ * trigger in the header.
+ *
+ * Filled circles rather than a stroked path: at 16px a stroke round-cap renders as a soft
+ * smudge, and the dots have to read as three distinct marks to say "menu" at all.
+ *
+ * @example
+ * <KebabIcon className="h-4 w-4" />
+ */
+export function KebabIcon({className = 'h-4 w-4'}: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={className}
+      aria-hidden="true">
+      <circle
+        cx="12"
+        cy="5"
+        r="1.75"
+      />
+      <circle
+        cx="12"
+        cy="12"
+        r="1.75"
+      />
+      <circle
+        cx="12"
+        cy="19"
+        r="1.75"
+      />
+    </svg>
+  );
+}
