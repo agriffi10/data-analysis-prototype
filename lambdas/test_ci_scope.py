@@ -796,8 +796,10 @@ def test_a_file_moved_out_of_the_portal_still_runs_the_build():
     """``--name-only`` reports only a rename's DESTINATION, and the destination is the miss.
 
     Moving `apps/portal/src/App.tsx` to `packages/` shows up under a pattern that selects, so
-    the flag looks harmless. Moving one OUT of both — to `docs/` — shows up as the destination
-    alone, answers ``app=false``, and breaks ``tsc -b`` on main behind a green pull request.
+    the flag looks harmless. Moving one OUT of both shows up as the destination alone, answers
+    ``app=false``, and breaks ``tsc -b`` on main behind a green pull request. The destination is
+    deliberately not doc-shaped: a `docs/*.md` fixture path is read as a real documentation
+    reference by the doc gate, which then refuses it as a missing file.
     The step's comment has claimed this since it was written and nothing measured it; a refactor
     that moves a file is far likelier than a filename nobody would type.
 
@@ -811,7 +813,7 @@ def test_a_file_moved_out_of_the_portal_still_runs_the_build():
         AssertionError: If a file moved out of the portal skips the build.
     """
     answers = _run_ci_scope(
-        (), renamed=(("apps/portal/src/Moved.tsx", "docs/moved.md"),)
+        (), renamed=(("apps/portal/src/Moved.tsx", "tools/moved.txt"),)
     )
     assert answers["app"] == "true", (
         "a file moved out of apps/portal was reported by its destination alone; "
