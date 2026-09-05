@@ -29,7 +29,8 @@ anything, gated through the registry so one test walks the surface in both state
 - `resultsConversion.service.ts` and the enqueue path inside `useSaveResults`, so the CSV copy and
   the three conversions share one hook and one dialog.
 - The `resultsConversion` feature flag, its default, its registry entry and the both-states sweep.
-- The notification's link opening the destination folder, and the listing invalidation on arrival.
+- The notification's link opening the destination folder, with that folder's listing refreshed on
+  the way.
 - Help & guides for both surfaces, accessibility, mobile, and the live checks folded into
   `docs/testing/e2e.md`.
 
@@ -83,8 +84,8 @@ The user is asked about an existing file before the request leaves, and the plan
 
 #### Acceptance Criteria:
 
-- [ ] Before enqueueing, the hook asks `objects.exists` with `target: "key"` for the destination
-      key. `true` opens the existing overwrite confirm, whose confirm re-submits with
+- [ ] Before enqueueing, the hook asks `objects.exists` for the destination key with `target`
+      omitted (the route's default, `"object"`; `"prefix"` is the other value). `true` opens the existing overwrite confirm, whose confirm re-submits with
       `onConflict: "overwrite"`; `false` submits with `refuse`.
 - [ ] A 403 from the probe counts as occupied and opens the same confirm — the space may hold a
       file the actor cannot see, and the plane will refuse it.
@@ -127,8 +128,11 @@ What arrives when the plane finishes.
 
 - [ ] A success notification renders its `link` as **Open folder** through the existing
       `isSafeInAppPath` gate, and following it lands on the destination folder in Files (personal)
-      or the shared space's browser; the folder's listing is invalidated on arrival of the
-      notification, so the file is present without a refresh.
+      or the shared space's browser. **Following the link** invalidates that folder's listing before
+      navigating, so the file is present on arrival; the notification's arrival invalidates nothing,
+      because notification-driven listing reconciliation is the mechanism the file-ops provider
+      records as deliberately not used (the poll is a minute wide and pauses on a hidden tab), and
+      the listing's own focus refetch already covers the user who is simply looking at the folder.
 - [ ] A failure notification renders the plane's sentence; the `excel_row_limit` one is checked
       end-to-end to name the count and suggest Parquet, so the wording registered on the plane is
       the wording a user sees.
@@ -186,6 +190,9 @@ apps/portal/src/features/catalog/
 ├── resultsConversion.service.test.ts
 └── catalog.format.ts                (normalizeResultsName)
 apps/portal/src/features/feature-flags/featureFlags.types.ts, featureFlagDefaults.ts, gatedSurfaces.ts
+config/feature-flags.json                     (the served document)
+scripts/validate_feature_flags.py             (its literal key set)
+lambdas/test_feature_flags_config.py          (the key set asserted from the Lambda side)
 apps/portal/src/features/help/helpContent.ts
 docs/testing/e2e.md
 ```

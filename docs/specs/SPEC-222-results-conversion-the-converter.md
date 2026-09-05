@@ -67,13 +67,16 @@ The CSV Athena wrote is all strings. The frame the writers see is typed as Athen
       `interval` and `unknown` **as text**, kept as the characters Athena rendered. A test walks
       every name Athena documents and asserts a mapping or a listed text-kept entry for each; a name
       in neither refuses with `unsupported_column_type` naming the column, never falls back.
-- [ ] The table is asserted against `cpcommon.type_mapping` where both directions exist: for every
-      polars dtype `map_dtype` produces a Hive type for, mapping that Hive type back yields the same
-      dtype (decimal parameters included). The two tables cannot drift apart silently.
+- [ ] The table is asserted against `cpcommon.type_mapping` over the **image of `polars_dtype`**:
+      for every dtype this table produces, `map_dtype` of that dtype mapped back through this table
+      is the same dtype (decimal parameters included). Dtypes only `map_dtype` knows — the unsigned
+      integers it widens, `List` and `Struct`, a zoned `Datetime` — are outside the assertion by
+      construction, and the test says so. The two tables cannot drift apart on the types both hold.
 - [ ] The CSV is read by polars with the schema **given**, never inferred: `schema_overrides` from
       the mapped dtypes, `infer_schema_length=0`. A value that does not parse as its declared type
-      refuses the whole conversion with `results_unreadable` naming the column and the row number;
-      no partial file is written.
+      refuses the whole conversion with `results_unreadable` naming the column and the byte offset
+      polars reports — polars names no row number, and the spec does not pretend one; no partial
+      file is written.
 - [ ] NULL and the empty string are distinguished for text columns exactly as Athena's CSV encodes
       them — an unquoted empty field is NULL, `""` is an empty string — and the fixture proving it is
       a **captured** Athena result object from the workgroup, committed under `lambdas/…/fixtures/`
@@ -81,8 +84,13 @@ The CSV Athena wrote is all strings. The frame the writers see is typed as Athen
       is NULL.
 - [ ] The read is bounded by `RESULTS_MAX_BYTES`, checked again against the object's actual
       `ContentLength` at read time (a result that grew between describe and convert is a fault, not
-      a user error); the stream goes to the verb's local storage, never into memory whole, and a
+      a user error); the object goes to the verb's local storage, never into memory whole, and a
       test asserts the read path is `download_fileobj` to a file, not `get()["Body"].read()`.
+- [ ] **Parquet and JSON are streamed, never materialised.** The frame is `scan_csv` over the local
+      file and the writer is `sink_parquet` / `sink_ndjson`, so memory holds a batch at a time and
+      the cap is set by the disk, not by RAM. A test asserts the verb calls no `collect()` and no
+      `read_csv` on those two paths. Excel cannot stream and is materialised, which is why its
+      ceiling is Excel's own row limit (FR-004) rather than the disk.
 
 ### FR-002: Parquet
 
@@ -97,10 +105,12 @@ One Parquet file, typed, readable by the table builder.
 - [ ] Compression is polars' default, and the test asserts the file's compression codec by reading
       the footer, so a library default changing on an upgrade is a red test rather than a silent
       change in what users receive.
-- [ ] The written file is read back by the same probe table-builder's `inspect-source` uses, and
-      the column names and Hive types it infers equal what `describe-results` reported (through
-      `cpcommon.type_mapping`), for a fixture carrying every mapped type. This is the round-trip that
-      makes "save as Parquet, then build a table" compose.
+- [ ] The written file is read back by table-builder's own inference,
+      `infer_schema._infer_columns(source, "parquet")` on the local file (it reads a local path,
+      which is what makes this a unit test), and the column names and Hive types it infers equal
+      what `describe-results` reported (through `cpcommon.type_mapping`), for a fixture carrying
+      every mapped type. This is the round-trip that makes "save as Parquet, then build a table"
+      compose.
 - [ ] An empty result set writes a Parquet file with the schema and zero rows, and the notification
       says `0 rows`.
 
@@ -118,8 +128,11 @@ Newline-delimited JSON, one object per line.
       JSON numbers; `decimal` is a JSON **string** of its exact digits, because a JSON number would
       round it; `date` is `YYYY-MM-DD`; `timestamp` is ISO-8601 to microseconds with no zone
       designator; text-kept types are strings.
-- [ ] The written file is read back by table-builder's JSON probe and yields the column names
-      `describe-results` reported, for the same every-type fixture as FR-002.
+- [ ] The written file is read back by `infer_schema._infer_columns(source, "json")` on the local
+      file and yields the column names `describe-results` reported, for the same every-type fixture
+      as FR-002. Types are asserted too, with one stated exception: infer-schema recovers a `date`
+      column from NDJSON by a regex over sample values, so `date` round-trips through that heuristic
+      and the test names it rather than pretending the format carries the type.
 - [ ] An empty result set writes a zero-byte `.json` object, and the notification says `0 rows`.
 
 ### FR-004: Excel
@@ -138,8 +151,11 @@ One workbook, one sheet, and the fences Excel needs that the other two do not.
       and floats as numbers; booleans as booleans; NULL as an empty cell; text-kept types as text.
 - [ ] **A cell is never a formula.** A string beginning with `=`, `+`, `-`, `@`, a tab or a carriage
       return is written as a string, asserted by reading the workbook back and finding no formula
-      cell — the injection every spreadsheet export has to refuse. The test plants the option that
-      would interpret formulas and watches the assertion redden.
+      cell — the injection every spreadsheet export has to refuse. polars already passes
+      `strings_to_formulas: False` to the workbook it creates, so the guard is the library's default
+      and the plant is a caller-built `xlsxwriter.Workbook(path, {"strings_to_formulas": True})`
+      handed in through `write_excel(workbook=…)`; the assertion reddens under it, and the verb is
+      asserted never to pass a workbook of its own.
 - [ ] A result with more than 1,048,575 data rows or more than 16,384 columns refuses with
       `excel_row_limit` or `excel_column_limit`, carrying the count, and writes nothing. The row
       count is known only after the read, so the refusal is a return value from the convert verb
@@ -167,11 +183,14 @@ The write is where the race and the size both live.
 - [ ] The execution role gains `s3:PutObject` and `s3:AbortMultipartUpload` on `{user_space_bucket}/*`
       and `{shared_space_bucket}/*`, still under SPEC-221 FR-003's Deny on the app-managed prefixes;
       the rendered policy is asserted to carry both.
-- [ ] The convert function's `memory`, ephemeral storage and `timeout` are set in the module's
-      `locals.tf`, and **one test** computes `RESULTS_MAX_BYTES` from them — the largest CSV whose
-      typed frame and written output both fit, with the derivation and the measured expansion ratio
-      per format in its docstring — and computes the machine's `TimeoutSeconds` from the same
-      numbers as `validate + describe + convert timeout + notify + headroom`. The constants in
+- [ ] The convert function's `memory`, ephemeral storage (up to Lambda's 10 GB) and `timeout` (up
+      to 15 minutes) are set in the module's `locals.tf`, and **one test** computes
+      `RESULTS_MAX_BYTES` from them — for the streamed formats the largest CSV that fits on the disk
+      beside its output, at the measured expansion ratio per format; for Excel the smaller of that
+      and the frame the memory holds — and computes the machine's `TimeoutSeconds` from the same
+      numbers as `validate + describe + convert timeout + notify + headroom`, with the derivation
+      in the test's docstring. The throughput that sizes the timeout is **measured** on the image,
+      not assumed. The constants in
       `rccommon` and `locals.tf` equal what the test computes, so a hand edit to one is a red test.
 - [ ] Local storage is cleaned on every path, including refusal and fault, so a warm container does
       not carry a previous request's file into the next; a test runs two conversions on one
@@ -187,9 +206,12 @@ One producer, at the end of the machine, says what happened.
 
 - [ ] The `notify` verb sends exactly one success notification to the actor, through the shared
       sender in `cpcommon.notify`, saying the file name, the format and the row count, and carrying a
-      `link` to the destination folder that `isSafeInAppPath` accepts: `/files?prefix=…` for a
-      personal space, the shared space's route for a shared one. The link is built by `rccommon`
-      from the destination, never from user text.
+      `link` to the destination folder that `isSafeInAppPath` accepts, in the shape file-ops'
+      notifier already builds: `/files?prefix=…` for a personal space and
+      `/files?space={name}&prefix=…` for a shared one, every component URL-encoded — the prefix is
+      the user's own text and encoding is what keeps it a path parameter rather than a route. The
+      builder lives in `rccommon.links` and a test asserts a prefix carrying `&`, `?`, `#` and a
+      space round-trips through the browser's parser to the same folder.
 - [ ] The success message names the precision sentence of FR-004 when it applies, and nothing else
       about the data — no column name, no cell value.
 - [ ] Every code the convert verb can return — `results_unreadable`, `unsupported_column_type`,

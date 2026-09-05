@@ -3,7 +3,7 @@
 **ID:** SPEC-221
 **Status:** Draft
 **Last Updated:** 2026-09-05
-**Depends On:** SPEC-187/189 (the file-ops plane as the pattern, and its destination rules), SPEC-200 (the enqueue paths and the `identity` block), SPEC-152 (`NotifyFailure` on every plane), SPEC-126 (DLQ drain), SPEC-218 (one builder per app-managed path — the results prefix this plane checks ownership against)
+**Depends On:** SPEC-187/189 (the file-ops plane as the pattern, and its destination rules), SPEC-200 (the enqueue paths and the `identity` block), SPEC-152 (`NotifyFailure` on every plane), SPEC-126 (DLQ drain), SPEC-218 (one builder per app-managed path — the protected-folder set this plane refuses as a destination, which today lives only in `focommon` and the browser)
 
 ## Overview
 
@@ -26,8 +26,8 @@ execution's result object, never the source table.** Most tables are Parquet, so
 and none of that matters: Athena writes every result set as one CSV object under the actor's own
 results prefix, so the converter reads one shape whatever it was queried from, and no second query
 is started and nothing is billed. And **ownership is a question about a path**: an execution is the
-actor's if Athena wrote its output under the actor's own results prefix, built by the one builder
-the API writes with, so a guessed execution id names nothing the actor cannot already read.
+actor's if Athena wrote its output under the actor's own results prefix, built by one function the
+API and this plane share, so a guessed execution id names nothing the actor cannot already read.
 
 ## Scope
 
@@ -46,9 +46,9 @@ the API writes with, so a guessed execution id names nothing the actor cannot al
 - A skeleton machine — `ValidateAuthorize → DescribeResults → Placeholder → Succeed` — carrying
   its `NotifyFailure` state before `Fail` on every failure path from day one, a top-level
   `TimeoutSeconds` and its `TIMED_OUT` rule.
-- The plane's wiring into the fleet: the DLQ drain's queue list, the notifications writer's
-  sender allowlist, the container image's requirements, and the deploy role's grants in their own
-  PR before the module that needs them.
+- The plane's wiring into the fleet: the DLQ drain's queue list, the cold-start probe, the fleet
+  outputs, the container image's requirements, and the deploy role's grants in their own PR before
+  the module that needs them.
 
 ### Out of Scope
 
@@ -89,21 +89,28 @@ plane has to join.
       `TIMED_OUT` rule into `NotifyFailure` — never `FAILED`. The ceiling is **provisional** here and
       SPEC-222 FR-005 re-derives it with the converter's budget, in the same test that sizes the
       converter.
-- [ ] The request is small and bounded by its contract (FR-002 caps every free-text field), so the
-      `TIMED_OUT` door reads the request from the event input as table-share's does. A test asserts
-      the largest request the contract admits is under 32 KB, so the file-send-shaped
-      `states:DescribeExecution` door is provably unnecessary — the number is measured from the
-      contract, not stated.
+- [ ] The `TIMED_OUT` door reads the request from the event input, as table-share's does, and the
+      file-send-shaped `states:DescribeExecution` door is not built. What makes that safe is not a
+      cap of this plane's own: SQS refuses a message over 256 KB at the send (the route answers a
+      fault), and EventBridge carries an event of that size, so no request that reaches the machine
+      can be dropped by the rule. A test asserts the route declares no body cap of its own, so the
+      argument cannot be silently invalidated by one being added.
 - [ ] The plane's functions are declared through the `docker-lambda` module, so `lambdas/fleet.py`
-      reads them from the Terraform sources with no list to be missing from; the image's import
-      sweep runs every new handler; `lambdas/info/deployment.md` *Adding a function* is followed
-      step for step and nothing is added to `.github/`.
+      reads them from the Terraform sources; the module exports a `function_names` output and joins
+      `lambda_deployed_names` in `infra/outputs.tf` (`test_fleet_derivation.py` fails by name if
+      either is missing); the image's import sweep runs every new handler; **and because this is a
+      new plane it gets a probe**: the deploy role is granted `lambda:InvokeFunction` on
+      validate-authorize and that name is added to `.github/lambda-probes.json` — without the pair
+      the plane is unprobed and `test_cold_start_probe.py` cannot see it. `lambdas/info/deployment.md`
+      *Adding a function* is followed step for step.
 - [ ] The plane's DLQ ARN is added to the DLQ drain's `dlq_arns`, and a test over the Terraform
       sources asserts every plane module's DLQ is in that list — the omission would be a plane whose
       dead letters nobody reads.
-- [ ] The execution role is added to the notifications writer's sender allowlist — the runtime
-      `create` boundary that compares the role-id half of `SenderId` — and **no queue resource
-      policy is added** on the notifications queue.
+- [ ] No change to the notifications writer: its `create` boundary is a **denylist of one** (the
+      portal role's id in `NOTIFICATIONS_UNTRUSTED_SENDER_ID`), so a new plane role is trusted by
+      construction. A test asserts the new role's unique id is not that value, **no allowlist is
+      built** (the trap the writer's own docstring names), and **no queue resource policy is
+      added** on the notifications queue.
 - [ ] The execution role holds `athena:GetQueryExecution` and `athena:GetQueryResults` on the
       app's workgroup, `s3:GetObject` on the results prefixes only (`{user_space_bucket}/*/{results
       prefix}/*`, from the one builder), `s3:GetObject` on `{admin_bucket}/shared-spaces/*` plus the
@@ -128,9 +135,13 @@ What the browser sends, declared once in Python.
       (ISO-8601). Every key is required; an unknown key is refused by the route's validator.
 - [ ] `format` is a **closed** vocabulary: `csv` is refused at the route with the same validation
       code as any other unknown value, because CSV is the synchronous copy and never this plane's.
-- [ ] Caps: `filename` is 1–255 bytes, contains no `/` and no control character, and is not `.` or
-      `..`; `prefix` ends in `/` or is empty and is at most 1024 bytes; each cap is asserted by a
-      test that submits one byte over it and reads the validation code.
+- [ ] The route's validator is **shape-only**, as every enqueue route's is (`validate_request`
+      walks the `TypedDict`): an unknown key, a missing key or a wrong type is refused there. Every
+      length and content cap lives in **validate-authorize**, returned as `invalid_request`:
+      `filename` is 1–255 bytes, contains no `/` and no control character, and is not `.` or `..`;
+      `prefix` is empty or ends in `/` and is at most 1024 bytes. Each cap is asserted by a test
+      that submits one byte over it and reads the reason code — the plane is the one authority on
+      the request, and the route never grows a second.
 - [ ] An `EnqueueRoute` with `id="resultsConversion.enqueue"`, `POST /v1/enqueue/results-conversion`,
       `plane="api"`, `idempotent=False`, `queue="results-conversion"`, `stamped=frozenset()`, and
       `EnqueueAccepted` as its response. The TypeScript type is generated, never hand-written, and
@@ -140,9 +151,12 @@ What the browser sends, declared once in Python.
       exactly as it is for the other planes.
 - [ ] `MessageGroupId` is the actor's username, so one user's requests are delivered in order;
       `MessageDeduplicationId` is `requestId`, so a browser retry of one submit is one execution.
-- [ ] The API's environment carries the queue URL from Terraform, through the same map every other
-      enqueue route's queue reaches it by; a missing or empty value fails the API at cold start,
-      not on the first request.
+      Both are entries in `apicommon/fifo.py`'s per-route tables, and its agreement test covers the
+      new route.
+- [ ] The API reads the queue URL as it reads the other seven: lazily, through `config.queue_url`'s
+      `_require`, so a missing or empty value is a **server fault on the request** (5xx, a declared
+      code), never a 401 and never a silent send to nowhere. No import-time check is added — one
+      unset queue must not take every route down.
 
 ### FR-003: Actor identity and destination authorization
 
@@ -157,16 +171,18 @@ write this destination.
       `actor` field is never consulted, and `assurance` fails closed on an unknown or absent value,
       each asserted by a fixture that carries the wrong thing.
 - [ ] A personal destination space is authorized iff its name equals the verified username. A shared
-      destination is authorized iff the registry record names the actor as a **usable** member,
-      through the same `cpcommon.registry` read file-ops uses; a `deleting`, `failed` or emptied
-      space refuses. A record that cannot be read because of a real `AccessDenied` **raises** and is
-      not read as absence.
+      destination is authorized iff `cpcommon.registry.is_active_member` says so — the read
+      file-ops' authorizer makes — which refuses a `deleting` or `failed` record and an emptied
+      one through its blank roster. A record that cannot be read because of a real `AccessDenied`
+      **raises** and is not read as absence.
 - [ ] The destination key `{space root}{prefix}{filename}` is proved inside the space root by
       `cpcommon.paths.assert_inside_root`; a `..` segment, an absolute key or a key escaping the root
       refuses with `invalid_request`.
-- [ ] The app-managed prefixes are refused as destinations with `protected_location`, and the list
-      comes from the **one builder per app-managed path** SPEC-218 establishes — never a second list
-      in `rccommon`. A test asserts the refused set equals the set that builder enumerates.
+- [ ] The app-managed prefixes are refused as destinations with `protected_location`, and the set
+      comes from the **one builder per app-managed path** SPEC-218 lifts into `cpcommon` — never a
+      copy in `rccommon`, and never an import from `focommon`, whose own copy is the duplication 218
+      retires. A test asserts the refused set equals the set that builder enumerates. This is the
+      dependency on 218.
 - [ ] The execution role carries an explicit IAM **Deny** on `s3:PutObject` under every app-managed
       prefix in both space buckets, mirroring the portal role's, so a validator defect cannot write
       into a receipt folder. The rendered policy is asserted to name every prefix the builder
@@ -187,9 +203,14 @@ the proof.
 - [ ] `GetQueryExecution` is called once. An id Athena does not know (`InvalidRequestException`)
       refuses with `execution_not_found`.
 - [ ] The execution's `ResultConfiguration.OutputLocation` must begin with the actor's own results
-      prefix, built by the one builder the API's `output_location` uses (SPEC-218); any other
-      location refuses with `execution_not_found` — the same code as an unknown id, so the refusal
-      cannot say whether another user's execution exists.
+      prefix. **This spec adds that builder to `cpcommon.results` as `user_results_prefix(bucket,
+      username)`** and the API's `output_location` becomes a call to it, asserted by a test that the
+      two agree byte for byte — one builder, because today the API carries the rule alone. It is a
+      different fact from `results_location`, which is where a plane's own DDL writes, and the two
+      are not merged. Any other location refuses with `execution_not_found` — the same code as an
+      unknown id, so the refusal cannot say whether another user's execution exists.
+- [ ] The plane's `execution.json.tftpl` names `athenaresults`, so it joins the pinned template
+      population SPEC-218 FR-004 enumerates, in whichever order the two land.
 - [ ] `QUEUED` and `RUNNING` refuse with `execution_not_finished`; `FAILED` and `CANCELLED` with
       `execution_failed`; only `SUCCEEDED` proceeds. The state is read from the same call.
 - [ ] A `StatementType` other than `DML` refuses with `no_result_set`: a DDL or utility statement
@@ -222,10 +243,11 @@ describe-results reads what the converter needs to know before a byte of data is
       lands the constant is provisional and the test says so.
 - [ ] The emitted state carries `columns` (`[{name, type}]`), `resultsBytes` and everything FR-004
       emitted, and nothing else; the same key-set assertion as FR-004.
-- [ ] Column names are user data: a name that is empty or duplicates another (case-folded) is not
-      refused here — the converter writes what Athena named — but the plane never builds a key, a
-      message or a log field from a column name. A test asserts no column name reaches the
-      notification body or the observability span.
+- [ ] Column names are user data. A name that duplicates another after case-folding refuses with
+      `duplicate_column`, and an empty one with `invalid_column_name`, each naming the column in
+      the notification — because polars renames a duplicate on read (`a`, `a_duplicated_0`) and the
+      file would then not carry the names the user saw. The plane never builds a key or a log field
+      from a column name; a test asserts no column name reaches the observability span.
 
 ### FR-006: The failure paths
 
@@ -243,14 +265,17 @@ Every way the machine can stop short of its terminal tells the user.
       `cpcommon.errors.failure_reason` is the only decoder.
 - [ ] `rccommon` registers every reason code this plane can return — `forbidden`, `invalid_request`,
       `protected_location`, `execution_not_found`, `execution_not_finished`, `execution_failed`,
-      `no_result_set`, `results_too_large`, `malformed_event`, `unexpected` — each with wording that
+      `no_result_set`, `results_too_large`, `duplicate_column`, `invalid_column_name`,
+      `malformed_event`, `unexpected` — each with wording that
       names the format and the file name where they are known, and the generic sentence only for
       what a user cannot act on. A test enumerates the codes raised against the codes registered.
 - [ ] A refused request produces exactly one notification, from `NotifyFailure`, addressed to the
       actor from `identity.actor`; a request refused before identity produces none and is
       dead-lettered, which the DLQ drain then notifies from the same field.
-- [ ] Structured logging goes through `cpcommon.observability` only; no message carries a column
-      name, a file name or the SQL (which this plane never reads at all).
+- [ ] Structured logging goes through `cpcommon.observability` only; no log field carries a column
+      name, a file name or the SQL (which this plane never reads at all). The notification names the
+      file and, on the two column refusals, the column — that is the user's own text returned to
+      the user, and it goes nowhere else.
 
 ---
 

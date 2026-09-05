@@ -2835,9 +2835,13 @@ results prefix, whatever it was queried from. The plane takes an execution id, r
 object, and types it from the metadata Athena reports for the execution — so no second query
 starts, nothing is billed, and the converter reads exactly one shape. It is also what makes
 ownership a question about a path: an execution is the actor's iff its output sits under the
-results prefix the API writes with, built by SPEC-218's one builder, which is why 221 depends on
-218 — today the API and `cpcommon` each carry a results-prefix builder and they do not agree on
-the shape.
+results prefix the API writes with. Today that rule lives in the API alone (`cpcommon.results`
+holds a *different* fact — where a plane's own DDL writes — and the two are not the same shape on
+purpose), so 221 lifts the user-results builder into `cpcommon` and the API calls it. **221 depends
+on 218 for something else:** the app-managed folder set it refuses as a destination lives today in
+`focommon` and the browser, and 218 is the spec that makes it one builder; a third copy in
+`rccommon` would be the duplication 218 exists to retire, and an import from `focommon` would be a
+leaf domain layer becoming a shared one.
 
 **Why three specs.** The seams are the ones the plane pattern already has: the plane and its
 authorizer, which ships nothing a user can reach (221); the converter, the three writers and the
