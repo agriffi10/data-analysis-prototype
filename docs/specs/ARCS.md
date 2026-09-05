@@ -2751,45 +2751,70 @@ widened to cover.
 
 ## System-settings prefix arc (SPEC-218 → 219 → 220)
 
-**The request.** The space root leads with folders nobody made. #641 answered that by collapsing three of them behind one disclosure row named
-`system_settings`, explicitly as a **listing affordance over unmoved keys** — the user
-picked that reading over a real migration at the time. He has since changed his mind, and
-for the reason the row's own docstring predicted: *it reads as a folder because that is what
-it is standing in for*, and no such prefix exists. A row that opens like a folder and is not
+**The request.** The space root leads with folders nobody made. #641 answered that by collapsing
+three of them behind one disclosure row named `system_settings`, explicitly as a **listing
+affordance over unmoved keys** — the reading the user picked at the time. He has since changed his
+mind, and for the reason the row's own docstring predicted: *"it reads as a folder because that is
+what it is standing in for"*, and no such prefix exists. A row that opens like a folder and is not
 one is the defect; a real prefix removes the row rather than restyling it.
 
-**Why it is three specs and not one.** Uneditability here **is** an IAM Deny keyed on the
-literal path — `ResultsNoDelete`, `UserSettingsNoDelete` and their siblings name
-`<space>/athenaresults/*` directly. So relocating a prefix relocates the thing that makes it
-uneditable, and the window between the two is a window in which the data is writable and
-nothing fails. That is the same shape as the origin cutover in SPEC-202, and it takes the
-same answer the decisions register already holds: **admit additively, move, then narrow**,
-with the grants landing in their own PR before the resources that need them.
+**What moves: the three the row already shows** — `athenaresults/`, `archive/`, `shared_tables/`.
+Settled by the user against four alternatives after review, and the reasoning is worth keeping:
+`saved_queries/` is deliberately **user-owned** (`systemFolders.ts`: *"the user names, moves and
+deletes what is in them"*), so burying it contradicts the original "only folders users cannot edit"
+framing; `user_settings/` and `_data-quality-reports/` are hidden from the browser entirely, so
+making them children of a **visible** folder either exposes what was never shown or creates a folder
+whose contents you cannot see. Only this set makes the S3 move and the visible result match
+one-for-one, which is what keeps 220's live checks honest.
 
-**The order, and what each one retires.**
+**Why it is three specs and not one.** Uneditability here **is** an IAM Deny keyed on the literal
+path, so relocating a prefix relocates the thing that makes it uneditable, and the window between
+the two is a window in which the data is writable and nothing fails. Same shape as SPEC-202's origin
+cutover, and it takes the same answer the register already holds: **admit additively, move, then
+narrow**, grants landing in their own PR before the resources that need them.
 
-- **SPEC-218 — one owner for every app-managed path.** Ships nothing visible. The six folder
-  names are declared in eleven places (three SPA modules, eight Lambda modules) and again as
-  literals in nine IAM templates; nothing checks that the copies agree. It also splits
-  `arcommon.ARCHIVE_FOLDER`, which is deliberately one constant for two facts — the receipt
-  folder in the user's space *and* the leading segment of every key in the Glacier vault —
-  because 220 moves the first and must not move the second. Opening on the spec that ships
-  nothing is deliberate: the risk it retires is that the move misses a declaration, and a
-  missed declaration does not break, it silently stops protecting.
-- **SPEC-219 — admit `system_settings/` additively.** Every Allow and Deny gains a sibling
-  naming the new path; the planes and the browser read both; writes still go to the old one.
-  Nothing user-visible changes, and the rollback is still exercisable because the old path is
-  still the live one.
-- **SPEC-220 — the move, then the narrowing.** Two merges, not one. First writes switch, the
-  existing objects are copied, the shared tables' Glue `LOCATION`s are re-pointed and the
-  Athena `OutputLocation` follows; the `system_settings` group row is **deleted**, because
-  the folder is now real and the file browser needs no affordance to show it. Then, after the
-  live checks and while the rollback still works, the old-path statements come out and the
-  old prefix is proved empty **positively** — an absence read off a plan is not evidence.
+**Read the Deny asymmetry before sizing 219.** It is not uniform, and half of it is a no-op.
+Shared-space Denies are written `${shared_space_bucket_arn}/*/athenaresults/*`, and an S3 resource
+`*` matches `/` — so they keep matching `finance/system_settings/athenaresults/x` after the move.
+The personal ones are anchored at `${aws:PrincipalTag/username}/` and stop matching entirely. **The
+unprotected window is personal-space-only**, which makes 219 cheap on the shared side and
+load-bearing on the personal one. Two of the three moving folders carry a portal-role Deny at all
+(`athenaresults/`, `archive/`); `shared_tables/` carries none anywhere, and `systemFolders.ts`
+already says so — for that one a missed declaration is an ordinary bug, not a silent loss of
+protection.
 
-**The two traps this arc is most likely to ship green.** The Glue `LOCATION` of every table
-the share pipeline copied points into `shared_tables/`; a table whose data moves under it
-without its `LOCATION` following does not error, it returns **zero rows**. And `archive/`'s
-folder names **are** the archive ids a restore needs — the restore dialog, two Help entries
-and a live-check step all name that path, and it is the one surface where a wrong instruction
-costs 3–5 billed hours.
+**The order, and what each retires.**
+
+- **SPEC-218 — one BUILDER per app-managed path.** Ships nothing visible. Not a rename-safety
+  exercise: the thing that breaks the move is **depth**, because nearly every rule is anchored at
+  depth 1 as `{space_root}{NAME}/` and simply stops matching at depth 2, silently. It also splits
+  the **three** different facts spelled `archive` — the user's receipt folder, the Glacier vault's
+  leading key segment, and the admin bucket's control-plane scratch — of which exactly one moves.
+- **SPEC-219 — admit `system_settings/` additively.** Every Allow and Deny gains a sibling naming
+  the new path; planes and browser read both; writes still go to the old one. Nothing user-visible
+  changes and the rollback stays exercisable, because the old path is still the live one.
+- **SPEC-220 — the move, then the narrowing.** Two merges. Writes switch, existing objects are
+  copied, the shared tables' Glue `LOCATION`s are re-pointed and the Athena output location follows;
+  the group row is **deleted**, because the folder is now real. Then, after the live checks and
+  while the rollback still works, the old-path statements come out and the old prefix is proved
+  empty **positively** — an absence read off a plan is not evidence.
+
+**Four traps this arc is most likely to ship green.**
+
+1. **Glue `LOCATION`.** Every table the share pipeline copied points into `shared_tables/`. Data
+   moving under it without the `LOCATION` following does not error — it returns **zero rows**.
+2. **Archive ids.** `archive/`'s folder names **are** the ids a restore needs. The restore dialog,
+   two Help entries and a live-check step all name that path, and it is the one surface where a
+   wrong instruction costs 3–5 billed hours.
+3. **First-segment rules.** `dq_validate_authorize` refuses a check whose `rel.split("/")[0]` is in
+   `RESERVED_PREFIXES`. After the move the first segment is `system_settings` and every member
+   becomes a *second* segment, so the refusal silently stops firing. Neither a name problem nor a
+   membership problem — a third thing, and the same class as the depth trap 218 exists for.
+4. **FIFO group ids.** `apicommon/fifo.py` hashes `{kind}/{name}/archive/{id}/` into the SQS
+   `MessageGroupId`, pinned to golden vectors captured before the browser's copy was deleted.
+   Moving that value re-keys the ids and reddens the vectors — which is fact 2 in 218's table, and
+   must not move.
+
+**Cleanup 220 owes:** `docs/testing/e2e.md` has a live-check table keyed on these paths (including a
+`system_settings` row from #641), and `docs/testing/owed.md` holds runnable `aws s3api` commands
+with these prefixes in the key.
