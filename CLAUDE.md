@@ -1,4 +1,4 @@
-# S3 File Portal — Project Memory
+# Data Quarry — Project Memory
 
 Loaded every session — keep it lean. **Start by reading `@docs/process.md`**: how we work — spec
 lifecycle, session rhythm, the review gate, the completion ritual, doc hygiene. Its §1 is the

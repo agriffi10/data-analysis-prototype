@@ -40,7 +40,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Upload files',
         subtitle: 'Add files to a folder from your computer.',
         intro:
-          'Everything starts here — getting your files into the portal. Uploads always land in the folder you’re currently viewing, so browse to where you want them first, then drop them in. Big files are welcome; the panel keeps you posted on each one.',
+          'Everything starts here — getting your files into Data Quarry. Uploads always land in the folder you’re currently viewing, so browse to where you want them first, then drop them in. Big files are welcome; the panel keeps you posted on each one.',
         steps: [
           'Open the <b>Files</b> tab and browse to the folder you want to upload into.',
           'Click <b>Upload</b> to open the upload panel.',
@@ -82,15 +82,15 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Rename, move, copy, or delete',
         subtitle: 'Reorganize files and folders after uploading.',
         intro:
-          'Plans change, and so does how you want your files arranged. Tick items for a bulk toolbar, or open a single item’s details to rename it. A single file is done straight away. Whole folders work too, and because a folder can hold thousands of files the portal does those in the background while you carry on.',
+          'Plans change, and so does how you want your files arranged. Tick items for a bulk toolbar, or open a single item’s details to rename it. A single file is done straight away. Whole folders work too, and because a folder can hold thousands of files Data Quarry does those in the background while you carry on.',
         steps: [
           'Tick the checkbox on one or more items — a toolbar with <b>Copy</b>, <b>Move</b>, and <b>Delete</b> appears.',
           'For <b>Move</b> or <b>Copy</b>, pick a destination folder, then confirm with <b>Move here</b> or <b>Copy here</b>.',
           'To <b>Rename</b> a single item, click <b>Details</b> on its row and choose <b>Rename</b>, then type a <b>New name</b> — a file keeps its original extension automatically.',
-          'A single file is done straight away. <b>Anything else — a folder, or more than one item — is handed to the portal to do in the background.</b> You get a note that it has been requested, an entry in the in-progress list, and a notification when it finishes.',
+          'A single file is done straight away. <b>Anything else — a folder, or more than one item — is handed to Data Quarry to do in the background.</b> You get a note that it has been requested, an entry in the in-progress list, and a notification when it finishes.',
           'While one of those is running, anything else in that space that would also run in the background — another folder or multi-item <b>Copy</b>, <b>Move</b> or <b>Delete</b>, and <b>Archive</b> — is unavailable and says so. Nothing is queued, so start it again once the first has finished. Single files are unaffected, and the file list does not update by itself either: press <b>Refresh</b>, or leave the tab and come back.',
-          'If the portal’s background service is unavailable, a folder Copy, Move or Delete is refused and says so — the files you picked alongside it still go through, and the message names the folders that did not. Try those again later.',
-          'The folders the portal fills for you are gathered under <b>system_settings</b>, below your own folders — <b>athenaresults</b>, where your query results are kept, your <b>archive</b> receipts, and any tables shared with you. Click it to open it up, and browse what is inside as normal. Your query results and your archive receipts are managed for you, so those two can’t be deleted or moved.'
+          'If Data Quarry’s background service is unavailable, a folder Copy, Move or Delete is refused and says so — the files you picked alongside it still go through, and the message names the folders that did not. Try those again later.',
+          'The folders Data Quarry fills for you are gathered under <b>system_settings</b>, below your own folders — <b>athenaresults</b>, where your query results are kept, your <b>archive</b> receipts, and any tables shared with you. Click it to open it up, and browse what is inside as normal. Your query results and your archive receipts are managed for you, so those two can’t be deleted or moved.'
         ],
         callout: {
           kind: 'warning',
@@ -120,7 +120,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Send files to someone',
         subtitle: 'Hand files or folders to another person or a shared space.',
         intro:
-          'Sometimes the quickest way to share something is to give someone a copy of it. Select what you want, pick who gets it, and the portal copies it into their space in the background — you keep your originals, and you hear back about each recipient.',
+          'Sometimes the quickest way to share something is to give someone a copy of it. Select what you want, pick who gets it, and Data Quarry copies it into their space in the background — you keep your originals, and you hear back about each recipient.',
         steps: [
           'In the <b>Files</b> tab, tick one or more items — files, folders, or a mix — and click <b>Send to…</b>.',
           'Choose <b>Users</b> or <b>Shared spaces</b>, then type one or more names. Names are suggested as you type, and a name that isn’t suggested is still allowed — it’s checked when the request is sent.',
@@ -228,7 +228,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Run several statements at once',
         subtitle: 'Write a script of ;-separated statements and run it top to bottom.',
         intro:
-          'You don’t have to run statements one at a time. Put several in the editor separated by semicolons — say, a <b>CREATE TABLE</b> followed by a <b>SELECT</b> — and the portal runs them in order, one after another. Each gets its own history entry, and you pick whether you want a single final result or one result per statement.',
+          'You don’t have to run statements one at a time. Put several in the editor separated by semicolons — say, a <b>CREATE TABLE</b> followed by a <b>SELECT</b> — and Data Quarry runs them in order, one after another. Each gets its own history entry, and you pick whether you want a single final result or one result per statement.',
         steps: [
           'Write multiple statements in one editor, separated by semicolons.',
           'Open the dropdown next to <b>Run Statement</b> to reach the two whole-script options.',
@@ -354,9 +354,9 @@ export const HELP_SECTIONS: HelpSection[] = [
       {
         id: 'choose-a-theme',
         title: 'Switch between light and dark',
-        subtitle: 'Pick how the portal looks, or let it follow your device.',
+        subtitle: 'Pick how Data Quarry looks, or let it follow your device.',
         intro:
-          'A long session with the editor is easier on the eyes in the dark. Choose Light or Dark to fix it, or System to let the portal follow whatever your computer or phone is set to — so it turns dark in the evening if your device does.',
+          'A long session with the editor is easier on the eyes in the dark. Choose Light or Dark to fix it, or System to let Data Quarry follow whatever your computer or phone is set to — so it turns dark in the evening if your device does.',
         steps: [
           'Open the menu on your name in the top bar and choose <b>Light</b>, <b>Dark</b>, or <b>System</b>. It is the same menu that holds <b>Help &amp; guides</b>, <b>Give feedback</b> and <b>Sign out</b>.',
           'It is in the same place at every screen size, phone included — there is no separate control to find on a small screen.',
@@ -380,9 +380,9 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Create a table from a folder',
         subtitle: 'Turn a folder of files into a table you can query.',
         intro:
-          'Have a folder full of data files — CSV, JSON, or Parquet — that you’d like to run SQL against? This turns them into a table without moving or copying anything. The portal reads the files where they already sit and builds the table in the background, then it shows up in the <b>Query</b> tab ready to go. One thing to sort out before you start: <b>column names have to be letters, digits and underscores</b>. A header like <b>Order ID</b> or <b>sales-2024</b> will stop the build, and you’ll get a notification naming the columns to fix. Names are also stored in lowercase, so <b>OrderID</b> becomes <b>orderid</b> — and two headers that differ only by case (<b>Total</b> and <b>TOTAL</b>) become one column, which is refused for the same reason. Your files themselves are never rewritten.',
+          'Have a folder full of data files — CSV, JSON, or Parquet — that you’d like to run SQL against? This turns them into a table without moving or copying anything. Data Quarry reads the files where they already sit and builds the table in the background, then it shows up in the <b>Query</b> tab ready to go. One thing to sort out before you start: <b>column names have to be letters, digits and underscores</b>. A header like <b>Order ID</b> or <b>sales-2024</b> will stop the build, and you’ll get a notification naming the columns to fix. Names are also stored in lowercase, so <b>OrderID</b> becomes <b>orderid</b> — and two headers that differ only by case (<b>Total</b> and <b>TOTAL</b>) become one column, which is refused for the same reason. Your files themselves are never rewritten.',
         steps: [
-          'In the <b>Files</b> tab, tick the folder whose files you want to query — exactly one, and it has to be a folder rather than a file — then click <b>Create table</b>. You can also start from the <b>Data explorer</b> — when it asks what to explore, use <b>Create table from a folder…</b> and pick the folder there. <b>Create table</b> is unavailable at the top of a space, because a table reads everything below it and the top of a space also holds your query results, saved queries and shared files.',
+          'In the <b>Files</b> tab, tick the folder whose files you want to query — exactly one, and it has to be a folder rather than a file — then click <b>Create table</b>. <b>If you cannot see Create table, the window is too narrow</b> — the toolbar drops it on small screens, so widen the window or use a larger display for this step. <b>Create table</b> is also unavailable at the top of a space, because a table reads everything below it and the top of a space also holds your query results, saved queries and shared files.',
           'Enter a <b>Table name</b> (lowercase letters, digits, or underscores, starting with a letter).',
           'If your files sit in <b>key=value</b> folders (for example <b>year=2026/month=01/</b>), click <b>Add partition keys</b> and declare each key in order — coarsest first — along with its type and range.',
           'Click <b>Create table</b>. It’s built in the background, and you’ll get a notification when it’s ready — or if something stopped it from being created.'
@@ -417,7 +417,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         steps: [
           '<b>Partition keys can’t be changed.</b> A refresh keeps the keys the table already has. To change them, drop the table and create it again.',
           '<b>Views can’t be refreshed.</b> A view has no data files to re-read, so the menu doesn’t offer it. Re-create the view instead.',
-          '<b>Tables with catalog-registered partitions can’t be refreshed</b>, nor can tables built outside the portal or pointing at files outside your space.',
+          '<b>Tables with catalog-registered partitions can’t be refreshed</b>, nor can tables built outside Data Quarry or pointing at files outside your space.',
           '<b>The file format can’t change.</b> If the folder’s files are no longer the format the table expects, build a new table over them.',
           '<b>One refresh at a time per table.</b> If a refresh of that table is already running, a second one is refused and changes nothing — wait for the notification from the first, then check whether you still need to refresh again.'
         ]
@@ -652,7 +652,7 @@ export const HELP_SECTIONS: HelpSection[] = [
   {
     id: 'notifications',
     label: 'Notifications',
-    subtitle: 'How the portal keeps you posted on activity.',
+    subtitle: 'How Data Quarry keeps you posted on activity.',
     icon: 'notifications',
     guides: [
       {
@@ -660,7 +660,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Find your notifications',
         subtitle: 'Know when something needs your attention.',
         intro:
-          'Some things in the portal happen in the background — a table being built, results being exported, changes to a shared space. Notifications are how the portal taps you on the shoulder when one of those finishes or needs you. Look to the bell in the top bar.',
+          'Some things in Data Quarry happen in the background — a table being built, results being exported, changes to a shared space. Notifications are how Data Quarry taps you on the shoulder when one of those finishes or needs you. Look to the bell in the top bar.',
         steps: [
           'Look for the <b>bell</b> in the top bar.',
           'A number on the bell shows how many unread notifications you have.',
@@ -672,7 +672,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Read your notifications',
         subtitle: 'Browse your full notification history.',
         intro:
-          'The Notifications page is the full record of everything the portal has let you know about — your shared spaces and background jobs like table builds — with the newest at the top.',
+          'The Notifications page is the full record of everything Data Quarry has let you know about — your shared spaces and background jobs like table builds — with the newest at the top.',
         steps: [
           'The <b>Notifications</b> page lists them newest first, 10 per page.',
           'Switch between <b>All</b> and <b>Unread</b>, and use <b>Prev</b> / <b>Next</b> to page through them.',
@@ -699,7 +699,7 @@ export const HELP_SECTIONS: HelpSection[] = [
   {
     id: 'feedback',
     label: 'Give feedback',
-    subtitle: 'Tell us what is working, what is not, and what you wish the portal did.',
+    subtitle: 'Tell us what is working, what is not, and what you wish Data Quarry did.',
     icon: 'feedback',
     guides: [
       {
@@ -707,7 +707,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Send us feedback',
         subtitle: 'Report a problem, suggest an idea, or ask a question.',
         intro:
-          'Everything else in the portal tells us what you <b>clicked</b>. This is the only place that tells us what you <b>wanted</b> — so if something is awkward, missing, or just wrong, this is the fastest way to say so.',
+          'Everything else in Data Quarry tells us what you <b>clicked</b>. This is the only place that tells us what you <b>wanted</b> — so if something is awkward, missing, or just wrong, this is the fastest way to say so.',
         steps: [
           'Open the menu on your name in the top bar and choose <b>Give feedback</b> — the same place as <b>Help &amp; guides</b>, your theme and <b>Sign out</b>. It is there at every screen size.',
           'Pick <b>What is this about?</b> — <b>Something is broken</b> for a problem, <b>An idea or a request</b> for something you would like, <b>A question</b> when you are unsure how something works, and <b>Something else</b> for anything that fits none of those.',

@@ -32,7 +32,7 @@ describe('OperationOutcomeBanner', () => {
     // Four groups from five items — the two `moved` share one.
     expect(screen.getByText('Moved (2)')).toBeInTheDocument();
     expect(screen.getByText('Nothing to do (1)')).toBeInTheDocument();
-    expect(screen.getByText('Protected — the portal manages these (1)')).toBeInTheDocument();
+    expect(screen.getByText('Protected — Data Quarry manages these (1)')).toBeInTheDocument();
     expect(screen.getByText('Something is already in the way (1)')).toBeInTheDocument();
     expect(screen.getAllByRole('listitem')).toHaveLength(5);
   });

@@ -1,4 +1,4 @@
-# S3 File Portal
+# Data Quarry
 
 A web portal that lets authenticated users upload and download files to/from their own
 private space in AWS S3. Authentication is handled by **AWS Cognito**; per‑user isolation is

@@ -1,4 +1,4 @@
-# Architecture — how the S3 File Portal works
+# Architecture — how Data Quarry works
 
 **What this doc is:** the shape of the running system — the pieces, what each one does, and how a
 request travels between them. It is the orientation doc, short enough to read whole.

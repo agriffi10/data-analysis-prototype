@@ -1,5 +1,5 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {screen, waitFor} from '@testing-library/react';
+import {screen, waitFor, within} from '@testing-library/react';
 import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
@@ -145,6 +145,87 @@ describe('the source picker', () => {
     // comes first.
     const headings = screen.getAllByRole('heading', {name: /^(Tables|Views) \(/}).map((h) => h.textContent);
     expect(headings).toEqual(['Tables (1)', 'Views (1)']);
+  });
+
+  // Two assertions, because "nothing above them" has two ways to be false. The heading
+  // enumeration catches a title that IS a heading, however it is worded — a `queryByText` for
+  // the removed string would pass against a re-worded one. The STRUCTURAL assertion catches a
+  // title that is not a heading at all: a reviewer put the old text back as a styled `<p>` one
+  // size larger than the group headings, which is exactly the "restates them and outranks
+  // them" defect, and the role-based half saw nothing. Comparing the column's first child to
+  // the list is markup-agnostic — any element inserted above the list fails it, whatever tag
+  // or role it wears.
+  it('heads the list with the two groups and nothing above them', async () => {
+    render();
+    const tables = await screen.findByRole('heading', {name: 'Tables (1)'});
+
+    const region = screen.getByRole('region', {name: 'Choose a table to explore'});
+    expect(
+      within(region)
+        .getAllByRole('heading')
+        .map((h) => h.textContent)
+    ).toEqual(['Space', 'Tables (1)', 'Views (1)']);
+
+    // No tab is open in this render, so no Cancel row: the list is the column's first child.
+    const list = tables.closest('section')!.parentElement!;
+    expect(list.parentElement!.firstElementChild).toBe(list);
+  });
+
+  // Pinned to the class because jsdom loads no Tailwind and has no layout, so a prominent
+  // heading and a dim caption measure identically here — the same reason the header's wordmark
+  // test asserts its class. The two negatives are SEPARATE calls: `toHaveClass(a, b)` asserts
+  // both are present, so one `not.toHaveClass('uppercase', 'text-text-3')` passes on a heading
+  // that re-adds `uppercase` alone, which is half the regression it claims to hold.
+  it('renders those group headings as headings rather than dim captions', async () => {
+    render();
+    const tables = await screen.findByRole('heading', {name: 'Tables (1)', level: 2});
+
+    expect(tables).toHaveClass('text-base', 'font-semibold', 'text-text');
+    expect(tables).not.toHaveClass('uppercase');
+    expect(tables).not.toHaveClass('text-text-3');
+  });
+
+  // The create-table flow left this screen entirely — it is reached from the Files toolbar,
+  // where the folder in view is the answer. Asserted over every button AND link the whole
+  // screen renders, not by name and not scoped to the picker's region: the control that was
+  // here read "Create table from a folder…", and a query for that exact string would pass
+  // against any other create affordance put in its place. A reviewer proved both narrowings —
+  // the same wording came back as an `<a>` inside the region, and as a `<button>` just outside
+  // it, and the earlier assertion agreed the screen offered no way to create a table. The
+  // `arrayContaining` is the positive control: an empty list satisfies a bare filter.
+  it('offers no way to create a table', async () => {
+    render();
+    await screen.findByRole('heading', {name: 'Tables (1)'});
+
+    const labels = [...screen.getAllByRole('button'), ...screen.queryAllByRole('link')].map(
+      (el) => el.textContent ?? ''
+    );
+    expect(labels).toEqual(expect.arrayContaining(['My files', 'orders']));
+    expect(labels.filter((label) => /create/i.test(label))).toEqual([]);
+  });
+
+  // Cancel is the picker's other state, and it had no test of its own while the create
+  // section beside it did — so restructuring that header row could have taken it silently.
+  // It also pins the scope of the structural assertion above: with a tab open the Cancel row
+  // IS the column's first child, which is why that test says "no tab is open in this render"
+  // rather than asserting a rule that only holds in one of the two states.
+  it('offers Cancel once there is an exploration to go back to, and returns to it', async () => {
+    seedTabs([{id: 't1', table: 'orders'}]);
+    const {user} = render();
+
+    await user.click(await screen.findByRole('button', {name: 'New exploration'}));
+    const cancel = await screen.findByRole('button', {name: 'Cancel'});
+
+    // Cancel is the one thing the picker still renders over its groups, so it belongs above
+    // them. Asserted as DOCUMENT ORDER rather than as a sibling relationship: the latter would
+    // also fail on a refactor that merely dropped the wrapper element, which is not the
+    // regression this is here to catch.
+    const tables = await screen.findByRole('heading', {name: 'Tables (1)'});
+    const list = tables.closest('section')!.parentElement!;
+    expect(cancel.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await user.click(cancel);
+    expect(screen.queryByRole('heading', {name: 'Tables (1)'})).not.toBeInTheDocument();
   });
 
   // A space with no views is the ordinary case for a new one, and it is the only shape that

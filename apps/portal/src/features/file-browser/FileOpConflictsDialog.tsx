@@ -59,7 +59,7 @@ export function FileOpConflictsDialog({conflicts, busy, onResolve, onClose}: Pro
           replaced files <b>cannot be recovered</b>.
         </p>
         <p className="mt-2 text-sm text-text-2">
-          Anything created at the destination since you first asked is left alone — the portal only overwrites what was
+          Anything created at the destination since you first asked is left alone — Data Quarry only overwrites what was
           already there.
         </p>
       </ConfirmDialog>
@@ -87,7 +87,7 @@ export function FileOpConflictsDialog({conflicts, busy, onResolve, onClose}: Pro
       onConfirm={() => (renameTarget === undefined ? setConfirmingOverwrite(true) : setRenaming(true))}
       onCancel={onClose}>
       <p className="mt-2 text-sm text-text-2">
-        Something was already in the way, so the portal left it alone. Everything else in that request went ahead.
+        Something was already in the way, so Data Quarry left it alone. Everything else in that request went ahead.
       </p>
       <OperationOutcomeBanner
         title={`${results.length} ${results.length === 1 ? 'item needs' : 'items need'} your attention`}

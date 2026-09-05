@@ -1,4 +1,4 @@
-# Design System — S3 File Portal
+# Design System — Data Quarry
 
 **Aesthetic:** Clean / minimal SaaS. Generous whitespace, neutral grays, a single accent (indigo), light hairline borders, table-forward layouts. Reads as trustworthy enterprise tooling.
 

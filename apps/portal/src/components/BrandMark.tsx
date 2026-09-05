@@ -4,7 +4,7 @@ import {DatabaseIcon} from './icons';
 type BrandMarkProps = {
   /** 'sm' = an `h-6` square + text-base; 'md' (default) = an `h-8` square + text-md. */
   size?: 'sm' | 'md';
-  /** Render the "Data Workspace" text next to the square; default true. */
+  /** Render the "Data Quarry" text next to the square; default true. */
   showWordmark?: boolean;
   /**
    * Extends the wordmark's own classes — `hidden tablet:inline` to drop the words on a narrow
@@ -18,7 +18,7 @@ type BrandMarkProps = {
 
 /**
  * App brand mark — rounded accent square with a database icon plus the
- * "Data Workspace" wordmark. Shared by the Header and the landing page.
+ * "Data Quarry" wordmark. Shared by the Header and the landing page.
  *
  * @example
  * <BrandMark size="sm" showWordmark={false} />
@@ -33,9 +33,7 @@ export function BrandMark({size = 'md', showWordmark = true, wordmarkClassName, 
       <div className={cx('flex shrink-0 items-center justify-center rounded-md bg-accent', square)}>
         <DatabaseIcon className={cx(icon, 'text-white')} />
       </div>
-      {showWordmark && (
-        <span className={cx(wordmark, 'font-semibold text-text', wordmarkClassName)}>Data Workspace</span>
-      )}
+      {showWordmark && <span className={cx(wordmark, 'font-semibold text-text', wordmarkClassName)}>Data Quarry</span>}
     </div>
   );
 }

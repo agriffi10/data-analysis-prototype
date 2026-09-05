@@ -97,14 +97,14 @@ const CODE_RULES: readonly ErrorRule[] = [
   {
     code: 'SpaceUnavailable',
     title: 'This space is unavailable',
-    message: `The portal could not resolve where this space is stored. ${CONTACT_ADMIN}`,
+    message: `Data Quarry could not resolve where this space is stored. ${CONTACT_ADMIN}`,
     userFixable: false
   },
 
   {
     code: 'RuntimeConfigUnavailable',
-    title: 'The portal could not start',
-    message: `The portal is not configured correctly. ${CONTACT_ADMIN}`,
+    title: 'Data Quarry could not start',
+    message: `Data Quarry is not configured correctly. ${CONTACT_ADMIN}`,
     userFixable: false
   },
 

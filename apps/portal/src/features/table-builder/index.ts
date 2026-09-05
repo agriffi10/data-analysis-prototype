@@ -1,15 +1,10 @@
-// Table-builder feature: the two surfaces that enqueue a table build — the file browser's
-// "Create table from this folder", where the folder in view IS the answer, and the Data
-// Explorer's, where a folder has to be chosen first — the only browser touch-points of the
-// async control plane
-// The browser only enqueues a request; the pipeline creates the
-// table and notifies the actor of the outcome.
+// Table-builder feature: the file browser's "Create table from this folder", where the folder
+// in view IS the answer — the only browser touch-point of the async control plane that starts
+// a build. The browser only enqueues a request; the pipeline creates the table and notifies the
+// actor of the outcome.
 export {CreateTableButton} from './CreateTableButton';
 export {CreateTableDialog} from './CreateTableDialog';
-export {CreateTableFromSpaceDialog} from './CreateTableFromSpaceDialog';
-export type {BuildableSpace, ChosenFolder} from './CreateTableFromSpaceDialog';
 export {createTableRefusal, CREATE_TABLE_AT_ROOT_REFUSAL} from './createTableRefusal';
-export {useCreateTableFromSpace, suggestedNameFor} from './useCreateTableFromSpace';
 export {useCatalogCatchUp, armCatalogCatchUp, drainCatalogCatchUp} from './useCatalogCatchUp';
 export {PartitionKeysField} from './PartitionKeysField';
 export {RefreshTableDialog} from './RefreshTableDialog';

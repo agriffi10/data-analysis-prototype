@@ -8,12 +8,6 @@ import {useSaveResults} from '../catalog/useSaveResults';
 import {useRunDdl} from '../catalog/useRunDdl';
 import {buildCreateViewSql} from '../catalog/createView';
 import {CreateViewDialog} from '../catalog/CreateViewDialog';
-import {
-  CreateTableDialog,
-  CreateTableFromSpaceDialog,
-  suggestedNameFor,
-  useCreateTableFromSpace
-} from '../table-builder';
 import {useSavedQuerySpace} from '../saved-queries/useSavedQuerySpace';
 import {EXPLORATION_TABPANEL_ID, EXPLORATION_TABS_MAX} from './dataExplorer.constants';
 import {CostIndicator} from './CostIndicator';
@@ -52,9 +46,6 @@ export function DataExplorerWorkspace() {
   // precedent): the hook answers "which spaces can this user reach", which is a question
   // about access, and a flag is presentation.
   const sharedEnabled = useFeature('sharedWorkspaces');
-  // Building a table is a Query capability wearing a Data Explorer control, the mirror of
-  // `Save as query` — so it follows the flag that owns the capability, not the screen.
-  const queryEnabled = useFeature('query');
   const allSpaces = useQuerySpaces();
   const spaces = useMemo(
     () => (sharedEnabled ? allSpaces : allSpaces.filter((space) => space.id === 'personal')),
@@ -71,20 +62,6 @@ export function DataExplorerWorkspace() {
   // The statement the view will wrap and the database it lands in, both CAPTURED at the
   // gesture rather than read live while the dialog is up — the same reason `saving` is.
   const [creatingView, setCreatingView] = useState<{sql: string; database: string} | null>(null);
-  const createTable = useCreateTableFromSpace();
-  // Derived from `spaces`, which the `sharedWorkspaces` filter has ALREADY been through —
-  // never rebuilt from the connections, which would hand back what the flag just removed.
-  const buildableSpaces = useMemo(
-    () =>
-      spaces.map((space) => ({
-        id: space.id,
-        label: space.label,
-        bucket: space.bucket,
-        rootPrefix: space.rootPrefix,
-        kind: (space.id === 'personal' ? 'personal' : 'shared') as 'personal' | 'shared'
-      })),
-    [spaces]
-  );
   const queryControls = useExplorationQuery(tabs, tabs.activeTabId);
 
   // The ONE memory of "the space I am working in", shared with the Query workspace's save and
@@ -249,9 +226,6 @@ export function DataExplorerWorkspace() {
           username={username}
           onChoose={openSource}
           onCancel={tabs.tabs.length > 0 ? () => setPicking(false) : undefined}
-          // Follows the `query` flag, like `Save as query`: building a table is a Query
-          // capability, and with the flag off there is no workspace to use the result in.
-          onCreateTable={queryEnabled ? createTable.start : undefined}
         />
       ) : (
         // The region each tab controls. `aria-controls` on a tab has to name something, or
@@ -313,25 +287,6 @@ export function DataExplorerWorkspace() {
             totalBytes={tabs.activeTabBytesScanned}
           />
         </div>
-      )}
-
-      {createTable.step === 'folder' && (
-        <CreateTableFromSpaceDialog
-          spaces={buildableSpaces}
-          onChoose={createTable.chooseFolder}
-          onCancel={createTable.cancel}
-        />
-      )}
-      {createTable.step === 'name' && createTable.folder && (
-        // The SAME dialog the Files toolbar raises — only the folder reached it differently.
-        <CreateTableDialog
-          folderName={suggestedNameFor(createTable.folder)}
-          folderPath={createTable.folder.prefix}
-          busy={createTable.busy}
-          submitError={createTable.error ?? undefined}
-          onSubmit={createTable.submit}
-          onCancel={createTable.cancel}
-        />
       )}
 
       {creatingView && (

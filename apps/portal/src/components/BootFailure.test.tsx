@@ -8,7 +8,7 @@ describe('BootFailure', () => {
     render(<BootFailure />);
 
     const alert = screen.getByRole('alert');
-    expect(alert).toHaveTextContent('The portal could not start');
+    expect(alert).toHaveTextContent('Data Quarry could not start');
     expect(alert).toHaveTextContent('Contact the Administrator.');
   });
 

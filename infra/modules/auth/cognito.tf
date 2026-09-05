@@ -29,8 +29,8 @@ resource "aws_cognito_user_pool" "portal" {
   # the Cognito placeholder for the generated code.
   verification_message_template {
     default_email_option = "CONFIRM_WITH_CODE"
-    email_subject        = "Your S3 Portal verification code"
-    email_message        = "Your S3 Portal verification code is {####}"
+    email_subject        = "Your Data Quarry verification code"
+    email_message        = "Your Data Quarry verification code is {####}"
   }
 
   # Email is a required standard attribute.
