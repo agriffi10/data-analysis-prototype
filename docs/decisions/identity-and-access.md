@@ -160,6 +160,14 @@ conditioned on the caller's own prefix, so `_directory/` is invisible to the fil
 browser needed no change), no `PutObject`, no `DeleteObject`. The user reads; the daily builder is the
 only writer.
 
+**The accepted POPULATION changes at the transition, and the acceptance above is weakest for exactly
+the people it adds.** `transition_plan.md` §3.12 provisions every known user's prefix ahead of use,
+so the document stops listing "everyone who has used the portal" and starts listing everyone the
+client has. Two of the three arguments above still hold for a never-signed-in user — the username is
+still the prefix, and a typeahead still discloses the set by construction — but the shared-space
+roster one does not, because they are on no roster. The decision is recorded there as deliberate;
+what would retire it is a liveness rule in the builder, not a change to this grant.
+
 **The builder's own `s3:ListBucket` is unconditioned**, and what that grants is stated rather than
 minimised: `Delimiter="/"` is a property of the *code*, not the grant, so the role can enumerate every
 object key under every user's prefix. Accepted because it holds **no `s3:GetObject` anywhere** (it can
