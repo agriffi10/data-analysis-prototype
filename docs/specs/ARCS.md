@@ -2833,7 +2833,10 @@ plane using polars. **He chose the plane**, and this arc is that decision.
 and it changes nothing: Athena writes every result set as one CSV object under the actor's own
 results prefix, whatever it was queried from. The plane takes an execution id, reads that one
 object, and types it from the metadata Athena reports for the execution — so no second query
-starts, nothing is billed, and the converter reads exactly one shape. It is also what makes
+starts, nothing is billed, and the converter reads exactly one shape. **No intermediate file is
+made:** the CSV exists before this plane and whether or not it runs, because it *is* the query's
+result, and the plane adds exactly one object in the chosen format. The path that avoids the CSV
+is `UNLOAD`, and it is the one that writes several files. It is also what makes
 ownership a question about a path: an execution is the actor's iff its output sits under the
 results prefix the API writes with. Today that rule lives in the API alone (`cpcommon.results`
 holds a *different* fact — where a plane's own DDL writes — and the two are not the same shape on
