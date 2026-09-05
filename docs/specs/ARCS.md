@@ -43,6 +43,7 @@ always leaves an arc entry here holding the pair's build order, even when nothin
 - [API-layer & containerisation arc (SPEC-192 → 202)](#api-layer--containerisation-arc-spec-192--202)
 - [Transition identity arc (SPEC-203 and SPEC-205)](#transition-identity-arc-spec-203-and-spec-205)
 - [Container-lambdas arc (SPEC-212 → 213 → 214)](#container-lambdas-arc-spec-212--213--214)
+- [System-settings prefix arc (SPEC-218 → 219 → 220)](#system-settings-prefix-arc-spec-218--219--220)
 
 ---
 
@@ -2748,3 +2749,47 @@ had to be settled between them is the predicate SPEC-215's version-agreement tes
 init of its own and an init-based predicate would exclude the very workflow the derivation was
 widened to cover.
 
+## System-settings prefix arc (SPEC-218 → 219 → 220)
+
+**The request.** The space root leads with folders nobody made. #641 answered that by collapsing three of them behind one disclosure row named
+`system_settings`, explicitly as a **listing affordance over unmoved keys** — the user
+picked that reading over a real migration at the time. He has since changed his mind, and
+for the reason the row's own docstring predicted: *it reads as a folder because that is what
+it is standing in for*, and no such prefix exists. A row that opens like a folder and is not
+one is the defect; a real prefix removes the row rather than restyling it.
+
+**Why it is three specs and not one.** Uneditability here **is** an IAM Deny keyed on the
+literal path — `ResultsNoDelete`, `UserSettingsNoDelete` and their siblings name
+`<space>/athenaresults/*` directly. So relocating a prefix relocates the thing that makes it
+uneditable, and the window between the two is a window in which the data is writable and
+nothing fails. That is the same shape as the origin cutover in SPEC-202, and it takes the
+same answer the decisions register already holds: **admit additively, move, then narrow**,
+with the grants landing in their own PR before the resources that need them.
+
+**The order, and what each one retires.**
+
+- **SPEC-218 — one owner for every app-managed path.** Ships nothing visible. The six folder
+  names are declared in eleven places (three SPA modules, eight Lambda modules) and again as
+  literals in nine IAM templates; nothing checks that the copies agree. It also splits
+  `arcommon.ARCHIVE_FOLDER`, which is deliberately one constant for two facts — the receipt
+  folder in the user's space *and* the leading segment of every key in the Glacier vault —
+  because 220 moves the first and must not move the second. Opening on the spec that ships
+  nothing is deliberate: the risk it retires is that the move misses a declaration, and a
+  missed declaration does not break, it silently stops protecting.
+- **SPEC-219 — admit `system_settings/` additively.** Every Allow and Deny gains a sibling
+  naming the new path; the planes and the browser read both; writes still go to the old one.
+  Nothing user-visible changes, and the rollback is still exercisable because the old path is
+  still the live one.
+- **SPEC-220 — the move, then the narrowing.** Two merges, not one. First writes switch, the
+  existing objects are copied, the shared tables' Glue `LOCATION`s are re-pointed and the
+  Athena `OutputLocation` follows; the `system_settings` group row is **deleted**, because
+  the folder is now real and the file browser needs no affordance to show it. Then, after the
+  live checks and while the rollback still works, the old-path statements come out and the
+  old prefix is proved empty **positively** — an absence read off a plan is not evidence.
+
+**The two traps this arc is most likely to ship green.** The Glue `LOCATION` of every table
+the share pipeline copied points into `shared_tables/`; a table whose data moves under it
+without its `LOCATION` following does not error, it returns **zero rows**. And `archive/`'s
+folder names **are** the archive ids a restore needs — the restore dialog, two Help entries
+and a live-check step all name that path, and it is the one surface where a wrong instruction
+costs 3–5 billed hours.
