@@ -1301,8 +1301,10 @@ no first-visit write, a user whose space does not exist has nothing that would c
    cutover (§6.3, §9), so the provisioner inherits the write **and should not inherit its mechanism
    unexamined**: the route behind `overwrite: false` is a `head_object` followed by an unconditional
    `put_object`, so "write if absent" is check-then-write rather than an atomic guarantee. That is
-   adequate here only because the body is a constant — if a stronger guarantee is ever wanted, the
-   name for it is `PutObject` with `If-None-Match: *`.
+   adequate here only because the body is a **constant**, so a lost race writes identical bytes —
+   which holds only while *every* writer of that key writes the same constant, and is why §6.3's
+   prefix-marker row moves the constants' values rather than leaving them to be re-derived. If a stronger guarantee is ever wanted,
+   the name for it is `PutObject` with `If-None-Match: *`.
 2. **The Glue database**, named exactly the username.
 3. **The Lake Formation grant** giving the shared portal role use of that database and its tables.
 4. **The `portal-managed` LF-Tag** on the database, **last** — so a tagging failure costs
@@ -1317,18 +1319,28 @@ module, only its Cognito trigger.
 
 #### What must be true
 
+> **Read every boundary claim below as CONDITIONAL, because three review frames each found one that
+> was not.** Each says what holds *in the current account, as configured today* — and this document
+> exists because that account is being rebuilt somewhere else. Where a claim rests on a
+> configuration rather than on a mechanism, the condition is named inline; the standing instruction
+> is that **Phase 1 re-establishes those conditions and Phase 0 re-verifies the claim**, rather than
+> inheriting it from this page. The two that recurred are worth naming here: what Lake Formation
+> vends depends on the **registration mode** and on who is opted in, and what a hand-maintained
+> allowlist covers depends on **which lists exist**, of which this section has already
+> under-counted one.
+
 1. **Every name on the list is catalog-safe, and the check MOVES rather than disappearing.**
    `^[a-z][a-z0-9_]{2,62}$` is enforced today by `pre_signup.py`, at the one moment a human could
    type one. With no signup nothing enforces it — and the rule is not cosmetic: it is what makes
    **one string** safe as the S3 prefix, the principal tag and the Glue database name at once (§2
    item 3), and its **leading-lowercase-letter** clause is the only reason a username can never
-   collide with the bucket's reserved roots — `_directory/` and `_config/` — by construction. A name that violates it does not bounce; it
-   produces a space whose three names stop agreeing, and that surfaces later as a denial nobody can
-   diagnose. The rule already exists as `cpcommon.config.CATALOG_IDENTIFIER_RE` and
-   `pre_signup.py` holds a second copy of the same literal (the browser holds a third, in
-   `lib/catalogIdentifier.ts`) — the provisioner takes the `cpcommon` one rather than adding a
-   fourth. A row that fails is a **refusal naming the row**, never a skipped
-   line.
+   collide with the bucket's reserved roots — `_directory/` and `_config/` — by construction. A name
+   that violates it does not bounce; it produces a space whose three names stop agreeing, and that
+   surfaces later as a denial nobody can diagnose. The rule already exists as
+   `cpcommon.config.CATALOG_IDENTIFIER_RE`, and `pre_signup.py` holds a second copy of the literal
+   (the browser holds a third, in `lib/catalogIdentifier.ts`) — the provisioner takes the `cpcommon`
+   one rather than adding a fourth. A row that fails is a **refusal naming the row**, never a
+   skipped line.
 2. **The name on the list is the name the token will produce.** One username, one claim value,
    stable for the life of the user (§6.1, and the Phase 0 question it leaves open). Provisioning a
    name no claim ever resolves to creates an orphan prefix and a user who signs in to an empty
@@ -1339,21 +1351,36 @@ module, only its Cognito trigger.
 3. **A name already registered as a shared space is REFUSED, not adopted — and the refusal is a
    detector, not the fence.** Usernames and shared-space names share one Glue namespace;
    `provision_user` and `shared-space-create` both call `create_database` and both swallow
-   `AlreadyExists`. So provisioning a colliding username is not idempotency, it is **adoption**: the
-   portal gives that space's database a second owner, and a session tagged with that username holds
-   the personal-database Glue rights — `CreateTable`, `UpdateTable`, `DeleteTable` on
-   `database/${aws:PrincipalTag/username}` — over a shared space's catalog. (Not its *data*: the
-   shared bucket is scoped by the `shared_space_k` tags, which a non-member does not hold.) A shared
-   space's name is format-checked **nowhere** server-side, so the collision is reachable, and a run
-   over a whole list is what removes the one bound it has today — that a colliding name arrives one
-   signup at a time.
+   `AlreadyExists`. **The provisioning run itself changes nothing** — every call it makes on a
+   colliding name is already satisfied, byte for byte, by what `shared-space-create` did: same
+   database, same four database permissions and five table permissions to the same portal role, same
+   `portal-managed` tag. That is exactly why the refusal denies nothing. **The hazard exists before
+   it and without it:** a session tagged with that username holds the personal-database Glue rights
+   — `CreateTable`, `UpdateTable`, `DeleteTable` on `database/${aws:PrincipalTag/username}` — over a
+   shared space's catalog. A shared space's name is format-checked **nowhere** server-side, so the
+   collision is reachable, and a run over a whole list is what removes the one bound it has today —
+   that a colliding name arrives one signup at a time.
+   **The data is a separate question, and its answer is CONDITIONAL rather than structural.** Today
+   the collision reaches the catalog and not the objects, because Lake Formation is registered in
+   **hybrid** mode with **no principal opted in**, so Athena falls back to direct S3 IAM and the
+   `shared_space_k` tag scoping is what bites. Under enforced mode, or with the portal role opted
+   in, LF vends the credentials instead — and the shared space's LF grants are **role-level with no
+   tag condition**, over a data location registered for the *whole* bucket. So the same collision
+   reaches the data. Phase 1 re-registers these buckets in a new account, which is precisely when
+   that condition is chosen again.
    **State the residual plainly, because item 4 forbids the comfortable reading.** The API stamps
    the tag from the **verified claim**, consulting no registry and no provisioning record, so a user
    whose claim resolves to a colliding name holds those Glue rights *whether or not the provisioner
-   ever ran for them*. Refusing the row therefore denies nothing — it stops the portal creating the
-   second owner, and it is the place the collision becomes **visible**. The fence itself has to sit
-   where a username enters the system, or on the shared-space name namespace, and **neither exists
-   today**: name it as Phase 0 work rather than reading this refusal as the mitigation.
+   ever ran for them*. Refusing the row therefore denies nothing — it is the place the collision
+   becomes **visible**, and nothing more. **A fence has four candidate homes, and the two obvious
+   ones only stop NEW collisions:** validating a username where it enters the system, and validating
+   a shared-space name. The two that would actually deny an existing one are (a) the **tag-minting
+   path** — `identity.py` refusing to stamp a username that resolves to a registered space, which is
+   the only choke point every request passes and which already refuses on the catalog rule there,
+   though the API plane would need a registry read it does not hold today; and (b) making the two
+   namespaces **disjoint by construction**, the technique item 1 already relies on for the reserved
+   roots and the only one an out-of-band write cannot bypass. **None exists today.** Choose one in
+   Phase 0; do not read this refusal as the mitigation.
    The check is a registry read and it **fails closed** — a read that errors refuses the row, because
    `AccessDenied` is not absence: a role that cannot `ListBucket` is never told a key is missing
    (`infra/info/deploy-role-iam.md`).
@@ -1363,21 +1390,31 @@ module, only its Cognito trigger.
    from the verified claim. The converse is the trap this project has already been bitten by —
    **absence must not read as denial**, so anything asking "has this user been provisioned?" needs
    the `s3:prefix`-conditioned list grant or its absence branch fails as a fault.
-5. **TWO hand-maintained allowlists have to gain the provisioner's role, in the PR that creates it.**
+5. **THREE hand-maintained allowlists have to gain the provisioner's role, in the PR that creates
+   it — and the third is the one whose absence ships green.**
    The first is `infra/modules/data/policies/user-space-bucket-policy.json.tftpl`, a `Deny` on
    `s3:PutObject`/`GetObject`/`DeleteObject`/`ListBucket` for every principal not named in it — and
    **an explicit resource-policy deny beats an identity-policy allow**, so a provisioner holding a
    correct identity grant and missing from that list is denied at runtime with nothing in the plan to
    warn. It reads as a code bug, because the shared-space bucket has no such policy: every
    shared-space path keeps working while every personal one fails.
-   The second is the **Lake Formation data-lake administrator list**. `provision_user`'s grant works
-   today only because the post-confirmation role is in it, wired through `infra/main.tf` into
-   `infra/modules/analytics/lakeformation.tf`'s `admins` — a constructed ARN inside a `compact()`,
-   which this repo has already watched swallow a bad value and drop a grant silently. **And say what
-   that costs:** joining that list makes the provisioner a data-lake administrator, which is a far
-   larger privilege than "creates a database and grants a role". Either accept it explicitly or give
-   the provisioner a narrower grant path — do not let it arrive as a side effect of reusing
-   `provision_user`.
+   The second is the **Lake Formation data-lake administrator list**, which the post-confirmation
+   role is in — wired through `infra/main.tf` into `infra/modules/analytics/lakeformation.tf`'s
+   `admins`, a constructed ARN inside a `compact()` this repo has already watched swallow a bad
+   value and drop a grant silently. **Whether that membership is what makes `provision_user`'s grant
+   work is NOT established**: Lake Formation also confers grantable rights on the *creator* of a
+   resource, and this function creates the database immediately before granting on it. Measure which
+   it is before granting a new role admin — because joining that list makes the provisioner a
+   **data-lake administrator**, able to grant any permission on any resource to any principal, which
+   is enormously larger than "creates a database and grants a role". If the creator route suffices,
+   `CREATE_DATABASE` on the catalog plus the third grant below replaces it.
+   The third is `aws_lakeformation_permissions.provisioner_tag_associate` — **`ASSOCIATE` on the
+   `portal-managed` tag**, its own `for_each` list, and **admin status does not confer it**: that is
+   recorded live in `lakeformation.tf`, where an admin role got *"Required ASSOCIATE on
+   portal-managed"* from `AddLFTagsToResource`. A provisioner in the first two lists and not this one
+   creates the database, grants the portal role, and **fails at the tag** — which is item 9's partial
+   state exactly. The resource carries `ignore_changes` on its permissions, so **Terraform will not
+   show you the drift**.
 6. **Idempotent, re-runnable, and incapable of overwriting.** Every step tolerates already-exists;
    the marker is written only when absent (see item 1 for what that condition actually is); and
    nothing in the pass writes a document the user or the sync may already own. In particular it does **not** pre-write `user_settings` — that reader quarantines
@@ -1400,7 +1437,10 @@ module, only its Cognito trigger.
    not that anything swallows errors — `provision_user` raises, and only the Cognito *handler*
    swallows so a failure never blocks a signup. It is that the sequence is **three non-transactional
    steps**: a raise at the tagging step leaves a database and a portal-role grant with **no tag**, so
-   the user's own space works and every control-plane arc silently cannot create a table in it.
+   the user's own space keeps working — the portal role holds a named per-database grant and is
+   deliberately not tag-granted — while the three tag-granted roles behind Table Builder, Table
+   Share and Data Quality can neither create a table there nor describe one. That failure is loud at
+   the point of use and silent at provisioning time, which is the half that needs the sweep.
    Today an operator re-running `backfill.py` is the convergence mechanism — a person noticing —
    which is what a bulk run cannot rely on. §3.11 already settled the pattern for
    this class: **the event plus a sweep**, desired state computed, current state read, difference
@@ -1409,13 +1449,20 @@ module, only its Cognito trigger.
    not success — and that behaviour is preserved rather than reimplemented.
 10. **The bulk run does not fit one invocation, and its bound is computed.** "Every known username"
     at organisation scale is orders of magnitude past what the operator-CSV path handles, and that
-    path is the model for *how* to bound it rather than for the numbers: `transfer_reader.py`'s
-    per-file caps are **blast-radius controls, not resource budgets, and its docstring says so** —
-    the one it computes is `MAX_ROWS_PER_INVOCATION`, derived from the timeout, a budget fraction
-    and a measured per-row cost. Copy that shape: a resumable Map with per-item tolerance and a
-    report, and a cap **computed against the tightest of** Glue's create-database rate, Lake
-    Formation's grant rate and the invocation ceiling — named, in a test, against the budget that
-    sized it.
+    path is the model for *how* to bound it rather than for the numbers. Read that module carefully
+    before copying it, because it holds three different kinds of cap: `MAX_SPACES_PER_FILE` and
+    `MAX_ADD_ROWS_PER_FILE` say of themselves that they are **blast-radius controls, not resource
+    budgets**; `MAX_FILE_BYTES` **is** a resource control, sized against the memory the parse needs;
+    and **two** caps are computed — `MAX_ROWS_PER_INVOCATION` and `MAX_MEMBERS_PER_MESSAGE`, the
+    second the better model here because it carries an O(N) fan-out term. Note also that its
+    per-send cost is **deliberately conservative and unmeasured**, and says so — a copier should
+    preserve that rather than "improve" it. Copy the shape: a resumable Map with per-item tolerance
+    and a report, and a cap **computed** against the tightest of Glue's create-database rate, Lake
+    Formation's `GrantPermissions` rate, **`AddLFTagsToResource`'s own separate throttle** (step 4
+    is a different API from step 3, and it is the one item 9 is about), the two S3 calls the marker
+    costs, and the invocation ceiling — named, in a test, against the budget that sized it. **A rate
+    cap does not address a hard ceiling:** Glue's databases-per-catalog quota bounds the whole
+    population, not the run, and a per-organisation list is the first thing that could reach it.
 11. **The list is an authorization-shaped input and must be unreachable by the people it
     authorizes.** Admin bucket, never the user-space bucket, and never a document any user can
     write — the property that makes `memberships/{username}.json` safe and that the user's own
@@ -1902,14 +1949,19 @@ federation: it sets a synthetic `{providerName}_<subject>` value, prefixed with 
 configured on the pool** — so with the bridge pointed at Entra it is not literally
 `identitycenter_<subject>`, and nothing may pattern-match the prefix.
 
-**So under [B] the catalog-safe username needs a claim of its own, and one of the two ways to mint
-one is already closed.** They are a custom attribute populated by SAML attribute mapping, or a claim
-injected by a **Pre-Token-Generation V2 trigger** — and §2 item 1 forbids the first, shipping the
-bridge pool with no custom attribute schema at all. The trigger is therefore the whole answer under
-[B], and it is written here because nothing else in this repo records it. The reason the attribute
-route is closed is also the reason to get the pool right first time: **a Cognito custom attribute
-can never be renamed or deleted**, so fixing a schema mistake means a new pool, which changes every
-user's `sub`.
+**So under [B] the catalog-safe username needs a claim the pool does not natively carry, and the
+obvious route to one is closed.** A **custom attribute** populated by SAML attribute mapping is what
+this would ordinarily use, and Phase 1's **[B]** items forbid it — no custom attribute schema at
+all. Three candidates remain, and Phase 0 chooses between them rather than this page: a claim
+injected by a **Pre-Token-Generation V2 trigger** (recorded here because nothing else in this repo
+records it), a mapping onto a **standard** attribute such as `preferred_username`, or **deriving**
+the username server-side, which is the same answer §6.1 gives under [A] and which §3.12 item 2
+already contemplates. **Whichever is chosen becomes a Phase 1 [B] build item, and today that phase
+has none** — a trigger in particular is a Lambda, with everything a fleet function owes.
+
+The reason the attribute route is closed is also the reason to get the pool right first time: **a
+Cognito custom attribute can never be renamed or deleted**, so fixing a schema mistake means a new
+pool, which changes every user's `sub`.
 
 **Arc B collapsed the readers, and that is why this is now configuration rather than surgery.**
 Before SPEC-201 five places read the claim independently. The API now verifies the bearer once at
@@ -2337,9 +2389,10 @@ of each user's data — in spaces the portal created rather than the sync.
   reports only a count has not been read. Refusals to expect: a name that fails the catalog rule,
   and a name already registered as a shared space.
 - Run the object sync (§6.5 layer 1) for personal prefixes, re-encrypting under the successor
-  account's customer-managed key. **Either order is safe** — the marker is written only when absent
-  and the database create tolerates already-exists — but a pass that assumes an empty prefix is not,
-  and the sync must not treat the marker as stray data (§3.12).
+  account's customer-managed key. **Either order is safe, run sequentially** — the marker is
+  written only when absent and the database create tolerates already-exists — but check-then-write
+  is not concurrency control, so do not overlap the two runs; a pass that assumes an empty prefix is
+  wrong either way, and the sync must not treat the marker as stray data (§3.12).
 - Audit the reserved prefixes (§6.3) against **both** the synced data and what the provisioner
   creates, **before** users arrive, and resolve collisions while the copy is still disposable.
 - **Verify a provisioned space against the checklist**, not against a count: database present,
