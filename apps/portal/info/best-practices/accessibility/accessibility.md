@@ -146,7 +146,7 @@
 The Vitest suite runs `axe-core` (via `vitest-axe`) against rendered routes and
 components so the machine-detectable subset of these WCAG A/AA rules can't
 silently regress. It runs under the normal `npm run test -w apps/portal`, which is a
-LOCAL pre-push gate — CI does not run the suite any more (`docs/process.md` §6), so an axe
+LOCAL pre-push gate — CI does not run the suite any more (`docs/process/ci-and-deploy-traps.md`), so an axe
 regression is caught only if you run it; `npm run test:a11y -w apps/portal` runs only the axe specs.
 
 **Adding a check for new UI:** co-locate a `*.a11y.test.tsx` next to the code and

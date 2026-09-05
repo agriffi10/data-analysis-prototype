@@ -240,7 +240,7 @@ See [`.github/workflows/README.md`](.github/workflows/README.md) for the full co
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| `ci.yml` | PR → `main` | Production build, bundle check, contract/doc/flag validation (lint, tests and mypy run locally pre-push — `docs/process.md` §6) |
+| `ci.yml` | PR → `main` | Production build, bundle check, contract/doc/flag validation (lint, tests and mypy run locally pre-push — `docs/process/ci-and-deploy-traps.md`) |
 | `deploy-spa-image.yml` | push → `main` | Build the SPA image, prove it against the container matrix, push to ECR by commit sha, point the ECS service, wait for it to settle |
 | `deploy-infra.yml` | PR / push → `main` (paths `infra/**`) | `tofu fmt -check` + `plan` (posts plan to the PR); `apply` on merge |
 | `deploy-lambdas.yml` | push → `main` (paths `lambdas/**`) · manual (`image_tag` rolls back) | Point every Lambda at the fleet's container image, reconcile by name, prove a sample starts |
@@ -266,8 +266,8 @@ See [`.github/workflows/README.md`](.github/workflows/README.md) for the full co
 
 | Document | What's in it |
 |---|---|
-| [`CLAUDE.md`](CLAUDE.md) | Project memory (always loaded, kept lean): tech stack, code conventions, a one-line **Key Decisions** digest, session workflow |
-| [`docs/process.md`](docs/process.md) | How we work: where truth lives, the spec lifecycle, the review gate, the completion ritual |
+| [`CLAUDE.md`](CLAUDE.md) | Project memory (always loaded, kept lean): tech stack, code conventions, a table routing to each **Key Decisions** area's Fences, session workflow |
+| [`docs/process/INDEX.md`](docs/process/INDEX.md) | How we work, routed one file per part: where truth lives, the spec lifecycle, the session rhythm, the completion ritual |
 | [`docs/reviewer-contract.md`](docs/reviewer-contract.md) | The method behind the review gate — pulled when you are about to spend a reviewer |
 | [`docs/decisions/`](docs/decisions/INDEX.md) | The **Key Decisions register in full** — reasoning + the "do NOT build" fences |
 | [`docs/architecture.md`](docs/architecture.md) | **How the system works** — the pieces, how a request travels, the constraints that shape it, and the Architecture Decision Record indexing the register |

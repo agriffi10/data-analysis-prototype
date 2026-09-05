@@ -1,11 +1,14 @@
 # Archive and restore — the only place a mistake is unrecoverable
 
 Part of the **Key Decisions register** — [`INDEX.md`](INDEX.md) is the router, and `CLAUDE.md`
-carries the one-line digest of each entry. This file holds the reasoning, the constraints and the
-explicit "do NOT build" fences for one area. **Read the entry you need, not the file.**
+carries a table pointing at each area's Fences. This file opens with those fences — the traps that
+apply green and fail later — and holds the reasoning, the constraints and the explicit "do NOT
+build" fences for one area beneath them. **Read the Fences before working in the area, then the
+entry you need, not the file.**
 
 ## Contents
 
+- [Fences](#fences)
 - [The archive vault, and the four choices that shape the whole arc (SPEC-168)](#the-archive-vault-and-the-four-choices-that-shape-the-whole-arc-spec-168)
 - [`GLACIER`, and why the other two were rejected](#glacier-and-why-the-other-two-were-rejected)
 - [Retention is a CEILING, not a WORM floor — and the lifecycle rule is unfiltered on purpose](#retention-is-a-ceiling-not-a-worm-floor--and-the-lifecycle-rule-is-unfiltered-on-purpose)
@@ -45,6 +48,25 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [The write gate mirrors each bucket's own Deny, and averaging them gets one case wrong](#the-write-gate-mirrors-each-buckets-own-deny-and-averaging-them-gets-one-case-wrong)
 - [Only three outcomes needed a producer, and one of them had to be invented](#only-three-outcomes-needed-a-producer-and-one-of-them-had-to-be-invented)
 - [The restore's FIFO group id hashes the archive ROOT, not the bucket and the root](#the-restores-fifo-group-id-hashes-the-archive-root-not-the-bucket-and-the-root)
+
+## Fences
+
+A separate `GLACIER` vault the browser has no relationship with. A restore is `RestoreObject` + a
+3–5 hour wait + a copy.
+
+- **The restore guard is ABSOLUTE and runs before the bill:** any occupied destination refuses the
+  **whole** restore, and a **403 counts as occupied**.
+- **It runs TWICE**, and the second pass is the spec correcting itself: those billed hours are spent
+  telling the user a restore is in flight, so re-creating a file meanwhile is the ordinary case — and
+  the copy-back would have overwritten it, reported success and swept the vault.
+- **Retrieval is the point of no return.** Its Map tolerates **no** failure (the copy's tolerates
+  100%): a fault means nothing copied and the archive untouched. What makes that free is that the
+  **verb** tolerates two codes — `RestoreAlreadyInProgress` and `InvalidObjectState` — which is also
+  what keeps the path unconditional on the storage class. **Do not "harden" the verb by removing
+  them.**
+- **The source is deleted only when EVERY object is confirmed copied**, and the gate is a **state** —
+  the rollback arm cannot reach `DeleteSource`, asserted by walking the ASL graph, and an
+  unrecognisable verdict fails closed.
 
 ## The archive vault, and the four choices that shape the whole arc (SPEC-168)
 

@@ -197,7 +197,7 @@ execution + echo); `simulate-custom-policy` confirms the orchestrator role's sco
 
 ## Implementation Decisions (in-session, 2026-06-26)
 
-Reversible/technical choices made during build (per `docs/process.md` — decided in-session, recorded here):
+Reversible/technical choices made during build (per `docs/process/session-rhythm.md` — decided in-session, recorded here):
 
 - **FIFO request queue + single `MessageGroupId`** (not a standard queue). The user
   required the control plane to process requests **one at a time, not in parallel**, to

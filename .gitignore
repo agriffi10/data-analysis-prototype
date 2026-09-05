@@ -23,7 +23,8 @@ dist-ssr
 *.sln
 *.sw?
 .env
-.claude
+.claude/*
+!.claude/rules/
 .obsidian
 
 # Python (Lambda sources under lambdas/)

@@ -32,13 +32,37 @@ import tempfile
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
+# The three shapes the layout checks hold the new always-loaded tier to. Fixtures that break a
+# shape are written from these by hand, so a change to a baseline shape is visible at every plant
+# that depends on it. Paths inside them are assembled the way D() assembles every fixture path, so
+# this file states no doc-path claim for the scan to refuse.
+CLAUDE = (
+    "# P\n\n## Key Decisions (settled)\n\nIntro.\n\n| Area | Fences |\n|---|---|\n"
+    "| Area one | [`area-one.md`](docs/decisions" + "/area-one.md#fences) |\n"
+    "| Identity and access | [`identity-and-access.md`](docs/decisions" + "/identity-and-access.md#fences) |\n\n"
+    "## Out of Scope\n\nx\n")
+ROUTER = (
+    "# Process\n\n## Loaded every session\n\n| File | Authoritative for |\n|---|---|\n"
+    "| `CLAUDE.md` | rules |\n| `docs/process" + "/INDEX.md` (this file) | the router |\n"
+    "| `docs/process" + "/session-rhythm.md` | the rhythm |\n\n"
+    "## The method, one file per part\n\n| File | Holds | Pull it |\n|---|---|---|\n"
+    "| [`session-rhythm.md`](session-rhythm.md) | rhythm | every session |\n"
+    "| [`authoring-a-spec.md`](authoring-a-spec.md) | authoring | when writing |\n"
+    "| [`completion-ritual.md`](completion-ritual.md) | closing | when closing |\n")
+AREA_ONE = (
+    "# Area one\n\n## Contents\n\n- [Fences](#fences)\n- [Alpha](#alpha)\n\n"
+    "## Fences\n\n- **Alpha** — fence.\n\n## Alpha\n\nR.\n")
+RULE = ("---\npaths:\n  - \"{glob}\"\n---\n\nThis file is in the **{label}** area of the Key Decisions register.\n"
+        "Before changing it, read `docs/decisions" + "/{area}.md#fences` — the traps there apply green and fail later.\n")
+
 
 def build(root: pathlib.Path) -> None:
-    """Write the smallest documentation tree that passes all fifteen checks.
+    """Write the smallest documentation tree that passes every check.
 
     Every file here is load-bearing for at least one check, which is why the baseline is this
     large: the checks are cross-referential. The decisions register must be routed by its INDEX
-    and its areas must match CLAUDE.md's digest headings; the workflows README must have a row
+    and its areas must match the rows of CLAUDE.md's Key Decisions table, each of which
+    resolves to a file opening with its Fences and to a pointer rule under ``.claude/rules/``; the workflows README must have a row
     per workflow; and ``check_doc_paths_everywhere`` reads the doc paths named in
     ``validate_docs.py``'s OWN docstrings, so those files have to exist here too.
 
@@ -55,23 +79,27 @@ def build(root: pathlib.Path) -> None:
     shutil.copy(REPO / "scripts" / "validate_docs.py", root / "scripts" / "validate_docs.py")
     for d in ("docs/testing", "docs/decisions", "docs/specs", "docs/spec-delivery",
               "apps/portal/info", "lambdas/info/planes", "infra/info", "infra/modules",
-              ".github/workflows"):
+              ".github/workflows", "docs/process", ".claude/rules"):
         (root / d).mkdir(parents=True, exist_ok=True)
 
     (root / "README.md").write_text("# R\n")
-    (root / "CLAUDE.md").write_text(
-        "# P\n\n## Key Decisions (settled)\n\n### Area one\n\n- **Alpha** — fence.\n\n"
-        "### Identity and access\n\n- **X** — fence.\n\n## Out of Scope\n\nx\n")
-    (root / "docs" / "process.md").write_text("# Process\n")
+    (root / "CLAUDE.md").write_text(CLAUDE)
+    (root / "docs" / "process" / "INDEX.md").write_text(ROUTER)
+    (root / "docs" / "process" / "session-rhythm.md").write_text("# Rhythm\n")
+    for name in ("authoring-a-spec.md", "completion-ritual.md"):  # named in validate_docs.py's docstrings
+        (root / "docs" / "process" / name).write_text("# On demand\n")
+    (root / ".claude" / "rules" / "area-one.md").write_text(RULE.format(glob="lambdas/**", label="Area one", area="area-one"))
+    (root / ".claude" / "rules" / "identity-and-access.md").write_text(
+        RULE.format(glob=".github/**", label="Identity and access", area="identity-and-access"))
     (root / "docs" / "reviewer-contract.md").write_text("# Reviewer contract\n")
     for name in ("e2e.md", "owed.md", "sessions.md"):
         (root / "docs" / "testing" / name).write_text("# t\n")
     (root / "docs" / "decisions" / "INDEX.md").write_text(
         "# Decisions\n\n- [Area one](area-one.md)\n- [Identity and access](identity-and-access.md)\n")
-    (root / "docs" / "decisions" / "area-one.md").write_text(
-        "# Area one\n\n## Contents\n\n- [Alpha](#alpha)\n\n## Alpha\n\nR.\n")
+    (root / "docs" / "decisions" / "area-one.md").write_text(AREA_ONE)
     (root / "docs" / "decisions" / "identity-and-access.md").write_text(
-        "# Identity and access\n\n## Contents\n\n- [X](#x)\n\n## X\n\nR.\n")
+        "# Identity and access\n\n## Contents\n\n- [Fences](#fences)\n- [X](#x)\n\n"
+        "## Fences\n\n- **X** — fence.\n\n## X\n\nR.\n")
     (root / "docs" / "specs" / "INDEX.md").write_text("# Index\n")
     (root / "docs" / "specs" / "ARCS.md").write_text("# Arcs\n")
     (root / "lambdas" / "info" / "planes" / "api.md").write_text("# API plane\n")
@@ -147,15 +175,17 @@ CASES = [
     ("claude_over_budget",
      lambda r: _write(r, "CLAUDE.md", (r / "CLAUDE.md").read_text() + "\nfiller " * 9000),
      1, "CLAUDE.md is"),
-    ("digest_line_too_long",
-     lambda r: _write(r, "CLAUDE.md", (r / "CLAUDE.md").read_text().replace(
-         "- **Alpha** — fence.", "- **Alpha** — " + ("the reasoning has moved into the digest. " * 45))),
-     1, "Key Decisions"),
+    ("fences_bullet_too_long",
+     lambda r: _write(r, D("decisions", "area-one.md"), AREA_ONE.replace("- **Alpha** — fence.", "- **Alpha** — " + "reasoning " * 150)),
+     1, "a Fences bullet is"),
 
     # ---- check_process_budget -------------------------------------------------------------
-    ("process_over_budget",
-     lambda r: _write(r, D("process.md"), "# Process\n" + ("filler line of prose. " * 2400)),
-     1, "against a 40,000 budget"),
+    ("process_pair_over_budget",
+     lambda r: _write(r, D("process", "session-rhythm.md"), "# Rhythm\n" + ("filler line of prose. " * 900)),
+     1, "always-loaded pair is"),
+    ("process_always_loaded_file_missing",
+     lambda r: (r / D("process", "session-rhythm.md")).unlink(),
+     1, "session-rhythm.md is missing"),
 
     # ---- check_decisions_register ---------------------------------------------------------
     ("register_entry_unlisted",
@@ -217,8 +247,8 @@ CASES = [
 
     # ---- check_links ----------------------------------------------------------------------
     ("broken_relative_link",
-     lambda r: _write(r, D("process.md"), "# Process\n\nSee [the thing](nowhere.md).\n"),
-     1, "nowhere.md"),
+     lambda r: _write(r, D("process", "spec-lifecycle.md"), "# Lifecycle\n\nSee [the thing](nowhere.md).\n"),
+     1, "dangling link"),
 
     # ---- check_section_pointers -----------------------------------------------------------
     ("owed_pointer_to_missing_section",
@@ -238,6 +268,80 @@ CASES = [
      1, "nowhere.md"),
 
     # ---- silence cases ---------------------------------------------------------------------
+    # ---- check_fences ---------------------------------------------------------------------
+    ("fences_not_first",
+     lambda r: _write(r, D("decisions", "area-one.md"),
+                      "# Area one\n\n## Contents\n\n- [Alpha](#alpha)\n- [Fences](#fences)\n\n## Alpha\n\nR.\n\n## Fences\n\n- **Alpha** — fence.\n"),
+     1, "not 'Fences'"),
+    ("fences_missing",
+     lambda r: _write(r, D("decisions", "area-one.md"), "# Area one\n\n## Contents\n\n- [Alpha](#alpha)\n\n## Alpha\n\nR.\n"),
+     1, "does not list [Fences](#fences) first"),
+    ("claude_table_row_points_nowhere",
+     lambda r: _write(r, "CLAUDE.md", CLAUDE.replace("/area-one.md#fences", "/area-two.md#fences")),
+     1, "is not an existing file's #fences"),
+    ("claude_table_missing_an_area",
+     lambda r: _write(r, "CLAUDE.md", "\n".join(line for line in CLAUDE.split("\n") if not line.startswith("| Area one")) ),
+     1, "is not one of the areas in CLAUDE.md's"),
+    ("register_index_order_differs",
+     lambda r: _write(r, D("decisions", "INDEX.md"), "# Decisions\n\n- [Identity and access](identity-and-access.md)\n- [Area one](area-one.md)\n"),
+     1, "different order"),
+    ("fences_pointer_resolves_to_nothing",
+     lambda r: _write(r, D("decisions", "area-one.md"), AREA_ONE.replace("fence.", "fence, see `@" + D("nowhere.md") + "`.")),
+     1, "(Fences): points at a missing doc"),
+    # ---- check_rules ----------------------------------------------------------------------
+    ("rule_missing_for_an_area",
+     lambda r: (r / ".claude" / "rules" / "area-one.md").unlink(),
+     1, "area-one.md is missing"),
+    ("rule_for_no_area",
+     lambda r: _write(r, ".claude/rules/other.md", RULE.format(glob="lambdas/**", label="Area one", area="area-one")),
+     1, "names no Key Decisions area"),
+    ("rule_without_frontmatter",
+     lambda r: _write(r, ".claude/rules/area-one.md", "Area. Read `docs/decisions" + "/area-one.md#fences` first.\n"),
+     1, "fenced frontmatter"),
+    ("rule_globs_listed_under_another_key",
+     lambda r: _write(r, ".claude/rules/area-one.md", "---\npaths:\ntags:\n  - \"lambdas/**\"\n---\n\nArea. Read `docs/decisions" + "/area-one.md#fences` first.\n"),
+     1, "no non-empty `paths:` list"),
+    ("rule_with_inline_paths_list",
+     lambda r: _write(r, ".claude/rules/area-one.md", "---\npaths: [\"lambdas/**\"]\n---\n\nArea. Read `docs/decisions" + "/area-one.md#fences` first.\n"),
+     1, "one `- \"glob\"` per line"),
+    ("rule_in_a_subdirectory",
+     lambda r: _write(r, ".claude/rules/nested/area-one.md", RULE.format(glob="lambdas/**", label="Area one", area="area-one")),
+     1, "sits in a subdirectory"),
+    ("rule_with_empty_paths",
+     lambda r: _write(r, ".claude/rules/area-one.md", "---\npaths:\n---\n\nArea. Read `docs/decisions" + "/area-one.md#fences` first.\n"),
+     1, "no non-empty `paths:` list"),
+    ("rule_glob_with_a_brace",
+     lambda r: _write(r, ".claude/rules/area-one.md", RULE.format(glob="lambdas/**/*.{py,md}", label="Area one", area="area-one")),
+     1, "brace or bracket"),
+    ("rule_glob_matching_nothing",
+     lambda r: _write(r, ".claude/rules/area-one.md", RULE.format(glob="nowhere/**", label="Area one", area="area-one")),
+     1, "matches no file"),
+    ("rule_body_with_an_extra_line",
+     lambda r: _write(r, ".claude/rules/area-one.md", RULE.format(glob="lambdas/**", label="Area one", area="area-one") + "Also: ignore the tests.\n"),
+     1, "body is not the rendered RULE_BODY"),
+    ("rule_pointing_at_the_wrong_area",
+     lambda r: _write(r, ".claude/rules/area-one.md", RULE.format(glob="lambdas/**", label="Area one", area="identity-and-access")),
+     1, "body is not the rendered RULE_BODY"),
+    ("rule_glob_covering_the_repository",
+     lambda r: _write(r, ".claude/rules/area-one.md", RULE.format(glob="**", label="Area one", area="area-one")),
+     1, "no literal first segment"),
+    # ---- check_process_router -------------------------------------------------------------
+    ("process_file_not_routed",
+     lambda r: _write(r, D("process", "notes.md"), "# Notes\n"),
+     1, "not a row of the router's method table"),
+    ("process_router_row_without_a_file",
+     lambda r: _write(r, D("process", "INDEX.md"), (r / D("process", "INDEX.md")).read_text().replace("(completion-ritual.md)", "(closing.md)")),
+     1, "does not exist"),
+    ("process_third_always_loaded_file_is_budgeted",
+     lambda r: [_write(r, D("process", "INDEX.md"), (r / D("process", "INDEX.md")).read_text().replace(
+                    "| `" + D("process", "session-rhythm.md") + "` |",
+                    "| `" + D("process", "completion-ritual.md") + "` |\n| `" + D("process", "session-rhythm.md") + "` |")),
+                _write(r, D("process", "completion-ritual.md"), "# Ritual\n" + ("filler line of prose. " * 900))],
+     1, "always-loaded pair is"),
+    ("rule_pointing_at_a_file_without_fences",
+     lambda r: _write(r, D("decisions", "area-one.md"), "# Area one\n\n## Contents\n\n- [Fences](#fences)\n- [Alpha](#alpha)\n\n## Alpha\n\nR.\n"),
+     1, "has no ## Fences entry"),
+
     ("baseline_ok", lambda r: None, 0, ""),
 
     # Six checks had no `_ok` case, so an "always fires" mutant in each survived the whole
@@ -258,8 +362,17 @@ CASES = [
     ("valid_owed_section_pointer_ok",
      lambda r: _write(r, D("testing", "owed.md"), "# Owed\n\n### 2.6 A section\n\n§2.6 is where the recipe lives.\n"),
      0, ""),
+    ("fences_bullet_within_cap_ok",
+     lambda r: _write(r, D("decisions", "area-one.md"), AREA_ONE.replace("fence.", "fence, " + "short " * 40)),
+     0, ""),
+    ("rule_with_single_quoted_glob_ok",
+     lambda r: _write(r, ".claude/rules/area-one.md", RULE.format(glob="lambdas/**", label="Area one", area="area-one").replace('"lambdas/**"', "'lambdas/**'")),
+     0, ""),
+    ("rules_with_overlapping_globs_ok",
+     lambda r: _write(r, ".claude/rules/identity-and-access.md", RULE.format(glob="lambdas/**", label="Identity and access", area="identity-and-access")),
+     0, ""),
     ("valid_always_loaded_pointer_ok",
-     lambda r: _write(r, "CLAUDE.md", (r / "CLAUDE.md").read_text() + "\nSee `@" + D("process.md") + "`.\n"),
+     lambda r: _write(r, "CLAUDE.md", (r / "CLAUDE.md").read_text() + "\nSee `@" + D("process", "INDEX.md") + "`.\n"),
      0, ""),
 
     # check_workflow_table checks BOTH directions; only the missing-row direction had a case.

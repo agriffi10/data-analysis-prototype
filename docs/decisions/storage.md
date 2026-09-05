@@ -1,11 +1,14 @@
 # Storage, and the fact S3 is not a filesystem
 
 Part of the **Key Decisions register** — [`INDEX.md`](INDEX.md) is the router, and `CLAUDE.md`
-carries the one-line digest of each entry. This file holds the reasoning, the constraints and the
-explicit "do NOT build" fences for one area. **Read the entry you need, not the file.**
+carries a table pointing at each area's Fences. This file opens with those fences — the traps that
+apply green and fail later — and holds the reasoning, the constraints and the explicit "do NOT
+build" fences for one area beneath them. **Read the Fences before working in the area, then the
+entry you need, not the file.**
 
 ## Contents
 
+- [Fences](#fences)
 - [File ops = filesystem UX](#file-ops--filesystem-ux)
 - [A partial teardown never frees the space name (SPEC-151)](#a-partial-teardown-never-frees-the-space-name-spec-151)
 - [An unreadable settings document is quarantined, never deleted and never overwritten (SPEC-159)](#an-unreadable-settings-document-is-quarantined-never-deleted-and-never-overwritten-spec-159)
@@ -32,6 +35,40 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [An upload's shape is the server's decision, and a part is sized so the expiry premise stops mattering (SPEC-216)](#an-uploads-shape-is-the-servers-decision-and-a-part-is-sized-so-the-expiry-premise-stops-mattering-spec-216)
 - [The folder-recursive functions are deleted, not ported, and the flag stops being a fallback (SPEC-198)](#the-folder-recursive-functions-are-deleted-not-ported-and-the-flag-stops-being-a-fallback-spec-198)
 - [The free-name probe moved to the API, not to the plane (SPEC-198, amends SPEC-187)](#the-free-name-probe-moved-to-the-api-not-to-the-plane-spec-198-amends-spec-187)
+
+## Fences
+
+The product presents filesystem UX over a store with **no move or rename**: every one is
+`CopyObject` + `DeleteObject`, folder operations are recursive and **non-atomic**, and collisions
+warn and confirm. Versioning is off, which is what makes a failure between those two steps
+unrecoverable — revisit before real user data lands.
+
+- **A received file lands in `shared_files/{sender}/`, built by ONE function** — an AST sweep forbids
+  a second. Keying by item **name** forces the two refusals an overlapping selection needs.
+- **Exclusion rules anchor at the listing prefix**, which is whichever item the user picked — reuse
+  elsewhere silently drops files.
+- **A duplicate is `(kind, key)`, never the key alone.** One key can arrive as both a file and a
+  folder; collapsing on the key ships a zero-byte placeholder and reports success.
+- **Saved queries are ordinary `.sql` files** in a visible folder with exactly one protection: the
+  folder itself is undeletable. Every `DO_NOT_DELETE.txt` is hidden by **basename**.
+- **An unreadable settings document is quarantined, never deleted and never overwritten**, and a
+  **newer** schema is refused untouched — the parse is three-way, version checked before shape.
+- **Bytes go to S3 presigned; small text goes through the API**, and the document route's **byte cap
+  is what holds the line** — without it it is a second upload path that works perfectly to 6 MB. The
+  routes never parse and never re-serialise. Bytes go over **`XMLHttpRequest`**, which is a
+  requirement: `fetch` fires no upload-progress event, so it uploads correctly and leaves the bar at
+  0% — assert an **intermediate** value. **The SERVER decides whether an upload is one `PUT` or
+  multipart**, so the browser holds no threshold; a URL is minted immediately before redemption,
+  **per file or per part, never batched**, and a retried part **re-mints**. Aggregate progress is
+  the per-part **maximum**, monotonic across a retry. The 5 GiB ceiling is a refusal on the
+  **declared** size — a courtesy, not enforcement, since the API keeps no record of an upload.
+- **The four folder-recursive browser functions are DELETED, not ported** — that loop belongs on the
+  plane. So `asyncFileOperations` off means folder operations are **unavailable**, refused **per
+  item** while the files beside them go through; and the refusal is also reachable with the flag ON,
+  when a destination resolves to no known space.
+- **The free-name probe moved to the API, not to the plane** — 999 round trips would be strictly
+  worse than the loop it replaced. `numberedName` lives in Python only, and **exhaustion is now
+  distinguishable from failure** (409 + `attempts`), which it was not.
 
 ## File ops = filesystem UX
 
@@ -520,7 +557,7 @@ write, list and delete the store needs is already granted by `UserPrefixObjects`
 **It is the arc's load-bearing premise, so it is pinned and it owes a live check.** A test reads
 the two `.tftpl` files and asserts each `Deny` still ends in `/*/DO_NOT_DELETE.txt`, so a later IAM
 edit that narrows the wildcard fails in a local `pytest lambdas/` run rather than in production
-— CI no longer runs pytest (`docs/process.md` §6), so the guard is only as good as the pre-push run. But a passing test over a
+— CI no longer runs pytest (`docs/process/ci-and-deploy-traps.md`), so the guard is only as good as the pre-push run. But a passing test over a
 template is not a refusal: **a real delete of a real marker, refused, is owed** (SPEC-173 FR-009),
 in both a personal and a shared space. Until it is run the reading is corroborated, not discharged
 — the same class of evidence that had SPEC-144 FR-001 reversed mid-build.

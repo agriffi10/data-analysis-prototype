@@ -1,6 +1,6 @@
 """Hold the documentation layout to the shape it was cut back to on 2026-08-18.
 
-Every rule below already existed in prose, in ``CLAUDE.md`` or ``docs/process.md``, and every
+Every rule below already existed in prose, in ``CLAUDE.md`` or ``docs/process/``, and every
 one of them was violated anyway — ``## Specs`` regrew to 371 lines of changelog, the Key
 Decisions digest grew entries of 3,349 characters against a stated "one line each",
 ``docs/testing/`` reached sixteen files of four different genres, ``decisions/`` listed 50
@@ -10,10 +10,10 @@ this file is the same rules where CI can see them.
 
 Budgets are RATCHETS AT THE MEASURED LEVEL, not targets — the convention SPEC-150 set for the
 coverage floors. Lowering one when a doc grows is the failure mode; the fix is to move the
-detail down a tier, which is what every budget here exists to force. **One documented
-exception: ``CLAUDE_MAX_BYTES``, whose entry below says why a ratchet was the wrong shape
-for that one file — it is the only budget here carrying deliberate headroom, and the reason
-is specific to it rather than a precedent other budgets may cite.**
+detail down a tier, which is what every budget here exists to force. A ratchet sits just
+above the measurement, never exactly at it: a budget with nothing left to spend makes the gate
+cause the damage it exists to prevent, and each entry below says how much room it leaves and
+for what.
 
 Runs on every pull request (``ci.yml``). Takes no arguments and imports nothing outside the
 standard library.
@@ -23,84 +23,59 @@ Attributes:
   TESTING_PERMANENT: The three files ``docs/testing/`` always holds. Anything else there must
     be the ONE script an arc in flight is allowed, or a subdirectory.
   TESTING_INFLIGHT_MAX: How many temporary per-arc scripts may exist at once. One. An arc
-    folds its script into ``e2e.md`` when it closes (``docs/process.md`` §5 step 8). Only a
+    folds its script into ``e2e.md`` when it closes (``docs/process/completion-ritual.md``, step 8). Only a
     ``*-e2e.md`` name counts as one — a dated session file is refused on its name alone, and
     does not merely consume the slot, because the slot may be free.
   FIXTURES_MAX_SCRIPTS: How many CLI check scripts ``docs/testing/fixtures/`` may hold. A
     ratchet at the measured level, and the unit is the PLANE: four specs build one control
     plane, and a script each would be four files sharing a token, a queue URL, a group digest
     and an envelope builder. A spec that owes a CLI check adds a SECTION to its plane's script.
-  CLAUDE_MAX_BYTES: The always-loaded file's budget. It was 121,098 bytes before the first cut,
-    51,995 before the second, which replaced a Key Decisions list of 105 one-per-spec lines with
-    eight blocks grouped by AREA, and 49,972 before the third (2026-09-01), which cut the Identity
-    block's API fences back to a pointer once they were carried in full by both
-    ``docs/decisions/identity-and-access.md`` and ``lambdas/info/planes/api.md``. The list had
-    stopped being a reminder and become a changelog: every closing spec appended one, and the file
-    hit its own ratchet exactly when a spec tried to close. Group into the existing blocks; do not
-    start a new line per spec.
-
-    **Raised from 34,000 to 50,000 (user decision, 2026-08-27), and this is the ONE budget here
-    deliberately not held at the measured level.** A ratchet at the measured level assumes the file
-    only grows by accretion, and after the second cut that stopped being true: what remains is
-    fences, and a spec that settles a genuinely new architectural decision folds a clause in beside
-    them.
-
-    **That is NOT a per-spec requirement, and reading it as one has already done damage.** The
-    ritual gates the fold on a new *architectural* decision — a rule or a per-feature choice is a
-    register entry and nothing more — so most closing specs add nothing here, and several close by
-    replacing a clause they falsified at no net cost. Nothing in this file checks for a clause
-    either: what it holds CLAUDE.md to is a byte budget, area grouping, ``DIGEST_MAX_CHARS``, its
-    markdown links and its ``@`` pointers.
-
-    The sentence this replaces asserted the requirement, and it shipped in SPEC-195's OWN closing
-    PR (#531) — so SPEC-195 cannot be the spec it damaged, and an earlier draft of this correction
-    said it was. SPEC-203's close is the one: it read the requirement as licence and spent the
-    Identity block's API fences to buy room for its own clause, in that same block. #568 is titled
-    for the prune it forced. Its clause was genuinely owed; the prune was not, and deferring an
-    ADDITION under byte pressure was always available. Replacing a clause a spec has falsified is
-    the case that cannot be deferred.
-
-    At 34,000 with 161 bytes free, SPEC-195 could not close without pruning another area's fences
-    to pay for its own — which is the gate causing the damage it exists to prevent. The
-    anti-regrowth rules that actually bind are the shape ones — group by area and
-    ``DIGEST_MAX_CHARS``, both checked here, and they are unchanged. "No per-spec line" is
-    doctrine and is NOT machine-checked: nothing counts bullets or recognises a per-spec one. If this file approaches 50,000 the answer is still a
-    cut, not another raise: four cuts have now been needed, and all four were structural. The
-    fourth (2026-09-01) moved this file's doc router down a tier, since docs/process.md §1
-    already carried a fuller one.
-  PROCESS_MAX_BYTES: The other always-loaded file's budget. ``docs/process.md`` is read at the
-    start of every session by CLAUDE.md's own first instruction, so its size is a per-session cost
-    exactly like CLAUDE.md's, and until 2026-09-01 nothing bounded it — it had reached 50,863
-    bytes, slightly larger than the file that has been cut three times. The fix was the same shape
-    as those cuts: the reviewer contract's method — how many reviewers and where, briefing one,
-    rotating the frame — moved to ``docs/reviewer-contract.md``, which is pulled when a reviewer is
-    about to be spent rather than at session start. That cut is what brought the file under this
-    number; the review of it then returned three rules the cut had demoted with it that are not
-    reviewer method at all, and the file settled comfortably below 40,000 with those back.
-
-    A ratchet just above the measured level, like every budget here EXCEPT CLAUDE_MAX_BYTES —
-    and that exception is not precedent for this one. CLAUDE.md carries headroom because a gate
-    *mandates* growth: the completion ritual folds a clause in on every architectural close, so a
-    ratchet there makes each close a forced prune. **Nothing mandates appending to process.md.**
-    Its own entry above already settled what to do under byte pressure, and it is not headroom:
-    **defer the addition** — always available for an addition, unlike replacing a clause a spec
-    has falsified — or move a section down a tier. Raising this number so a grown file passes is
-    the failure the gate exists to catch. The measured size is deliberately NOT written here: it
-    is a property of the file this docstring lives beside, so any edit falsifies it and nothing
-    would check it.
-  DIGEST_MAX_CHARS: The longest a single Key Decisions bullet may be, measured on the LOGICAL
-    bullet — continuation lines joined. It was measured per physical line until 2026-08-26, which
+  CLAUDE_MAX_BYTES: The always-loaded file's budget. The file has been cut structurally five
+    times, and the fifth (2026-09-05) changed its shape: the Key Decisions digest left it
+    altogether — each area's fences now head that area's ``docs/decisions/<area>.md`` under a
+    ``## Fences`` entry, and CLAUDE.md keeps an eight-row table pointing at them — and the method
+    it points to became ``docs/process/``, a router and one file per part. Before that cut the
+    file carried deliberate headroom, because the completion ritual folded a clause into it on
+    every architectural close and a ratchet at the measured level made each close a forced prune
+    of another area's fences (it happened once; #568 is titled for the prune it forced). The fold
+    now lands in the area file, so that reason is gone. What still grows this file is a Tech Stack
+    row when a dependency is added and the ``## Specs`` current-work paragraph, so the ratchet sits
+    above the measurement by roughly two Tech Stack rows and one such paragraph, and no more. Past that the answer is a cut, never a raise: every one of the five was
+    structural, and the next candidate is the conventions block, which a rulebook already carries
+    in full. The measured size is deliberately not written here — it is a property of the file
+    beside this one, and any edit would falsify it.
+  PROCESS_MAX_BYTES: The budget on the other always-loaded files together — the ``docs/process/``
+    files the router's "Loaded every session" table names, today the router itself and the
+    session rhythm, the one part of the method every session reads. CLAUDE.md's first instruction is to read them, so their
+    size is a per-session cost exactly like CLAUDE.md's. Nothing bounded the method until
+    2026-09-01, when a single-file budget caught it slightly larger than the file that had been
+    cut three times; four days later the split above made every other part of it on-demand. A
+    ratchet just above the measured level: nothing mandates appending to either file, so under
+    byte pressure defer the addition, or move a paragraph into one of the on-demand parts behind
+    a pointer. Raising this number so a grown file passes is the failure the gate exists to catch.
+  DIGEST_MAX_CHARS: The longest a single Fences bullet may be, measured on the LOGICAL bullet —
+    continuation lines joined — under the ``## Fences`` entry of each register area file, where
+    the CLAUDE.md digest now lives. It was measured per physical line until 2026-08-26, which
     stopped meaning anything the moment the section was rewritten as wrapped prose: the longest
     physical line went from 846 characters to 103, so the guard could no longer fire on anything
-    while still being advertised in ``process.md``. The digest is a reminder with the reasoning in
-    ``decisions/``; past this length it has become the reasoning.
+    while still being advertised as a fence. A fence is a reminder with the reasoning in the
+    entries beneath it; past this length it has become the reasoning.
+  PROCESS_ROUTER: The ``docs/process/`` router. Its "Loaded every session" table is the ONE
+    statement of which process files every session reads, and ``always_loaded_process`` derives
+    the pair ``PROCESS_MAX_BYTES`` bounds from it rather than transcribing it — a transcribed copy
+    passed a plant that added a third row to the table. Its method table is the closed set of
+    process files, held the way the register's areas are.
+  RULE_BODY: The whole body of a ``.claude/rules/<area>.md``, rendered per area. A committed
+    rule reaches every teammate's session on any Read of a matching file, so the body is held
+    EQUAL to this template rather than merely short: a length cap leaves room for a line that is
+    not a pointer, and a template does not.
   DELIVERY_MAX_LINES: A delivery doc is "what shipped + what changed", typically under a page.
-  FR_CEILING: How many Functional Requirements one spec may carry (``docs/process.md`` §4). Named
+  FR_CEILING: How many Functional Requirements one spec may carry (``docs/process/authoring-a-spec.md``). Named
     here rather than inlined so the number that enforces the rule is discoverable from the
     constants block if the rule ever moves.
   SPEC_OVERSIZE_MAX: How many specs may carry more than eight Functional Requirements. A ratchet
     at the measured level, and the only budget here whose unit is the SPEC rather than the file.
-    ``docs/process.md`` §4 caps a spec at eight FRs: past that it is not a big spec, it is a spec
+    ``docs/process/authoring-a-spec.md`` caps a spec at eight FRs: past that it is not a big spec, it is a spec
     that should have been two, and the cure is a second spec beside it with the pair's build order
     in ``ARCS.md``. Making that a per-spec failure would red ``main`` on 41 specs written before
     the rule, so the count is held instead — a new over-size spec fails, the existing ones do not,
@@ -118,6 +93,8 @@ Attributes:
     matches a six-digit hex colour such as the palette tokens in the Data Explorer.
 """
 
+import fnmatch
+import os
 import pathlib
 import re
 import sys
@@ -167,26 +144,28 @@ TESTING_PERMANENT = frozenset({"e2e.md", "owed.md", "sessions.md"})
 TESTING_INFLIGHT_MAX = 1
 
 FIXTURES_MAX_SCRIPTS = 1
-CLAUDE_MAX_BYTES = 50_000
-PROCESS_MAX_BYTES = 40_000
+CLAUDE_MAX_BYTES = 17_000
+PROCESS_MAX_BYTES = 15_000
 DIGEST_MAX_CHARS = 1_400
 DELIVERY_MAX_LINES = 260
 FR_CEILING = 8
 SPEC_OVERSIZE_MAX = 40
-def decision_areas() -> list[str]:
-    """Read the areas ``CLAUDE.md``'s Key Decisions digest groups by, in order.
+def decision_table() -> list[tuple[str, str]]:
+    """Read the Key Decisions table in ``CLAUDE.md``: each area, and the register file it points at.
 
-    DERIVED, never transcribed. A hard-coded copy of these eight strings is what this function
-    replaced, and it had already drifted: one area's wording differed from the heading it claimed to
-    mirror, while the docstring beside it asserted the two agreed. That is the failure mode a second
-    copy always has — the copy is not checked against the original, so the claim of agreement is the
-    only thing holding, and a claim is not a check.
+    DERIVED, never transcribed. A hard-coded copy of the eight area strings is what this replaced,
+    and it had already drifted: one area's wording differed from the heading it claimed to mirror,
+    while the docstring beside it asserted the two agreed. That is the failure mode a second copy
+    always has — the copy is not checked against the original, so the claim of agreement is the
+    only thing holding, and a claim is not a check. The table is the authority for the closed set
+    of areas AND their order; the register's INDEX and the rules directory are held to it.
 
     Args:
       None.
 
     Returns:
-      The area labels, in the order the digest declares them.
+      ``(area, target)`` pairs in table order, where ``target`` is the link path as written
+      (``docs/decisions/<area>.md#fences``).
 
     Raises:
       None.
@@ -194,7 +173,27 @@ def decision_areas() -> list[str]:
     lines = (ROOT / "CLAUDE.md").read_text().split("\n")
     start = next(i for i, line in enumerate(lines) if line.startswith("## Key Decisions"))
     end = next(i for i, line in enumerate(lines[start + 1 :], start + 1) if line.startswith("## "))
-    return [line[4:].strip() for line in lines[start:end] if line.startswith("### ")]
+    rows = []
+    for line in lines[start:end]:
+        match = re.match(r"^\|\s*(?P<area>[^|]+?)\s*\|\s*\[[^\]]+\]\((?P<target>[^)]+)\)\s*\|$", line)
+        if match and match.group("area") not in ("Area", "---"):
+            rows.append((match.group("area"), match.group("target")))
+    return rows
+
+
+def decision_areas() -> list[str]:
+    """The area labels ``CLAUDE.md``'s Key Decisions table declares, in its order.
+
+    Args:
+      None.
+
+    Returns:
+      The area labels, in table order.
+
+    Raises:
+      None.
+    """
+    return [area for area, _ in decision_table()]
 
 
 STATUS_WORDS = ("shipped", "complete", "active", "draft", "in progress", "filed", "scoped")
@@ -302,12 +301,135 @@ def check_fixture_scripts() -> list[str]:
     return errors
 
 
-def check_process_budget() -> list[str]:
-    """Hold ``docs/process.md`` to its budget.
+PROCESS_ROUTER = "docs/process/INDEX.md"
 
-    CLAUDE.md's first instruction is to read this file, so it loads every session too and its size
-    is the same kind of cost. The remedy is the one that has worked four times on CLAUDE.md: move
-    a section down a tier behind a pointer, never trim the reasoning in place.
+
+def _router_section(heading: str) -> list[str]:
+    """The lines of one ``## `` section of the process router, or ``[]`` if it has no such section.
+
+    Args:
+      heading: The section heading without its ``## ``.
+
+    Returns:
+      The lines after the heading up to the next ``## `` heading.
+
+    Raises:
+      None.
+    """
+    path = ROOT / PROCESS_ROUTER
+    if not path.exists():
+        return []
+    lines = path.read_text().split("\n")
+    start = next((i for i, line in enumerate(lines) if line.strip() == f"## {heading}"), None)
+    if start is None:
+        return []
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    return lines[start + 1 : end]
+
+
+def always_loaded_process() -> list[str]:
+    """The ``docs/process/`` files the router's "Loaded every session" table says every session reads.
+
+    DERIVED from the router, never transcribed: the table is the human-readable statement of the
+    set and the budget must bound what it says, or a row added there is a file nothing measures.
+
+    Args:
+      None.
+
+    Returns:
+      Root-relative paths, in table order; the router itself when the table names nothing.
+
+    Raises:
+      None.
+    """
+    found = []
+    for line in _router_section("Loaded every session"):
+        for match in re.finditer(r"`(docs/process/[A-Za-z0-9_.-]+\.md)`", line):
+            if match.group(1) not in found:
+                found.append(match.group(1))
+    return found or [PROCESS_ROUTER]
+
+
+def check_process_budget() -> list[str]:
+    """Hold the always-loaded process files, together, to their budget.
+
+    CLAUDE.md's first instruction is to read them, so they load every session and their size is
+    the same kind of cost. The remedy is the one that has worked five times on CLAUDE.md: move a
+    paragraph into one of the on-demand parts behind a pointer, never trim the reasoning in place.
+    A missing file is its own error rather than a smaller total — the router names both as
+    always-loaded, and a router pointing at nothing is the rot this file exists to catch.
+
+    Args:
+      None.
+
+    Returns:
+      One message per missing file, and one when the pair is over budget; empty otherwise.
+
+    Raises:
+      None.
+    """
+    errors = []
+    size = 0
+    for rel in always_loaded_process():
+        path = ROOT / rel
+        if not path.exists():
+            errors.append(f"{rel} is missing — the router's 'Loaded every session' table names it")
+            continue
+        size += len(path.read_text().encode())
+    if errors or size <= PROCESS_MAX_BYTES:
+        return errors
+    return [
+        (
+            f"docs/process/ always-loaded pair is {size:,} bytes against a {PROCESS_MAX_BYTES:,} "
+            "budget. CLAUDE.md's first instruction is to read the router and session-rhythm.md, so "
+            "they cost every session what CLAUDE.md costs: move a paragraph into one of the "
+            "on-demand parts behind a pointer. See PROCESS_MAX_BYTES above."
+        )
+    ]
+
+
+def check_process_router() -> list[str]:
+    """Require every ``docs/process/`` file to be a row of the router's method table, and every row a file.
+
+    The router calls its table "one file per part", and that is a closed-set claim of the same
+    kind the register makes for its areas: a process file the router does not route is
+    unreachable from the only place a session is told to look, and it is exactly where the next
+    process paragraph would accrete unread.
+
+    Args:
+      None.
+
+    Returns:
+      One message per unrouted file and per routed name with no file behind it.
+
+    Raises:
+      None.
+    """
+    process = ROOT / "docs" / "process"
+    if not (ROOT / PROCESS_ROUTER).exists():
+        return [f"{PROCESS_ROUTER} is missing — the process directory has no router"]
+    routed = []
+    for line in _router_section("The method, one file per part"):
+        routed.extend(re.findall(r"\]\(([A-Za-z0-9_.-]+\.md)\)", line))
+    errors = [
+        f"docs/process/{name} is routed by the router's table but does not exist"
+        for name in routed
+        if not (process / name).exists()
+    ]
+    errors.extend(
+        f"docs/process/{path.name} is not a row of the router's method table — a part the router does not route is a part nobody is told to read"
+        for path in sorted(process.glob("*.md"))
+        if path.name != "INDEX.md" and path.name not in routed
+    )
+    return errors
+
+
+def check_claude_budget() -> list[str]:
+    """Hold the always-loaded file to its budget.
+
+    A ratchet just above the measured level, with the headroom ``CLAUDE_MAX_BYTES`` names and no
+    more. What used to grow this file — the Key Decisions digest — now heads each register area
+    file and is measured there (``check_fences``).
 
     Args:
       None.
@@ -318,52 +440,38 @@ def check_process_budget() -> list[str]:
     Raises:
       None.
     """
-    size = len((ROOT / "docs" / "process.md").read_text().encode())
-    if size <= PROCESS_MAX_BYTES:
+    size = len((ROOT / "CLAUDE.md").read_text().encode())
+    if size <= CLAUDE_MAX_BYTES:
         return []
     return [
         (
-            f"docs/process.md is {size:,} bytes against a {PROCESS_MAX_BYTES:,} budget. "
-            "CLAUDE.md's first instruction is to read it, so it costs every session what "
-            "CLAUDE.md costs: move a section down a tier behind a pointer, the way the reviewer "
-            "contract moved to docs/reviewer-contract.md. See PROCESS_MAX_BYTES above."
+            f"CLAUDE.md is {size:,} bytes against a {CLAUDE_MAX_BYTES:,} budget. It loads every "
+            "session: move the detail into docs/ behind a pointer. Every previous fix was a "
+            "structural cut, and the headroom this budget carries is sized for a Tech Stack row and "
+            "a current-work paragraph, not for a new section — see CLAUDE_MAX_BYTES above."
         )
     ]
 
 
-def check_claude_budget() -> list[str]:
-    """Hold the always-loaded file, and each Key Decisions line, to their budgets.
+def _logical_bullets(lines: list[str]) -> list[str]:
+    """Join wrapped bullet continuations so a bullet is measured whole.
 
-    Both numbers are ratchets at the measured level. A digest line past the cap has stopped
-    being a reminder and become the reasoning, which belongs in ``decisions/``.
+    Measuring the physical line stopped meaning anything when the digest became wrapped prose:
+    the longest line fell from 846 characters to 103, and a guard that cannot fire is worse than
+    none — it is advertised as a fence.
 
     Args:
-      None.
+      lines: The lines of one section.
 
     Returns:
-      One message per breach, empty when both are within budget.
+      One string per ``- `` bullet, continuation lines appended with a space.
 
     Raises:
       None.
     """
-    text = (ROOT / "CLAUDE.md").read_text()
-    errors = []
-    size = len(text.encode())
-    if size > CLAUDE_MAX_BYTES:
-        errors.append(
-            f"CLAUDE.md is {size:,} bytes against a {CLAUDE_MAX_BYTES:,} budget. It loads every "
-            "session: move the detail into docs/ behind a pointer. This cap was raised once, "
-            "deliberately, so a closing spec was not forced to prune another area's fences — see "
-            "CLAUDE_MAX_BYTES above. Raising it again is not the answer; all three previous fixes "
-            "were structural cuts."
-        )
-    section = text[text.index("## Key Decisions") : text.index("## Out of Scope")]
-
-    # JOINED, because the section is wrapped prose. Measuring the physical line stopped meaning
-    # anything when the per-spec list became area blocks: the longest line fell from 846 characters
-    # to 103, and a guard that cannot fire is worse than none — it is advertised in process.md.
-    bullets, current = [], None
-    for line in section.split("\n"):
+    bullets: list[str] = []
+    current = None
+    for line in lines:
         if line.startswith("- "):
             if current is not None:
                 bullets.append(current)
@@ -376,13 +484,77 @@ def check_claude_budget() -> list[str]:
                 current = None
     if current is not None:
         bullets.append(current)
+    return bullets
 
-    for bullet in bullets:
-        if len(bullet) > DIGEST_MAX_CHARS:
+
+def fences_section(path: pathlib.Path) -> list[str] | None:
+    """The lines of a register file's ``## Fences`` entry, or ``None`` when it has no such entry.
+
+    Args:
+      path: A ``docs/decisions/<area>.md`` file.
+
+    Returns:
+      The lines between ``## Fences`` and the next ``## `` heading, heading excluded; ``None`` if
+      the file carries no Fences entry.
+
+    Raises:
+      None.
+    """
+    lines = path.read_text().split("\n")
+    start = next((i for i, line in enumerate(lines) if line.strip() == "## Fences"), None)
+    if start is None:
+        return None
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    return lines[start + 1 : end]
+
+
+def check_fences() -> list[str]:
+    """Require each register area to open with its Fences, reachable from the CLAUDE.md table.
+
+    The fences are the traps that apply green and fail later. They were CLAUDE.md's always-loaded
+    digest until 2026-09-05; they now head the area file that carries their reasoning, and the
+    CLAUDE.md table is how a session reaches them. So: every table row resolves to a file whose
+    first entry after its Contents is ``## Fences``, listed first in that Contents, and every
+    bullet under it is a reminder rather than the reasoning — ``DIGEST_MAX_CHARS`` on the logical
+    bullet. A Fences entry that is not first is the register's old shape coming back, where the
+    fence is somewhere in a file nobody reads whole.
+
+    Args:
+      None.
+
+    Returns:
+      One message per table row that does not resolve, per area file whose Fences is missing or
+      not first, and per over-long bullet.
+
+    Raises:
+      None.
+    """
+    errors = []
+    for area, target in decision_table():
+        rel, _, fragment = target.partition("#")
+        path = ROOT / rel
+        if fragment != "fences" or not path.exists():
+            errors.append(f"CLAUDE.md: the '{area}' row points at {target}, which is not an existing file's #fences")
+            continue
+        lines = path.read_text().split("\n")
+        contents_at = next((i for i, line in enumerate(lines) if line.strip() == "## Contents"), None)
+        if contents_at is None:
+            continue  # check_decisions_register reports the missing Contents
+        first_item = next((line for line in lines[contents_at + 1 :] if line.startswith("- [")), "")
+        if first_item.strip() != "- [Fences](#fences)":
+            errors.append(f"{rel}: the Contents does not list [Fences](#fences) first")
+        first_entry = next((line for line in lines[contents_at + 1 :] if line.startswith("## ")), "")
+        if first_entry.strip() != "## Fences":
             errors.append(
-                f"A Key Decisions bullet is {len(bullet)} chars (cap {DIGEST_MAX_CHARS}): "
-                f"{bullet[:70]}… — keep the claim and the fence here, the reasoning in decisions/."
+                f"{rel}: the first entry after the Contents is '{first_entry[3:].strip()}', not 'Fences' — "
+                "the fences head the file so a session reads them before the area's code"
             )
+        for bullet in _logical_bullets(fences_section(path) or []):
+            if len(bullet) > DIGEST_MAX_CHARS:
+                errors.append(
+                    f"{rel}: a Fences bullet is {len(bullet)} chars (cap {DIGEST_MAX_CHARS}): "
+                    f"{bullet[:70]}… — keep the claim and the fence here, the reasoning in the entries below."
+                )
     return errors
 
 
@@ -392,12 +564,12 @@ def check_decisions_register() -> list[str]:
     The register is pulled entry by entry, so an entry outside its file's Contents is only findable
     by reading the whole file — which is the cost the layering exists to avoid.
 
-    The areas are a CLOSED set, and they are the same eight the ``CLAUDE.md`` digest groups by. That
-    is the point of checking them: the digest is never the only home of a fact, so a reader who finds
-    an area there must find the same area here. The register was ONE file ordered by spec number
+    The areas are a CLOSED set, and they are the rows of ``CLAUDE.md``'s Key Decisions table. That
+    is the point of checking them: the table is how a session reaches an area's fences, so a reader
+    who finds an area there must find the same area here. The register was ONE file ordered by spec number
     until 2026-08-28, which made it read as a changelog and feel disposable; it is now one file per
-    area under ``docs/decisions/``, routed by ``INDEX.md``. An area file that exists under no digest
-    heading, or a digest heading with no file, is the first step back to a register nobody can look
+    area under ``docs/decisions/``, routed by ``INDEX.md``. An area file that exists under no table
+    row, or a table row with no file, is the first step back to a register nobody can look
     something up in.
 
     Args:
@@ -415,7 +587,7 @@ def check_decisions_register() -> list[str]:
 
     expected_areas = decision_areas()
     if not expected_areas:
-        errors.append("CLAUDE.md: no '### ' area headings under Key Decisions — the digest lost its grouping")
+        errors.append("CLAUDE.md: no area rows in the Key Decisions table — the register has no closed set")
 
     index = register / "INDEX.md"
     if not index.exists():
@@ -440,8 +612,8 @@ def check_decisions_register() -> list[str]:
     for area in titles:
         if area not in expected_areas:
             errors.append(
-                f"docs/decisions/{titles[area].name}: '{area}' is not one of the areas CLAUDE.md's "
-                f"digest groups by. Add it there first, or file the entry under an existing one: {expected_areas}"
+                f"docs/decisions/{titles[area].name}: '{area}' is not one of the areas in CLAUDE.md's "
+                f"Key Decisions table. Add a row there first, or file the entry under an existing one: {expected_areas}"
             )
     index_text = index.read_text()
     for expected in expected_areas:
@@ -450,13 +622,13 @@ def check_decisions_register() -> list[str]:
         if expected not in index_text:
             errors.append(f"docs/decisions/INDEX.md: the '{expected}' area is not routed")
 
-    # The INDEX and the digest are read as parallel lists, so they are checked as parallel lists.
+    # The INDEX and the table are read as parallel lists, so they are checked as parallel lists.
     # Membership alone lets the two orders drift apart while both still "agree".
     routed = [a for _, a in sorted((index_text.index(a), a) for a in expected_areas if a in index_text)]
     if routed != [a for a in expected_areas if a in index_text]:
         errors.append(
             "docs/decisions/INDEX.md: the areas are routed in a different order from CLAUDE.md's "
-            f"digest. Digest order: {expected_areas}"
+            f"Key Decisions table. Table order: {expected_areas}"
         )
 
     for path in files:
@@ -571,7 +743,7 @@ def check_spec_status() -> list[str]:
 def check_spec_size() -> list[str]:
     """Hold the number of over-size specs at the level it was measured at.
 
-    A spec is one coherent slice of behavior (``docs/process.md`` §4): aim 3-6 Functional
+    A spec is one coherent slice of behavior (``docs/process/authoring-a-spec.md``): aim 3-6 Functional
     Requirements, and past eight write a second spec beside the first rather than growing one.
     Across these specs the median carries six FRs and four in five carry eight or fewer, so the
     ones above the line are a tail rather than the norm — which is why this is a ratchet on the
@@ -644,10 +816,10 @@ def check_spec_size() -> list[str]:
             f"{len(oversize)} specs carry more than {FR_CEILING} FRs "
             f"(ratchet {SPEC_OVERSIZE_MAX}). A spec in this PR crossed the ceiling — added "
             "or grown. Split it into two and record the pair in ARCS.md "
-            "(docs/process.md \u00a74). Which existing specs are over is deliberately not "
+            "(docs/process/authoring-a-spec.md). Which existing specs are over is deliberately not "
             "listed: several sit exactly at the line, so any list names other people's "
             "files rather than the one in your diff. If yours is genuinely indivisible, "
-            "raise this constant by one and say why in the spec (docs/process.md \u00a74) — "
+            "raise this constant by one and say why in the spec (docs/process/authoring-a-spec.md) — "
             "that is the argued exception, not the reflex."
         )
     ]
@@ -837,26 +1009,28 @@ def check_section_pointers() -> list[str]:
 
 
 def check_always_loaded_pointers() -> list[str]:
-    """Refuse an ``@doc/path.md`` pointer in CLAUDE.md that resolves to nothing.
+    """Refuse an ``@doc/path.md`` pointer that resolves to nothing, wherever a session is told to read it.
 
-    CLAUDE.md is a router: it carries pointers instead of the detail it points at, and the third
-    cut deepened that reliance by trading a block of API fences for one pointer to the page
-    carrying them. A pointer is only a cut worth making while it resolves, and nothing else here
-    reads it — ``check_links`` matches ``[text](target)`` markdown links, and
-    ``check_doc_paths_everywhere`` walks code suffixes, so a bare ``@`` pointer in a ``.md`` file
-    falls between them. Verified by planting a broken one, which passed the whole suite.
+    CLAUDE.md is a router: it carries pointers instead of the detail it points at, and every cut
+    has deepened that reliance. The same is true of the two always-loaded process files and of
+    each area's Fences, which carry the pointers the digest carried when it lived in CLAUDE.md —
+    the identity fences point at the API plane page, for one. A pointer is only a cut worth
+    making while it resolves, and nothing else here reads it — ``check_links`` matches
+    ``[text](target)`` markdown links, and ``check_doc_paths_everywhere`` walks code suffixes, so
+    a bare ``@`` pointer in a ``.md`` file falls between them. Verified by planting a broken one,
+    which passed the whole suite.
 
     Args:
       None.
 
     Returns:
-      One message per ``@`` pointer in CLAUDE.md that names a ``.md`` file under ``DOC_TREES`` and
-      does not resolve. Deliberately narrow, and the gaps are real: a pointer to a DIRECTORY
-      (``@docs/testing/``), to a tree outside ``DOC_TREES`` (``@scripts/…``), or with the tree
-      itself misspelt (``@doc/process.md``) is invisible to this, and CLAUDE.md carries live
-      pointers of the first kind. Widening it needs the glob placeholders
-      (``@docs/specs/SPEC-XXX-*.md``, ``@docs/decisions/<area>.md``) handled deliberately rather
-      than by accident of this character class.
+      One message per ``@`` pointer in an always-loaded file or a Fences entry that names a
+      ``.md`` file under ``DOC_TREES`` and does not resolve. Deliberately narrow, and the gaps are
+      real: a pointer to a DIRECTORY (``@docs/testing/``), to a tree outside ``DOC_TREES``
+      (``@scripts/…``), or with the tree itself misspelt (``@doc/process/INDEX.md``) is invisible
+      to this, and CLAUDE.md carries live pointers of the first kind. Widening it needs the glob
+      placeholders (``@docs/specs/SPEC-XXX-*.md``, ``@docs/decisions/<area>.md``) handled
+      deliberately rather than by accident of this character class.
 
     Raises:
       None.
@@ -864,9 +1038,17 @@ def check_always_loaded_pointers() -> list[str]:
     pattern = re.compile(
         r"@((?:" + "|".join(re.escape(tree) for tree in DOC_TREES) + r")/[A-Za-z0-9_./-]+\.md)"
     )
-    text = (ROOT / "CLAUDE.md").read_text()
+    sources: list[tuple[str, str]] = [("CLAUDE.md", (ROOT / "CLAUDE.md").read_text())]
+    for rel in always_loaded_process():
+        if (ROOT / rel).exists():
+            sources.append((rel, (ROOT / rel).read_text()))
+    for _, target in decision_table():
+        rel = target.partition("#")[0]
+        if (ROOT / rel).exists():
+            sources.append((rel + " (Fences)", "\n".join(fences_section(ROOT / rel) or [])))
     return [
-        f"CLAUDE.md: points at a missing doc -> @{target}"
+        f"{name}: points at a missing doc -> @{target}"
+        for name, text in sources
         for target in sorted(set(pattern.findall(text)))
         if not (ROOT / target).exists()
     ]
@@ -929,6 +1111,160 @@ def check_doc_paths_everywhere() -> list[str]:
     return errors
 
 
+RULE_BODY = (
+    "This file is in the **{area}** area of the Key Decisions register.\n"
+    "Before changing it, read `{target}` — the traps there apply green and fail later.\n"
+)
+
+
+def _tree_files() -> list[str]:
+    """Every file under the repository as a root-relative POSIX path, vendored trees pruned.
+
+    Walks with pruning rather than ``rglob`` because ``node_modules`` is most of the tree and a
+    filter after the walk still pays for it.
+
+    Args:
+      None.
+
+    Returns:
+      Relative paths, in no particular order.
+
+    Raises:
+      None.
+    """
+    found = []
+    for dirpath, dirnames, filenames in os.walk(ROOT):
+        dirnames[:] = [d for d in dirnames if d not in VENDORED]
+        rel_dir = pathlib.Path(dirpath).relative_to(ROOT)
+        for name in filenames:
+            found.append((rel_dir / name).as_posix())
+    return found
+
+
+def _paths_globs(frontmatter: str) -> list[str] | None:
+    """The globs listed under a rule's ``paths:`` key, and only that key.
+
+    Read by position rather than by any list item in the block: a list under a different key is
+    not a path scope, and reading it as one would pass a rule Claude Code loads every session —
+    the exact rule the check exists to refuse.
+
+    Args:
+      frontmatter: The text between the rule's ``---`` fences.
+
+    Returns:
+      The globs, quotes stripped, in order; ``[]`` when ``paths:`` is absent or lists nothing;
+      ``None`` when ``paths:`` is written as an inline list, which this reader does not parse.
+
+    Raises:
+      None.
+    """
+    lines = frontmatter.split("\n")
+    start = next((i for i, line in enumerate(lines) if re.match(r"^paths:", line)), None)
+    if start is None:
+        return []
+    if lines[start].strip() != "paths:":
+        return None
+    globs = []
+    for line in lines[start + 1 :]:
+        item = re.match(r"^\s+-\s*(.+?)\s*$", line)
+        if not item:
+            break
+        globs.append(item.group(1).strip("\"'"))
+    return globs
+
+
+def check_rules() -> list[str]:
+    """Require one path-scoped pointer rule per Key Decisions area, and nothing else in it.
+
+    ``.claude/rules/<area>.md`` is Claude Code's mechanism for loading a file only when a
+    matching source file is read. Here each rule is a backstop that points a session touching an
+    area's code at that area's Fences; the fence itself has one home, in the register. So a rule
+    is held to being exactly that: named for the register file, a ``paths`` list at byte 0 whose
+    every glob matches something in the tree, and a body carrying a pointer that
+    resolves — a body that IS the rendered ``RULE_BODY`` and nothing more, because a committed rule
+    reaches every teammate's session on any Read of a matching file, and a body held to a template
+    is the only shape that leaves no room for a line that is not a pointer. Each glob's first
+    segment must be literal, which bounds a rule to one top-level tree; how wide it reaches within
+    that tree is left to review of the diff that changes it. Globs may not carry a brace or a ``[``: Claude Code's matcher
+    expands braces and Python's does not, and this check runs Python's ``fnmatch`` as a proxy for a
+    matcher it cannot run — a permissive proxy, since ``fnmatch``'s ``*`` crosses ``/`` where Claude
+    Code's does not, so only the ``dir/**`` and ``dir/**/*.ext`` forms mean the same thing to both.
+    The "matches something" verdict walks the working tree rather than ``git ls-files``, because
+    the fixture corpus runs this file in a tree with no repository; an untracked local file can
+    therefore satisfy a glob here that CI's clean checkout will refuse. The rules directory is read
+    directly and NOT recursively — ``.claude`` is in ``VENDORED`` because every agent worktree
+    under ``.claude/worktrees/`` carries its own copy — and a rule in a subdirectory is refused by
+    name, since Claude Code would load it and nothing here would read it.
+
+    Measured on Claude Code 2.1.223 (2026-09-05) by planting a rule and watching which read
+    surfaced it: a rule fires when a matching file is opened with the Read tool and does not fire
+    when the file is read through the shell (``cat``, ``head``, ``grep``). That is why the
+    instruction in ``CLAUDE.md`` to read an area's fences first stays the primary path and the
+    rule is a backstop.
+
+    A rule without a ``paths`` block is not a broken rule: Claude Code loads it every session,
+    silently, which is the always-loaded regrowth this whole layout exists to prevent. That is why
+    the frontmatter is checked by position and shape rather than by presence.
+
+    Args:
+      None.
+
+    Returns:
+      One message per area without a rule, per rule for no area, and per rule breaking the shape.
+
+    Raises:
+      None.
+    """
+    rules_dir = ROOT / ".claude" / "rules"
+    expected = {pathlib.Path(target.partition("#")[0]).stem: (area, target) for area, target in decision_table()}
+    found = {p.stem: p for p in rules_dir.glob("*.md")} if rules_dir.is_dir() else {}
+    errors = [
+        f".claude/rules/{stem}.md is missing — every Key Decisions area has one pointer rule"
+        for stem in expected
+        if stem not in found
+    ]
+    nested = [p for p in rules_dir.rglob("*.md") if p.parent != rules_dir] if rules_dir.is_dir() else []
+    errors.extend(
+        f"{p.relative_to(ROOT).as_posix()}: sits in a subdirectory of .claude/rules/ — Claude Code loads it, this check does not read it"
+        for p in sorted(nested)
+    )
+    files = None
+    for stem, path in sorted(found.items()):
+        rel = f".claude/rules/{path.name}"
+        if stem not in expected:
+            errors.append(f"{rel}: names no Key Decisions area — a rule is a pointer to an area's Fences, nothing else")
+            continue
+        text = path.read_text()
+        if not text.startswith("---\n") or "\n---\n" not in text[4:]:
+            errors.append(f"{rel}: does not open with a ----fenced frontmatter block — Claude Code would load it every session")
+            continue
+        frontmatter, body = text[4:].split("\n---\n", 1)
+        globs = _paths_globs(frontmatter)
+        if globs is None:
+            errors.append(f"{rel}: writes `paths:` inline — write the list one `- \"glob\"` per line so this check can read it")
+            continue
+        if not globs:
+            errors.append(f"{rel}: has no non-empty `paths:` list — Claude Code would load it every session")
+            continue
+        for glob in globs:
+            if "{" in glob or "[" in glob:
+                errors.append(f"{rel}: the glob {glob!r} uses a brace or bracket, which this check cannot evaluate the way Claude Code does")
+                continue
+            if "*" in glob.split("/", 1)[0] or "?" in glob.split("/", 1)[0]:
+                errors.append(f"{rel}: the glob {glob!r} has no literal first segment — a rule is scoped to one tree, never to the repository")
+                continue
+            if files is None:
+                files = _tree_files()
+            if not any(fnmatch.fnmatch(f, glob) for f in files):
+                errors.append(f"{rel}: the glob {glob!r} matches no file in the tree")
+        area, target = expected[stem]
+        if body.strip() != RULE_BODY.format(area=area, target=target).strip():
+            errors.append(f"{rel}: body is not the rendered RULE_BODY for '{area}' — a rule is a pointer to {target} and nothing else")
+        elif fences_section(ROOT / target.partition("#")[0]) is None:
+            errors.append(f"{rel}: points at {target}, which has no ## Fences entry")
+    return errors
+
+
 def main() -> int:
     """Run every check and report all failures at once.
 
@@ -950,6 +1286,9 @@ def main() -> int:
         check_claude_budget,
         check_process_budget,
         check_decisions_register,
+        check_fences,
+        check_rules,
+        check_process_router,
         check_arcs,
         check_spec_status,
         check_spec_size,
@@ -967,7 +1306,7 @@ def main() -> int:
         for error in errors:
             print(f"  - {error}", file=sys.stderr)
         print(
-            "\nEvery rule above is in CLAUDE.md or docs/process.md as prose, and every one of "
+            "\nEvery rule above is in CLAUDE.md or docs/process/ as prose, and every one of "
             "them was broken anyway. Fix the doc, not the budget.",
             file=sys.stderr,
         )

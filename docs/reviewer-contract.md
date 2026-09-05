@@ -1,9 +1,9 @@
 # The Reviewer Contract
 
 **Pulled when you are about to spend a reviewer** — at a spec's gate, a plan's gate, or before a
-branch reaches the remote. It is the long form of `docs/process.md` §3's gate: which artifacts are
+branch reaches the remote. It is the long form of `docs/process/session-rhythm.md`'s gate: which artifacts are
 reviewed, how many reviewers each gets and where they run, how to brief one, how to rotate the
-frame, and how to know when to stop. `docs/process.md` carries the rule; this file carries the
+frame, and how to know when to stop. `docs/process/session-rhythm.md` carries the rule; this file carries the
 method behind it.
 
 ---
@@ -18,7 +18,7 @@ expensive one to leave *undetected*, because the code that follows will faithful
 
 **How many reviewers, and where.** **One** on the spec when it is written, **one** on the
 implementation plan when the build actually starts, and **two** on the diff before it is pushed —
-plus the narrow pass on the PR grouping, which `docs/process.md` §3 places before the first push. The diff gets two because it is the **widest**
+plus the narrow pass on the PR grouping, which `docs/process/session-rhythm.md` places before the first push. The diff gets two because it is the **widest**
 artifact and the last one before the branch goes public: a spec or a plan is one document a single
 reader can hold whole, while a diff spans code, infrastructure and tests *and* the criteria they
 are supposed to satisfy, and the method's measured history (*Rotating the frame*, below — measured

@@ -23,7 +23,7 @@ IAM / infra / env vars / deps.
   written while those were Draft; both shipped before implementation, so per FR-005's *document-what's-shipped*
   principle they are **now documented** (user-confirmed). Spec header carries an implementation note.
 - **Process change (user ask):** added a **step 6 — user-facing docs sweep** to the completion ritual in
-  `docs/process.md` §5 and CLAUDE.md, so every future spec checks whether `helpContent.ts` / onboarding copy
+  `docs/process/completion-ritual.md` and CLAUDE.md, so every future spec checks whether `helpContent.ts` / onboarding copy
   need updating when a user-facing feature lands or changes.
 
 ## What changed from earlier specs?

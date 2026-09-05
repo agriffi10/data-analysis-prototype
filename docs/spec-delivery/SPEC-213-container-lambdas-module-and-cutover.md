@@ -60,7 +60,7 @@ nowhere; this spec put every function on it and made CI keep them there.
   both workflow READMEs, the root `README.md` bootstrap (which had become *unrunnable* —
   `TF_VAR_lambda_image_tag` is required with no default), `shared-layer.md`'s polars import barrier
   (which the image removed, so the doc asserted a safety property that no longer holds),
-  `lambdas/info/INDEX.md`, four module READMEs, `analytics.md`, `process.md`, `ecr.tf` and
+  `lambdas/info/INDEX.md`, four module READMEs, `analytics.md`, `docs/process/`, `ecr.tf` and
   `lambdas/info/deployment.md`. `architecture.md`'s ADR rows 31 and 47, and
   `docs/decisions/identity-and-access.md`'s layer sentence, carry superseded markers.
 - **The infra rollback was documented and is now documented as not viable.** Reverting recreates 86

@@ -1,11 +1,14 @@
 # Control planes — one pattern, seven planes, and the traps are shared
 
 Part of the **Key Decisions register** — [`INDEX.md`](INDEX.md) is the router, and `CLAUDE.md`
-carries the one-line digest of each entry. This file holds the reasoning, the constraints and the
-explicit "do NOT build" fences for one area. **Read the entry you need, not the file.**
+carries a table pointing at each area's Fences. This file opens with those fences — the traps that
+apply green and fail later — and holds the reasoning, the constraints and the explicit "do NOT
+build" fences for one area beneath them. **Read the Fences before working in the area, then the
+entry you need, not the file.**
 
 ## Contents
 
+- [Fences](#fences)
 - [Everything unbounded on the state travels by pointer — including the definition (SPEC-161, extending SPEC-090/160)](#everything-unbounded-on-the-state-travels-by-pointer--including-the-definition-spec-161-extending-spec-090160)
 - [Every control-plane machine that can run for hours declares a TimeoutSeconds (SPEC-161)](#every-control-plane-machine-that-can-run-for-hours-declares-a-timeoutseconds-spec-161)
 - [Data-quality outcome notifications (SPEC-114)](#data-quality-outcome-notifications-spec-114)
@@ -41,6 +44,91 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [A transfer's refusals are RETURN VALUES, because a raise in the validator reaches nobody (SPEC-208)](#a-transfers-refusals-are-return-values-because-a-raise-in-the-validator-reaches-nobody-spec-208)
 - [A single-verb write pipeline is a queue and a writer, and its DLQ is undrained for a reason of its own (SPEC-211)](#a-single-verb-write-pipeline-is-a-queue-and-a-writer-and-its-dlq-is-undrained-for-a-reason-of-its-own-spec-211)
 - [The operator door widens to member management, and that is a threat-model decision (SPEC-217)](#the-operator-door-widens-to-member-management-and-that-is-a-threat-model-decision-spec-217)
+
+## Fences
+
+Shared spaces, table builder, table share, data quality, file send, **archive** and file
+operations each get:
+a **FIFO SQS** queue → EventBridge Pipe → Step Functions → single-task verb Lambdas, **one execution
+role per plane** and its own DLQ; `cpcommon` and a domain module are a CODE split, not a packaging
+one, since the cutover. A plane sharing another's
+DLQ lets one malformed request dead-letter someone else's work.
+
+**The traps, every one of which ships green:**
+
+- **No ASL state may decode an error `Cause`.** `States.StringToJson($.error.Cause)` raises
+  `States.Runtime`, which is **uncatchable anywhere**. Carry raw `$.error`; decode with
+  `cpcommon.errors.failure_reason`, the only decoder.
+- **Every plane notifies on a pre-verb failure** — a `NotifyFailure` before `Fail`, reached on every
+  path, because the no-verb-ran paths cannot be selected for in ASL.
+- **A post-identity failure needs its own seed.** A catch routed to a state reading `$.raw` raises an
+  uncatchable error *before* the notifier, because `$.raw` exists on no post-validate state.
+- **Everything unbounded travels by pointer**, never on the state, and **a cap is not a substitute**.
+- **Every cap is COMPUTED by a test**, against the budget that sized it — memory, makespan, or a
+  service quota — and it names that budget. A hard-coded number hides a wrong model.
+- **`TimeoutSeconds` is TOP-LEVEL and cannot notify on its own**: catchers do not cover top-level
+  execution failures, so a ceiling ships **with** an EventBridge `TIMED_OUT` rule (never `FAILED`, or
+  every caught failure double-notifies).
+- **An expected refusal is a RETURN VALUE** — a raise in a validator reaches nobody, and a
+  `TerminalError` cannot name the item. Collapse what a REQUESTER reads, or it is an oracle.
+- **ONE producer says every per-recipient outcome**, at the end of the machine — not each verb.
+- **Locks are objects claimed under ETag CAS**, released by **overwriting**: with `DeleteObject`
+  denied, "free" is a state rather than an absence. The holder is the **execution ARN**, because a
+  request id identifies the message and Pipes delivery is at-least-once.
+- **A partial teardown never frees the name.** `delete_objects` returns **HTTP 200 with a per-item
+  `Errors` array**, so a partial failure reads as success; raise, and leave the registry record —
+  the record *is* the name lock.
+- **A shared-space delete removes PEOPLE, not things**, keyed on the durable `everActive` — never
+  live `status`, which moves `active → deleting → failed` over intact data, and where `deleting` is
+  **not** evidence a space was usable (delete is gated on ownership alone). **One predicate**,
+  `is_destroyable`, routes the delete AND refuses the add; complements written twice drift silently
+  both ways. Inert because the `owner` **field** is cleared, or for the member actions `emptiedAt` — so
+  test it **as the original owner** AND on a live record.
+  A name is never reusable.
+- **The planes do not verify — they read the API's `identity` block**, whose writers are
+  enumerated: the API, and one reader by `SenderId`. Dropping a verification is NOT dropping an authorization:
+  `authorize`/`authorize_source` have **zero diff**. `cpcommon.actor` **cannot verify** (no `jwt`,
+  `auth`, network or env — import sweep), and the flat `actor` is **never** read: it carried a raw
+  JWT, and a JWT and a username are both non-empty, so the guard is the **shape rule**.
+  `assurance` fails closed on an unknown value **including an absent one**. Do **NOT** add a queue resource policy — notifications has eight writers and a blanket
+  `Deny` silences seven notifying roles, invisibly. A pre-cutover message is `unauthorized` and
+  does **not** dead-letter (`FIRE_AND_FORGET`), so plane allowed-field sets stay untightened.
+- **The DLQ drain** sweeps request DLQs and notifies from **`identity.actor`**; its redaction
+  blanks the two LEGACY token fields, since a stale message still carries one. Two are undrained:
+  notifications (circular), feedback (no identity in its body).
+- **File operations are synchronous IFF exactly one file**; the lock is per **space** and its loser
+  **waits** (cross-space takes both in digest order or neither); the **space root is refused** as an
+  item; the collision unit is the derived destination **key**, and a **403 counts as occupied**; the
+  deletion takes **confirmed plan keys** — a prefix listing orphans an uncopied object.
+- **The browser's async switchover consults the routing predicate ONCE**, above every submission
+  point, in one dispatcher. The in-flight record is **session-scoped, never persisted**, and settles
+  on a notification carrying its request id.
+- **Table share CLONES the source definition, never re-infers it**, and pushes without consent.
+- **A data-quality notification IS the completion channel** and must carry the report link, because
+  the reports folder is hidden. Its runs index is appended under **ETag CAS** — S3 lists
+  lexicographically, so a UUID key gives no chronology.
+- **Every member sees the roster**; the join acknowledgement is display-only, since access is granted
+  at add time.
+- **The notifications `create` boundary is a RUNTIME check**, because no SQS condition key reaches a
+  message body. It compares the **role-id half** of the `SenderId`, and a refusal **logs and drops,
+  never raises** — dead-lettering per forged request would drown its undrained DLQ. The actor
+  reader replaces the `USER_ACTIONS` arm **only**: `create` is the trusted producer (body username,
+  no actor, no token), and hoisting the reader above that branch refuses **every notification the
+  fleet produces**, silently.
+- **`cpcommon` owns the algorithm; a domain layer owns its wording.** Do **NOT** merge the domain
+  layers wholesale.
+- **A notification's optional `link` is gated by `isSafeInAppPath`**, and a route that renders one
+  must not become an existence oracle: the data-quality report view takes its space **from the route,
+  never derived**, and an unreachable space renders denied while issuing **no S3 request at all**.
+- **Structured logging** goes through `cpcommon.observability` only; the logs queue is FIFO, swept on
+  a schedule, appended under ETag CAS, retained forever. `@traced` outermost — **except the API**, where one decorator sits
+  outside it to turn an unpredicted fault into a declared code: a catch INSIDE the span ends every
+  failed request successfully and the fault is recorded nowhere. Messages are literals.
+  The **`error.stack` exemption covers file contents, NOT credentials**, and it covers **no field a
+  call site chooses to emit** — neither a **SQL statement** nor an Athena **`stateChangeReason`** may
+  be one, since both quote a user's own cell values back; `sql_bytes` and `state` instead. The API
+  **prevents rather than redacts**: there is no scrubber, a handler is never given a credential, and
+  an AST sweep is what holds it.
 
 ## Everything unbounded on the state travels by pointer — including the definition (SPEC-161, extending SPEC-090/160)
 

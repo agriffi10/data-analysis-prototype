@@ -13,8 +13,8 @@ filesystem has, and this index is the only place that grouping is written down.
 Lambdas, one execution role per plane, and its own DLQ. Shared code comes from the fleet's one
 container image; the `cpcommon`-plus-domain split is a code boundary, not a packaging one.
 Read [`planes/`](planes/) for the one you are changing; the shared pattern and the fences that apply
-to all of them are in [`infra/info/control-plane-shape.md`](../../infra/info/control-plane-shape.md) and the Key Decisions digest in
-`CLAUDE.md`.
+to all of them are in [`infra/info/control-plane-shape.md`](../../infra/info/control-plane-shape.md) and the Fences that open
+[`docs/decisions/control-planes.md`](../../docs/decisions/control-planes.md).
 
 ## Where the code is
 

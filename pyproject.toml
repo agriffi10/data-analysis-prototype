@@ -131,7 +131,7 @@ files = [
     "lambdas/shared-space-common",
     # SPEC-164. A new shared layer joins the ratchet WITH the spec that creates it: added
     # later it is a baseline of existing errors to argue about, added now it is free — this
-    # one entered at zero. The digest line in CLAUDE.md says mypy blocks over the shared
+    # one entered at zero. `docs/process/ci-and-deploy-traps.md` says mypy blocks over the shared
     # layers, and a layer missing from this list would quietly make that untrue.
     "lambdas/file-send-common/fscommon",
     # SPEC-168, on SPEC-164's precedent and for its reason: a new shared layer joins the

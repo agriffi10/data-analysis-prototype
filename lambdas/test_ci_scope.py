@@ -112,7 +112,7 @@ SELECTED_BY_SCOPE = (
 #: Paths the list must NOT select, or the saving is gone. Each is a near miss of a real pattern
 #: rather than an obvious non-match, so an over-broad or unanchored pattern is caught.
 REFUSED_BY_SCOPE = (
-    "docs/process.md",
+    "docs/process/INDEX.md",
     "CLAUDE.md",
     "lambdas/api/routes/objects.py",
     "lambdas/archive-common/arcommon/registry.py",
@@ -740,14 +740,14 @@ def test_the_pull_request_scope_step_answers_both_ways_over_a_real_repository():
     Raises:
         AssertionError: If either verdict is wrong, or if a verdict came from the fallback.
     """
-    skipped = _run_ci_scope(("docs/process.md",))
+    skipped = _run_ci_scope(("docs/process/INDEX.md",))
     assert skipped["app"] == "false", (
         "a documentation-only pull request ran the install, the build and the bundle check"
     )
     assert "no app input changed" in skipped["stdout"], (
         "the skip path did not say why it skipped"
     )
-    assert "docs/process.md" in skipped["stdout"], (
+    assert "docs/process/INDEX.md" in skipped["stdout"], (
         "the skip path printed a verdict with no evidence under it; a wrong `app=false` is then "
         "undiagnosable from the log, which is the failure this step keeps having"
     )

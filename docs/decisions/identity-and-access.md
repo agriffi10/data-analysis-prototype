@@ -1,11 +1,14 @@
 # Identity, access and the name that ties them together
 
 Part of the **Key Decisions register** — [`INDEX.md`](INDEX.md) is the router, and `CLAUDE.md`
-carries the one-line digest of each entry. This file holds the reasoning, the constraints and the
-explicit "do NOT build" fences for one area. **Read the entry you need, not the file.**
+carries a table pointing at each area's Fences. This file opens with those fences — the traps that
+apply green and fail later — and holds the reasoning, the constraints and the explicit "do NOT
+build" fences for one area beneath them. **Read the Fences before working in the area, then the
+entry you need, not the file.**
 
 ## Contents
 
+- [Fences](#fences)
 - [Auth](#auth)
 - [Hosted UI = Managed Login v2](#hosted-ui--managed-login-v2)
 - [No backend](#no-backend)
@@ -46,6 +49,81 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [The membership index is an authorization input, where the username directory is not (SPEC-203)](#the-membership-index-is-an-authorization-input-where-the-username-directory-is-not-spec-203)
 - [The role's Lake Formation grants and the principal tag are ONE mechanism (2026-09-01)](#the-roles-lake-formation-grants-and-the-principal-tag-are-one-mechanism-2026-09-01)
 - [The Identity Pool is retired, and no one's sign-in changed (SPEC-202)](#the-identity-pool-is-retired-and-no-ones-sign-in-changed-spec-202)
+
+## Fences
+
+Cognito **User Pool**, ABAC — the Identity Pool is RETIRED (SPEC-202) and the API is the only thing
+that turns a token into credentials; retiring it changed **nobody's sign-in**, which is the
+conflation to head off. The `username` principal tag is stamped **server-side from
+the verified claim**, so it cannot be spoofed; one shared role, isolation by
+`${aws:PrincipalTag/username}`; a SHARED space adds a per-space role-level LF grant, retired
+**with** the tag scoping or not at all. Hosted UI is **Managed Login v2** — the classic one broke the
+post-signup redirect. The API verifies the browser's bearer and assumes that same role for it.
+
+- **The API VERIFIES a bearer, and is not an OIDC client.** No cookie → no CSRF surface; CORS still
+  required. **A key-retrieval fault is 5xx, never 401**; refusals are byte-identical and **expiry is
+  not disclosed**, because the browser refreshes once on any 401.
+- **It assumes the SAME role with the SAME tags from the SAME claims** — one computation over one
+  input, which is why no policy is rewritten. The role is **reused, never minted**
+  (`aws:PrincipalArn` resolves to the *role's* ARN, so the hand-maintained bucket-policy allowlist
+  stays correct), `DurationSeconds` 3600 is a ceiling **both ways** — shorter caps every presigned
+  link, longer is refused as role chaining — and tag-key agreement is
+  **asserted, not structural** — the trust statement's `sts:TagKeys` is a ceiling that **cannot
+  require a tag was stamped**.
+- **Two credential planes, user by default, declared ON THE ROUTE — the failure fails OPEN.** A wrong
+  client *succeeds* against the wrong identity. The plane is a **required field** on the contract's
+  `Route`, a value that is neither of the two **raises**, and the route is set on the way **IN**: a
+  warm container has no fresh context, so cleanup-on-exit alone lets the next request inherit a
+  declaration. **An assume failure is a FAULT, never a denial** — STS says `AccessDenied` for a wrong
+  trust policy, so the layer *wraps* it.
+- **The credential cache is keyed on the WHOLE tag set** — never the username alone, which freezes
+  membership until the next cold start, and never nothing, which serves B the session of A. **A
+  presigned URL is not a request** and takes `signing_client(covering=…)`, forcing a fresh session
+  rather than clamping against a near-dead one. A short window is *correctly clamped*, so no clamp
+  test can see it.
+- **The API's remaining fences live beside it** — `@lambdas/info/planes/api.md` for the plane, the
+  entries below for the rest — and they are traps rather than reference: **no route waits, sleeps or
+  paginates** and no call count grows with the user's data (a small fixed number is fine); the error shape is a
+  machine **CODE** whose wording is chosen client-side; the wire is declared in **Python** and the
+  TypeScript is **generated** from a **closed** vocabulary
+  that never falls back; **`$default` matches OPTIONS**, so the router answers a preflight **before
+  authentication** and only a browser can see that fail; and **no route waits**, every poll and page
+  walk staying in the browser against a **non-raisable** 30-second integration ceiling.
+- **Browser-side, `apiRequest` retries NOTHING**, with one exception: a 401 takes one forced refresh
+  and one retry — the browser's only refresh path, so deleting it signs everyone out at the hour mark
+  with a green suite. Idempotency is declared **per route**, never derived from the method, and a
+  path parameter that is not **one segment** is **refused in the browser** — either spelling would
+  otherwise reach a **sibling route answering 200 with the wrong shape**.
+- **The tag VALUES have two sources, chosen at COLD START, no fallback** — `MEMBERSHIP_SOURCE`,
+  default `claims`, in no Terraform. The other is `memberships/{username}.json`, **admin** bucket:
+  an authorization input, unlike the username directory, safe only because it is
+  **user-unreachable, plane-written, CAS-written**. The user's own `shared-connections.json` is the
+  same shape and **user-writable** — reading it is a bypass. Absence needs a
+  **`s3:prefix`-conditioned `ListBucket`** or it reads as denial.
+
+**One string is four things:** username = S3 prefix = principal tag = Glue database name, so it is
+catalog-safe by construction (`^[a-z][a-z0-9_]{2,62}$`). The username directory is built from **S3,
+not Cognito** — today Cognito is complete and S3 is not, and the client transition reverses exactly
+that. It is readable by every authenticated user, accepted deliberately: usernames only, never
+emails.
+
+- **A feature flag is presentation, never authorization** — and the flag document lives beside the
+  username directory in the **user-space** bucket, not the admin one: the admin bucket was specced
+  first, and its grant would not have worked. Gating is by **registry**, not
+  per-component opt-in, and one test walks every gated surface in **both** states.
+- **No shared-space directory is published** — the share dialog suggests only spaces you belong to.
+  A full list would be more useful and is declined as a disclosure with no equivalent.
+- **A presigned URL is a BEARER TOKEN** — minted only after exactly the authorization the direct call
+  would have had, signed by the **caller's own assumed session**, and in **no emitted record** (the
+  span carries the key's *length*). Its lifetime is clamped to the **credential that signed**, read
+  in the same call — never to `DurationSeconds`, which agrees today and will not under Access
+  Grants, and never by assuming a second time.
+- **The dev-unauth path is RETIRED** — it worked by calling S3 unsigned from the browser, and no
+  unsigned call is left. The `VITE_` allowlist is now `lib/env.ts` alone; local dev points the SPA at
+  an API.
+- **A document that belongs to no user has no space, so it gets its OWN route** — `_config/` and
+  `_directory/` are not prefixes any caller's claims authorize, and leaving one on the object
+  surface makes every read a 403 that falls back to defaults, which looks exactly like health.
 
 ## Auth
 

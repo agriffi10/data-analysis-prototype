@@ -9,7 +9,7 @@ you update when a check moves.
 > `archive-restore-e2e.md`, `auth-e2e.md`, …) were folded in here on 2026-08-18; their per-spec form
 > is in git history, and the evidence they cited is in [`sessions.md`](sessions.md). A spec that owes
 > a live check adds it to the matching section below — an arc in flight may keep one script of its
-> own, folded in when the arc closes (`docs/process.md` §5 step 8).
+> own, folded in when the arc closes (`docs/process/completion-ritual.md` step 8).
 
 **How to use it.** Run §0 → §1 → §2 in order, then §3's run order, then the feature sections in
 §4. Each check is written as **Do → Expect**, and the *Expect* line is the assertion — "the screen
@@ -1103,7 +1103,7 @@ browser, with which instruments, and what each check returned. Then update:
 
 1. [`owed.md`](owed.md) — move discharged rows out, add anything newly found unrunnable.
 2. The delivery docs that still state the old status.
-3. `CLAUDE.md`'s digest lines.
+3. The Fences of the area's `docs/decisions/` file.
 
 **An unrunnable check is a finding, not a failure.** If a step here cannot produce the outcome it
 claims, fix the step and say so — that has been the most valuable output of several sessions.

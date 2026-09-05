@@ -179,7 +179,7 @@ The failure this replaces was silent. The replacement must not be.
       GitHub repository variable is no longer one of them, and the mapping file is.
 - [ ] The test that compares the wiring sites is updated to compare the new set, and it still fails
       when a key is added to some of them and not all.
-- [ ] `docs/process.md` §6's entry on the six places is corrected in the same pass, since it states
+- [ ] `docs/process/ci-and-deploy-traps.md`'s entry on the six places is corrected in the same pass, since it states
       the same fact and two hand-synced copies of one procedure is how this drifts.
 
 ### FR-007: The ordering against SPEC-202 is decided, not left open
@@ -259,7 +259,7 @@ lambdas/test_resolve_config.py          # FR-003, driving the real script agains
 lambdas/test_config_workflows.py        # FR-001's version/backend derivations, FR-004's sweep
 scripts/validate_feature_flags.py       # bucket_key must name a key the mapping carries
 apps/portal/info/runtime-configuration.md   # the wiring sites rewritten
-docs/process.md                             # §6's copy of the same fact
+docs/process/ci-and-deploy-traps.md         # its copy of the same fact
 ```
 
 ## Implementation Phases
@@ -284,6 +284,6 @@ docs/process.md                             # §6's copy of the same fact
 ### Phase 4: The cleanup
 
 - Delete the retired repository variables; record which.
-- Rewrite `runtime-configuration.md` and `process.md` §6; update the wiring-site test.
+- Rewrite `runtime-configuration.md` and `docs/process/ci-and-deploy-traps.md`; update the wiring-site test.
 - One full deploy watched to green, confirming the rendered document is byte-identical to the one
   the repository variables produced.

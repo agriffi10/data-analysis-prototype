@@ -47,7 +47,7 @@
 
 - **SPEC-192's third wiring site changed.** "The GitHub repository variable" is now
   `.github/config-outputs.json` for every derived key; only a genuine input is still a variable.
-  `apps/portal/info/runtime-configuration.md`, `docs/process.md` §6, the SPEC-192 register entry and
+  `apps/portal/info/runtime-configuration.md`, `docs/process/ci-and-deploy-traps.md`, the SPEC-192 register entry and
   CLAUDE.md's digest clause were all updated, and `.github/workflows/README.md`'s operator tables
   were rewritten — that file *was* the manual `tofu output` → settings-page transport.
 - **SPEC-162's publish workflow** lost its hand-written empty-variable guard and gained a
