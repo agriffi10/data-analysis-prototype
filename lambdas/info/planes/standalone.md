@@ -148,7 +148,10 @@ browser* on the first visit to `/files` (`ensurePrefixMarker`, SPEC-014 — a de
 no-backend decision), so a confirmed user who never opened the file browser has no prefix.
 
 **The transition reverses it.** `transition_plan.md` §2 item 7 settles that sign-in provisions
-nothing — the sync pre-creates every space and `ensurePrefixMarker` is deleted outright (§6.3)
+nothing, and §3.12 puts a **portal-owned provisioner** in its place, creating every known user's
+space ahead of use — so S3 becomes complete for every user the client has, not merely for those who
+have opened the file browser. `ensurePrefixMarker` is deleted outright (§6.3), its write moving to
+that provisioner
 — while federated login makes `cognito:username` a synthetic `identitycenter_<subject>` value
 (§6.1) and users appear in the pool only after their first sign-in. So S3 becomes complete and
 Cognito becomes both incomplete *and* wrong-keyed.

@@ -786,8 +786,8 @@ remembering with picking.
 `transition_plan.md`, and the reasoning inverts the obvious answer. *Today* Cognito is complete and S3 is not: the personal
 prefix is created **by the browser** on first visit to `/files` (`ensurePrefixMarker`, SPEC-014 — a deliberate
 no-backend decision), so a confirmed user who never opened the file browser has no prefix. *After the transition* it
-reverses: §2 item 7 settles that **sign-in provisions nothing** — the sync pre-creates every space and `ensurePrefixMarker`
-is deleted outright (§6.3) — while federated login makes `cognito:username` a synthetic provider-prefixed value (and under the transition's baseline variant there is no `cognito:username` at all — `transition_plan.md` §6.1)
+reverses: §2 item 7 settles that **sign-in provisions nothing**, and §3.12 (2026-09-04) settles that a **portal-owned provisioner** creates every known user's space ahead of use — so S3 becomes complete for every user the client has. `ensurePrefixMarker`
+is deleted outright (§6.3), its write moving to that provisioner — while federated login makes `cognito:username` a synthetic provider-prefixed value (and under the transition's baseline variant there is no `cognito:username` at all — `transition_plan.md` §6.1)
 (§6.1) and users appear in the pool only after first sign-in. So S3 becomes complete and Cognito becomes both incomplete and
 wrong-keyed. Choosing the source that is right on the far side of a migration already in flight beats the one right today,
 especially when today's gap is bounded (pre-production, no production users) and the failure mode is a missing suggestion in

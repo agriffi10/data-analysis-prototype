@@ -116,8 +116,12 @@ complete record of who exists and S3 is not: the personal prefix is created **by
 confirmed user who has never opened the file browser has no prefix. On that reading Cognito wins.
 
 *After the client transition it reverses.* `transition_plan.md` §2 item 7 settles that **sign-in
-provisions nothing** — the sync pre-creates every existing user's space and database, the client's own
-automation creates them for new users, and `ensurePrefixMarker` is deleted outright (§6.3). At the same
+provisions nothing** — and §3.12 (2026-09-04) settles what provisions instead: a **portal-owned
+provisioner** creates every known user's space **before anyone signs in**, and `ensurePrefixMarker`
+is deleted outright (§6.3), its write moving to that provisioner. *This paragraph previously said the
+sync pre-creates the spaces and the client's own automation creates them for new users; the
+conclusion below is unchanged and strengthened — S3 becomes complete for **every** known user rather
+than for everyone who has been synced.* At the same
 time federated login makes `cognito:username` a **synthetic `identitycenter_<subject>` value** rather
 than the catalog-safe username (§6.1), and users appear in the User Pool only after their first
 sign-in. So S3 becomes complete and Cognito becomes both incomplete **and wrong-keyed**.
