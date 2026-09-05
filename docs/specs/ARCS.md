@@ -2853,6 +2853,23 @@ tool for a different job. And Excel gets the two fences a spreadsheet export owe
 formula, whatever the value starts with, and the 1,048,575-row and 16,384-column limits are
 refusals that name the count and suggest Parquet, never a truncated sheet that looks complete.
 
+**Considered and rejected (2026-09-05, user decision): a lazy frame over the SOURCE files, with the
+exploration's filters re-applied in polars.** It reads as more robust and is less so here, for four
+reasons that come from this repo. It cannot serve half the surface: the Query workspace runs
+arbitrary Trino SQL, and an exploration can stand on a view or a saved query, which have no source
+files — the result object serves every case with one mechanism. This repo has already measured
+polars' lazy S3 scan failing in Lambda (`cpcommon/bounded_read.py`: object_store gives up on ranged
+reads and downloads the whole object), so the source would be pulled onto a 10 GB disk, and sources
+here run to 250 GB while a result set is whatever the filters left. Fidelity would fall, not rise:
+re-applying filters in polars re-implements Trino's `LIKE`, collation, NULL comparison and the fact
+that a CSV-backed table is all-string in Athena, and every divergence is a file that does not match
+the rows the user saw. And it makes the plane a second authority on table access, where today the
+execution having succeeded is Lake Formation's one decision. What the result path loses is small and
+stated in 222: timestamps at millisecond precision and nested values as text. If sub-millisecond
+timestamps ever matter, the honest remedy is an Athena `UNLOAD` of the same statement — a second
+bill with every type kept — never a re-implementation of the query; and an Explorer-only source
+path, if ever wanted, is a fourth spec after 223, not a change to these three.
+
 **The write is conditional, and that is the whole concurrency story.** The browser asks
 `objects.exists` first so the overwrite question is asked before the wait, and the plane writes
 with `If-None-Match` unless told to overwrite, so a name taken in between is a refusal with a
