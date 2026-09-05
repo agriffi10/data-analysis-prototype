@@ -31,7 +31,12 @@ Attributes:
     written in three files: a plan written outside the grant fails at runtime, and one written
     outside the rule is never expired.
 
-    **It is not the only thing in this repo called ``archive/``.** ``{admin}/archive/`` is
+    **It is not the only thing in this repo called ``archive/``, and it is the one that does NOT
+    move** when the space's app-managed folders relocate. It is fact 3 of the word: the other two
+    are ``cpcommon.app_managed.RECEIPT_FOLDER`` (the user's receipt folder in the space's own
+    bucket) and ``cpcommon.app_managed.VAULT_ARCHIVE_SEGMENT`` (the key segment in the Glacier
+    vault). It stays a literal HERE, in the plane that owns it, and a tripwire in this layer's
+    tests pins all three equal today so the move has to look at it. ``{admin}/archive/`` is
     control-plane scratch expiring in days; ``{space}/archive/`` holds the user's receipts and is
     never expired; the archive BUCKET holds the data for seven years. Three unrelated things, in
     three buckets.
@@ -70,6 +75,11 @@ import json
 
 from cpcommon import clients, errors, events, s3_listing
 from cpcommon import config as cpconfig
+from cpcommon.app_managed import (
+    ATHENA_RESULTS_FOLDER,
+    RECEIPT_FOLDER,
+    app_managed_prefix,
+)
 from cpcommon.errors import TerminalError
 from cpcommon.paths import assert_inside_root, normalize_root
 
@@ -92,7 +102,7 @@ RESULTS_FOLDER = "results"
 RETRIEVAL_RESULTS_FOLDER = "retrieval-results"
 RESTORE_RESULTS_FOLDER = "restore-results"
 
-_UNDELETABLE_FOLDERS = ("archive", "athenaresults", "user_settings")
+_UNDELETABLE_FOLDERS = (RECEIPT_FOLDER, ATHENA_RESULTS_FOLDER, "user_settings")
 
 
 def _request_folder(request: dict, what: str) -> str:
@@ -416,7 +426,7 @@ def _excluder(root: str):
     Raises:
       None.
     """
-    reserved = tuple(f"{root}{folder}/" for folder in RESERVED_SOURCE_ROOTS)
+    reserved = tuple(app_managed_prefix(root, folder) for folder in RESERVED_SOURCE_ROOTS)
 
     def ignore(key: str, size: int, prefix: str) -> bool:
         """Reports whether an object is something an archive must not carry.

@@ -59,6 +59,11 @@ describe('partitionSystemFolders', () => {
     expect(ordinary.map((f) => f.name)).toEqual(['ledgers']);
   });
 
+  it('groups exactly the three folders the arc moves, in listing order', () => {
+    // A literal, not a `toContain`: the group row is the visible promise of which folders move.
+    expect(SYSTEM_GROUPED_FOLDERS).toEqual(['athenaresults', 'archive', 'shared_tables']);
+  });
+
   it('groups nothing that is hidden outright — a hidden folder never reaches a row', () => {
     // The two lists must not overlap: a folder in both would be filtered out before the
     // partition ran, and the group's count would then promise a row nobody can open.

@@ -15,7 +15,6 @@ validate-authorize verb already answers is a divergence waiting to happen.
 Attributes:
   DEDUP_BUCKET_MS: The width of table-share's dedup window, in milliseconds. Submits of one
     request inside one window collapse; a deliberate re-share later goes through.
-  ARCHIVE_FOLDER: The archive path segment, matching ``arcommon.config.ARCHIVE_FOLDER``.
   MAX_FIFO_KEY_CHARS: What SQS accepts for a group id or a dedup id.
   _FIFO_KEY_RE: What SQS accepts in one — printable ASCII with no space, which is its
     "alphanumeric characters and punctuation" rule written as a pattern.
@@ -29,13 +28,13 @@ import uuid
 from collections.abc import Callable, Mapping
 from typing import Any, cast
 
+from cpcommon.app_managed import vault_archive_prefix
 from cpcommon.auth import Principal
 
 from . import config
 from .envelope import ApiError
 
 DEDUP_BUCKET_MS = 60_000
-ARCHIVE_FOLDER = "archive"
 
 MAX_FIFO_KEY_CHARS = 128
 _FIFO_KEY_RE = re.compile("^[\x21-\x7e]{1,128}$")
@@ -268,9 +267,7 @@ def _group_archive_restore(principal: Principal, payload: Mapping[str, Any]) -> 
       None.
     """
     space = _space(payload)
-    return _sha(
-        f"{space['kind']}/{space['name']}/{ARCHIVE_FOLDER}/{payload['archiveId']}/"
-    )
+    return _sha(vault_archive_prefix(space["kind"], f"{space['name']}/", payload["archiveId"]))
 
 
 def _dedup_request_id(principal: Principal, payload: Mapping[str, Any]) -> str:

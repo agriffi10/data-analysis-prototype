@@ -207,15 +207,19 @@ Attributes:
     ANY depth (``*`` matches ``/``). A selection containing one is refused for the WHOLE request
     rather than skipped: archiving deletes the source, so an un-deletable object would fail the
     run after some of the data had already moved.
-  ARCHIVE_FOLDER: The receipt folder inside the space's own bucket, and the ``archive/`` segment
-    of the archive-bucket key. One constant, because they are the same folder name by design —
-    a user who sees ``archive/{uuid}/`` in their own space is looking at the same id the archived
-    objects sit under.
+  RESERVED_SOURCE_ROOTS: The space's own portal-managed folders, never an archive source. The
+    three that are about to move are spelled through ``cpcommon.app_managed``; the browser reads
+    this tuple as text and resolves those names against that module.
   RECEIPT_NAME: The receipt object's basename. **A plain text file the user downloads and reads
     themselves** — deliberately not rendered in the browser, which leaves the project's
     no-preview rule untouched.
 """
 
+from cpcommon.app_managed import (
+    ATHENA_RESULTS_FOLDER,
+    RECEIPT_FOLDER,
+    SHARED_TABLES_FOLDER,
+)
 from cpcommon.config import require as _require_env
 
 ARCHIVE_STORAGE_CLASS = "GLACIER"
@@ -253,16 +257,14 @@ RESTORE_MAX_POLLS = 84
 RESTORE_POLL_PAGE = 1000
 
 RESERVED_SOURCE_ROOTS = (
-    "archive",
-    "athenaresults",
+    RECEIPT_FOLDER,
+    ATHENA_RESULTS_FOLDER,
     "user_settings",
     "_data-quality-reports",
-    "shared_tables",
+    SHARED_TABLES_FOLDER,
 )
 
 PROTECTED_MARKER_BASENAME = "DO_NOT_DELETE.txt"
-
-ARCHIVE_FOLDER = "archive"
 
 RECEIPT_NAME = "receipt.txt"
 

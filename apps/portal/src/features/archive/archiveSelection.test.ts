@@ -2,6 +2,7 @@ import {describe, expect, it} from 'vitest';
 // The plane's own list, read as data. A hand-copied array here would be a second declaration of
 // the same rule — and a divergence shows up as a request the browser sends and the plane refuses.
 import arcommonConfig from '../../../../../lambdas/archive-common/arcommon/config.py?raw';
+import appManaged from '../../../../../lambdas/control-plane-common/cpcommon/app_managed.py?raw';
 import {ARCHIVE_RESERVED_ROOTS, archiveRefusal} from './archiveSelection';
 import type {ArchiveItem} from '../../types/archive.types';
 
@@ -14,10 +15,34 @@ describe('the browser and the plane refuse the same folders', () => {
     // folder the browser lets you select and the plane then refuses, hours of confusion later.
     const block = /RESERVED_SOURCE_ROOTS = \(([^)]*)\)/.exec(arcommonConfig);
     expect(block, 'arcommon no longer declares RESERVED_SOURCE_ROOTS as a tuple literal').not.toBeNull();
-    const plane = [...block![1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    // A member is either a quoted literal or a NAME the plane imports from the owner of the
+    // app-managed folder names. Resolve the name to its declared value; a name that does not
+    // resolve FAILS rather than being skipped, or a rename would shrink the plane's set silently.
+    const plane = block![1]
+      .split(',')
+      .map((member) => member.trim())
+      .filter((member) => member !== '')
+      .map((member) => {
+        const literal = /^"([^"]+)"$/.exec(member);
+        if (literal) return literal[1];
+        const declared = new RegExp(`^${member} = "([^"]+)"$`, 'm').exec(appManaged);
+        expect(declared, `${member} is not a literal and cpcommon.app_managed does not declare it`).not.toBeNull();
+        return declared![1];
+      });
 
     expect(plane.length).toBeGreaterThan(0);
     expect([...ARCHIVE_RESERVED_ROOTS].sort()).toEqual([...plane].sort());
+  });
+
+  it('names exactly these five, spelled out', () => {
+    // The mirror above proves agreement with the plane; this proves neither side widened.
+    expect(ARCHIVE_RESERVED_ROOTS).toEqual([
+      'archive',
+      'athenaresults',
+      'user_settings',
+      '_data-quality-reports',
+      'shared_tables'
+    ]);
   });
 });
 

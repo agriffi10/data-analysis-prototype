@@ -13,6 +13,7 @@ Map fan-out stay one queryable set. The per-verb identity rides as the ``verb`` 
 import logging
 
 from cpcommon import clients, config, observability
+from cpcommon.app_managed import shared_tables_prefix
 from cpcommon.errors import TerminalError, TransientError
 from tscommon import glue as glue_mod
 from tscommon import notify
@@ -45,7 +46,7 @@ def _resolve_destination(recipient: dict, table_name: str) -> dict:
         **recipient,
         "database": name,
         "destBucket": bucket,
-        "destPrefix": f"{name}/shared_tables/{table_name}/",
+        "destPrefix": f"{shared_tables_prefix(f'{name}/')}{table_name}/",
     }
 
 

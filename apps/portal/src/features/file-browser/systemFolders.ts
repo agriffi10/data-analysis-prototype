@@ -1,4 +1,5 @@
 import {isRootFolderNamed} from './protectedFolders';
+import {ARCHIVE_FOLDER, ATHENA_RESULTS_FOLDER, SHARED_TABLES_FOLDER} from '../../lib/appManagedPaths';
 import type {S3FolderItem} from '../../types/s3.types';
 
 /**
@@ -35,7 +36,7 @@ export const SYSTEM_FOLDER_GROUP_NAME = 'system_settings';
  * refuses a write is the policy and the per-folder rules beside it, exactly as before;
  * this list moves rows and nothing else.
  */
-export const SYSTEM_GROUPED_FOLDERS = ['athenaresults', 'archive', 'shared_tables'] as const;
+export const SYSTEM_GROUPED_FOLDERS = [ATHENA_RESULTS_FOLDER, ARCHIVE_FOLDER, SHARED_TABLES_FOLDER] as const;
 
 /**
  * The group row's secondary line, and the half of its accessible name that says what it holds.

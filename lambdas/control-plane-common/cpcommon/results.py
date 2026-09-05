@@ -17,6 +17,8 @@ data-quality routes a whole request under a fixed ``data-quality`` actor segment
 the request id. ``sub`` is that difference.
 """
 
+from .app_managed import athena_results_prefix
+
 
 def results_location(bucket: str, database: str, actor: str, *, sub: str | None = None) -> str:
     """Builds the Athena results prefix for one actor under one database root.
@@ -37,5 +39,5 @@ def results_location(bucket: str, database: str, actor: str, *, sub: str | None 
     Raises:
       None.
     """
-    base = f"s3://{bucket}/{database}/athenaresults/{actor}/"
+    base = f"s3://{bucket}/{athena_results_prefix(f'{database}/')}{actor}/"
     return f"{base}{sub}" if sub else base

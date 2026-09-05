@@ -157,6 +157,31 @@ describe('fileBrowser.paths', () => {
 
 // ─── from protectedFolders.test.ts ───
 describe('protectedFolders', () => {
+  describe('the three lists, member for member', () => {
+    // Spelled out as literals on purpose. Every other assertion in this file is a `toContain`, which
+    // passes under a widening; these compare the whole list, so re-pointing a member to a shared
+    // name cannot add, drop or reorder one unnoticed.
+    it('hides exactly these four', () => {
+      expect(HIDDEN_BROWSER_FOLDERS).toEqual(['user_settings', '_data-quality-reports', '_directory', '_config']);
+    });
+
+    it('locks exactly these seven out of the picker', () => {
+      expect(PICKER_LOCKED_FOLDERS).toEqual([
+        'athenaresults',
+        'user_settings',
+        '_data-quality-reports',
+        '_directory',
+        '_config',
+        'shared_tables',
+        'archive'
+      ]);
+    });
+
+    it('refuses to destroy exactly these three', () => {
+      expect(UNDELETABLE_ROOT_FOLDERS).toEqual(['athenaresults', 'saved_queries', 'archive']);
+    });
+  });
+
   describe('protectedFolders', () => {
     it('hides user_settings/ from the browser; locks athenaresults/ + user_settings/ from the picker', () => {
       expect(HIDDEN_BROWSER_FOLDERS).toContain('user_settings');

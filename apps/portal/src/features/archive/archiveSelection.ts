@@ -1,3 +1,4 @@
+import {appManagedPrefix, ARCHIVE_FOLDER, ATHENA_RESULTS_FOLDER, SHARED_TABLES_FOLDER} from '../../lib/appManagedPaths';
 import type {ArchiveItem} from '../../types/archive.types';
 
 /**
@@ -15,11 +16,11 @@ import type {ArchiveItem} from '../../types/archive.types';
  * match the plane's, not to enumerate what is reachable today.
  */
 export const ARCHIVE_RESERVED_ROOTS = [
-  'archive',
-  'athenaresults',
+  ARCHIVE_FOLDER,
+  ATHENA_RESULTS_FOLDER,
   'user_settings',
   '_data-quality-reports',
-  'shared_tables'
+  SHARED_TABLES_FOLDER
 ] as const;
 
 /**
@@ -45,7 +46,7 @@ export function archiveRefusal(items: readonly ArchiveItem[], rootPrefix: string
     // file and must still archive.
     const asPrefix = item.key.endsWith('/') ? item.key : `${item.key}/`;
     for (const folder of ARCHIVE_RESERVED_ROOTS) {
-      const reserved = `${rootPrefix}${folder}/`;
+      const reserved = appManagedPrefix(rootPrefix, folder);
       if (item.key === reserved.replace(/\/$/, '') || item.key.startsWith(reserved) || reserved.startsWith(asPrefix)) {
         return `“${folder}” is managed for you and can’t be archived.`;
       }

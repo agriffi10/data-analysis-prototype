@@ -17,6 +17,7 @@ where it wrote a refusal, which is a worse failure than the one it was reporting
 
 from cpcommon import config
 from cpcommon import registry as reg
+from cpcommon.app_managed import app_managed_prefix
 from cpcommon.errors import TerminalError
 from cpcommon.paths import normalize_root
 
@@ -112,7 +113,7 @@ def assert_not_reserved(root: str, key: str) -> str:
     prefix = normalize_root(root)
     as_prefix = key if key.endswith("/") else f"{key}/"
     for folder in RESERVED_SOURCE_ROOTS:
-        reserved = f"{prefix}{folder}/"
+        reserved = app_managed_prefix(prefix, folder)
         if key == reserved.rstrip("/") or key.startswith(reserved) or reserved.startswith(as_prefix):
             raise TerminalError("reserved_folder", f"{key!r} is or contains {folder!r}")
     return key

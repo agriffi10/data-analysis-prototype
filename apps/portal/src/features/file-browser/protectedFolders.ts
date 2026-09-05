@@ -71,22 +71,23 @@
 // ever creates that folder; it is defensive there and would be dead config here.
 
 import type {SelectableItem} from './selectionContext';
+import {appManagedPrefix, ARCHIVE_FOLDER, ATHENA_RESULTS_FOLDER, SHARED_TABLES_FOLDER} from '../../lib/appManagedPaths';
 
 /** Hidden from the main file-browser listing. */
 export const HIDDEN_BROWSER_FOLDERS = ['user_settings', '_data-quality-reports', '_directory', '_config'] as const;
 
 /** Never offered as a move/copy destination. */
 export const PICKER_LOCKED_FOLDERS = [
-  'athenaresults',
+  ATHENA_RESULTS_FOLDER,
   'user_settings',
   '_data-quality-reports',
   '_directory',
   '_config',
-  'shared_tables',
+  SHARED_TABLES_FOLDER,
   // IAM denies `PutObject` beneath it, so offering it as a paste target only ever
   // produced an AccessDenied — and a receipt acquiring neighbours is how an archive folder
   // stops being a record of what this plane did.
-  'archive'
+  ARCHIVE_FOLDER
 ] as const;
 
 /**
@@ -112,7 +113,7 @@ export const PICKER_LOCKED_FOLDERS = [
  * destroy the receipts that carry every archive id — and IAM denies the objects beneath it
  * anyway, so the row here is the browser saying so before the user finds out from S3.
  */
-export const UNDELETABLE_ROOT_FOLDERS = ['athenaresults', 'saved_queries', 'archive'] as const;
+export const UNDELETABLE_ROOT_FOLDERS = [ATHENA_RESULTS_FOLDER, 'saved_queries', ARCHIVE_FOLDER] as const;
 
 type UndeletableFolder = (typeof UNDELETABLE_ROOT_FOLDERS)[number];
 
@@ -146,7 +147,7 @@ export function undeletableRootFolderRefusal(
   rootPrefix: string,
   action: 'delete' | 'move'
 ): string | null {
-  const name = UNDELETABLE_ROOT_FOLDERS.find((folder) => folderPrefix === `${rootPrefix}${folder}/`);
+  const name = UNDELETABLE_ROOT_FOLDERS.find((folder) => folderPrefix === appManagedPrefix(rootPrefix, folder));
   return name ? UNDELETABLE_REFUSALS[name][action] : null;
 }
 
@@ -206,5 +207,5 @@ export function undeletableSelectionRefusal(
  * folder that happens to share the name is a normal user folder.
  */
 export function isRootFolderNamed(folderPrefix: string, rootPrefix: string, names: readonly string[]): boolean {
-  return names.some((name) => folderPrefix === `${rootPrefix}${name}/`);
+  return names.some((name) => folderPrefix === appManagedPrefix(rootPrefix, name));
 }

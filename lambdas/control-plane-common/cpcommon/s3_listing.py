@@ -20,20 +20,23 @@ source data. Athena ignores such files and directories too, so they must not ent
 
 Attributes:
   MARKER_BASENAME: The prefix marker written at folder creation.
-  _IGNORED_SUBTREES: First-segment sub-trees that are never source data regardless of a
+  _IGNORED_SUBTREES: Sub-trees that are never source data regardless of a
     leading underscore. Query output and the notification inbox plus saved queries have no
     leading underscore, so the segment rule would not catch them — but a folder-level scan
-    reaching a space root must never treat them as source data.
+    reaching a space root must never treat them as source data. Matched against the remainder
+    after the listing prefix, so the results entry is built with an EMPTY root: the remainder is
+    relative, and the builder is what moves it when the folder moves.
 """
 
 from collections.abc import Callable, Iterator
 
 from . import clients, errors
+from .app_managed import ATHENA_RESULTS_FOLDER, app_managed_prefix
 from .errors import TerminalError
 
 MARKER_BASENAME = "DO_NOT_DELETE.txt"
 
-_IGNORED_SUBTREES = ("athenaresults/", "user_settings/")
+_IGNORED_SUBTREES = (app_managed_prefix("", ATHENA_RESULTS_FOLDER), "user_settings/")
 
 
 def _basename(key: str) -> str:

@@ -162,12 +162,15 @@ Attributes:
     the space root, not refused as a selected item: the browser hides it everywhere, so a user
     cannot select it, and the exclusion is what keeps a root-level walk from carrying it out.
   ATHENA_RESULTS_FOLDER: The space's own Athena results folder, refused as a send source.
+    Re-exported from ``cpcommon.app_managed``, which owns the name.
     **A NEW RULE FOR THIS PLANE, not an existing list being reused** — ``protectedFolders.ts``
     keeps three deliberately divergent lists in which ``athenaresults/`` is never a paste
     destination and never a move source, while copying *out* of it is permitted in the browser
     today. A send is a copy, so no existing list answers this question, and that file's own
     note warns that unioning them is the wrong repair.
 """
+
+from cpcommon import app_managed as _app_managed
 
 RECIPIENT_KINDS = frozenset({"user", "space"})
 
@@ -191,6 +194,6 @@ SEND_MAX_TRANSFER_BYTES = 3 * 1024**4
 
 SHARED_FILES_FOLDER = "shared_files"
 
-ATHENA_RESULTS_FOLDER = "athenaresults"
+ATHENA_RESULTS_FOLDER = _app_managed.ATHENA_RESULTS_FOLDER
 
 USER_SETTINGS_FOLDER = "user_settings"

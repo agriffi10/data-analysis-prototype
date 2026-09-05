@@ -260,6 +260,39 @@ nothing there.
 that does not work here is no longer on any path, and no call site depends on credentials
 being threaded into it.
 
+## `cpcommon/app_managed.py` — the folder names, and one builder per fact
+
+Three app-managed folders — `athenaresults/`, `archive/` (the receipt folder) and `shared_tables/`
+— are about to move under a real `system_settings/` prefix. What breaks a move like that is not the
+spelling but the **depth**: nearly every rule across the fleet was anchored at depth one as
+`f"{root}{name}/"`, in eleven modules, and at depth two each would simply stop matching, silently.
+`fscommon.authz` had already written the warning into its own docstring. So the names are declared
+in this one module and every anchored construction calls a builder; the move is one edit to
+`app_managed_prefix`, and a CI sweep (`scripts/validate_app_managed_paths.py`) refuses a new
+declaration or construction anywhere else.
+
+**Nothing in it normalizes.** Every builder is a pure f-string over what it is handed, so each
+caller keeps its own `normalize_root` and produces the bytes it always produced. The reason is the
+API's FIFO group id, which digests the vault prefix and is pinned to golden vectors: a builder that
+normalized would change the digest of an unvalidated space name — an API 500 or a re-keyed id for a
+body the contract admits.
+
+**`archive` is three facts, and one moves.** The receipt folder (`RECEIPT_FOLDER`, space bucket,
+moves) and the vault key segment (`VAULT_ARCHIVE_SEGMENT`, archive bucket, hashed by the API, stays)
+live here because two packages each need them. The third — the admin bucket's control-plane scratch
+prefix — has one consumer and stays in `arcommon.plan.PREFIX`, because a domain layer owns its
+constants; the sweep names that file as a second owner. A tripwire in `archive-common` pins all
+three equal today and asks to be revisited, not deleted, when the receipt folder moves.
+
+**What this does not touch:** `user_settings/`, `saved_queries/`, `_data-quality-reports/` and the
+other non-moving folders keep the owners they have; the domain lists keep their membership
+(asserted member for member in each layer's tests) and only spell the three moving names through
+this module; and one rule is anchored WITHOUT the builder because it holds no root: `dq_validate_authorize`
+compares a key's first segment to a name, which stops firing at depth two and is on the move's own
+hunt list. `s3_listing._IGNORED_SUBTREES` looked like a second — it prefix-matches a
+listing-relative remainder — and is built through the builder with an EMPTY root instead, so it
+moves when the builder does.
+
 ## `cpcommon/transfer/config.py` — sizing the Distributed Map
 
 **`MAX_ITEMS_PER_BATCH` (50 until SPEC-161, now 8).** A batch IS a child execution's input, and Step Functions caps that

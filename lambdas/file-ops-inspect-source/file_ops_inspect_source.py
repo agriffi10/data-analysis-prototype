@@ -42,6 +42,7 @@ Attributes:
 import logging
 
 from cpcommon import clients, errors, observability, s3_listing
+from cpcommon.app_managed import app_managed_prefix
 from cpcommon.errors import TerminalError
 from cpcommon.paths import assert_inside_root, normalize_root
 from focommon import notify, outcomes, paths, plan
@@ -148,7 +149,7 @@ def _excluder(root: str, item_key: str):
     managed = tuple(
         anchored
         for folder in _PORTAL_MANAGED_FOLDERS
-        for anchored in (f"{root}{folder}/",)
+        for anchored in (app_managed_prefix(root, folder),)
         if not item_key.startswith(anchored)
     )
 
