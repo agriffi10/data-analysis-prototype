@@ -315,7 +315,7 @@ def test_every_function_and_its_log_group_has_a_moved_block() -> None:
     total = sum(len(pairs) for pairs in blocks.values())
 
     assert total == expected * 2, (
-        f"{total} moved blocks for {expected} functions; there must be one per function and one "
+        f"{total} moved blocks for {expected} captured functions; there must be one per captured function and one "
         "per log group, or an unmoved address is a create racing a destroy"
     )
 

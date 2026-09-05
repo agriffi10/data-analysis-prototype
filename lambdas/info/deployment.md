@@ -127,7 +127,8 @@ exemption — invoking it consumes DLQ messages — and it is recorded in `docs/
 
 **Terraform, and nothing else.** `lambdas/fleet.py` derives the fleet's names from the
 `docker-lambda` module calls in `infra/modules/`, and the hand-maintained table that used to hold
-the same list is deleted — a second declaration of one fact can only ever drift, and the drift is
+the same list is deleted (the post-cutover name set beside the frozen capture is a fail-closed
+acknowledgement of growth, not a membership source) — a second declaration of one fact can only ever drift, and the drift is
 invisible until something deploys against the wrong copy.
 
 Two readers, for two different questions. `deploy-lambdas.yml` shards over **this commit's**
@@ -146,7 +147,9 @@ agrees with Terraform's own evaluator" rather than a comparison of a list with i
 1. Create `lambdas/<name>/` with one handler module and its tests.
 2. Add a `docker-lambda` module call in the owning module's `lambda.tf`, supplying its
    `command = ["<module>.<handler>"]`, its timeout and its memory.
-3. Nothing to register — step 2 IS the registration, and CI derives the fleet from it.
+3. Nothing to register — step 2 IS the registration, and CI derives the fleet from it — but
+   **name it in `ADDED_SINCE_THE_CUTOVER`** in `lambdas/test_lambda_plan_guard.py`: the frozen
+   pre-cutover capture is a floor under the fleet, and an addition it does not name fails by name.
    **A new MODULE** additionally needs a `function_names` output and a line in `infra/outputs.tf`'s
    `lambda_deployed_names`; `test_fleet_derivation.py` fails by name if either is missing.
    **A new PLANE also needs a probe:** grant the deploy role `lambda:InvokeFunction` on one of its
