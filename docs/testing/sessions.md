@@ -1496,3 +1496,37 @@ spot-check caught it — a negative claim about *tooling* needs the same gate as
 - **Safari, and 400 px.** Everything above is Chromium; it corroborates and cannot discharge.
 - **Data Explorer §4.5 rows 14 and 15**, and §G.1's remaining plane rows.
 - **`KeyCount: 0` on the vault prefix** — needs a principal on `dat-prod-archive`.
+
+## 2026-09-05 — the Data Quarry rename, against the deployed artifact
+
+Run straight after PR #647's `main` deploys went green, against `https://portal.dataquarry.app`.
+Chromium only.
+
+**The served document.** `<title>` is `Data Quarry`, and a case-insensitive sweep of the served HTML
+for `Data Workspace` and `S3 File Portal` returns **zero**. The title is the useful half: it is
+stamped into `index.html` at build time rather than by the app, so it is the one brand site no
+client-side check can confirm and no unit test covers.
+
+**A deployed JS chunk, with both controls.** `/assets/errorMessages-*.js` carries
+*"Data Quarry could not resolve where this space is stored"*, *"Data Quarry could not start"* and
+*"Data Quarry is not configured correctly"*; the same chunk returns **zero** for the old
+*"The portal could not start"*. The positive half is what makes the zero mean anything — the first
+chunk I searched (`index-*.js`) returned zero for `Data Quarry` too, because the wordmark and the
+error strings are in split chunks, and stopping there would have read as "the rename never shipped".
+
+**The landing page, in a real browser.** All five brand sites render: the nav wordmark and its
+`Data Quarry home` link label, the footer wordmark and its label, and `© 2026 Data Quarry ·`. The
+hero reads *"Your data, scoped to you."* — the old copy echoed the previous product name and was
+changed with it.
+
+### Not run
+
+- **The Data Explorer picker (`e2e.md` §4.5, the rewritten row).** Needs a signed-in session: the
+  group headings `Tables (n)` / `Views (n)`, no title above the list, and no create control anywhere
+  on the picker.
+- **The Help step for Create table**, whose wording changed twice — it must read as the width
+  condition ("if you cannot see Create table, the window is too narrow"), not as a device name.
+- **The verification email's new subject.** `tofu` applied it in place (`0 to add, 1 to change,
+  0 to destroy`, with the two `verification_message_template` strings as the only diff), but
+  observing it needs a real signup.
+- **Safari, and 400px.** Everything above is Chromium; it corroborates and cannot discharge.
