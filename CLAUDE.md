@@ -13,7 +13,7 @@ in `docs/`, and the domain rulebooks and inventories beside the code they govern
   area file, then the entry (the digest below groups by the same areas)
 - `@docs/transition_plan.md` — **single source of truth** for the client-environment transition
   (Entra ID sign-in in **two variants** — §3.3 — IdC propagation, one credential plane with S3
-  Access Grants, de-provisioning, LF re-keying, ODBC/JDBC driver migration); read before touching
+  Access Grants, provisioning and de-provisioning, LF re-keying, ODBC/JDBC drivers); read before touching
   auth, provisioning or LF
 
 **Context discipline:** these are pointers, not a reading list. Pull a doc when a task needs it.

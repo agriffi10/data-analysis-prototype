@@ -1,86 +1,56 @@
 # Transition Plan — Client Environment
 
-**Status:** Single source of truth for the client transition. Living document; update it in place
-rather than writing a competing one.
-**Last updated:** 2026-08-24 (**third-party driver pass** — §3.5's incompatibility bullet was quoted
-without its qualifier and read as "the client's Excel, Access and Power BI users lose their
-connection"; it does not say that. New **§3.10** carries what the drivers actually support and, since
-the client confirmed those users are on the **SAML path today**, the migration that forces. Moved:
-Contents, §1's table, §2 (new item 15), §3.5's bullet **and** its G7 status paragraph, §3.10, §5.5's
-G7 and G8 rows, §8, Phase 0, Phase 5, §10, plus `docs/specs/ARCS.md` and
-`docs/target-architecture-variants.md`, and a pointer line in `CLAUDE.md`. **Three claims in the
-first draft were corrected at review the same day** and each is marked in place: the driver path does
-**not** require an IdC-enabled workgroup, so the separate-workgroup topology is our choice to enforce
-rather than a platform guarantee; the coexistence window comes from the two **accounts**, bounded by
-§6.5's freeze, not "no flag day"; and these users are **not** ungoverned today — they hold a parallel
-SAML-keyed Lake Formation grant set, so the gain is one entitlement model instead of two, not
-masking where there was none).
-Previously 2026-08-19 (**live-docs validation pass** — §3.5 gains the correct IAM action
-prefix, a corrected replay paragraph, the assertion's permitted token type and a half-answer on the
-`${user_id}` prefix; §3.9, §8 and Phase 0 narrow to the surviving sub-question; §3.3 gains a pointer
-to `docs/target-architecture-variants.md`, which carries the diagrams and the evidence). Previously
-2026-08-18 (the **identity-variant revision** — see below. §2, §3.3, §3.4, §3.5,
-§3.9, §5.5, §6.1, Phases 0/1/5, §8 and §9 all move). Previously 2026-08-18 (§3.5 gains the step-3
-caveat and gate G7 — the Athena docs are genuinely ambiguous about whether a plain
-`StartQueryExecution` on an identity-enhanced session is supported, so it is settled by experiment in
-Phase 0 rather than assumed either way; §5.5, Phase 0 and §8 updated with it). Previously 2026-08-03
-(reconciled against the folded `architecture.md` — control-plane records now live there; SPEC-140/141
-header and caching facts updated in §4.6, §6.3, §9)
+**Status:** Single source of truth for the client transition — moving this portal into the client's
+**successor AWS account**, with **Entra ID** as who authenticates and **IAM Identity Center** as
+what propagates that identity into AWS. **Living document: update it in place rather than writing a
+competing one.** Dated revision notes live in §11; every correction they announce is recorded in the
+section it belongs to, so read the section rather than the log.
 
-**Identity-variant revision (2026-08-18).** The corporate identity provider is named for the first
-time — **Microsoft Entra ID** — and the plan now carries **two variants of the identity plane**, one
-tagged **[A]** and one tagged **[B]**, because which one is buildable is not ours to decide:
+**Supersedes and replaces** `docs/client-migration-plan.md` and `docs/spikes/idc-named-dataset-grants.md`,
+both deleted. Everything of value from the spike — the reasoning chain behind trusted identity
+propagation, the credential-plane argument, the reconciler design and the surviving gates — is
+absorbed into §3, §5.5 and §7. **Do not resurrect either file:** add here instead.
 
-- **Variant A is the baseline.** Entra issues OIDC/OAuth2 JWTs directly and is registered as the
-  Identity Center **trusted token issuer**. **There is no Cognito anywhere** — no User Pool, no
-  Identity Pool, no Managed Login, no custom attributes.
-- **Variant B is the fallback**, used only if the Entra tenant turns out to be hard SAML-only.
-  Cognito is reduced to a **SAML→OIDC bridge**: it federates to Entra and issues the JWT the
-  exchange consumes, and is the trusted token issuer. It is infrastructure, not the app's identity
-  provider — nothing app-level may depend on it.
+## Where we stand (2026-09-04)
 
-**Everything downstream of the JWT is identical in both**, which is why this is one plan and not two.
-The **deliberately** variant-tagged passages are §3.3, the assertion in §3.5's step 1 and its replay
-paragraph, §6.1, and the Phase 1 and Phase 5 items that name a provider. The deciding fact — whether
-Entra can issue OIDC for this application — is **gate G8** (§5.5) and it runs in Phase 0.
+**No phase in §7 has started.** The successor account's tenancy, the Identity Center relationship
+and every gate in §5.5 are still Phase 0 questions.
 
-> **An untagged passage is NOT a promise of variant-neutrality.** This document predates the variants
-> and names Cognito in passages the revision did not rewrite — §4.6 and §4.7's callback URLs and
-> session clocks, and the whole of §5, whose experiment is written around a Cognito pool. Read a bare
+**What has moved is on this side, and it deleted work this plan used to carry.** Arc B
+(SPEC-192 → 202) put every AWS call behind an API, retired the Cognito Identity Pool and the
+CloudFront distribution, and left the product complete on Cognito. SPEC-203 built the membership
+index, SPEC-205 made a shared-space delete empty a space rather than destroy it, and SPEC-212 → 215
+moved the Lambda fleet onto one container image with its configuration read from Terraform state.
+So the browser holds no AWS credentials, the SPA is a container behind an ALB, and the identity work
+below starts from an API that already verifies a bearer and assumes a role from the verified claim.
+
+## Two variants of the identity plane
+
+The corporate identity provider is **Microsoft Entra ID**. Which mechanism it can offer is not ours
+to decide, so the plan carries two variants and builds whichever the answer permits:
+
+- **[A] — the baseline.** Entra issues OIDC/OAuth2 JWTs directly and is registered as the Identity
+  Center **trusted token issuer**. **There is no Cognito anywhere** — no User Pool, no Identity
+  Pool, no Managed Login, no custom attributes.
+- **[B] — the fallback**, used only if the Entra tenant turns out to be hard SAML-only. Cognito is
+  reduced to a **SAML→OIDC bridge**: it federates to Entra, issues the JWT the exchange consumes,
+  and is the trusted token issuer. It is infrastructure, not the app's identity provider — nothing
+  app-level may depend on it.
+
+**Everything downstream of the JWT is identical in both**, which is why this is one plan and not
+two. The deliberately tagged passages are §3.3, the assertion in §3.5's step 1 and its replay
+paragraph, §6.1, and the Phase 1 and Phase 5 items that name a provider. The deciding fact is
+**gate G8** (§5.5), answered in Phase 0.
+
+> **An untagged passage is NOT a promise of variant-neutrality.** This document predates the
+> variants and still names Cognito in passages neither revision rewrote — chiefly the whole of §5,
+> whose experiment is written around a Cognito pool as the trusted token issuer. Read a bare
 > "Cognito" in an untagged passage as **[B]**, and as *"under [A] the same job exists and Entra does
-> it"*. The revision chose not to rewrite those sections because §5 is an open fork that may close on
-> its own terms and §4.6/§4.7 are a hosting workstream with its own owner — but the reader should not
-> have to infer that, so it is stated here.
+> it"*. (§4.6's callback URLs and §4.7's session clocks were the other two examples; both now carry
+> explicit **[A]**/**[B]** tags.)
 
-Two consequences of the same revision reach further than the variant tag, and both are recorded in
-place: §3.4's **two credential planes collapse into one** (the identity-enhanced session's allow-list
-denies plain S3, so **S3 Access Grants** governs storage — new §3.9), and §6.1's federated-claim trap
-**changes shape rather than disappearing**.
-
-**Arc B (SPEC-192 → 202) keeps Cognito exactly as it is today, and the product is fully functional on
-Cognito when the last of those specs lands.** No variant decision reaches it and none of its work is
-gated on G7, G8 or G9. It is not, however, left literally untouched: the revision adds three
-forward-compatibility obligations to its drafts, each small and each with a test —
-**SPEC-195** gains a premise keeping the verifier free of router dependencies (so the target's
-authorizer split is wiring, not surgery), **SPEC-198** strengthens one existing acceptance criterion
-so the presigned-URL clamp reads the credential rather than a configured duration, and **SPEC-199**
-requires the results-location derivation to stay in one function. Nothing there changes what the arc
-delivers or when it can ship; saying "nothing changes" would have been the easier claim and the
-false one.
-**Strategy revision (2026-08-01):** the client environment is itself moving to a **successor
-account** this year. The portal will be **built fresh in that account as its first tenant**, and
-the client's data will be **synced over** with a freeze-and-cutover — rather than the portal
-deploying in place into the populated existing account (the 2026-07-31 decision, now superseded).
-§4 carries the reasoning; §6 and §7 are reworked around it. The identity model in §3 and the open
-fork in §5 are unchanged — they are account-agnostic, and the account move strengthens them:
-Identity Center principals survive an account change, IAM role ARNs do not.
-**Supersedes and replaces:** `docs/client-migration-plan.md` and
-`docs/spikes/idc-named-dataset-grants.md`, both deleted. Everything of value from the spike —
-the reasoning chain behind trusted identity propagation, the two-connection identity model, the
-credential-plane split, the reconciler design and the surviving spike gates — is absorbed into
-§3 and §7 below.
-
----
+**Nothing in Arc B was gated on a transition gate, and nothing here may degrade the current
+environment** (§2 item 14).
 
 ## Contents
 
@@ -98,6 +68,7 @@ credential-plane split, the reconciler design and the surviving spike gates — 
    - [3.9 The storage plane — S3 Access Grants](#39-the-storage-plane--s3-access-grants)
    - [3.10 Third-party driver access — Excel, Access, Power BI and anything else on ODBC/JDBC](#310-third-party-driver-access--excel-access-power-bi-and-anything-else-on-odbcjdbc)
    - [3.11 Shared-space entitlements — the projection that replaces the tag](#311-shared-space-entitlements--the-projection-that-replaces-the-tag)
+   - [3.12 Provisioning a user without a signup](#312-provisioning-a-user-without-a-signup)
 4. [Deployment topology](#4-deployment-topology)
    - [4.1 The constraint that still settles it](#41-the-constraint-that-still-settles-it)
    - [4.2 What first tenancy buys, and what it obliges](#42-what-first-tenancy-buys-and-what-it-obliges)
@@ -121,7 +92,7 @@ credential-plane split, the reconciler design and the surviving spike gates — 
 7. [Phases](#7-phases)
    - [Phase 0 — Discovery, contract and experiments (no product code)](#phase-0--discovery-contract-and-experiments-no-product-code)
    - [Phase 1 — Stand up the portal in the successor account](#phase-1--stand-up-the-portal-in-the-successor-account)
-   - [Phase 2 — First data sync: personal spaces](#phase-2--first-data-sync-personal-spaces)
+   - [Phase 2 — Provision every known user, then sync personal spaces](#phase-2--provision-every-known-user-then-sync-personal-spaces)
    - [Phase 3 — Shared workspaces](#phase-3--shared-workspaces)
    - [Phase 4 — Analytics on the synced model](#phase-4--analytics-on-the-synced-model)
    - [Phase 5 — Identity Center identities in Lake Formation](#phase-5--identity-center-identities-in-lake-formation)
@@ -129,6 +100,10 @@ credential-plane split, the reconciler design and the surviving spike gates — 
 8. [Open questions by gating phase](#8-open-questions-by-gating-phase)
 9. [What this leaves behind](#9-what-this-leaves-behind)
 10. [Sources](#10-sources)
+11. [Revision history](#11-revision-history)
+
+**[The order of work](#the-order-of-work)** — the phases in sequence, what is waiting on somebody
+outside this project, and the four orderings that have a wrong answer in both directions.
 
 **Read map** — `CLAUDE.md` says "read before touching auth, provisioning or LF"; in practice:
 
@@ -137,8 +112,11 @@ credential-plane split, the reconciler design and the surviving spike gates — 
   is the highest-consequence detail in the migration. §3.3 is where the **[A]** / **[B]** variant
   split lives; an untagged passage applies to both.
 - **Touching provisioning / de-provisioning** (creating or deleting user/space resources, the
-  account-wide LF singletons) → §4.4 and §6.2 (portal-created singletons and their ownership),
-  §6.3 (destructive paths during the sync-and-seed window).
+  account-wide LF singletons) → **§3.12 first** — a user's space is created by a portal-owned
+  provisioner from a known username list, before anyone signs in, and that section carries what has
+  to be true for it and what de-provisioning still does not answer. Then §4.4 and §6.2
+  (portal-created singletons and their ownership), and §6.3 (destructive paths during the
+  sync-and-seed window).
 - **Touching Lake Formation re-keying** (grants moving to Identity Center principals) → §3.7 (how
   LF enforces) and Phase 5 (the work items); §3.8 for the reconciler that projects the grants,
   §3.11 for the shared-space entitlements, which are registry-driven and per-member rather than
@@ -152,6 +130,51 @@ credential-plane split, the reconciler design and the surviving spike gates — 
   four-leg argument (§3.3 below carries a precis, not a substitute), the two-lane framing, and the
   `AWSIAMIdentityCenterAllowListForIdentityContext` v12 evidence. This document stays authoritative;
   where they disagree, read here.
+
+---
+
+## The order of work
+
+**§7 owns the sequence. This is a router over it, not a second plan** — it carries the three things
+§7 scatters: *what a phase cannot start without*, *what undoes it*, and *whose work each item is*.
+Every one of those is stated in §7 as well; nothing here is the only home of a fact. Where the two
+disagree, §7 is right and this table is stale.
+
+| # | Phase | Cannot start until | Rollback |
+|---|---|---|---|
+| 0 | Discovery, contract and experiments — no product code | Nothing. Start it now; six of its items have lead times that belong to other people (the table below) | n/a |
+| 1 | Stand up the portal in the successor account | G8 has settled the variant **in writing**, the account exists in the same AWS Organization, the container's final origin is fixed (the callback URLs are registered against it), and the Access Grants **prefix identity** is decided — §8 files that one as gating Phase 0 to 1, because it decides whether the username survives as the prefix | Tear the stack down; the account was empty |
+| 2 | Provision every known user, then sync personal spaces | Phase 1 signs a real user in; the provisioning contract and the username list exist (§3.12) | Delete the synced copy and re-run |
+| 3 | Shared workspaces — seed, then parity-check | Phase 2's prefixes exist; the Phase 0 membership inventory is in hand | Delete the seeded registry objects and data |
+| 4 | Analytics on the synced model | Phase 3's databases exist, and the `portal-managed` tag the provisioner stamps is the one the TBAC tag-policy grants expect — without it no arc can create a table (§3.12) | Feature-flag the arcs back off |
+| 5 | Identity Center identities in Lake Formation | G7 and G9 have passed and SCIM is live; the **relationship** with the Identity Center administrators is established (Phase 0) — the customer-managed application is this phase's own first work item, not a precondition | The interim plane, kept running alongside until the last step |
+| 6 | Cutover and decommission | Nothing, for the delta syncs — but **the freeze cannot be called** until the driver desktop fleet has migrated off the old account's SAML path (§6.5) | Point users back at the old account and lift the freeze — until decommission, and no further |
+
+**Five items are not this project's to execute, and every one of them has a lead time.** They are
+listed here because a plan that only tracks its own work discovers these late.
+
+| What | Whose | Needed by | If it is late |
+|---|---|---|---|
+| **G8** — can the Entra tenant issue OIDC for this application, on the default signing key? | The Entra tenant owner | Phase 1's whole auth configuration | Variant B gets built, and under B the **desktop fleet** points at the Cognito bridge too (§3.10) |
+| **SCIM** provisioning from Entra into Identity Center | The client's platform team | Phase 5 — grants target Identity Center principals, and there is no just-in-time provisioning | Nobody can be granted anything, and §3.12's identity-shaped pass cannot run |
+| A **customer-managed application** in Identity Center (at least two — the portal's and the driver path's) | Management-account or delegated administrators | Phase 5 | Phase 5 does not start; this is the relationship most often discovered late (§4.5) |
+| The **successor account's** existence, organization membership and tenancy order | The client's platform team | Phase 1 | Every identity assumption in §3 is re-opened (§4.5), and §6.2's surgery reactivates |
+| The **desktop migration** — DSN shape, the ODBC 2.1.0.0 / JDBC 3.7.0 floor, the rollout | The client's endpoint owners | Phase 6's write freeze | The freeze strands them, or the dual-key fallback has to be costed first (§3.10) |
+| The **username list** — every catalog-safe username, ideally with the Identity Store attribute beside it | Ours to specify, **theirs to produce** | Phase 2, which is a run over it | Nothing is provisioned, so Phase 2 has nowhere to sync into (§3.12) |
+
+**Four orderings have a wrong answer in both directions.** Each is stated where it lives; they are
+collected here because all four look like housekeeping.
+
+1. **Shared-space entitlements at Phase 5 (§3.11):** entitle every member and verify → retire the
+   tags and the interim plane → revoke the role-level Lake Formation grants, rewriting the
+   tag-scoped Glue statement in the *same* change. Reversed, every member is locked out at once;
+   step 3 skipped, every user is entitled to every space.
+2. **Deploy-role IAM before the resources it grants** (`CLAUDE.md`'s infra rule, §7 Phase 1). A
+   grants-only PR lands first; the reverse is an apply that fails halfway.
+3. **The driver fleet migrates before the freeze** (§3.10, §6.5), not before Phase 5 — it has
+   nowhere to land until the TIP path is up, and nowhere to read from once the freeze falls.
+4. **G8 before Phase 1's auth configuration** (§5.5). Building Variant B when A was available is
+   the expensive mistake, and it is unrecoverable only in the sense that the bridge then has users.
 
 ---
 
@@ -173,8 +196,8 @@ reading them as one is the mistake §3.3 exists to prevent — and the arrival o
 | Who authenticates | Cognito User Pool, self-service signup | **Entra ID**, the org's existing SSO — directly **[A]**, or through a Cognito SAML→OIDC bridge **[B]** (§3.3) |
 | Who can sign in | Anyone who registers | Everyone in the organization |
 | Who propagates identity into AWS | Nothing — one shared role, differentiated by a principal tag | **IAM Identity Center**, via the token exchange (§3.5). Entra authenticates; IdC propagates — they are not alternatives |
-| Who creates the user's S3 prefix | The browser, via `ensurePrefixMarker` | The sync (initial population), then the client's automated process for new users. **Sign-in provisions nothing** |
-| Who creates the user's Glue database | `post_confirmation.py` | Sync initially, user automation thereafter (it already handles tagging); grants come from a separate permissions control plane (§8) |
+| Who creates the user's S3 prefix | The browser, via `ensurePrefixMarker` | A **portal-owned provisioner**, over the client's known username list, **before anyone signs in** (§3.12). **Sign-in provisions nothing** |
+| Who creates the user's Glue database | `post_confirmation.py` | The same provisioner, running `provision_user`'s existing sequence on a new trigger — database, portal-role grant, `portal-managed` tag (§3.12) |
 | Per-user IAM identity | One shared role plus a `username` principal tag, stamped by the API from the verified claim (the Identity Pool did this until SPEC-202 retired it, 2026-08-31) | **Interim (Phases 1–4):** the same shared role and tag, assumed by the API from the verified claim — no Identity Pool. **End state (Phase 5):** one identity-enhanced session, no principal tags, storage on S3 Access Grants (§3.4, §3.9). **Bespoke per-user roles are never created** |
 | Per-user storage isolation | `${aws:PrincipalTag/username}` in the bucket and Glue policies | Same in the interim; **S3 Access Grants** in the end state — plain S3 is denied on an identity-enhanced session (§3.6) |
 | Third-party BI / ODBC clients (Excel, Access, Power BI) | Not consumers of this repo at all — they reach Athena directly from the **client's** environment, over SAML federation with Lake Formation, under a **parallel** grant set keyed on SAML principals | The **same** grants that govern the portal, keyed on the same Identity Center principals, carried by the drivers' own trusted-identity-propagation plugins. One entitlement model instead of two (§3.10) |
@@ -214,15 +237,16 @@ Treated as inputs. Do not re-litigate without new information.
    until a freeze-and-cutover and survives afterwards as the rollback (§6.5).
 6. **Bespoke per-user roles are never recreated.** The previous strategy's retirement sequence
    (dual-grant, verify, revoke, delete) is deleted along with them.
-7. **Sign-in no longer provisions.** The sync pre-creates every existing user's space and
-   database; the client's automated process creates them for new users thereafter — and that
-   automation **already handles tagging user databases**, while a **separate permissions control
-   plane manages the grants**. The Cognito triggers' provisioning logic is **deleted, not
-   reworked**, and `ensurePrefixMarker` goes with it. The contract items that remain: the
-   automation's tag taxonomy must line up with the portal's TBAC tag-policy grants, and the
-   permissions control plane must cover the grants `post_confirmation.py` issues today (§8). The
-   defensive empty state stays, because a new user can sign in during the gap before the process
-   has run for them.
+7. **Sign-in no longer provisions, and the portal provisions instead — AMENDED 2026-09-04.**
+   *This item used to give provisioning to the client's automated process, with a separate
+   permissions control plane issuing the grants, and it left three questions in §8 for someone else
+   to answer.* **The portal owns it**: a control-plane provisioner, fed by the client's external
+   username list, creates every user's space **ahead of use** — the design is **§3.12**. What
+   carries over unchanged is the half that matters most: **sign-in provisions nothing**, so
+   `ensurePrefixMarker` and the Cognito triggers still go, and the defensive empty state still
+   stays, because a user can sign in before the provisioner has run for them. What changes is the
+   fate of the code: `provision_user` is **kept and re-triggered**, not deleted (§9), and the tag
+   taxonomy is ours to align rather than someone else's to confirm.
 8. **Existing shared workspaces arrive via the sync, with the manifest written manually**; from
    cutover the app **fully manages all shared spaces** — new ones through the `create` verb as
    today. The seeding parity check in §6.4 is what makes that handover safe.
@@ -230,11 +254,11 @@ Treated as inputs. Do not re-litigate without new information.
    workspace browsing ship first.
 10. **Hosting is ECS Fargate, not CloudFront.** The SPA is served from a container. The task role
     supplies AWS credentials, which is what makes the token-exchange backend straightforward (§4.6).
-11. **The token-exchange backend runs in the same container as the SPA.** Same origin, so no CORS
-    for the backend, `httpOnly` session cookies work naturally, one artifact and one certificate
-    (§4.7). *Arc B (SPEC-192 → 202) instead puts the API behind API Gateway as its own origin; when
-    that arc lands, this item is about where the **token-exchange** half runs, not the API as a
-    whole.*
+11. **~~The token-exchange backend runs in the same container as the SPA.~~ REVERSED — Arc B
+    landed.** The API is a **Lambda behind API Gateway**, its own origin, and the SPA is a container
+    behind an ALB; the co-location argument was made when the backend existed only to exchange
+    tokens. What survives is everything §4.7 says about **state** — the opaque `httpOnly` cookie,
+    the refresh token in DynamoDB under a customer-managed key, and the three clocks.
 12. **Users and groups must exist in Identity Center BEFORE use, and nothing in this architecture
     creates them.** The token exchange maps a claim to an existing Identity Center user and populates
     nothing; **Identity Center performs no just-in-time provisioning**, so an unprovisioned user's
@@ -256,8 +280,8 @@ Treated as inputs. Do not re-litigate without new information.
     (SPEC-192 → 202) moves every AWS call behind an API without touching sign-in, and the product is
     complete on Cognito when it lands. Nothing in this plan may create a window where the current
     environment is degraded, and **no Arc B spec may be gated on a transition gate** — the three
-    forward-compatibility obligations this revision added to its drafts are each independently
-    shippable today (see the revision note above).
+    forward-compatibility obligations the 2026-08-18 revision added to its drafts are each
+    independently shippable today (§11 names them; `docs/specs/ARCS.md` carries each in full).
 15. **The client's third-party driver users are on the SAML path today, and they must be migrated**
     (confirmed by the client, 2026-08-24). Their Excel, Access and Power BI clients reach Athena
     through SAML-2.0 federation with Lake Formation — the very feature AWS documents as *"not
@@ -1101,7 +1125,9 @@ principal id may be logged; the claim value it was resolved from may not.
 > that the portal username equals exactly one Identity Store attribute value — most plausibly
 > `UserName` or `ExternalId`. §6.1 leaves open whether the portal username is *derived* rather than
 > stored; **if Phase 0 decides derived, this design needs a stored username → principal map** it
-> currently refuses on purpose.
+> currently refuses on purpose. **§3.12's username list is the candidate answer** — if a row carries
+> the Identity Store attribute beside the username, that list *is* the map, supplied rather than
+> invented.
 
 **Six triggers, and one that deliberately is not.** Projection runs on **create** (the owner),
 **add-members**, **remove-members**, **leave**, **delete** and **`shared-space-forget`**.
@@ -1257,6 +1283,253 @@ and that state is legitimate.** Nothing here may infer membership from status: t
 computed from `is_active_member`, so an emptied space converges to **zero** entitlements rather than
 being skipped as "not deleted".
 
+### 3.12 Provisioning a user without a signup
+
+**Decided 2026-09-04, and it amends §2 item 7.** Every username exists in the client's own system
+before the portal ever sees it, so provisioning does not wait for a person: a **portal-owned
+provisioner** — a control-plane Lambda, fed by that list — creates every user's space **up front**,
+ahead of any sign-in. The half of item 7 that carries over is the one that matters: **sign-in still
+provisions nothing**, and this is what makes that safe rather than aspirational. With no signup and
+no first-visit write, a user whose space does not exist has nothing that would create it.
+
+**What a provisioned space is.** Four things, and only the first is new work:
+
+1. **The prefix marker**, `{username}/DO_NOT_DELETE.txt`. **S3 has no empty prefixes** — until an
+   object exists under `{username}/`, the space does not exist for anything that lists, including
+   the username directory, which is built from the bucket's top-level common prefixes and from no
+   directory service. `ensurePrefixMarker` writes it from the browser today and is deleted at
+   cutover (§6.3, §9), so the provisioner inherits the write **and should not inherit its mechanism
+   unexamined**: the route behind `overwrite: false` is a `head_object` followed by an unconditional
+   `put_object`, so "write if absent" is check-then-write rather than an atomic guarantee. That is
+   adequate here only because the body is a **constant**, so a lost race writes identical bytes —
+   which holds only while *every* writer of that key writes the same constant, and is why §6.3's
+   prefix-marker row moves the constants' values rather than leaving them to be re-derived. If a stronger guarantee is ever wanted,
+   the name for it is `PutObject` with `If-None-Match: *`.
+2. **The Glue database**, named exactly the username.
+3. **The Lake Formation grant** giving the shared portal role use of that database and its tables.
+4. **The `portal-managed` LF-Tag** on the database, **last** — so a tagging failure costs
+   control-plane table-creation rights, which a sweep reconciles, rather than the user's own grant.
+
+Steps 2–4 are `provision_user` in `lambdas/post-confirmation/post_confirmation.py` today, already
+idempotent and already reused verbatim by `backfill.py`. **This is not a new algorithm; it is the
+existing one with a new trigger and one added step** — which is why §9 no longer deletes that
+module, only its Cognito trigger.
+
+**A fifth item exists and cannot run in the same pass** — see *the two passes*, below.
+
+#### What must be true
+
+> **Read every boundary claim below as CONDITIONAL, because three review frames each found one that
+> was not.** Each says what holds *in the current account, as configured today* — and this document
+> exists because that account is being rebuilt somewhere else. Where a claim rests on a
+> configuration rather than on a mechanism, the condition is named inline; the standing instruction
+> is that **Phase 1 re-establishes those conditions and Phase 0 re-verifies the claim**, rather than
+> inheriting it from this page. The two that recurred are worth naming here: what Lake Formation
+> vends depends on the **registration mode** and on who is opted in, and what a hand-maintained
+> allowlist covers depends on **which lists exist**, of which this section has already
+> under-counted one.
+
+1. **Every name on the list is catalog-safe, and the check MOVES rather than disappearing.**
+   `^[a-z][a-z0-9_]{2,62}$` is enforced today by `pre_signup.py`, at the one moment a human could
+   type one. With no signup nothing enforces it — and the rule is not cosmetic: it is what makes
+   **one string** safe as the S3 prefix, the principal tag and the Glue database name at once (§2
+   item 3), and its **leading-lowercase-letter** clause is the only reason a username can never
+   collide with the bucket's reserved roots — `_directory/` and `_config/` — by construction. A name
+   that violates it does not bounce; it produces a space whose three names stop agreeing, and that
+   surfaces later as a denial nobody can diagnose. The rule already exists as
+   `cpcommon.config.CATALOG_IDENTIFIER_RE`, and `pre_signup.py` holds a second copy of the literal
+   (the browser holds a third, in `lib/catalogIdentifier.ts`) — the provisioner takes the `cpcommon`
+   one rather than adding a fourth. A row that fails is a **refusal naming the row**, never a
+   skipped line.
+2. **The name on the list is the name the token will produce.** One username, one claim value,
+   stable for the life of the user (§6.1, and the Phase 0 question it leaves open). Provisioning a
+   name no claim ever resolves to creates an orphan prefix and a user who signs in to an empty
+   portal with an error nowhere. **The list is also a candidate answer to §3.11's open dependency:**
+   if Phase 0 decides the portal username is *derived* rather than carried by a claim, §3.11 needs a
+   stored username → principal map it currently refuses to invent — and a list that carries the
+   identity attribute beside the username *is* that map.
+3. **A name already registered as a shared space is REFUSED, not adopted — and the refusal is a
+   detector, not the fence.** Usernames and shared-space names share one Glue namespace;
+   `provision_user` and `shared-space-create` both call `create_database` and both swallow
+   `AlreadyExists`. **The provisioning run itself changes nothing** — every call it makes on a
+   colliding name is already satisfied, byte for byte, by what `shared-space-create` did: same
+   database, same four database permissions and five table permissions to the same portal role, same
+   `portal-managed` tag. That is exactly why the refusal denies nothing. **The hazard exists before
+   it and without it:** a session tagged with that username holds the personal-database Glue rights
+   — `CreateTable`, `UpdateTable`, `DeleteTable` on `database/${aws:PrincipalTag/username}` — over a
+   shared space's catalog. A shared space's name is format-checked **nowhere** server-side, so the
+   collision is reachable, and a run over a whole list is what removes the one bound it has today —
+   that a colliding name arrives one signup at a time.
+   **The data is a separate question, and its answer is CONDITIONAL rather than structural.** Today
+   the collision reaches the catalog and not the objects, because Lake Formation is registered in
+   **hybrid** mode with **no principal opted in**, so Athena falls back to direct S3 IAM and the
+   `shared_space_k` tag scoping is what bites. Under enforced mode, or with the portal role opted
+   in, LF vends the credentials instead — and the shared space's LF grants are **role-level with no
+   tag condition**, over a data location registered for the *whole* bucket. So the same collision
+   reaches the data. Phase 1 re-registers these buckets in a new account, which is precisely when
+   that condition is chosen again.
+   **State the residual plainly, because item 4 forbids the comfortable reading.** The API stamps
+   the tag from the **verified claim**, consulting no registry and no provisioning record, so a user
+   whose claim resolves to a colliding name holds those Glue rights *whether or not the provisioner
+   ever ran for them*. Refusing the row therefore denies nothing — it is the place the collision
+   becomes **visible**, and nothing more. **A fence has four candidate homes, and the two obvious
+   ones only stop NEW collisions:** validating a username where it enters the system, and validating
+   a shared-space name. The two that would actually deny an existing one are (a) the **tag-minting
+   path** — `identity.py` refusing to stamp a username that resolves to a registered space, which is
+   the only choke point every request passes and which already refuses on the catalog rule there,
+   though the API plane would need a registry read it does not hold today; and (b) making the two
+   namespaces **disjoint by construction**, the technique item 1 already relies on for the reserved
+   roots and the only one an out-of-band write cannot bypass. **None exists today.** Choose one in
+   Phase 0; do not read this refusal as the mitigation.
+   The check is a registry read and it **fails closed** — a read that errors refuses the row, because
+   `AccessDenied` is not absence: a role that cannot `ListBucket` is never told a key is missing
+   (`infra/info/deploy-role-iam.md`).
+4. **Provisioning is not authorization, in either direction.** A provisioned space entitles nobody:
+   Identity Center performs no just-in-time provisioning, so a user absent from it cannot sign in at
+   all (§2 item 12), and through Phases 1–4 access is the `username` principal tag the API stamps
+   from the verified claim. The converse is the trap this project has already been bitten by —
+   **absence must not read as denial**, so anything asking "has this user been provisioned?" needs
+   the `s3:prefix`-conditioned list grant or its absence branch fails as a fault.
+5. **THREE hand-maintained allowlists have to gain the provisioner's role, in the PR that creates
+   it — and the third is the one whose absence ships green.**
+   The first is `infra/modules/data/policies/user-space-bucket-policy.json.tftpl`, a `Deny` on
+   `s3:PutObject`/`GetObject`/`DeleteObject`/`ListBucket` for every principal not named in it — and
+   **an explicit resource-policy deny beats an identity-policy allow**, so a provisioner holding a
+   correct identity grant and missing from that list is denied at runtime with nothing in the plan to
+   warn. It reads as a code bug, because the shared-space bucket has no such policy: every
+   shared-space path keeps working while every personal one fails.
+   The second is the **Lake Formation data-lake administrator list**, which the post-confirmation
+   role is in — wired through `infra/main.tf` into `infra/modules/analytics/lakeformation.tf`'s
+   `admins`, a constructed ARN inside a `compact()` this repo has already watched swallow a bad
+   value and drop a grant silently. **Whether that membership is what makes `provision_user`'s grant
+   work is NOT established**: Lake Formation also confers grantable rights on the *creator* of a
+   resource, and this function creates the database immediately before granting on it. Measure which
+   it is before granting a new role admin — because joining that list makes the provisioner a
+   **data-lake administrator**, able to grant any permission on any resource to any principal, which
+   is enormously larger than "creates a database and grants a role". If the creator route suffices,
+   `CREATE_DATABASE` on the catalog plus the third grant below replaces it.
+   The third is `aws_lakeformation_permissions.provisioner_tag_associate` — **`ASSOCIATE` on the
+   `portal-managed` tag**, its own `for_each` list, and **admin status does not confer it**: that is
+   recorded live in `lakeformation.tf`, where an admin role got *"Required ASSOCIATE on
+   portal-managed"* from `AddLFTagsToResource`. A provisioner in the first two lists and not this one
+   creates the database, grants the portal role, and **fails at the tag** — which is item 9's partial
+   state exactly. The resource carries `ignore_changes` on its permissions, so **Terraform will not
+   show you the drift**.
+6. **Idempotent, re-runnable, and incapable of overwriting.** Every step tolerates already-exists;
+   the marker is written only when absent (see item 1 for what that condition actually is); and
+   nothing in the pass writes a document the user or the sync may already own. In particular it does **not** pre-write `user_settings` — that reader quarantines
+   what it cannot parse and refuses a newer schema untouched, and a provisioner writing a settings
+   document is how a user meets a quarantine on their first visit.
+7. **It runs in either order against the sync, and survives both.** The sync copies **objects**;
+   per-user databases are this pass's job and no longer the catalog rebuild's (§6.5 layer 2), so the
+   two touch one shared thing: the bytes under `{username}/`. Provision-then-sync leaves a marker
+   the sync must not delete; sync-then-provision meets a populated prefix the marker write must not
+   disturb. Both hold **because of (6)** — the marker is written only when absent, and nothing else
+   in the pass writes user data. What is not fine is a pass that assumes an empty
+   prefix. Phase 2's reserved-prefix audit (§6.3)
+   covers what the provisioner creates as well as what the sync lands.
+8. **One code path for the bulk run and for every user afterwards.** The list is re-read, not
+   replayed: a new name provisions, a name already provisioned is a no-op. `backfill.py` is the
+   precedent to copy rather than the mistake to avoid — it imports `provision_user` from the handler
+   *specifically* so the two can never drift, and its docstring says so. What must not happen is a
+   second implementation growing beside it for the bulk case.
+9. **A partial failure is reported, and a sweep converges what the report names.** The reason is
+   not that anything swallows errors — `provision_user` raises, and only the Cognito *handler*
+   swallows so a failure never blocks a signup. It is that the sequence is **three non-transactional
+   steps**: a raise at the tagging step leaves a database and a portal-role grant with **no tag**, so
+   the user's own space keeps working — the portal role holds a named per-database grant and is
+   deliberately not tag-granted — while the three tag-granted roles behind Table Builder, Table
+   Share and Data Quality can neither create a table there nor describe one. That failure is loud at
+   the point of use and silent at provisioning time, which is the half that needs the sweep.
+   Today an operator re-running `backfill.py` is the convergence mechanism — a person noticing —
+   which is what a bulk run cannot rely on. §3.11 already settled the pattern for
+   this class: **the event plus a sweep**, desired state computed, current state read, difference
+   applied. Without one, a user with a database, no tag and no error is invisible. Note that
+   `_tag_database` already turns Lake Formation's per-item `Failures` array into a raise — a 200 is
+   not success — and that behaviour is preserved rather than reimplemented.
+10. **The bulk run does not fit one invocation, and its bound is computed.** "Every known username"
+    at organisation scale is orders of magnitude past what the operator-CSV path handles, and that
+    path is the model for *how* to bound it rather than for the numbers. Read that module carefully
+    before copying it, because it holds three different kinds of cap: `MAX_SPACES_PER_FILE` and
+    `MAX_ADD_ROWS_PER_FILE` say of themselves that they are **blast-radius controls, not resource
+    budgets**; `MAX_FILE_BYTES` **is** a resource control, sized against the memory the parse needs;
+    and **two** caps are computed — `MAX_ROWS_PER_INVOCATION` and `MAX_MEMBERS_PER_MESSAGE`, the
+    second the better model here because it carries an O(N) fan-out term. Note also that its
+    per-send cost is **deliberately conservative and unmeasured**, and says so — a copier should
+    preserve that rather than "improve" it. Copy the shape: a resumable Map with per-item tolerance
+    and a report, and a cap **computed** against the tightest of Glue's create-database rate, Lake
+    Formation's `GrantPermissions` rate, **`AddLFTagsToResource`'s own separate throttle** (step 4
+    is a different API from step 3, and it is the one item 9 is about), the two S3 calls the marker
+    costs, and the invocation ceiling — named, in a test, against the budget that sized it. **A rate
+    cap does not address a hard ceiling:** Glue's databases-per-catalog quota bounds the whole
+    population, not the run, and a per-organisation list is the first thing that could reach it.
+11. **The list is an authorization-shaped input and must be unreachable by the people it
+    authorizes.** Admin bucket, never the user-space bucket, and never a document any user can
+    write — the property that makes `memberships/{username}.json` safe and that the user's own
+    `shared-connections.json` conspicuously lacks. **SPEC-217's `operator-requests/` prefix is the
+    nearest existing shape, and it differs in exactly the way that matters:** that CSV is written by
+    a *human operator*, not by a plane, which is precisely why the plane fences it with a `SenderId`
+    comparison downstream rather than trusting the document. A username list is the same kind of
+    object — out-of-band, privileged, human-supplied — so it inherits the fence as well as the
+    shape, and "plane-written" is not a property it can claim.
+12. **It is a fleet function, with the fleet's obligations.** A `docker-lambda` module call in
+    Terraform — which is what `fleet.py` reads, so a function declared anywhere else is not in the
+    fleet — a module flat at the task root defining a top-level `handler`, its own execution role,
+    and **deploy-role IAM in its own PR before** the resources that need it.
+
+#### The two passes, and why they cannot be one
+
+A grant binds an **Identity Center user**, not a string. So the work splits by what it needs to know:
+
+- **The name-shaped pass** (items 1–4 above) needs only a catalog-safe username. It can run as soon
+  as the bucket and the catalog exist — Phase 2, before SCIM has necessarily finished.
+- **The identity-shaped pass** — the S3 Access Grant on the user's prefix, if Phase 0 chooses the
+  literal per-user form (§3.9), plus the per-(member, space) pairs of §3.11 — needs a resolvable
+  Identity Store principal, so it cannot run until SCIM has created that user. It belongs to
+  **Phase 5**, and it follows §3.11's rule that an unresolvable user is a **refusal, not a skip**,
+  with distinct reasons for "not provisioned yet" and "the directory is unhealthy".
+
+Reading the second as a continuation of the first is the mistake: the first pass can complete for a
+user the second cannot even address.
+
+#### Two consequences accepted, and one gap left open
+
+**The username directory becomes a full organisation roster, and that is the decision, not a side
+effect.** It is built from S3 prefixes, so today it lists only people who have used the portal;
+after a bulk run it lists everyone the client has. The disclosure is the same *kind* the directory
+already makes — usernames only, never emails, readable by every authenticated user — but it is now
+complete, and its payload grows with the organisation rather than with usage, on a document with no
+pagination. If completeness ever becomes unacceptable, the fix is a liveness rule in the builder,
+not a change here.
+
+**The quota is consumed per known user, not per active user.** A Glue database each, and from Phase
+5 an Access Grant each against the instance's 100,000 account-wide ceiling (§4.4) — so the Phase 0
+headcount is an input to §3.11's grant-budget arithmetic and not only to the sync's sizing.
+Provisioning ahead of use spends that budget on people who may never sign in.
+
+**De-provisioning is the mirror image and nothing owns it yet.** The external system is the source of
+who exists, so it is also the source of who has left — and nothing in this repo deletes a user's
+space. A leaver keeps a prefix, a database, a directory entry and, after Phase 5, a live Access
+Grant; what actually cuts their access is losing the Identity Center user, which is SCIM's doing and
+leaves every one of those artifacts behind. **Name an owner in the coordination contract (§4.4) or
+accept the residue explicitly.** What is not acceptable is discovering at the client's security
+review that "provisioned from the list" was never paired with anything.
+
+#### What it does not do
+
+It creates no Identity Center users — SCIM does (§2 item 12) — it touches Cognito in neither
+variant, it mints no per-user IAM, and it does not decide who may sign in.
+
+#### What Phase 0 must answer for it
+
+Where the username list comes from and in what shape; whether it carries the identity attribute
+beside the username (which would settle §3.11's stored-map question); how often it is refreshed and
+what a re-run does with a name that has disappeared from it; whether the identity-shaped pass is a
+second mode of this function or a separate verb; **which door the list arrives through — its own
+fenced reader, on SPEC-217's model, or an existing one** (item 11); **where the username /
+shared-space name collision is actually fenced**, since item 3's refusal detects it rather than
+preventing it and no fence exists today; and who owns de-provisioning.
+
 ---
 
 ## 4. Deployment topology
@@ -1378,106 +1651,49 @@ neither routes through this application's API — is in `docs/specs/ARCS.md` und
 
 ### 4.6 Hosting moves from CloudFront to a container
 
-> **LANDED 2026-09-02 (SPEC-193 → 202).** This section is now a record of a move that happened
-> rather than a plan: the SPA is a container on Fargate behind an ALB, the distribution and the
-> static bucket are destroyed, and the table below is the list of jobs nginx **does** reproduce,
-> with three deliberate divergences (`Server: nginx`, no brotli, no HSTS `preload`). What is still
-> ahead of the successor account is the availability work in this section — autoscaling, capacity
-> providers, a WAF and the multi-AZ obligations — which the arc deferred.
+> **LANDED 2026-09-02 (SPEC-193 → 202), and this section is a record rather than a plan.** The SPA
+> is a container on ECS Fargate behind an ALB; the distribution and the static bucket are destroyed.
+> The table below is what nginx reproduces, with three deliberate divergences — `Server: nginx`, no
+> brotli, no HSTS `preload`. **Two things in this section are still ahead of the successor account:**
+> the availability work the arc deferred (autoscaling, capacity providers, a WAF, the multi-AZ
+> obligations) and the two coupling points at the end, which bite at Phase 1.
 
-> **AMENDED (2026-08-17) — the topology is settled, and this section's premise that the browser
-> calls AWS directly is now FALSE.** Every AWS SDK call moves behind an API (the arc filed as
-> SPEC-192 → 202). The settled shape:
-> - **SPA:** a container on **ECS Fargate behind an ALB** — as this section describes, and nginx
->   still has to reproduce every CloudFront job in the table below.
-> - **API:** **API Gateway**, not the ALB. The established pattern in the target environment, and
->   viable because all bulk data work moves to a control plane first (SPEC-187 → 191), leaving the
->   API thin enough that the 29-second integration ceiling never binds.
-> - **BFF compute:** **Lambda**, subject to the Identity Center token constraints in §3.5 — which it
->   meets: `CreateTokenWithIAM` needs SigV4 credentials, which the execution role supplies, and the
->   session state the single-use assertion forces lives in DynamoDB rather than in process.
-> - **Two origins.** The SPA and the API are separate hosts, so they must be **subdomains of one
->   registrable domain** — same-site, so the `httpOnly` session cookie is delivered to both under
->   `SameSite=Lax`, with CORS and `credentials: 'include'` on the API. A single origin was the other
->   option and was not taken.
->
-> Two consequences for this section specifically. The **`connect-src`** derivation is now the API
-> host plus the S3 endpoint for presigned uploads — not the enumeration of AWS service hosts this
-> section assumes. And **bucket CORS** is still required for the new origin, because presigned
-> PUT/GET go browser→S3 directly even though every other call does not.
+**The shape that landed, because this section was written before it.** The SPA is the container
+behind the ALB; the **API is a Lambda behind API Gateway**, not the ALB — viable because the bulk
+data work moved to a control plane first, leaving the API thin enough that the 29-second integration
+ceiling never binds, and compatible with §3.5 because `CreateTokenWithIAM` needs SigV4 credentials
+the execution role supplies and the session state the single-use assertion forces lives in DynamoDB.
+**Two origins**, so the SPA and the API are subdomains of one registrable domain — same-site, so the
+`httpOnly` session cookie reaches both under `SameSite=Lax`, with CORS and `credentials: 'include'`
+on the API. **The browser no longer calls AWS directly**, so `connect-src` is the API host plus the
+S3 endpoint for presigned bytes, not an enumeration of AWS service hosts.
 
-The SPA will be served from Docker rather than CloudFront over an S3 origin. Producing the image
-is trivial — a Vite build served by nginx — but CloudFront was doing more than serving files, and
-each of those jobs now needs an owner. (nginx here means the **web server**, actively maintained
-by F5 — not Kubernetes' community *Ingress NGINX* controller, which retired March 2026 and is
-easily confused with it. No Kubernetes is involved in this plan; confirmed 2026-08-03.) This is a **parallel workstream**, independent of the auth
-phases, with one hard coupling noted below.
+CloudFront was doing more than serving files, and each of those jobs needed an owner. (nginx here
+means the **web server**, actively maintained by F5 — not Kubernetes' community *Ingress NGINX*
+controller, which retired March 2026 and is easily confused with it. No Kubernetes is involved in
+this plan; confirmed 2026-08-03.)
 
-#### Configuration: build-time versus runtime
+#### Configuration: build-time versus runtime — SETTLED, and it is the superseded marker SPEC-192 asked for
 
-**Vite environment variables are build-time, not runtime.** Every `VITE_*` variable (documented in
-`apps/portal/.env.example`) is baked into the bundle. With CloudFront that was fine — you built
-per environment and deployed the artifact. With Docker, promoting **one image** across
-environments is impossible with build-time variables, because the image would carry one
-environment's configuration everywhere.
+**Vite environment variables are build-time**, so promoting one image across environments is
+impossible with them: the image would carry one environment's configuration everywhere. SPEC-192
+built the answer — a runtime `/config.json`, same-origin and `no-store`, read through accessors, with
+`lib/env.ts`'s literal table kept as the dev fallback and a dynamic import in `main.tsx` because a
+module's static imports evaluate before its first statement runs. The contract is
+`apps/portal/info/runtime-configuration.md` and the reasoning is in
+`docs/decisions/infrastructure.md`; SPEC-215 later moved the values themselves out of repository
+variables and into Terraform state.
 
-**The real scope, measured.** `import.meta.env` appears 50 times (on 47 lines) across 22 files
-under `apps/portal/src`, but that overstates it considerably:
+**The superseded marker SPEC-192 asked this section for, stated once so nobody hunts it:** this
+section used to carry a pre-implementation estimate of *"roughly 30 genuine production config reads
+across ~18 files"*. Measured, it was **40** reads, of which **25** lines moved onto the accessor and
+the rest stayed as `lib/env.ts`'s dev fallback. Take the figure from SPEC-192's **delivery** doc —
+the spec itself says 23, which its delivery corrected.
 
-- Roughly 11 are **comments**, several of them explaining the call-time-read pattern below.
-- Four are `import.meta.env.DEV`, a build-mode flag that stays exactly as it is.
-- Several more are dev-only (`VITE_AWS_ACCESS_KEY_ID`, `VITE_AWS_SECRET_ACCESS_KEY`,
-  `VITE_S3_DEV_UNAUTH`, `VITE_S3_BUCKET_NAME`, `VITE_S3_ROOT_PREFIX`) and are compiled out of
-  client builds anyway.
-
-That leaves roughly **30 genuine production config reads across ~18 files**.
-
-> **SUPERSEDED by SPEC-192 (2026-08-24), which built this.** The count above is wrong and the advice
-> below is now decided. Measured at implementation time: **40** genuine production config reads, of
-> which **25 moved** onto the accessor and the rest are `lib/env.ts`'s own literal table, which stays
-> as the **dev fallback**. Three of the movers read at module load, not one — `lib/amplify.ts`,
-> `lib/s3Client.ts`'s exported client and `fileBrowser.types.ts`'s upload cap — and all three became
-> functions. The bootstrap is real, and awaiting the load was **not sufficient on its own**: a
-> module's static imports evaluate before its first statement runs, so `main.tsx` reaches the
-> application graph through a **dynamic import** and a sweep pins its five static imports. The
-> document is `/config.json`, same-origin, `no-store`; `apps/portal/info/runtime-configuration.md`
-> carries the contract and `decisions/` the reasoning.
-
-**Most of the pattern already exists.** The repo already reads config at *call* time rather than
-module load in many places, because module-level `import.meta.env` constants broke `vi.stubEnv` in
-tests — see the explicit comments in `lib/userSpace.ts`, `features/data-quality/useDataQualityRuns.ts`,
-`useDataQualityReport.ts`, and the `queueUrl:` reads inside `sharedSpaces.service.ts`,
-`tableBuild.service.ts`, `tableShare.service.ts`, `notifications.service.ts` and
-`dataQuality.service.ts`. Those are already accessor-shaped. The refactor extends an existing
-convention rather than inventing one.
-
-**The one genuinely fiddly piece is `lib/amplify.ts`.** It holds five reads at *module load*, and
-`main.tsx` imports it first specifically so `Amplify.configure()` runs before anything else. Moving
-that behind a fetched config means an async bootstrap: fetch config, configure Amplify, then
-render. That is the only architecturally interesting part of the change; everything else is
-mechanical.
-
-#### Recommendation: one image, config served by the co-located backend
-
-The decision is close, and building per environment is defensible. But two things tip it:
-
-1. **The backend must read runtime configuration regardless.** The DynamoDB table name, the KMS
-   key ARN, the Identity Center application ARN and the session cookie secret all arrive as ECS
-   task-definition environment variables. There is no version of this where the server half uses
-   build-time config.
-2. **Given (1), per-environment builds leave you maintaining two config mechanisms inside one
-   image** — build-time for the frontend, runtime for the backend. That is the real, non-obvious
-   cost of the simpler-looking option.
-
-Since the backend is co-located and already serving HTTP, having it serve `GET /config.json` from
-those same task-definition variables is roughly twenty lines and unifies both halves onto one
-mechanism. Promotion becomes a tag repoint, and so does rollback.
-
-**You do not have to decide now.** Do the accessor refactor first and keep feeding the accessors
-from `import.meta.env`. It is worth doing on its own merits — it is half-done already, and it is
-what makes the tests stop fighting `vi.stubEnv`. With accessors in place, switching to
-`/config.json` later is a one-file change. That decouples the decision from the migration
-timeline entirely.
+**The one argument worth carrying forward**, because it is the non-obvious half and it decided the
+call: building per environment would have left **two configuration mechanisms inside one image** —
+build-time for the frontend, runtime for the server half, which needs runtime configuration
+regardless. That cost is invisible until you are maintaining both.
 
 The rest of what CloudFront was doing, each of which needs explicit configuration now:
 
@@ -1527,29 +1743,16 @@ backend, the portal acquires genuine uptime work it did not have before. Budget 
 
 ### 4.7 The backend, and where its state lives
 
-> **SUPERSEDED IN PART (2026-08-17).** Read *"Settled: it co-locates with the SPA in the same
-> container"* as **reversed**: the BFF is a **Lambda behind API Gateway**, while the SPA is a
-> container behind an ALB (§4.6's amendment). The co-location argument was made when the backend
-> existed only to exchange tokens; it now serves the whole application's AWS surface, and the target
-> environment's established pattern is API Gateway.
->
-> **Everything this section says about STATE is unchanged and is now more load-bearing, not less** —
-> the opaque `httpOnly` cookie, the Identity Center refresh token in DynamoDB under a
-> customer-managed key with a TTL, the container-is-stateless rule (which a Lambda satisfies by
-> construction), credentials from the execution role rather than static secrets, and the three
-> clocks. Add one mechanism this section predates: **DynamoDB TTL deletes expired items only within
-> a few days and an expired-but-undeleted item is still returned by reads**, so session expiry must
-> be checked on read. TTL is storage hygiene, never the security boundary.
->
-> The `error.stack` warning below applies unchanged, and now to a Lambda rather than a container.
+§3.5 established that a token-exchange backend is mandatory and must hold session state. **Where it
+runs is settled and is not where this section originally said:** the BFF is a **Lambda behind API
+Gateway**, not a process co-located with the SPA in one container. The co-location argument — one
+origin, no CORS, one artifact, one certificate — was made when the backend existed only to exchange
+tokens; it now serves the whole application's AWS surface, and API Gateway is the target
+environment's established pattern.
 
-§3.5 established that a token-exchange backend is mandatory and must hold session state. The move
-to Docker changes the best answer to *where it runs*, and makes it **simpler**, not harder.
-
-**Settled: it co-locates with the SPA in the same container.** Serving the app and the token
-endpoints from one image behind one origin buys no CORS configuration for the backend,
-`httpOnly` session cookies that work naturally, one deploy artifact, one TLS certificate, and one
-thing to keep running. It also makes the runtime-config story in §4.6 nearly free.
+**Everything this section says about STATE is unchanged, and is more load-bearing rather than
+less.** A Lambda satisfies the container-is-stateless rule by construction, and its execution role
+supplies the SigV4 credentials `CreateTokenWithIAM` needs, exactly as a task role would have.
 
 **The state design, either way:**
 
@@ -1558,15 +1761,19 @@ thing to keep running. It also makes the runtime-config story in §4.6 nearly fr
 - The **Identity Center refresh token** lives in DynamoDB, encrypted with a customer-managed KMS
   key, with a TTL matching the token's lifetime. It never traverses the browser, which is what
   AWS's guidance requires.
-- **Keep the container itself stateless.** State belongs in DynamoDB, not in process memory —
-  otherwise horizontal scaling breaks sessions and every restart logs everyone out.
+- **TTL is storage hygiene, never the security boundary.** DynamoDB deletes an expired item on its
+  own schedule rather than at the moment it expires, and an expired-but-undeleted item **is still
+  returned by reads** —
+  so session expiry is checked on read, and a design that leans on the TTL to end a session does not
+  end it.
+- **Keep the compute stateless.** State belongs in DynamoDB, not in process memory — otherwise
+  scaling breaks sessions and every restart logs everyone out. A Lambda gives this by construction;
+  it was a rule to enforce when the backend was a container.
 
-**Credentials come from the ECS task role.** Running on Fargate means the container gets rotating
-AWS credentials automatically, with no static secrets and no IAM Roles Anywhere trust anchor to
-stand up. This is the single biggest reason Fargate is the right call here: the token-exchange
-backend needs SigV4 credentials to call `CreateTokenWithIAM`, and the task role supplies them for
-free. Scope that role narrowly — it is a privileged identity that mints sessions on behalf of
-users.
+**Credentials come from the execution role**, rotating, with no static secrets and no IAM Roles
+Anywhere trust anchor to stand up: the token-exchange backend needs SigV4 credentials to call
+`CreateTokenWithIAM`, and the role supplies them for free. Scope it narrowly — it is a privileged
+identity that mints sessions on behalf of users.
 
 **Three clocks now govern a session:** the provider session (Cognito **[B]**, Entra **[A]**), the Identity Center refresh token, and
 the browser session cookie. Decide deliberately what the user experiences when each expires,
@@ -1601,30 +1808,22 @@ exemption covers this — it does not.
 **This must be tested before Phase 1 is built.** It is the single highest-value experiment in the
 plan, and running it late means throwing Phase 1 work away.
 
-> **AMENDED 2026-08-18 — what Path A is now an alternative to.** This section was written when §3.4
-> had a **base plane** for storage, and Path A was a candidate replacement for the Cognito Identity
-> Pool that fed it. §3.4 is superseded and the base plane is gone, so Path A's role changes rather
-> than disappearing: it is now the alternative to **§3.9's S3 Access Grants** for the storage plane.
-> Gate **P3** is the one that decides it, and §5.4 already records the tension that makes it
-> interesting — a P1 *pass* implies the session is identity-enhanced, which implies a P3 *failure*,
-> because the allow-list denies plain S3 (§3.6). So the two outcomes are:
->
-> - **P3 passes** (plain S3 works, session not identity-enhanced): a base plane survives after all,
->   fed by permission sets rather than the Identity Pool, and §3.9 is not needed for user storage —
->   though it is **still needed for the IdC-enabled Athena workgroup**, which requires the Access
->   Grants association regardless.
-> - **P3 fails**: §3.9 stands as written and this section is history.
->
-> Either way §3.9's Access Grants instance gets built, so nothing in Phase 5 waits on this.
->
-> **Two further things this section says that the variant revision has already delivered.** §5.2
-> credits Path A with deleting §6.1's trap and removing the ten-slot ceiling; **Variant A delivers
-> both on its own** — no Cognito means no writable custom attribute, and Phase 5 retires the tags
-> regardless — so they are no longer reasons to prefer Path A. What remains genuinely Path A's is the
-> audit-legible session name and the single-identity story. And §5.4's procedure is written around a
-> **Cognito pool as the trusted token issuer**: read it as **[B]**, and substitute Entra under
-> **[A]**. The experiment is unchanged in either case; only the issuer it points at moves.
+**What Path A is an alternative to, since §3.4 collapsed.** This section was written when §3.4 had
+a **base plane** for storage and Path A was a candidate replacement for the Cognito Identity Pool
+that fed it. The base plane is gone, so Path A's role changes rather than disappearing: it is now
+the alternative to **§3.9's S3 Access Grants** for the storage plane, and **gate P3 decides it**.
+§5.4 records the tension that makes it interesting — a P1 *pass* implies the session is
+identity-enhanced, which implies a P3 *failure*, because the allow-list denies plain S3 (§3.6):
 
+- **P3 passes** (plain S3 works, the session is not identity-enhanced): a base plane survives after
+  all, fed by permission sets rather than the Identity Pool, and §3.9 is not needed for user storage
+  — though it is **still needed for the IdC-enabled Athena workgroup**, which requires the Access
+  Grants association regardless.
+- **P3 fails:** §3.9 stands as written and this section is history.
+
+Either way §3.9's Access Grants instance gets built, so nothing in Phase 5 waits on this. And
+§5.4's procedure is written around a **Cognito pool as the trusted token issuer** — read it as
+**[B]**, and substitute Entra under **[A]**; the experiment is unchanged, only the issuer moves.
 The longer-term goal is one identity across every internal tool, with seamless movement between
 several small services. That ambition points at a second credential path that AWS introduced in
 June 2026, and it may be better than what Phase 1 currently specifies.
@@ -1651,14 +1850,21 @@ capability. The scope is granted per application, so enabling it on one does not
 
 ### 5.2 Why Path A is attractive
 
-- **It deletes §6.1 entirely.** No `custom:portal_username` attribute means no writable-attribute
-  privilege-escalation trap, currently the most dangerous detail in Phase 1. Session tags would
-  come from Identity Center's *attributes for access control*, sourced from the directory and
-  passed as session tags referenced by `${aws:PrincipalTag/...}` — the same ABAC model the repo
-  already relies on, fed from a source the user cannot write to.
-- **It removes the ten-slot ceiling.** Shared workspace membership would no longer live in
+> **Two of these are no longer reasons to prefer Path A, and are kept because the mechanism is
+> still worth understanding.** The variant revision delivers both on its own: **Variant A** has no
+> Cognito, so there is no writable custom attribute and no `custom:shared_space_k`, and **Phase 5
+> retires the tags regardless**. What remains genuinely Path A's is the audit-legible session name
+> and the single-identity story.
+
+- **~~It deletes §6.1 entirely.~~** No `custom:portal_username` attribute means no
+  writable-attribute privilege-escalation trap. Session tags would come from Identity Center's
+  *attributes for access control*, sourced from the directory and passed as session tags referenced
+  by `${aws:PrincipalTag/...}` — the same ABAC model the repo already relies on, fed from a source
+  the user cannot write to. **Variant A already deletes that trap.**
+- **~~It removes the ten-slot ceiling.~~** Shared workspace membership would no longer live in
   Cognito custom attributes (`custom:shared_space_1..10`), which cannot be deleted or renamed
-  once created. Confirm Identity Center's own attribute limits before relying on this.
+  once created. **The ceiling is in the IAM policy, not in Cognito** (§6.4), so what actually lifts
+  it is Phase 5 retiring the tags — not this path.
 - **It fixes audit legibility.** The permission-set role's session name is the user, rather than
   the opaque Cognito identity ID the enhanced flow produces today.
 - **It shrinks Cognito to a login facade and trusted token issuer**, which directly serves the
@@ -1726,92 +1932,55 @@ Everything else is mechanical. These are where the work and the risk live.
 
 ### 6.1 The username claim is not `cognito:username`
 
-The highest-consequence detail in the migration, and easy to miss.
+The highest-consequence detail in the migration, and easy to miss. **It changed shape twice and did
+not go away.**
 
-> *This section used to open by saying that gates P2 and P3 passing would make the problem disappear.
-> They no longer touch it: the Identity Pool those gates are about is never created in the successor
-> account (Phase 1), and what survives under **[A]** — which Entra claim carries the catalog-safe
-> username — is not a question about session tags.*
+**[A — baseline]** There is no Cognito, so there is no `cognito:username` and **no custom attribute
+to lock down** — the writable-attribute privilege escalation below disappears, and with it the
+"attributes can never be renamed or deleted" trap. What survives is the first half, in a new form:
+**which Entra claim carries the catalog-safe username**, is it stable for the life of a user, and
+does every reader take it from there. You cannot write to Entra, so if no existing claim carries it
+the username must be **derived or mapped** rather than stored — decide it in Phase 0, because it
+keys the S3 prefix and a change strands data. (§3.12's username list is a candidate answer to the
+mapped form.)
 
-> **RESHAPED 2026-08-18 by the identity-variant revision. It changes shape; it does not go away.**
->
-> - **[A — baseline]** There is no Cognito, so there is no `cognito:username` and **no custom
->   attribute to lock down**. The second half of the fix below — the writable-attribute privilege
->   escalation — disappears entirely, and with it the "attributes can never be renamed or deleted"
->   trap and the whole `read_attributes` / `write_attributes` enumeration. What survives is the
->   *first* half, in a new form: **which Entra claim carries the catalog-safe username**, is it
->   stable for the life of a user, and does every reader below take it from there. You cannot write
->   to Entra, so if no existing claim carries it, the username must be derived or mapped rather than
->   stored — decide that in Phase 0, because it keys the S3 prefix and a change strands data.
-> - **[B — fallback]** The section stands as written, with one correction: the synthetic value is
->   prefixed with the **provider name configured on the pool**, so with the bridge pointed at Entra
->   (§3.3) it is not literally `identitycenter_<subject>`. Do not pattern-match on the prefix.
-> - **Both** — **Arc B collapses the five readers to one.** After SPEC-201 the API derives `actor`
->   once from the verified token and every control plane reads a field it cannot forge, so this
->   becomes one configured claim name in one verifier rather than five independent reads. That is a
->   large part of why the API migration should happen **before** the environment move rather than
->   after. The list below is the *pre-Arc-B* inventory; keep it until SPEC-201 lands.
+**[B — fallback]** Cognito does **not** set `cognito:username` to the user's real username under
+federation: it sets a synthetic `{providerName}_<subject>` value, prefixed with the **provider name
+configured on the pool** — so with the bridge pointed at Entra it is not literally
+`identitycenter_<subject>`, and nothing may pattern-match the prefix.
 
-When a user signs in through a federated identity provider, Cognito does **not** set
-`cognito:username` to the user's real username. It sets a provider-prefixed synthetic value of
-the form `{providerName}_<subject>`. **Five** places read that claim and would silently start
-operating on the wrong identifier:
+**So under [B] the catalog-safe username needs a claim the pool does not natively carry, and the
+obvious route to one is closed.** A **custom attribute** populated by SAML attribute mapping is what
+this would ordinarily use, and Phase 1's **[B]** items forbid it — no custom attribute schema at
+all. Three candidates remain, and Phase 0 chooses between them rather than this page: a claim
+injected by a **Pre-Token-Generation V2 trigger** (recorded here because nothing else in this repo
+records it), a mapping onto a **standard** attribute such as `preferred_username`, or **deriving**
+the username server-side, which is the same answer §6.1 gives under [A] and which §3.12 item 2
+already contemplates. **Whichever is chosen becomes a Phase 1 [B] build item, and today that phase
+has none** — a trigger in particular is a Lambda, with everything a fleet function owes.
 
-> **Superseded by SPEC-201 (2026-08-30).** The count is now **two**, and neither is a control
-> plane. SPEC-201 deleted the whole Cognito arm of `cpcommon.auth` — the two `verified_username*`
-> entry points, both `*_ignoring_expiry` relaxations, and the hard-coded claim name — because the
-> API verifies the bearer once at the edge and the planes read the verified actor out of the
-> message's `identity` block. `notifications_writer.py` and `shared-space-common/auth.py` lost
-> their readers with their wrappers. What is left is **`infra/modules/auth/identity-pool.tf`**
-> (retired with the Identity Pool in SPEC-202) and the SPA's own `getCurrentUser().username`,
-> which is not the claim string at all — plus the API's own **configured** claim, `oidc_username_claim` in `infra/main.tf`, which is the site SPEC-201's own premises tell SPEC-202 to expect beside `identity-pool.tf`. A fleet sweep now fails if any shipped Lambda module
-> writes a provider's claim name as a literal, so this list cannot silently regrow. The bullets
-> below are kept as the record of what was moved and where it went — **do not re-derive work from
-> them.** Full entry: `docs/decisions/identity-and-access.md`.
+The reason the attribute route is closed is also the reason to get the pool right first time: **a
+Cognito custom attribute can never be renamed or deleted**, so fixing a schema mistake means a new
+pool, which changes every user's `sub`.
 
+**Arc B collapsed the readers, and that is why this is now configuration rather than surgery.**
+Before SPEC-201 five places read the claim independently. The API now verifies the bearer once at
+the edge, derives the actor from it, and every control plane reads a field it cannot forge — so
+what remains is **one configured claim name in one verifier** (`oidc_username_claim` in
+`infra/main.tf`), plus the SPA's own `getCurrentUser().username`, which is not the claim string at
+all but **fans out to roughly twenty call sites building S3 prefixes and Glue database names**. A
+fleet sweep fails if any shipped Lambda module writes a provider's claim name as a literal, so the
+list cannot silently regrow. The full record of what moved and where: `docs/decisions/identity-and-access.md`.
 
-- `infra/modules/auth/identity-pool.tf` line 85 maps the `username` principal tag to
-  `cognito:username`. That tag scopes `${aws:PrincipalTag/username}` in every S3 and Glue policy
-  in the repo.
-- `lambdas/control-plane-common/cpcommon/auth.py` reads it in **three** places, not one:
-  `verified_username` (line 95), `verified_username_ignoring_expiry` (line 108, the relaxed entry
-  point the DLQ drain uses), and the **hard rejection of a token missing the claim** at lines
-  55-56 — which sits inside `_verify` (line 26), *not* inside the `verify_id_token` wrapper at
-  line 60. Change the private helper, not the wrapper — though note the wrapper's *docstring*
-  does mention the claim, so a naive grep-and-replace will still touch it.
-- `lambdas/notifications-writer/notifications_writer.py` reads the claim as the **anti-spoofing
-  control for the notifications inbox** — miss it and notification identity silently keys on the
-  wrong value. *Stale as written: this bullet describes an **own, independent verification path**,
-  which **SPEC-156 FR-004 removed** — the verification now goes through `cpcommon`. The claim read
-  is still its own. `SPEC-201` flags the same staleness; re-derive the line numbers when this list
-  is next used rather than trusting them.*
-- `lambdas/shared-space-common/auth.py` line 34 reads the claim directly from the token dict
-  returned by `cpauth.verify_id_token` — verification is delegated, the claim read is not.
-- `apps/portal/src/features/auth/auth.service.ts` reads `getCurrentUser().username` and publishes
-  it as `AuthUser.username`, which fans out to roughly twenty call sites building S3 prefixes and
-  Glue database names.
-
-**The fix has two halves, and the second is a security control.**
-
-First, map the Identity Center attribute carrying the catalog-safe username into a dedicated
-claim — a custom attribute (`custom:portal_username`) populated by SAML attribute mapping, or a
-claim injected by a Pre-Token-Generation V2 trigger. Then change the principal-tag mapping, all
-three `cpcommon/auth.py` readers, the two readers outside `cpcommon` (`notifications_writer.py`
-and `shared-space-common/auth.py`), and the SPA's username source.
-
-Second, **the app client must not have write permission on that attribute.** Cognito custom
-attributes are writable by the user through `UpdateUserAttributes` if the app client grants write
-access. If a user can write the attribute that becomes their principal tag, they can assume
-another user's S3 prefix and Glue database.
-
-This is **not** a one-line change. `infra/modules/auth/cognito.tf` lines 129-153 sets neither
-`read_attributes` nor `write_attributes` on `aws_cognito_user_pool_client.spa`, and Cognito's
-default in that case is that **everything is writable**. Locking one attribute means enumerating
-the entire writable set explicitly.
-
-A related trap: **Cognito custom attributes can never be renamed or deleted.** Getting the schema
-right before the client User Pool is created matters, because fixing it later means a new pool,
-which means every user's `sub` changes.
+**The [B] guardrail is a security control, not hygiene.** The app client must **not** have write
+permission on whatever attribute carries the username. Cognito custom attributes are writable by
+the user through `UpdateUserAttributes` if the client grants write access, and a user who can write
+the attribute that becomes their principal tag can assume another user's S3 prefix and Glue
+database. This repo's app client sets neither `read_attributes` nor `write_attributes` — measured:
+neither appears anywhere under `infra/` — and Cognito's default in that case is that **everything is
+writable**, so locking one attribute means enumerating the entire writable set explicitly. This is why §2 item 1 ships the
+bridge pool with **no custom attribute schema at all**: an attribute that does not exist cannot be
+written, and a Cognito custom attribute can never be renamed or deleted once created.
 
 ### 6.2 First-tenant singleton ownership (was: the Lake Formation IaC overwrite)
 
@@ -1839,22 +2008,21 @@ allow-list. Keep this paragraph until the account's tenancy order is contractual
 
 ### 6.3 Destructive code paths during the sync-and-seed window
 
-> **AMENDED 2026-08-18 — the delete semantics change, and most of this table's teeth go with them.**
-> In the target environment a shared-space **delete removes every member and the owner and destroys
-> nothing**: the objects under `{name}/`, the Glue database and the registry record all survive, and
-> the record stays `active` with an empty roster. **SPEC-205 owns that change** and ships
-> independently of the transition.
+> **AMENDED 2026-08-18, and SPEC-205 has now SHIPPED (2026-09-01) — the delete row is NARROWED, not
+> struck.** A shared-space delete now removes every member and the owner and destroys nothing *on
+> the ordinary route*: the objects under `{name}/`, the Glue database and the registry record all
+> survive, and the record stays `active` with an empty roster. Retention keys on **`everActive`**, a
+> durable field — not on live `status`, which a failed delete moves out of `active` while the data
+> is intact.
 >
-> **It does not empty this table; it narrows one row.** SPEC-205 FR-002 keys retention on
-> **`everActive`**, a durable field — not on live `status`, which a failed delete moves out of
-> `active` while the data is intact. A space that ever reached `active` is emptied; one that never
-> did is still destroyed by `shared-space-forget`'s owner path. So only the **`delete` verb** row
-> loses its teeth. The **teardown-helper** row keeps them in full — `forget` still calls all three
-> helpers — and so does the **`forget` branch** row.
->
-> **The guards stay until SPEC-205 ships.** Today's `delete` still deletes objects and drops
-> databases. Strike **the `delete` verb row** when it lands — and only that row; the teardown-helper
-> and `forget` rows stay, because `forget` still calls all three helpers on a never-active space.
+> **What the 2026-08-18 amendment got wrong, corrected here:** it instructed a later reader to
+> *strike* the `delete` row once SPEC-205 landed, on the premise that a never-active space is
+> destroyed only by `shared-space-forget`'s owner path. It is not. `delete_space.py` branches on
+> `reg.is_destroyable(fresh)` — true exactly when a space never reached `active` — and on that
+> branch it still deletes the prefix, revokes the portal-role grant, drops the database and deletes
+> the registry record. **A workspace mid-seed is precisely a space that has not reached `active`**,
+> which is the state the guard exists for, so the row stays and its scope narrows to that branch.
+> §3.11's *What the code already does* records the same measurement.
 
 The app deletes things because it created them — and in the successor account that becomes true
 again, which retires most of the previous strategy's permanent guards. What remains is a
@@ -1866,11 +2034,11 @@ permanent.
 
 | Path | File | What it destroys | Guard |
 |---|---|---|---|
-| Shared-space `delete` verb | `lambdas/shared-space-delete/delete_space.py` | Calls the three teardown helpers below, in sequence | **Disable through the seeding window (Phase 3)**; re-enable at cutover, once the per-workspace inventory and the §6.4 parity check verify. From cutover the app fully manages all shared spaces, so delete is legitimate again. |
-| Teardown helpers | `lambdas/shared-space-common/teardown.py` — `delete_shared_prefix` (line 18), `revoke_portal_role`, `drop_database` | `delete_shared_prefix` **deletes every S3 object** under `{name}/`. The other two revoke LF grants and drop the Glue database with all its tables. | Gate all **three** during the window. Gating only the two grant/catalog functions leaves the object deletion live. |
-| `forget` verb teardown branch | `lambdas/shared-space-forget/forget_space.py` line 48 | Full teardown when `owner == actor and status != "active"` — **any** non-active status, not only failed | Restrict to the cache-only branch through the seeding window. A seeded workspace mid-sync could present as non-active. |
+| Shared-space `delete` verb, **never-active branch only** | `lambdas/shared-space-delete/delete_space.py`, on `reg.is_destroyable` — `not everActive and status != "active"`, which is "never reached `active`" only because `finalize` stamps `everActive` at the same moment | On that branch it calls all three teardown helpers below **and** `reg.delete`, which frees the name. On the ordinary ever-active route it destroys nothing — the space is emptied and the record survives | **Disable through the seeding window (Phase 3)**; re-enable at cutover, once the per-workspace inventory and the §6.4 parity check verify. A seeded workspace mid-sync can present as never-active, which is exactly the branch that destroys. From cutover the app fully manages all shared spaces, so delete is legitimate again. |
+| Teardown helpers, and the registry delete beside them | `lambdas/shared-space-common/teardown.py` — `delete_shared_prefix`, `revoke_portal_role`, `drop_database` — plus `registry.delete` in `lambdas/shared-space-common/registry.py` | `delete_shared_prefix` **deletes every S3 object** under `{name}/`. The other two revoke LF grants and drop the Glue database with all its tables. `registry.delete` removes the record, and the record *is* the name lock — freeing a name a seeded space still holds. | Gate all **four** during the window. Gating only the two grant/catalog functions leaves the object deletion live; gating only the three helpers leaves the name reusable. |
+| `forget` verb teardown branch | `lambdas/shared-space-forget/forget_space.py` | Full teardown when `owner == actor and status != "active"` — **any** non-active status, not only failed — and it calls `reg.delete` too, so it frees the name as well | Restrict to the cache-only branch through the seeding window. A seeded workspace mid-sync could present as non-active. |
 | Data-quality temp tables | `lambdas/data-quality-create-temp-tables/`, `.../drop-temp-tables/` | Creates and drops `dq_tmp_*` tables in the user's or shared workspace's Glue database | Confirm **both** prefixes — `dq_tmp_` *and* `dq_tmp_raw_` (`dqcommon/sql.py` lines 40-41) — cannot collide with a client naming convention. |
-| Prefix marker write | `ensurePrefixMarker` (`features/file-browser/fileBrowser.service.ts` line 153), constants in `fileBrowser.constants.ts` (`PREFIX_MARKER_FILENAME` line 7, plus `prefixMarkerKey` and `PREFIX_MARKER_BODY`), sole app caller `routes/FilesPage.tsx` line 65 | Writes `{username}/DO_NOT_DELETE.txt` into the user's prefix | **Remove all of it** (settled — sign-in provisions nothing, §2 item 7): the function, the three constants, the call site, the barrel re-export in `features/file-browser/index.ts` line 30, and the coverage in `fileBrowser.service.test.ts`, `FilesPage.test.tsx` and `FilesPage.a11y.test.tsx`. Deleting the function alone leaves a dangling call site. |
+| Prefix marker write | `ensurePrefixMarker` in `features/file-browser/fileBrowser.service.ts`, the constants in `fileBrowser.constants.ts` (`PREFIX_MARKER_FILENAME`, `prefixMarkerKey`, `PREFIX_MARKER_BODY`), sole app caller `routes/FilesPage.tsx` | Writes `{username}/DO_NOT_DELETE.txt` into the user's prefix | **Remove the BROWSER's copy of it — the marker object itself stays (§3.12).** The function, the call site, the barrel re-export in `features/file-browser/index.ts` line 30, and the coverage in `fileBrowser.service.test.ts`, `FilesPage.test.tsx` and `FilesPage.a11y.test.tsx` all go; deleting the function alone leaves a dangling call site. **The three constants' VALUES move to the provisioner** — the filename and body are what make a provisioned prefix visible to the username directory and undeletable to its owner, so deleting the marker with its writer is the one reading of this row that breaks the file browser for every user. *This row said "remove all of it" until 2026-09-04, when §2 item 7's amendment moved the write rather than retiring it.* |
 | Table Share object copy | `lambdas/table-share-copy-objects/table_share_copy_objects.py` | Writes into `{recipient}/shared_tables/{tableName}/` | Confirm no collision with existing client data under a recipient's prefix. |
 | Table Share DDL | `lambdas/table-share-create-table/table_share_create_table.py` line 35 | Athena output to `s3://{destBucket}/{database}/athenaresults/{actor}/` — a different shape from the SPA's | Include in the Phase 4 workgroup audit. |
 
@@ -1967,12 +2135,12 @@ The data sync is three layers, and only the first one copies:
    regardless, since AWS managed keys do not support trusted identity propagation. DataSync or
    S3 batch operations; per-prefix, resumable, verified by inventory comparison.
 2. **Catalog.** Glue databases and tables are rebuilt, never copied: per-user databases by the
-   sync initially and the client's automated process thereafter (§2 item 7), workspace databases
-   through seeding (§6.4), core-dataset tables from the dataset registry config (§3.8) pointed
-   at the new account.
+   **portal-owned provisioner**, over the whole known username list — in either order against the
+   object copy, since neither pass may assume an empty prefix (§3.12); workspace databases through seeding (§6.4); core-dataset tables from the dataset
+   registry config (§3.8) pointed at the new account.
 3. **Grants.** Re-issued, never copied. Core-dataset grants are a config re-run against
-   unchanged Identity Center identities (§4.1); personal-database grants come from the client's
-   separate permissions control plane (§2 item 7); workspace grants arise in §6.4's seeding.
+   unchanged Identity Center identities (§4.1); the personal-database grant to the shared portal
+   role is step 3 of the same provisioner pass (§3.12); workspace grants arise in §6.4's seeding.
    Anything still keyed on an IAM role ARN would have been stale anyway — the ARNs embed the old
    account ID.
 
@@ -2026,7 +2194,7 @@ they already were.
   without it, in either variant. It is somebody else's system, so confirm it rather than assume it.
 - **Run the §5.4 permission-set experiment.** Unchanged and still first among the experiments: gate
   P3 now decides whether §3.9's Access Grants or a permission-set-fed base plane serves user storage
-  (§5's amendment), and P2 decides whether session tags can come from Identity Center attributes.
+  (§5), and P2 decides whether session tags can come from Identity Center attributes.
 - **Run gate G7 (§5.5) alongside it.** It is a single query against a throwaway IdC-enabled
   workgroup, and it is the one experiment that can invalidate §3 outright — the documentation is
   ambiguous (§3.5) and no amount of further reading will settle it. Standing the workgroup up also
@@ -2074,12 +2242,19 @@ they already were.
 - Inventory the old account: buckets and data volumes, prefix conventions, per-user Glue
   databases, shared workspaces and per-user membership counts (§6.4's ceiling check), core
   datasets and the existing grant matrix.
-- **Write the provisioning contract** (settled mechanism, §2 item 7): extract the per-user
-  checklist from `post_confirmation.py` and map each item to its new owner — database creation
-  and tagging to the user automation (which already tags), grants to the separate permissions
-  control plane. Confirm the automation's tag key and values against what the portal's TBAC
-  tag-policy grants expect (`portal-managed` today — align one side or the other), and agree the
-  acceptable latency between a user existing in Identity Center and being provisioned.
+- **Get the username list, and settle its shape** (§3.12): where it comes from, what a row carries,
+  how it is refreshed, and — the question that decides how much §3.11 has to invent — whether a row
+  carries the Identity Store attribute beside the catalog-safe username. **Ours to specify, theirs
+  to produce**, so ask early even though nothing is built from it until Phase 1.
+- **Write the provisioning contract** (§3.12): the per-user checklist, extracted from
+  `provision_user` and extended with the prefix marker the browser writes today, plus the two
+  passes and what each needs to know. It is the specification the provisioner is built from and the
+  thing the sync is checked against, and it names the acceptable latency between a user existing in
+  Identity Center and being provisioned. **The tag alignment is now ours on both sides**
+  (`portal-managed`, granted by the portal's own TBAC tag-policy grants), so it is a consistency
+  check rather than a negotiation.
+- **Decide who owns de-provisioning** (§3.12) — nothing does today, and a leaver keeps a prefix, a
+  database, a directory entry and, after Phase 5, a live Access Grant.
 - Choose the sync tooling and rehearse one real prefix end-to-end in non-production, including
   re-encryption under a customer-managed key (§6.5).
 
@@ -2128,11 +2303,14 @@ and that is fine.
 - Point the API's token verifier at the new provider: issuer, audience, JWKS URI and the **username
   claim** are configuration (SPEC-195 FR-002). **That half is configuration; the next item is not.**
   Confirm the claim against Phase 0's finding (§6.1).
-- **BUILD the membership index and its source — SPEC-203**, which ships before the move (after
-  SPEC-199, before SPEC-202) and defaults to the claims source, so what arrives here is a
-  configuration change over code already proved against both sources. It also re-sources SPEC-198's
-  route-level membership check, which would otherwise refuse every shared space once the claims are
-  gone.
+- **Wire `MEMBERSHIP_SOURCE` to the index, and discharge the live check that goes with it.**
+  SPEC-203 **shipped** the membership index and both sources, so the code is proved against each —
+  but the variable is in **no Terraform**, and `docs/testing/owed.md` records that the index path has
+  never been exercised against a real sign-in. So this is a wiring change plus the one owed check,
+  not "configuration": the index path is an authorization input that has never run live, and
+  flattening it to a config flip is how it reaches production untested. It also re-sources
+  SPEC-198's route-level membership check, which would otherwise refuse every shared space once the
+  claims are gone.
   *The paragraph below is why that spec exists; it is retained because it is the argument, not the
   work.*
   SPEC-196 deliberately builds the `shared_space_k` tags from the **token's claims**, and says so as
@@ -2147,10 +2325,20 @@ and that is fine.
   **Write the spec before this phase, not during it.**
 - Confirm `${aws:PrincipalTag/username}` resolves in a real request — the whole isolation model is
   that one tag, and a session without it matches nothing.
-- Remove the `pre-signup` and `post-confirmation` triggers and delete their provisioning logic —
-  sign-in provisions nothing (settled, §2 item 7). **[A]** they go with the User Pool.
+- **Land the provisioner's deploy-role IAM and its entry in the user-space bucket policy first, in
+  their own PR** — an explicit resource-policy deny beats an identity-policy allow, so a role
+  missing from `user-space-bucket-policy.json.tftpl` is denied at runtime with a green plan
+  (§3.12).
+- **Build and deploy the provisioner** (§3.12): `provision_user`'s existing sequence plus the prefix
+  marker write, behind a new trigger, reading the username list from the admin bucket. It provisions
+  nobody yet — Phase 2 runs it — but it ships here so the run is not the first time it executes.
+- Remove the `pre-signup` and `post-confirmation` **triggers** — sign-in provisions nothing (§2
+  item 7). **[A]** they go with the User Pool. **`provision_user` itself is kept** and moves to the
+  provisioner, and `pre_signup.py`'s username rule is not deleted either: it moves, as the
+  provisioner's refusal, taking `cpcommon`'s `CATALOG_IDENTIFIER_RE` rather than making a third copy.
 - Remove `ensurePrefixMarker` and every other write the portal makes to establish a prefix (full
-  removal list in §6.3).
+  removal list in §6.3). **The marker itself is not retired — its writer moves** to the provisioner
+  (§3.12).
 - Delete the sign-up UI surface. This is **cosmetic**: `startSignUp` in `auth.service.ts` lines
   64-66 is literally `return startSignIn();`, so there is no distinct code path. The surface is
   `startSignUp` in `auth.service.ts`, `signUp` in `AuthProvider.tsx` and `auth.types.ts`, the
@@ -2191,19 +2379,25 @@ raw credentials pulled from the session, and that no browser request carries AWS
 
 **Rollback:** tear the stack down; the account was empty. Nothing in the old account changed.
 
-### Phase 2 — First data sync: personal spaces
+### Phase 2 — Provision every known user, then sync personal spaces
 
 **Goal:** the file browser and notifications work in the successor account against synced copies
-of each user's data.
+of each user's data — in spaces the portal created rather than the sync.
 
+- **Run the provisioner over the whole username list** (§3.12), in the non-production account
+  first. Every row ends provisioned, already-provisioned, or **refused and named**; a run that
+  reports only a count has not been read. Refusals to expect: a name that fails the catalog rule,
+  and a name already registered as a shared space.
 - Run the object sync (§6.5 layer 1) for personal prefixes, re-encrypting under the successor
-  account's customer-managed key.
-- Audit the reserved prefixes (§6.3) against the synced data **before** users arrive, and
-  resolve collisions while the copy is still disposable.
-- Verify the provisioning handoff: the sync's pre-created spaces pass the `post_confirmation.py`
-  checklist (database and tag from the user automation, grants from the permissions control
-  plane), and one user provisioned end-to-end by the ongoing machinery — or a rehearsal of it —
-  arrives identically.
+  account's customer-managed key. **Either order is safe, run sequentially** — the marker is
+  written only when absent and the database create tolerates already-exists — but check-then-write
+  is not concurrency control, so do not overlap the two runs; a pass that assumes an empty prefix is
+  wrong either way, and the sync must not treat the marker as stray data (§3.12).
+- Audit the reserved prefixes (§6.3) against **both** the synced data and what the provisioner
+  creates, **before** users arrive, and resolve collisions while the copy is still disposable.
+- **Verify a provisioned space against the checklist**, not against a count: database present,
+  `portal-managed` tag present, portal-role grant present, marker object present — and a user whose
+  provisioning *partially* failed is found by the sweep rather than by a support ticket.
 - Point the admin bucket (registry, logs) at the portal-owned bucket as usual; it is
   app-internal state and takes no part in the sync.
 
@@ -2261,6 +2455,9 @@ databases, still on the shared role and principal tag.
 **Verification:** per-arc, the original spec's acceptance criteria, against synced data in a
 non-production workspace.
 
+**Rollback:** feature-flag the arcs back off, one at a time. Nothing else in this phase is
+destructive, and the interim plane still carries the file browser.
+
 ### Phase 5 — Identity Center identities in Lake Formation
 
 **Goal:** core datasets governed by Lake Formation grants keyed on the Identity Center user, not
@@ -2304,6 +2501,11 @@ on any IAM role. The design is §3; the work items are here.
   when the interim plane retires. Instance, Identity Center association, registered locations,
   `sts:SetContext` on the location role, and the per-user grants in whichever prefix form Phase 0
   decided. **Gate G9 (§5.5) must have passed** before the API presigns from these credentials.
+- **Run the provisioner's identity-shaped pass** (§3.12) — the per-user Access Grant, if Phase 0
+  chose the literal form. It could not run in Phase 2 because a grant binds an Identity Center user
+  rather than a string, so it waits on SCIM. An unresolvable user is a **refusal naming the user**,
+  never a skip, and "not in Identity Center yet" and "the directory is unhealthy" get different
+  reasons.
 - **Issue the shared-space grants** the Phase 3 inventory produced — one Access Grant per (member,
   space) prefix plus the matching Lake Formation grant on the space's database, issued by the
   shared-space control plane. **The design is §3.11**, and its cutover ordering is what this phase
@@ -2323,6 +2525,10 @@ on any IAM role. The design is §3; the work items are here.
 **Verification:** two users on the same carrier role see different data; a user with no grant is
 denied. Confirm with raw credentials, not through the UI. Separately, confirm no Identity Center
 token ever reaches the browser — inspect the network trace, not just the code.
+
+**Rollback:** the interim plane, which is why the last work item retires it rather than the first.
+Until that step every user still reaches storage and catalog through the shared role and its
+principal tag, so an entitlement that fails to project is a defect rather than an outage.
 
 ### Phase 6 — Cutover and decommission
 
@@ -2367,24 +2573,27 @@ freeze. This is the whole reason the old account survives the quiet period.
   wording asked whether the user-identity result
   prefix be turned off (§3.5)?
 - Gates P1, P2 and P3 (§5.4). P3 now decides whether §3.9's Access Grants or a permission-set-fed
-  base plane serves user storage (§5's amendment).
+  base plane serves user storage (§5).
 - Does the successor account exist yet, and is it in the **same organization** — the same
   Identity Center organization instance? §3 and §4.1 assume yes (§4.5).
 - Who else lands in the successor account, when, and is the portal's first-tenant ownership of
   the account singletons (§4.4) contractual?
 - Which Identity Center attribute carries the catalog-safe username, and is it stable for the life
   of a user? It keys the S3 prefix, so a change strands data.
-- **The tag alignment** (mechanism settled, §2 item 7): the user automation already tags
-  databases — does its tag taxonomy match what the portal's TBAC tag-policy grants expect
-  (`portal-managed` today), or do the portal's `.tftpl` grants re-key to the client's existing
-  tag? Without an aligned tag, Table Builder, Table Share and Data Quality cannot create tables
-  in a user's database.
-- **The permissions control plane's coverage:** does it issue every grant `post_confirmation.py`
-  issues today, on what trigger and cadence, and does the portal consume its output anywhere or
-  simply trust that it has run?
-- **Provisioning latency:** how long between a new user existing in Identity Center and the
-  automated process provisioning them, and is the defensive empty state acceptable for that
-  window? Queries against a not-yet-created database must fail soft.
+- **The username list** (§3.12): where it comes from, what a row carries, how often it is
+  refreshed, what a re-run does with a name that has disappeared from it, and — the question that
+  decides how much §3.11 has to invent — whether a row carries the **Identity Store attribute**
+  beside the catalog-safe username. *~~The tag alignment and the permissions control plane's
+  coverage~~ were questions for somebody else's automation; §2 item 7's amendment makes both ours,
+  so the tag is a consistency check against our own `.tftpl` grants and the grants are step 3 of
+  the provisioner's own pass.*
+- **Provisioning latency:** how long between a user appearing in Identity Center and the
+  provisioner having run for them, and is the defensive empty state acceptable for that window?
+  Queries against a not-yet-created database must fail soft. Up-front provisioning shrinks this to
+  the gap between a **new joiner** and the next run, rather than every user's first visit — but it
+  does not close it.
+- **Who owns de-provisioning** (§3.12), and what is meant to happen to a leaver's prefix, database,
+  directory entry and Access Grant. Nothing owns it today.
 - **[B] only** — does the client permit a Cognito User Pool at all, even as a bridge that
   authenticates nobody? If the answer is no *and* G8 fails, neither variant is available and §3.3
   needs a third OAuth issuer, which is unscoped infrastructure.
@@ -2423,10 +2632,10 @@ freeze. This is the whole reason the old account survives the quiet period.
 **Gating the hosting workstream (§4.6, §4.7):**
 
 - ~~Where does the container run?~~ **Settled — ECS Fargate**, task role supplies credentials.
-- ~~Does the backend co-locate or stay a Lambda?~~ **Settled — co-located** in the same container.
-- **One image promoted across environments, or a build per environment?** Still open, and
-  deliberately deferred: do the accessor refactor first (§4.6) and the decision becomes a
-  one-file change made later, on evidence rather than up front.
+- ~~Does the backend co-locate or stay a Lambda?~~ **Settled — a Lambda behind API Gateway** (§4.7). *The earlier answer here was "co-located in the same container"; Arc B reversed it.*
+- ~~**One image promoted across environments, or a build per environment?**~~ **Settled and built —
+  one image**, with configuration fetched at runtime from `/config.json` (SPEC-192) and its values
+  read from Terraform state (SPEC-215). §4.6 carries the one argument worth keeping.
 - Who owns TLS and DNS for the new origin, and what is the turnaround on getting a certificate?
   The origin must be settled before Phase 1's provider callback URLs are finalised.
 - What is the session cookie's lifetime relative to the provider session and the Identity Center
@@ -2483,21 +2692,26 @@ retired: `pre-signup` shipped for nine days unable to import its own Lambda laye
 sign-ups, and nothing noticed (2026-08-01, PR #317 — the Correction section of SPEC-137's delivery
 doc). Deleting this code is a **cutover** task; keeping it working is a **today** task.
 
-- `lambdas/pre-signup/` entirely, and `lambdas/post-confirmation/` with its provisioning logic —
-  sign-in provisions nothing (§2 item 7). `backfill.py` and
-  `scripts/backfill-portal-managed-tag.sh` go with them. Extract the provisioning checklist from
-  `post_confirmation.py` into the coordination contract **before** deleting it — it is the
-  specification the user automation and the permissions control plane must jointly satisfy.
+- **The Cognito TRIGGERS, not the provisioning they call — AMENDED 2026-09-04.** The
+  `pre-signup` and `post-confirmation` entry points go, because sign-in provisions nothing (§2 item
+  7), and `scripts/backfill-portal-managed-tag.sh` goes with them. But `provision_user` **moves to
+  the provisioner** (§3.12) rather than being deleted, `pre_signup.py`'s username rule **moves to
+  the provisioner's refusal** — taking `cpcommon`'s `CATALOG_IDENTIFIER_RE` rather than making a
+  third copy of the same literal — and `backfill.py`'s job is replaced by §3.12's sweep rather than
+  simply dropped. *This item used to delete both modules whole, because the client's automation was
+  going to own provisioning; the portal owns it now.*
 - `ensurePrefixMarker`, its constants in `fileBrowser.constants.ts`, its call site in
   `routes/FilesPage.tsx`, the barrel re-export in `features/file-browser/index.ts`, and its
-  tests (§6.3 has the full list).
+  tests (§6.3 has the full list). **The marker object itself stays** — what goes is the browser
+  writing it; the provisioner writes it instead (§3.12). Deleting the marker with its writer would
+  make every provisioned prefix invisible to the username directory.
 - `startSignUp` / `signUp` across `auth.service.ts`, `AuthProvider.tsx`, `auth.types.ts`,
   `test/authFixtures.ts`, and their tests.
 - Sign-up copy in `routes/LandingPage.tsx`, `lib/returnPath.ts` and
   `features/query/DatabaseNode.tsx`.
-- **The Cognito Identity Pool, its principal-tag mapping and `lib/awsCredentials.ts`** — retired by
-  **Arc B (SPEC-202) before the move**, not at cutover, and never recreated in the successor account
-  in either variant (Phase 1).
+- ~~**The Cognito Identity Pool, its principal-tag mapping and `lib/awsCredentials.ts`**~~ —
+  **DONE (SPEC-202, 2026-08-31).** Retired before the move rather than at cutover, and never
+  recreated in the successor account in either variant (Phase 1).
 - **[A] — all of Cognito.** `infra/modules/auth` in full: the User Pool, Managed Login v2 and its
   branding re-ensure step in CI, the app client, the hosted-UI domain, `lib/amplify.ts` and the
   `aws-amplify` dependency, and every runtime-configuration key naming a pool. **[B]** keeps the
@@ -2505,10 +2719,10 @@ doc). Deleting this code is a **cutover** task; keeping it working is a **today*
   §3.3 keeps the bridge thin.
 - **The `custom:shared_space_*` attribute schema** and `var.max_shared_memberships` — membership is
   the registry from Phase 1 onward, and per-(member, space) grants from Phase 5 (§3.9).
-- The CloudFront distribution, its origin access configuration, the static-hosting bucket, the
-  **SPEC-140 response headers policy** (its header set moves into nginx — §4.6), and the
-  deploy-app sync and cache-invalidation CI steps — including SPEC-141's per-class
-  `Cache-Control` passes, once landed (§4.6).
+- ~~The CloudFront distribution, its origin access configuration, the static-hosting bucket, the
+  **SPEC-140 response headers policy**, and the deploy-app sync and cache-invalidation CI steps~~ —
+  **DONE (SPEC-193 → 202, 2026-09-02).** The header set and SPEC-141's per-class `Cache-Control`
+  scheme live in the container's nginx configuration; §4.6 records the three divergences.
 
 **No longer removed** — reversals from the previous strategy: `aws_lakeformation_data_lake_settings`,
 the bucket registration, the user-space bucket policy template, and the shared-space `create`
@@ -2564,3 +2778,41 @@ S3 Access Grants and Entra:
 IAM and STS:
 [Granting permissions to use identity-enhanced console sessions (`sts:SetContext`)](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_temp_control-access_sts-setcontext.html) ·
 [AWSIAMIdentityCenterAllowListForIdentityContext](https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AWSIAMIdentityCenterAllowListForIdentityContext.html)
+
+---
+
+## 11. Revision history
+
+**One line per revision, pointing at where its substance went.** Every correction these announce is
+recorded *in place* in the section it belongs to, which is where a reader should meet it — this list
+exists so the chronology is recoverable, not so anyone works from it.
+
+- **2026-09-04 — provisioning and ordering pass.** The portal takes ownership of provisioning:
+  new **§3.12**, amending §2 item 7 and reaching §1's table, §6.5's layers, Phases 0/1/2/5, §8 and
+  §9. Added **The order of work** as a router over §7. Pruned to what has landed: §4.6's
+  configuration fork, §4.7's co-location banner, §5's amendment block (with §5.2's two bullets
+  corrected in place) and §6.1's pre-Arc-B claim-reader inventory. **§6.3's `delete` row was
+  narrowed rather than struck, and the 2026-08-18 instruction to strike it was withdrawn** — the
+  never-active branch still destroys, which is exactly the state a mid-seed workspace presents.
+- **2026-08-24 — third-party driver pass.** New **§3.10**: the client's Excel, Access and Power BI
+  users are on the SAML path and must migrate (§2 item 15), which puts a deadline on §6.5's freeze
+  and raises G8's stakes to the whole desktop fleet. Three claims in that section's first draft were
+  corrected at review the same day and are marked where they sit.
+- **2026-08-19 — live-docs validation pass.** §3.5's IAM action prefix, its replay paragraph, the
+  assertion's permitted token type and the `${user_id}` half-answer, each corrected against the live
+  page. The validation log is in `docs/target-architecture-variants.md`.
+- **2026-08-18, second of two that day — the identity-variant revision.** Entra ID is named; the
+  plan gains variants **[A]** and **[B]** (§3.3). §3.4's two credential planes collapse into one,
+  which creates **§3.9**'s storage plane and reshapes §6.1's trap rather than deleting it. Gate
+  **G8** joins §5.5. It also added three **forward-compatibility obligations** to Arc B's drafts —
+  each small, each with a test, none of them gating that arc: SPEC-195 keeping the verifier free of
+  router dependencies, SPEC-198's presigned-URL clamp reading the credential rather than a
+  configured duration, and SPEC-199 keeping the results-location derivation in one function.
+- **2026-08-18, first of the two** — §3.5 gains its step-3 caveat and gate **G7**: whether a plain
+  `StartQueryExecution` on an identity-enhanced session is supported at all.
+- **2026-08-03 — reconciled against the folded `architecture.md`**: control-plane records moved
+  there; §4.6, §6.3 and §9 updated with the header and caching facts.
+- **2026-08-01 — the strategy revision.** Build in the **successor account as its first tenant**,
+  with the client's data arriving by **sync and cutover**, superseding the 2026-07-31 decision to
+  deploy in place into the populated existing account. §4, §6 and §7 are reworked around it; §3 and
+  §5 are account-agnostic and unchanged.

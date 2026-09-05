@@ -6,7 +6,7 @@ directly — by Cognito, by a schedule, or by its own queue. They still use `cpc
 | Function | Trigger | What it does |
 |---|---|---|
 | `pre-signup/` | Cognito pre-signup | username validation and a disposable-email blocklist |
-| `post-confirmation/` | Cognito post-confirmation | provisions the new user's Glue database and prefix; `backfill.py` does the same for an already-confirmed user |
+| `post-confirmation/` | Cognito post-confirmation | provisions the new user's Glue database — creating it, granting the portal role on it and stamping the `portal-managed` tag. It does **not** create the S3 prefix; the browser does, on the first visit to `/files`. `backfill.py` runs the same sequence for an already-confirmed user |
 | `notifications-writer/` | its own FIFO queue | the **single writer** to a user's notification feed |
 | `control-plane-dlq-drain/` | schedule | drains every plane's request DLQ into the notification the user already reads |
 | `log-sweep/` | schedule | sweeps the structured-logging queue into one NDJSON object per service per day |
@@ -148,7 +148,10 @@ browser* on the first visit to `/files` (`ensurePrefixMarker`, SPEC-014 — a de
 no-backend decision), so a confirmed user who never opened the file browser has no prefix.
 
 **The transition reverses it.** `transition_plan.md` §2 item 7 settles that sign-in provisions
-nothing — the sync pre-creates every space and `ensurePrefixMarker` is deleted outright (§6.3)
+nothing — *this paragraph used to say the sync pre-creates every space* — and §3.12 now settles what
+creates them instead: a **portal-owned provisioner**, run over the client's known username list
+ahead of any sign-in. `ensurePrefixMarker` is deleted outright (§6.3), its write moving to
+that provisioner
 — while federated login makes `cognito:username` a synthetic `identitycenter_<subject>` value
 (§6.1) and users appear in the pool only after their first sign-in. So S3 becomes complete and
 Cognito becomes both incomplete *and* wrong-keyed.

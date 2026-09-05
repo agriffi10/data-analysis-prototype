@@ -61,8 +61,9 @@ Below the API the drawing splits into **two lanes**, because two different crede
 
   > **This document does not carry that inventory, and must not be used as one.** It is a picture of
   > the credential planes, not a re-keying runbook. For Phase 5, the sources are
-  > `transition_plan.md` Phase 5 and §3.8, §8's open question on whether the permissions control plane
-  > covers every grant `post_confirmation.py` issues, and **`transition_plan.md` §3.11**, which owns the
+  > `transition_plan.md` Phase 5 and §3.8, **§3.12** — which says who issues the per-user grants
+  > `post_confirmation.py` issues today, and which of them wait on SCIM — and
+  > **`transition_plan.md` §3.11**, which owns the
   > ordering — *entitle every member and verify, then retire the tags, then revoke the standing
   > role-level grants*. Reversed, every member is locked out.
 
