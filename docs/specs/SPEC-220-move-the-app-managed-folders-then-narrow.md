@@ -30,8 +30,8 @@ no rollback, and the spec says so.
 - The browser: the group row deleted, `system_settings/` an ordinary-looking folder row with the
   protections SPEC-219 gave it, the three folders inside with their rules at depth two.
 - Live checks between the merges, against the four traps the arc names.
-- The narrowing: old-path IAM statements out, the plural builders collapsed to the singular, the
-  old prefixes proved empty, the Checkov accept list re-measured.
+- The narrowing: old-path IAM statements out, the plural builders shrunk to their one remaining
+  element, the old prefixes proved empty, the Checkov accept list re-measured.
 
 ### Out of Scope
 
@@ -182,10 +182,11 @@ does `finish` run and FR-005 land.
 #### Description:
 
 The second merge. Every old-anchor sibling comes out of the eight templates; the population test's
-expected pairs shrink to the `system_settings/` anchors; `app_managed_prefixes` is deleted and every
-rule that consulted it reads the singular builder again; the old locations leave the lists that
-gained them only as a second home (`RESERVED_PREFIXES` keeps `system_settings`, whose children are
-now under it). The old prefixes are proved empty **positively**: `list-objects-v2 --max-keys 1` under
+expected pairs shrink to the `system_settings/` anchors; `app_managed_prefixes` /
+`appManagedPrefixes` shrink to a one-element tuple — an edit inside the two owner modules and
+nowhere else, which is why SPEC-219 typed them `tuple[str, ...]` — so every rule that consults
+them now protects the new home alone; the lists keep `system_settings` (`RESERVED_PREFIXES` too,
+since every moving folder is now a child of it). The old prefixes are proved empty **positively**: `list-objects-v2 --max-keys 1` under
 `{space}/{folder}/` for every space in both buckets returns no `Contents`, read from the account, not
 from a plan. The Checkov plan-scan accept list is re-measured, because a removed statement whose
 findings were accepted makes the acceptances stale, which is a hard error (SPEC-202).
@@ -195,10 +196,12 @@ findings were accepted makes the acceptances stale, which is a hard error (SPEC-
 - [ ] The population test's expected table has exactly one pair per file per folder, all anchored
       `system_settings`, and the two admin-bucket entries unchanged; it fails if any old-anchor
       Resource survives (plant one, watch it name the file, revert).
-- [ ] `app_managed_prefixes` / `appManagedPrefixes` no longer exist; the sweep's owner-export list
-      drops them and the tree is clean; every SPEC-219 parametrised pair test is rewritten to the
-      single location, and the archive/file-send/file-ops refusal tests for a depth-one
-      `alice/archive/x` now expect the key to be treated as an **ordinary** user path.
+- [ ] `app_managed_prefixes(root, f)` returns exactly `(app_managed_prefix(root, f),)` and
+      `appManagedPrefixes` its twin; no rule module changes in this merge (asserted by the diff:
+      only the two owner modules, the templates, the tests and the docs); every SPEC-219
+      parametrised pair test is rewritten to the single location, and the archive/file-send/
+      file-ops refusal tests for a depth-one `alice/archive/x` now expect the key to be treated as
+      an **ordinary** user path.
 - [ ] `checkov` on the deploy plan: zero unaccepted findings and zero stale acceptances; the accept
       list's diff, if any, is in the PR with a one-line disposition per line.
 - [ ] Proved empty, recorded in `docs/testing/owed.md` with the command and the date: for every
@@ -262,8 +265,8 @@ docs/testing/e2e.md · docs/testing/owed.md        # re-keyed rows; the proved-e
 
 ### Phase 2: The switch (merge one)
 
-- The two builders flipped; the SPEC-218 value tests rewritten; the browser row deleted and the
-  listing re-checked; Help and the e2e rows re-keyed. One PR.
+- The two singular builders flipped; the SPEC-218 value tests rewritten; the browser row deleted
+  and the listing re-checked; Help and the e2e rows re-keyed. One PR.
 
 ### Phase 3: `report`, `copy`, and the live checks
 
@@ -271,6 +274,6 @@ docs/testing/e2e.md · docs/testing/owed.md        # re-keyed rows; the proved-e
 
 ### Phase 4: The narrowing (merge two)
 
-- Old-anchor Resources out; the population test to single anchors; the plural builders deleted and
-  every pair test rewritten; the accept list re-measured; the proved-empty row; the delivery doc's
-  no-rollback sentence and the arc note.
+- Old-anchor Resources out; the population test to single anchors; the plural builders shrunk to
+  one element and every pair test rewritten; the accept list re-measured; the proved-empty row; the
+  delivery doc's no-rollback sentence and the arc note.
