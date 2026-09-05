@@ -44,6 +44,7 @@ always leaves an arc entry here holding the pair's build order, even when nothin
 - [Transition identity arc (SPEC-203 and SPEC-205)](#transition-identity-arc-spec-203-and-spec-205)
 - [Container-lambdas arc (SPEC-212 → 213 → 214)](#container-lambdas-arc-spec-212--213--214)
 - [System-settings prefix arc (SPEC-218 → 219 → 220)](#system-settings-prefix-arc-spec-218--219--220)
+- [Results-conversion arc (SPEC-221 → 222 → 223)](#results-conversion-arc-spec-221--222--223)
 
 ---
 
@@ -2818,3 +2819,42 @@ protection.
 **Cleanup 220 owes:** `docs/testing/e2e.md` has a live-check table keyed on these paths (including a
 `system_settings` row from #641), and `docs/testing/owed.md` holds runnable `aws s3api` commands
 with these prefixes in the key.
+
+## Results-conversion arc (SPEC-221 → 222 → 223)
+
+**The request.** *Save results to my files* writes the CSV Athena already produced, and a user
+asked for Parquet, JSON and Excel as well. Three ways to do that were put to the user
+(2026-09-05): build the file in the browser from the result pages the API serves (two new
+dependencies and a row ceiling the tab's memory sets), re-run the query as an Athena `UNLOAD`
+(a second bill, several files under Athena's names, and no Excel at all), or a conversion control
+plane using polars. **He chose the plane**, and this arc is that decision.
+
+**Results, never the source.** The tables a query reads are mostly Parquet, some CSV, some JSON,
+and it changes nothing: Athena writes every result set as one CSV object under the actor's own
+results prefix, whatever it was queried from. The plane takes an execution id, reads that one
+object, and types it from the metadata Athena reports for the execution — so no second query
+starts, nothing is billed, and the converter reads exactly one shape. It is also what makes
+ownership a question about a path: an execution is the actor's iff its output sits under the
+results prefix the API writes with, built by SPEC-218's one builder, which is why 221 depends on
+218 — today the API and `cpcommon` each carry a results-prefix builder and they do not agree on
+the shape.
+
+**Why three specs.** The seams are the ones the plane pattern already has: the plane and its
+authorizer, which ships nothing a user can reach (221); the converter, the three writers and the
+notification, which is where every format-specific fence lives (222); and the browser, which is
+where a user can first reach it, behind a presentation flag (223). Each is a delivery of its own,
+and the browser spec is deliberately last so the flag guards a plane that already converts rather
+than a select that enqueues into a placeholder.
+
+**Two decisions worth reading before building 222.** JSON is **newline-delimited**, one object per
+line — the shape the table builder and Athena ingest, so "save as JSON, then build a table"
+composes; the Explorer's *Copy* offers a pretty-printed array for a page, and that is a different
+tool for a different job. And Excel gets the two fences a spreadsheet export owes: a cell is never a
+formula, whatever the value starts with, and the 1,048,575-row and 16,384-column limits are
+refusals that name the count and suggest Parquet, never a truncated sheet that looks complete.
+
+**The write is conditional, and that is the whole concurrency story.** The browser asks
+`objects.exists` first so the overwrite question is asked before the wait, and the plane writes
+with `If-None-Match` unless told to overwrite, so a name taken in between is a refusal with a
+notification rather than a silent replacement. No lock, because one object is written and S3 can
+refuse the write itself.
