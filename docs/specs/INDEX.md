@@ -223,6 +223,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 215 — Configuration from Terraform State (retiring the repository variables) | Completed |
 | 216 — Multipart Upload & Part-Level Retry | Completed |
 | 217 — Operator-Driven Shared-Space Membership | Completed |
+| 218 — One Builder Per App-Managed Path | Draft |
 
 ## Arcs
 
