@@ -13,8 +13,10 @@ import type {FeatureFlagKey, FeatureFlags} from './featureFlags.types';
  *
  * Every row in `GATED_SURFACES` is rendered twice — flag off, then flag on — and asserted by
  * ACCESSIBLE NAME. That is the whole design: a per-component gating pass finds the tabs and
- * the routes and ships the fourth cross-feature entry point visible, because nobody
- * remembers that "Create table" is a Query feature living on a file-browser toolbar.
+ * the routes and ships a cross-feature entry point visible, because nobody remembers that
+ * "Create table" is a Query feature living on a file-browser toolbar. Deliberately not an
+ * ordinal — the population changes whenever a surface is added or retired, and a count in
+ * prose goes stale in silence while the walk below stays correct.
  *
  * Only the AWS boundary is mocked (react.md §21) — including the feature-flag service, so the
  * real `useFeatureFlags` → `useFeature` → component chain runs. Mocking `useFeature` itself
@@ -487,17 +489,6 @@ const RECIPES: Record<string, Recipe> = {
     // row under test.
     anchor: async () => screen.findByRole('button', {name: /^My files/}),
     find: async () => screen.queryByRole('button', {name: /^teamspace/})
-  },
-  'Create table from a folder…': {
-    render: () => {
-      // NO tab seeded: the control lives on the source PICKER, which is what shows when there
-      // is nothing open — the screen where "how do I get a table in here?" is the question.
-      renderWithProviders(<DataExplorerWorkspace />, {auth: authenticated('alice'), seedFeatureFlags: false});
-    },
-    // The picker's own space list, which is ungated for the personal space, so the anchor
-    // settles the screen without depending on the row under test.
-    anchor: async () => screen.findByRole('button', {name: /^My files/}),
-    find: async () => screen.queryByRole('button', {name: 'Create table from a folder…'})
   },
   'Create view…': {
     render: async () => {
@@ -1031,10 +1022,6 @@ describe('the registry itself', () => {
         // capability on a Data Explorer surface, so it follows the store's flag.
         'Save as query',
         'Create view',
-        // The twin of 'Create table' above: the same build reached from a surface with no
-        // folder in view, so the folder is chosen first. It follows this flag for the same
-        // reason — with `query` off there is no workspace to use the table in.
-        'Create table from a folder…',
         // The twin of `Create view` on the Query toolbar: creating a Glue view is a Query
         // capability wherever the control lives, so an exemption here would hand back, through
         // a different door, the one thing turning this flag off is meant to remove.

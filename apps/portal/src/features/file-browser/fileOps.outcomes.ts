@@ -15,7 +15,7 @@ const OUTCOME_HEADINGS: Record<FileOpOutcome, string> = {
   noop: 'Nothing to do',
   source_missing: 'No longer there',
   source_empty: 'Empty',
-  protected: 'Protected — the portal manages these',
+  protected: 'Protected — Data Quarry manages these',
   copy_failed: 'The copy did not finish',
   delete_failed: 'Could not be removed',
   duplicate: 'Copied, but the original is still there',

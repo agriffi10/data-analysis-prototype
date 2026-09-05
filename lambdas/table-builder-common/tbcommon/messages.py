@@ -57,9 +57,9 @@ _BODIES = {
     ),
     "table_not_found": 'no table named that exists in "{database}".',
     "cannot_refresh_view": "a view has no data files to re-read.",
-    "cannot_refresh_managed_table": "only tables the portal created over files in your space can be refreshed.",
+    "cannot_refresh_managed_table": "only tables Data Quarry created over files in your space can be refreshed.",
     "cannot_refresh_catalog_partitioned": "tables with catalog-registered partitions can't be refreshed.",
-    "cannot_refresh_location_unsupported": "that table's data location isn't one this portal can read.",
+    "cannot_refresh_location_unsupported": "that table's data location isn't one Data Quarry can read.",
     "table_outside_space": "that table's data is outside the space you're refreshing it from.",
     "projection_not_reconstructable": (
         "that table's partition settings can't be read back - drop the table and build it "

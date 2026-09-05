@@ -423,7 +423,7 @@ export default function LandingPage() {
           <LandingNavMenu links={NAV_LINKS} />
           <a
             href="/"
-            aria-label="Data Workspace home">
+            aria-label="Data Quarry home">
             <BrandMark />
           </a>
           <div className="ml-8 hidden items-center gap-5 tablet:flex">
@@ -479,7 +479,7 @@ export default function LandingPage() {
               Private storage · SQL query · shared spaces — on your own AWS
             </span>
             <h1 className="mx-auto mb-5 max-w-[760px] text-[32px] font-bold leading-tight tracking-[-0.02em] tablet:text-[40px] desktop:text-[46px]">
-              Your data workspace, <span className="text-accent">scoped to you</span>.
+              Your data, <span className="text-accent">scoped to you</span>.
             </h1>
             <p className="mx-auto mb-8 max-w-[600px] text-lg text-text-2">
               Upload files to a private space, turn folders into queryable tables, run SQL right in the browser, and
@@ -629,12 +629,12 @@ export default function LandingPage() {
         <div className="mx-auto flex h-16 max-w-[1080px] items-center gap-4 px-6">
           <a
             href="/"
-            aria-label="Data Workspace home">
+            aria-label="Data Quarry home">
             <BrandMark size="sm" />
           </a>
           <div className="flex-1" />
           <p className="text-sm text-text-3">
-            © 2026 Data Workspace ·{' '}
+            © 2026 Data Quarry ·{' '}
             <a
               href="#"
               className="text-text-2 hover:text-text">

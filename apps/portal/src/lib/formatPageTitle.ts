@@ -1,7 +1,7 @@
-const APP_NAME = 'Data Workspace';
+const APP_NAME = 'Data Quarry';
 
 /**
- * Formats the document title: "{page} — Data Workspace" (em-dash), or just the
+ * Formats the document title: "{page} — Data Quarry" (em-dash), or just the
  * product name when the page is omitted/empty. Pure and DOM-free; the
  * side-effecting `usePageTitle` hook wraps it.
  */

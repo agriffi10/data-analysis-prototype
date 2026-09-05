@@ -511,7 +511,7 @@ as honestly as a succeeding one.
 
 | Do | Expect |
 |---|---|
-| Open the picker with no tabs | A **Create** section below the list: *Create table from a folder…*. Its dialog refuses the space ROOT and says why. |
+| Open the picker with no tabs | The space rail, then the object list headed **Tables (n)**, and **Views (n)** — either heading is omitted when that group is empty, which is symmetric, so a space with tables and no views correctly shows one heading. No title over the list, and NO create control anywhere on the picker. |
 | **Options** on an open exploration | One menu holding Order and filter, Remove all filters, Filter by this value, Columns, Colours, Transformers, Value, Calc, Grouping, Copy…, Export, Save as query, Create view…. The bar keeps only undo/redo and the view switch. |
 | **Options** with nothing selected | **Copy…** sits there `aria-disabled` with its reason on hover AND reachable by Arrow — not missing, not silently inert. |
 | Pick any Options item, then press Tab | Focus is on the **Options** button, not at the top of the page. |

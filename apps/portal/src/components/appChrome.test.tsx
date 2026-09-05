@@ -52,26 +52,28 @@ describe('Header', () => {
       // Primary tab strip is present but desktop-only (hidden below tablet).
       expect(screen.getByRole('navigation', {name: 'Primary'}).parentElement).toHaveClass('hidden', 'tablet:flex');
       // Brand + bell remain at all widths.
-      expect(screen.getByText('Data Workspace')).toBeInTheDocument();
+      expect(screen.getByText('Data Quarry')).toBeInTheDocument();
     });
 
     // THE WORDS, not the square — and `desktop`, not `tablet`, which is the whole finding.
-    // A `tablet:` threshold fixes the phone and leaves 900–1023 wrapping `Data Workspace` onto
-    // a second line inside a one-line bar, because that band shows the tab strip and the three
-    // control labels at once. Pinned to the exact class for that reason: `hidden` alone would
+    // A `tablet:` threshold fixes the phone and leaves 900–1023 wrapping the wordmark onto a
+    // second line inside a one-line bar, because that band shows the tab strip and the three
+    // control labels at once. Measured against the former, longer `Data Workspace`; the rename
+    // shortened it, which can only move that edge down — see the register entry, which is the
+    // one place that reasoning lives. Pinned to the exact class for that reason: `hidden` alone would
     // pass on the threshold that was wrong. Asserted on the class because jsdom has no layout —
     // it loads no Tailwind, so a wrapped wordmark and a hidden one measure identically here.
     it('holds the wordmark back to desktop when signed in, and keeps it when signed out', () => {
       renderHeader(authenticated('alice'));
-      expect(screen.getByText('Data Workspace')).toHaveClass('hidden', 'desktop:inline');
-      expect(screen.getByText('Data Workspace')).not.toHaveClass('tablet:inline');
+      expect(screen.getByText('Data Quarry')).toHaveClass('hidden', 'desktop:inline');
+      expect(screen.getByText('Data Quarry')).not.toHaveClass('tablet:inline');
 
       cleanup();
 
       // Signed out there is no hamburger, no tab strip and no user zone, so there is room at
       // every width — and the landing page's own mark is a separate instance this cannot reach.
       renderHeader(unauthenticated());
-      expect(screen.getByText('Data Workspace')).not.toHaveClass('hidden');
+      expect(screen.getByText('Data Quarry')).not.toHaveClass('hidden');
     });
 
     // The name has to be SOMEWHERE below `tablet`, and this is the only place left. Driven to
@@ -83,7 +85,7 @@ describe('Header', () => {
       await user.click(screen.getByRole('button', {name: 'Open navigation'}));
 
       const drawer = await screen.findByRole('dialog', {name: 'Navigation'});
-      expect(within(drawer).getByText('Data Workspace')).toBeInTheDocument();
+      expect(within(drawer).getByText('Data Quarry')).toBeInTheDocument();
     });
 
     it('opens the nav drawer on mobile when the hamburger is clicked', () => {
@@ -268,7 +270,7 @@ describe('RootLayout', () => {
         renderBoomAt('/files');
 
         expect(screen.getByRole('alert')).toBeInTheDocument();
-        expect(screen.getByText('Data Workspace')).toBeInTheDocument();
+        expect(screen.getByText('Data Quarry')).toBeInTheDocument();
         consoleError.mockRestore();
       });
     });

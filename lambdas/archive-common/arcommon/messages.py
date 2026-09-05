@@ -75,7 +75,7 @@ _BODIES = {
         "that selection is too large to archive in one go. Please select fewer files or folders."
     ),
     "reserved_folder": (
-        "that folder is managed by the portal and can't be archived. "
+        "that folder is managed by Data Quarry and can't be archived. "
         "Please select your own files or folders instead."
     ),
     "reserved_object_name": (
@@ -105,7 +105,7 @@ _BODIES = {
         "Please try again from the file browser."
     ),
     "undeletable_folder": (
-        'what you selected contains a folder named "{folderName}", which the portal manages and '
+        'what you selected contains a folder named "{folderName}", which Data Quarry manages and '
         "can't remove from your space, so nothing was archived. Please rename it or select "
         "something else."
     ),

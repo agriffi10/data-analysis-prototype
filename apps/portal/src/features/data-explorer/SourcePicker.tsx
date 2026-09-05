@@ -24,12 +24,6 @@ export type SourcePickerProps = {
   spaces: readonly QuerySpace[];
   username: string;
   onChoose: (target: ExploreTarget) => void;
-  /**
-   * Start the create-table flow, or omitted when the surface does not offer it — which is how
-   * the `query` flag reaches this component. REMOVED rather than refused: a reason cannot
-   * explain a state the user has no way to change.
-   */
-  onCreateTable?: () => void;
   /** Offered only when there is somewhere to go back to — i.e. a tab is already open. */
   onCancel?: () => void;
 };
@@ -46,10 +40,13 @@ export type SourcePickerProps = {
  * Views are offered alongside tables. A view is a perfectly good thing to explore and the
  * renderer does not care which it is reading.
  *
+ * The picker only picks. Building a table is done from the Files screen, where the folder in
+ * view is the answer to the question a folder chooser would otherwise have to ask.
+ *
  * @example
  * <SourcePicker spaces={spaces} username="alice" onChoose={openTab} />
  */
-export function SourcePicker({spaces, username, onChoose, onCreateTable, onCancel}: SourcePickerProps) {
+export function SourcePicker({spaces, username, onChoose, onCancel}: SourcePickerProps) {
   const [selectedId, setSelectedId] = useState(spaces[0]?.id ?? '');
   const selected = spaces.find((s) => s.id === selectedId) ?? spaces[0];
   const database = selected ? spaceDatabase(selected, username) : null;
@@ -101,18 +98,20 @@ export function SourcePicker({spaces, username, onChoose, onCreateTable, onCance
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col p-3">
-        <div className="flex items-center gap-3 px-2 pb-2">
-          <h2 className={SECTION_CAPTION}>Tables and views</h2>
-          {onCancel && (
+        {/* No title over the list. "Tables and views" restated what the two headings below
+            already say, and it took the prominence they needed: the group a name is in is the
+            thing a reader is actually scanning for. Rendered only for the Cancel button, so
+            the list starts at the top of the column when there is nothing to go back to. */}
+        {onCancel && (
+          <div className="flex items-center justify-end px-2 pb-2">
             <Button
               variant="ghost"
               size="sm"
-              className="ml-auto"
               onClick={onCancel}>
               Cancel
             </Button>
-          )}
-        </div>
+          </div>
+        )}
         {isPending && (
           <p
             role="status"
@@ -128,10 +127,11 @@ export function SourcePicker({spaces, username, onChoose, onCreateTable, onCance
           </p>
         )}
         {data && data.tables.length === 0 && (
-          <p className="px-2 py-2 text-sm text-text-3">
-            No tables or views yet.
-            {onCreateTable && ' Create one from a folder of data files below.'}
-          </p>
+          // No how-to here. The control that builds a table follows the `query` flag and this
+          // component can no longer see it, so any sentence naming that control is one the flag
+          // can falsify — pointing a user at a button the same flag has just hidden. The Tables
+          // help section carries the instructions and is registered under that flag.
+          <p className="px-2 py-2 text-sm text-text-3">No tables or views yet.</p>
         )}
         {data && data.tables.length > 0 && (
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -144,10 +144,15 @@ export function SourcePicker({spaces, username, onChoose, onCreateTable, onCance
               const members = partitioned[key];
               if (members.length === 0) return null;
               return (
-                <section key={key}>
-                  <h3 className={`px-2 pb-1 pt-2 ${SECTION_CAPTION}`}>
+                // The gap between one group and the next belongs on the SECTION, not the
+                // heading: each heading is the first child of its own section, so `first:`
+                // on the heading matches in every group and separates none of them.
+                <section
+                  key={key}
+                  className="pt-4 first:pt-0">
+                  <h2 className="px-2 pb-1 text-base font-semibold text-text">
                     {heading} ({members.length})
-                  </h3>
+                  </h2>
                   <ul className="flex flex-col">
                     {members.map((table) => (
                       <li key={table.name}>
@@ -165,31 +170,6 @@ export function SourcePicker({spaces, username, onChoose, onCreateTable, onCance
                 </section>
               );
             })}
-          </div>
-        )}
-
-        {/* The Create section sits BELOW the list, not above it: the list is what the user came
-            for, and a create affordance at the top pushes it down for everyone on every visit
-            to save a step for the few who are adding a source. It is here at all because this
-            panel is where a user discovers there is nothing to explore yet — the point at
-            which "how do I get a table in here?" is the actual question.
-
-            Only Create table. A view is made FROM a query, and there is no query on this
-            screen — `Create view` lives in an open exploration's Options menu, where the
-            statement it would be built from is the thing in front of the user. */}
-        {onCreateTable && (
-          <div className="mt-2 flex-none border-t border-border px-2 pt-3">
-            <h3 className={`pb-1 ${SECTION_CAPTION}`}>Create</h3>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="-ml-2"
-              onClick={onCreateTable}>
-              Create table from a folder…
-            </Button>
-            <p className="mt-1 text-xs leading-relaxed text-text-3">
-              Turn a folder of CSV, JSON or Parquet files into a table you can explore. The files stay where they are.
-            </p>
           </div>
         )}
       </div>
