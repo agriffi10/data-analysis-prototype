@@ -502,19 +502,19 @@ export const HELP_SECTIONS: HelpSection[] = [
       },
       {
         id: 'explore-copy-and-export',
-        title: 'Copy and export what you found',
+        title: 'Copy or save what you found',
         subtitle: 'Take a selection to the clipboard, or the whole result to a file.',
         intro:
-          'Two ways out, for two different jobs. <b>Copy</b> takes the cells you have selected on the page. <b>Export</b> saves every row the query returned as a CSV file in your files — neither one runs another query.',
+          'Two ways out, for two different jobs. <b>Copy</b> takes the cells you have selected on the page. <b>Save results to my files</b> saves every row the query returned as a CSV file in your files — neither one runs another query.',
         steps: [
           'Select some cells and press <b>Ctrl+C</b> (<b>⌘C</b> on a Mac) to copy them as plain columns you can paste straight into a spreadsheet.',
           'Pick <b>Copy…</b> from <b>Options</b> instead to choose a format — <b>CSV</b>, <b>JSON</b>, a <b>Markdown table</b>, a <b>SQL INSERT</b> or <b>XML</b> — and whether to include column names, row numbers or quotes.',
-          'Pick <b>Export</b> from <b>Options</b> to save the full result. Give the file a name, choose the space and folder, and click <b>Save here</b>.',
+          'Click <b>Save results to my files</b> beside the pager (it is in <b>Options</b> too) to save the full result. Give the file a name, choose the space and folder, and click <b>Save here</b>.',
           'If a file of that name is already there you are asked before anything is replaced.'
         ],
         callout: {
           kind: 'warning',
-          text: 'Copy only takes the rows loaded on the page you are looking at — selecting a column header selects that page, not the whole table. <b>Export</b> is the one that saves every row. And if your selection has gaps in it, the copy comes out as one rectangle with the cells in between left blank.'
+          text: 'Copy only takes the rows loaded on the page you are looking at — selecting a column header selects that page, not the whole table. <b>Save results to my files</b> is the one that saves every row. And if your selection has gaps in it, the copy comes out as one rectangle with the cells in between left blank.'
         }
       },
       {

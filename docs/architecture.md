@@ -382,7 +382,8 @@ something.
 - **Versioning is off**, so a failure between those two steps is unrecoverable. Deferred
   pre-production; revisit before real user data lands.
 - **`ListObjectsV2` returns at most 1,000 keys per call.** The browser paginates with
-  `useInfiniteQuery` and a "Load more" control — never assume one page is a whole folder.
+  `useInfiniteQuery` — a Prev/Next pager over server pages in the file browser, "Load more" in
+  the destination picker — never assume one page is a whole folder.
 - **The SERVER decides whether an upload is one presigned `PUT` or a multipart plan**, so the
   browser holds no threshold. Either way it caps at 5 GiB — and that ceiling is now a server-side
   refusal, because S3 enforced it unforgeably only for a single `PUT`. A dropped connection retries

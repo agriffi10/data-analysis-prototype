@@ -39,7 +39,7 @@ Behind `uploadFile`, which is the only entry point a feature should call.
 
 | Symbol | File | Purpose |
 |---|---|---|
-| `useFileBrowser(bucket, prefix?)` | `useFileBrowser.ts` | Paginated listing via `useInfiniteQuery`; merges/sorts pages, and hides EVERY `DO_NOT_DELETE.txt` by basename at any depth in either bucket — no caller-supplied key (SPEC-173 FR-003). |
+| `useFileBrowser(bucket, prefix?)` | `useFileBrowser.ts` | Paginated listing via `useInfiniteQuery`; merges/sorts pages for the picker, and exposes `page` — ONE server page at a time, folders first within it — for the browser, whose position is remembered per listing and clamped to the pages a refetch leaves. `goNext` advances only if a page actually arrived. Hides EVERY `DO_NOT_DELETE.txt` by basename at any depth in either bucket — no caller-supplied key (SPEC-173 FR-003). |
 | `useFileSpace({username, connections, isLoading, userSpaceBucket, sharedSpaceBucket})` | `useFileSpace.ts` | Active file-browser **space** from `useConnections` + the `?space=` route param → `FileSpaceTarget {id,bucket,rootPrefix,kind,label}`; `selectSpace`/`fellBack`/`dismissFellBack`. Gone/revoked/not-yet-active space reconciles to personal (file-side analogue of `useActiveDatabase`) (SPEC-057). |
 | `useFileUpload(bucket, prefix)` | `useFileUpload.ts` | Upload + create-folder orchestration: progress, collision warn-and-confirm, listing invalidation. |
 | `useObjectMetadata(bucket, key \| null)` | `useObjectMetadata.ts` | Per-object `HeadObject` metadata via `useQuery`, keyed per object; disabled when key is null. |

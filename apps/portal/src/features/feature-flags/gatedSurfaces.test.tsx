@@ -529,15 +529,15 @@ const RECIPES: Record<string, Recipe> = {
       renderWithProviders(<DataExplorerWorkspace />, {auth: authenticated('alice'), seedFeatureFlags: false});
       const {default: userEvent} = await import('@testing-library/user-event');
       const user = userEvent.setup({delay: null});
-      // Export now lives in the Options menu, and the recipe still has to walk the refusal:
+      // Save results lives in the Options menu too, and the recipe walks the refusal there:
       // the item is REFUSED until an execution has succeeded (FR-002 AC3), and a refused
       // `MenuItem` drops its `onSelect` — so choosing it early would silently do nothing and
       // the row would read as correctly hidden in both states. Re-fetched on each pass rather
       // than held, because `waitFor` outlives the menu's own open state.
       await waitFor(async () =>
-        expect(await explorationOption(user, 'Export')).not.toHaveAttribute('aria-disabled', 'true')
+        expect(await explorationOption(user, 'Save results to my files')).not.toHaveAttribute('aria-disabled', 'true')
       );
-      await chooseExplorationOption(user, 'Export');
+      await chooseExplorationOption(user, 'Save results to my files');
     },
     anchor: async () =>
       within(await screen.findByRole('dialog', {name: 'Save results to my files'})).findByLabelText('File name'),

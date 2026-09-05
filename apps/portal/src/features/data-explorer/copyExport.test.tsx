@@ -327,11 +327,21 @@ describe('export (FR-002)', () => {
   // detached from the document.
   async function openExport(user: ReturnType<typeof render>['user']) {
     await waitFor(async () =>
-      expect(await explorationOption(user, 'Export')).not.toHaveAttribute('aria-disabled', 'true')
+      expect(await explorationOption(user, 'Save results to my files')).not.toHaveAttribute('aria-disabled', 'true')
     );
-    await chooseExplorationOption(user, 'Export');
+    await chooseExplorationOption(user, 'Save results to my files');
     return screen.findByRole('dialog', {name: 'Save results to my files'});
   }
+
+  it('offers Save results beside the pager once a result exists, opening the same dialog', async () => {
+    // The Query workspace's own control, by name — a user who found it there finds it here.
+    seedTab();
+    const {user} = render();
+    await grid();
+
+    await user.click(await screen.findByRole('button', {name: 'Save results to my files'}));
+    expect(await screen.findByRole('dialog', {name: 'Save results to my files'})).toBeInTheDocument();
+  });
 
   it('copies the EXECUTION’s own results object, and starts no second query', async () => {
     // AC1. The copy is server-side and takes the object Athena wrote, so a filtered,
@@ -393,9 +403,13 @@ describe('export (FR-002)', () => {
     // Asserted on the MENU ITEM. `aria-disabled`, not `disabled` — the reason has to be
     // reachable, which is exactly why the item was given `MenuItem.disabledReason` rather
     // than being dropped from the menu when it moved off the toolbar.
-    const item = await explorationOption(user, 'Export');
+    const item = await explorationOption(user, 'Save results to my files');
     expect(item).toHaveAttribute('aria-disabled', 'true');
     expect(item).not.toHaveAttribute('disabled');
     expect(item).toHaveAttribute('title', NOTHING_TO_EXPORT);
+    // The grid is on screen (the menu just opened over it), so this absence is not a race
+    // with the load: the button beside the pager is withheld, and the menu item is where
+    // the refusal is read.
+    expect(screen.queryByRole('button', {name: 'Save results to my files'})).not.toBeInTheDocument();
   });
 });

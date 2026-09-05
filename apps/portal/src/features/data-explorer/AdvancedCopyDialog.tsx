@@ -30,7 +30,7 @@ export const COPY_RECTANGLE_NOTE =
  * export is the tool that does cover the whole result set.
  */
 export const COPY_LOADED_ROWS_NOTE =
-  'Only the rows loaded on this page are copied — selecting a column header selects that page, not the whole result. To take everything, use Export.';
+  'Only the rows loaded on this page are copied — selecting a column header selects that page, not the whole result. To take everything, use Save results to my files.';
 
 /** Why quoting is unavailable in the formats that already delimit their values. */
 export const COPY_QUOTING_INERT = 'This format already keeps text and numbers apart, so quoting adds nothing.';

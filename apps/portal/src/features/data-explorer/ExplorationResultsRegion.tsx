@@ -100,7 +100,7 @@ export type ExplorationResultsRegionProps = {
    * reasons still names the one the user can act on first.
    */
   createViewRefusal?: string | null;
-  /** Raises the export dialog. The host owns the copy; this owns the gesture. */
+  /** Raises the save-results dialog. The host owns the copy; this owns the gesture. */
   onExport: () => void;
   /**
    * Why export is unavailable, or null when it is.
@@ -155,7 +155,7 @@ export const COPY_FAILED = 'Your browser wouldn’t let the app write to the cli
  * — so this covers a first run still in flight, a failed one, and a suspended description
  * alike. Copy is offered throughout, because the rows on screen are real either way.
  */
-export const NOTHING_TO_EXPORT = 'Run a query first — export saves the results Athena returned.';
+export const NOTHING_TO_EXPORT = 'Run a query first — there are no results to save yet.';
 
 /**
  * One exploration's rows, and everything that changes which rows they are.
@@ -580,15 +580,38 @@ export function ExplorationResultsRegion({
           )}
         </div>
 
-        <Pager
-          hasPrev={results.hasPrev}
-          hasNext={results.hasNext}
-          onPrev={results.goPrev}
-          onNext={results.goNext}
-          nextBusy={results.isFetchingNext}
-          label={`Rows ${results.rangeStart}–${results.rangeEnd}`}
-          className="flex-none px-1"
-        />
+        <div className="flex flex-none flex-wrap items-center gap-2 px-1">
+          <Pager
+            hasPrev={results.hasPrev}
+            hasNext={results.hasNext}
+            onPrev={results.goPrev}
+            onNext={results.goNext}
+            nextBusy={results.isFetchingNext}
+            label={`Rows ${results.rangeStart}–${results.rangeEnd}`}
+            className="min-w-0 flex-1 basis-64"
+          />
+          {/* The Query workspace's own control, by name and by rule: present only once
+              there is a result to save, so the menu item is where the refusal is read. */}
+          {exportRefusal === null && (
+            <button
+              type="button"
+              onClick={onExport}
+              className="inline-flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className="h-4 w-4"
+                aria-hidden="true">
+                <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
+                <path d="M9 4v5h6" />
+                <path d="M8 21v-7h8v7" />
+              </svg>
+              Save results to my files
+            </button>
+          )}
+        </div>
       </>
     );
   };
