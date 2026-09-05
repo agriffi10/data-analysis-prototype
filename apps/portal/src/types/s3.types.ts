@@ -20,9 +20,9 @@ export type FileList = {
 };
 
 /**
- * One page of a paginated ListObjectsV2 response. `isTruncated` drives the
- * "Load more" control; `nextContinuationToken` is threaded into the next page
- * request.
+ * One page of a paginated ListObjectsV2 response. `isTruncated` says whether a next
+ * page exists (the browser's pager, the picker's "Load more"); `nextContinuationToken`
+ * is threaded into the next page request.
  */
 export type FileListPage = FileList & {
   isTruncated: boolean;

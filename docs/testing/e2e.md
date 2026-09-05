@@ -478,15 +478,16 @@ as honestly as a succeeding one.
 2. ⌘-click two non-adjacent cells, copy → the **bounding rectangle**, cells between blank.
 3. Click a **column header**, copy → the loaded page's rows only.
 4. **Copy…** → **JSON** → `null` for the NULL and `""` for the empty cell. Distinguishable is the point.
-5. **Export** before anything has run → refused, `aria-disabled`, `disabled` false, `tabIndex 0`,
-   *"Run a query first — export saves the results Athena returned."* No need to be quick: "nothing
-   has run" and "still running" are one state.
-6. Export → `explorer-export` → **My files** → **Save here** → success toast, and the file in **Files**.
-7. **Open the exported CSV and count its rows.** It holds the **whole** result — 151 lines for the
+5. **Save results to my files** (Options) before anything has run → refused, `aria-disabled`, `disabled`
+   false, `tabIndex 0`, *"Run a query first — there are no results to save yet."*, and no such button
+   beside the pager. No need to be quick: "nothing has run" and "still running" are one state.
+6. **Save results to my files** beside the pager → `explorer-export` → **My files** → **Save here** →
+   success toast, and the file in **Files**.
+7. **Open the saved CSV and count its rows.** It holds the **whole** result — 151 lines for the
    150-row fixture — while the page held 100. Download it through the portal.
 8. Steps 1–7 started **zero** `StartQueryExecution`.
-9. Export again, same name → the **Overwrite** confirm.
-10. Export into a **shared space** → the cross-bucket copy succeeds.
+9. Save again, same name → the **Overwrite** confirm.
+10. Save into a **shared space** → the cross-bucket copy succeeds.
 
 > **A query that outruns the poll guard.** Results are read only at `SUCCEEDED`.
 > `MAX_POLL_DURATION_MS` is 5 minutes and `refetchOnWindowFocus` is off, so an execution still
@@ -512,7 +513,7 @@ as honestly as a succeeding one.
 | Do | Expect |
 |---|---|
 | Open the picker with no tabs | The space rail, then the object list headed **Tables (n)**, and **Views (n)** — either heading is omitted when that group is empty, which is symmetric, so a space with tables and no views correctly shows one heading. No title over the list, and NO create control anywhere on the picker. |
-| **Options** on an open exploration | One menu holding Order and filter, Remove all filters, Filter by this value, Columns, Colours, Transformers, Value, Calc, Grouping, Copy…, Export, Save as query, Create view…. The bar keeps only undo/redo and the view switch. |
+| **Options** on an open exploration | One menu holding Order and filter, Remove all filters, Filter by this value, Columns, Colours, Transformers, Value, Calc, Grouping, Copy…, Save results to my files, Save as query, Create view…. The bar keeps only undo/redo and the view switch. |
 | **Options** with nothing selected | **Copy…** sits there `aria-disabled` with its reason on hover AND reachable by Arrow — not missing, not silently inert. |
 | Pick any Options item, then press Tab | Focus is on the **Options** button, not at the top of the page. |
 | **Options → Create view…**, name it, then look in the rail | The view appears. Its statement quotes both identifiers. |

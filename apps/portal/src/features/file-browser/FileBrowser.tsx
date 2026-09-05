@@ -1,5 +1,7 @@
-import {useMemo, useState} from 'react';
+import {useEffect, useMemo, useState} from 'react';
 import {Button} from '../../components/Button';
+import {Pager} from '../../components/Pager';
+import type {S3FolderItem} from '../../types/s3.types';
 import {Banner} from '../../components/Banner';
 import {useFileBrowser} from './useFileBrowser';
 import {useFileUpload} from './useFileUpload';
@@ -102,15 +104,14 @@ function FileBrowserContent({
   setPrefix
 }: ContentProps) {
   const {
-    files,
-    folders: allFolders,
+    files: loadedFiles,
+    folders: loadedFolders,
+    page,
     isLoading,
     error,
-    refresh: refreshListing,
-    hasMore,
-    loadMore,
-    isLoadingMore
+    refresh: refreshListing
   } = useFileBrowser(bucket, prefix);
+  const {files} = page;
 
   const access = useSharedSpaceAccessRecovery({error, spaceKind, refreshListing});
 
@@ -135,7 +136,10 @@ function FileBrowserContent({
     () => (queryEnabled ? HIDDEN_BROWSER_FOLDERS : [...HIDDEN_BROWSER_FOLDERS, SAVED_QUERIES_FOLDER]),
     [queryEnabled]
   );
-  const visibleFolders = allFolders.filter((f) => !isRootFolderNamed(f.prefix, rootPrefix, hiddenFolders));
+  const isHiddenFolder = (f: S3FolderItem) => isRootFolderNamed(f.prefix, rootPrefix, hiddenFolders);
+  const visibleFolders = page.folders.filter((f) => !isHiddenFolder(f));
+  // Emptiness is a fact about the whole listing, not the page on screen.
+  const loadedVisibleFolders = loadedFolders.filter((f) => !isHiddenFolder(f));
   // The folders the app fills on the user's behalf collapse behind one row at a space root, so a
   // user's own folders are what the root leads with. Collapsed is the default because the request
   // was to get them out of the way; expanding restores the listing exactly as it was.
@@ -161,6 +165,14 @@ function FileBrowserContent({
   // SelectionProvider; delete is only offered in the authenticated, writable flow
   // (a username is required for the marker guard).
   const selection = useSelection();
+
+  // A page turn takes the selection with it, as a folder change does: the toolbar acts on
+  // the selection, never on what is rendered, so a row the user can no longer see must not
+  // stay selected.
+  const clearSelection = selection.clear;
+  useEffect(() => {
+    clearSelection();
+  }, [page.index, clearSelection]);
   // Mount-gate the table-vs-card list swap; matchMedia reads correctly
   // on first paint in the browser, so no flash and only one markup ever mounts.
   const isMobile = useIsMobile();
@@ -211,8 +223,8 @@ function FileBrowserContent({
   const destinationLabel = breadcrumbs[breadcrumbs.length - 1]?.label;
   // The `..` row shows below the space root only.
   const atRoot = isAtRoot(currentPrefix, rootPrefix);
-  const isEmpty = !isLoading && error === null && files.length === 0 && visibleFolders.length === 0;
-  const hasContent = !isLoading && error === null && (files.length > 0 || visibleFolders.length > 0);
+  const isEmpty = !isLoading && error === null && loadedFiles.length === 0 && loadedVisibleFolders.length === 0;
+  const hasContent = !isLoading && error === null && (loadedFiles.length > 0 || loadedVisibleFolders.length > 0);
 
   // Every selectable row in the current view, for the header "select all".
   // Collapsed system folders are NOT here: select-all would otherwise take in rows the user
@@ -711,16 +723,24 @@ function FileBrowserContent({
         copy={copy}
       />
 
-      {/* Load more — only when the current prefix has further pages */}
-      {hasContent && hasMore && (
-        <div className="mt-4 flex justify-center">
-          <button
-            className="h-9 rounded-md border border-border px-4 text-sm font-medium text-text-2 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            onClick={loadMore}
-            disabled={isLoadingMore}>
-            {isLoadingMore ? 'Loading…' : 'Load more'}
-          </button>
-        </div>
+      {/* One server page at a time. Absent for a folder that fits on one page — a pager
+          with both ends disabled says nothing. The page count is only claimed once the last
+          server page has loaded; before that a listing has no known length. */}
+      {hasContent && (page.hasPrev || page.hasNext) && (
+        <Pager
+          className="mt-4"
+          hasPrev={page.hasPrev}
+          hasNext={page.hasNext}
+          nextBusy={page.isFetchingNext}
+          onPrev={page.goPrev}
+          onNext={() => void page.goNext()}
+          label={
+            <>
+              Page {page.index + 1}
+              {page.hasMoreServer ? '' : ` of ${page.count}`}
+            </>
+          }
+        />
       )}
     </div>
   );

@@ -193,7 +193,7 @@ describe('FileBrowser — listing states', () => {
     expect(await screen.findByText('report.csv')).toBeInTheDocument();
   });
 
-  it('paginates with "Load more"', async () => {
+  it('shows one server page at a time: Next fetches and replaces, Prev returns from cache', async () => {
     mock.listFiles
       .mockResolvedValueOnce(
         ok(page({files: [file('page1.csv')], folders: [], isTruncated: true, nextContinuationToken: 't1'}))
@@ -201,10 +201,40 @@ describe('FileBrowser — listing states', () => {
       .mockResolvedValueOnce(ok(page({files: [file('page2.csv')], folders: [], isTruncated: false})));
     const {user} = renderBrowser();
     await screen.findByText('page1.csv');
-    await user.click(screen.getByRole('button', {name: 'Load more'}));
+    // No page count is claimed while the server still has more.
+    expect(screen.getByText('Page 1')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', {name: 'Next'}));
     expect(await screen.findByText('page2.csv')).toBeInTheDocument();
-    expect(mock.listFiles).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText('page1.csv')).not.toBeInTheDocument();
+    expect(screen.getByText('Page 2 of 2')).toBeInTheDocument();
     expect(mock.listFiles).toHaveBeenLastCalledWith('my-bucket', 'alice/', 't1', expect.any(AbortSignal));
+
+    await user.click(screen.getByRole('button', {name: 'Prev'}));
+    expect(await screen.findByText('page1.csv')).toBeInTheDocument();
+    expect(mock.listFiles).toHaveBeenCalledTimes(2);
+  });
+
+  it('omits the pager for a folder that fits on one page', async () => {
+    renderBrowser();
+    await screen.findByText('report.csv');
+    expect(screen.queryByRole('button', {name: 'Next'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Prev'})).not.toBeInTheDocument();
+  });
+
+  it('drops the selection on a page turn, since the toolbar acts on rows the user can see', async () => {
+    mock.listFiles
+      .mockResolvedValueOnce(
+        ok(page({files: [file('page1.csv')], folders: [], isTruncated: true, nextContinuationToken: 't1'}))
+      )
+      .mockResolvedValueOnce(ok(page({files: [file('page2.csv')], folders: [], isTruncated: false})));
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('checkbox', {name: 'Select page1.csv'}));
+    expect(screen.getByText('1 selected')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', {name: 'Next'}));
+    await screen.findByText('page2.csv');
+    expect(screen.queryByText('1 selected')).not.toBeInTheDocument();
   });
 });
 

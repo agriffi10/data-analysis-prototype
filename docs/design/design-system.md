@@ -176,7 +176,7 @@ Container: `surface`, `border`, `rounded-lg`, clipped. Header row 40px on `surfa
 - Name cell: 20px icon (folder = `accent` fill, file = `text-3` stroke) + filename (weight 500, ellipsis-truncated).
 - Size / modified in `text-2 text-sm`; type as a neutral **pill** (`surface-2` bg, `border`, `rounded-full`, `text-xs`).
 - Checkbox `accent-color: accent`. Row-hover reveals inline actions (opacity 0 → 1).
-- Pagination: a centered ghost **Load more** button below the table (`ListObjectsV2` is capped at 1000 keys — see architecture.md → *Constraints that shape the system*; pairs with TanStack `useInfiniteQuery`).
+- Pagination: the shared **Pager** (Prev — *Page N* — Next) below the table, one `ListObjectsV2` page per browser page (25 entries; the page count appears only once the last server page has loaded). Shown only for a folder that does not fit on one page. The destination picker keeps the centered ghost **Load more** (`ListObjectsV2` is capped at 1000 keys — see architecture.md → *Constraints that shape the system*; both pair with TanStack `useInfiniteQuery`).
 
 ### Selection bar
 When ≥1 row is selected, the default toolbar is replaced by an `accent-soft` bar: master checkbox + "N selected" (`accent-text`, weight 600) + spacer + batch actions (Download, Rename, Move, **Delete** as danger-ghost). This is where SPEC-018/019 multi-select operations live.

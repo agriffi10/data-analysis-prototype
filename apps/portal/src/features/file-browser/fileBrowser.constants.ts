@@ -56,7 +56,7 @@ export const ARCHIVE_FOLDER = 'archive';
 
 /**
  * Single source of truth for the listing page size: entries per ListObjectsV2
- * page (MaxKeys); the user pulls the rest via "Load more". 25 is a UI/UX page
+ * page (MaxKeys), and so the browser's page. 25 is a UI/UX page
  * size — intentionally small so each request and render stays bounded — NOT an
  * S3 limit (S3's hard cap is 1000).
  */
