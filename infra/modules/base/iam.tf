@@ -289,6 +289,29 @@ resource "aws_iam_role_policy_attachment" "deploy_file_ops" {
   policy_arn = aws_iam_policy.deploy_file_ops.arn
 }
 
+# Results conversion.
+#
+# The same statement families as file-ops, one infix apart, and the events: statement from its
+# first version for the same reason: this machine ships a top-level TimeoutSeconds and its
+# TIMED_OUT rule from day one. NO probe invoke statement here — the probe's own test refuses a
+# grant matching no declared function, so that statement travels with the function it names.
+resource "aws_iam_policy" "deploy_results_conversion" {
+  name        = "${var.project_name}-deploy-results-conversion"
+  description = "Deploy-role grants for the results-conversion control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, verb Lambdas + shared execution role, log groups, TIMED_OUT rule), kept off the role's inline-policy aggregate limit."
+
+  policy = templatefile("${path.module}/policies/github-actions-deploy-results-conversion.json.tftpl", {
+    project_name = var.project_name
+    aws_region   = var.aws_region
+  })
+
+  depends_on = [time_sleep.wait_for_self_grant]
+}
+
+resource "aws_iam_role_policy_attachment" "deploy_results_conversion" {
+  role       = aws_iam_role.github_actions_deploy.name
+  policy_arn = aws_iam_policy.deploy_results_conversion.arn
+}
+
 # Archive.
 #
 # ⚠ THE FIRST PLANE POLICY TO CARRY AN S3-BUCKET STATEMENT, and it is scoped by EXACT NAME
