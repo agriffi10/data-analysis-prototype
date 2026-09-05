@@ -1,11 +1,14 @@
 # Infrastructure, IAM and delivery
 
 Part of the **Key Decisions register** — [`INDEX.md`](INDEX.md) is the router, and `CLAUDE.md`
-carries the one-line digest of each entry. This file holds the reasoning, the constraints and the
-explicit "do NOT build" fences for one area. **Read the entry you need, not the file.**
+carries a table pointing at each area's Fences. This file opens with those fences — the traps that
+apply green and fail later — and holds the reasoning, the constraints and the explicit "do NOT
+build" fences for one area beneath them. **Read the Fences before working in the area, then the
+entry you need, not the file.**
 
 ## Contents
 
+- [Fences](#fences)
 - [IaC](#iac)
 - [Deploy-role refresh deadlock has an in-repo lever (`skip_refresh`)](#deploy-role-refresh-deadlock-has-an-in-repo-lever-skip_refresh)
 - [Response headers / CSP (SPEC-140)](#response-headers--csp-spec-140)
@@ -28,6 +31,117 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [A ForceNew packaging change is a rename in state plus 86 replacements, and the permissions are what nobody looks at (SPEC-213)](#a-forcenew-packaging-change-is-a-rename-in-state-plus-86-replacements-and-the-permissions-are-what-nobody-looks-at-spec-213)
 - [A guard is retired by proving its replacement, then deleting (SPEC-214)](#a-guard-is-retired-by-proving-its-replacement-then-deleting-spec-214)
 - [The SPA deploy decides from what is running, not from a path filter — and the Lambda image deliberately does not](#the-spa-deploy-decides-from-what-is-running-not-from-a-path-filter--and-the-lambda-image-deliberately-does-not)
+
+## Fences
+
+OpenTofu, bounded-context modules under `infra/modules/`, IAM policies as `.tftpl` rendered by
+`templatefile()`. Notifications are a **single-writer** FIFO queue → writer Lambda; the browser
+only reads; the API enqueues on its behalf.
+
+- **Deploy-role IAM is in-scope work for any spec that provisions new infra**, and **grants land in
+  their own PR before the resources that need them** — every grants-only PR in Arc B applied green
+  first run. That is the whole claim: it does **not** prevent a red main, which this arc hit three
+  times afterwards on things no grant review would have found.
+- **Scopability is MEASURED, never assumed.** `simulate-custom-policy` gives an
+  `implicitDeny`/`allowed` pair before the policy is written. Actions with no resource type sit alone
+  in a wildcard statement. **A simulate matches PATTERNS, not the ARN the service passes** — it
+  cannot tell you that a service calls something on your behalf, or that a condition key goes
+  unpopulated, which are the two traps that cost this project an apply each. Contradicting intuition: `ec2:DescribeVpcAttribute` and
+  `route53:GetChange` **are** scopable; `ecs:DescribeTaskDefinition` is not, and scoping it is the
+  refresh deadlock arriving by your own hand.
+- **A service may call an action on your behalf that appears in no action list** — ELB calls
+  `ec2:GetSecurityGroupsForVpc` inside `CreateLoadBalancer`.
+- **A role that cannot LIST a bucket cannot be told an object is ABSENT** — S3 answers `NoSuchKey`
+  only to a caller holding `s3:ListBucket`, so every `except NoSuchKey: return None` needs a
+  covering grant or its absence branch fails as a fault. Found live: an unregistered space raised
+  `AccessDenied` out of `cpcommon.registry.load` instead of refusing. **A CONDITIONED grant is
+  sufficient — having no statement is what breaks**, and the simulate misleads here, returning
+  `implicitDeny` with no `s3:prefix` supplied because it answers what IAM decides given your
+  context, never what the service supplies. So scope the condition to the keys read; do **not**
+  widen to an unconditioned admin-bucket list (that discloses every space name, then every
+  roster), and do **not** read `AccessDenied` as absence, which makes a real denial look like a
+  fresh request. The population is swept from the AST, never listed.
+- **A condition on a key the caller does not populate fails CLOSED**, and the refusal names neither.
+- **The deploy role can lock itself out**: tighten or widen one of its own grants and plan, apply and
+  **revert** all fail alike. `Deploy Infrastructure` takes `skip_refresh` to break it — always follow
+  with a normal run. A green plan is not proof; IAM is eventually consistent.
+- **A module-level `depends_on` defers every data source in that module** — benign for a policy
+  document, a hard error where the value feeds a `for_each`.
+- **`COGNITO_USER_POOL_ID` is no longer fleet-wide** — a lazy `config.require` on the three planes
+  resolving a recipient, so a missing one raises **mid-request**, not at cold start.
+- **An empty `TF_VAR_` is not an unset one.** It satisfies a required variable *and* overrides a
+  default; an unset repo variable renders as exactly that. Guard with `validation`, not with the
+  absence of a default.
+- **The container platform (193):** no NAT gateway anywhere — private subnets reach AWS through
+  endpoints alone, the residual is a **connect timeout** (hence flow logs), and a successful pull
+  proves nothing unless read beside `describe-route-tables`. The API function is **not** in the VPC
+  and authorization lives in the **router**, both asserted as absences. The image
+  tag is the commit sha (`IMMUTABLE` ECR, no `:latest`), `task_definition` is ignored while
+  `desired_count` is not — so **CI must point the service**, and a pipeline that only registers a
+  revision leaves a `CannotPullContainerError` **indistinguishable from the endpoint failure the
+  platform is tested for** (the Lambda fleet's registry rides the same rule). A Fargate task volume arrives empty and root-owned and does **not**
+  initialise from the image: writable paths are `linuxParameters.tmpfs`, one uid feeding both `user`
+  and every mount option.
+- **The SPA container is the ONLY front door; it reproduced every CloudFront job bar three
+  DIVERGENCES** — `Server: nginx`, no brotli, no HSTS `preload`. **`add_header` is inherited only by a level defining none of its own**
+  (hence one snippet per location, `always` throughout, and a server-level floor for errors raised
+  before a location resolves); assert on **responses**, never config text; `/healthz` is
+  exact-match, or a probe falls through and a broken container reads healthy.
+- **ONE image, and all 86 Lambdas now RUN it** — shared code on `/opt/python`, function
+  modules flat at the task root, **dependencies deliberately in site-packages** so the layout
+  guard is a real set equality. **Shared code is what `lambdas/*-common/` HOLDS**, no list to be
+  missing from, and a directory that is neither that nor a function is REFUSED, never defaulted. One shared task root is the new hazard: a duplicate name does not
+  collide, it **silently wins** for the whole fleet, so collisions and shadowing are asserted
+  **against the built image**. The import sweep runs through the runtime's **own bootstrap** —
+  `--entrypoint python` omits `/opt/python`, and a reconstructed path that is a superset passes
+  what production fails — and its expected count comes from **Terraform**, never from the same rule
+  the sweep uses, or renaming a handler drops **both** sides and agrees. **The fleet's membership
+  is `fleet.py`, read from the Terraform SOURCES** — a `tofu output` is last-applied state and the
+  deploy workflows race on the push adding a function. No `.github/` list names functions.
+- **Retire a guard by PROVING its replacement, then deleting** — the matrix reasoned about a table;
+  the image RUNS every handler. Absence is what the API ANSWERS: a destroy of the wrong names
+  deletes nothing and looks finished.
+- **`package_type` is FORCE-NEW: the cutover replaced all 86**, ordered only by **172 `moved`
+  blocks** — without one, Terraform plans a create and a destroy with **no edge between them**, and
+  it tolerates a `moved` whose `from` is not in state **silently**. So **reverting is not a
+  rollback**; pointing at a previous sha's image is, and `image_uri` is *not* ForceNew, which is what
+  lets CI move the fleet at all. **Every `aws_lambda_permission` binds to `function_arn`, never a
+  name** — a name is config-known, plans **no diff**, and lets the replacement take the resource
+  policy: an API-wide 500 behind a green apply and a green probe. Six planes' constructed ARN lists
+  moved for the same reason. **CI points EVERY function every run** ("which changed" has no answer
+  with one artefact; an un-pointed one runs an older image *working perfectly*), reconciles by NAME,
+  then proves a sample STARTED — a check that took three designs, none of which an emulator can
+  settle, because it diverges from Lambda on exactly the init-failure path.
+- **Configuration is a RUNTIME document** (`/config.json`, `no-store`, refused whole on version)
+  with **no production fallback**. Its key set is wired in five places, asserted across all, and the
+  container **refuses to start** on a required one unset or empty. **The deploy READS the values
+  from Terraform state**, one `tofu output -json` through `.github/config-outputs.json`, refusing an
+  absent *or empty* output by name; only a genuine **input** is still a repository variable, because
+  an input cannot be read from the thing it configures — so retiring an origin means **re-pointing
+  that map**, not just deleting the output. The API's **verifier** config is
+  server-side, never in the browser's document — and the exclusion cuts one way: a rule forbidding
+  "anything identity-shaped" takes Amplify's own Cognito keys with it.
+- **Origins are admitted ADDITIVELY** and narrowed only at the cutover — an allowlist naming one
+  origin makes the other a rollback nobody can exercise. **A cutover is TWO merges:** the
+  retirement, which touches nothing serving the app, then the live checks **while the rollback still
+  works**, then the narrowing and the destroy. A half-finished retirement looks exactly like a
+  finished one, so a deleted resource is proved gone **positively** (`NoSuchDistribution`, not
+  "absent from the plan") and a grant outlives its resource by one apply — where SPEC-202 found the
+  next trap: the Checkov accept list was holding that grant's own findings open, so removing it made
+  both acceptances stale, which is a hard error.
+- **CSP `connect-src` IS the app's network surface** — enumerate it from the hosts the app fetches,
+  not the AWS services it uses. The omitted Hosted UI domain broke fresh sign-in for a day. **Prove
+  enforcement with a POSITIVE `securitypolicyviolation`** (`effectiveDirective: "connect-src"`,
+  `disposition: "enforce"`) plus a same-origin negative control: CDP evaluation is exempt from
+  `script-src`, **not** from `connect-src`, and the old same-origin-script recipe is unsatisfiable
+  under `script-src 'self'`. **Both
+  CSP locals live at ROOT** — a root check cannot read a module local. The container takes
+  `connect-src` from the task definition and bakes the rest; **nginx has no escaping**, so anything
+  interpolated in is allowlisted — a quote truncates the policy on a container reporting healthy.
+- **The image IS the file set** — no reconciliation pass, no orphan class, an honest 404 under
+  `/assets/`. The S3 path it replaced deployed in three prefix-scoped passes, and its one finding
+  that outlives it: **`--exclude` PROTECTS keys from `--delete`**, so a pass excluding a prefix can
+  never reconcile it.
 
 ## IaC
 

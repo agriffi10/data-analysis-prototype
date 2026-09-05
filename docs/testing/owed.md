@@ -12,7 +12,7 @@ same property, and a Chromium run standing in for Safari are all recorded here, 
 
 > **Where Arc B's script went (2026-09-02).** Rows below cite `arc-b-api-container-e2e.md` by
 > section — `§C.1`, `§E`, `§G` and so on. That file was the arc's one temporary script and was
-> **deleted when the arc closed**, per `docs/process.md` §5 step 8. Its durable checks are folded
+> **deleted when the arc closed**, per `docs/process/completion-ritual.md` step 8. Its durable checks are folded
 > into [`e2e.md`](e2e.md) — the front door, the CSP method, the no-AWS-calls negative and the
 > presigned-URL shape are **§4.18**, and the per-feature ones sit in the feature sections. Its
 > per-spec sections and its full execution log are in git history (`git show

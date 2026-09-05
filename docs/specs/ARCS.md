@@ -5,7 +5,7 @@ carries status, this file carries reasoning. **These headings name a spec range 
 status written into them rotted silently, four arcs at a time. Most arcs below are shipped; their
 authoritative detail lives in `docs/spec-delivery/SPEC-XXX-*.md` and the per-arc architecture docs.
 
-A spec cut for **size** (`process.md` §4 — past 8 FRs, write a second spec rather than growing one)
+A spec cut for **size** (`docs/process/authoring-a-spec.md` — past 8 FRs, write a second spec rather than growing one)
 always leaves an arc entry here holding the pair's build order, even when nothing else groups them.
 
 **Arcs** — one `##` per arc; read only the one you're in:
@@ -1885,7 +1885,7 @@ per (side × operation), enumerated against the real constants, and read that fi
 
 ### What the review gate caught, and why the arc entry says so
 
-The eleven specs were written in parallel and then put through `process.md`'s reviewer gate — three
+The eleven specs were written in parallel and then put through `docs/process/session-rhythm.md`'s reviewer gate — three
 per-spec passes plus one framed on **the arc as a whole rather than any one spec**. That fourth frame
 is the one that earned its place: every defect below was invisible to the spec that contained it,
 because each spec was internally consistent and pinned its own version with its own test.

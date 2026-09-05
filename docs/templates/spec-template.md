@@ -149,7 +149,7 @@ src/
   should be completable in one session. Do NOT write per-phase checkpoints
   here — when this spec is picked up for build, the implementing session
   generates an implementation plan, validates it against this spec and sends it
-  to a fresh-context reviewer before writing code (see process.md §3, *The
+  to a fresh-context reviewer before writing code (see `docs/process/session-rhythm.md`, *The
   reviewer contract*). The phases below are the input to that plan.
 -->
 

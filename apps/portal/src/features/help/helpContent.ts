@@ -18,7 +18,7 @@ import type {HelpSection} from './help.types';
 // request that never started an execution notified nobody.
 // When a feature is added, changed, or removed, revisit this file so the guides
 // never promise behavior that isn't shipped — the post-spec ritual in
-// docs/process.md includes a check for exactly this.
+// docs/process/completion-ritual.md includes a check for exactly this.
 //
 // ONE GUIDE COVERS RENAME, MOVE, COPY AND DELETE, and it cannot be gated. The conflict guide
 // beside it follows the async switchover, because a refusal round trip only exists while the

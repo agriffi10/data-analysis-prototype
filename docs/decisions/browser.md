@@ -1,11 +1,14 @@
 # The browser
 
 Part of the **Key Decisions register** — [`INDEX.md`](INDEX.md) is the router, and `CLAUDE.md`
-carries the one-line digest of each entry. This file holds the reasoning, the constraints and the
-explicit "do NOT build" fences for one area. **Read the entry you need, not the file.**
+carries a table pointing at each area's Fences. This file opens with those fences — the traps that
+apply green and fail later — and holds the reasoning, the constraints and the explicit "do NOT
+build" fences for one area beneath them. **Read the Fences before working in the area, then the
+entry you need, not the file.**
 
 ## Contents
 
+- [Fences](#fences)
 - [State](#state)
 - [Responsive (SPEC-095)](#responsive-spec-095)
 - [Help & guides (SPEC-074)](#help--guides-spec-074)
@@ -50,6 +53,45 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [The divider needs a click path, because a drag is not an alternative to itself (SPEC-209)](#the-divider-needs-a-click-path-because-a-drag-is-not-an-alternative-to-itself-spec-209)
 - [The `@aws-sdk/*` ban is a lint rule AND a manifest sweep, because Amplify vendors the SDK (SPEC-202)](#the-aws-sdk-ban-is-a-lint-rule-and-a-manifest-sweep-because-amplify-vendors-the-sdk-spec-202)
 - [Building a table is desktop-only, and that was decided rather than discovered (2026-09-04)](#building-a-table-is-desktop-only-and-that-was-decided-rather-than-discovered-2026-09-04)
+
+## Fences
+
+TanStack Query for server state, Context + `useReducer` for UI state, no Redux. Mobile-first, with
+only `tablet:` (≥900) and `desktop:` (≥1300) compiled; one tree reflows — a `*Mobile`/`*Desktop` twin
+is a smell.
+
+- **Raw AWS/Cognito/Athena text is NEVER shown.** `lib/errorMessages.ts` is the single source of
+  wording; never render `error.message`.
+- **The `@aws-sdk/*` ban is a lint rule AND a `package.json` sweep.** The rule is declared in
+  **every** clause governing `src/` because flat config REPLACES rather than merges, and the sweep
+  reads the **manifest, never `node_modules`** — Amplify vendors the SDK, so a tree assertion would
+  fail permanently and be deleted. A dependency nobody imports is invisible to an import rule, and
+  that leftover is how the next import arrives.
+- **`components/` may not import from `features/`** — enforced by lint. A leaf feature that becomes a
+  shared layer gets **extracted before its second consumer**, not after.
+- **Dialogs:** Enter submits from **one** field, not implicitly; Escape dispatches by **tree depth**
+  through one registry, and a busy modal swallows it. `cx()` returns `undefined`, never `''` — `??`
+  does not fall back on the empty string, and that cost nine dialogs their width.
+- **The one irreversible surface refuses the affordance that would fire it.** The archive dialog is
+  built on the confirm dialog *because* the form dialog has Enter-to-submit — focus sits on Cancel,
+  Enter cancels — and it never says "this can't be undone", which would be its one false sentence.
+- **A drag is not an alternative to itself.** WCAG 2.5.7 wants a *single-pointer, non-dragging* path;
+  a keyboard is not one and **no axe rule detects the absence**, so a drag-only control regresses it
+  in silence — and a pointer path that only *resets* to a default is not one either, because it
+  restores neither the chosen value nor the drag's functionality. Sizing the replacement is its own
+  trap: the root font is **14px**, so `rem` spacing lies about the 24px minimum — write an absolute
+  threshold in an absolute unit. jsdom can measure no target at all, which is why `target-size` is
+  **disabled rather than trusted** and a static sweep covers what a class name can answer.
+- **A palette is measured, not chosen**, in **both** themes; a colour that fails is measured
+  **out**. Four theme traps ship green.
+- **Client state is computed in the browser; billed work is not.** A selection aggregate issues
+  **zero** executions, and says which page it counted.
+- **A display page is not a listing page.** A pager over filtered rows keeps fetching while the
+  listing is truncated — and **stops on error**, because a failed fetch leaves "has more" true, which
+  is the fill's own trigger: without the guard one failure spins forever.
+- **Help & guides document only what is shipped and wired end to end.**
+- **Column geometry is keyed by NAME**, so geometry for a column the result no longer has is
+  discarded by construction.
 
 ## State
 
@@ -1023,7 +1065,7 @@ as checking something it never checks.
 **Superseded on the last clause, 2026-09-01:** the rule is now **disabled** with its reason, and a
 static sweep covers the part a class name can answer. "Nothing can catch this automatically" no longer holds
 for a control sized from the spacing scale (the sweep is a Vitest test, so it is the pre-push run
-that catches it now, not CI — `docs/process.md` §6) — it does still hold for one whose height is its line box
+that catches it now, not CI — `docs/process/ci-and-deploy-traps.md`) — it does still hold for one whose height is its line box
 plus padding, and for whether the spacing exception covers a small target. See
 *An axe rule that cannot measure is disabled, and what replaces it* in
 [`gates-and-tests.md`](gates-and-tests.md).

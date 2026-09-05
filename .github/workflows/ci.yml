@@ -15,7 +15,7 @@ name: CI
 # WHAT IS DISABLED, AND THE RESTORE RULE
 #
 # SIX steps are commented out to save Actions minutes. They run LOCALLY instead, on every
-# pull request, after the diff reviews and immediately before the push -- docs/process.md S3.
+# pull request, after the diff reviews and immediately before the push -- docs/process/session-rhythm.md.
 #
 #   this job:     Lint (eslint) · Format check (prettier) · Test (vitest coverage)
 #   lambdas job:  Lint (ruff) · Typecheck (mypy) · Test (pytest)
@@ -329,7 +329,7 @@ jobs:
           git diff --exit-code -- apps/portal/src/types/apiContract.generated.ts
 
       # The documentation layout is a gate because prose was not one. Every rule the script
-      # holds already existed in CLAUDE.md or docs/process.md, and every one was violated
+      # holds already existed in CLAUDE.md or docs/process/, and every one was violated
       # anyway: `## Specs` regrew to 371 lines of changelog against its own "prune, never
       # append"; the Key Decisions digest grew a 3,349-character entry against "one line
       # each"; docs/testing/ reached sixteen files; decisions/ listed 50 of 149 entries.

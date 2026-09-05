@@ -701,7 +701,7 @@ one and leaving seven is worse than reversing it in none, because the seven read
 > proxy` — now return **zero hits**, as does the *two network paths* subsection the note calls the
 > fifth site. Sections named here are gone too: *System Overview* is *The system at a glance*, *Known
 > Constraints* is *Constraints that shape the system*, and the file ends in an **Architecture Decision
-> Record** whose rows are what a reversal now amends. `process.md`'s ground rule was corrected in the
+> Record** whose rows are what a reversal now amends. `docs/process/ground-rules.md`'s ground rule was corrected in the
 > same pass, and the `No backend` register entry carries a superseded marker. **What this spec still
 > owes:** the CLAUDE.md sweep below, the SPEC-140/141 markers, the CSP verification-technique
 > correction, this spec's own register entries, and the `ARCS.md` update. Verify by grep before
@@ -738,8 +738,8 @@ one and leaving seven is worse than reversing it in none, because the seven read
       event with `effectiveDirective: "connect-src"` and `disposition: "enforce"`, plus a
       same-origin negative control. Left as it stands, the arc's one enforcement check has no
       runnable method and its failure reads as a broken snippet rather than as a finding.
-- [ ] `docs/process.md`'s ground rule is corrected — grep `**No backend** (browser → AWS direct)`,
-      which sits in §7; the line number this spec used to give is off by more than 160.
+- [ ] `docs/process/ground-rules.md`'s ground rule is corrected — grep `**No backend** (browser → AWS direct)`,
+      which sits in `ground-rules.md`; the line number this spec used to give is off by more than 160.
 - [ ] **CLAUDE.md sweep**, four places: the **Project Overview** paragraph ("**No backend** — the SPA
       calls AWS directly with scoped credentials"), the **No backend** Key Decision line, the **Out of
       Scope** line ("No backend/API layer"), and the Tech Stack table's `@aws-sdk/*` row (FR-006).
@@ -942,7 +942,7 @@ same way the merges do.
 - `Status: Completed`; the `INDEX.md` row; the delivery doc at
   `docs/spec-delivery/SPEC-202-retiring-cloudfront-and-the-identity-pool.md`.
 - **FR-011 in full** — `architecture.md`'s reversal, the `decisions/` superseded markers at every
-  site, `process.md`, the CLAUDE.md four-place sweep, this spec's own `decisions/` entries and
+  site, `docs/process/ground-rules.md`, the CLAUDE.md four-place sweep, this spec's own `decisions/` entries and
   their one-line digests, and the `ARCS.md` entry.
 - A row in `apps/portal/info/component-inventory/` for `lib/idToken.ts`, and the removal of the rows for every
   module FR-005 deletes — the inventory stating a deleted module is how a later session imports it.

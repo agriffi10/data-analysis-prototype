@@ -1,11 +1,14 @@
 # Analytics, the catalog, and two SQL dialects
 
 Part of the **Key Decisions register** — [`INDEX.md`](INDEX.md) is the router, and `CLAUDE.md`
-carries the one-line digest of each entry. This file holds the reasoning, the constraints and the
-explicit "do NOT build" fences for one area. **Read the entry you need, not the file.**
+carries a table pointing at each area's Fences. This file opens with those fences — the traps that
+apply green and fail later — and holds the reasoning, the constraints and the explicit "do NOT
+build" fences for one area beneath them. **Read the Fences before working in the area, then the
+entry you need, not the file.**
 
 ## Contents
 
+- [Fences](#fences)
 - [Analytics (SPEC-032→036)](#analytics-spec-032036)
 - [Query workspace has NO active database (SPEC-077)](#query-workspace-has-no-active-database-spec-077)
 - [Multi-statement scripts (SPEC-078)](#multi-statement-scripts-spec-078)
@@ -30,6 +33,43 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [A column name is user data, and the renderer must be safe without it being validated (2026-08-19)](#a-column-name-is-user-data-and-the-renderer-must-be-safe-without-it-being-validated-2026-08-19)
 - [Athena's two dialects need two escapers in the browser, and the second was missing (2026-08-19)](#athenas-two-dialects-need-two-escapers-in-the-browser-and-the-second-was-missing-2026-08-19)
 - [A table's LOCATION is read recursively, so the space root is not a data folder (2026-08-19)](#a-tables-location-is-read-recursively-so-the-space-root-is-not-a-data-folder-2026-08-19)
+
+## Fences
+
+An in-app Athena/Glue/Lake Formation workspace. Isolation is the `username` principal tag on the
+Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does **not** grant
+`CREATE_TABLE`; a `portal-managed` LF-Tag plus one tag-policy grant per execution role does.
+
+- **The query workspace has NO active database.** Every base table is fully qualified
+  `database.table`; the rail is browse-only. A space maps to exactly one database, so the picker has
+  no database step.
+- **Every DDL literal goes through `literal()`** — `TBLPROPERTIES` and `LOCATION` included — and
+  the escapers split on **two axes that are easy to conflate**. *Values:* `ddl.literal`
+  backslash-escapes (Hive/DDL), `sql._literal_dml` and the browser's `sqlLiteral` double the quote
+  (Trino/DML). *Identifiers:* `sqlIdentifier` (Trino, `CREATE VIEW`), `sqlDdlIdentifier` and
+  `ddl.quote` (Hive, `DROP`, inner backtick doubled — data-quality partition keys come from S3 folder
+  names). **The wrong one fails SILENTLY, as a predicate that never matches**, and it matters because
+  a shared space's name is format-checked **nowhere** server-side. A quoting fix is not done until
+  every statement built from the same value is swept.
+- **A column name is user data.** Creates refuse empty, non-`[a-z0-9_]`, over-255 and fold-collision
+  names; a refresh does not, or it strands pre-rule tables.
+- **A table's `LOCATION` is read recursively**, so the space root is not a data folder.
+- **Results are read only at `SUCCEEDED`.** A too-early `GetQueryResults` reached users as a generic
+  "contact the administrator"; the API now answers **409 `QueryNotFinished`**, classified by Athena's
+  **message** — the same `InvalidRequestException` is a malformed query at submit, and a name-keyed
+  mapper passes any test exercising one at a time. The client gate is **kept**, and asserts on the
+  **CALL**: with the 409 in place the screen looks right either way.
+- **A failed query is a 200.** `stateChangeReason` rides the body byte-identical and the browser
+  picks the sentence; enveloping it retires six authored ones at a stroke. Lake Formation denies in
+  **two shapes** — a Glue 403, and an execution that reaches FAILED on a 200 — and a 403 is **never**
+  a re-login. `dataScannedBytes` is `null` while non-terminal, never `0`. The generic sentence is
+  reserved for what a user **cannot** act on, held by a computed `USER_FIXABLE_CODES`.
+- **A refresh is judged by SHAPE, not by a marker** — never by the `portal.managed` property it also
+  writes, which pre-existing tables lack and users can set. Removing a column needs an opt-in, and
+  **the refusal is the warning**. The apply is a read-modify-write on the live table, serialized by a
+  per-table lock whose loser is **refused with a notification**, never queued.
+- **Multi-statement scripts** split client-side on `;`, run sequentially, stop on first failure. No
+  transactions.
 
 ## Analytics (SPEC-032→036)
 

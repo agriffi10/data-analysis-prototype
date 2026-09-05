@@ -209,7 +209,7 @@ to say which functions exist, and Terraform already knows.
       attach order.
 - [ ] `infra/info/control-plane-shape.md` and every module README that describes zip packaging or
       layers is corrected.
-- [ ] **`docs/process.md` §6 is corrected too.** It states the fact being retired — "Terraform owns
+- [ ] **`docs/process/ci-and-deploy-traps.md` is corrected too.** It states the fact being retired — "Terraform owns
       the function, CI owns the code and every layer attachment" — and it is an always-referenced
       tier. The claim below about markdown sweeps is about *source-file* pointers being the ones that
       rot unseen; it is not a licence to skip the markdown that states the retired rule.

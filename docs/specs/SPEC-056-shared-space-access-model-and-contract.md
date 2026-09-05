@@ -214,7 +214,7 @@ request lands in the failure state with no side effects. Documented in `docs/tes
 
 ## Implementation Decisions (in-session, 2026-06-26)
 
-Reversible/technical choices made during build (per `docs/process.md`):
+Reversible/technical choices made during build (per `docs/process/session-rhythm.md`):
 
 - **Trusted-actor binding = verified Cognito ID token** (user decision, over the spec's
   "message attributes" default). The request body carries `idToken`; the provisioner

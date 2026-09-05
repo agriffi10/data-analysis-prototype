@@ -222,7 +222,7 @@ sprinkle its own logging.
 - [ ] In a production build the mapper does not log and does not place the original message in the
       returned user text or the DOM.
 - [ ] The dev-log read of `import.meta.env.DEV` is at module scope / guarded so it tree-shakes out of
-      the production bundle (per the `import.meta.env` CI note in process.md §6).
+      the production bundle (per the `import.meta.env` CI note in `docs/process/ci-and-deploy-traps.md`).
 - [ ] A test asserts the prod path returns mapped text with no raw message and does not log.
 
 ### FR-007: Consolidate the duplicated identifier message

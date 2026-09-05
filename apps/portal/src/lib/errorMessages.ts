@@ -474,7 +474,7 @@ function normalize(error: MappableError): {name?: string; message?: string; code
 /**
  * Log the original error to the console in dev builds only, tagged so it's
  * greppable. Guarded by `import.meta.env.DEV` at the call boundary so it
- * tree-shakes out of the production bundle (process.md §6). Production logs
+ * tree-shakes out of the production bundle (docs/process/ci-and-deploy-traps.md). Production logs
  * nothing and never exposes the original error.
  */
 function logOriginal(code: string | undefined, original: {name?: string; message?: string}): void {
