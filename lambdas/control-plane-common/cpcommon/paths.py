@@ -7,8 +7,10 @@ arrived on ``fscommon.paths`` and moved here on the third
 plane to need it; ``fscommon.paths`` now re-exports these names, so the file-send call sites and
 their tests are unchanged.
 
-The domain layers keep what is theirs: fscommon's inbox layout, arcommon's archive key layout.
-Only the containment question is here.
+The domain layers keep what is theirs: fscommon's inbox layout, arcommon's archived-key layout
+and its inverse. Only the containment question is here; the app-managed folder NAMES and the
+depth-one prefix builders they anchor are ``cpcommon.app_managed``, beside the vault root the
+archive plane and the API both spell.
 
 Attributes:
   _DOT_SEGMENTS: The path segments refused outright wherever they appear in a key.

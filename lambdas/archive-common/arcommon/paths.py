@@ -40,10 +40,11 @@ Attributes:
 
 import re
 
+from cpcommon.app_managed import receipt_folder_prefix, vault_archive_prefix
 from cpcommon.errors import TerminalError
 from cpcommon.paths import normalize_root
 
-from .config import ARCHIVE_FOLDER, RECEIPT_NAME, SPACE_KINDS
+from .config import RECEIPT_NAME, SPACE_KINDS
 
 _UUID_V4 = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", re.IGNORECASE
@@ -125,7 +126,7 @@ def archive_root(kind: str, name: str, request_id) -> str:
     if kind not in SPACE_KINDS:
         raise TerminalError("forbidden", f"unknown source space kind {kind!r}")
     root = normalize_root(name)
-    return f"{kind}/{root}{ARCHIVE_FOLDER}/{validated_request_id(request_id)}/"
+    return vault_archive_prefix(kind, root, validated_request_id(request_id))
 
 
 def receipt_root(name: str, request_id) -> str:
@@ -145,7 +146,7 @@ def receipt_root(name: str, request_id) -> str:
     Raises:
       TerminalError: ``invalid_request`` for a bad request id, ``forbidden`` for an empty name.
     """
-    return f"{normalize_root(name)}{ARCHIVE_FOLDER}/{validated_request_id(request_id)}/"
+    return f"{receipt_folder_prefix(normalize_root(name))}{validated_request_id(request_id)}/"
 
 
 def receipt_key(name: str, request_id) -> str:

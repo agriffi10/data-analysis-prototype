@@ -273,5 +273,10 @@ def test_the_plan_goes_to_S3_and_only_its_pointer_and_counts_ride_on_the_state()
     assert "objects" not in json.dumps(result)
 
 
+def test_the_portal_managed_folders_swept_from_an_expansion_are_exactly_these_two():
+    """The two folders swept out of an expansion at a space root, spelled out."""
+    assert m._PORTAL_MANAGED_FOLDERS == ("athenaresults", "user_settings")
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

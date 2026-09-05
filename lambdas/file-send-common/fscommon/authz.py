@@ -17,10 +17,11 @@ module worked without it — but a future module importing only ``authz`` would 
 
 from cpcommon import config
 from cpcommon import registry as reg
+from cpcommon.app_managed import athena_results_prefix
 from cpcommon.errors import TerminalError
 
 from . import messages as _messages  # noqa: F401
-from .config import ATHENA_RESULTS_FOLDER, RECIPIENT_KINDS, SPACE_KINDS
+from .config import RECIPIENT_KINDS, SPACE_KINDS
 from .paths import normalize_root
 
 
@@ -141,7 +142,7 @@ def assert_not_results_folder(root: str, key: str) -> str:
       TerminalError: ``results_not_sendable`` when the key is the results folder, anything
         beneath it, or a folder that contains it.
     """
-    results = f"{normalize_root(root)}{ATHENA_RESULTS_FOLDER}/"
+    results = athena_results_prefix(normalize_root(root))
     if key == results.rstrip("/") or key.startswith(results):
         raise TerminalError("results_not_sendable", f"{key!r}")
     as_prefix = key if key.endswith("/") else f"{key}/"

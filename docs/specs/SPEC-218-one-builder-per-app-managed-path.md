@@ -1,7 +1,7 @@
 # Spec: One Builder Per App-Managed Path
 
 **ID:** SPEC-218
-**Status:** Draft
+**Status:** In Progress
 **Last Updated:** 2026-09-05
 **Depends On:** None
 
@@ -142,9 +142,12 @@ things, in three buckets."*
 
 #### Description:
 
-Nine `.tftpl` policy templates name a moving folder. 219 must add a sibling statement to each, and
-missing one is the arc's silent failure. Rather than interpolate the segment (see Out of Scope), a
-test enumerates the population.
+Eight `.tftpl` policy templates name a moving folder in a space bucket (an earlier draft counted
+nine: the ninth, `archive/policies/sfn-permissions.json.tftpl`, names only the admin bucket's
+`archive/` scratch prefix — fact 3 — and is pinned separately as the one that must NOT gain a
+sibling). 219 must add a sibling statement to each of the eight, and missing one is the arc's
+silent failure. Rather than interpolate the segment (see Out of Scope), a test enumerates the
+population.
 
 #### Acceptance Criteria:
 
@@ -186,11 +189,16 @@ A guard that fails when an app-managed path is constructed outside its owner, in
 ## File & Folder Structure
 
 ```
-apps/portal/src/features/file-browser/
-└── appManagedPaths.ts                    # NEW — names + `appManagedPrefix(root, folder)`
+apps/portal/src/lib/
+└── appManagedPaths.ts                    # NEW — names + `appManagedPrefix(root, folder)`; in lib/
+                                          #       because two features consume it and the archive
+                                          #       feature imports nothing from another feature
 
 lambdas/control-plane-common/cpcommon/
-└── paths.py                              # NEW — one builder per fact
+└── app_managed.py                        # NEW — names + one builder per fact (`paths.py` already
+                                          #       exists and holds containment only)
+lambdas/archive-common/arcommon/
+└── plan.py                               # `PREFIX` stays: fact 3 has one consumer and is pinned here
 
 scripts/
 ├── validate_app_managed_paths.py         # NEW — the sweep

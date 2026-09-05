@@ -31,6 +31,8 @@ Every refusal names the folder in operator text and carries its own reason code,
 can word it without re-deriving which rule fired.
 """
 
+from cpcommon.app_managed import app_managed_prefix
+
 from .config import (
     ARCHIVE_FOLDER,
     ATHENA_RESULTS_FOLDER,
@@ -121,7 +123,7 @@ def _is_at_or_below(key: str, root: str, name: str, *, space_kind: str) -> bool:
       None.
     """
     root = normalize_root(root)
-    anchored = f"{root}{name}/"
+    anchored = app_managed_prefix(root, name)
     if key == anchored or key.startswith(anchored):
         return True
     if space_kind != "shared" or not key.startswith(root):

@@ -17,14 +17,13 @@ a test asserting "no AWS call happened" passes over it — the assertions here a
 code.
 """
 
+from cpcommon.app_managed import RECEIPT_FOLDER, receipt_folder_prefix
 from cpcommon.errors import TerminalError
 from cpcommon.paths import assert_inside_root, has_dot_segment, normalize_root
 from cpcommon.s3_listing import MARKER_BASENAME
 
 from .envelope import ApiError
 from .spaces import ResolvedSpace
-
-ARCHIVE_FOLDER = "archive"
 
 
 def contained_key(space: ResolvedSpace, key: str) -> str:
@@ -118,14 +117,14 @@ def is_write_locked(space: ResolvedSpace, key: str) -> bool:
     Raises:
       None.
     """
-    locked_root = f"{space.root}{ARCHIVE_FOLDER}/"
+    locked_root = receipt_folder_prefix(space.root)
     if key.startswith(locked_root):
         return True
     if space.kind != "shared":
         return False
     if not key.startswith(space.root):
         return False
-    return ARCHIVE_FOLDER in key[len(space.root) :].split("/")
+    return RECEIPT_FOLDER in key[len(space.root) :].split("/")
 
 
 def assert_writable(space: ResolvedSpace, key: str) -> None:

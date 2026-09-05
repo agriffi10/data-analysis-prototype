@@ -89,6 +89,7 @@ NAMED_OUT_OF_TREE_READS = frozenset(
         "infra/main.tf",
         "lambdas/api/routes/feature_flags.py",
         "lambdas/archive-common/arcommon/config.py",
+        "lambdas/control-plane-common/cpcommon/app_managed.py",
     }
 )
 
@@ -107,6 +108,7 @@ SELECTED_BY_SCOPE = (
     "infra/modules/data/policies/portal-role-permissions.json.tftpl",
     "lambdas/api/routes/feature_flags.py",
     "lambdas/archive-common/arcommon/config.py",
+    "lambdas/control-plane-common/cpcommon/app_managed.py",
 )
 
 #: Paths the list must NOT select, or the saving is gone. Each is a near miss of a real pattern

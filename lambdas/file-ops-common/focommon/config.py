@@ -129,7 +129,8 @@ Attributes:
     key, and a single path segment approaching that leaves no room for the prefix it sits under.
   ATHENA_RESULTS_FOLDER: The space's own Athena results folder. Refused as a destination and as a
     delete or move source; copying *out* of it stays allowed, which is why this is named here
-    rather than reused from a list.
+    rather than reused from a list. Re-exported from ``cpcommon.app_managed``, which owns the
+    name, as are the other two folders below that are about to move.
   USER_SETTINGS_FOLDER: The space's own portal-managed settings folder. Refused as a source for
     EVERY operation, by this plane's own rule rather than by list membership — it is hidden from
     the browser and locked out of the picker, but deliberately not undeletable, so no existing
@@ -155,6 +156,8 @@ Attributes:
     greater than the ceiling, asserted by a test: a threshold below it steals a RUNNING
     execution's lock.
 """
+
+from cpcommon import app_managed as _app_managed
 
 OPERATIONS = frozenset({"copy", "move", "delete"})
 
@@ -192,25 +195,25 @@ FILE_OPS_NOTIFIED_PREFIX_BYTES = 1024
 
 PLAN_PREFIX = "file-ops"
 
-ATHENA_RESULTS_FOLDER = "athenaresults"
+ATHENA_RESULTS_FOLDER = _app_managed.ATHENA_RESULTS_FOLDER
 
 USER_SETTINGS_FOLDER = "user_settings"
 
-ARCHIVE_FOLDER = "archive"
+ARCHIVE_FOLDER = _app_managed.RECEIPT_FOLDER
 
 MARKER_BASENAME = "DO_NOT_DELETE.txt"
 
 PICKER_LOCKED_FOLDERS = (
-    "athenaresults",
-    "user_settings",
+    ATHENA_RESULTS_FOLDER,
+    USER_SETTINGS_FOLDER,
     "_data-quality-reports",
     "_directory",
     "_config",
-    "shared_tables",
-    "archive",
+    _app_managed.SHARED_TABLES_FOLDER,
+    ARCHIVE_FOLDER,
 )
 
-UNDELETABLE_ROOT_FOLDERS = ("athenaresults", "saved_queries", "archive")
+UNDELETABLE_ROOT_FOLDERS = (ATHENA_RESULTS_FOLDER, "saved_queries", ARCHIVE_FOLDER)
 
 LOCK_PREFIX = "locks/file-ops"
 

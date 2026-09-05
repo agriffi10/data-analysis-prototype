@@ -46,15 +46,6 @@ export const SAVED_QUERIES_MARKER_BODY =
   'your file browser and can be ignored.';
 
 /**
- * The archive folder at a space root — where the plane writes one receipt per
- * archive, and where the user reads the ids a restore needs. VISIBLE and browsable on purpose
- * (a hidden folder cannot be the surface that carries the ids), and read-only in the same
- * breath: see `writeLockedPrefix.ts` for the gate and `protectedFolders.ts` for the two lists
- * it joins. Named here rather than in either of those, because both need it.
- */
-export const ARCHIVE_FOLDER = 'archive';
-
-/**
  * Single source of truth for the listing page size: entries per ListObjectsV2
  * page (MaxKeys), and so the browser's page. 25 is a UI/UX page
  * size — intentionally small so each request and render stays bounded — NOT an

@@ -223,7 +223,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 215 — Configuration from Terraform State (retiring the repository variables) | Completed |
 | 216 — Multipart Upload & Part-Level Retry | Completed |
 | 217 — Operator-Driven Shared-Space Membership | Completed |
-| 218 — One Builder Per App-Managed Path | Draft |
+| 218 — One Builder Per App-Managed Path | In Progress |
 | 221 — Results Conversion: the Plane, the Request Contract & validate-authorize | Draft |
 | 222 — Results Conversion: the Converter, the Three Writers & the Notification | Draft |
 | 223 — Results Conversion: "Save as" in the Browser, the Flag & Help | Draft |

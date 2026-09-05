@@ -1,4 +1,4 @@
-import {ARCHIVE_FOLDER} from './fileBrowser.constants';
+import {appManagedPrefix, ARCHIVE_FOLDER} from '../../lib/appManagedPaths';
 import type {FileSpaceKind} from './useFileSpace';
 
 /**
@@ -29,7 +29,7 @@ import type {FileSpaceKind} from './useFileSpace';
  * @returns True when writes into this prefix would be denied.
  */
 export function isWriteLockedPrefix(prefix: string, rootPrefix: string, spaceKind: FileSpaceKind): boolean {
-  const lockedRoot = `${rootPrefix}${ARCHIVE_FOLDER}/`;
+  const lockedRoot = appManagedPrefix(rootPrefix, ARCHIVE_FOLDER);
   if (prefix === lockedRoot || prefix.startsWith(lockedRoot)) return true;
   if (spaceKind !== 'shared') return false;
   // The shared bucket's wildcard segment matches `/` too, so any `archive` folder below the

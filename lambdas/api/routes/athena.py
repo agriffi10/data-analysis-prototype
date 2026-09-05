@@ -22,7 +22,6 @@ mapper keyed on the name turns a syntax error into "still running" — and passe
 exercises one of the two at a time, which is exactly how the original defect survived.
 
 Attributes:
-  RESULTS_PREFIX: The folder under the caller's own prefix that Athena writes results to.
   ATHENA_MAX_RESULTS: Athena's own ceiling on ``MaxResults``, which the page size is clamped to.
   MIN_MAX_ROWS: The smallest page a caller may ask for.
   DEFAULT_MAX_ROWS: The page size when a caller names none, matching the browser's own default.
@@ -54,8 +53,8 @@ from apicommon.config import athena_workgroup, user_space_bucket
 from apicommon.context import RequestContext
 from apicommon.envelope import ApiError
 from cpcommon import observability
+from cpcommon.app_managed import athena_results_prefix
 
-RESULTS_PREFIX = "athenaresults"
 ATHENA_MAX_RESULTS = 1000
 MIN_MAX_ROWS = 1
 DEFAULT_MAX_ROWS = 100
@@ -120,7 +119,7 @@ def output_location(username: str) -> str:
     Raises:
       ConfigError: If the user-space bucket is unset.
     """
-    return f"s3://{user_space_bucket()}/{username}/{RESULTS_PREFIX}/"
+    return f"s3://{user_space_bucket()}/{athena_results_prefix(f'{username}/')}"
 
 
 def start(context: RequestContext) -> dict[str, Any]:

@@ -118,6 +118,7 @@ jobs:
             ^infra/modules/[^/]+/policies/[^/]+\.json\.tftpl$
             ^lambdas/api/routes/feature_flags\.py$
             ^lambdas/archive-common/arcommon/config\.py$
+            ^lambdas/control-plane-common/cpcommon/app_managed\.py$
         run: |
           set -euo pipefail
 
@@ -364,6 +365,21 @@ jobs:
       # deploy-config.yml runs the same check again immediately before the upload.
       - name: Validate the feature-flag document
         run: python3 scripts/validate_feature_flags.py
+
+      # Three app-managed folders are about to move under a real `system_settings/` prefix, and
+      # the failure that move invites is silent: a rule anchored at depth one stops matching at
+      # depth two and refuses nobody. The names are declared once per tree and every anchored
+      # construction goes through one builder; this refuses a new literal or a hand-built prefix
+      # anywhere else. Unconditional, like the validators above it: a `steps.scope` condition in
+      # this job would read an output that does not exist and skip the step on every run.
+      - name: Refuse an app-managed path declared or built outside its owner
+        run: python3 scripts/validate_app_managed_paths.py
+
+      # The corpus proves each of the sweep's rules still FIRES, and that the two steps above are
+      # wired unconditionally. Running the sweep against this tree proves the tree is clean and
+      # nothing about whether any rule works.
+      - name: Prove the app-managed path sweep still refuses
+        run: python3 scripts/validate_app_managed_paths_test.py
 
       # BLOCKING as of notch 2. It was report-only under SPEC-153 FR-009, whose baseline was
       # 21; SPEC-156 took it to 17 and SPEC-157's table_lock put it back to 19, which is what
