@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
 """Asserts the Lambda fleet's shape over a rendered OpenTofu plan.
 
-The guard the cutover needs is "every function is packaged the way we think it is, and nothing
+The guard the cutover needed was "every function is packaged the way we think it is, and nothing
 else about any of them moved". Both halves have to be derived from the PLAN rather than from a
 list somebody maintains: a function left behind by a partial cutover has to fail, not be missed,
 and a list of 86 names is exactly the artefact that goes stale silently.
+
+**The fixture is a FLOOR now that the cutover is closed, not an equality.** Every function it
+captured must still exist with every captured attribute intact, and every environment variable it
+captured must still be set to the captured value — but a function the fixture never saw is an
+addition, reported by name and accepted, and a variable the fixture never saw is allowed. Held as
+an equality the guard refused the first plane added after the cutover, on a gate no PR had
+exercised since the fixture was frozen. What the floor still catches is what the cutover promised:
+a captured function disappearing, or any of its captured settings moving.
 
 **Why the plan and not the source.** `.tf` text says what was written; the plan says what Terraform
 resolved, including values that come from a variable or another module. The cutover changes 86
@@ -28,7 +36,8 @@ Usage:
 
 Attributes:
     PARITY_FIELDS: The attributes SPEC-213 FR-002 promises the cutover does not change. Compared
-        for every function, in both directions, against a fixture captured before it.
+        for every captured function against the fixture captured before it; `environment` as a
+        floor over the captured variables, every other field as an equality.
     PACKAGING_FIELDS: The three the cutover is ALLOWED to change. Named explicitly rather than
         skipping unknown keys, so a field nobody meant to move is still caught.
 """
@@ -339,28 +348,91 @@ def check(plan: dict, fixture: dict, package_type: str, image_repository: str | 
     for extra in sorted(planned - declared):
         problems.append(f"{extra}: Terraform plans it, but Terraform's sources do not declare it")
 
-    # ── Parity: every field the spec promises is unchanged ──
+    # ── Parity: every captured function is still there, with every captured field intact ──
     expected_names = set(fixture["functions"])
     for name in sorted(expected_names - set(functions)):
         problems.append(f"{name}: in the parity fixture, but absent from the plan")
     for name in sorted(set(functions) - expected_names):
-        problems.append(f"{name}: in the plan, but absent from the parity fixture")
+        print(f"{name}: added since the parity fixture was captured; nothing to compare", file=sys.stderr)
 
-    for name in sorted(expected_names & set(functions)):
-        entry, want = functions[name], fixture["functions"][name]
+    # ── An unknown parity field is refused on EVERY planned function, additions included ──
+    # An addition has nothing to compare against, but the rule that a parity field must be
+    # declared explicitly is about the module, not the fixture: an added function whose
+    # memory tier is unknown is exactly the plan this check exists to refuse.
+    unknown_fields: set[tuple[str, str]] = set()
+    for name, entry in sorted(functions.items()):
         for field in PARITY_FIELDS:
             if _has_unknown_leaf(entry["unknown"].get(field)):
+                unknown_fields.add((name, field))
                 problems.append(
                     f"{name}: {field} is UNKNOWN in this plan. That is not 'no change' — an "
                     "attribute the configuration does not set is unknown in a replacement plan "
                     "and refreshed in a no-op one, so skipping it would make this comparison "
                     "vacuous for the fields most likely to have moved. Declare it explicitly."
                 )
+
+    for name in sorted(expected_names & set(functions)):
+        entry, want = functions[name], fixture["functions"][name]
+        for field in PARITY_FIELDS:
+            if (name, field) in unknown_fields:
                 continue
             got = _comparable(field, entry["after"].get(field))
-            if got != want[field]:
+            if field == "environment":
+                problems.extend(_environment_drift(name, want[field], got))
+            elif got != want[field]:
                 problems.append(f"{name}: {field} moved from {want[field]!r} to {got!r}")
 
+    return problems
+
+
+def _variables(environment) -> dict:
+    """Unwraps the provider's environment block into its variable map.
+
+    The attribute is a one-element list holding a `variables` map, and an absent environment is
+    an empty list — so a bare comparison of the two shapes would read "no environment" against
+    "an empty map" as a move.
+
+    Args:
+      environment: The planned or captured `environment` attribute.
+
+    Returns:
+      The variable map, empty when the function sets none.
+
+    Raises:
+      None.
+    """
+    if not environment:
+        return {}
+    return dict((environment[0] or {}).get("variables") or {})
+
+
+def _environment_drift(name: str, want, got) -> list[str]:
+    """Names every captured variable a plan no longer sets to its captured value.
+
+    A floor, deliberately: a variable the fixture never captured is an addition and is not
+    reported. Removing or changing one the fixture did capture is the drift the cutover promised
+    would not happen, and each is named individually so the message says what moved.
+
+    Args:
+      name: The function, for the message.
+      want: The captured `environment` attribute.
+      got: The planned one.
+
+    Returns:
+      One problem per removed or changed captured variable.
+
+    Raises:
+      None.
+    """
+    captured, planned = _variables(want), _variables(got)
+    problems = []
+    for key in sorted(captured):
+        if key not in planned:
+            problems.append(f"{name}: environment variable {key} was removed")
+        elif planned[key] != captured[key]:
+            problems.append(
+                f"{name}: environment variable {key} moved from {captured[key]!r} to {planned[key]!r}"
+            )
     return problems
 
 
@@ -423,7 +495,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"::error::{problem}")
         print(f"{len(problems)} problem(s) in the planned Lambda fleet.")
         return 1
-    print(f"all {len(_functions(plan))} functions are {args.package_type}-packaged and unchanged.")
+    planned = set(_functions(plan))
+    captured = planned & set(json.loads(fixture_path.read_text(encoding="utf-8"))["functions"])
+    print(
+        f"all {len(planned)} functions are {args.package_type}-packaged; {len(captured)} captured "
+        f"before the cutover and unchanged, {len(planned - captured)} added since."
+    )
     return 0
 
 

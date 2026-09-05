@@ -11,6 +11,9 @@ The guard is pure and offline for exactly this reason: the plans it reads can on
 CI, so its behaviour has to be pinned against documents written by hand.
 
 Attributes:
+  ADDED_SINCE_THE_CUTOVER: Every function declared since the fixture was frozen. Named rather
+    than counted, so an unexpected addition — a directory that became a function by accident —
+    fails by name rather than shrinking silently into a tolerated difference.
   GUARD: The script under test, imported by path because `.github/scripts` is not a package.
   TABLE: The fleet derivation's shape, naming the two functions the fixtures use.
 """
@@ -458,13 +461,18 @@ def test_capture_refuses_a_plan_whose_values_are_unknown():
 FIXTURE = ROOT / "lambdas" / "fixtures" / "pre_cutover_plan.json"
 
 
-def test_the_committed_fixture_covers_exactly_the_deployed_fleet():
+ADDED_SINCE_THE_CUTOVER: frozenset[str] = frozenset()
+
+
+def test_the_committed_fixture_is_a_floor_under_the_deployed_fleet():
     """The fixture and the fleet derivation are two independent lists of one fleet.
 
     Not self-referential: the fixture was CAPTURED from a `tofu plan` run before the cutover, and
-    the declaration is derived from today's Terraform sources — so a divergence means one of them
-    is wrong about what exists. `test_image_layout.py` separately holds the declaration equal to
-    the function directories on disk, which closes the third side.
+    the declaration is derived from today's Terraform sources — so a captured function the sources
+    no longer declare means one of them is wrong about what exists. The fixture is a floor: every
+    function it captured must still be declared, and everything declared beyond it must be named in
+    `ADDED_SINCE_THE_CUTOVER`. `test_image_layout.py` separately holds the declaration equal to the
+    function directories on disk, which closes the third side.
 
     Args:
       None.
@@ -473,17 +481,235 @@ def test_the_committed_fixture_covers_exactly_the_deployed_fleet():
       None.
 
     Raises:
-      AssertionError: When the two disagree about the fleet.
+      AssertionError: When a captured function is gone, or an addition is unnamed.
     """
     fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
     captured = {name.removeprefix("dat-prod-") for name in fixture["functions"]}
     declared = set(fleet.function_names(ROOT))
 
     assert captured, "the fixture names no functions"
-    assert captured == declared, (
-        f"only in the fixture: {sorted(captured - declared)}; "
-        f"only in the Terraform fleet: {sorted(declared - captured)}"
+    assert captured <= declared, f"captured before the cutover, gone now: {sorted(captured - declared)}"
+    assert declared - captured == ADDED_SINCE_THE_CUTOVER, (
+        f"declared beyond the fixture: {sorted(declared - captured)}; "
+        f"named as added: {sorted(ADDED_SINCE_THE_CUTOVER)}"
     )
+
+
+def _with_variables(plan, index, variables):
+    """A copy of a plan with one function's environment replaced.
+
+    Args:
+      plan: The plan to copy.
+      index: Which `resource_changes` entry.
+      variables: The variable map to set.
+
+    Returns:
+      The copied plan.
+
+    Raises:
+      None.
+    """
+    changed = json.loads(json.dumps(plan))
+    changed["resource_changes"][index]["change"]["after"]["environment"] = [{"variables": variables}]
+    return changed
+
+
+def test_a_function_added_after_the_cutover_is_accepted_and_named(pre_cutover, fixture, capsys):
+    """An addition is reported by name on stderr and is not a problem.
+
+    Args:
+      pre_cutover: The no-op plan.
+      fixture: Its capture.
+      capsys: Captures the guard's stderr.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the addition is refused, or accepted silently.
+    """
+    grown = json.loads(json.dumps(pre_cutover))
+    grown["resource_changes"].append(
+        _resource("dat-prod-results-conversion-notify-failure", _zip_after())
+    )
+    table = [*TABLE, {"name": "results-conversion-notify-failure"}]
+    problems = _check_with_table(grown, fixture, table)
+    assert problems == [], problems
+    assert "dat-prod-results-conversion-notify-failure: added since the parity fixture" in capsys.readouterr().err
+
+
+def test_a_captured_function_absent_from_the_plan_is_still_a_problem(pre_cutover, fixture):
+    """The floor's other edge: what the fixture captured cannot disappear.
+
+    Args:
+      pre_cutover: The no-op plan.
+      fixture: Its capture.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a vanished function goes unreported.
+    """
+    shrunk = json.loads(json.dumps(pre_cutover))
+    del shrunk["resource_changes"][0]
+    problems = _check_with_table(shrunk, fixture, [{"name": "api"}])
+    assert any("dat-prod-archive-copy-objects: in the parity fixture, but absent from the plan" in p for p in problems), problems
+
+
+def test_a_removed_environment_variable_is_named(pre_cutover, fixture):
+    """A captured variable that the plan no longer sets is drift, named by the variable.
+
+    Args:
+      pre_cutover: The no-op plan.
+      fixture: Its capture.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the removal goes unreported.
+    """
+    problems = _check(_with_variables(pre_cutover, 0, {}), fixture)
+    assert any("dat-prod-archive-copy-objects: environment variable ADMIN_BUCKET was removed" in p for p in problems), problems
+
+
+def test_a_changed_environment_variable_is_named_with_both_values(pre_cutover, fixture):
+    """A captured variable set to another value is drift, named with both values.
+
+    Args:
+      pre_cutover: The no-op plan.
+      fixture: Its capture.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the change goes unreported or unnamed.
+    """
+    problems = _check(_with_variables(pre_cutover, 0, {"ADMIN_BUCKET": "other"}), fixture)
+    assert any("environment variable ADMIN_BUCKET moved from 'b' to 'other'" in p for p in problems), problems
+
+
+def test_an_empty_environment_block_reads_as_no_variables(pre_cutover):
+    """The provider's two spellings of "no variables" are one value, in both directions.
+
+    A no-op plan refreshes an unset environment as ``[]`` and a create plan emits the block with
+    an empty map; neither is a captured variable going missing, so neither is drift.
+
+    Args:
+      pre_cutover: The no-op plan.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the two spellings read as a move.
+    """
+    bare = json.loads(json.dumps(pre_cutover))
+    bare["resource_changes"][0]["change"]["after"]["environment"] = []
+    captured_bare = GUARD.capture(bare)
+    assert _check(_with_variables(bare, 0, {}), captured_bare) == []
+    assert _check(bare, GUARD.capture(_with_variables(bare, 0, {}))) == []
+
+
+def test_an_added_function_with_an_unknown_parity_field_is_still_refused(pre_cutover, fixture):
+    """The unknown-field rule is about the module, not the fixture, so an addition is held to it.
+
+    Args:
+      pre_cutover: The no-op plan.
+      fixture: Its capture.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When an added function with an undeclared memory tier passes.
+    """
+    grown = json.loads(json.dumps(pre_cutover))
+    grown["resource_changes"].append(
+        _resource("dat-prod-results-conversion-notify-failure", _zip_after(), unknown={"memory_size": True})
+    )
+    table = [*TABLE, {"name": "results-conversion-notify-failure"}]
+    problems = _check_with_table(grown, fixture, table)
+    assert any("dat-prod-results-conversion-notify-failure: memory_size is UNKNOWN" in p for p in problems), problems
+
+
+def test_an_added_function_left_on_zip_is_refused_in_image_mode(pre_cutover, fixture):
+    """Packaging is derived from the plan, so an addition is held to it like everyone else.
+
+    Args:
+      pre_cutover: The no-op plan.
+      fixture: Its capture.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When an added zip function passes an Image-mode check.
+    """
+    grown = json.loads(json.dumps(pre_cutover))
+    grown["resource_changes"].append(
+        _resource("dat-prod-results-conversion-notify-failure", _zip_after())
+    )
+    table = [*TABLE, {"name": "results-conversion-notify-failure"}]
+    problems = _check_with_table(grown, fixture, table, package_type="Image", image_repository="repo")
+    assert any("dat-prod-results-conversion-notify-failure: package_type is 'Zip'" in p for p in problems), problems
+
+
+def test_an_image_packaged_addition_is_clean_in_image_mode(pre_cutover, fixture):
+    """The production shape: Image mode, an addition that is Image-packaged with a command.
+
+    The command-vs-handler comparison has no captured handler for an addition and must pass it
+    through; a later tidy that refused an unknown handler would refuse every addition in
+    production with the rest of this suite green.
+
+    Args:
+      pre_cutover: The no-op plan.
+      fixture: Its capture.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the production shape refuses growth.
+    """
+    grown = json.loads(json.dumps(pre_cutover))
+    for change in grown["resource_changes"]:
+        after = change["change"]["after"]
+        after.update(
+            package_type="Image",
+            image_uri=f"repo:{after['function_name']}",
+            image_config=[{"command": [after["handler"]]}],
+        )
+    grown["resource_changes"].append(
+        _resource(
+            "dat-prod-results-conversion-notify-failure",
+            _zip_after(package_type="Image", image_uri="repo:sha", image_config=[{"command": ["rc_notify_failure.handler"]}]),
+        )
+    )
+    table = [*TABLE, {"name": "results-conversion-notify-failure"}]
+    assert _check_with_table(grown, fixture, table, package_type="Image", image_repository="repo") == []
+
+
+def test_an_added_environment_variable_is_clean(pre_cutover, fixture):
+    """A variable the fixture never captured is growth, not drift.
+
+    Args:
+      pre_cutover: The no-op plan.
+      fixture: Its capture.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When growth is refused.
+    """
+    problems = _check(
+        _with_variables(pre_cutover, 0, {"ADMIN_BUCKET": "b", "RESULTS_CONVERSION_QUEUE_URL": "q"}),
+        fixture,
+    )
+    assert problems == [], problems
 
 
 def test_every_captured_function_carries_a_handler_and_a_memory_tier():

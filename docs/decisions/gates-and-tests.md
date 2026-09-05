@@ -17,6 +17,7 @@ entry you need, not the file.**
 - [A refusal is the half of the system no user exercises (2026-08-28)](#a-refusal-is-the-half-of-the-system-no-user-exercises-2026-08-28)
 - [An axe rule that cannot measure is disabled, and what replaces it (2026-09-01)](#an-axe-rule-that-cannot-measure-is-disabled-and-what-replaces-it-2026-09-01)
 - [A change-detection gate answers three ways, and one of them is not an answer (2026-09-04)](#a-change-detection-gate-answers-three-ways-and-one-of-them-is-not-an-answer-2026-09-04)
+- [A parity fixture becomes a floor once the cutover it guarded is closed (2026-09-05)](#a-parity-fixture-becomes-a-floor-once-the-cutover-it-guarded-is-closed-2026-09-05)
 
 ## Fences
 
@@ -384,3 +385,26 @@ so all of them go. `GIT_DIR` goes with them for a different and worse reason —
 not merely break hermeticity, the fixture commits land in **that** repository. Measured before the scrub: a decoy
 repo came back with its `HEAD` moved onto a fixture commit and its original orphaned, while the
 suite passed green.
+
+## A parity fixture becomes a floor once the cutover it guarded is closed (2026-09-05)
+
+The container cutover froze a capture of every Lambda's settings and held the planned fleet
+**equal** to it in both directions — the right shape while 86 functions were being replaced and
+nothing else was allowed to move. The cutover closed, the fixture stayed frozen (regenerating it
+would make it agree with whatever the code says), and the first plane added afterwards was refused
+locally, before any PR existed, by the offline test that holds the capture equal to `fleet.py`'s
+derivation — and `lambda_plan_guard.py` in `deploy-infra.yml`'s plan job would have refused it the
+same way, since its equality loop had no other branch: a function the fixture never saw, and a
+queue URL added to the API's environment, both read as drift. No PR between the cutover and that
+plane had added a function or an environment variable, so a gate that ran on every infra PR had
+never been exercised on the case it now refused.
+
+**The guard is a floor.** Every captured function must still exist with every captured field
+intact, and every captured environment variable must still be set to its captured value; a
+function the fixture never captured is an addition, named on stderr and accepted, and a variable it
+never captured is allowed. The offline test names the additions explicitly
+(`ADDED_SINCE_THE_CUTOVER`), so an accidental function still fails by name rather than shrinking
+into a tolerated difference. Each edge of the floor was mutation-tested: refusing an addition,
+ignoring a vanished function, ignoring a removed or changed variable, and refusing an added
+variable each reddened exactly one test. Not retired: the floor still holds what the cutover
+promised, and the packaging, population and permission-by-ARN checks beside it are untouched.
