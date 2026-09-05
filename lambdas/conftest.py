@@ -24,6 +24,7 @@ _LAYER_DIRS = (
     "file-send-common",
     "archive-common",
     "file-ops-common",
+    "results-conversion-common",
 )
 _HERE = os.path.dirname(os.path.abspath(__file__))
 for _dir in _LAYER_DIRS:

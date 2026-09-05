@@ -31,7 +31,7 @@ QUEUE_MODULES = sorted(
     if "requests" in path.read_text()
 )
 
-EXPECTED_QUEUE_MODULES = 9
+EXPECTED_QUEUE_MODULES = 10
 
 NOTIFYING_ROLES = (
     "shared-spaces",
@@ -41,6 +41,7 @@ NOTIFYING_ROLES = (
     "file-send",
     "archive",
     "file-ops",
+    "results-conversion",
     "control-plane-dlq-drain",
 )
 

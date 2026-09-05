@@ -43,6 +43,10 @@ _ALLOWLIST_PLANES = {
         "file-ops-validate-authorize/file_ops_validate_authorize.py",
         "_ALLOWED_FIELDS",
     ),
+    "results-conversion": (
+        "results-conversion-validate-authorize/rc_validate_authorize.py",
+        "_ALLOWED_FIELDS",
+    ),
 }
 
 _NO_ALLOWLIST_VERBS = {
@@ -105,7 +109,7 @@ def _routes_for(queue_id):
 LEGACY_ADMITTED = frozenset({"idToken", "actor"})
 
 
-def _agrees(allowed, expected, label):
+def _agrees(allowed, expected, label, legacy=None):
     """Asserts a plane admits everything the API sends and nothing but leftover legacy names.
 
     Args:
@@ -123,8 +127,14 @@ def _agrees(allowed, expected, label):
         f"{label} REFUSES {sorted(expected - allowed)}, which the API sends — every request "
         "on this plane becomes a malformed_event"
     )
-    assert allowed - expected <= LEGACY_ADMITTED, (
-        f"{label} admits {sorted(allowed - expected - LEGACY_ADMITTED)}, which the API never "
+    # THE PLANE'S OWN PIN, not the fleet-wide set, and the difference is the whole assertion for
+    # a plane that has no legacy field: `allowed - expected <= {"idToken", "actor"}` is satisfied
+    # by a greenfield plane silently growing to admit exactly those two names, which is the one
+    # pair a forged body would use. Measured: adding "actor" to the newest plane's allowed set
+    # left this file green.
+    tolerated = LEGACY_ADMITTED if legacy is None else legacy
+    assert allowed - expected <= tolerated, (
+        f"{label} admits {sorted(allowed - expected - tolerated)}, which the API never "
         "sends — an admitted field with no producer is a contract nobody checks"
     )
 
@@ -291,9 +301,9 @@ def test_an_allowlist_plane_admits_exactly_what_the_api_may_send(queue_id):
                 | {"identity"}
                 | set(route.stamped)
             )
-            _agrees(fields, expected, f"{queue_id}/{mode}")
+            _agrees(fields, expected, f"{queue_id}/{mode}", LEGACY_ADMITTED_TODAY[queue_id])
     else:
-        _agrees(allowed, declared, queue_id)
+        _agrees(allowed, declared, queue_id, LEGACY_ADMITTED_TODAY[queue_id])
 
 
 @pytest.mark.parametrize(
@@ -391,6 +401,7 @@ LEGACY_ADMITTED_TODAY = {
     "file-send": {"actor"},
     "file-ops": {"actor"},
     "archive": {"actor"},
+    "results-conversion": set(),
 }
 
 

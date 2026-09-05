@@ -53,7 +53,7 @@ from apicommon.config import athena_workgroup, user_space_bucket
 from apicommon.context import RequestContext
 from apicommon.envelope import ApiError
 from cpcommon import observability
-from cpcommon.app_managed import athena_results_prefix
+from cpcommon.results import user_results_prefix
 
 ATHENA_MAX_RESULTS = 1000
 MIN_MAX_ROWS = 1
@@ -105,10 +105,12 @@ def _execution_id(context: RequestContext) -> str:
 def output_location(username: str) -> str:
     """Where this caller's results are written.
 
-    **One function, deliberately.** The target environment moves this: an Identity Center enabled
-    workgroup appends its own ``${user_id}`` to the results path, so what a query writes may stop
-    being what a caller asked for. Everything that reads a result object back from the path it
-    requested breaks that day, and it should be one edit here rather than a hunt.
+    **One function, deliberately, and it is the shared one.** The target environment moves this:
+    an Identity Center enabled workgroup appends its own ``${user_id}`` to the results path, so
+    what a query writes may stop being what a caller asked for. Everything that reads a result
+    object back from the path it requested breaks that day, and it should be one edit in
+    ``cpcommon.results`` rather than a hunt — the results-conversion plane proves an execution
+    is the caller's by this same prefix, so the two must agree byte for byte.
 
     Args:
       username: The VERIFIED username, never a value from the request.
@@ -119,7 +121,7 @@ def output_location(username: str) -> str:
     Raises:
       ConfigError: If the user-space bucket is unset.
     """
-    return f"s3://{user_space_bucket()}/{athena_results_prefix(f'{username}/')}"
+    return user_results_prefix(user_space_bucket(), username)
 
 
 def start(context: RequestContext) -> dict[str, Any]:

@@ -46,11 +46,12 @@ DEGRADING = frozenset(
         "archive-notify-failure",
         "file-ops-notify-failure",
         "file-send-notify-failure",
+        "results-conversion-notify-failure",
         "table-share-notify-failure",
     }
 )
 
-EXPECTED_POPULATION = 11
+EXPECTED_POPULATION = 13
 
 
 def _deployed_names() -> set[str]:

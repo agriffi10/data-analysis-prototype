@@ -33,6 +33,7 @@ EXPECTED_PRINCIPALS = {
     "file_send_execution_role_arn",
     "archive_execution_role_arn",
     "file_ops_execution_role_arn",
+    "results_conversion_execution_role_arn",
     "user_directory_build_role_arn",
 }
 

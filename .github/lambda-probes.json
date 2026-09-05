@@ -11,6 +11,7 @@
     "notifications-writer",
     "post-confirmation",
     "pre-signup",
+    "results-conversion-validate-authorize",
     "shared-space-backfill-ever-active",
     "table-builder-validate-authorize",
     "table-share-validate-authorize",

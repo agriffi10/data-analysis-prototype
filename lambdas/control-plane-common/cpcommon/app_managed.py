@@ -28,6 +28,10 @@ Attributes:
     ``VAULT_ARCHIVE_SEGMENT`` here and ``arcommon.plan.PREFIX``.
   SHARED_TABLES_FOLDER: Where the table-share pipeline copies tables in, inside the space's own
     bucket. Becomes a shared table's Glue ``LOCATION``. MOVES.
+  SPACE_FOLDERS: The three folders above as one tuple — every app-managed folder that lives
+    inside a SPACE's own bucket. The enumerator a plane refusing app-managed destinations
+    reads, so its refused set is a superset of what this module declares by construction
+    rather than by a list it copies.
   VAULT_ARCHIVE_SEGMENT: **Fact 2 of ``archive``.** The segment after the space in every key of
     the ARCHIVE (Glacier vault) bucket — ``{kind}/{name}/archive/{id}/``. It is the same word as
     the receipt folder by design, so a user reading ``archive/{uuid}/`` in their own space sees the
@@ -42,6 +46,8 @@ RECEIPT_FOLDER = "archive"
 SHARED_TABLES_FOLDER = "shared_tables"
 
 VAULT_ARCHIVE_SEGMENT = "archive"
+
+SPACE_FOLDERS = (ATHENA_RESULTS_FOLDER, RECEIPT_FOLDER, SHARED_TABLES_FOLDER)
 
 
 def app_managed_prefix(root: str, folder: str) -> str:

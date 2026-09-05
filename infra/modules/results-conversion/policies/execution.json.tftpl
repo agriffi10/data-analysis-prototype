@@ -1,0 +1,81 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "EmitNotifications",
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": "${notifications_queue_arn}"
+    },
+    {
+      "Sid": "RegistryRead",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "${admin_bucket_arn}/shared-spaces/*"
+    },
+    {
+      "Sid": "RegistryList",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "${admin_bucket_arn}",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "shared-spaces/*"
+        }
+      }
+    },
+    {
+      "Sid": "ReadQueryExecution",
+      "Effect": "Allow",
+      "Action": [
+        "athena:GetQueryExecution",
+        "athena:GetQueryResults"
+      ],
+      "Resource": "${athena_workgroup_arn}"
+    },
+    {
+      "Sid": "ReadResultObjects",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "${user_space_bucket_arn}/*/athenaresults/*"
+    },
+    {
+      "Sid": "NeverWriteAppManagedObjects",
+      "Effect": "Deny",
+      "Action": "s3:PutObject",
+      "Resource": [
+        "${user_space_bucket_arn}/*/athenaresults/*",
+        "${shared_space_bucket_arn}/*/athenaresults/*",
+        "${user_space_bucket_arn}/*/archive/*",
+        "${shared_space_bucket_arn}/*/archive/*",
+        "${user_space_bucket_arn}/*/shared_tables/*",
+        "${shared_space_bucket_arn}/*/shared_tables/*",
+        "${user_space_bucket_arn}/*/user_settings/*",
+        "${shared_space_bucket_arn}/*/user_settings/*",
+        "${user_space_bucket_arn}/*/_data-quality-reports/*",
+        "${shared_space_bucket_arn}/*/_data-quality-reports/*",
+        "${user_space_bucket_arn}/*/_directory/*",
+        "${shared_space_bucket_arn}/*/_directory/*",
+        "${user_space_bucket_arn}/*/_config/*",
+        "${shared_space_bucket_arn}/*/_config/*",
+        "${user_space_bucket_arn}/_config/*",
+        "${user_space_bucket_arn}/_directory/*"
+      ]
+    },
+    {
+      "Sid": "EmitStructuredLogEvents",
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": "${logs_queue_arn}"
+    },
+    {
+      "Sid": "WriteLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "${log_group_arn}:*"
+    }
+  ]
+}

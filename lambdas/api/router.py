@@ -102,6 +102,7 @@ HANDLERS: dict[str, Callable[[RequestContext], dict[str, Any]]] = {
     "archive.archive": enqueue_routes.archive,
     "archive.restore": enqueue_routes.restore,
     "fileOps.enqueue": enqueue_routes.file_ops,
+    "resultsConversion.enqueue": enqueue_routes.results_conversion,
     "userDirectory.get": user_directory,
     "featureFlags.get": feature_flags.feature_flags,
     "feedback.submit": feedback.submit,

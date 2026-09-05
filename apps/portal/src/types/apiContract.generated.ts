@@ -62,6 +62,8 @@ export type FileOpItem = {kind?: 'file' | 'folder'; key?: string; targetName?: s
 export type FileOpSource = {space: SpaceRef; items: FileOpItem[]};
 export type FileOpDestination = {space: SpaceRef; prefix: string};
 export type FileOpsEnqueueRequest = {requestId: string; operation: 'copy' | 'move' | 'delete'; source: FileOpSource; destination?: FileOpDestination; onConflict?: 'refuse' | 'overwrite'; submittedAt?: string};
+export type ConversionDestination = {space: SpaceRef; prefix: string; filename: string};
+export type ResultsConversionEnqueueRequest = {requestId: string; queryExecutionId: string; format: 'parquet' | 'json' | 'xlsx'; destination: ConversionDestination; onConflict: 'refuse' | 'overwrite'; submittedAt: string};
 export type ErrorParams = {name?: string; attempts?: number; limit?: number};
 export type ApiErrorDetail = {code: 'InvalidRequest' | 'SessionExpired' | 'AccessDenied' | 'NotFound' | 'Conflict' | 'PayloadTooLarge' | 'UnsupportedMediaType' | 'RateLimited' | 'IdentityUnavailable' | 'InternalError' | 'ApiUnavailable' | 'QueryNotFinished' | 'QuerySyntaxError'; requestId: string; detail?: string; params?: ErrorParams};
 export type ApiErrorBody = {error: ApiErrorDetail};
@@ -103,6 +105,7 @@ export const API_ROUTES = {
   'archive.archive': {method: 'POST', path: '/v1/enqueue/archive', idempotent: false, params: []},
   'archive.restore': {method: 'POST', path: '/v1/enqueue/restore', idempotent: false, params: []},
   'fileOps.enqueue': {method: 'POST', path: '/v1/enqueue/file-ops', idempotent: false, params: []},
+  'resultsConversion.enqueue': {method: 'POST', path: '/v1/enqueue/results-conversion', idempotent: false, params: []},
 } as const;
 
 export type ApiRouteId = keyof typeof API_ROUTES;
@@ -143,6 +146,7 @@ type RouteBodies = {
   'archive.archive': {request: ArchiveEnqueueRequest; query: null; response: EnqueueAccepted};
   'archive.restore': {request: RestoreEnqueueRequest; query: null; response: EnqueueAccepted};
   'fileOps.enqueue': {request: FileOpsEnqueueRequest; query: null; response: EnqueueAccepted};
+  'resultsConversion.enqueue': {request: ResultsConversionEnqueueRequest; query: null; response: EnqueueAccepted};
 };
 
 export type RequestOf<R extends ApiRouteId> = RouteBodies[R]['request'];

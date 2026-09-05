@@ -461,7 +461,13 @@ def test_capture_refuses_a_plan_whose_values_are_unknown():
 FIXTURE = ROOT / "lambdas" / "fixtures" / "pre_cutover_plan.json"
 
 
-ADDED_SINCE_THE_CUTOVER: frozenset[str] = frozenset()
+ADDED_SINCE_THE_CUTOVER: frozenset[str] = frozenset(
+    {
+        "results-conversion-describe-results",
+        "results-conversion-notify-failure",
+        "results-conversion-validate-authorize",
+    }
+)
 
 
 def test_the_committed_fixture_is_a_floor_under_the_deployed_fleet():

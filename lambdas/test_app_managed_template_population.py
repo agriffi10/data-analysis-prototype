@@ -48,6 +48,7 @@ SPACE_BUCKET_POPULATION = {
     "modules/data-quality/policies/execution.json.tftpl": frozenset({"*/athenaresults"}),
     "modules/data/policies/portal-role-permissions.json.tftpl": frozenset({"username}/archive"}),
     "modules/file-ops/policies/execution.json.tftpl": frozenset({"*/athenaresults", "*/archive"}),
+    "modules/results-conversion/policies/execution.json.tftpl": frozenset({"*/athenaresults", "*/archive", "*/shared_tables"}),
     "modules/shared-spaces/policies/portal-role-shared-space.json.tftpl": frozenset({"*/athenaresults", "*/archive"}),
     "modules/table-builder/policies/execution.json.tftpl": frozenset({"*/athenaresults"}),
     "modules/table-share/policies/execution.json.tftpl": frozenset({"*/athenaresults", "*/shared_tables"}),

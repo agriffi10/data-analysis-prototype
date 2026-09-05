@@ -41,6 +41,7 @@ _EXPECTED_ARCS = {
     "file-send",
     "archive",
     "file-ops",
+    "results-conversion",
 }
 
 #: Every state field in which ASL EVALUATES intrinsic functions. The scan below walked
@@ -404,6 +405,131 @@ def _read_keys(parameters):
     return keys
 
 
+def _containers(asl):
+    """Yields (label, start_at, states) for the machine and for every ItemProcessor in it.
+
+    Each processor is its own graph with its own ``StartAt``, so reachability has to be asked
+    per container rather than over one flattened map.
+
+    Args:
+      asl: The parsed state machine.
+
+    Returns:
+      Nothing; yields one triple per container.
+
+    Raises:
+      None.
+    """
+    def walk(label, block):
+        yield label, block["StartAt"], block["States"]
+        for name, state in block["States"].items():
+            processor = state.get("ItemProcessor") or state.get("Iterator")
+            if processor:
+                yield from walk(f"{label}/{name}", processor)
+
+    yield from walk("", asl)
+
+
+def _targets(state):
+    """Every state name one state can hand control to.
+
+    Args:
+      state: One ASL state.
+
+    Returns:
+      The names it names, in no order.
+
+    Raises:
+      None.
+    """
+    named = [state.get("Next"), state.get("Default")]
+    named += [catch.get("Next") for catch in state.get("Catch", []) or []]
+    named += [choice.get("Next") for choice in state.get("Choices", []) or []]
+    return [name for name in named if name]
+
+
+@pytest.mark.parametrize("path", _TEMPLATES, ids=lambda p: os.path.basename(os.path.dirname(p)))
+def test_every_state_is_reachable_and_every_target_exists(path):
+    """A dangling target or an unreachable state is a RED FIRST APPLY, not a lint nit.
+
+    Step Functions refuses the whole definition at ``CreateStateMachine`` — ``State "X" is not
+    reachable`` — so a template that renders, validates under `tofu validate` and passes every
+    other test in this file still fails the apply, on the one run where nothing else has gone
+    wrong yet. Neither `tofu validate` nor the ASL's own JSON parse can see it: `validate`
+    checks HCL, and the definition is a string to Terraform until AWS reads it.
+
+    Measured on this branch: planting `"Next": "DescribeResult"` in one plane's cross-check Pass
+    left the whole suite green at 2,619 passed while five states went unreachable.
+
+    Args:
+      path: One plane's state-machine template.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: On a target that names no state, or a state nothing can reach.
+    """
+    plane = os.path.basename(os.path.dirname(path))
+    for label, start_at, states in _containers(_load(path)):
+        where = f"{plane}{label}"
+        assert start_at in states, f"{where}: StartAt names {start_at!r}, which is not a state"
+
+        dangling = sorted(
+            {target for state in states.values() for target in _targets(state)} - set(states)
+        )
+        assert not dangling, (
+            f"{where}: {dangling} are named as a Next/Default/Catch target but are not states. "
+            "CreateStateMachine refuses the definition, so this is a red first apply"
+        )
+
+        seen, frontier = set(), [start_at]
+        while frontier:
+            name = frontier.pop()
+            if name in seen:
+                continue
+            seen.add(name)
+            frontier.extend(_targets(states[name]))
+        unreachable = sorted(set(states) - seen)
+        assert not unreachable, (
+            f"{where}: {unreachable} cannot be reached from {start_at!r}. Step Functions REFUSES "
+            "an unreachable state outright rather than ignoring it"
+        )
+
+
+def test_the_reachability_walk_sees_a_break_when_one_is_planted():
+    """The positive control. Every assertion above is an absence, and an absence proves nothing
+    unless the walk that looked for it can find one.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a deliberately broken machine reads as sound.
+    """
+    broken = {
+        "StartAt": "A",
+        "States": {
+            "A": {"Type": "Pass", "Next": "B"},
+            "B": {"Type": "Succeed"},
+            "Orphan": {"Type": "Pass", "Next": "Nowhere"},
+        },
+    }
+    (_label, start_at, states), = _containers(broken)
+    assert sorted({t for s in states.values() for t in _targets(s)} - set(states)) == ["Nowhere"]
+    seen, frontier = set(), [start_at]
+    while frontier:
+        name = frontier.pop()
+        if name in seen or name not in states:
+            continue
+        seen.add(name)
+        frontier.extend(_targets(states[name]))
+    assert sorted(set(states) - seen) == ["Orphan"]
+
+
 @pytest.mark.parametrize("path", _TEMPLATES, ids=lambda p: os.path.basename(os.path.dirname(p)))
 def test_a_failure_seed_supplies_every_key_the_failure_terminal_reads(path):
     """A Pass state reading a key its seed does not supply KILLS the failure path.
@@ -421,15 +547,19 @@ def test_a_failure_seed_supplies_every_key_the_failure_terminal_reads(path):
     different states, tens of lines apart, and the machine still parses fine without the
     seed.
 
-    A "failure seed" is identified structurally — a Pass state that captures the whole error
-    (``"error.$": "$"``) — so this holds for any arc that grows one, not just this one.
+    A "failure seed" is identified structurally — a Pass state that captures the error, whether
+    it REPLACED the state (``"error.$": "$"``, the pre-identity catch, which has no object to
+    merge into) or was merged beside it (``"error.$": "$.error"``, every catch carrying a
+    ``ResultPath``). Both shapes, because a guard that saw only the first was blind to the
+    second on every plane that has one, and its own docstring claimed otherwise.
     """
     asl = _load(path)
     states = dict(_states(asl))
     seeds = {
         name: state
         for name, state in states.items()
-        if state.get("Type") == "Pass" and state.get("Parameters", {}).get("error.$") == "$"
+        if state.get("Type") == "Pass"
+        and state.get("Parameters", {}).get("error.$") in ("$", "$.error")
     }
     if not seeds:
         pytest.skip("no failure-seed state in this machine")

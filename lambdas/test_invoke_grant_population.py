@@ -63,6 +63,7 @@ PROBE_TARGETS = {
     "data-quality-validate-authorize": "TerminalError at events.parse_sqs_request, zero AWS calls",
     "file-ops-validate-authorize": "TerminalError at events.parse_sqs_request, zero AWS calls",
     "file-send-validate-authorize": "TerminalError at events.parse_sqs_request, zero AWS calls",
+    "results-conversion-validate-authorize": "TerminalError at events.parse_sqs_request, zero AWS calls",
     "table-builder-validate-authorize": "TerminalError at events.parse_sqs_request, zero AWS calls",
     "table-share-validate-authorize": "TerminalError at events.parse_sqs_request, zero AWS calls",
     "shared-space-backfill-ever-active": "mode defaults to report, which writes nothing",
