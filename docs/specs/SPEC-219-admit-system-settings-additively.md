@@ -47,8 +47,9 @@ knowing both locations are already fenced.
   SPEC-220's second merge, after the live checks, while this spec's state is still the rollback.
 - **A second home for any non-moving folder.** `user_settings/`, `saved_queries/`,
   `_data-quality-reports/` and `system_settings` itself sit in the same lists as the moving three;
-  the plural builder returns them exactly one location, so no rule ever refuses or excludes
-  `alice/system_settings/user_settings/` or `alice/system_settings/system_settings/`.
+  the plural builder returns them exactly one location, so no rule treats
+  `alice/system_settings/user_settings/` as a *hidden* or *excluded* folder — what refuses a paste
+  or an archive beneath it is the `system_settings` rule itself, by that name.
 - **File-send's exclusion set.** The send plane excludes only `athenaresults/` and `user_settings/`
   from an expansion, and receipts and shared tables are sendable by design; `system_settings` does
   **not** join `_PORTAL_MANAGED_FOLDERS`, because after the move that would make receipts
@@ -87,11 +88,12 @@ the original Sid suffixed `SystemSettings` and a single-string Resource — beca
 the five plane execution templates, whose Resources are already arrays, a sibling is a new array
 element beside the old one.
 
-**Two existing guards pin these templates and must be re-baselined by this spec, with the argument
-written down.** `lambdas/test_portal_role_preservation.py` byte-compares the portal-role templates
-against `BASELINE_COMMIT` under an `ACCEPTED_` test whose docstring says the spec making a change
-moves the baseline forward with a note, and pins the set of Sids each template gained since that
-baseline (`{"ListTheSharedDocuments"}` for the user-space template, none for the shared-space one).
+**An existing guard pins these templates and is extended, not re-baselined.**
+`lambdas/test_portal_role_preservation.py` byte-compares every `portal-role-*.json.tftpl` against
+`BASELINE_COMMIT` except the templates listed in `CONTENT_ASSERTED`, for which it pins instead the
+exact set of Sids gained and lost since the baseline. The baseline stays where it is — moving it
+would empty the gained sets and break the lost-set assertion, and a PR cannot name its own merge
+commit. The analytics template joins `CONTENT_ASSERTED` with a gained set of its own.
 
 #### Acceptance Criteria:
 
@@ -113,18 +115,22 @@ baseline (`{"ListTheSharedDocuments"}` for the user-space template, none for the
       `ArchiveReceiptsAreNotUserWritable` and `ArchiveReceiptsAreNotUserWritableSystemSettings`, its
       vector table gains `alice/system_settings/archive/` rows, and the browser predicate (FR-003)
       agrees with the IAM side on every row, old and new.
-- [ ] `test_portal_role_preservation.py`: `BASELINE_COMMIT` moves to the commit that lands the
-      siblings, with the note the docstring asks for; the gained-Sid expectations become
-      `{"ListTheSharedDocuments", "ArchiveReceiptsAreNotUserWritableSystemSettings"}` for the
-      user-space template and the exact new Sid set for the shared-space and analytics ones; the test
-      stays `ACCEPTED_`, and nothing else in it changes.
+- [ ] `test_portal_role_preservation.py`: `BASELINE_COMMIT` is unchanged; the user-space gained set
+      becomes `{"ListTheSharedDocuments", "ArchiveReceiptsAreNotUserWritableSystemSettings"}`; the
+      shared-space template's "adds none" becomes exactly `{"SharedResultsNoDeleteSystemSettings",
+      "SharedArchiveReceiptsAreNotUserWritableSystemSettings"}`, its lost set still
+      `{"SharedSpaceEnqueue"}`; `portal-role-analytics.json.tftpl`
+      joins `CONTENT_ASSERTED` with a gained set of `{"ResultsReadWriteSystemSettings",
+      "ResultsNoDeleteSystemSettings"}` and a lost set of nothing; the byte-comparison test stays
+      `ACCEPTED_` and unchanged.
 - [ ] `checkov -f plan.json` on the deploy plan reports no new unaccepted finding, or the finding is
       **scoped by check ID and resource** with a written disposition — never accepted wholesale.
 - [ ] A test over `infra/modules/analytics/lakeformation.tf` and `infra/modules/shared-spaces/lakeformation.tf`
       (through `tf_blocks`) asserts each `aws_lakeformation_resource` block's `arn` is an unadorned
       bucket reference with no `/` suffix (`aws_s3_bucket.shared_space.arn`;
-      `var.user_space_bucket_arn`, whose root-module argument in `infra/main.tf` is the bare bucket
-      ARN and is read too). That is what makes no LF change necessary; if either ever narrows to a
+      `var.user_space_bucket_arn`, whose argument in `infra/main.tf`'s `module "analytics"` call —
+      selected by name, since three module calls pass that variable — is the bare bucket ARN and is
+      read too). That is what makes no LF change necessary; if either ever narrows to a
       prefix, the test names it.
 - [ ] The templates land in their own PR, before the rule PRs. This is a **convention**, not a
       dependency — FR-002 and FR-003 change what code refuses, not what IAM allows — kept because the
@@ -171,31 +177,33 @@ are asserted against the new home with a pair test and, for data quality, extend
       over the two prefixes so they cannot drift: `alice/archive/r.txt` and
       `alice/system_settings/archive/r.txt` are both `archive_read_only`; a paste to
       `alice/system_settings/shared_tables/` is refused by `destination_refusal` as the plane's
-      picker-lock (`_is_root_folder` re-pointed), and a move of `alice/system_settings/athenaresults/`
-      by `source_refusal` (`_is_under_root_folder` re-pointed);
+      picker-lock (`_is_under_root_folder` re-pointed), and a move of `alice/system_settings/athenaresults/`
+      by `source_refusal` (`_is_root_folder` re-pointed);
       `finance/system_settings/athenaresults/q.csv` is not sendable; a selection containing
       `alice/system_settings/` is refused as `reserved_folder`; a file-ops expansion of a space root
-      lists neither `athenaresults/` home and still lists `alice/user_settings/` as excluded exactly
-      once; `is_write_locked` is true for `alice/system_settings/archive/receipt.txt` and for
+      lists neither `athenaresults/` home and no `user_settings/` object; `is_write_locked` is true for `alice/system_settings/archive/receipt.txt` and for
       `finance/x/system_settings/archive/y` in a shared space, and still false for
       `alice/reports/archive/old.csv` in a personal one.
 - [ ] `dqcommon.RESERVED_PREFIXES` gains `system_settings`, so a check whose first segment is the
       new prefix is refused with the same `FORBIDDEN` reason as one under `athenaresults` today —
       asserted by name.
-- [ ] `RESERVED_SOURCE_ROOTS`, `PICKER_LOCKED_FOLDERS` and `UNDELETABLE_ROOT_FOLDERS` gain
-      `system_settings`, and `_IGNORED_SUBTREES` is `("athenaresults/", "system_settings/athenaresults/", "user_settings/")`;
+- [ ] `RESERVED_SOURCE_ROOTS` gains `system_settings` as its **first** member (the refusal loop
+      names the first match, and the folder itself must be named before anything beneath it);
+      `PICKER_LOCKED_FOLDERS` and `UNDELETABLE_ROOT_FOLDERS` gain it appended **last**; and
+      `_IGNORED_SUBTREES` is `("athenaresults/", "system_settings/athenaresults/", "user_settings/")`;
       each per-list literal assertion from SPEC-218 is updated to the new exact membership, and no
       other member moves.
 - [ ] The sweep learns the new prefix as a **folder name**: `system_settings` joins the names rules
       (a) and (b) flag and the two TypeScript literal/template regexes match, `SYSTEM_SETTINGS_FOLDER`
       joins `OWNER_IDENTIFIERS` with `_IDENT_TO_NAME["SYSTEM_SETTINGS_FOLDER"] = "system_settings"`,
-      and `_TS_TEMPLATE_SEGMENT` is widened so `${x}system_settings/archive/` is a construction. The
+      `system_settings` joins the sibling-name list the bare-`'archive'` rule consults, and
+      `_TS_TEMPLATE_SEGMENT` is widened so `${x}system_settings/archive/` is a construction. The
       corpus gains one failing case per tree — Python `f"{root}system_settings/{folder}/"` and
       TypeScript `` `${root}system_settings/${folder}/` `` outside the owner — and the tree is clean
       after the re-pointing. The sweep's known blind spot — a prefix built from a **parameter**, as
       `_is_root_folder` did — is recorded in its module docstring as what the pair tests cover instead.
 - [ ] The singular builders' values are unchanged: every SPEC-218 builder VALUE test passes
-      untouched, `test_fifo_derivations.py` passes untouched, and the only expected strings that
+      untouched, `lambdas/api/test_fifo_derivations.py` passes untouched, and the only expected strings that
       change in any existing test are the list memberships named above.
 
 ### FR-003: The browser's location rules accept both homes
@@ -206,8 +214,9 @@ are asserted against the new home with a pair test and, for data quality, extend
 `appManagedPrefixes(rootPrefix, folder): readonly string[]` with the same member rule and the same
 literal spelling as the fleet's; `isRootFolderNamed`, `undeletableRootFolderRefusal`,
 `archiveRefusal` and `isWriteLockedPrefix`'s anchored arm test against every element. The
-`system_settings` name joins `PICKER_LOCKED_FOLDERS`, `UNDELETABLE_ROOT_FOLDERS` and
-`ARCHIVE_RESERVED_ROOTS`, with its own refusal wording. `systemFolders.ts`'s
+`system_settings` name joins `PICKER_LOCKED_FOLDERS` and `UNDELETABLE_ROOT_FOLDERS` appended last,
+and `ARCHIVE_RESERVED_ROOTS` **first** — `archiveRefusal` names the first match, and with `archive`
+ahead of it the folder itself would be reported as "archive" — each with its own refusal wording. `systemFolders.ts`'s
 `SYSTEM_FOLDER_GROUP_NAME` becomes an alias of `SYSTEM_SETTINGS_FOLDER` rather than a second
 declaration; the row component, the partition and their tests are untouched.
 
@@ -220,12 +229,14 @@ declaration; the row component, the partition and their tests are untouched.
 - [ ] `writeLockRefusal` names the same reason for `alice/archive/` and `alice/system_settings/archive/`;
       `undeletableRootFolderRefusal` returns the archive wording for both homes and a new wording for
       `alice/system_settings/` itself; the destination picker offers neither home and not
-      `system_settings/`; `archiveRefusal` refuses a selection containing `alice/system_settings/` as
-      an ancestor of a reserved folder, naming `system_settings`; and `isRootFolderNamed('alice/system_settings/user_settings/', 'alice/', HIDDEN_BROWSER_FOLDERS)`
+      `system_settings/`; `archiveRefusal` refuses a selection containing `alice/system_settings/` — the reserved
+      folder itself — naming `system_settings`, and one containing `alice/system_settings/archive/`
+      naming `archive`; and `isRootFolderNamed('alice/system_settings/user_settings/', 'alice/', HIDDEN_BROWSER_FOLDERS)`
       is **false** — the phantom home is not hidden, because it is not a home.
 - [ ] The plane-mirror test in `archiveSelection.test.ts` still passes with `ARCHIVE_RESERVED_ROOTS`
-      and `RESERVED_SOURCE_ROOTS` at six members each, and the literal membership assertions on
-      both sides are updated to exactly six.
+      and `RESERVED_SOURCE_ROOTS` at six members each (it compares sorted sets, so order is free
+      to differ), and the literal membership assertions on both sides are updated to exactly six,
+      `system_settings` first.
 - [ ] `git diff` of `SystemFolderGroupRow.tsx`, `systemFolders.test.ts`, `FileListTable.tsx` and
       `FileListMobile.tsx` is empty; `systemFolders.ts` changes only the one declaration.
 - [ ] Help & guides are unchanged: the text already says the folders are "gathered under
@@ -279,8 +290,8 @@ def app_managed_prefix(root: str, folder: str) -> str: ...        # unchanged: w
 def app_managed_prefixes(root: str, folder: str) -> tuple[str, ...]:
     """The root-anchored locations a folder may occupy, depth-one first, as LITERALS — never derived
     from the singular, so the singular can move without these following. Two elements for a member
-    of MOVING_FOLDERS while both homes are admitted (SPEC-220 shrinks it to one); one for any other
-    name. Normalizes nothing."""
+    of MOVING_FOLDERS while both homes are admitted (the narrowing shrinks it to one); one for any
+    other name. Normalizes nothing."""  # a comment in the real module names no spec number
 ```
 
 ```ts
