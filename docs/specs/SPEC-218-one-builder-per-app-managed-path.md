@@ -1,7 +1,7 @@
 # Spec: One Builder Per App-Managed Path
 
 **ID:** SPEC-218
-**Status:** In Progress
+**Status:** Completed
 **Last Updated:** 2026-09-05
 **Depends On:** None
 
@@ -161,8 +161,10 @@ population.
       written `${shared_space_bucket_arn}/*/athenaresults/*`, and an S3 resource `*` matches `/`, so
       they keep matching after the move; the personal ones are anchored at
       `${aws:PrincipalTag/username}/` and stop matching entirely. **The unprotected window at cutover
-      is personal-space-only**, and `ResultsNoDelete` / `UserSettingsNoDelete` are the statements it
-      turns on.
+      is personal-space-only**, and the statements it turns on are `ResultsNoDelete`
+      (`analytics/policies/portal-role-analytics.json.tftpl`) and `ArchiveReceiptsAreNotUserWritable`
+      (`data/policies/portal-role-permissions.json.tftpl`) — an earlier draft named
+      `UserSettingsNoDelete`, which guards a folder that does not move.
 
 ### FR-005: A sweep refuses a new declaration, runs in CI, and is proved to fail
 

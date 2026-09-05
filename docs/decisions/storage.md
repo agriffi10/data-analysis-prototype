@@ -35,6 +35,7 @@ entry you need, not the file.**
 - [An upload's shape is the server's decision, and a part is sized so the expiry premise stops mattering (SPEC-216)](#an-uploads-shape-is-the-servers-decision-and-a-part-is-sized-so-the-expiry-premise-stops-mattering-spec-216)
 - [The folder-recursive functions are deleted, not ported, and the flag stops being a fallback (SPEC-198)](#the-folder-recursive-functions-are-deleted-not-ported-and-the-flag-stops-being-a-fallback-spec-198)
 - [The free-name probe moved to the API, not to the plane (SPEC-198, amends SPEC-187)](#the-free-name-probe-moved-to-the-api-not-to-the-plane-spec-198-amends-spec-187)
+- [An app-managed path is built by one function per tree, and a sweep refuses a second (SPEC-218)](#an-app-managed-path-is-built-by-one-function-per-tree-and-a-sweep-refuses-a-second-spec-218)
 
 ## Fences
 
@@ -69,6 +70,12 @@ unrecoverable — revisit before real user data lands.
 - **The free-name probe moved to the API, not to the plane** — 999 round trips would be strictly
   worse than the loop it replaced. `numberedName` lives in Python only, and **exhaustion is now
   distinguishable from failure** (409 + `attempts`), which it was not.
+- **An app-managed path is BUILT by one function per tree** — `lib/appManagedPaths.ts` and
+  `cpcommon/app_managed.py` own the names and the depth-one anchor, a CI sweep refuses a declaration
+  or construction outside its owners, and **no builder normalizes** (the FIFO group id digests one).
+  What breaks the coming move is **depth**, not spelling: a `{root}{name}/` rule stops matching at
+  depth two and denies nobody. `archive` is **three facts** and only the receipt folder moves; the
+  vault segment and `arcommon.plan.PREFIX` stay, pinned equal by an `ACCEPTED_` tripwire.
 
 ## File ops = filesystem UX
 
@@ -1102,3 +1109,53 @@ carries its own code.
 > **This amends two written records in place.** `ARCS.md`'s residual note and SPEC-187's table row
 > both say *the probe stays in the browser*. It left the browser for the **API**, not for the plane —
 > the distinction matters, because the plane would have made a same-folder copy asynchronous.
+
+## An app-managed path is built by one function per tree, and a sweep refuses a second (SPEC-218)
+
+Three folders the app fills for the user — `athenaresults/`, `archive/` (the receipt folder) and
+`shared_tables/` — are moving under a real `system_settings/` prefix over three specs. The obvious
+hazard is spelling: the names appeared as literals in four browser modules and eleven fleet modules.
+The real hazard is **depth**. Nearly every rule about those folders was anchored at depth one, as
+`` `${rootPrefix}${name}/` `` in the browser and `f"{root}{name}/"` on the planes, and at depth two
+each comparison stops matching **silently** — a Deny-mirroring predicate that offers a write IAM
+refuses, an exclusion that stops excluding, a reserved-root check that lets the folder be archived
+and then deleted. `fscommon.authz` had already written the warning into its own docstring.
+
+**The decision: the unit is a builder per fact, not a constant per name.** `lib/appManagedPaths.ts`
+and `cpcommon/app_managed.py` declare the names and own the one depth-one anchor (`appManagedPrefix`
+/ `app_managed_prefix`, with per-fact wrappers); every anchored construction calls it, so the move is
+one edit per tree. Membership lists keep their members and only spell the moving names through the
+owner — this changed how a path is *built*, never who is in a list, because the lists answer
+different questions on purpose.
+
+**No builder normalizes.** Each is a pure string over what it is handed, and each caller keeps its own
+`normalize_root`. The reason is the API's FIFO group id, which digests the vault prefix: a builder that
+normalized would answer 500 on an empty space name the contract admits, and re-key the id for a
+slash-carrying one. Byte identity was proved by comparing thirteen before/after strings, the FIFO
+digests for empty, slash-carrying and ordinary names among them.
+
+**`archive` is three facts, and exactly one moves.** The receipt folder (`RECEIPT_FOLDER`, space
+bucket, moves) and the Glacier vault's key segment (`VAULT_ARCHIVE_SEGMENT`, archive bucket, hashed
+into FIFO ids, stays) live in `cpcommon` because two packages each need them. The admin bucket's
+control-plane scratch prefix stays as `arcommon.plan.PREFIX`: one consumer, pinned by its own layer
+against the IAM grant and the lifecycle rule, and a domain layer owns its constants. An `ACCEPTED_`
+tripwire pins all three equal today and says *revisit when the receipt folder moves — do not delete*.
+
+**The population is pinned, not derived.** `test_app_managed_template_population.py` spells the eight
+IAM templates naming a moving folder in a space bucket, per file, per folder **and per anchoring
+segment** (so a path replaced in place reddens it, not only a file joining), and separately the two
+naming the admin bucket's `archive/*` that must never gain a sibling. The asymmetry it records
+decides the next spec's shape: shared-space Denies are `*/athenaresults/*` and an S3 `*` matches
+`/`, so they keep matching after the move; personal ones are anchored at the principal tag and stop
+— the unprotected window at cutover is personal-space-only.
+
+**A sweep, not a review, holds it.** `scripts/validate_app_managed_paths.py` refuses a new declaration
+or construction outside the owners: Python by AST (a folder-name constant, an f-string or
+concatenation building the prefix — from a literal or from an imported name — a module-level
+`"archive"`, or `"archive"` beside another managed name in a collection), TypeScript by regex over
+comment- and regex-literal-stripped source. It is scoped to **construction**, never to the word:
+`archive` is also a mode, a service name and dozens of user-facing sentences, and a bare `'archive'` in TypeScript
+is refused only beside another managed name or as a module-level `const`. Its fixture corpus asserts
+the *reason* each rule reports and silence on the shapes it must not flag, and every rule and the CI
+wiring were mutation-tested. Do **NOT** widen it to the word, and do **NOT** union the membership lists.
+What shipped, module by module: `docs/spec-delivery/SPEC-218-one-builder-per-app-managed-path.md`.
