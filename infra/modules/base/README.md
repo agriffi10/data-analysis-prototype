@@ -152,10 +152,12 @@ The recurring non-scopable actions, each isolated in its own wildcard statement:
   rather than emptied: a document with no statements is not valid IAM.
 - **An `events:` statement means one of two things, and they are not the same thing.** The commoner
   is a `TIMED_OUT` rule: a machine that validates and stops has none to manage, so the grant arrives
-  with the transfer that adds the ceiling. **`file-ops` is the exception among those and carries it
-  from its first version** — not copied habit: its per-space lock's **waiting loop** is in the
-  machine before any data work is, so it ships with the rule from day one, **and the grant has to be
-  here or the first apply fails on the rule rather than on anything to do with the plane's purpose**.
+  with the transfer that adds the ceiling. **`file-ops` and `results-conversion` are the exceptions
+  among those and carry it from their first version** — not copied habit: file-ops's per-space
+  lock's **waiting loop** is in the machine before any data work is, and results-conversion ships
+  its top-level ceiling with its skeleton, so each ships with the rule from day one, **and the grant
+  has to be here or the first apply fails on the rule rather than on anything to do with the
+  plane's purpose**.
   The other is a **schedule**, which has nothing to do with a ceiling: `user-directory`,
   `observability` and `control-plane-dlq-drain` are all schedules, and **`shared-spaces` now holds
   one too** — for the reader that picks operator-driven membership changes out of the admin bucket
