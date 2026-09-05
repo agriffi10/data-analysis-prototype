@@ -125,7 +125,20 @@ several of them years old.
   classifier that looks right is routinely wrong at its edges: a sweep for unused module-level
   helpers classified pytest's `Test*` classes as dead and would have deleted every test inside
   them — caught only because it printed first. A regex over source is the same hazard one level
-  down; parse instead where a parser exists.
+  down; parse instead where a parser exists. **Collect the names from the RUNNER, on both refs,
+  each in a worktree with its own install** — `vitest list` from `apps/portal` prints one line per
+  test without running a body (its `--json` takes an output PATH, and placed before a file filter
+  it overwrites that file); pytest's is `--collect-only -q --no-cov` from the repo root, diffing
+  the node ids only, since the summary line carries a timing and without `--no-cov` this repo's
+  `addopts` appends a coverage table that differs per ref — never from a grep of `it(`. A
+  parameterised name exists only at collection time: a registry-driven `it.each` walk turns one
+  row into N tests, so removing the row drops N names while the source diff shows one deleted line
+  and no `it(` at all. Deleting a gated surface on 2026-09-04 (`1aed93f5`), a source-grep diff said
+  six removed where the runner said eight — the two the gating walk generated — and it reached a
+  commit message. Check the exit status on both sides: a collection failure on one ref (a spec
+  reading `node_modules` by a literal path, in a worktree with no install) empties that side's
+  listing entirely, so the diff reads as every test removed — or as no change, if the script
+  ignored the exit.
 - **A finding should carry a reproducing mutation, and the fix is verified by re-planting it.**
   Then fix-verification is mechanical and needs no second reviewer — which is what stops a review
   round spawning a review of its fixes. A frame only finds what its mutations probe, so a fix that

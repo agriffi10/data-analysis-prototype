@@ -2,8 +2,7 @@
 
 How work gets done in this repo. CLAUDE.md carries the terse, always-loaded rules; this doc is the
 fuller **method** they point to, and it is the contract CLAUDE.md only summarises. **Read it at the
-start of every session, before any other doc** — CLAUDE.md's Session Workflow says the same, and this
-file used to say the opposite.
+start of every session, before any other doc** — CLAUDE.md's Session Workflow says the same.
 
 Goal: each feature is **specified before it's built**, built in **reviewable phases**, landed as a
 **single PR on green CI**, and recorded in **lean, layered docs** so the next session starts cheap.
@@ -181,9 +180,9 @@ answered, and on a twelve-phase spec it asks it twelve times.
   settled. Long form, with the two that shipped as source comments and were believed for weeks:
   `docs/reviewer-contract.md`.
 - **A mechanical sweep REPORTS before it applies.** Print what it would change, read the list, then
-  re-run with `--apply`, and check the result by diffing **test names**, never a pass count. Parse
-  rather than regex where a parser exists. Long form, with the sweep that classified pytest's
-  `Test*` classes as dead: `docs/reviewer-contract.md`.
+  re-run with `--apply`, and check the result by diffing **test names collected from the runner**
+  — never a pass count, and never a source grep, which cannot see an `it.each` row. Parse rather
+  than regex where a parser exists. Long form: `docs/reviewer-contract.md`.
 - Specs ship with **no Open Questions** — they're resolved during authoring (§4). An issue that emerges
   mid-build is triaged by *kind*, not parked:
   - **Reversible / technical** (naming, file layout, which helper to reuse, an obvious bug fix): just
