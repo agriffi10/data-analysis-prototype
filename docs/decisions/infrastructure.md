@@ -177,9 +177,11 @@ over, and it reads like a packaging problem rather than a quota one.
 
 **The guard is fleet-wide and lives in `lambdas/test_fleet_derivation.py`**, not on the module
 that hit it, because the next function to want more memory will be in a different module and its
-author will have exactly the information this one had. It reads every `.tf` under `infra/` and
-refuses a declaration above what this account is known to create, on both dimensions a quota can
-bite.
+author will have exactly the information this one had. It reads every `.tf` in a module that
+DEPLOYS a Lambda — asked with `fleet`'s own module-source test, not a substring, because that
+helper's docstring already records a suffix test silently dropping a plane's verbs over a legal
+trailing slash — and refuses a declaration above what this account is known to create, on both
+dimensions a quota can bite.
 
 **Its file population is the part that was wrong first, and the repo had already learned why.**
 It began at `infra/modules/*/locals.tf` — the per-module fleet map — and was green over ten

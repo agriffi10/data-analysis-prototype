@@ -37,7 +37,14 @@ AGGREGATE = "lambda_deployed_names"
 
 sys.path.insert(0, str(ROOT / "lambdas"))
 import fleet
-from tf_blocks import argument, module_calls, output_blocks, strip_noise
+from tf_blocks import (
+    argument,
+    module_calls,
+    output_blocks,
+    span,
+    strip_comments,
+    strip_noise,
+)
 
 
 def _modules_declaring_functions() -> set[str]:
@@ -387,69 +394,55 @@ ACCOUNT_LIMITS = (
 
 #: How a caller wires a function's size into the shared Lambda module. Every Lambda in this repo
 #: goes through ``infra/modules/docker-lambda``, so a module that does not source it deploys no
-#: function and its numbers answer to a different service entirely — ``spa`` sizes a Fargate task,
-#: where 4,096 MB is ordinary and this gate's Lambda ceiling would be a false refusal of a correct
-#: value. The population is derived from that fact rather than from a list of module names, so a
-#: new plane joins it by wiring itself up and nobody has to remember.
-_SHARED_LAMBDA_MODULE = "docker-lambda"
-
-
+#: function and its numbers answer to a different service — ``spa`` sizes a Fargate task, where
+#: 4,096 MB is ordinary and this Lambda ceiling would be a false refusal of a correct value.
+#:
+#: Which modules those are is asked with ``fleet._is_fleet_module``, NOT with a substring test.
+#: A private helper is reached into deliberately: its own docstring records that a suffix test
+#: "accepted ``../not-docker-lambda`` and rejected ``../docker-lambda/`` — a legal trailing slash
+#: that silently dropped an entire plane's verbs". A substring test written here reintroduced the
+#: second half of that exactly, and a scratch module proved it: with the slash, every check in
+#: this file passed over ``memory_mb = 10240``.
 def declaration_files() -> list[pathlib.Path]:
     """Every Terraform file an account-quota number can reach ``CreateFunction`` through.
 
     The population this gate sweeps, and getting it wrong is how the gate stays green over a
     function it never read. It began as ``infra/modules/*/locals.tf`` — the per-module fleet map —
     and that missed TEN declarations: a module with one function passes ``memory_mb`` straight to
-    the shared block in its own ``lambda.tf`` and never builds a map. ``fleet.py``'s
-    ``_locals_bodies`` states the same lesson for its own sweep, naming ``api`` and ``auth``; both
-    were among the ten.
+    the shared block in its own ``lambda.tf`` and never builds a map.
 
     **The gate's known ceiling is INDIRECTION, and it is not closeable from here.** A value
-    assigned through a local or a variable — ``memory = local.heavy_tier`` — leaves no literal for
-    any text sweep to read. Refusing non-literal assignment is not open either: indirection is how
-    this fleet is wired, with seven legitimate ``memory_mb = each.value.memory`` sites. Resolving
-    it needs the plan's own values, which is a CI-side check beside the apply that already knows,
-    and it is recorded in ``docs/testing/owed.md`` rather than left as a silent limit.
+    assigned through a local — ``memory = local.heavy_tier`` — leaves no literal for any text
+    sweep. Refusing non-literal assignment is not open either: indirection is how this fleet is
+    wired. Resolving it needs the plan's own values, a CI-side check beside the apply that already
+    knows, and it is recorded in ``docs/testing/owed.md`` rather than left silent — the guard
+    below bounds the residue by FORM so a NEW kind of it cannot arrive unnoticed.
 
-    It is scoped to modules that SOURCE the shared Lambda module, plus that module itself for its
-    variable defaults. Sweeping every ``.tf`` under ``infra/`` instead is one line shorter and
-    wrong in the expensive direction: it reaches ``spa``'s Fargate task memory, which this ceiling
-    does not govern, and a gate that refuses a correct value teaches the next person to route
-    around it.
-
-    ``.terraform`` is excluded rather than merely absent today: it holds nothing after a
-    provider-only ``init``, but a registry module would put third-party HCL under it, and a
-    population that changes depending on whether somebody has run ``init`` is a gate that
-    disagrees with itself between machines.
+    The root's own ``.tf`` files are in: nothing there sizes a function today, because no plane
+    module takes a size variable, but the moment one does — which is how a size becomes
+    environment-tunable — the root is where the number would be written.
 
     Args:
       None.
 
     Returns:
-      Every ``.tf`` file in a module that deploys a Lambda, sorted.
+      Every ``.tf`` file in a module that deploys a Lambda, plus the shared module's own and the
+      root's, sorted.
 
     Raises:
       None.
     """
-    modules = {MODULES / _SHARED_LAMBDA_MODULE}
+    modules = {MODULES / fleet.MODULE_SOURCE}
     for path in MODULES.rglob("*.tf"):
         if ".terraform" in path.parts:
             continue
-        if f'"../{_SHARED_LAMBDA_MODULE}"' in path.read_text(encoding="utf-8"):
-            modules.add(path.parent)
-    return sorted(
-        path
-        for module in modules
-        for path in module.rglob("*.tf")
-        if ".terraform" not in path.parts
-    )
-
-
-#: HCL's three comment forms. Stripped before the sweep reads a file, because a commented-out
-#: declaration is the opposite of a deployed one and a gate that refuses
-#: ``# was: memory = 10240 until CreateFunction refused it`` punishes the person documenting this
-#: very trap. Applied to a population of many files, where commented HCL is ordinary.
-_HCL_COMMENT = re.compile(r"/\*.*?\*/|(?<!:)//[^\n]*|#[^\n]*", re.DOTALL)
+        for body in module_calls(strip_comments(path.read_text(encoding="utf-8"))).values():
+            if fleet._is_fleet_module(argument(body, "source")):
+                modules.add(path.parent)
+    found = set((ROOT / "infra").glob("*.tf"))
+    for module in modules:
+        found.update(path for path in module.rglob("*.tf") if ".terraform" not in path.parts)
+    return sorted(found)
 
 
 def declaration_pattern(dimension: str) -> str:
@@ -516,20 +509,31 @@ def over_account_limits(text: str, label: str) -> list[str]:
     Raises:
       None.
     """
-    live = _HCL_COMMENT.sub("", text)
+    live = strip_comments(text)
     offences = []
     for dimension, ceiling in ACCOUNT_LIMITS:
         for match in re.finditer(declaration_pattern(dimension), live):
             key, declared = match.group(1), int(match.group(2))
             if declared > ceiling:
                 offences.append(f"{label}: {key} = {declared}, over this account's {ceiling}")
-        for block in re.finditer(
-            rf'variable\s+"([A-Za-z0-9_]*{dimension}[A-Za-z0-9_]*)"\s*\{{(.*?)\n\}}', live, re.DOTALL
+        for fallback in re.finditer(
+            rf"([A-Za-z0-9_]*{dimension}[A-Za-z0-9_]*)\s*=\s*try\([^()]*?,\s*\"?(\d+)\"?\s*\)", live
         ):
-            default = re.search(r'\n\s*default\s*=\s*"?(\d+)"?', block.group(2))
-            if default and int(default.group(1)) > ceiling:
+            declared = int(fallback.group(2))
+            if declared > ceiling:
                 offences.append(
-                    f"{label}: variable {block.group(1)} defaults to {default.group(1)}, "
+                    f"{label}: {fallback.group(1)} falls back to {declared}, "
+                    f"over this account's {ceiling}"
+                )
+        for header in re.finditer(rf'variable\s+"([A-Za-z0-9_]*{dimension}[A-Za-z0-9_]*)"\s*\{{', live):
+            body = span(live, header.end() - 1)[1:-1]
+            try:
+                default = argument(body, "default").strip('"')
+            except ValueError:
+                continue
+            if default.isdigit() and int(default) > ceiling:
+                offences.append(
+                    f"{label}: variable {header.group(1)} defaults to {default}, "
                     f"over this account's {ceiling}"
                 )
     return offences
@@ -545,9 +549,10 @@ def test_no_module_declares_more_memory_than_this_account_will_create() -> None:
 
     It is a fleet-wide sweep rather than a rule on the one module that hit it, because the next
     function to want more memory will be in a different module and its author will have the same
-    information available: none. Fleet-wide means every ``.tf`` under ``infra/`` — see
-    ``declaration_files`` — not the per-module fleet maps: a module deploying one function passes
-    its size to ``docker-lambda`` in its own ``lambda.tf`` and builds no map to read.
+    information available: none. Fleet-wide means every ``.tf`` in a module that DEPLOYS a Lambda,
+    plus the root's — ``declaration_files`` decides it — not the per-module fleet maps: a module
+    deploying one function passes its size to ``docker-lambda`` in its own ``lambda.tf`` and builds
+    no map to read.
     """
     offenders = []
     for path in declaration_files():
@@ -585,7 +590,7 @@ def test_the_population_carries_both_ways_a_size_is_wired() -> None:
         path.name
         for path in declaration_files()
         for _ in re.finditer(
-            declaration_pattern("memory"), _HCL_COMMENT.sub("", path.read_text(encoding="utf-8"))
+            declaration_pattern("memory"), strip_comments(path.read_text(encoding="utf-8"))
         )
     }
     assert set(DECLARING_FILES) <= sources, (
@@ -598,12 +603,22 @@ def test_the_population_carries_both_ways_a_size_is_wired() -> None:
 #: the fleet presumed compliant. Written down, not counted from the tree: a floor derived from
 #: what the sweep just found is satisfied by finding nothing, which is the failure it exists to
 #: catch. Memory is one per function across the whole fleet, spread over `locals.tf` maps and
-#: single-function `lambda.tf` blocks; the floor sits well under that count on purpose, so that
-#: retiring a module is not a red gate while losing a whole file's worth still is. The count itself
-#: is not written here — `declaration_files` decides it and this number would go stale beside it.
-#: Ephemeral is declared only where a
-#: function needs more than Lambda's 512 MB default, which today is one — so 1 is not a comfortable
-#: population, it is the number that still makes a renamed key visible.
+#: single-function `lambda.tf` blocks; the floor sits under that count so retiring a module is not
+#: a red gate. The count itself is not written here — `declaration_files` decides it and a number
+#: beside it would go stale.
+#:
+#: **What this floor does NOT do, stated because it used to claim otherwise:** it does not catch
+#: one file's worth of declarations going missing. The fleet's largest file holds 18 and its
+#: smallest 1, so most single-file losses land above the floor and pass. That is not a slack
+#: problem with a bigger number as the answer — a floor tight enough to catch the smallest file
+#: reddens the moment anything is retired. The guards that actually catch a shrinking population
+#: are `test_the_population_carries_both_ways_a_size_is_wired`, which is a SHAPE test, and
+#: `max(found) == ceiling`, which fires the moment the file holding the largest value drops out.
+#: This floor's job is narrower: it catches the sweep matching NOTHING.
+#:
+#: Ephemeral is declared only where a function needs more than Lambda's 512 MB default, which today
+#: is one — so 1 is not a comfortable population, it is the number that still makes a renamed key
+#: visible.
 DECLARATIONS_AT_LEAST = {"memory": 70, "ephemeral": 1}
 
 
@@ -622,7 +637,7 @@ def test_each_dimension_sweep_reads_the_declarations_it_claims_to(dimension: str
         for path in declaration_files()
         for match in re.finditer(
             declaration_pattern(dimension),
-            _HCL_COMMENT.sub("", path.read_text(encoding="utf-8")),
+            strip_comments(path.read_text(encoding="utf-8")),
         )
     ]
     assert len(found) >= DECLARATIONS_AT_LEAST[dimension], (
@@ -694,6 +709,16 @@ ACCOUNT_LIMIT_CORPUS = (
     ),
     ("a quoted value under the ceiling is silent", '"a" = { memory = "256" }', []),
     (
+        "a try() FALLBACK is a real declaration — it is what every verb omitting the key gets",
+        "  ephemeral_storage_mb = try(each.value.ephemeral, 10240)",
+        ["ephemeral_storage_mb falls back to 10240, over this account's 2048"],
+    ),
+    (
+        "the fleet's own try() fallback is under the ceiling and silent",
+        "  ephemeral_storage_mb = try(each.value.ephemeral, 512)",
+        [],
+    ),
+    (
         "a variable DEFAULT is read, because the key on that line is the word default",
         'variable "ephemeral_storage_mb" {\n  type    = number\n  default = 10240\n}',
         ["variable ephemeral_storage_mb defaults to 10240, over this account's 2048"],
@@ -704,14 +729,18 @@ ACCOUNT_LIMIT_CORPUS = (
         [],
     ),
     (
-        "a COMMENTED-OUT declaration is silent, in all three of HCL's comment forms",
+        "a COMMENTED-OUT declaration is silent in the two forms this tree uses",
         (
             '# was: memory = 10240 until CreateFunction refused it\n'
             '// memory = 10240\n'
-            '/* memory = 10240 */\n'
             '"a" = { memory = 256 }'
         ),
         [],
+    ),
+    (
+        "a BLOCK comment is not stripped, so one reads as live — refusing, not ignoring",
+        '/* memory = 10240 */\n"a" = { memory = 256 }',
+        ["memory = 10240, over this account's 3008"],
     ),
     (
         "two offenders of the SAME dimension are both named, not just the first",
@@ -812,7 +841,20 @@ UNVERIFIABLE_WIRING = (
 #: which fails in the widening direction. A list of exemptions has no natural red state: broadening
 #: one entry to ``.*`` silences the guard completely and every other test here still passes, which
 #: is the same "a check that cannot fire" shape this spec removed from production code.
-UNCOVERED_WIRING = ("local.heavy_tier", "local.memory_tier", "one_of(var.a, var.b)", "3008 + 1")
+UNCOVERED_WIRING = (
+    "local.heavy_tier",
+    "local.memory_tier",
+    "one_of(var.a, var.b)",
+    "3008 + 1",
+    # These four are the TARGETED widenings, not the total ones. Deleting a single trailing `$`
+    # from a form makes it a prefix test, and every string above is still refused while an
+    # arithmetic or member expression built on the legitimate prefix walks straight through. A
+    # control that only rejects `.*` catches the widening nobody would make by accident.
+    "each.value.memory * local.multiplier",
+    "each.value.ephemeral + 1024",
+    "try(each.value.memory, 512) * 2",
+    "var.memory_mb == null ? 10240 : var.memory_mb",
+)
 
 
 def test_the_wiring_allowlist_still_refuses_an_unknown_expression() -> None:
@@ -843,7 +885,7 @@ def test_every_size_the_gate_cannot_read_is_a_known_wiring_form() -> None:
     """
     unknown = []
     for path in declaration_files():
-        live = _HCL_COMMENT.sub("", path.read_text(encoding="utf-8"))
+        live = strip_comments(path.read_text(encoding="utf-8"))
         for key, value in _size_assignments(live):
             if re.fullmatch(r'"?\d+"?', value):
                 continue
