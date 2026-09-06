@@ -68,7 +68,13 @@ def _columns(execution_id: str) -> list[dict]:
 
 
 def _check_columns(described: list[dict], tokens: dict) -> None:
-    """Refuses a result set whose names the written file could not carry faithfully.
+    """Refuses a result set the written file could not carry faithfully, or the state at all.
+
+    The width check is FIRST and is about the transport rather than the data: the described
+    columns ride on the Step Functions state, capped at 256 KB, and a result set wide enough to
+    cross that fails as an uncatchable payload error before any named refusal could run. Excel's
+    own 16,384-column ceiling sits two to three times above this cap and is therefore
+    unreachable, which is why the plane has no separate refusal for it.
 
     Args:
       described: The columns, as ``_columns`` returns them.
@@ -76,12 +82,6 @@ def _check_columns(described: list[dict], tokens: dict) -> None:
 
     Returns:
       None.
-
-    The width check is FIRST and is about the transport rather than the data: the described
-    columns ride on the Step Functions state, which is capped at 256 KB, and a result set wide
-    enough to cross that would fail as an uncatchable payload error before any named refusal
-    could run. Excel's own 16,384-column ceiling sits more than three times above this cap and
-    is therefore unreachable, which is why the plane has no separate refusal for it.
 
     Raises:
       TerminalError: ``too_many_columns`` for a result set wider than the state can carry;

@@ -108,12 +108,13 @@ def test_a_hostile_token_value_cannot_put_an_object_into_a_sentence():
     n.handler(
         {
             **_request({"Error": "excel_row_limit"}, fmt="xlsx", raw=_raw(filename="q1.xlsx")),
-            "tokens": {"count": {"nested": "object"}, "filename": ["a"], "extra": True},
+            "tokens": {"count": True, "filename": ["a"], "nested": {"a": "b"}},
         },
         None,
     )
 
-    assert "nested" not in sent[0][1] and "True" not in sent[0][1]
+    assert "True" not in sent[0][1], "a bool under `count` must not render; isinstance(True, int)"
+    assert "nested" not in sent[0][1] and "['a']" not in sent[0][1]
     assert '"q1.xlsx"' in sent[0][1], "the recovered name still fills the marker"
 
 

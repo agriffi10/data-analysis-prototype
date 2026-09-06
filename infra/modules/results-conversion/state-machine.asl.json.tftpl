@@ -144,7 +144,7 @@
     },
     "ConversionOutcome": {
       "Type": "Choice",
-      "Comment": "An EXPECTED refusal is a return value, not a raise: an unmappable column type, a result that will not parse, either Excel ceiling, and a destination name taken since the browser last looked. Routed here rather than raised because the failure path a raise takes cannot carry the row count the two Excel refusals have to name. Everything else — a fault, a timeout, a task that could not be invoked — still arrives at the failure path through Convert's own Catch.",
+      "Comment": "An EXPECTED refusal is a return value, not a raise: an unmappable column type, a result that will not parse, Excel's row ceiling, and a destination name taken since the browser last looked. Routed here rather than raised because the failure path a raise takes cannot carry the row count that refusal has to name. Everything else — a fault, a timeout, a task that could not be invoked — still arrives at the failure path through Convert's own Catch.",
       "Choices": [
         {
           "Variable": "$.outcome",
@@ -156,7 +156,7 @@
     },
     "ConvertRefusedSeed": {
       "Type": "Pass",
-      "Comment": "The third failure seed, for the one failure that is a RETURN VALUE. It shapes a refusal into the {Error, Cause} the failure terminal already reads: Error is the verb's own reason code and there is no Cause, so cpcommon.errors.failure_reason returns that code and notify-failure words it. It is NOT tagged as a TerminalError, which is what stops the notifier suppressing it as a duplicate of a verb notification that never happened. `tokens` carries the row or column count and nothing else — the file name is recovered from $.raw, which every seed already carries.",
+      "Comment": "The third failure seed, for the one failure that is a RETURN VALUE. It shapes a refusal into the {Error, Cause} the failure terminal already reads: Error is the verb's own reason code and there is no Cause, so cpcommon.errors.failure_reason returns that code and notify-failure words it. It is NOT tagged as a TerminalError, which is what stops the notifier suppressing it as a duplicate of a verb notification that never happened. `tokens` carries the row count and nothing else — the file name is recovered from $.raw, which every seed already carries.",
       "Parameters": {
         "requestId.$": "$.requestId",
         "username.$": "$.username",

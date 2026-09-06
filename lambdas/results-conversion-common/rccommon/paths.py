@@ -13,7 +13,9 @@ would turn a named refusal into an ``AccessDenied`` at the write. The validator 
 Deny, not the picker.
 
 Attributes:
-  _CONTROL: The code points a file name may not carry — the C0 controls and DEL.
+  _CONTROL: The code points a file name or a destination folder may not carry — the C0
+    controls and DEL. Both refuse them, and for the same reason: either becomes part of a key,
+    and a key reaches an operator's plain-text log, where a newline forges a line.
 """
 
 from cpcommon.app_managed import app_managed_prefix
@@ -31,18 +33,15 @@ _CONTROL = frozenset(range(32)) | {127}
 def check_prefix(prefix: object) -> str:
     """Confirms the destination folder is empty or slash-terminated, and not too long.
 
+    Control characters are refused for the same reason ``check_filename`` refuses them, and the
+    two used to disagree. The checks are deliberately the same shape rather than shared: a file
+    name additionally refuses a slash and the dot segments, which a prefix is made of.
+
     Args:
       prefix: The request's destination folder, relative to the space root.
 
     Returns:
       The prefix, unchanged.
-
-    Control characters are refused here for the same reason ``check_filename`` refuses them, and
-    the two used to disagree: a newline in a folder name reaches an operator's plain-text log
-    through the key it becomes, where it forges a second line.
-
-    Args-note: the two checks are deliberately the same shape rather than shared, because a
-    file name additionally refuses a slash and the dot segments, which a prefix is made of.
 
     Raises:
       TerminalError: ``invalid_request`` when it is not a string, is non-empty without a

@@ -175,8 +175,8 @@ def _wording_tokens(request: dict) -> dict:
     Only what nothing else can supply. The file NAME is recovered from the request body under
     ``$.raw``, which every failure seed already carries, so it needs no key of its own. A COUNT
     is not derivable from anything the request said: it is a fact about the RESULT SET,
-    discovered by the convert verb, and the two Excel ceilings are the only refusals whose
-    sentence has to name one. That is the whole reason the machine's refusal seed carries a
+    discovered by the convert verb, and Excel's row ceiling is the only refusal of the
+    converter's whose sentence has to name one. That is the whole reason the machine's refusal seed carries a
     ``tokens`` object at all, and why it carries nothing else.
 
     Args:
@@ -227,14 +227,14 @@ def handler(event, context) -> dict:
     one handler, dispatched on the detail-type: the ASL state's request object, and
     EventBridge's status-change event for a run the machine's own ``TimeoutSeconds`` stopped.
 
+    The request body under ``$.raw`` is parsed UNCONDITIONALLY rather than only when the
+    username is missing: the file name a refusal's sentence names lives there whether or not the
+    actor had to be recovered from it.
+
     Args:
       event: The failed request carrying the raw Step Functions error, or an EventBridge
         ``Step Functions Execution Status Change`` event.
       context: The Lambda context, unused.
-
-    The request body under ``$.raw`` is parsed UNCONDITIONALLY rather than only when the
-    username is missing: the file name a refusal's sentence names lives there whether or not
-    the actor had to be recovered from it.
 
     Returns:
       The request object, threaded onward unchanged.

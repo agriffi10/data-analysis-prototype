@@ -232,18 +232,23 @@ def test_every_reason_is_worded_and_every_wording_is_a_reason():
     assert reasons.REASONS - set(messages._BODIES) == {reasons.MALFORMED_EVENT, reasons.FORBIDDEN}
 
 
-def test_every_code_the_converter_can_return_is_registered_and_worded():
-    """FR-006's criterion is about what the VERB can return, so the population comes from the
-    verb rather than from a second literal beside the first.
+def test_every_code_any_verb_on_this_plane_can_raise_is_registered_and_worded():
+    """FR-006's criterion is about what the PLANE can return, so the population is derived from
+    every verb rather than from a hand-written list beside the wording.
 
     The equality this replaces held `messages._BODIES` against `reasons.REASONS` — two
     hand-written tables in one package, which agree with each other and say nothing about
-    whether the code a refusal actually carries was ever worded. Deriving the set from
-    `rc_convert.py`'s own `reasons.X` references closes that: a sixth refusal added to the verb
-    joins this population by existing.
+    whether the code a refusal actually carries was ever worded.
+
+    It is derived from EVERY verb directory rather than from the converter alone, and that is
+    the structural half. Scoped to one verb, a code that MOVES between verbs falls out of the
+    population silently — which is exactly what happened when the column ceiling moved from the
+    converter to describe-results: the enumeration stopped covering it, and its wording could
+    then be broken without reddening anything. A directory glob cannot go quiet that way.
     """
-    verb = _HERE.parent / "results-conversion-convert" / "rc_convert.py"
-    verb_tree = ast.parse(verb.read_text(encoding="utf-8"))
+    verbs = sorted(_HERE.parent.glob("results-conversion-*/rc_*.py"))
+    assert len(verbs) >= 5, f"the verb sweep found only {[v.name for v in verbs]}"
+    verb_tree = ast.parse(b"\n".join(v.read_bytes() for v in verbs).decode("utf-8"))
     # The verb's own vocabulary is not the whole of it: `unsupported_column_type` is raised by
     # `rccommon.types` and re-wrapped here, so a collector reading only this file under-counts
     # by one and would call the missing code a change in the verb. The modules it walks are
@@ -287,18 +292,39 @@ def test_every_code_the_converter_can_return_is_registered_and_worded():
         reasons.UNSUPPORTED_COLUMN_TYPE,
         reasons.EXCEL_ROW_LIMIT,
         reasons.DESTINATION_OCCUPIED,
-    }, f"the converter's refusal vocabulary has changed: {sorted(codes)}"
+        reasons.TOO_MANY_COLUMNS,
+        reasons.INVALID_COLUMN_NAME,
+        reasons.DUPLICATE_COLUMN,
+        reasons.RESULTS_TOO_LARGE,
+        reasons.EXECUTION_NOT_FOUND,
+        reasons.EXECUTION_NOT_FINISHED,
+        reasons.EXECUTION_FAILED,
+        reasons.NO_RESULT_SET,
+        reasons.PROTECTED_LOCATION,
+        reasons.INVALID_REQUEST,
+        reasons.FORBIDDEN,
+    }, f"the plane's refusal vocabulary has changed: {sorted(codes)}"
     for code in codes:
         assert cpmessages.is_known_reason(code), f"{code} is returned but never registered"
-        rendered = messages.failure_message(code, {"format": "xlsx", "filename": "q1.xlsx", "count": 3})
+        rendered = messages.failure_message(
+            code, {"format": "xlsx", "filename": "q1.xlsx", "count": 3, "column": "amount"}
+        )
         assert "something went wrong" not in rendered, f"{code} reaches the user unworded"
-        # Names the FILE and the FORMAT, which is what the criterion asks. This used to end
-        # `or "{" not in rendered`, a disjunct satisfied by any sentence that mentions no file
-        # at all — which three of these five did, so the assertion held while the criterion did
-        # not. There is no marker left unfilled either: `blank_unfilled` erases one silently.
-        assert "q1.xlsx" in rendered, f"{code} does not name the file the user chose"
+        if code == reasons.FORBIDDEN:
+            assert rendered == "You don't have access to save results there."
+            continue
         assert "as Excel" in rendered, f"{code} does not name the format"
         assert "{" not in rendered, f"{code} left a marker unfilled"
+
+    # Naming the FILE is FR-006's criterion and it is about the CONVERT verb's codes, so it is
+    # asserted over those rather than over the whole plane — SPEC-221's own refusals predate it
+    # and widening them is that spec's change, not this one's. The assertion used to end
+    # `or "{" not in rendered`, a disjunct any sentence mentioning no file satisfies, which is
+    # how three of the four held while the criterion did not.
+    for code in NAMES_THE_FILE:
+        assert code in codes, f"{code} is worded but no verb raises it any more"
+        rendered = messages.failure_message(code, {"format": "xlsx", "filename": "q1.xlsx", "count": 3, "column": "a"})
+        assert "q1.xlsx" in rendered, f"{code} does not name the file the user chose"
 
 
 #: The golden vector the browser's half of this test reads too, in
@@ -306,8 +332,60 @@ def test_every_code_the_converter_can_return_is_registered_and_worded():
 #: every character that would truncate a query string, plus a space. Written out on both sides
 #: rather than shared through a file: a Python test asserting its own model of URLSearchParams
 #: proves nothing about the parser that actually resolves the link.
+#: The refusals FR-006 requires to name the file the user chose — the convert verb's own, plus
+#: the width refusal that moved out of it into describe-results and must not lose the property
+#: by moving. SPEC-221's refusals are deliberately not here: they predate the criterion.
+NAMES_THE_FILE = (
+    "results_unreadable",
+    "unsupported_column_type",
+    "excel_row_limit",
+    "destination_occupied",
+    "too_many_columns",
+    "protected_location",
+)
+
 GOLDEN_LINK_PREFIX = "finance/a b&c?d#e/"
 GOLDEN_LINK = "/files?space=finance&prefix=finance/a%20b%26c%3Fd%23e/"
+
+
+#: Step Functions' ceiling on a task state's input or output, in bytes.
+STATE_LIMIT_BYTES = 256 * 1024
+
+#: The widest column entry describe-results can emit: a long name, plus the two fields only a
+#: decimal carries. Serialised the way the Lambda runtime returns a payload.
+WIDEST_COLUMN = {"name": "c" * 40, "type": "decimal", "precision": 38, "scale": 10}
+
+
+def test_the_column_cap_is_bounded_by_the_state_it_was_derived_from():
+    """The cap is a number, and a number needs a two-sided bound or it is a preference.
+
+    A test that builds its fixture from `MAX_RESULT_COLUMNS` moves with the constant and cannot
+    see it shrink — halving it to 750 passed a full suite. So both ends are derived here:
+
+    ABOVE, by measuring. The columns ride on a Step Functions state capped at 256 KB, and the
+    widest entry the describer can emit is a long name plus a decimal's precision and scale.
+    The cap must leave real headroom against that, not merely fit, because the entry can grow
+    without anyone thinking about this number.
+
+    BELOW, by what the platform already accepts. A cap under a thousand columns would refuse
+    result sets that are ordinary — the data-quality plane profiles up to 200 columns and a
+    query can reasonably select several times that — and a cap that refuses legitimate work
+    causes the damage it exists to prevent.
+    """
+    import json
+
+    entry_bytes = len(json.dumps(WIDEST_COLUMN)) + 1
+    worst_case = config.MAX_RESULT_COLUMNS * entry_bytes
+    assert worst_case < STATE_LIMIT_BYTES * 0.6, (
+        f"{config.MAX_RESULT_COLUMNS} of the widest column entry is {worst_case} bytes, over "
+        f"60% of the {STATE_LIMIT_BYTES}-byte state limit — the headroom is gone"
+    )
+    assert config.MAX_RESULT_COLUMNS >= 1_000, (
+        "a cap under a thousand columns refuses result sets users legitimately have"
+    )
+    assert config.MAX_RESULT_COLUMNS * entry_bytes * 2 > STATE_LIMIT_BYTES * 0.6, (
+        "the cap is so far under its own bound that it is a preference rather than a derivation"
+    )
 
 
 def test_the_link_encodes_every_component_and_puts_the_space_first():

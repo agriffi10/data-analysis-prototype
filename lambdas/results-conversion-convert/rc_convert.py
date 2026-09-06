@@ -5,11 +5,11 @@ file in the format the user chose, and uploads it to the destination validate-au
 proved they may write. Nothing here re-authorizes: the destination key was contained and the
 protected folders refused two states ago, and re-deriving either would be a second copy of a rule.
 
-**An expected refusal is a RETURN VALUE, not a raise.** Five outcomes are things the user asked
-for and cannot have — an unmappable column type, a result that will not parse, either Excel
+**An expected refusal is a RETURN VALUE, not a raise.** Four outcomes are things the user asked
+for and cannot have — an unmappable column type, a result that will not parse, Excel's row
 ceiling, and a destination name taken since the browser last looked — and each comes back as
 ``{"outcome": "refused", "reason": ...}`` for the machine's Choice to route. A raise would reach
-the failure terminal by a path that cannot carry the row count the Excel refusals have to name.
+the failure terminal by a path that cannot carry the row count that refusal has to name.
 
 **Parquet and JSON never materialise the frame.** The read is ``scan_csv`` over the downloaded
 file and the write is ``sink_*``, so memory holds a batch at a time and the ceiling is the
@@ -326,7 +326,7 @@ def _write_ndjson(frame: pl.LazyFrame, schema: dict, target: pathlib.Path) -> in
     return rows
 
 
-def _write_excel(frame: pl.LazyFrame, schema: dict, target: pathlib.Path) -> tuple[int, bool]:
+def _write_excel(frame: pl.LazyFrame, target: pathlib.Path) -> tuple[int, bool]:
     """Materialises the frame and writes one workbook with a single sheet.
 
     **No workbook is passed in.** polars builds its own with ``strings_to_formulas: False``, and
@@ -336,7 +336,6 @@ def _write_excel(frame: pl.LazyFrame, schema: dict, target: pathlib.Path) -> tup
 
     Args:
       frame: The typed lazy frame.
-      schema: The dtypes, for the column ceiling and the precision note.
       target: Where to write.
 
     Returns:
@@ -530,6 +529,12 @@ def handler(event, context) -> dict:
 def _convert(event) -> dict:
     """Types the result set, writes the file, uploads it, and cleans up on every path.
 
+    The download reads ``config.USER_SPACE_BUCKET`` and NOT ``destination["bucket"]``. An
+    execution's result object is always under the actor's own space; the destination may be a
+    SHARED space in another bucket, and the two coincide only for a personal one — which is why
+    a suite whose fixtures were all personal could not tell the two apart, and why the fake in
+    this verb's tests refuses a read aimed anywhere else.
+
     Args:
       event: The described request object.
 
@@ -540,12 +545,6 @@ def _convert(event) -> dict:
       TerminalError: ``malformed_event`` when a carried key is missing.
       TransientError: On a retryable S3 fault before the upload.
       Exception: Any fault, including a result object that grew since it was described.
-
-    The download reads ``config.USER_SPACE_BUCKET`` and NOT ``destination["bucket"]``. An
-    execution's result object is always under the actor's own space; the destination may be a
-    SHARED space in another bucket, and the two coincide only for a personal one — which is why
-    a suite whose fixtures are all personal cannot tell the two apart, and why the fake in this
-    verb's tests refuses a read aimed anywhere else.
     """
     carried = {key: events.require(event, key) for key in _CARRIED}
     columns = events.require(event, "columns")
@@ -631,5 +630,5 @@ def _write(fmt: str, frame: pl.LazyFrame, schema: dict, target: pathlib.Path) ->
     if fmt == "json":
         return _write_ndjson(frame, schema, target), False
     if fmt == "xlsx":
-        return _write_excel(frame, schema, target)
+        return _write_excel(frame, target)
     raise KeyError(f"no writer for format {fmt!r}")

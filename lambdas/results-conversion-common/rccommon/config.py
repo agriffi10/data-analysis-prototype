@@ -27,11 +27,14 @@ Attributes:
     test recomputes from the constants above, so a hand edit to either side is a red test.
   MAX_RESULT_COLUMNS: The widest result set this plane converts, in ANY format. Bounded by the
     transport rather than by a file format: the described columns travel on the Step Functions
-    state, which is capped at 256 KB, and a realistic column entry puts that boundary at about
-    4,900 columns — measured. Excel's own 16,384-column ceiling therefore cannot be reached
-    here, which is why this plane has no ``excel_column_limit``: a refusal that can deny nobody
-    reads as a fence to everyone downstream. Left at a third of the boundary so a wider entry —
-    a long name, another per-column field — does not silently cross it.
+    state, which is capped at 256 KB. Where that boundary falls depends on how wide a column
+    entry is, and the range was measured rather than estimated: about 6,400 columns for a short
+    name and a bare type, about 4,900 for a twenty-character name, and about 2,500 for a long
+    name plus a decimal's precision and scale. The FLOOR is what this is set against, not the
+    middle. Excel's own 16,384-column ceiling is two to three times past even the widest of
+    those, so it cannot be reached here at all — which is why this plane has no
+    ``excel_column_limit``: a refusal that can deny nobody reads as a fence to everyone
+    downstream. At 1,500 the worst entry still uses under 60% of the limit.
   MEASURED_ON: What the numbers above were measured against, so a reader can re-measure rather
     than trust them.
   MACHINE_TIMEOUT_SECONDS: The state machine's own ceiling, mirrored from the module's
