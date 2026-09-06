@@ -187,7 +187,7 @@ def _old_anchor_pairs(document: dict) -> list[tuple[str, str]]:
     return pairs
 
 
-def test_the_seven_parsed_templates_hold_exactly_the_measured_old_anchor_pairs() -> None:
+def test_the_parsed_templates_hold_exactly_the_measured_old_anchor_pairs() -> None:
     """The positive control. An empty collector agrees with every possible sibling.
 
     Args:
@@ -341,7 +341,7 @@ def test_the_admin_bucket_archive_prefix_gained_no_sibling() -> None:
 
 
 def test_the_looping_template_carries_its_siblings_as_text() -> None:
-    """The eighth template renders to JSON only through Terraform, so its siblings are read as text.
+    """The one looping template renders to JSON only through Terraform, so its siblings are read as text.
 
     Its ``%{ for }`` loops are what put it here. The assertion is the same one the parsed
     templates get — same Effect, same actions, the twin Resource — expressed over the statement's

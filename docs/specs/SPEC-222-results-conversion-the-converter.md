@@ -3,7 +3,7 @@
 **ID:** SPEC-222
 **Status:** Draft
 **Last Updated:** 2026-09-05
-**Depends On:** SPEC-221 (the plane, the contract, validate-authorize, describe-results), SPEC-069 (table-builder's polars precedent), SPEC-107 (`cpcommon.type_mapping`, whose inverse this needs)
+**Depends On:** SPEC-221 (the plane, the contract, validate-authorize, describe-results), SPEC-069 (table-builder's polars precedent), SPEC-107 (`cpcommon.type_mapping`, whose inverse this needs), SPEC-219 FR-002 (the execution role already denies `system_settings/` at any depth, so the validator must refuse it by name before this spec's write grant lands, or the refusal arrives as a bare `AccessDenied`)
 
 ## Overview
 

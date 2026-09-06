@@ -102,6 +102,47 @@ def test_the_deny_names_every_refused_destination_in_both_buckets():
             assert f"{bucket}/*/{folder}/*" in denied, f"{folder} is refused but not denied in {bucket}"
 
 
+def test_the_deny_names_the_system_settings_prefix_itself_in_both_buckets():
+    """The whole new prefix is denied, not only the three folders moving into it.
+
+    The loop above walks ``PROTECTED_DESTINATIONS``, which does not yet name ``system_settings``,
+    so without this assertion the two resources naming it are pinned by nothing at all — a
+    statement no guard reads is how the same arc already shipped one that was invisible. It stays
+    once the name joins that list: the loop then demands this shape through the list, while this
+    says the bare prefix outright, which is the fact the per-folder siblings do not carry.
+    """
+    denies = [s for s in _render_policy()["Statement"] if s["Effect"] == "Deny"]
+    denied = set(_resources(denies[0]))
+    for bucket in ("@user_space_bucket_arn@", "@shared_space_bucket_arn@"):
+        assert f"{bucket}/*/system_settings/*" in denied, f"system_settings itself is writable in {bucket}"
+
+
+def test_no_denied_resource_is_wide_enough_to_cover_a_whole_bucket():
+    """Every Deny resource names at least one LITERAL segment, so none of them is bucket-wide.
+
+    The two assertions above are both membership tests, so neither can see a resource that was
+    ADDED — measured by planting ``${user_space_bucket_arn}/*`` into this statement, which left
+    every template guard in the repository green. That blind spot costs more now the statement
+    carries ``*/system_settings/*``, a strict superset of three siblings beside it: widening one
+    of these is a one-character edit.
+
+    The direction that bites is over-width, not under: this role holds no write grant today, so a
+    bucket-wide ``s3:PutObject`` Deny is invisible until the converter gains one, and then it
+    refuses the plane's own output.
+
+    A segment carrying ``*`` or ``?`` does not count, because both are S3 wildcards and the
+    widening this guards against is a one-character edit — ``/*`` to ``/?*`` matches every key of
+    length one or more while still reading as a path. The rule assumes an OBJECT-level Deny: the
+    statement's actions are pinned to ``s3:PutObject`` above, and a bucket-level action added
+    later would legitimately name the bucket ARN alone and redden this.
+    """
+    denies = [s for s in _render_policy()["Statement"] if s["Effect"] == "Deny"]
+    for resource in _resources(denies[0]):
+        segments = resource.split("/")[1:]
+        literal = [seg for seg in segments if seg and not set(seg) & {"*", "?"}]
+        assert literal, f"{resource} denies more than a folder"
+
+
 def test_the_refused_set_is_the_pickers_and_a_superset_of_the_shared_enumerator():
     """The plane refuses exactly what the browser's picker never offers, and every folder the
     shared owner enumerates, so a folder moving under a new prefix moves for this plane too."""
