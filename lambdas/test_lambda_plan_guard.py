@@ -461,7 +461,13 @@ def test_capture_refuses_a_plan_whose_values_are_unknown():
 FIXTURE = ROOT / "lambdas" / "fixtures" / "pre_cutover_plan.json"
 
 
-ADDED_SINCE_THE_CUTOVER: frozenset[str] = frozenset()
+ADDED_SINCE_THE_CUTOVER: frozenset[str] = frozenset(
+    {
+        "results-conversion-describe-results",
+        "results-conversion-notify-failure",
+        "results-conversion-validate-authorize",
+    }
+)
 
 
 def test_the_committed_fixture_is_a_floor_under_the_deployed_fleet():
@@ -493,25 +499,6 @@ def test_the_committed_fixture_is_a_floor_under_the_deployed_fleet():
         f"declared beyond the fixture: {sorted(declared - captured)}; "
         f"named as added: {sorted(ADDED_SINCE_THE_CUTOVER)}"
     )
-
-
-def _with_variables(plan, index, variables):
-    """A copy of a plan with one function's environment replaced.
-
-    Args:
-      plan: The plan to copy.
-      index: Which `resource_changes` entry.
-      variables: The variable map to set.
-
-    Returns:
-      The copied plan.
-
-    Raises:
-      None.
-    """
-    changed = json.loads(json.dumps(plan))
-    changed["resource_changes"][index]["change"]["after"]["environment"] = [{"variables": variables}]
-    return changed
 
 
 def test_a_function_added_after_the_cutover_is_accepted_and_named(pre_cutover, fixture, capsys):
@@ -557,64 +544,11 @@ def test_a_captured_function_absent_from_the_plan_is_still_a_problem(pre_cutover
     assert any("dat-prod-archive-copy-objects: in the parity fixture, but absent from the plan" in p for p in problems), problems
 
 
-def test_a_removed_environment_variable_is_named(pre_cutover, fixture):
-    """A captured variable that the plan no longer sets is drift, named by the variable.
-
-    Args:
-      pre_cutover: The no-op plan.
-      fixture: Its capture.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When the removal goes unreported.
-    """
-    problems = _check(_with_variables(pre_cutover, 0, {}), fixture)
-    assert any("dat-prod-archive-copy-objects: environment variable ADMIN_BUCKET was removed" in p for p in problems), problems
-
-
-def test_a_changed_environment_variable_is_named_with_both_values(pre_cutover, fixture):
-    """A captured variable set to another value is drift, named with both values.
-
-    Args:
-      pre_cutover: The no-op plan.
-      fixture: Its capture.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When the change goes unreported or unnamed.
-    """
-    problems = _check(_with_variables(pre_cutover, 0, {"ADMIN_BUCKET": "other"}), fixture)
-    assert any("environment variable ADMIN_BUCKET moved from 'b' to 'other'" in p for p in problems), problems
-
-
-def test_an_empty_environment_block_reads_as_no_variables(pre_cutover):
-    """The provider's two spellings of "no variables" are one value, in both directions.
-
-    A no-op plan refreshes an unset environment as ``[]`` and a create plan emits the block with
-    an empty map; neither is a captured variable going missing, so neither is drift.
-
-    Args:
-      pre_cutover: The no-op plan.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When the two spellings read as a move.
-    """
-    bare = json.loads(json.dumps(pre_cutover))
-    bare["resource_changes"][0]["change"]["after"]["environment"] = []
-    captured_bare = GUARD.capture(bare)
-    assert _check(_with_variables(bare, 0, {}), captured_bare) == []
-    assert _check(bare, GUARD.capture(_with_variables(bare, 0, {}))) == []
-
-
 def test_an_added_function_with_an_unknown_parity_field_is_still_refused(pre_cutover, fixture):
-    """The unknown-field rule is about the module, not the fixture, so an addition is held to it.
+    """An addition is still held to the fields the module sets as LITERALS.
+
+    `memory_size` is one: unknown there means the module did not declare it, and the remedy the
+    message names exists. Contrast the role above, which no declaration can make known.
 
     Args:
       pre_cutover: The no-op plan.
@@ -657,6 +591,59 @@ def test_an_added_function_left_on_zip_is_refused_in_image_mode(pre_cutover, fix
     assert any("dat-prod-results-conversion-notify-failure: package_type is 'Zip'" in p for p in problems), problems
 
 
+def test_a_captured_function_is_still_held_to_every_parity_field(pre_cutover, fixture):
+    """The other direction of the same narrowing: a CAPTURED function's role going unknown is
+    the comparison the fixture exists to make, and must not be excused with the additions.
+
+    Args:
+      pre_cutover: The no-op plan.
+      fixture: Its capture.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a captured function's unknown role passes.
+    """
+    pending = json.loads(json.dumps(pre_cutover))
+    after = pending["resource_changes"][0]["change"]["after"]
+    del after["role"]
+    pending["resource_changes"][0]["change"]["after_unknown"] = {"role": True}
+
+    problems = _check(pending, fixture)
+
+    assert any("role is UNKNOWN" in p for p in problems), problems
+
+
+def test_an_addition_may_carry_the_unknowns_a_creation_always_carries(pre_cutover, fixture):
+    """A new function's role is the ARN of a role created beside it, and cannot be known.
+
+    The blanket refusal applies to the functions the fixture captured, where a skipped
+    comparison is the whole promise going quiet. An addition has nothing to compare.
+
+    Args:
+      pre_cutover: The no-op plan.
+      fixture: Its capture.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a creation's unavoidable unknown is refused.
+    """
+    grown = json.loads(json.dumps(pre_cutover))
+    grown["resource_changes"].append(
+        _resource(
+            "dat-prod-results-conversion-notify-failure",
+            {k: v for k, v in _zip_after().items() if k != "role"},
+            unknown={"role": True},
+        )
+    )
+    table = [*TABLE, {"name": "results-conversion-notify-failure"}]
+
+    assert _check_with_table(grown, fixture, table) == []
+
+
 def test_an_image_packaged_addition_is_clean_in_image_mode(pre_cutover, fixture):
     """The production shape: Image mode, an addition that is Image-packaged with a command.
 
@@ -690,26 +677,6 @@ def test_an_image_packaged_addition_is_clean_in_image_mode(pre_cutover, fixture)
     )
     table = [*TABLE, {"name": "results-conversion-notify-failure"}]
     assert _check_with_table(grown, fixture, table, package_type="Image", image_repository="repo") == []
-
-
-def test_an_added_environment_variable_is_clean(pre_cutover, fixture):
-    """A variable the fixture never captured is growth, not drift.
-
-    Args:
-      pre_cutover: The no-op plan.
-      fixture: Its capture.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When growth is refused.
-    """
-    problems = _check(
-        _with_variables(pre_cutover, 0, {"ADMIN_BUCKET": "b", "RESULTS_CONVERSION_QUEUE_URL": "q"}),
-        fixture,
-    )
-    assert problems == [], problems
 
 
 def test_every_captured_function_carries_a_handler_and_a_memory_tier():
@@ -933,12 +900,18 @@ def test_the_parity_list_covers_every_field_the_spec_promises():
       AssertionError: When the guard stops comparing something the spec promises is unchanged.
     """
     assert set(GUARD.PARITY_FIELDS) == {
-        "environment", "timeout", "memory_size", "architectures", "role",
+        "timeout", "memory_size", "architectures", "role",
         "reserved_concurrent_executions", "vpc_config",
     }, (
         f"PARITY_FIELDS is {sorted(GUARD.PARITY_FIELDS)}; FR-002 promises the cutover changes "
-        "none of environment, timeout, memory, architecture, role, reserved concurrency or VPC "
+        "none of timeout, memory, architecture, role, reserved concurrency or VPC "
         "configuration, and a field missing from this tuple is one nothing compares"
+    )
+    assert "environment" not in GUARD.PARITY_FIELDS, (
+        "the environment leg is RETIRED, not forgotten: its promise was about one apply, and as "
+        "an eternal floor it refused a plane joining the DLQ drain's list. What replaces it is "
+        "test_fleet_environment.py, which asserts each function supplies every variable its own "
+        "code can reach — live rather than frozen. Re-adding it here reinstates the refusal"
     )
 
 

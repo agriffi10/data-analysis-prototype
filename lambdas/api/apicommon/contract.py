@@ -1150,6 +1150,46 @@ class FileOpsEnqueueRequest(FileOpsEnqueueBase, total=False):
     submittedAt: str
 
 
+class ConversionDestination(TypedDict):
+    """Where a converted result set lands.
+
+    Attributes:
+      space: The destination space.
+      prefix: The destination folder, relative to the space root: empty or slash-terminated.
+      filename: The file's name inside that folder, extension included.
+    """
+
+    space: SpaceRef
+    prefix: str
+    filename: str
+
+
+class ResultsConversionEnqueueRequest(TypedDict):
+    """A request to save a finished query's result set in another format.
+
+    Every key is required; the route's validator refuses an unknown one. Every length and
+    content cap lives in the plane's validate-authorize verb, which is the one authority on the
+    request — this shape is deliberately shape-only.
+
+    Attributes:
+      requestId: The caller's per-submit id, which is also the dedup key.
+      queryExecutionId: The Athena execution whose result set is converted. A claim: the plane
+        proves it is the caller's by the path Athena wrote to.
+      format: The output format. A closed vocabulary that deliberately excludes CSV — the CSV
+        Athena wrote is copied by the synchronous path and never re-serialised here.
+      destination: Where the file lands.
+      onConflict: What to do about a name already taken at the destination.
+      submittedAt: When the browser submitted, ISO-8601.
+    """
+
+    requestId: str
+    queryExecutionId: str
+    format: Literal["parquet", "json", "xlsx"]
+    destination: ConversionDestination
+    onConflict: Literal["refuse", "overwrite"]
+    submittedAt: str
+
+
 class ArchiveEnqueueRequest(TypedDict):
     """An archive request. ``mode`` is the route, not a field: it chooses the irreversible half.
 
@@ -1281,6 +1321,7 @@ QUEUES: Final[tuple[Queue, ...]] = (
     Queue("file-send", "FILE_SEND_QUEUE_URL", False),
     Queue("archive", "ARCHIVE_QUEUE_URL", False),
     Queue("file-ops", "FILE_OPS_QUEUE_URL", False),
+    Queue("results-conversion", "RESULTS_CONVERSION_QUEUE_URL", False),
 )
 
 
@@ -1649,6 +1690,18 @@ ROUTES: Final[tuple[Route, ...]] = (
         query=None,
         response=EnqueueAccepted,
         queue="file-ops",
+        stamped=frozenset(),
+    ),
+    EnqueueRoute(
+        id="resultsConversion.enqueue",
+        method="POST",
+        path="/v1/enqueue/results-conversion",
+        idempotent=False,
+        plane="api",
+        request=ResultsConversionEnqueueRequest,
+        query=None,
+        response=EnqueueAccepted,
+        queue="results-conversion",
         stamped=frozenset(),
     ),
 )

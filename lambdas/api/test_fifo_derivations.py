@@ -35,6 +35,7 @@ _EXPECTED_ROUTES = {
     "archive.archive",
     "archive.restore",
     "fileOps.enqueue",
+    "resultsConversion.enqueue",
 }
 
 _DEDUP_NOT_REPRODUCIBLE = {"tableShare.enqueue", "notifications.enqueue"}

@@ -579,6 +579,31 @@
         "MessageGroupId": "04a673f54575b8017caf8c4c3aac6ead97af1a8c8f04c05a2d62f8682b305896",
         "MessageDeduplicationId": "00000000-0000-4000-8000-00000000abcd"
       }
+    },
+    {
+      "route": "resultsConversion.enqueue",
+      "inputs": {
+        "username": "alice",
+        "requestId": "00000000-0000-4000-8000-0000000000c0",
+        "queryExecutionId": "11111111-2222-4333-8444-555555555555",
+        "format": "parquet",
+        "destination": {
+          "space": {
+            "kind": "personal",
+            "name": "alice"
+          },
+          "prefix": "reports/",
+          "filename": "q1.parquet"
+        },
+        "onConflict": "refuse",
+        "submittedAt": "2026-09-05T12:00:00.000Z"
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/results-conversion.fifo",
+        "MessageBody": "{\"requestId\":\"00000000-0000-4000-8000-0000000000c0\",\"queryExecutionId\":\"11111111-2222-4333-8444-555555555555\",\"format\":\"parquet\",\"destination\":{\"space\":{\"kind\":\"personal\",\"name\":\"alice\"},\"prefix\":\"reports/\",\"filename\":\"q1.parquet\"},\"onConflict\":\"refuse\",\"submittedAt\":\"2026-09-05T12:00:00.000Z\"}",
+        "MessageGroupId": "alice",
+        "MessageDeduplicationId": "00000000-0000-4000-8000-0000000000c0"
+      }
     }
   ]
 }

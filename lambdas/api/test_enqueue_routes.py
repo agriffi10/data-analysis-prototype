@@ -270,10 +270,14 @@ def test_every_route_echoes_the_callers_request_id_and_mints_none_of_its_own(
 
 
 @pytest.mark.parametrize("forged", ["actor", "identity", "idToken"])
-def test_a_body_claiming_an_identity_is_refused_before_anything_is_sent(forged, sqs):
-    """The three keys a forgery would use. None is a caller input, so each is a 400."""
-    route = next(r for r in contract.ENQUEUE_ROUTES if r.id == "fileSend.enqueue")
+@pytest.mark.parametrize("route", contract.ENQUEUE_ROUTES, ids=lambda r: r.id)
+def test_a_body_claiming_an_identity_is_refused_before_anything_is_sent(route, forged, sqs):
+    """The three keys a forgery would use. None is a caller input, so each is a 400.
 
+    Over EVERY enqueue route rather than one of them: the refusal is the validator's, so it
+    holds by construction — but a route declaring one of these names would break it for that
+    route alone, and a single-route case would still be green.
+    """
     response = _post(route, {**_BODIES[route.id], forged: "someone-else"})
 
     assert response["statusCode"] == 400
@@ -466,6 +470,7 @@ def test_the_content_based_dedup_flags_are_read_out_of_the_terraform_not_transcr
         "file-send": "file-send",
         "archive": "archive",
         "file-ops": "file-ops",
+        "results-conversion": "results-conversion",
     }
     deployed = {}
     for queue in contract.QUEUES:

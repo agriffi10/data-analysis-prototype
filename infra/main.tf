@@ -156,6 +156,14 @@ locals {
   # silently drops the change.
   file_ops_execution_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-file-ops-execution-role"
 
+  # Results-conversion SHARED execution role ARN, constructed cycle-free like the ones above
+  # (module.results_conversion creates it as "${project}-${env}-results-conversion-execution-role").
+  # Passed to module.data for the user-space bucket policy's principal allowlist from the
+  # first apply: the plane reads a user's own results object out of that bucket, and an
+  # explicit resource-policy Deny beats its identity Allow. Not on the Lake Formation admins
+  # list — it starts no query and runs no DDL.
+  results_conversion_execution_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-results-conversion-execution-role"
+
   # Archive bucket (Bucket 5) computed once the same cycle-free way: the archive
   # module creates it, base's deploy policy is scoped to its NAME (an exact-name statement,
   # because the bucket has no trailing segment and so does not match the plane's
@@ -298,6 +306,7 @@ locals {
     "${var.project_name}-${var.environment}-file-send-requests-dlq.fifo",
     "${var.project_name}-${var.environment}-archive-requests-dlq.fifo",
     "${var.project_name}-${var.environment}-file-ops-requests-dlq.fifo",
+    "${var.project_name}-${var.environment}-results-conversion-requests-dlq.fifo",
   ]
 
   # The SPA and the API are two hosts under one registrable domain. Constructed here at
@@ -592,6 +601,8 @@ module "data" {
   # (a variable there, the templatefile() argument, the root wiring), and a plane that
   # skips it is denied at runtime with nothing in the plan to warn it.
   file_ops_execution_role_arn = local.file_ops_execution_role_arn
+
+  results_conversion_execution_role_arn = local.results_conversion_execution_role_arn
 
   # Same ordering as auth: the deploy role grants itself the S3 + IAM-role
   # permissions (modules/base policy). Force that grant to settle before the
@@ -1085,6 +1096,49 @@ module "file_ops" {
   depends_on = [module.base, module.data]
 }
 
+# Results-conversion control plane: a DEDICATED FIFO SQS → EventBridge Pipe → Standard Step
+# Function pipeline running single-task verb Lambdas on ONE shared execution role. Takes a
+# finished Athena execution and will write its result set into a space the actor may write
+# to, in the format they chose. This module is the foundation and the front door: the
+# plumbing, validate-authorize and describe-results; nothing converts yet and the execution
+# role holds no write grant. base grants the deploy role its perms; data creates the portal
+# role and the bucket policy this plane's role is allowlisted in. Settle both first.
+module "results_conversion" {
+  source = "./modules/results-conversion"
+
+  # The fleet's one container image, and the tag these functions are CREATED from. The tag
+  # is ignored after creation — CI re-points every function on each deploy.
+  lambda_image_repository_url = module.lambda_image.repository_url
+  lambda_image_tag            = var.lambda_image_tag
+
+  project_name = var.project_name
+  environment  = var.environment
+  aws_region   = var.aws_region
+  account_id   = data.aws_caller_identity.current.account_id
+
+  admin_bucket_name = local.athena_admin_bucket_name
+
+  # The bucket a result object is read from and the two a destination resolves in.
+  user_space_bucket_name   = local.user_space_bucket_name
+  shared_space_bucket_name = local.shared_space_bucket_name
+
+  # The SHARED portal workgroup every execution this plane inspects ran in.
+  athena_workgroup = local.athena_workgroup_name
+
+  # The notifications queue every refusal and the pre-verb failure path emit to. The ARN
+  # scopes the execution role's sqs:SendMessage, the URL is the verbs' NOTIFICATIONS_QUEUE_URL.
+  notifications_queue_arn = local.notifications_queue_arn
+  notifications_queue_url = local.notifications_queue_url
+
+  # The verbs join the structured-logging pipe. From module.observability's OUTPUTS rather
+  # than reconstructed, so the FIFO `.fifo` suffix cannot drift between producer and
+  # consumer.
+  logs_queue_arn = module.observability.logs_queue_arn
+  logs_queue_url = module.observability.logs_queue_url
+
+  depends_on = [module.base, module.data]
+}
+
 # Archive control plane + the archive bucket: a DEDICATED FIFO SQS → EventBridge
 # Pipe → Standard Step Function pipeline running single-task verb Lambdas on ONE shared
 # execution role, plus Bucket 5 — the vault. ONE plane serves both archive and restore,
@@ -1417,15 +1471,16 @@ module "api" {
   #
   # Feedback is the ninth and was never one of the eight: it is the first queue the browser has
   # had no relationship with at all, rather than one whose grant was taken away.
-  shared_space_queue_url  = module.shared_spaces.request_queue_url
-  notifications_queue_url = module.notifications.notifications_queue_url
-  table_build_queue_url   = module.table_builder.table_build_queue_url
-  table_share_queue_url   = module.table_share.table_share_queue_url
-  data_quality_queue_url  = module.data_quality.data_quality_queue_url
-  file_send_queue_url     = module.file_send.file_send_queue_url
-  archive_queue_url       = module.archive.archive_queue_url
-  file_ops_queue_url      = module.file_ops.file_ops_queue_url
-  feedback_queue_url      = module.feedback.feedback_queue_url
+  shared_space_queue_url       = module.shared_spaces.request_queue_url
+  notifications_queue_url      = module.notifications.notifications_queue_url
+  table_build_queue_url        = module.table_builder.table_build_queue_url
+  table_share_queue_url        = module.table_share.table_share_queue_url
+  data_quality_queue_url       = module.data_quality.data_quality_queue_url
+  file_send_queue_url          = module.file_send.file_send_queue_url
+  archive_queue_url            = module.archive.archive_queue_url
+  file_ops_queue_url           = module.file_ops.file_ops_queue_url
+  results_conversion_queue_url = module.results_conversion.results_conversion_queue_url
+  feedback_queue_url           = module.feedback.feedback_queue_url
 
   request_queue_arns = [
     module.shared_spaces.request_queue_arn,
@@ -1436,6 +1491,7 @@ module "api" {
     module.file_send.file_send_queue_arn,
     module.archive.archive_queue_arn,
     module.file_ops.file_ops_queue_arn,
+    module.results_conversion.results_conversion_queue_arn,
     module.feedback.feedback_queue_arn,
   ]
 

@@ -2,6 +2,12 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "ResultsConversionProbeInvoke",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-results-conversion-validate-authorize"
+    },
+    {
       "Sid": "ResultsConversionQueuesManage",
       "Effect": "Allow",
       "Action": [

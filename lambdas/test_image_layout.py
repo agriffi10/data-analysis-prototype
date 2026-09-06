@@ -64,6 +64,7 @@ SHARED_SOURCES = (
     "data-quality-common",
     "file-ops-common",
     "file-send-common",
+    "results-conversion-common",
     "shared-space-common",
     "table-builder-common",
     "table-share-common",
@@ -71,7 +72,7 @@ SHARED_SOURCES = (
 NOT_SHIPPED = ("test_", "conftest.py", "fakes.py", "__init__.py")
 
 SHARED_PACKAGES = frozenset(
-    {"arcommon", "cpcommon", "dqcommon", "focommon", "fscommon", "tbcommon", "tscommon"}
+    {"arcommon", "cpcommon", "dqcommon", "focommon", "fscommon", "rccommon", "tbcommon", "tscommon"}
 )
 SHARED_FLAT_MODULES = frozenset(
     {

@@ -226,6 +226,7 @@ locals {
     module.feedback.function_names,
     module.file_ops.function_names,
     module.file_send.function_names,
+    module.results_conversion.function_names,
     module.notifications.function_names,
     module.observability.function_names,
     module.shared_spaces.function_names,

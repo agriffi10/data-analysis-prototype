@@ -408,3 +408,34 @@ into a tolerated difference. Each edge of the floor was mutation-tested: refusin
 ignoring a vanished function, ignoring a removed or changed variable, and refusing an added
 variable each reddened exactly one test. Not retired: the floor still holds what the cutover
 promised, and the packaging, population and permission-by-ARN checks beside it are untouched.
+
+**The floor was half the answer, and CI found the rest one refusal at a time.** Three more things
+in the same machinery refused a plane that had done nothing wrong, and none was reachable until
+one was added — so each arrived on its own CI run, after the local gates were green.
+
+- The **extractor** — a step whose own comment says it is not the gate — ran `capture` under
+  `set -e` on every plan, and `capture` correctly refuses a plan carrying an unknown value. A
+  plan that creates a queue always carries one. It now says why it could not extract and
+  continues.
+- The **unknown-parity-field refusal** demanded the attribute be "declared explicitly", which is
+  a remedy that exists for a memory tier and not for a role ARN belonging to a role created in
+  the same plan. It now applies in full to the functions the fixture CAPTURED, where a skipped
+  comparison is the promise going quiet, and to an ADDITION only for the three fields
+  `docker-lambda` sets as literals. Both directions mutation-tested.
+- The **`environment` leg is RETIRED**, not patched again. Two attempts to keep it — a
+  per-variable floor, then a reader for all four shapes Terraform marks an unknown with — each
+  passed locally and each was refused by the next real plan, the second one crashing on a shape
+  its hand-built fixture did not have. What finally settled it was reading what the leg
+  PROMISED: "the cutover changed no function's environment" is a claim about one apply, and held
+  as an eternal floor it refuses a plane joining the DLQ drain's list, which is a change the
+  plane exists to make. It is retired with its replacement named, per the fence — 
+  `test_fleet_environment.py` derives every variable each function's code can reach and asserts
+  its environment supplies it, which is both stronger and live where the fixture is frozen.
+
+The lesson is about gates rather than about this gate: **a check written for a one-time event
+keeps running afterwards**, and its preconditions quietly become claims about every future
+change. Every refusal here was right for the cutover and wrong for the first ordinary growth
+after it, and none could be observed until something grew. The second lesson is the cost of
+patching instead of reading: two rounds went into keeping a comparison whose promise had already
+been kept, and the question that ended it — *what did this leg actually promise, and is that
+still a thing that can be true?* — was available at the start.

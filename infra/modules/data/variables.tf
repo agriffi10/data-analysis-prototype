@@ -75,6 +75,12 @@ variable "file_ops_execution_role_arn" {
   default     = ""
 }
 
+variable "results_conversion_execution_role_arn" {
+  description = "ARN of the results-conversion shared execution role, constructed cycle-free by the root module. Excluded from the user-space bucket policy's data-access Deny so the plane can read a user's own Athena result object out of the bucket. AN EXPLICIT RESOURCE-POLICY DENY BEATS AN IDENTITY-POLICY ALLOW, so without this every request would fail AccessDenied at the size read however correct the role's own grant is."
+  type        = string
+  default     = ""
+}
+
 variable "user_directory_build_role_arn" {
   description = "ARN of the daily username-directory builder, constructed cycle-free by the root module. Excluded from the user-space bucket policy's data-access Deny so it can ListBucket the workspace prefixes and PutObject _directory/usernames.json; without the exclusion the Deny overrides its identity-policy Allow and the write fails with an opaque AccessDenied that looks like an IAM problem and is not."
   type        = string

@@ -15,6 +15,13 @@ The three copies were not identical, and the differences are parameters rather t
 the table-builder and table-share prefixes end at the actor and carry a trailing slash, while
 data-quality routes a whole request under a fixed ``data-quality`` actor segment and appends
 the request id. ``sub`` is that difference.
+
+``user_results_prefix`` is a DIFFERENT fact and is deliberately not merged with the one above:
+it is where a USER's own queries write, the prefix the API hands Athena on every start and the
+one an execution's output must sit under to be that user's. A plane's DDL writes under a
+database root; a user's query writes under their own space root. Two builders because the two
+shapes are not the same shape, and one function because the API carried the user rule alone
+until a plane needed to read it back.
 """
 
 from .app_managed import athena_results_prefix
@@ -41,3 +48,24 @@ def results_location(bucket: str, database: str, actor: str, *, sub: str | None 
     """
     base = f"s3://{bucket}/{athena_results_prefix(f'{database}/')}{actor}/"
     return f"{base}{sub}" if sub else base
+
+
+def user_results_prefix(bucket: str, username: str) -> str:
+    """Builds the prefix a user's own Athena queries write their result sets under.
+
+    The API starts every query with this as its output location, so an execution is the
+    user's exactly when Athena's recorded output location begins with it. Both the API and
+    the plane that checks ownership call this one function; a prefix built one character
+    differently on either side is an execution nobody owns.
+
+    Args:
+      bucket: The user-space bucket.
+      username: The VERIFIED username, never a value from a request body.
+
+    Returns:
+      An ``s3://`` prefix ending in a slash.
+
+    Raises:
+      None.
+    """
+    return f"s3://{bucket}/{athena_results_prefix(f'{username}/')}"

@@ -293,8 +293,8 @@ resource "aws_iam_role_policy_attachment" "deploy_file_ops" {
 #
 # The same statement families as file-ops, one infix apart, and the events: statement from its
 # first version for the same reason: this machine ships a top-level TimeoutSeconds and its
-# TIMED_OUT rule from day one. NO probe invoke statement here — the probe's own test refuses a
-# grant matching no declared function, so that statement travels with the function it names.
+# TIMED_OUT rule from day one. The probe invoke statement arrived WITH the function it names,
+# not before it: the probe's own test refuses a grant matching no declared function.
 resource "aws_iam_policy" "deploy_results_conversion" {
   name        = "${var.project_name}-deploy-results-conversion"
   description = "Deploy-role grants for the results-conversion control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, verb Lambdas + shared execution role, log groups, TIMED_OUT rule), kept off the role's inline-policy aggregate limit."

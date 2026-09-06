@@ -35,9 +35,17 @@ Usage:
                                  --project dat --environment prod
 
 Attributes:
-    PARITY_FIELDS: The attributes SPEC-213 FR-002 promises the cutover does not change. Compared
-        for every captured function against the fixture captured before it; `environment` as a
-        floor over the captured variables, every other field as an equality.
+    PARITY_FIELDS: The attributes SPEC-213 FR-002 promises the cutover does not change, compared
+        for every captured function against the fixture captured before it. `environment` is NOT
+        among them any more: its promise was about one apply, and held as an eternal floor it
+        refused a plane joining the DLQ drain's list — a change the plane exists to make. What
+        replaces it is stronger and live rather than frozen: `lambdas/test_fleet_environment.py`
+        derives every variable each function's code can reach and asserts its environment
+        supplies it, so a deleted variable fails against what the code needs today rather than
+        against a snapshot of 2026-09-02.
+    LITERAL_FIELDS: The attributes `docker-lambda` sets as literals, and therefore the only ones
+        that cannot legitimately be unknown on a function this plan is CREATING. A new function's
+        `role` is a reference to a role created beside it and is unknown by construction.
     PACKAGING_FIELDS: The three the cutover is ALLOWED to change. Named explicitly rather than
         skipping unknown keys, so a field nobody meant to move is still caught.
 """
@@ -50,7 +58,6 @@ import pathlib
 import sys
 
 PARITY_FIELDS = (
-    "environment",
     "timeout",
     "memory_size",
     "architectures",
@@ -60,6 +67,8 @@ PARITY_FIELDS = (
 )
 
 PACKAGING_FIELDS = ("package_type", "image_uri", "image_config")
+
+LITERAL_FIELDS = ("timeout", "memory_size", "architectures")
 
 
 def _has_unknown_leaf(marker) -> bool:
@@ -359,9 +368,17 @@ def check(plan: dict, fixture: dict, package_type: str, image_repository: str | 
     # An addition has nothing to compare against, but the rule that a parity field must be
     # declared explicitly is about the module, not the fixture: an added function whose
     # memory tier is unknown is exactly the plan this check exists to refuse.
+    # An unknown parity field is refused for every function the fixture CAPTURED, because the
+    # comparison it would otherwise skip is the whole promise. For a function this plan is
+    # ADDING there is nothing to compare, and most of its attributes are unknown by construction
+    # — a new function's `role` is the ARN of a role created beside it. So an addition is held
+    # only to the fields the module sets as literals, where "declare it explicitly" is a remedy
+    # that exists.
+    captured_names = set(fixture["functions"])
     unknown_fields: set[tuple[str, str]] = set()
     for name, entry in sorted(functions.items()):
-        for field in PARITY_FIELDS:
+        fields = PARITY_FIELDS if name in captured_names else LITERAL_FIELDS
+        for field in fields:
             if _has_unknown_leaf(entry["unknown"].get(field)):
                 unknown_fields.add((name, field))
                 problems.append(
@@ -377,62 +394,9 @@ def check(plan: dict, fixture: dict, package_type: str, image_repository: str | 
             if (name, field) in unknown_fields:
                 continue
             got = _comparable(field, entry["after"].get(field))
-            if field == "environment":
-                problems.extend(_environment_drift(name, want[field], got))
-            elif got != want[field]:
+            if got != want[field]:
                 problems.append(f"{name}: {field} moved from {want[field]!r} to {got!r}")
 
-    return problems
-
-
-def _variables(environment) -> dict:
-    """Unwraps the provider's environment block into its variable map.
-
-    The attribute is a one-element list holding a `variables` map, and an absent environment is
-    an empty list — so a bare comparison of the two shapes would read "no environment" against
-    "an empty map" as a move.
-
-    Args:
-      environment: The planned or captured `environment` attribute.
-
-    Returns:
-      The variable map, empty when the function sets none.
-
-    Raises:
-      None.
-    """
-    if not environment:
-        return {}
-    return dict((environment[0] or {}).get("variables") or {})
-
-
-def _environment_drift(name: str, want, got) -> list[str]:
-    """Names every captured variable a plan no longer sets to its captured value.
-
-    A floor, deliberately: a variable the fixture never captured is an addition and is not
-    reported. Removing or changing one the fixture did capture is the drift the cutover promised
-    would not happen, and each is named individually so the message says what moved.
-
-    Args:
-      name: The function, for the message.
-      want: The captured `environment` attribute.
-      got: The planned one.
-
-    Returns:
-      One problem per removed or changed captured variable.
-
-    Raises:
-      None.
-    """
-    captured, planned = _variables(want), _variables(got)
-    problems = []
-    for key in sorted(captured):
-        if key not in planned:
-            problems.append(f"{name}: environment variable {key} was removed")
-        elif planned[key] != captured[key]:
-            problems.append(
-                f"{name}: environment variable {key} moved from {captured[key]!r} to {planned[key]!r}"
-            )
     return problems
 
 

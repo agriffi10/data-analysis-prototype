@@ -184,18 +184,23 @@ variable "file_ops_queue_url" {
   type        = string
 }
 
+variable "results_conversion_queue_url" {
+  description = "URL of the results-conversion FIFO request queue. This function is its only writer."
+  type        = string
+}
+
 variable "feedback_queue_url" {
-  description = "URL of the feedback FIFO request queue. This function is its only writer, and unlike the eight above the browser never held a grant on it."
+  description = "URL of the feedback FIFO request queue. This function is its only writer, and unlike the nine above the browser never held a grant on it."
   type        = string
 }
 
 variable "request_queue_arns" {
-  description = "Every FIFO request queue ARN this function may write. Exactly the nine — the eight control-plane request queues plus feedback; never a wildcard, never a DLQ, and never the notifications queue's writer path."
+  description = "Every FIFO request queue ARN this function may write. Exactly the ten — the nine control-plane request queues plus feedback; never a wildcard, never a DLQ, and never the notifications queue's writer path."
   type        = list(string)
 
   validation {
-    condition     = length(var.request_queue_arns) == 9
-    error_message = "The API writes exactly nine request queues — eight control planes plus feedback; a shorter list means one lost its route."
+    condition     = length(var.request_queue_arns) == 10
+    error_message = "The API writes exactly ten request queues — nine control planes plus feedback; a shorter list means one lost its route."
   }
 }
 

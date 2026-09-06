@@ -1,6 +1,6 @@
 """Every FIFO key the enqueue routes send, derived in one module and nowhere else.
 
-Four derivation families over ten routes, and none of them has an error path: a wrong
+Four derivation families over eleven routes, and none of them has an error path: a wrong
 ``MessageGroupId`` still sends. It changes which requests serialize behind each other and which
 run in parallel, and the only symptom is a race nobody can reproduce. A wrong
 ``MessageDeduplicationId`` stops collapsing double-submits, and the symptom is two shares, two
@@ -270,6 +270,27 @@ def _group_archive_restore(principal: Principal, payload: Mapping[str, Any]) -> 
     return _sha(vault_archive_prefix(space["kind"], f"{space['name']}/", payload["archiveId"]))
 
 
+def _group_results_conversion(principal: Principal, payload: Mapping[str, Any]) -> str:
+    """Serializes one user's conversions behind their own verified username.
+
+    Raw rather than hashed, which is safe here: a username is bounded by the catalog identifier
+    rule at 63 characters, well inside the queue's 128. Derived from the verified actor rather
+    than from the body, as the notifications group is, so a caller cannot interleave into
+    another user's group.
+
+    Args:
+      principal: The verified caller.
+      payload: The validated request body. Unused.
+
+    Returns:
+      The caller's verified username.
+
+    Raises:
+      None.
+    """
+    return principal.username
+
+
 def _dedup_request_id(principal: Principal, payload: Mapping[str, Any]) -> str:
     """Takes the caller's own per-submit request id as the dedup key.
 
@@ -359,6 +380,7 @@ _GROUP: Mapping[str, Callable[[Principal, Mapping[str, Any]], str]] = {
     "archive.archive": _group_space_root,
     "archive.restore": _group_archive_restore,
     "fileOps.enqueue": _group_space_root,
+    "resultsConversion.enqueue": _group_results_conversion,
 }
 
 _DEDUP: Mapping[str, Callable[[Principal, Mapping[str, Any]], str]] = {
@@ -372,6 +394,7 @@ _DEDUP: Mapping[str, Callable[[Principal, Mapping[str, Any]], str]] = {
     "archive.archive": _dedup_request_id,
     "archive.restore": _dedup_request_id,
     "fileOps.enqueue": _dedup_request_id,
+    "resultsConversion.enqueue": _dedup_request_id,
 }
 
 

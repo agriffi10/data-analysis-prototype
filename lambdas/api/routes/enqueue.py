@@ -1,9 +1,9 @@
-"""The ten handlers that put a request on a control plane's queue.
+"""The eleven handlers that put a request on a control plane's queue.
 
 Each is the same three steps — find the route's declaration, hand the validated body to the sender,
-answer with what the sender returned — so they are built from one factory rather than written ten
-times. Ten copies of a body-assembling handler is ten places for the identity block, the token
-field or a FIFO key to be got wrong, and only one of those failures is loud.
+answer with what the sender returned — so they are built from one factory rather than written eleven
+times. Eleven copies of a body-assembling handler is eleven places for the identity block, the
+token field or a FIFO key to be got wrong, and only one of those failures is loud.
 
 A handler here makes no AWS call of its own, reads no membership and builds no message. Every
 authorization question belongs to the plane's own validate-authorize verb, where it is today: the
@@ -65,3 +65,4 @@ file_send = _handler_for("fileSend.enqueue")
 archive = _handler_for("archive.archive")
 restore = _handler_for("archive.restore")
 file_ops = _handler_for("fileOps.enqueue")
+results_conversion = _handler_for("resultsConversion.enqueue")

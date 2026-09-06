@@ -170,6 +170,16 @@ Orchestration, layer and traps: [`planes/file-ops.md`](planes/file-ops.md). Doma
 | `file-ops-release-lock/` | `file_ops_release_lock.py` | release-lock — frees every space this request held. |
 | `file-ops-validate-authorize/` | `file_ops_validate_authorize.py` | validate-authorize — the file-operations Step Function's first task. |
 
+### Results conversion
+
+Orchestration, layer and traps: [`planes/results-conversion.md`](planes/results-conversion.md). Domain layer: `results-conversion-common/rccommon/`.
+
+| Lambda | Handler | What it does |
+|---|---|---|
+| `results-conversion-describe-results/` | `rc_describe_results.py` | describe-results — the result set's columns, types and size, and the cap. |
+| `results-conversion-notify-failure/` | `rc_notify_failure.py` | results-conversion notify-failure — the terminal failure notification of last resort. |
+| `results-conversion-validate-authorize/` | `rc_validate_authorize.py` | validate-authorize — the results-conversion Step Function's first task. |
+
 ## Standalone functions
 
 Not part of a control plane: no Step Function, no request queue, no domain layer. Each is triggered

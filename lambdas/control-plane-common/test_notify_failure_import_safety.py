@@ -62,6 +62,7 @@ NOTIFY_FAILURE_VERBS = {
     "file-send-notify-failure": "fs_notify_failure",
     "archive-notify-failure": "ar_notify_failure",
     "file-ops-notify-failure": "fo_notify_failure",
+    "results-conversion-notify-failure": "rc_notify_failure",
 }
 
 #: The shared surface the image gives every function, read from the ASSEMBLER. The list this

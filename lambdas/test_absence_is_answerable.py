@@ -81,6 +81,7 @@ POLICY_FOR_PREFIX = {
     "archive": "archive/policies/execution.json.tftpl",
     "data-quality": "data-quality/policies/execution.json.tftpl",
     "file-ops": "file-ops/policies/execution.json.tftpl",
+    "results-conversion": "results-conversion/policies/execution.json.tftpl",
     "file-send": "file-send/policies/execution.json.tftpl",
     "table-builder": "table-builder/policies/execution.json.tftpl",
     "table-share": "table-share/policies/execution.json.tftpl",
