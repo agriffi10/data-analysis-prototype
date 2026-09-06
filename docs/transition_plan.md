@@ -1146,6 +1146,17 @@ existing execution role, reusing the plane's FIFO queue, its DLQ and the DLQ dra
 and it does **not** inherit the roster fan-out's best-effort posture: a stale roster is cosmetic, a
 missing entitlement is total loss of access.
 
+**Decided 2026-09-06 — a seventh trigger is asked for, and is deliberately not built yet.** An
+operator break-glass transfer should be able to reach somebody who is not a member, the UI staying
+members-only. It waits for this projection: on the interim plane it would contradict the transfer
+verb's own stated premise that membership does not change, and would be rebuilt against grants
+straight after. The threat model is not open — `docs/decisions/control-planes.md`'s SPEC-217 entry
+already records that an operator row grants a stranger live access, which is the objection SPEC-208
+raised in putting a non-member transfer out of scope. What the work carries is a rule still stated
+as absolute in the API contract, the browser types, the refusal copy and the Help, and this
+section's writer set, which is pinned by equality. Reachable today as an `add` file and a
+`transfer` file — one space takes one action per file, but one sweep processes both.
+
 **Convergence is the event plus a sweep, and the sweep must revoke.** Events drift silently — a
 failed run, a dead-lettered message, a manual registry edit — and a sweep alone is too slow for a
 member added at 09:00. §3.8's reconciler is the pattern, with the registry as this one's config. Per
@@ -1258,8 +1269,9 @@ Four things are already true in the current account, and they change what this p
 
 - **The six trigger points exist and are swept.** They are exactly the six verbs that write the
   SPEC-203 membership index, and `lambdas/test_membership_index.py` already walks the verb tree and
-  fails when a seventh membership-moving verb appears without an index write. The projection hooks
-  the same six sites, and that enumeration is the guard this design asked for.
+  fails when a seventh membership-moving verb appears — whether or not it writes the index, since
+  the writer set is pinned by equality. The projection hooks the same six sites, and that
+  enumeration is the guard this design asked for.
 - **The current-account half of the cutover hazard is now guarded.**
   `lambdas/test_shared_space_isolation_coupling.py` fails if `shared-space-create` stops granting to
   the portal role, if any Glue resource in the shared-space policy loses its tag scoping, or if any
@@ -2787,6 +2799,10 @@ IAM and STS:
 recorded *in place* in the section it belongs to, which is where a reader should meet it — this list
 exists so the chronology is recoverable, not so anyone works from it.
 
+- **2026-09-06 — operator break-glass transfer.** Recorded in **§3.11** as a seventh projection
+  trigger, deferred to it, routing to SPEC-217's recorded threat model rather than restating
+  SPEC-208's objection. §3.11's index-guard sentence corrected in place: the guard fires on a
+  seventh verb whether or not it writes the index.
 - **2026-09-04 — provisioning and ordering pass.** The portal takes ownership of provisioning:
   new **§3.12**, amending §2 item 7 and reaching §1's table, §6.5's layers, Phases 0/1/2/5, §8 and
   §9. Added **The order of work** as a router over §7. Pruned to what has landed: §4.6's
