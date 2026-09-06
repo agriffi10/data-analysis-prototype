@@ -44,6 +44,13 @@ def authorize_source(username: str, space) -> dict:
     **A member whose join chip still reads pending is authorized**, matching file-send and
     The chip is display and bookkeeping only, and access is granted at add time.
 
+    **The kind is type-checked before it is looked up, and that is not caution:** ``in``
+    against a frozenset HASHES its left operand, so a request naming a list or a dict raised
+    ``TypeError`` out of the membership test itself — reported by ``notifies_on_failure`` as an
+    unexpected error, with the named refusal this plane owes never rendered. The API's request
+    types declare the kind as a literal and its door refuses such a body today, but this plane
+    is the authority on its own requests and does not depend on the door.
+
     Args:
       username: The trusted username, from the API's identity block and nowhere else.
       space: The request's source space, naming a kind and a name.
@@ -62,7 +69,7 @@ def authorize_source(username: str, space) -> dict:
     if not isinstance(space, dict):
         raise TerminalError("forbidden", "missing source space")
     kind, name = space.get("kind"), space.get("name")
-    if kind not in SPACE_KINDS:
+    if not isinstance(kind, str) or kind not in SPACE_KINDS:
         raise TerminalError("forbidden", f"unknown source space kind {kind!r}")
     if not isinstance(name, str) or not name.strip():
         raise TerminalError("forbidden", "source space name missing")

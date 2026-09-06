@@ -86,10 +86,14 @@ def _run(**kwargs):
     return v.handler(_event(**kwargs), None)
 
 
-def _refused(**kwargs):
+def _refusal(**kwargs):
     with pytest.raises(TerminalError) as caught:
         _run(**kwargs)
-    return caught.value.reason
+    return caught.value
+
+
+def _refused(**kwargs):
+    return _refusal(**kwargs).reason
 
 
 # ── The contract ─────────────────────────────────────────────────────────────
@@ -271,3 +275,80 @@ def test_the_verb_refuses_a_message_with_no_identity_block():
 
     assert raised.value.reason == "unauthorized"
     assert "identity block" in raised.value.detail
+
+
+@pytest.mark.parametrize("side", ["source", "destination"])
+@pytest.mark.parametrize("kind", ["admin", "", None, 1, ["personal"]], ids=["unknown", "empty", "null", "int", "list"])
+def test_the_space_kind_vocabulary_is_closed_on_both_sides(kind, side):
+    """Every unknown kind must reach the plane's own refusal, an UNHASHABLE one included.
+
+    A frozenset membership test hashes its left operand, so a request naming a list raised
+    TypeError out of the check itself — reported as an unexpected fault, with this plane's
+    named refusal never rendered.
+
+    Driven from both sides deliberately. They share one ``_resolve``, so a source-only case
+    would be named for a rule it half-covers — and this is the one plane that authorizes a
+    destination independently, which is the whole reason that function takes a side.
+    """
+    _setup()
+    space = {"kind": kind, "name": "alice"}
+    event = (
+        _event(space=space)
+        if side == "source"
+        else _event(destination={"space": space, "prefix": "alice/out/"})
+    )
+
+    with pytest.raises(TerminalError) as caught:
+        v.handler(event, None)
+
+    assert caught.value.reason == "forbidden"
+    assert caught.value.detail == f"unknown {side} space kind {kind!r}"
+
+
+def test_a_space_that_excludes_you_and_one_that_does_not_exist_read_the_same_sentence():
+    """The anti-oracle rule this module names as its reason for existing, finally executed.
+
+    The docstring said a test rendered both and compared; none did, and the whole shared-space
+    branch ran in no test at all. Planting an existence oracle at the membership refusal left
+    the suite green, which is what a documented guarantee with nothing behind it looks like.
+
+    Three refusals, not two: another actor's personal space reaches a different branch again,
+    and all three must be one sentence or the plane answers "is there a shared space called X?"
+    for any name a caller cares to try.
+    """
+    excluded = _refusal(
+        operation="delete",
+        space={"kind": "shared", "name": "sales"},
+        items=[{"kind": "file", "key": "sales/q1.csv"}],
+        spaces={"sales": {"status": "active", "owner": "carol", "members": ["carol"]}},
+    )
+    absent = _refusal(
+        operation="delete",
+        space={"kind": "shared", "name": "ghost"},
+        items=[{"kind": "file", "key": "ghost/q1.csv"}],
+    )
+    other = _refusal(
+        operation="delete",
+        space={"kind": "personal", "name": "bob"},
+        items=[{"kind": "file", "key": "bob/q1.csv"}],
+    )
+
+    assert excluded.reason == absent.reason == other.reason == "forbidden"
+    assert excluded.detail == absent.detail == other.detail
+
+
+def test_a_shared_space_the_actor_belongs_to_resolves_to_the_SHARED_bucket():
+    """The other half of the branch nothing executed: which bucket a shared source resolves in.
+
+    Personal and shared are different buckets, so guessing wrong here reads one namespace at
+    the other's address — and every existing case in this file named a personal space.
+    """
+    result = _run(
+        operation="delete",
+        space={"kind": "shared", "name": "sales"},
+        items=[{"kind": "file", "key": "sales/q1.csv"}],
+        spaces={"sales": {"status": "active", "owner": "carol", "members": ["alice", "carol"]}},
+    )
+
+    assert result["source"]["bucket"] == "shared-bkt"
+    assert result["source"]["root"] == "sales/"
