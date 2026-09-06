@@ -384,6 +384,37 @@ ACCOUNT_LIMITS = (
 )
 
 
+def declaration_files() -> list[pathlib.Path]:
+    """Every Terraform file an account-quota number can be declared in, in one place.
+
+    The population this gate sweeps, and getting it wrong is how the gate stays green over a
+    function it never read. It began as ``infra/modules/*/locals.tf`` — the per-module fleet map —
+    and that missed TEN declarations: a module with one function passes ``memory_mb`` straight to
+    the shared ``docker-lambda`` block in its own ``lambda.tf`` and never builds a map at all. Any
+    of those ten raised past the ceiling would have deployed unseen, which is the exact failure
+    this gate exists for.
+
+    ``.terraform`` is excluded rather than merely absent today: it holds nothing after a
+    provider-only ``init``, but a registry module would put third-party HCL under it, and a
+    population that changes depending on whether somebody has run ``init`` is a gate that
+    disagrees with itself between machines.
+
+    Args:
+      None.
+
+    Returns:
+      Every ``.tf`` file under ``infra/``, sorted, excluding vendored ones.
+
+    Raises:
+      None.
+    """
+    return sorted(
+        path
+        for path in (ROOT / "infra").rglob("*.tf")
+        if ".terraform" not in path.parts
+    )
+
+
 def declaration_pattern(dimension: str) -> str:
     """The regex that finds one dimension's declarations, used by the sweep AND its control.
 
@@ -449,10 +480,12 @@ def test_no_module_declares_more_memory_than_this_account_will_create() -> None:
 
     It is a fleet-wide sweep rather than a rule on the one module that hit it, because the next
     function to want more memory will be in a different module and its author will have the same
-    information available: none.
+    information available: none. Fleet-wide means every ``.tf`` under ``infra/`` — see
+    ``declaration_files`` — not the per-module fleet maps: a module deploying one function passes
+    its size to ``docker-lambda`` in its own ``lambda.tf`` and builds no map to read.
     """
     offenders = []
-    for path in sorted((ROOT / "infra" / "modules").glob("*/locals.tf")):
+    for path in declaration_files():
         offenders.extend(
             over_account_limits(path.read_text(encoding="utf-8"), str(path.relative_to(ROOT)))
         )
@@ -465,10 +498,14 @@ def test_no_module_declares_more_memory_than_this_account_will_create() -> None:
 #: How few declarations each dimension may find before the sweep is presumed broken rather than
 #: the fleet presumed compliant. Written down, not counted from the tree: a floor derived from
 #: what the sweep just found is satisfied by finding nothing, which is the failure it exists to
-#: catch. Memory is one per function across a large fleet. Ephemeral is declared only where a
-#: function needs more than Lambda's 512 MB default, which today is one — so 1 is not a
-#: comfortable population, it is the number that still makes a renamed key visible.
-DECLARATIONS_AT_LEAST = {"memory": 50, "ephemeral": 1}
+#: catch. Memory is one per function across the whole fleet, spread over `locals.tf` maps and
+#: single-function `lambda.tf` blocks; the floor sits well under that count on purpose, so that
+#: retiring a module is not a red gate while losing a whole file's worth still is. The count itself
+#: is not written here — `declaration_files` decides it and this number would go stale beside it.
+#: Ephemeral is declared only where a
+#: function needs more than Lambda's 512 MB default, which today is one — so 1 is not a comfortable
+#: population, it is the number that still makes a renamed key visible.
+DECLARATIONS_AT_LEAST = {"memory": 70, "ephemeral": 1}
 
 
 @pytest.mark.parametrize(("dimension", "ceiling"), ACCOUNT_LIMITS, ids=[d for d, _ in ACCOUNT_LIMITS])
@@ -483,7 +520,7 @@ def test_each_dimension_sweep_reads_the_declarations_it_claims_to(dimension: str
     """
     found = [
         int(match.group(2))
-        for path in (ROOT / "infra" / "modules").glob("*/locals.tf")
+        for path in declaration_files()
         for match in re.finditer(declaration_pattern(dimension), path.read_text(encoding="utf-8"))
     ]
     assert len(found) >= DECLARATIONS_AT_LEAST[dimension], (
