@@ -13,9 +13,12 @@ type, since this plane's Standard Step Function catches its own; the exact messa
 the authorizer itself, whose signature never changed — it always took a plain username, and only
 where that string comes from is different.
 
-``membership`` is imported for its one normaliser and nothing else. A predicate that compared
+``membership`` is imported for its two normalisers and nothing else. A predicate that compared
 targets in a form the verb does not apply would refuse the wrong ones and let the right ones
-through silently, and a second copy of the rule here is exactly how those two would drift.
+through silently, and a second copy of the rule here is exactly how those two would drift. The
+same argument puts ``roster`` there rather than here: the third roster read this plane decides
+membership from is in the forget verb, which this authorizer returns early for, so a copy kept
+in this module would cover two of the three sites and read as though it covered all of them.
 
 Attributes:
   MEMBER_REFUSAL_CODES: Every code ``member_refusal`` can return.
@@ -105,7 +108,9 @@ def authorize(action, space, actor, registry):
       action: The requested action.
       space: The space name, used in the failure messages.
       actor: The verified username.
-      registry: The loaded registry record, or None for a create or a missing space.
+      registry: The loaded registry record, or None for a create or a missing space. A record
+        that is not a dict is refused as a missing space rather than raising out of the roster
+        read, which is the only safe direction for an authorization decision.
 
     Returns:
       None, when the action is allowed.
@@ -125,10 +130,10 @@ def authorize(action, space, actor, registry):
         return
     if action in config.MEMBER_ACTIONS:
         return
-    if registry is None:
+    if not isinstance(registry, dict):
         raise AuthorizationError(f"space {space!r} does not exist")
     owner = registry.get("owner")
-    members = registry.get("members", [])
+    members = membership.roster(registry)
     if action in config.OWNER_ONLY_ACTIONS:
         if actor != owner:
             raise AuthorizationError(f"{action} on {space!r} is owner-only")
@@ -170,7 +175,8 @@ def transfer_refusal(requester, space, target, registry):
       requester: The verified username asking, or None for an operator-origin request.
       space: The space name.
       target: The member named to take the space.
-      registry: The loaded registry record, or None when the space is unknown.
+      registry: The loaded registry record, or None when the space is unknown. A record that
+        is not a dict is refused as an unknown space rather than raising.
 
     Returns:
       A ``(code, message)`` pair, or None when the transfer may proceed.
@@ -178,7 +184,7 @@ def transfer_refusal(requester, space, target, registry):
     Raises:
       None.
     """
-    if registry is None:
+    if not isinstance(registry, dict):
         return _refusal("TransferSpaceUnknown", space)
     if not registry.get("owner") or registry.get("emptiedAt"):
         return _refusal("TransferSpaceEmptied", space)
@@ -191,7 +197,7 @@ def transfer_refusal(requester, space, target, registry):
         return _refusal("TransferTargetMissing", space)
     if target == owner:
         return _refusal("TransferTargetIsOwner", space, target)
-    if target not in registry.get("members", []):
+    if target not in membership.roster(registry):
         return _refusal("TransferTargetNotMember", space, target)
     return None
 
@@ -234,7 +240,8 @@ def member_refusal(requester, space, action, targets, registry):
       space: The space name.
       action: The requested action, which decides whether the owner may be named as a target.
       targets: The member names the request carries, as the wire carries them.
-      registry: The loaded registry record, or None when the space is unknown.
+      registry: The loaded registry record, or None when the space is unknown. A record that
+        is not a dict is refused as an unknown space rather than raising.
 
     Returns:
       A ``(code, message)`` pair, or None when the change may proceed.
@@ -243,7 +250,7 @@ def member_refusal(requester, space, action, targets, registry):
       None.
     """
     collapsed = _COLLAPSED_TO_REQUESTER if requester is not None else None
-    if registry is None:
+    if not isinstance(registry, dict):
         return _refusal("MemberSpaceUnknown", space, wording=collapsed)
     if not isinstance(registry.get("owner"), str) or not registry.get("owner"):
         return _refusal("MemberSpaceEmptied", space, wording=collapsed)

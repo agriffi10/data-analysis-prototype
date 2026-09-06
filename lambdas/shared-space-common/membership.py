@@ -42,6 +42,69 @@ def normalize_members(raw: list | None, owner: str) -> list[str]:
     return out
 
 
+def roster(registry) -> list:
+    """The space's member list, or empty when the record does not carry one as a list.
+
+    **``in`` is three operators and only one of them is a membership test.** Against a list it
+    compares whole elements; against a string it matches substrings, so a roster that arrived as
+    ``"alice,bob"`` answers True for ``ali`` and ``lic``; against a dict it matches keys. Every
+    roster an AUTHORIZATION decision is made from comes through here, so the type is asserted
+    once. Those three sites do not share a module — two are in the authorizer and the third is
+    the forget verb, which the authorizer returns early for — so written at each site instead the
+    copies drift, and each drift admits somebody silently.
+
+    The verbs read a roster again once they are authorized, and those reads are deliberately not
+    counted by that sentence: they decide what to apply rather than who may ask. Claiming them
+    would make the sentence false without converting them.
+
+    It lives beside ``normalize_members`` because that is the other place a roster's shape is
+    decided, and splitting the two is how they come to disagree.
+
+    Nothing writes a roster that shape today — this plane is the registry's only writer and
+    always writes a list. The check is here because a membership test that reads as one and
+    behaves as a prefix match is indistinguishable from a correct one at the call site.
+
+    Args:
+      registry: The loaded registry record, or None. Anything that is not a dict carrying a list
+        answers empty rather than raising, which is the only safe direction for a roster an
+        authorization decision is about to be made from.
+
+    Returns:
+      The member names, or an empty list.
+
+    Raises:
+      None.
+    """
+    members = registry.get("members") if isinstance(registry, dict) else None
+    return members if isinstance(members, list) else []
+
+
+def roster_is_readable(registry) -> bool:
+    '''Whether the record carries a roster a membership question may be decided from.
+
+    **``roster`` collapses an unreadable roster into an empty one, and that has a POLARITY.**
+    Where the question is "refuse a non-member" — leaving, acknowledging, naming a transfer
+    target — an empty roster refuses everybody and the collapse fails closed. Where the question
+    is "refuse a MEMBER", which is how the forget verb protects a live space, an empty roster
+    refuses nobody and the very same collapse fails open. One helper cannot serve both
+    directions, and a caller reaching for the convenient one gets the wrong answer silently.
+
+    So a site whose refusal is keyed on the actor BEING a member asks this first, and refuses
+    when the roster cannot be read at all. Not knowing whether somebody is a member is not the
+    same as knowing that they are not.
+
+    Args:
+      registry: The loaded registry record, or None.
+
+    Returns:
+      True when the record is a dict whose ``members`` is a list.
+
+    Raises:
+      None.
+    '''
+    return isinstance(registry, dict) and isinstance(registry.get("members"), list)
+
+
 def _slot_attr(k: int) -> str:
     """Names the Cognito custom attribute for one membership slot.
 

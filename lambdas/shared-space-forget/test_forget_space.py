@@ -163,6 +163,97 @@ def test_forget_refuses_active_space_owner():
     assert "sales" in glue.databases
 
 
+def test_forget_refuses_an_active_space_on_a_string_roster_it_cannot_membership_test():
+    """The forget verb is its own authorizer, and its roster read is the third of three.
+
+    ``auth.authorize`` returns early for ``forget``, so this refusal is the whole gate — and its
+    polarity is the opposite of the authorizer's. There the refusal fires when the actor is NOT
+    a member, so an unreadable roster read as empty refuses everybody and fails closed. Here it
+    fires when the actor IS one, so the same empty reading refuses nobody and tears into the
+    cache-only path, which clears the actor's slot and index on a live space. Reading the roster
+    through the shared normaliser alone would therefore have replaced a substring match with a
+    silent skip.
+
+    The reason is asserted rather than the exception class: both refusals in this branch raise
+    ``AuthorizationError`` and both sentences contain "active", so a test that caught either
+    would pass against a verb that took the wrong one.
+    """
+    s3, glue, _lf, _cognito = install()
+    registry = {"name": "sales", "owner": "alice", "members": "alice,bob", "status": "active"}
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(registry).encode()
+    glue.databases.add("sales")
+
+    raises(
+        lambda: f.forget_space("sales", "ali", "req-f", registry),
+        AuthorizationError,
+        "roster cannot be read",
+    )
+
+    assert ("admin-bkt", "shared-spaces/sales.json") in s3.store
+    assert "sales" in glue.databases
+
+
+def test_forget_clears_a_card_for_an_EMPTIED_space_which_is_active_with_a_blank_roster():
+    """The record shape that tells the two roster helpers apart, in the verb that must not confuse them.
+
+    ``empty_space`` writes ``members: []`` with ``status: "active"`` and the owner popped, so an
+    emptied space is live, readable, and names nobody. Reading it with ``roster`` instead of
+    ``roster_is_readable`` collapses "nobody is a member" into "the roster could not be read" and
+    refuses the forget — which strands the card of everyone left holding one, and there is no
+    second door, since forget is not an operator action. That confusion is the single mistake the
+    two-helper split exists to prevent, and this is the only fixture in the repo that sees it.
+    """
+    s3, _glue, _lf, cognito = install()
+    cognito.users = {"bob": {"custom:shared_space_1": "sales"}}
+    registry = {
+        "name": "sales",
+        "members": [],
+        "acknowledged": [],
+        "status": "active",
+        "previousOwner": "alice",
+        "emptiedAt": "t1",
+    }
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(registry).encode()
+
+    result = f.forget_space("sales", "bob", "req-f", registry)
+
+    assert result["mode"] == "cache_only"
+    assert cognito.users["bob"].get("custom:shared_space_1", "") == ""
+
+
+def test_forget_tears_down_a_never_active_space_whose_roster_is_unreadable():
+    """The new refusal is narrowed to an ACTIVE space, and the narrowing is load-bearing.
+
+    Dropping the ``status == "active"`` half would widen the refusal across the teardown and
+    cache-only paths — the two that exist to clear a card nobody else can — and it would widen in
+    the denying direction, which is the one that costs a user something.
+    """
+    s3, glue, _lf, cognito = install()
+    cognito.users = {"alice": {"custom:shared_space_1": "sales"}}
+    registry = {"name": "sales", "owner": "alice", "members": "alice", "status": "failed"}
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(registry).encode()
+    glue.databases.add("sales")
+
+    result = f.forget_space("sales", "alice", "req-f", registry)
+
+    assert result["mode"] == "teardown"
+    assert ("admin-bkt", "shared-spaces/sales.json") not in s3.store
+
+
+def test_forget_still_refuses_a_real_member_of_a_live_space():
+    """The positive control: a well-formed roster keeps the refusal it always had."""
+    s3, glue, _lf, _cognito = install()
+    registry = {"name": "sales", "owner": "alice", "members": ["alice", "bob"], "status": "active"}
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(registry).encode()
+    glue.databases.add("sales")
+
+    raises(
+        lambda: f.forget_space("sales", "bob", "req-f", registry),
+        AuthorizationError,
+        "use Delete (owner) or Leave (member)",
+    )
+
+
 def test_forget_clears_the_index_on_the_teardown_path():
     s3, _glue, _lf, cognito = install()
     cognito.users = {"alice": {"custom:shared_space_1": "sales"}}
