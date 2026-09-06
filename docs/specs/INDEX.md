@@ -227,7 +227,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 219 — Admit `system_settings/` Additively | Completed |
 | 220 — Move the App-Managed Folders, Then Narrow | Draft |
 | 221 — Results Conversion: the Plane, the Request Contract & validate-authorize | Completed |
-| 222 — Results Conversion: the Converter, the Three Writers & the Notification | In Progress |
+| 222 — Results Conversion: the Converter, the Three Writers & the Notification | Completed |
 | 223 — Results Conversion: "Save as" in the Browser, the Flag & Help | Draft |
 
 ## Arcs

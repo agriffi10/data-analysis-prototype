@@ -1098,10 +1098,9 @@ module "file_ops" {
 
 # Results-conversion control plane: a DEDICATED FIFO SQS → EventBridge Pipe → Standard Step
 # Function pipeline running single-task verb Lambdas on ONE shared execution role. Takes a
-# finished Athena execution and will write its result set into a space the actor may write
-# to, in the format they chose. This module is the foundation and the front door: the
-# plumbing, validate-authorize and describe-results; nothing converts yet and the execution
-# role holds no write grant. base grants the deploy role its perms; data creates the portal
+# finished Athena execution and writes its result set into a space the actor may write to, in
+# the format they chose. This module is the whole plane: the plumbing and five verbs, of which
+# only convert reads bytes and only convert writes. base grants the deploy role its perms; data creates the portal
 # role and the bucket policy this plane's role is allowlisted in. Settle both first.
 module "results_conversion" {
   source = "./modules/results-conversion"

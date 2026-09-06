@@ -30,6 +30,11 @@ Attributes:
     ratchet at the measured level, and the unit is the PLANE: four specs build one control
     plane, and a script each would be four files sharing a token, a queue URL, a group digest
     and an envelope builder. A spec that owes a CLI check adds a SECTION to its plane's script.
+    Raised to 2 on 2026-09-06 for results-conversion, which qualifies on the same criterion
+    file-ops did and for a reason its own spec states as scope: SPEC-221 and SPEC-222 both ship
+    "nothing a user can reach", so a conversion is an authenticated POST rather than a click
+    until SPEC-223 gives the plane a browser surface. Both scripts shrink when their planes get
+    one — a raise here is a deliberate edit, and so is the reduction that should follow.
   CLAUDE_MAX_BYTES: The always-loaded file's budget. The file has been cut structurally five
     times, and the fifth (2026-09-05) changed its shape: the Key Decisions digest left it
     altogether — each area's fences now head that area's ``docs/decisions/<area>.md`` under a
@@ -143,7 +148,7 @@ def _docs_in(tree):
 TESTING_PERMANENT = frozenset({"e2e.md", "owed.md", "sessions.md"})
 TESTING_INFLIGHT_MAX = 1
 
-FIXTURES_MAX_SCRIPTS = 1
+FIXTURES_MAX_SCRIPTS = 2
 CLAUDE_MAX_BYTES = 17_000
 PROCESS_MAX_BYTES = 15_000
 DIGEST_MAX_CHARS = 1_400

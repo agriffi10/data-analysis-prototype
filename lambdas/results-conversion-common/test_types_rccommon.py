@@ -6,7 +6,10 @@ disagreement there is a Parquet file the table builder reads back with the wrong
 nothing else in the fleet would notice.
 """
 
+import csv
+import json
 import os
+import pathlib
 import sys
 
 import polars as pl
@@ -188,6 +191,98 @@ def test_the_schema_is_built_in_result_order():
     )
     assert list(schema) == ["b", "a", "c"]
     assert schema == {"b": pl.String(), "a": pl.Int64(), "c": pl.Decimal(10, 2)}
+
+
+#: The real Athena result set, captured from the workgroup rather than written here. The point of
+#: a captured fixture is that it can DISAGREE with the code — a hand-written one only ever
+#: restates what its author believed.
+_CAPTURE = pathlib.Path(__file__).resolve().parent.parent / "fixtures"
+CAPTURED_CSV = _CAPTURE / "athena_result_all_types.csv"
+CAPTURED_COLUMNS = _CAPTURE / "athena_result_all_types_columns.json"
+
+
+def _captured():
+    """The captured ColumnInfo, as name-to-type."""
+    return {c["Name"]: c["Type"] for c in json.loads(CAPTURED_COLUMNS.read_text(encoding="utf-8"))}
+
+
+def test_every_type_the_captured_execution_reports_is_one_the_table_maps():
+    """The corpus above is transcribed from Athena's docs; this is what Athena actually sent.
+
+    Both kinds of evidence are needed. The docs say what CAN arrive; the capture says what DID,
+    in the spellings the service really uses — `int` for an `integer` cast, `float` for `real`,
+    `string` for `varchar`, `array` with no element type. A table satisfying only the documented
+    spellings would refuse a real query.
+    """
+    reported = _captured()
+    assert len(reported) == 24, "the capture lost columns; it is no longer the execution it names"
+    for name, reported_type in reported.items():
+        column = {"name": name, "type": reported_type, "precision": 10, "scale": 2}
+        assert isinstance(types.polars_dtype(types.athena_type_of(column)), pl.DataType), (
+            f"{reported_type!r}, from a real execution, is unmapped"
+        )
+
+
+def test_the_two_halves_of_the_capture_describe_the_same_execution():
+    """The fixture is a PAIR, and nothing else here holds the halves together.
+
+    Every other test reads one file or the other. So a column renamed in the JSON, reordered
+    against the CSV, or dropped from either side leaves a fixture that still passes while no
+    longer being one execution — and the converter's own rule is positional: `scan_csv` applied
+    to a metadata schema renames columns by POSITION when the names disagree, silently. A pair
+    that disagreed would be a fixture demonstrating the exact bug the converter's header check
+    exists to catch, while asserting the check is unnecessary.
+    """
+    with CAPTURED_CSV.open(encoding="utf-8", newline="") as handle:
+        header, *rows = list(csv.reader(handle))
+    described = [c["Name"] for c in json.loads(CAPTURED_COLUMNS.read_text(encoding="utf-8"))]
+    assert described == header, (
+        "the metadata and the CSV no longer name the same columns in the same order, so the two "
+        "files are not one execution any more"
+    )
+    assert len(rows) == 1, (
+        f"the capture holds {len(rows)} data rows rather than one, so it is no longer the single "
+        "row every assertion here indexes into"
+    )
+    assert len(rows[0]) == len(header), (
+        f"the data row has {len(rows[0])} fields against {len(header)} columns, so the capture "
+        "demonstrates a shape Athena did not write"
+    )
+
+
+def test_the_capture_shows_athena_reporting_decimal_without_its_parameters():
+    """The premise the describe-results change rests on, in Athena's own bytes.
+
+    The query cast this column `decimal(10,2)`. If the parameters travelled in `Type`, carrying
+    `precision`/`scale` separately would be dead weight.
+    """
+    assert _captured()["c_decimal"] == "decimal", "the parameters arrived in Type after all"
+    composed = types.athena_type_of({"name": "c_decimal", "type": "decimal", "precision": 10, "scale": 2})
+    assert types.polars_dtype(composed) == pl.Decimal(10, 2)
+
+
+def test_athena_writes_null_unquoted_and_an_empty_string_quoted():
+    """FR-001's distinction, read off the bytes Athena wrote rather than off a hand-made CSV.
+
+    This is the assertion a fixture built here could not honestly make. The row carries
+    `CAST('' AS varchar)` and `CAST(NULL AS varchar)` side by side, so the difference is visible
+    as `""` against a bare empty field — and the reader must preserve it, because collapsing the
+    two turns every absent value into a present empty one.
+    """
+    row = CAPTURED_CSV.read_text(encoding="utf-8").splitlines()[1]
+    assert '"hi","ab","",,' in row, (
+        "the capture no longer shows a quoted empty string beside an unquoted NULL, so this test "
+        "asserts about a file that does not demonstrate the rule any more"
+    )
+
+    frame = pl.read_csv(
+        CAPTURED_CSV,
+        schema_overrides={"c_empty": pl.String, "c_null_text": pl.String, "c_null_bigint": pl.Int64},
+        infer_schema_length=0,
+    )
+    assert frame["c_empty"][0] == "", "a quoted empty field is an empty STRING"
+    assert frame["c_null_text"][0] is None, "an unquoted empty field is NULL"
+    assert frame["c_null_bigint"][0] is None, "and so is one in a numeric column"
 
 
 if __name__ == "__main__":

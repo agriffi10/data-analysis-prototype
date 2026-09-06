@@ -16,9 +16,11 @@ Attributes:
     until someone asks AWS to lift it. Nothing local can see that: `tofu validate` passes, the
     module's own range check passes, and the plan is green. It is only the apply that knows.
   CONVERTER_EPHEMERAL_MB: Its scratch disk, which holds the downloaded result object and the
-    written file at the same time. Lambda's documented range reaches 10,240 MB and this asks
-    for 2,048: no function in this account has ever run above the 512 MB default, so the larger
-    figure is unproven here, and a second red trunk costs more than the caps this gives up.
+    written file at the same time. Lambda's documented range reaches 10,240 MB and this asks for
+    2,048, which is the largest this account is KNOWN to accept rather than the largest it might:
+    every other function in the fleet runs at the 512 MB default, so 2,048 is proven by this
+    converter alone and everything above it is untested. Asking for more and meeting a second
+    quota refusal costs a red trunk, which is worth more than the caps this gives up.
   CONVERTER_TIMEOUT_SECONDS: Its execution ceiling, likewise mirrored.
   DISK_RESERVE / MEMORY_RESERVE: The fraction of each the budget does NOT spend, so the
     converter is not sized to fill a disk exactly or to run at the edge of an OOM.
@@ -28,10 +30,12 @@ Attributes:
     again the worst observed. It is large because that path cannot stream: polars materialises
     the frame and xlsxwriter builds the whole workbook in memory beside it.
   RESULTS_MAX_BYTES: The largest result object this plane converts, PER FORMAT. One number
-    could not be honest: the streamed formats are bounded by the scratch disk at about 3.6 GB,
-    and Excel by memory at a tenth of that, so a single cap would either starve Parquet and
-    JSON or promise an Excel conversion that runs out of memory. Held equal to what the budget
-    test recomputes from the constants above, so a hand edit to either side is a red test.
+    could not be honest: the streamed formats are bounded by the scratch disk and Excel by
+    memory, which on this account's numbers puts them an order of magnitude apart — so a single
+    cap would either starve Parquet and JSON or promise an Excel conversion that runs out of
+    memory. The numbers themselves are not restated here: they are derived below from the
+    constants above and the budget test recomputes them, so a hand edit to either side is a red
+    test and a figure copied into this prose is the one that would go stale.
   MAX_RESULT_COLUMNS: The widest result set this plane converts, in ANY format. Bounded by the
     transport rather than by a file format: the described columns travel on the Step Functions
     state, which is capped at 256 KB. Where that boundary falls depends on how wide a column
@@ -50,12 +54,15 @@ Attributes:
   PROTECTED_DESTINATIONS: Every folder name refused as a destination, at any depth in either
     space bucket: the three app-managed folders ``cpcommon.app_managed`` enumerates, the
     portal's own non-moving folders, and ``system_settings``. A SUPERSET of the picker-locked
-    list the browser and the file-operations plane refuse — this plane cannot accept a
-    destination the picker never offers, and it also refuses one the picker has no opinion
-    about but the execution role denies. ``system_settings`` is the second kind: the role
-    denies ``*/system_settings/*`` in both buckets, so with a write grant in hand a destination
-    inside it would reach the user as a bare ``AccessDenied`` instead of a named refusal.
-    ``paths`` states the rule this follows — the validator mirrors the DENY, not the picker.
+    list the browser and the file-operations plane refuse, by rule and not by coincidence: this
+    plane cannot accept a destination the picker never offers, and it may also refuse one the
+    picker has no opinion about, because what it mirrors is the execution role's DENY.
+    ``system_settings`` entered as exactly that second kind and no longer is — the picker locks
+    it too now — but the reason it is here does not move with the picker: the role denies
+    ``*/system_settings/*`` in both buckets, and the converter holds a write grant, so a
+    destination inside it would reach the user as a bare ``AccessDenied`` instead of a named
+    refusal. ``paths`` states the rule this follows — the validator mirrors the DENY, not the
+    picker.
     The name comes from ``cpcommon.app_managed``, which owns it; spelling it here would be a
     second declaration, and the path sweep refuses one. This is a refusal list mirroring IAM, and
     nothing builds a key from it.

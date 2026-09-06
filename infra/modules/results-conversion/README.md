@@ -1,10 +1,10 @@
 # `results-conversion` — the save-a-query's-results-as control plane
 
-Takes a **finished Athena execution** and will write its result set into a space the actor may
-write to, as Parquet, JSON or Excel. This module is the plane and its front door: the queue, the
-pipe, the machine, the execution role and two verbs. **Nothing converts and nothing is written
-yet** — the machine ends at a `Placeholder` and the role holds no `s3:PutObject` at all. The
-converter is SPEC-222 and the browser surface SPEC-223.
+Takes a **finished Athena execution** and writes its result set into a space the actor may write
+to, as Parquet, JSON or Excel. This module is the whole plane: the queue, the pipe, the machine,
+the execution role and five verbs. **Still nothing a user can reach** — no UI enqueues onto it
+until the browser surface lands in SPEC-223, so the route is live and unflagged and only a
+hand-crafted authenticated call drives it.
 
 The shape this module shares with the other seven is in
 [`../../info/control-plane-shape.md`](../../info/control-plane-shape.md); the orchestration and the
@@ -29,11 +29,11 @@ a caller cares to try.
 
 ## The Deny ships before the Allow it bounds
 
-`policies/execution.json.tftpl` carries an explicit `s3:PutObject` **Deny** on every protected
-folder in both space buckets from the first apply, while holding no `PutObject` Allow anywhere.
-That order is deliberate: the write grant arrives with SPEC-222 beside the verb that uses it, and
-it arrives into a role where a validator defect already cannot reach a results, receipt, settings
-or shared-tables folder. Measured against the deployed role — `explicitDeny` under
+`policies/execution.json.tftpl` carried an explicit `s3:PutObject` **Deny** on every protected
+folder in both space buckets from the first apply, a spec BEFORE it held any `PutObject` Allow.
+That order was deliberate and it paid: the write grant arrived with SPEC-222 beside the verb that
+uses it, into a role where a validator defect already could not reach a results, receipt,
+settings or shared-tables folder. Measured against the deployed role — `explicitDeny` under
 `athenaresults/`, `archive/`, `shared_tables/` and `user_settings/`, `implicitDeny` for an ordinary
 path — so the Deny discriminates rather than merely existing.
 

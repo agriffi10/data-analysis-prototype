@@ -43,7 +43,10 @@ username; `MessageDeduplicationId` is the `requestId`.
   verb raises `TransientError` only before the upload begins.
 - **The size cap is per format**, because Excel cannot stream: polars materialises the frame and
   xlsxwriter builds the workbook beside it, at a measured 23–32x the CSV. The streamed formats
-  are bounded by the scratch disk at gigabytes, Excel by memory at 256 MB.
+  are bounded by the scratch disk and Excel by memory, an order of magnitude apart. The numbers
+  live in `rccommon.config` and are derived from the function's memory and disk by a test —
+  quoting them here is how this line was wrong within an hour of being written, when the
+  account's real memory ceiling moved all three.
 - **`scan_csv` with `schema_overrides` renames columns to the override keys and applies types
   positionally when the header does not match**, silently. The verb checks the CSV's header
   against the metadata before the typed read for that reason alone.

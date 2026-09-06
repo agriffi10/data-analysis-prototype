@@ -1,7 +1,7 @@
 # Spec: Results Conversion — The Converter, the Three Writers & the Notification
 
 **ID:** SPEC-222
-**Status:** In Progress
+**Status:** Completed
 **Last Updated:** 2026-09-06
 **Depends On:** SPEC-221 (the plane, the contract, validate-authorize, describe-results), SPEC-069 (table-builder's polars precedent), SPEC-107 (`cpcommon.type_mapping`, whose inverse this needs), SPEC-219 FR-002 (the execution role already denies `system_settings/` at any depth, so the validator must refuse it by name before this spec's write grant lands, or the refusal arrives as a bare `AccessDenied`)
 
