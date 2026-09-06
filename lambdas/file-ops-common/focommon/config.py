@@ -11,13 +11,13 @@ accumulates the list they bound, because a cap checked afterwards is one the ver
 for. **None of them is written as a literal a reader has to trust** — ``test_config_focommon``
 computes each against the budget that sizes it and names the schedulable unit it measures.
 
-The protected-folder names are duplicated from the browser's ``protectedFolders.ts`` and
-``writeLockedPrefix.ts``, because Python and TypeScript cannot share a list.
-``protectedFoldersMirror.test.ts`` reads THIS file as text, resolves each member to the string it
-denotes and holds both lists equal as sets against the browser's; that is the only thing keeping
-the two runtimes' answers the same. It is named here because the sentence that used to stand in
-its place claimed such a test existed when none did, in either tree — a duplicated list whose
-only guard is a docstring saying it has one is worse off than a list with no claim at all.
+The protected-folder names are duplicated from the browser's ``protectedFolders.ts``, because
+Python and TypeScript cannot share a list. ``protectedFoldersMirror.test.ts`` reads THIS file as
+text, resolves each member to the string it denotes, and holds ``PICKER_LOCKED_FOLDERS`` and
+``UNDELETABLE_ROOT_FOLDERS`` equal as sets against the browser's. **It covers those two lists and
+nothing else** — in particular not the archive write-lock rule, which is a different shape with a
+weaker guarantee. ``lambdas/info/planes/file-ops.md`` carries that, because it took four attempts
+to state in three sentences and the fourth was still wider than the evidence.
 
 Attributes:
   OPERATIONS: The three operations one plane serves. Validated rather than inferred, because the
