@@ -35,12 +35,20 @@ locals {
     # cold-starts the shared layer before the send.
     "notify-failure" = { handler = "rc_notify_failure.handler", timeout = 60, memory = 256 }
     # THE ONLY FUNCTION IN THIS PLANE THAT READS BYTES, and the only one whose numbers are
-    # derived rather than chosen. Memory and disk are Lambda's maxima because the Excel path
-    # cannot stream — polars materialises the frame and xlsxwriter builds the whole workbook
-    # beside it — and both feed the per-format size cap in rccommon.config, which a test
-    # recomputes from these three numbers. Edit one here and that test goes red.
+    # derived rather than chosen. Both feed the per-format size cap in rccommon.config, which a
+    # test recomputes from these three numbers — edit one here and that test goes red.
+    #
+    # ⚠ 3008 IS THIS ACCOUNT'S MEMORY CEILING, NOT LAMBDA'S. Lambda documents 10240, and
+    # CreateFunction refused it: "'MemorySize' value failed to satisfy constraint: Member must
+    # have value less than or equal to 3008" — the un-raised quota, which nothing local can see.
+    # `tofu validate` passed, the module's range check passed, the plan was green, and the APPLY
+    # is what knew. Raising it is an AWS support request; until then the Excel cap is 64 MB of
+    # result CSV, because that path cannot stream and its peak memory is ~32x the input.
+    #
+    # Ephemeral asks 2048 of a documented 10240 because no function in this account has ever run
+    # above the 512 default, so the larger figure is unproven here too.
     "convert" = {
-      handler = "rc_convert.handler", timeout = 600, memory = 10240, ephemeral = 10240
+      handler = "rc_convert.handler", timeout = 600, memory = 3008, ephemeral = 2048
     }
     # One notification. Sized like notify-failure and for the same reason: the cold start of the
     # shared layer dominates, not the send.
