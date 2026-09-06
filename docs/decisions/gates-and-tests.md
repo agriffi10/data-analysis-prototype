@@ -408,3 +408,22 @@ into a tolerated difference. Each edge of the floor was mutation-tested: refusin
 ignoring a vanished function, ignoring a removed or changed variable, and refusing an added
 variable each reddened exactly one test. Not retired: the floor still holds what the cutover
 promised, and the packaging, population and permission-by-ARN checks beside it are untouched.
+
+**The floor was half the answer, and CI found the other half on the very next PR.** Two more
+things in the same machinery refused a plane that had done nothing wrong, and neither was
+reachable until one was added. The **extractor** — a step whose own comment says it is not the
+gate — ran `capture` under `set -e` on every plan, and `capture` correctly refuses a plan
+carrying an unknown value; a plan that creates a queue and threads its URL into an existing
+function's environment always carries one, so the step failed the whole job. It now says why it
+could not extract and continues. And the guard's **unknown-parity-field refusal** demanded the
+attribute be "declared explicitly", which is achievable for a memory tier and impossible for a
+URL the configuration reads off a queue the same plan creates. `environment` — the one field
+compared per variable rather than whole — is exempt from that blanket refusal and consults the
+`after_unknown` marker instead: a captured variable that is unknowable is named on stderr and
+only that variable goes uncompared, so a real removal cannot hide behind an unknown sibling.
+Both edges mutation-tested; every other parity field stays fatal on an unknown.
+
+The lesson is about gates rather than about this gate: **a check written for a one-time event
+keeps running afterwards**, and its preconditions quietly become claims about every future
+change. All three refusals were right for the cutover and wrong for the first ordinary growth
+after it, and none could be observed until something grew.

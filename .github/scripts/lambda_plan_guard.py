@@ -362,6 +362,15 @@ def check(plan: dict, fixture: dict, package_type: str, image_repository: str | 
     unknown_fields: set[tuple[str, str]] = set()
     for name, entry in sorted(functions.items()):
         for field in PARITY_FIELDS:
+            # `environment` is exempt from the blanket refusal and ONLY it, because it is the one
+            # parity field compared per VARIABLE rather than whole. "Declare it explicitly" is
+            # achievable for a memory tier and impossible for a queue URL the configuration reads
+            # off a queue this same plan creates — so a blanket refusal here demands a remedy that
+            # does not exist, and refuses the first plane added after the cutover. Every captured
+            # variable is still compared; only a variable Terraform cannot know yet is skipped,
+            # and it is named when it is.
+            if field == "environment":
+                continue
             if _has_unknown_leaf(entry["unknown"].get(field)):
                 unknown_fields.add((name, field))
                 problems.append(
@@ -378,7 +387,9 @@ def check(plan: dict, fixture: dict, package_type: str, image_repository: str | 
                 continue
             got = _comparable(field, entry["after"].get(field))
             if field == "environment":
-                problems.extend(_environment_drift(name, want[field], got))
+                problems.extend(
+                    _environment_drift(name, want[field], got, entry["unknown"].get(field))
+                )
             elif got != want[field]:
                 problems.append(f"{name}: {field} moved from {want[field]!r} to {got!r}")
 
@@ -406,17 +417,25 @@ def _variables(environment) -> dict:
     return dict((environment[0] or {}).get("variables") or {})
 
 
-def _environment_drift(name: str, want, got) -> list[str]:
+def _environment_drift(name: str, want, got, unknown=None) -> list[str]:
     """Names every captured variable a plan no longer sets to its captured value.
 
     A floor, deliberately: a variable the fixture never captured is an addition and is not
     reported. Removing or changing one the fixture did capture is the drift the cutover promised
     would not happen, and each is named individually so the message says what moved.
 
+    **A variable Terraform cannot know yet is neither.** A queue URL read off a queue the same
+    plan creates is absent from `after` and marked in `after_unknown`, which is indistinguishable
+    from a removal by value alone — so the marker is consulted, the variable is reported by name
+    on stderr, and only that one variable goes uncompared. Reading the absence as a removal
+    refuses every plan that adds a plane; ignoring it silently would let a real removal hide
+    behind an unknown.
+
     Args:
       name: The function, for the message.
       want: The captured `environment` attribute.
       got: The planned one.
+      unknown: The planned attribute's `after_unknown` marker, if any.
 
     Returns:
       One problem per removed or changed captured variable.
@@ -425,9 +444,16 @@ def _environment_drift(name: str, want, got) -> list[str]:
       None.
     """
     captured, planned = _variables(want), _variables(got)
+    unknowable = {key for key, marker in _variables(unknown).items() if marker}
     problems = []
     for key in sorted(captured):
-        if key not in planned:
+        if key in unknowable:
+            print(
+                f"{name}: environment variable {key} is not known until apply, so this plan "
+                "cannot compare it",
+                file=sys.stderr,
+            )
+        elif key not in planned:
             problems.append(f"{name}: environment variable {key} was removed")
         elif planned[key] != captured[key]:
             problems.append(

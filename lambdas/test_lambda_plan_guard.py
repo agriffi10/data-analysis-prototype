@@ -663,6 +663,70 @@ def test_an_added_function_left_on_zip_is_refused_in_image_mode(pre_cutover, fix
     assert any("dat-prod-results-conversion-notify-failure: package_type is 'Zip'" in p for p in problems), problems
 
 
+def test_a_variable_that_is_unknown_until_apply_is_named_rather_than_read_as_a_removal(
+    pre_cutover, fixture, capsys
+):
+    """The shape every plan that adds a plane carries.
+
+    A queue URL threaded into an existing function's environment is absent from `after` and
+    marked in `after_unknown` until the queue exists. By value alone that is indistinguishable
+    from a removal, and reading it as one refuses the whole plan for doing exactly what it says.
+
+    Args:
+      pre_cutover: The no-op plan.
+      fixture: Its capture.
+      capsys: Captures the guard's stderr.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When an unknowable variable is refused, or is skipped silently.
+    """
+    pending = json.loads(json.dumps(pre_cutover))
+    after = pending["resource_changes"][0]["change"]["after"]
+    after["environment"] = [{"variables": {}}]
+    pending["resource_changes"][0]["change"]["after_unknown"] = {
+        "environment": [{"variables": {"ADMIN_BUCKET": True}}]
+    }
+
+    problems = _check(pending, fixture)
+
+    assert problems == [], problems
+    assert "environment variable ADMIN_BUCKET is not known until apply" in capsys.readouterr().err
+
+
+def test_an_unknown_environment_does_not_excuse_the_variables_beside_it(pre_cutover, fixture):
+    """The other half: one unknowable variable must not stop the rest being compared.
+
+    Args:
+      pre_cutover: The no-op plan.
+      fixture: Its capture.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a real removal hides behind an unknown sibling.
+    """
+    captured = json.loads(json.dumps(pre_cutover))
+    captured["resource_changes"][0]["change"]["after"]["environment"] = [
+        {"variables": {"ADMIN_BUCKET": "b", "KEPT": "yes"}}
+    ]
+    fixture_with_two = GUARD.capture(captured)
+
+    pending = json.loads(json.dumps(captured))
+    pending["resource_changes"][0]["change"]["after"]["environment"] = [{"variables": {}}]
+    pending["resource_changes"][0]["change"]["after_unknown"] = {
+        "environment": [{"variables": {"ADMIN_BUCKET": True}}]
+    }
+
+    problems = _check(pending, fixture_with_two)
+
+    assert any("environment variable KEPT was removed" in p for p in problems), problems
+    assert not any("ADMIN_BUCKET" in p for p in problems), problems
+
+
 def test_an_image_packaged_addition_is_clean_in_image_mode(pre_cutover, fixture):
     """The production shape: Image mode, an addition that is Image-packaged with a command.
 

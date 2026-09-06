@@ -225,12 +225,23 @@ jobs:
       #
       # This step is not the gate — `Assert the planned Lambda fleet`, two steps below, is. That
       # one hard-fails when the fixture is missing rather than skipping; this one only extracts.
+      #
+      # AND IT MUST NOT FAIL THE JOB, which it did until a plane was added. `capture` refuses a
+      # plan carrying an unknown parity value, correctly — a fixture captured from a plan with
+      # pending changes would record a value that is about to move. But a plan that adds a queue
+      # and threads its URL into an existing function's environment ALWAYS carries one, so under
+      # `set -e` an extractor whose own comment says it is not the gate failed the whole plan job
+      # on the first PR that added a plane. It now says why it could not extract and continues;
+      # the upload below tolerates the absent file, and the gate two steps down still runs.
       - name: Capture the Lambda parity fixture
         run: |
-          set -euo pipefail
-          python3 .github/scripts/lambda_plan_guard.py capture \
-            --plan infra/plan.json --out /tmp/pre_cutover_plan.json
-          head -c 400 /tmp/pre_cutover_plan.json
+          set -uo pipefail
+          if python3 .github/scripts/lambda_plan_guard.py capture \
+              --plan infra/plan.json --out /tmp/pre_cutover_plan.json; then
+            head -c 400 /tmp/pre_cutover_plan.json
+          else
+            echo "::notice title=Lambda parity fixture::not extracted from this plan (it carries a value that is unknown until apply). The frozen fixture is unaffected and the gate below still runs."
+          fi
 
       - name: Upload the Lambda parity fixture
         uses: actions/upload-artifact@v4
@@ -238,6 +249,7 @@ jobs:
           name: lambda-parity-fixture
           path: /tmp/pre_cutover_plan.json
           retention-days: 7
+          if-no-files-found: ignore
 
       # THE GATE. Invoked directly, never guarded: a missing fixture is a hard error rather than a
       # skip, because a check that passes when its own input is absent reads as enforcement while
