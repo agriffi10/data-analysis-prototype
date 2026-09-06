@@ -164,6 +164,15 @@ def handler(event, context):
     mid-transfer it is their space. A space with no owner yields no recipient, which is honest —
     there is nobody to tell.
 
+    **A registry record that is not a dict is read as no record at all**, and that has to happen
+    here rather than only in the authorizer. The authorizer already answers a malformed record
+    with the refusal that says what happened — an unknown space — but this function then reads
+    the same record twice more, for the operator path's acting identity and for the span's
+    schema version. Both are ``(registry_doc or {}).get(...)``, which a truthy non-dict walks
+    straight into: the refusal is computed correctly and then thrown away by an ``AttributeError``
+    that reaches nobody, because the catch that receives it nulls the actor and the notifier
+    stays silent. Normalising once, at the load, is what makes the refusal arrive.
+
     Args:
       event: The EventBridge Pipe envelope carrying the SQS record.
       context: The Lambda context, unused.
@@ -202,6 +211,8 @@ def handler(event, context):
         requester = who.username
 
     registry_doc = None if action == "create" else reg.load(space)
+    if not isinstance(registry_doc, dict):
+        registry_doc = None
     actor = requester if requester is not None else ((registry_doc or {}).get("owner") or "")
     if is_operator:
         observability.stamp(actor=actor)

@@ -9,6 +9,8 @@ import json
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
 import auth
@@ -133,6 +135,25 @@ def _refusal(event):
       None.
     """
     return v.handler(event, None).get("refusal")
+
+
+@pytest.mark.parametrize("stored", ['"sales"', '["alice"]', "42"], ids=["string", "list", "scalar"])
+def test_a_registry_object_that_is_not_a_dict_reaches_the_refusal(stored):
+    """A malformed control object is an unknown space, and the requester is told so.
+
+    The authorizer answers this shape with a refusal, and the two reads AFTER it — the operator
+    path's acting identity and the span's schema version — are both ``(registry_doc or {}).get``,
+    which a truthy non-dict walks into. The refusal would be computed correctly and then lost to
+    an ``AttributeError`` that reaches nobody, because the catch receiving it nulls the actor and
+    the notifier stays silent. Asserting the code rather than "it did not raise" is what makes
+    this fail for the right reason.
+    """
+    s3, *_ = install()
+    s3.store[("admin-bkt", "shared-spaces/sales.json")] = stored.encode()
+
+    refusal = _refusal(_event("transfer_ownership", actor="alice", new_owner="bob"))
+
+    assert refusal["code"] == "TransferSpaceUnknown"
 
 
 def test_a_non_owner_is_refused_by_name_and_the_record_is_untouched():

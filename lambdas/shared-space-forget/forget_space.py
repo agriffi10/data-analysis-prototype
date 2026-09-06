@@ -84,7 +84,11 @@ def forget_space(space, actor, request_id, registry):
       The verb result, whose mode says which path ran.
 
     Raises:
-      AuthorizationError: When the space is active and the actor still belongs to it.
+      AuthorizationError: When the space is active and the actor still belongs to it, or when it
+        is active and its roster cannot be read at all — this verb refuses a MEMBER, so an
+        unreadable roster read as empty would refuse nobody. **That refusal has no second door:**
+        ``forget`` is not an operator action, so a card stranded behind it cannot be cleared for
+        the user by anybody, which is the cost of widening the condition.
       RegistryRecordMissing: When the actor owns the space but its record has gone. Unlike the
         delete verb this is a live path, because the authorizer returns early for this action so
         that a phantom card stays dismissible.
@@ -97,8 +101,13 @@ def forget_space(space, actor, request_id, registry):
     """
     if registry is not None:
         owner = registry.get("owner")
-        members = registry.get("members", [])
+        members = membership.roster(registry)
         status = registry.get("status")
+        if status == "active" and not membership.roster_is_readable(registry):
+            raise AuthorizationError(
+                f"cannot forget active space {space!r} — its roster cannot be read"
+            )
+
         if status == "active" and actor in members:
             raise AuthorizationError(
                 f"cannot forget active space {space!r} — use Delete (owner) or Leave (member)"
@@ -121,7 +130,7 @@ def forget_space(space, actor, request_id, registry):
             teardown.delete_shared_prefix(space)
             teardown.revoke_portal_role(space)
             teardown.drop_database(space)
-            roster = list(dict.fromkeys([actor, *members, *fresh.get("members", [])]))
+            roster = list(dict.fromkeys([actor, *members, *membership.roster(fresh)]))
             for member in roster:
                 membership.clear_slot(member, space)
                 if member != actor:
