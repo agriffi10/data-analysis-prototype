@@ -11,10 +11,18 @@ resolve through the base table, which refuses a domain redefining either.
 does reach a sentence is the user's own: the file name they chose, and on the two column
 refusals the column name they wrote — returned to the user who wrote it and going nowhere else.
 
+The success sentence lives here too, and it is NOT built from the failure resolver: it has no
+reason code, no prefix and no fallback, and threading it through a table keyed by refusals would
+make every future refusal a candidate for wording that reads as a success.
+
 Attributes:
+  _PRECISION_NOTE: The one sentence an ``.xlsx`` earns when its frame holds a number Excel
+    cannot store exactly. Stated rather than hidden, and stated without naming a column or a
+    value — a notification says what happened, never what the data was.
   _BODIES: Reason code to the clause following the prefix. ``{filename}`` is filled from the
     raise site where the name is known and blanks otherwise; ``{maxBytes}`` is filled from the
-    cap by ``failure_message`` so the sentence cannot drift from the constant that enforces it;
+    cap for THAT FORMAT by ``failure_message``, so the sentence cannot drift from the constant
+    that enforces it and cannot quote Parquet's ceiling at someone saving a spreadsheet;
     ``{column}`` is the user's own column name; ``{timeout}`` is filled from the machine's own
     ceiling, so the sentence cannot outlive the number it describes.
   resolver: The domain-scoped resolver, carrying this plane's prefix and fallback.
@@ -23,7 +31,7 @@ Attributes:
 from cpcommon import messages as _cpmessages
 
 from . import reasons
-from .config import FORMAT_LABELS, MACHINE_TIMEOUT_SECONDS, RESULTS_MAX_BYTES
+from .config import FORMAT_LABELS, MACHINE_TIMEOUT_SECONDS, max_result_bytes
 
 _BODIES = {
     reasons.INVALID_REQUEST: (
@@ -58,7 +66,23 @@ _BODIES = {
     ),
     reasons.UNSUPPORTED_COLUMN_TYPE: (
         'the column "{column}" has a type that can\'t be saved to a file. Please cast it in the '
-        "query — for example to text — and run it again."
+        "query, for example to text, and run it again."
+    ),
+    reasons.RESULTS_UNREADABLE: (
+        "one of the values in the results didn't match the type the query gave its column, so "
+        "nothing was saved. Please cast that column in the query and run it again."
+    ),
+    reasons.EXCEL_ROW_LIMIT: (
+        "the results have {count} rows, which is more than a spreadsheet can hold. Please save "
+        "them as Parquet instead, or narrow the query."
+    ),
+    reasons.EXCEL_COLUMN_LIMIT: (
+        "the results have {count} columns, which is more than a spreadsheet can hold. Please "
+        "save them as Parquet instead, or select fewer columns."
+    ),
+    reasons.DESTINATION_OCCUPIED: (
+        'a file called "{filename}" is already in that folder, so nothing was saved. Please '
+        "choose another name, or save again and choose to replace it."
     ),
     reasons.UNEXPECTED: "something went wrong, so nothing was saved. Please try again.",
     reasons.CONVERSION_TIMED_OUT: (
@@ -73,6 +97,33 @@ resolver = _cpmessages.register(
     fallback="something went wrong.",
     blank_unfilled=True,
 )
+
+
+_PRECISION_NOTE = (
+    " Excel stores numbers as approximate values, so very large whole numbers and long decimals "
+    "in this file may be rounded."
+)
+
+
+def success_message(filename: str, fmt: str, rows: int, precision_note: bool = False) -> str:
+    """Renders the one sentence a user reads when their results were saved.
+
+    Args:
+      filename: The file name they chose.
+      fmt: The output format.
+      rows: How many data rows the file holds. Zero is a real answer and reads as one.
+      precision_note: Whether the frame held a number Excel cannot store exactly.
+
+    Returns:
+      The rendered message.
+
+    Raises:
+      None.
+    """
+    label = FORMAT_LABELS.get(fmt, fmt)
+    plural = "row" if rows == 1 else "rows"
+    sentence = f'Saved {rows:,} {plural} as {label} to "{filename}".'
+    return f"{sentence}{_PRECISION_NOTE}" if precision_note else sentence
 
 
 def _human_duration(seconds: int) -> str:
@@ -129,8 +180,11 @@ def failure_message(reason: str, tokens: dict | None = None) -> str:
       None.
     """
     filled = dict(tokens or {})
-    label = FORMAT_LABELS.get(str(filled.pop("format", "")), "")
+    fmt = str(filled.pop("format", ""))
+    label = FORMAT_LABELS.get(fmt, "")
     filled["asFormat"] = f" as {label}" if label else ""
-    filled.setdefault("maxBytes", _human_bytes(RESULTS_MAX_BYTES))
+    # The cap differs BY FORMAT, so the sentence has to be filled from the format's own number
+    # rather than from one constant — a size refused for Excel is comfortably inside Parquet's.
+    filled.setdefault("maxBytes", _human_bytes(max_result_bytes(fmt)))
     filled.setdefault("timeout", _human_duration(MACHINE_TIMEOUT_SECONDS))
     return resolver.message(reason, **{k: str(v) for k, v in filled.items()})

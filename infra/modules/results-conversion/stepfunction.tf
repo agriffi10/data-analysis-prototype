@@ -19,6 +19,8 @@ resource "aws_sfn_state_machine" "results_conversion" {
   definition = templatefile("${path.module}/state-machine.asl.json.tftpl", {
     validate_authorize_function_arn = module.functions["validate-authorize"].function_arn
     describe_results_function_arn   = module.functions["describe-results"].function_arn
+    convert_function_arn            = module.functions["convert"].function_arn
+    notify_function_arn             = module.functions["notify"].function_arn
     notify_failure_function_arn     = module.functions["notify-failure"].function_arn
     state_machine_timeout_seconds   = local.state_machine_timeout_seconds
   })

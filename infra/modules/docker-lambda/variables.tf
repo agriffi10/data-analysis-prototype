@@ -53,6 +53,17 @@ variable "memory_mb" {
   default     = 128
 }
 
+variable "ephemeral_storage_mb" {
+  description = "Size of the function's /tmp, in MB. Declared ALWAYS and STATICALLY, for the reason memory_mb states: an attribute the configuration does not set comes back UNKNOWN in a replacement plan. 512 is Lambda's own default, so every existing function keeps the value it already has and plans no diff; only a function that actually writes a large file on disk raises it."
+  type        = number
+  default     = 512
+
+  validation {
+    condition     = var.ephemeral_storage_mb >= 512 && var.ephemeral_storage_mb <= 10240
+    error_message = "ephemeral_storage_mb must be between 512 and 10240; Lambda refuses anything outside that range at CreateFunction."
+  }
+}
+
 variable "architectures" {
   description = "Instruction set. Declared explicitly for the same plan-visibility reason as memory, and because the image is built --platform linux/amd64: an arm64 function fails at start with a manifest error that reads nothing like the mismatch it is."
   type        = list(string)

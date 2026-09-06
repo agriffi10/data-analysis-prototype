@@ -79,22 +79,30 @@ def _identity_from_raw(raw) -> dict:
       raw: The Pipe's forwarded SQS batch, as captured at the top of the machine.
 
     Returns:
-      ``{"username": ..., "format": ...}``, with an empty username when it cannot be recovered.
+      ``{"username": ..., "format": ..., "filename": ...}``, with an empty username when it
+      cannot be recovered. The file name rides along because this is the one place the request
+      body is parsed, and threading it through the machine's three failure seeds instead would
+      add a key to each for something already on the state.
 
     Raises:
       None. Every failure degrades to no verified actor, which the caller logs as a no-op — a
       raise here would replace a missing notification with an unhandled error.
     """
     if raw is None:
-        return {"username": "", "format": None}
+        return {"username": "", "format": None, "filename": None}
     try:
         body = events.parse_sqs_request(raw, reason="unauthorized")
         username = cpactor.trusted_actor(body).username
     except Exception as exc:  # noqa: BLE001
         logger.info("could not recover a verified actor from the request: %s", exc)
-        return {"username": "", "format": None}
+        return {"username": "", "format": None, "filename": None}
     fmt = body.get("format") if isinstance(body, dict) else None
-    return {"username": username, "format": fmt if isinstance(fmt, str) else None}
+    name = ((body.get("destination") or {}) if isinstance(body, dict) else {}).get("filename")
+    return {
+        "username": username,
+        "format": fmt if isinstance(fmt, str) else None,
+        "filename": name if isinstance(name, str) else None,
+    }
 
 
 def _timed_out_request(detail) -> dict:
@@ -113,17 +121,17 @@ def _timed_out_request(detail) -> dict:
     """
     if not isinstance(detail, dict):
         logger.info("timed-out execution event carries no detail object")
-        return {"username": "", "format": None}
+        return {"username": "", "format": None, "filename": None}
     included = (detail.get("inputDetails") or {}).get("included")
     raw = detail.get("input")
     if included is False or not isinstance(raw, str) or not raw:
         logger.info("timed-out execution carries no input; nobody can be attributed")
-        return {"username": "", "format": None}
+        return {"username": "", "format": None, "filename": None}
     try:
         return _identity_from_raw(json.loads(raw))
     except ValueError as exc:
         logger.info("could not attribute the timed-out execution: %s", exc)
-        return {"username": "", "format": None}
+        return {"username": "", "format": None, "filename": None}
 
 
 def _on_execution_timed_out(event) -> dict:
@@ -159,6 +167,35 @@ def _on_execution_timed_out(event) -> dict:
         notified=True,
     )
     return {"username": username, "error": {"Error": "States.Timeout", "Cause": None}}
+
+
+def _wording_tokens(request: dict) -> dict:
+    """Collects what a refusal's sentence needs beyond the format, from wherever it survives.
+
+    Only what nothing else can supply. The file NAME is recovered from the request body under
+    ``$.raw``, which every failure seed already carries, so it needs no key of its own. A COUNT
+    is not derivable from anything the request said: it is a fact about the RESULT SET,
+    discovered by the convert verb, and the two Excel ceilings are the only refusals whose
+    sentence has to name one. That is the whole reason the machine's refusal seed carries a
+    ``tokens`` object at all, and why it carries nothing else.
+
+    Args:
+      request: The recorded failure the ASL door received.
+
+    Returns:
+      The wording tokens, which may be empty. Only string and integer values are taken, so a
+      malformed state cannot put an object into a sentence.
+
+    Raises:
+      None.
+    """
+    collected: dict = {}
+    supplied = request.get("tokens")
+    if isinstance(supplied, dict):
+        collected.update(
+            {k: v for k, v in supplied.items() if isinstance(v, (str, int)) and not isinstance(v, bool)}
+        )
+    return collected
 
 
 def _verb_already_notified(error) -> bool:
@@ -208,11 +245,15 @@ def handler(event, context) -> dict:
     username = request.get("username")
     username = username if isinstance(username, str) else ""
     fmt = request.get("format") if isinstance(request.get("format"), str) else None
-    if not username:
-        recovered = _identity_from_raw(request.get("raw"))
-        username, fmt = recovered["username"], fmt or recovered["format"]
+    # Parsed unconditionally, not only when the username is missing: the file name a refusal's
+    # sentence names lives in the body whether or not the actor had to be recovered from it.
+    recovered = _identity_from_raw(request.get("raw"))
+    username, fmt = username or recovered["username"], fmt or recovered["format"]
     reason = failure_reason(request.get("error"))
     logger.info("notify-failure: actor=%s reason=%s", username, reason)
+    tokens = _wording_tokens(request)
+    if recovered["filename"]:
+        tokens.setdefault("filename", recovered["filename"])
     if _verb_already_notified(request.get("error")):
         observability.info(
             "suppressed a duplicate of the verb's own failure notification",
@@ -229,7 +270,9 @@ def handler(event, context) -> dict:
             notified=False,
         )
         return request
-    notify.emit_notification(username, messages.failure_message(reason, {"format": fmt}))
+    notify.emit_notification(
+        username, messages.failure_message(reason, {"format": fmt, **tokens})
+    )
     observability.info(
         "notified the actor of a failure",
         outcome="notified",

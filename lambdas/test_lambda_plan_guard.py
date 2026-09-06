@@ -463,7 +463,9 @@ FIXTURE = ROOT / "lambdas" / "fixtures" / "pre_cutover_plan.json"
 
 ADDED_SINCE_THE_CUTOVER: frozenset[str] = frozenset(
     {
+        "results-conversion-convert",
         "results-conversion-describe-results",
+        "results-conversion-notify",
         "results-conversion-notify-failure",
         "results-conversion-validate-authorize",
     }

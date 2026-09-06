@@ -21,6 +21,12 @@ Attributes:
   UNSUPPORTED_COLUMN_TYPE: A result column has an Athena type this plane has no answer for.
     The vocabulary is closed and does not fall back to text, so an unmodelled type refuses
     rather than becoming the wrong column in a file the user then trusts.
+  RESULTS_UNREADABLE: A value in the result set does not parse as the type Athena declared for
+    its column. The whole conversion refuses and no partial file is written.
+  EXCEL_ROW_LIMIT: The result set has more rows than a worksheet can hold.
+  EXCEL_COLUMN_LIMIT: The result set has more columns than a worksheet can hold.
+  DESTINATION_OCCUPIED: The destination name was taken between the browser's pre-flight and the
+    write, and the request asked to be refused rather than to overwrite.
   MALFORMED_EVENT: The queue message could not be read as a request.
   UNEXPECTED: A fault nobody predicted.
   CONVERSION_TIMED_OUT: The machine's own ceiling stopped the run — the timeout door's code.
@@ -38,6 +44,10 @@ RESULTS_TOO_LARGE = "results_too_large"
 DUPLICATE_COLUMN = "duplicate_column"
 INVALID_COLUMN_NAME = "invalid_column_name"
 UNSUPPORTED_COLUMN_TYPE = "unsupported_column_type"
+RESULTS_UNREADABLE = "results_unreadable"
+EXCEL_ROW_LIMIT = "excel_row_limit"
+EXCEL_COLUMN_LIMIT = "excel_column_limit"
+DESTINATION_OCCUPIED = "destination_occupied"
 MALFORMED_EVENT = "malformed_event"
 UNEXPECTED = "unexpected"
 CONVERSION_TIMED_OUT = "conversion_timed_out"
@@ -55,6 +65,10 @@ REASONS = frozenset(
         DUPLICATE_COLUMN,
         INVALID_COLUMN_NAME,
         UNSUPPORTED_COLUMN_TYPE,
+        RESULTS_UNREADABLE,
+        EXCEL_ROW_LIMIT,
+        EXCEL_COLUMN_LIMIT,
+        DESTINATION_OCCUPIED,
         MALFORMED_EVENT,
         UNEXPECTED,
         CONVERSION_TIMED_OUT,

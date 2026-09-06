@@ -17,7 +17,7 @@ import logging
 from cpcommon import clients, columns, config, errors, events, observability
 from cpcommon.errors import TerminalError
 from rccommon import notify, reasons
-from rccommon.config import RESULTS_MAX_BYTES
+from rccommon.config import max_result_bytes
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -152,9 +152,10 @@ def _describe(event) -> dict:
     described = _columns(carried["queryExecutionId"])
     _check_columns(described, tokens)
     size = _size(carried["resultsKey"])
-    if size > RESULTS_MAX_BYTES:
+    cap = max_result_bytes(carried["format"])
+    if size > cap:
         raise TerminalError(
-            reasons.RESULTS_TOO_LARGE, f"{size} bytes, over {RESULTS_MAX_BYTES}", tokens=tokens
+            reasons.RESULTS_TOO_LARGE, f"{size} bytes, over {cap}", tokens=tokens
         )
     logger.info("described %d column(s), %d byte(s) for %s", len(described), size, carried["username"])
     observability.info(

@@ -17,6 +17,11 @@ module "functions" {
   timeout_seconds = each.value.timeout
   memory_mb       = each.value.memory
 
+  # Declared for every verb, not only the one that raises it: the module's own rule is that a
+  # plan-visible attribute is always set, because one the configuration omits comes back UNKNOWN
+  # in a replacement plan. 512 is Lambda's own default, so the four small verbs plan no diff.
+  ephemeral_storage_mb = try(each.value.ephemeral, 512)
+
   # ⚠ EVERY variable the shared code requires must be COMMON to all verbs — a verb missing one
   # fails at COLD START, where no test and no deploy can see it. The per-verb map is for
   # OPTIONAL action env only.

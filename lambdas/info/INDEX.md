@@ -176,7 +176,9 @@ Orchestration, layer and traps: [`planes/results-conversion.md`](planes/results-
 
 | Lambda | Handler | What it does |
 |---|---|---|
+| `results-conversion-convert/` | `rc_convert.py` | convert — the typed read, the three writers, and the only write on this plane. |
 | `results-conversion-describe-results/` | `rc_describe_results.py` | describe-results — the result set's columns, types and size, and the cap. |
+| `results-conversion-notify/` | `rc_notify.py` | notify — the plane's one success message and its link to the folder. |
 | `results-conversion-notify-failure/` | `rc_notify_failure.py` | results-conversion notify-failure — the terminal failure notification of last resort. |
 | `results-conversion-validate-authorize/` | `rc_validate_authorize.py` | validate-authorize — the results-conversion Step Function's first task. |
 

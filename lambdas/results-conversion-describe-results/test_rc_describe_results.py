@@ -15,7 +15,7 @@ os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 import rc_describe_results as d
 from cpcommon import clients
 from cpcommon.errors import TerminalError, TransientError
-from rccommon.config import RESULTS_MAX_BYTES
+from rccommon.config import max_result_bytes
 
 EXECUTION_ID = "11111111-2222-4333-8444-555555555555"
 
@@ -104,14 +104,25 @@ def test_an_empty_result_set_is_a_valid_file_with_a_header():
 
 
 def test_a_result_over_the_cap_is_refused_naming_the_cap_and_the_file():
-    sent, _, _ = _setup(size=RESULTS_MAX_BYTES + 1)
+    """The cap applied is the one for the format the request asked for.
+
+    `_validated()` asks for `xlsx`, the memory-bound format and by far the smallest cap — so a
+    size the spreadsheet path refuses sits comfortably inside JSON's, and the second half here
+    proves the two really are different numbers rather than one constant reached by two names.
+    """
+    excel_cap = max_result_bytes("xlsx")
+    sent, _, _ = _setup(size=excel_cap + 1)
     with pytest.raises(TerminalError) as err:
         d.handler(_validated(), None)
     assert err.value.reason == "results_too_large"
     assert len(sent) == 1 and sent[0][0] == "alice"
-    assert "1 GB" in sent[0][1] and "as Excel" in sent[0][1]
-    _setup(size=RESULTS_MAX_BYTES)
-    assert d.handler(_validated(), None)["resultsBytes"] == RESULTS_MAX_BYTES
+    assert "256 MB" in sent[0][1] and "as Excel" in sent[0][1]
+    _setup(size=excel_cap)
+    assert d.handler(_validated(), None)["resultsBytes"] == excel_cap
+
+    assert max_result_bytes("json") > excel_cap
+    _setup(size=excel_cap + 1)
+    assert d.handler({**_validated(), "format": "json"}, None)["resultsBytes"] == excel_cap + 1
 
 
 def test_a_case_folded_duplicate_names_the_column_to_the_user_and_nowhere_else(captured_events):

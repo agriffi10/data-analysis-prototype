@@ -217,6 +217,13 @@ def test_the_precondition_predicate_has_not_reappeared():
         # and is reported to the user as a Conflict. There is no read-modify-write and nothing
         # retries. Exempted by FULL PATH, and the assertion below keeps it honest.
         and path != lambdas / "api" / "routes" / "objects_upload.py"
+        # The converter's upload names the same two codes for the same reason as the two above:
+        # `If-None-Match: *` asks S3 to decide, at the instant of the write, whether the
+        # destination name was taken since the browser last looked, and a 412 is that question's
+        # ANSWER. It reaches the user as `destination_occupied` and nothing retries — the
+        # machine's Retry for that Task is TransientError alone, precisely so a re-invocation
+        # cannot meet its own write. Exempted by FULL PATH, and kept honest below.
+        and path != lambdas / "results-conversion-convert" / "rc_convert.py"
         and any(
             code in path.read_text()
             for code in ("ConditionalRequestConflict", "PreconditionFailed")
@@ -234,6 +241,22 @@ def test_the_precondition_predicate_has_not_reappeared():
     )
     assert "cas" not in multipart.replace("case", ""), (
         "objects_upload has started doing compare-and-set; it must bind to cpcommon.cas"
+    )
+
+    converter = (lambdas / "results-conversion-convert" / "rc_convert.py").read_text()
+    assert "PreconditionFailed" in converter, (
+        "the results-conversion exemption has outlived its subject — remove it"
+    )
+    # Checked on `IfMatch` and the import rather than on the substring "cas", which the two
+    # exemptions above can use because neither of their modules says "cast". A compare-and-set
+    # is an ETag precondition, and `If-None-Match: *` is not one: it asks whether the object
+    # exists, not whether it is the version we read.
+    assert "IfMatch" not in converter, (
+        "the converter has started conditioning on an ETag, which is a compare-and-set; it "
+        "must bind to cpcommon.cas rather than roll its own"
+    )
+    assert "import cas" not in converter and "cas." not in converter, (
+        "the converter now touches the shared CAS; re-argue its exemption from the sweep above"
     )
 
     conditional_delete = (lambdas / "file-ops-common" / "focommon" / "delete.py").read_text()
