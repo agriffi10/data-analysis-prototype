@@ -52,6 +52,13 @@ def _resolve(username: str, space: object, side: str) -> dict:
     The unreachable and non-existent cases share one sentence, which is the whole point of routing
     both through this function.
 
+    **The kind is type-checked before it is looked up, and that is not caution:** ``in``
+    against a frozenset HASHES its left operand, so a request naming a list or a dict raised
+    ``TypeError`` out of the membership test itself — reported by ``notifies_on_failure`` as an
+    unexpected error, with the named refusal this plane owes never rendered. The API's request
+    types declare the kind as a literal and its door refuses such a body today, but this plane
+    is the authority on its own requests and does not depend on the door.
+
     Args:
       username: The trusted username, from the API's identity block and nowhere else.
       space: The request's space for this side, naming a kind and a name.
@@ -68,7 +75,7 @@ def _resolve(username: str, space: object, side: str) -> dict:
     if not isinstance(space, dict):
         raise TerminalError("forbidden", f"missing {side} space")
     kind, name = space.get("kind"), space.get("name")
-    if kind not in SPACE_KINDS:
+    if not isinstance(kind, str) or kind not in SPACE_KINDS:
         raise TerminalError("forbidden", f"unknown {side} space kind {kind!r}")
     if not isinstance(name, str) or not name.strip():
         raise TerminalError("forbidden", f"{side} space name missing")

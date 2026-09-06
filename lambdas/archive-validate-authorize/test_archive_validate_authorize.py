@@ -189,3 +189,18 @@ def test_both_modes_refuse_a_message_with_no_identity_block():
     """Fail closed on the pre-cutover envelope, on each mode's own allowed-field set."""
     assert _refused(identity=False) == "unauthorized"
     assert _restore_refused(identity=False) == "unauthorized"
+
+
+@pytest.mark.parametrize("kind", ["admin", "", None, 1, ["personal"]], ids=["unknown", "empty", "null", "int", "list"])
+def test_the_source_space_kind_vocabulary_is_closed(kind):
+    """Every unknown kind must reach the plane's own refusal, an UNHASHABLE one included.
+
+    A frozenset membership test hashes its left operand, so a request naming a list raised
+    TypeError out of the check itself — reported as an unexpected fault, with the archive
+    plane's named refusal never rendered.
+    """
+    with pytest.raises(TerminalError) as caught:
+        verb.handler(_event(source=_source(space={"kind": kind, "name": "alice"})), None)
+
+    assert caught.value.reason == "forbidden"
+    assert caught.value.detail == f"unknown source space kind {kind!r}"

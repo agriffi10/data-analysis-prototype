@@ -271,3 +271,19 @@ def test_the_verb_refuses_a_message_with_no_identity_block():
 
     assert raised.value.reason == "unauthorized"
     assert "identity block" in raised.value.detail
+
+
+@pytest.mark.parametrize("kind", ["admin", "", None, 1, ["personal"]], ids=["unknown", "empty", "null", "int", "list"])
+def test_the_space_kind_vocabulary_is_closed(kind):
+    """Every unknown kind must reach the plane's own refusal, an UNHASHABLE one included.
+
+    A frozenset membership test hashes its left operand, so a request naming a list raised
+    TypeError out of the check itself — reported as an unexpected fault, with this plane's
+    named refusal never rendered.
+    """
+    _setup()
+    with pytest.raises(TerminalError) as caught:
+        v.handler(_event(space={"kind": kind, "name": "alice"}), None)
+
+    assert caught.value.reason == "forbidden"
+    assert caught.value.detail == f"unknown source space kind {kind!r}"
