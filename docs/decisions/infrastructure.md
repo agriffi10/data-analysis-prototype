@@ -185,9 +185,17 @@ bite.
 It began at `infra/modules/*/locals.tf` — the per-module fleet map — and was green over ten
 declarations, because a module deploying ONE function passes `memory_mb` straight to the shared
 `docker-lambda` block in its own `lambda.tf` and builds no map. `fleet.py`'s `_locals_bodies`
-carries that lesson in its own docstring, naming `api` and `auth` as the modules that do this;
-both were in the ten. **A new sweep over an existing tree should read what the existing sweeps
-say about that tree before choosing its glob.**
+carries the general lesson in its own docstring — read all of a module's files, not `locals.tf`
+alone — for a different specific reason: a `locals` block that sits beside the resource using it,
+which `api/lambda.tf` and `auth/lambda.tf` both have. Two facts about the same two modules, and
+the reason the lesson transfers rather than the reason it was written.
+
+**A new sweep over an existing tree should read what the existing sweeps say about that tree
+before choosing its glob** — and read it for both things it can be. True prose nobody read is one
+failure; prose that has been false long enough for work to be built beside it is the other, and a
+false docstring is indistinguishable from a true one until somebody tries to rely on it. This one
+was checked rather than quoted: `api/lambda.tf` and `auth/lambda.tf` do carry those blocks, and
+`_locals_bodies` does glob `*.tf`.
 
 It owes a corpus rather than a green run — a gate run against the thing it guards proves the
 artifact passes and never that a check still fires — so it carries fixture cases at both
