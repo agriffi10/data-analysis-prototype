@@ -224,7 +224,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 216 — Multipart Upload & Part-Level Retry | Completed |
 | 217 — Operator-Driven Shared-Space Membership | Completed |
 | 218 — One Builder Per App-Managed Path | Completed |
-| 219 — Admit `system_settings/` Additively | In Progress |
+| 219 — Admit `system_settings/` Additively | Completed |
 | 220 — Move the App-Managed Folders, Then Narrow | Draft |
 | 221 — Results Conversion: the Plane, the Request Contract & validate-authorize | Completed |
 | 222 — Results Conversion: the Converter, the Three Writers & the Notification | In Progress |

@@ -8,6 +8,10 @@ prefix, and what breaks such a move is **depth**: nearly every rule about them w
 one as `{root}{name}/`, in four browser modules and eleven fleet modules, and at depth two each
 would stop matching silently. This spec made that move one edit per tree.
 
+> **SUPERSEDED IN PART BY SPEC-219.** There are two builders per tree now — the singular for a
+> WRITE, the plural for every depth-dependent comparison — so the move is an edit to both. The
+> template count below moved too: nine, not eight, since the results-conversion plane joined.
+
 - **`apps/portal/src/lib/appManagedPaths.ts`** — the three names and `appManagedPrefix(rootPrefix,
   folder)`; `protectedFolders.ts`, `systemFolders.ts`, `archiveSelection.ts` and
   `writeLockedPrefix.ts` build through it. `fileBrowser.constants.ts` no longer declares
@@ -30,8 +34,8 @@ would stop matching silently. This spec made that move one edit per tree.
   survives as a re-export of `RECEIPT_FOLDER`, so its call sites and tests are unchanged. The `.tf` literal
   `infra/modules/analytics/s3.tf` `prefix = "archive/"` is the lifecycle rule for **fact 3 and must
   not move**. `test_archive_facts_arcommon.py` pins all three equal today (`ACCEPTED_`).
-- **`lambdas/test_app_managed_template_population.py`** — the eight `.tftpl` files naming a moving
-  folder in a space bucket, per file, per folder and per anchoring segment (so a path replaced in
+- **`lambdas/test_app_managed_template_population.py`** — the `.tftpl` files naming a moving
+  folder in a space bucket (eight then, nine since results-conversion), per file, per folder and per anchoring segment (so a path replaced in
   place reddens it), spelled as literals; and separately the two
   naming the admin bucket's `archive/*` (`archive/policies/execution`, `archive/policies/sfn-permissions`),
   which must not gain a sibling. An earlier draft said nine: `sfn-permissions` names fact 3 only.

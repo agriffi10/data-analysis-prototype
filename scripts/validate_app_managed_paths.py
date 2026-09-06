@@ -5,7 +5,7 @@ Three folders — ``athenaresults/``, ``archive/`` (the user's receipt folder) a
 sweep guards, because a rule that spells it by hand is a rule the narrowing will not find. Nearly every rule about them was
 anchored at depth one as ``f"{root}{name}/"`` or ``` `${rootPrefix}${name}/` ```, which a move to
 depth two leaves silently not matching. The names are now declared once per tree and every anchored
-construction goes through one builder; this sweep is what keeps it that way, because a new literal
+construction goes through a builder; this sweep is what keeps it that way, because a new literal
 or a new hand-built prefix is exactly the kind of change that applies green and fails later.
 
 **Scoped to path construction and declaration, never to the word.** ``archive`` names three facts
@@ -47,7 +47,8 @@ TypeScript (regex over comment-stripped source), every module under ``apps/porta
 **What this sweep cannot see: a prefix built from a PARAMETER.** ``f"{normalize_root(root)}{name}/"``
 names no folder — the name arrives as an argument — so the AST rules have nothing to match, and two
 rules hid there through a whole spec: ``focommon.protected._is_root_folder`` and
-``_is_under_root_folder``, both anchored at depth one and both invisible here. What covers them
+``_is_under_root_folder``, anchored at depth one when they hid there, since re-pointed to the plural
+and still invisible here. What covers them
 instead is a parametrised pair test per rule, asserting the same refusal for a key under each home,
 so the rule cannot silently answer for one and not the other. A new rule of that shape owes one.
 

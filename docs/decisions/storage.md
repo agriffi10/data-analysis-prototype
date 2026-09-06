@@ -35,7 +35,8 @@ entry you need, not the file.**
 - [An upload's shape is the server's decision, and a part is sized so the expiry premise stops mattering (SPEC-216)](#an-uploads-shape-is-the-servers-decision-and-a-part-is-sized-so-the-expiry-premise-stops-mattering-spec-216)
 - [The folder-recursive functions are deleted, not ported, and the flag stops being a fallback (SPEC-198)](#the-folder-recursive-functions-are-deleted-not-ported-and-the-flag-stops-being-a-fallback-spec-198)
 - [The free-name probe moved to the API, not to the plane (SPEC-198, amends SPEC-187)](#the-free-name-probe-moved-to-the-api-not-to-the-plane-spec-198-amends-spec-187)
-- [An app-managed path is built by one function per tree, and a sweep refuses a second (SPEC-218)](#an-app-managed-path-is-built-by-one-function-per-tree-and-a-sweep-refuses-a-second-spec-218)
+- [An app-managed path is built by one function per tree, and a sweep refuses a second (SPEC-218, superseded in part by SPEC-219)](#an-app-managed-path-is-built-by-one-function-per-tree-and-a-sweep-refuses-a-second-spec-218-superseded-in-part-by-spec-219)
+- [Both homes of a moving folder are admitted before either is written to (SPEC-219)](#both-homes-of-a-moving-folder-are-admitted-before-either-is-written-to-spec-219)
 
 ## Fences
 
@@ -70,9 +71,19 @@ unrecoverable — revisit before real user data lands.
 - **The free-name probe moved to the API, not to the plane** — 999 round trips would be strictly
   worse than the loop it replaced. `numberedName` lives in Python only, and **exhaustion is now
   distinguishable from failure** (409 + `attempts`), which it was not.
-- **An app-managed path is BUILT by one function per tree** — `lib/appManagedPaths.ts` and
-  `cpcommon/app_managed.py` own the names and the depth-one anchor, a CI sweep refuses a declaration
-  or construction outside its owners, and **no builder normalizes** (the FIFO group id digests one).
+- **An app-managed path is BUILT by two functions per tree** — the SINGULAR builder is where a
+  write goes, the PLURAL one is every root-anchored comparison, and a moving folder has two admitted
+  homes while a migration runs. **The plural spells both as literals rather than deriving either
+  from the singular**, so moving the write does not drag every comparison to a third place. No VALUE
+  can show that while the singular is still depth-one, so each tree guards it directly. A CI sweep
+  refuses a declaration or construction outside the owners, and **no builder normalizes** (the FIFO
+  group id digests one).
+- **A rule that builds its prefix from a PARAMETER is invisible to that sweep** — two were — so it
+  owes a pair test instead. And **a pair test asserts which folder the refusal NAMES, not just its
+  reason code**: once the parent prefix joins the same list, a rule that learned one home still
+  refuses the other, same code, different rule. A pair test can also be structurally vacuous — where
+  every second home is a descendant of a prefix already in the list, no key distinguishes the two
+  builders, and only saying so keeps the test honest.
   What breaks the coming move is **depth**, not spelling: a `{root}{name}/` rule stops matching at
   depth two and denies nobody. `archive` is **three facts** and only the receipt folder moves; the
   vault segment and `arcommon.plan.PREFIX` stay, pinned equal by an `ACCEPTED_` tripwire.
@@ -1110,7 +1121,7 @@ carries its own code.
 > both say *the probe stays in the browser*. It left the browser for the **API**, not for the plane —
 > the distinction matters, because the plane would have made a same-folder copy asynchronous.
 
-## An app-managed path is built by one function per tree, and a sweep refuses a second (SPEC-218)
+## An app-managed path is built by one function per tree, and a sweep refuses a second (SPEC-218, superseded in part by SPEC-219)
 
 Three folders the app fills for the user — `athenaresults/`, `archive/` (the receipt folder) and
 `shared_tables/` — are moving under a real `system_settings/` prefix over three specs. The obvious
@@ -1128,6 +1139,14 @@ one edit per tree. Membership lists keep their members and only spell the moving
 owner — this changed how a path is *built*, never who is in a list, because the lists answer
 different questions on purpose.
 
+> **SUPERSEDED BY SPEC-219 on both counts.** There are now **two** builders per tree: the singular
+> one is where a WRITE goes, the plural `app_managed_prefixes` / `appManagedPrefixes` is what every
+> root-anchored COMPARISON calls, and ten fleet call sites plus four browser ones moved to it — so
+> the move is no longer one edit per tree. And the membership lists **did** gain a member:
+> `system_settings` joined five fleet lists and three browser ones, because the prefix the folders
+> move into is itself reserved. See *Both homes of a moving folder are admitted before either is
+> written to*.
+
 **No builder normalizes.** Each is a pure string over what it is handed, and each caller keeps its own
 `normalize_root`. The reason is the API's FIFO group id, which digests the vault prefix: a builder that
 normalized would answer 500 on an empty space name the contract admits, and re-key the id for a
@@ -1141,8 +1160,9 @@ control-plane scratch prefix stays as `arcommon.plan.PREFIX`: one consumer, pinn
 against the IAM grant and the lifecycle rule, and a domain layer owns its constants. An `ACCEPTED_`
 tripwire pins all three equal today and says *revisit when the receipt folder moves — do not delete*.
 
-**The population is pinned, not derived.** `test_app_managed_template_population.py` spells the eight
-IAM templates naming a moving folder in a space bucket, per file, per folder **and per anchoring
+**The population is pinned, not derived.** `test_app_managed_template_population.py` spells the
+IAM templates naming a moving folder in a space bucket — eight when this was written, nine since the
+results-conversion plane joined the trunk during SPEC-219 — per file, per folder **and per anchoring
 segment** (so a path replaced in place reddens it, not only a file joining), and separately the two
 naming the admin bucket's `archive/*` that must never gain a sibling. The asymmetry it records
 decides the next spec's shape: shared-space Denies are `*/athenaresults/*` and an S3 `*` matches
@@ -1159,3 +1179,41 @@ is refused only beside another managed name or as a module-level `const`. Its fi
 the *reason* each rule reports and silence on the shapes it must not flag, and every rule and the CI
 wiring were mutation-tested. Do **NOT** widen it to the word, and do **NOT** union the membership lists.
 What shipped, module by module: `docs/spec-delivery/SPEC-218-one-builder-per-app-managed-path.md`.
+
+## Both homes of a moving folder are admitted before either is written to (SPEC-219)
+
+Relocating an app-managed folder relocates two things at once: the IAM Deny keyed on its literal
+path, and every rule that compares a key to that same path. The window between them is one in which
+the data is writable and nothing fails, so this spec opened the destination first and left the
+writes where they were.
+
+**One PLURAL builder per tree beside the singular one.** `app_managed_prefixes` /
+`appManagedPrefixes` return every root-anchored location a folder may occupy — two for a member of
+the moving set while both homes are admitted, one for anything else. Every rule whose answer depends
+on DEPTH goes through it; a rule that already reaches any depth by segment keeps the singular and is
+asserted at the new home instead. The singular, which is where a write goes, is untouched.
+
+**Both elements are literals, and neither is derived from the singular.** That duplication is the
+whole mechanism: derived, moving the write would drag every rule's second home to a third location
+that holds nothing. The invariant is not visible in any value — a derived home and a literal one
+agree exactly while the singular is depth-one — so it is guarded directly: Python monkeypatches the
+singular and asserts the plural is unmoved, TypeScript reads the function's own body, because a spy
+cannot intercept an in-module call.
+
+**A folder that is not moving gets exactly one location.** No phantom home: nothing treats
+`{root}system_settings/user_settings/` as the settings folder. What refuses a paste or an archive
+beneath the new prefix is the prefix's own membership of the reserved lists, by that name.
+
+**Two acceptance criteria could not both hold, and the mechanism changed rather than the goal.**
+Naming the reserved folder before anything beneath it, and naming `archive` for a key inside the
+receipt folder's new home, are incompatible under one first-match loop. Splitting the direct and
+beneath arms from the ancestor arm into two passes satisfies both, and the name is appended last
+everywhere. In the browser the item loop stays outermost — hoisting it inside the passes lets a
+later item's direct hit outrank an earlier item's ancestor hit, changing a shipped message, and
+exactly one test stands between the two shapes.
+
+**Traps this paid for.** A pair test can be structurally vacuous rather than under-specified: once
+the parent prefix joins the same list, every second home is a strict descendant of it and no key
+distinguishes the two tuples through `startswith` — the test proves the list membership and cannot
+prove the re-pointing. And adding the parent to a list gives every rule a neighbour that refuses the
+same fixture with the same reason code, so a pair test must assert which folder the refusal NAMES.
