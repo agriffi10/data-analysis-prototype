@@ -191,16 +191,24 @@ def test_both_modes_refuse_a_message_with_no_identity_block():
     assert _restore_refused(identity=False) == "unauthorized"
 
 
+@pytest.mark.parametrize("mode", ["archive", "restore"])
 @pytest.mark.parametrize("kind", ["admin", "", None, 1, ["personal"]], ids=["unknown", "empty", "null", "int", "list"])
-def test_the_source_space_kind_vocabulary_is_closed(kind):
+def test_the_source_space_kind_vocabulary_is_closed_on_both_modes(kind, mode):
     """Every unknown kind must reach the plane's own refusal, an UNHASHABLE one included.
 
     A frozenset membership test hashes its left operand, so a request naming a list raised
     TypeError out of the check itself — reported as an unexpected fault, with the archive
     plane's named refusal never rendered.
+
+    Both modes, because they carry the space in different FIELDS of different envelopes and
+    meet the same check through different callers — an archive at this verb, a restore through
+    the archive layer. A case driven on one mode says nothing about the other's route to it.
     """
+    space = {"kind": kind, "name": "alice"}
+    event = _event(source=_source(space=space)) if mode == "archive" else _restore_event(space=space)
+
     with pytest.raises(TerminalError) as caught:
-        verb.handler(_event(source=_source(space={"kind": kind, "name": "alice"})), None)
+        verb.handler(event, None)
 
     assert caught.value.reason == "forbidden"
     assert caught.value.detail == f"unknown source space kind {kind!r}"

@@ -273,17 +273,29 @@ def test_the_verb_refuses_a_message_with_no_identity_block():
     assert "identity block" in raised.value.detail
 
 
+@pytest.mark.parametrize("side", ["source", "destination"])
 @pytest.mark.parametrize("kind", ["admin", "", None, 1, ["personal"]], ids=["unknown", "empty", "null", "int", "list"])
-def test_the_space_kind_vocabulary_is_closed(kind):
+def test_the_space_kind_vocabulary_is_closed_on_both_sides(kind, side):
     """Every unknown kind must reach the plane's own refusal, an UNHASHABLE one included.
 
     A frozenset membership test hashes its left operand, so a request naming a list raised
     TypeError out of the check itself — reported as an unexpected fault, with this plane's
     named refusal never rendered.
+
+    Driven from both sides deliberately. They share one ``_resolve``, so a source-only case
+    would be named for a rule it half-covers — and this is the one plane that authorizes a
+    destination independently, which is the whole reason that function takes a side.
     """
     _setup()
+    space = {"kind": kind, "name": "alice"}
+    event = (
+        _event(space=space)
+        if side == "source"
+        else _event(destination={"space": space, "prefix": "alice/out/"})
+    )
+
     with pytest.raises(TerminalError) as caught:
-        v.handler(_event(space={"kind": kind, "name": "alice"}), None)
+        v.handler(event, None)
 
     assert caught.value.reason == "forbidden"
-    assert caught.value.detail == f"unknown source space kind {kind!r}"
+    assert caught.value.detail == f"unknown {side} space kind {kind!r}"
