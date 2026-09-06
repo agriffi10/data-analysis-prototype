@@ -696,6 +696,65 @@ def test_a_variable_that_is_unknown_until_apply_is_named_rather_than_read_as_a_r
     assert "environment variable ADMIN_BUCKET is not known until apply" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize(
+    "marker",
+    [True, [True], [{"variables": True}], [{"variables": {"ADMIN_BUCKET": True}}]],
+    ids=["whole-attribute", "whole-block", "whole-map", "one-value"],
+)
+def test_every_shape_terraform_marks_an_unknown_environment_with_is_read(pre_cutover, fixture, marker):
+    """`after_unknown` preserves structure at whichever level the provider resolved.
+
+    The one-value shape was the only one the first version of this handled, because the fixture
+    it was written against had only that shape — and the real plan carried the whole-block one,
+    which crashed the guard in CI on the first PR that produced one. Each of these means the
+    captured variable cannot be compared on this plan, and none of them is drift.
+
+    Args:
+      pre_cutover: The no-op plan.
+      fixture: Its capture.
+      marker: One shape Terraform writes.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a shape is read as drift or crashes the guard.
+    """
+    pending = json.loads(json.dumps(pre_cutover))
+    pending["resource_changes"][0]["change"]["after"]["environment"] = [{"variables": {}}]
+    pending["resource_changes"][0]["change"]["after_unknown"] = {"environment": marker}
+
+    assert _check(pending, fixture) == []
+
+
+@pytest.mark.parametrize("marker", [{"variables": {}}, [[1]], ["nope"]], ids=["dict", "nested-list", "string"])
+def test_a_marker_shape_this_guard_cannot_read_is_refused_rather_than_guessed(
+    pre_cutover, fixture, marker
+):
+    """A shape nobody has seen must not resolve to "nothing is unknown".
+
+    That default would read every absent variable as a removal, or every present one as fine,
+    depending on nothing — so an unreadable marker is a named refusal instead.
+
+    Args:
+      pre_cutover: The no-op plan.
+      fixture: Its capture.
+      marker: A shape the reader does not recognise.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When an unreadable marker passes or crashes.
+    """
+    pending = json.loads(json.dumps(pre_cutover))
+    pending["resource_changes"][0]["change"]["after_unknown"] = {"environment": marker}
+
+    problems = _check(pending, fixture)
+
+    assert any("a shape this guard cannot read" in p for p in problems), problems
+
+
 def test_an_unknown_environment_does_not_excuse_the_variables_beside_it(pre_cutover, fixture):
     """The other half: one unknowable variable must not stop the rest being compared.
 

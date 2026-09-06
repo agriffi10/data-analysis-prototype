@@ -417,6 +417,50 @@ def _variables(environment) -> dict:
     return dict((environment[0] or {}).get("variables") or {})
 
 
+def _unknown_variables(marker):
+    """Which environment variables a plan cannot know yet, from Terraform's own marker.
+
+    `after_unknown` PRESERVES THE STRUCTURE of the attribute, and for a block list it does so at
+    whichever level the provider resolved: `true` or `[true]` when the whole block is unknown,
+    `[{"variables": true}]` when the map is, `[{"variables": {"KEY": true}}]` when one value is.
+    A hand-built fixture covering only the last of those agreed with an implementation that read
+    only the last of those, and with the real plan not at all — it crashed on the first PR that
+    produced one. So every documented shape is read here, and an undocumented one is refused by
+    the caller rather than guessed at.
+
+    Args:
+      marker: The `after_unknown` value for `environment`, or None.
+
+    Returns:
+      `(True, set())` when nothing about the environment is knowable, `(False, names)` when only
+      those names are unknown, and `(None, set())` when the marker's shape is unreadable.
+
+    Raises:
+      None.
+    """
+    if not marker:
+        return False, set()
+    if marker is True:
+        return True, set()
+    if not isinstance(marker, list):
+        return None, set()
+    inner = marker[0] if marker else None
+    if not inner:
+        return False, set()
+    if inner is True:
+        return True, set()
+    if not isinstance(inner, dict):
+        return None, set()
+    variables = inner.get("variables")
+    if not variables:
+        return False, set()
+    if variables is True:
+        return True, set()
+    if not isinstance(variables, dict):
+        return None, set()
+    return False, {key for key, value in variables.items() if value}
+
+
 def _environment_drift(name: str, want, got, unknown=None) -> list[str]:
     """Names every captured variable a plan no longer sets to its captured value.
 
@@ -444,7 +488,15 @@ def _environment_drift(name: str, want, got, unknown=None) -> list[str]:
       None.
     """
     captured, planned = _variables(want), _variables(got)
-    unknowable = {key for key, marker in _variables(unknown).items() if marker}
+    every, named = _unknown_variables(unknown)
+    if every is None:
+        unreadable = (
+            f"{name}: after_unknown for environment is {unknown!r}, a shape this guard cannot "
+            "read. Refusing rather than comparing, because an unreadable marker makes every "
+            "variable below look either present or removed depending on nothing"
+        )
+        return [unreadable]
+    unknowable = set(captured) if every else named
     problems = []
     for key in sorted(captured):
         if key in unknowable:

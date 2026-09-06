@@ -423,6 +423,15 @@ compared per variable rather than whole — is exempt from that blanket refusal 
 only that variable goes uncompared, so a real removal cannot hide behind an unknown sibling.
 Both edges mutation-tested; every other parity field stays fatal on an unknown.
 
+**And the first version of that reader was written against a fixture that agreed with nothing.**
+`after_unknown` preserves the STRUCTURE of the attribute it describes, at whichever level the
+provider resolved — `true`, `[true]`, `[{"variables": true}]` or `[{"variables": {"KEY": true}}]`
+— and a hand-built fixture carrying only the last of those matched an implementation reading only
+the last of those. It passed every local test and crashed the guard on the real plan. All four
+shapes are read now, and a shape the reader does not recognise is a NAMED REFUSAL rather than a
+default: "nothing is unknown" would read every absent variable as a removal and every present one
+as fine, on the strength of nothing.
+
 The lesson is about gates rather than about this gate: **a check written for a one-time event
 keeps running afterwards**, and its preconditions quietly become claims about every future
 change. All three refusals were right for the cutover and wrong for the first ordinary growth
