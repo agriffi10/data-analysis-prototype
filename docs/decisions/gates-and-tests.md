@@ -49,6 +49,13 @@ entry you need, not the file.**
   in test volume, and is bought back by testing internals. Never lower one for a regression, and
   never read a floor as evidence a guard exists: four mutations of production code once passed the
   whole suite with coverage unchanged. **Mutate the guard instead.**
+- **A script a test EXECUTES must keep its scratch files private.** A workflow step naming a fixed
+  path under `/tmp` is one file per *job* on a runner, and one file per *machine* under the suite —
+  which runs those scripts verbatim, on a checkout several sessions work at once. Two runs truncate
+  and rewrite it: the loud half is a `jq` parse error on spliced bytes, the quiet half is a clean
+  read of the OTHER run's fixture, which answered a wrong verdict with no error and passed as a
+  flake on a different test each time. Create the file with `mktemp`; `$RUNNER_TEMP` is for one
+  that must cross steps.
 
 ## Security scanning (SPEC-138)
 
@@ -385,6 +392,25 @@ so all of them go. `GIT_DIR` goes with them for a different and worse reason —
 not merely break hermeticity, the fixture commits land in **that** repository. Measured before the scrub: a decoy
 repo came back with its `HEAD` moved onto a fixture commit and its original orphaned, while the
 suite passed green.
+
+`TMPDIR` joins that list, and it is the costliest entry on it. These scripts do not only read the
+environment, they CREATE files — and a name fixed in the script is one file shared by every run of
+the suite on the machine, which several sessions of this project run at once as their pre-push
+gate. Two runs truncate and rewrite it. The loud half is a `jq` parse error on spliced bytes; the
+quiet half is a clean read of the other run's fixture, which took the no-baseline branch and
+answered *build and deploy* — a wrong verdict, reached with no error, by the step whose only job is
+that decision. Reproduced in three concurrent runs of the file; it had been failing about one full
+suite in six, on a different test name each time. The loud half has NO fixed signature, which is
+the trap for anyone tempted to assert on it: whichever run writes second owns the front of the
+file, so a longer write over a shorter one leaves a head (`Invalid numeric literal at line 2,
+column 12`) and a shorter over a longer leaves a tail (`Unmatched ']' at line 2, column 1`). Both
+were observed, on two machines. A guard here asserts that the step FAILED, never what it said. So the workflow creates its scratch files with
+`mktemp`, the harnesses point `TMPDIR` at the throwaway directory they already clean up, a sweep
+refuses a fixed path under a shared temp root in everything the suite executes, and a concurrency
+case asserts what the sweep cannot spell — two fixtures whose verdicts contradict, so a collision
+cannot be absorbed as a coincidence. Left deliberately: `spa-image-matrix.sh` keeps a dozen fixed
+`/tmp/matrix-*` names, which are the same defect on the HOST and would corrupt two concurrent runs
+of it. No test executes that script, so it cannot flake this gate; fixing it is its own change.
 
 ## A parity fixture becomes a floor once the cutover it guarded is closed (2026-09-05)
 

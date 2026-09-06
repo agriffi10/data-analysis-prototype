@@ -205,13 +205,22 @@ jobs:
           # THE BASELINE IS READ BACK FROM THE SERVICE. Reading it rather than assuming it is what
           # makes a skipped or failed previous run heal on the next merge: the diff is always
           # against what is genuinely running, never against the previous commit.
+          #
+          # A PRIVATE FILE RATHER THAN A FIXED NAME. This script is executed verbatim by the
+          # suite, over a throwaway repository and a stubbed `aws`, on a machine whose temp
+          # directory every other run shares — so a fixed name is ONE file for all of them. Two
+          # runs truncating and rewriting it interleave: the loud half is jq reading a `null` one
+          # fixture wrote spliced over the service JSON another did, and the quiet half is a clean
+          # read of the OTHER fixture's service, which answers "no baseline, build and deploy"
+          # and is indistinguishable from a verdict.
+          service_json=$(mktemp)
           aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
-            --query 'services[0]' --output json > /tmp/scope-service.json 2>/dev/null \
-            || echo 'null' > /tmp/scope-service.json
-          running_arn=$(jq -r '.taskDefinition // ""' /tmp/scope-service.json)
-          rollout=$(jq -r '[.deployments[]? | select(.status == "PRIMARY")][0].rolloutState // "NONE"' /tmp/scope-service.json)
-          desired=$(jq -r '.desiredCount // 0' /tmp/scope-service.json)
-          running=$(jq -r '.runningCount // 0' /tmp/scope-service.json)
+            --query 'services[0]' --output json > "$service_json" 2>/dev/null \
+            || echo 'null' > "$service_json"
+          running_arn=$(jq -r '.taskDefinition // ""' "$service_json")
+          rollout=$(jq -r '[.deployments[]? | select(.status == "PRIMARY")][0].rolloutState // "NONE"' "$service_json")
+          desired=$(jq -r '.desiredCount // 0' "$service_json")
+          running=$(jq -r '.runningCount // 0' "$service_json")
           deployed_image=''
           # ONE EMPTINESS TEST, AND IT DECIDES NOTHING — it only skips a call that would fail.
           # jq collapses both shapes an absent service takes (`services[0]` over an empty list is
@@ -423,6 +432,12 @@ jobs:
         run: |
           set -euo pipefail
 
+          # PRIVATE FILES RATHER THAN FIXED NAMES: a name under the shared temp directory is one
+          # file for every run on the machine, and two of them writing it interleave.
+          described_json=$(mktemp)
+          base_json=$(mktemp)
+          next_json=$(mktemp)
+
           # CLONED FROM THE FAMILY'S NEWEST ACTIVE REVISION, never from the one the service is
           # currently running. After a rollback the service points at an OLDER revision, and
           # cloning that would silently revert whatever Terraform last added to the environment
@@ -432,19 +447,19 @@ jobs:
           # clone without --include TAGS produces revisions that are untagged from here on, and
           # every cost report and tag-based query silently stops seeing the running task.
           aws ecs describe-task-definition --task-definition "$FAMILY" --include TAGS \
-            --output json > /tmp/described.json
+            --output json > "$described_json"
 
           # The read-only fields the register call refuses. Left in, it fails with a parameter
           # error that reads as a malformed request rather than as a copied field. Tags travel
           # beside the definition in the response and inside it in the request.
           jq '.taskDefinition
               | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities,
-                    .registeredAt, .registeredBy, .deregisteredAt)' /tmp/described.json > /tmp/base.json
+                    .registeredAt, .registeredBy, .deregisteredAt)' "$described_json" > "$base_json"
 
-          jq --slurpfile described /tmp/described.json --arg image "${REPO}:${TAG}" \
+          jq --slurpfile described "$described_json" --arg image "${REPO}:${TAG}" \
             '.containerDefinitions |= map(if .name == "spa" then .image = $image else . end)
              | if ($described[0].tags // []) == [] then . else .tags = $described[0].tags end' \
-            /tmp/base.json > /tmp/next.json
+            "$base_json" > "$next_json"
 
           # THE ENVIRONMENT BLOCK MUST SURVIVE THE CLONE, and this is where that is checked rather
           # than discovered. Terraform derives one CONFIG_ entry per key of the runtime-configuration
@@ -465,26 +480,26 @@ jobs:
           # coin-flip, and still fails loudly if the apply never happened at all.
           carried=0
           for _ in $(seq 1 20); do
-            carried=$(jq '[.containerDefinitions[] | select(.name=="spa") | .environment[] | select(.name | startswith("CONFIG_"))] | length' /tmp/next.json)
+            carried=$(jq '[.containerDefinitions[] | select(.name=="spa") | .environment[] | select(.name | startswith("CONFIG_"))] | length' "$next_json")
             [ "$carried" -eq "$declared" ] && break
             echo "the newest revision carries $carried of $declared configuration keys; waiting for the infrastructure apply"
             sleep 15
             aws ecs describe-task-definition --task-definition "$FAMILY" --include TAGS \
-              --output json > /tmp/described.json
+              --output json > "$described_json"
             jq '.taskDefinition
                 | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities,
-                      .registeredAt, .registeredBy, .deregisteredAt)' /tmp/described.json > /tmp/base.json
-            jq --slurpfile described /tmp/described.json --arg image "${REPO}:${TAG}" \
+                      .registeredAt, .registeredBy, .deregisteredAt)' "$described_json" > "$base_json"
+            jq --slurpfile described "$described_json" --arg image "${REPO}:${TAG}" \
               '.containerDefinitions |= map(if .name == "spa" then .image = $image else . end)
                | if ($described[0].tags // []) == [] then . else .tags = $described[0].tags end' \
-              /tmp/base.json > /tmp/next.json
+              "$base_json" > "$next_json"
           done
 
           if [ "$carried" -ne "$declared" ]; then
             echo "::error title=Configuration::the revision carries $carried CONFIG_ entries; root declares $declared, and five minutes was not enough for the infrastructure apply to register one that matches. A container missing part of its document refuses to start."
             exit 1
           fi
-          if ! jq -e '[.containerDefinitions[] | select(.name=="spa") | .environment[] | select(.name=="PORTAL_CSP_CONNECT_SRC")] | length == 1' /tmp/next.json >/dev/null; then
+          if ! jq -e '[.containerDefinitions[] | select(.name=="spa") | .environment[] | select(.name=="PORTAL_CSP_CONNECT_SRC")] | length == 1' "$next_json" >/dev/null; then
             echo "::error title=Configuration::the revision does not carry PORTAL_CSP_CONNECT_SRC. The container would refuse to start."
             exit 1
           fi
@@ -496,13 +511,13 @@ jobs:
           # which for the first run is the placeholder. So the swap is checked rather than assumed.
           if ! jq -e --arg want "${REPO}:${TAG}" \
                '[.containerDefinitions[] | select(.name == "spa" and .image == $want)] | length == 1' \
-               /tmp/next.json >/dev/null; then
+               "$next_json" >/dev/null; then
             echo "::error title=Image::the clone does not carry ${REPO}:${TAG}. The container name the swap matches on has diverged from the one in the task definition."
-            jq -r '.containerDefinitions[] | "  \(.name) -> \(.image)"' /tmp/next.json
+            jq -r '.containerDefinitions[] | "  \(.name) -> \(.image)"' "$next_json"
             exit 1
           fi
 
-          ARN=$(aws ecs register-task-definition --cli-input-json file:///tmp/next.json \
+          ARN=$(aws ecs register-task-definition --cli-input-json "file://$next_json" \
                   --query 'taskDefinition.taskDefinitionArn' --output text)
           echo "arn=$ARN" >> "$GITHUB_OUTPUT"
           echo "::notice title=Registered::$ARN carrying ${TAG} and $carried configuration keys"
@@ -537,13 +552,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
-            --query 'services[0]' --output json > /tmp/service.json
+          # A PRIVATE FILE RATHER THAN A FIXED NAME, for the reason the scope step gives.
+          service_json=$(mktemp)
 
-          desired=$(jq -r '.desiredCount' /tmp/service.json)
-          running=$(jq -r '.runningCount' /tmp/service.json)
-          primary=$(jq -r '.deployments[] | select(.status=="PRIMARY") | .taskDefinition' /tmp/service.json)
-          rollout=$(jq -r '.deployments[] | select(.status=="PRIMARY") | .rolloutState // "NONE"' /tmp/service.json)
+          aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
+            --query 'services[0]' --output json > "$service_json"
+
+          desired=$(jq -r '.desiredCount' "$service_json")
+          running=$(jq -r '.runningCount' "$service_json")
+          primary=$(jq -r '.deployments[] | select(.status=="PRIMARY") | .taskDefinition' "$service_json")
+          rollout=$(jq -r '.deployments[] | select(.status=="PRIMARY") | .rolloutState // "NONE"' "$service_json")
 
           echo "desired=$desired running=$running rollout=$rollout"
           echo "primary=$primary"
@@ -578,26 +596,26 @@ jobs:
             [ "$rollout" = "FAILED" ] && break
             sleep 5
             aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
-              --query 'services[0]' --output json > /tmp/service.json
-            rollout=$(jq -r '.deployments[] | select(.status=="PRIMARY") | .rolloutState // "NONE"' /tmp/service.json)
-            desired=$(jq -r '.desiredCount' /tmp/service.json)
-            running=$(jq -r '.runningCount' /tmp/service.json)
-            primary=$(jq -r '.deployments[] | select(.status=="PRIMARY") | .taskDefinition' /tmp/service.json)
+              --query 'services[0]' --output json > "$service_json"
+            rollout=$(jq -r '.deployments[] | select(.status=="PRIMARY") | .rolloutState // "NONE"' "$service_json")
+            desired=$(jq -r '.desiredCount' "$service_json")
+            running=$(jq -r '.runningCount' "$service_json")
+            primary=$(jq -r '.deployments[] | select(.status=="PRIMARY") | .taskDefinition' "$service_json")
             echo "  rollout=$rollout running=$running/$desired"
           done
 
           if [ "$rollout" != "COMPLETED" ]; then
             echo "::error title=Deployment did not complete::rollout state is $rollout after two minutes."
-            jq -r '.deployments[] | "  \(.status) \(.taskDefinition) \(.rolloutState // "-") \(.rolloutStateReason // "-")"' /tmp/service.json
-            jq -r '.events[:5][] | "  \(.message)"' /tmp/service.json
+            jq -r '.deployments[] | "  \(.status) \(.taskDefinition) \(.rolloutState // "-") \(.rolloutStateReason // "-")"' "$service_json"
+            jq -r '.events[:5][] | "  \(.message)"' "$service_json"
             exit 1
           fi
 
           # Read after the poll, not before it: mid-rollout the counts legitimately disagree.
           if [ "$running" -ne "$desired" ]; then
             echo "::error title=Not running::$running of $desired tasks are running."
-            jq -r '.deployments[] | "  \(.status) \(.taskDefinition) \(.rolloutState // "-") \(.rolloutStateReason // "-")"' /tmp/service.json
-            jq -r '.events[:5][] | "  \(.message)"' /tmp/service.json
+            jq -r '.deployments[] | "  \(.status) \(.taskDefinition) \(.rolloutState // "-") \(.rolloutStateReason // "-")"' "$service_json"
+            jq -r '.events[:5][] | "  \(.message)"' "$service_json"
             exit 1
           fi
 
@@ -607,7 +625,7 @@ jobs:
           # enabling rollback does not silently remove a check.
           if [ "$primary" != "$ARN" ]; then
             echo "::error title=Not this revision::the service settled on $primary, not the revision this run registered. Rollout: $rollout"
-            jq -r '.deployments[] | "  \(.status) \(.taskDefinition) \(.rolloutState // "-") \(.rolloutStateReason // "-")"' /tmp/service.json
+            jq -r '.deployments[] | "  \(.status) \(.taskDefinition) \(.rolloutState // "-") \(.rolloutStateReason // "-")"' "$service_json"
             exit 1
           fi
 

@@ -39,6 +39,7 @@ is a weak control here, because all but four of the reads arrive through a singl
 disappearance of any individual one. The five that do not come from that glob are named.
 """
 
+import concurrent.futures
 import json
 import os
 import pathlib
@@ -643,6 +644,9 @@ def _run_ci_scope(
         git, base = _seed_repo(repo)
         environment = _hermetic_env(
             GITHUB_OUTPUT=str(root / "output.txt"),
+            # `mktemp` honours TMPDIR: the script's scratch files land in this invocation's
+            # own directory, not in the one every other run of the suite can also write.
+            TMPDIR=str(root),
             BASE=base,
             SCOPE_PATTERNS=step["env"]["SCOPE_PATTERNS"]
             if patterns is None
@@ -1341,6 +1345,9 @@ def _run_scope(
         environment = {
             **_hermetic_env(),
             "PATH": f"{binaries}{os.pathsep}{os.environ['PATH']}",
+            # `mktemp` honours TMPDIR: the script's scratch files land in this invocation's
+            # own directory, not in the one every other run of the suite can also write.
+            "TMPDIR": str(root),
             "GITHUB_OUTPUT": str(output),
             "GITHUB_SHA": head,
             "NAME": "dat-prod-spa",
@@ -1866,3 +1873,227 @@ def test_a_re_point_never_asks_the_registry_whether_to_build():
             f"{label} with an unreadable registry scheduled a build"
         )
         assert answers["tag"] == answers["baseline"]
+
+
+# ── The scripts above are run on a machine, and the machine is shared ────────────────────────
+#
+# The guards below hold one defect class, found as a flake: a scratch file named in the script
+# rather than created privately is ONE file for every run of the suite at once, and the wrong
+# verdict it produces is silent. The reasoning is in the Key Decisions register, under gates and
+# tests, in the entry on what the guards over a change-detection gate owe.
+
+
+#: Directories every process on the machine may write, and therefore every other run of this
+#: suite. A fixed path under one of them is not a defect in CI, where a runner is ephemeral and
+#: holds a single job; it is a defect here, because these scripts are executed verbatim by the
+#: harnesses above.
+SHARED_TEMPORARY_ROOTS = ("/tmp/", "/private/tmp/", "/var/tmp/", "/dev/shm/")  # noqa: S108
+
+#: The workflows whose ``run:`` scripts this module EXECUTES rather than merely reads — the
+#: population the rule below is about. ``security.yml`` is parsed here and never run.
+#: ``deploy-infra.yml`` is not run either, and its two temp files travel BETWEEN steps, where a
+#: private file per step would be wrong and ``RUNNER_TEMP`` is the answer instead.
+EXECUTED_WORKFLOWS = (CI_WORKFLOW, DEPLOY_SPA_WORKFLOW)
+
+#: The standalone shell scripts the ``lambdas/`` suite EXECUTES, subject to the same rule for the
+#: same reason — ``test_probe_cold_start.py``, ``test_point_lambda.py`` and
+#: ``test_resolve_config.py`` run these three as scripts, and the first is where this defect was
+#: found a second time. Named rather than globbed over ``.github/scripts/`` because the criterion
+#: is execution BY THIS SUITE, which a directory cannot express: ``spa-image-matrix.sh`` holds a
+#: dozen fixed ``/tmp/matrix-*`` names that are the same defect on the host, but no test runs it,
+#: so it cannot flake this gate and fixing it is its own change. Every other ``.sh`` a suite module
+#: names — the two image matrices, the container entrypoint — is read as TEXT, never run. Each path
+#: is asserted to exist, so a rename empties the population loudly rather than quietly.
+EXECUTED_SCRIPTS = (
+    ROOT / ".github" / "scripts" / "probe-cold-start.sh",
+    ROOT / ".github" / "scripts" / "point-lambda.sh",
+    ROOT / ".github" / "scripts" / "resolve-config.sh",
+)
+
+
+def _shared_temporary_paths(script: str) -> list[str]:
+    """Return the lines of a shell script that NAME a path under a shared temporary directory.
+
+    Full-line comments are exempt for the only reason that matters: a comment cannot open a file,
+    so flagging one would be a gate demanding a change that fixes nothing. Nothing else is exempt,
+    including a trailing comment — over-strict there costs a reword and buys one less place to
+    hide a write. No swept file relies on the exemption today; it is there so that explaining a
+    fixed path stays possible.
+
+    Args:
+        script: A step's ``run:`` body.
+
+    Returns:
+        list[str]: The offending lines, stripped, in file order.
+
+    Raises:
+        None.
+    """
+    return [
+        line.strip()
+        for line in script.splitlines()
+        if not line.lstrip().startswith("#")
+        and any(root in line for root in SHARED_TEMPORARY_ROOTS)
+    ]
+
+
+def test_the_shared_temporary_path_sweep_reports_a_write_and_stays_quiet_otherwise():
+    """The sweep below is a gate, so its own checks are exercised rather than trusted.
+
+    Running a gate against the artifact it guards proves the artifact passes, not that the gate
+    works — and half of a gate's regressions are false positives, so the silent cases are asserted
+    as deliberately as the loud ones.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If the sweep stops seeing a fixed shared path, or starts seeing something
+            that is not one.
+    """
+    caught = (
+        ("a redirect", "aws ecs describe-services > /tmp/scope-service.json"),
+        ("a read", "jq -r .desiredCount /tmp/scope-service.json"),
+        ("the resolved form of the same directory", "cat /private/tmp/service.json"),
+        ("the other shared root", "printf x > /var/tmp/plan.json"),
+        ("shared memory, which a runner has and this Mac does not", "cat /dev/shm/out.json"),
+        ("a trailing comment on a live line", "cat x  # was /tmp/service.json"),
+    )
+    for label, script in caught:
+        assert _shared_temporary_paths(script) == [script.strip()], (
+            f"the sweep no longer reports {label}, which is the shape that flaked"
+        )
+
+    quiet = (
+        (
+            "a private file",
+            'service_json=$(mktemp)\njq -r .desiredCount "$service_json"',
+        ),
+        ("the runner's own scratch directory", 'cat "$RUNNER_TEMP/plan.json"'),
+        (
+            "a full-line comment naming the path",
+            "          # was /tmp/scope-service.json",
+        ),
+        ("a path that merely starts the same way", "cat /tmpfiles/service.json"),
+    )
+    for label, script in quiet:
+        assert _shared_temporary_paths(script) == [], (
+            f"the sweep reports {label}, which is not a shared fixed path — a gate that reddens "
+            "on the correct form is how the correct form stops being written"
+        )
+
+
+def test_nothing_the_suite_executes_names_a_shared_temporary_path():
+    """A script this suite runs must keep its scratch files to itself.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If a step or script the suite executes names a fixed path under a
+            directory the rest of the machine shares.
+    """
+    scripts: dict[str, str] = {}
+    for script in EXECUTED_SCRIPTS:
+        assert script.is_file(), (
+            f"{script.relative_to(ROOT)} is gone or has moved, so the sweep below covers one "
+            "script fewer than it says it does — re-point it rather than dropping it"
+        )
+        where = script.relative_to(ROOT).as_posix()
+        scripts[where] = script.read_text(encoding="utf-8")
+    for workflow in EXECUTED_WORKFLOWS:
+        document = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+        for job_name, job in document["jobs"].items():
+            for position, step in enumerate(job.get("steps", [])):
+                if "run" in step:
+                    name = step.get("name", step.get("id", f"step {position}"))
+                    scripts[f"{workflow.name} / {job_name} / {name}"] = step["run"]
+
+    # THE COLLECTOR IS PROVEN BEFORE AN ABSENCE IS ASSERTED OVER IT, once per workflow: a parse
+    # that returned no scripts at all — a renamed job, a `run:` moved into a composite action —
+    # would satisfy every assertion below while sweeping nothing.
+    bodies = set(scripts.values())
+    assert _ci_scope_step()["run"] in bodies, (
+        "the sweep did not reach ci.yml's scope step, so its verdict is about some other set of "
+        "scripts than the ones the harnesses run"
+    )
+    assert _scope_step()["run"] in bodies, (
+        "the sweep did not reach deploy-spa-image.yml's scope step, so its verdict is about some "
+        "other set of scripts than the ones the harnesses run"
+    )
+
+    offences = {
+        where: lines
+        for where, script in scripts.items()
+        if (lines := _shared_temporary_paths(script))
+    }
+    assert not offences, (
+        "something this suite executes names a fixed path under a directory every other process on "
+        "the machine shares, which is one file for every run of the suite at once — two of them "
+        "truncate and rewrite it, and the step reads the other one's fixture as its own answer. "
+        "Create the file with `mktemp` instead:\n"
+        + "\n".join(
+            f"  {where}:\n" + "\n".join(f"    {line}" for line in lines)
+            for where, lines in sorted(offences.items())
+        )
+    )
+
+
+def test_concurrent_runs_of_the_scope_step_do_not_answer_each_other():
+    """Two runs of the step at once must each get their own verdict.
+
+    The sweep above is the deterministic half of this guard and catches the SPELLING; this is the
+    behavioural half and catches the PROPERTY, which is the wider of the two. The sweep knows four
+    directory names. Sharing does not need one: a fixed name under `$HOME`, a lock file, a port, a
+    named pipe, a cache keyed on something two runs both compute the same way — each collides
+    exactly as `/tmp/scope-service.json` did, and each is invisible to a matcher over paths.
+
+    An unset `$RUNNER_TEMP` is NOT among them, though it reads like it should be. Every `run:`
+    body in the workflow opens `set -euo pipefail`, and `-u` makes the first expansion of an unset
+    variable abort the step — loudly, on the first run, rather than silently on an unlucky one.
+    `${RUNNER_TEMP:-/tmp}` would be the dangerous spelling, and nothing here uses it.
+
+    The two fixtures are chosen to CONTRADICT: one describes a service running the baseline, whose
+    verdict is skip/skip against a commit that touches nothing the image reads, and one describes
+    no service at all, whose verdict is build-and-deploy this commit. Sharing state between them
+    turns each into the other, so a collision cannot be absorbed as a coincidence.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If a run's verdict depends on what another run was doing.
+    """
+    touched = ("docs/architecture.md",)
+
+    def settled() -> None:
+        answers = _run_scope(touched)
+        assert (answers["build"], answers["deploy"]) == ("skip", "skip"), (
+            "a commit touching nothing the image reads was built while another run of the step "
+            "was in flight; the two are sharing a file"
+        )
+        assert answers["tag"] == answers["baseline"]
+
+    def absent() -> None:
+        answers = _run_scope(touched, deployed="absent")
+        assert (answers["build"], answers["deploy"]) == ("run", "run"), (
+            "a service that does not exist was treated as a baseline while another run of the "
+            "step was in flight; the two are sharing a file"
+        )
+        assert answers["tag"] == answers["head"]
+
+    work = [settled, absent] * 4
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(work)) as pool:
+        for future in concurrent.futures.as_completed(
+            [pool.submit(one) for one in work]
+        ):
+            future.result()
