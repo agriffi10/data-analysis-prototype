@@ -40,16 +40,28 @@
       "Resource": "${user_space_bucket_arn}/*/athenaresults/*"
     },
     {
+      "Sid": "ReadResultObjectsSystemSettings",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "${user_space_bucket_arn}/*/system_settings/athenaresults/*"
+    },
+    {
       "Sid": "NeverWriteAppManagedObjects",
       "Effect": "Deny",
       "Action": "s3:PutObject",
       "Resource": [
         "${user_space_bucket_arn}/*/athenaresults/*",
         "${shared_space_bucket_arn}/*/athenaresults/*",
+        "${user_space_bucket_arn}/*/system_settings/athenaresults/*",
+        "${shared_space_bucket_arn}/*/system_settings/athenaresults/*",
         "${user_space_bucket_arn}/*/archive/*",
         "${shared_space_bucket_arn}/*/archive/*",
+        "${user_space_bucket_arn}/*/system_settings/archive/*",
+        "${shared_space_bucket_arn}/*/system_settings/archive/*",
         "${user_space_bucket_arn}/*/shared_tables/*",
         "${shared_space_bucket_arn}/*/shared_tables/*",
+        "${user_space_bucket_arn}/*/system_settings/shared_tables/*",
+        "${shared_space_bucket_arn}/*/system_settings/shared_tables/*",
         "${user_space_bucket_arn}/*/user_settings/*",
         "${shared_space_bucket_arn}/*/user_settings/*",
         "${user_space_bucket_arn}/*/_data-quality-reports/*",

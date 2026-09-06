@@ -63,6 +63,12 @@
       "Resource": "${shared_space_bucket_arn}/*/athenaresults/*"
     },
     {
+      "Sid": "SharedResultsNoDeleteSystemSettings",
+      "Effect": "Deny",
+      "Action": "s3:DeleteObject",
+      "Resource": "${shared_space_bucket_arn}/*/system_settings/athenaresults/*"
+    },
+    {
       "Sid": "SharedMarkerNoDelete",
       "Effect": "Deny",
       "Action": "s3:DeleteObject",
@@ -77,6 +83,16 @@
         "s3:AbortMultipartUpload"
       ],
       "Resource": "${shared_space_bucket_arn}/*/archive/*"
+    },
+    {
+      "Sid": "SharedArchiveReceiptsAreNotUserWritableSystemSettings",
+      "Effect": "Deny",
+      "Action": [
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:AbortMultipartUpload"
+      ],
+      "Resource": "${shared_space_bucket_arn}/*/system_settings/archive/*"
     }
   ]
 }

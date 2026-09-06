@@ -18,12 +18,16 @@ folder segment is in a space bucket and moves.
 
 Attributes:
   INFRA: The Terraform tree the templates live in.
-  SEGMENT: A path-shaped occurrence of a moving folder — the segment BEFORE it (opening the
-    string or following a slash), a slash, the name, a trailing slash. The preceding segment is captured and pinned with the folder, so a path
-    replaced in place (``*/system_settings/athenaresults/*``) reddens the table rather than
-    contributing the same folder to the same file; a sibling ADDED beside the old path also
-    reddens it, which is what 219 is for. A bucket or module name containing the word, and an ASL
-    comment, do not match.
+  SEGMENT: A path-shaped occurrence of a moving folder — the ANCHORING segment (opening the string
+    or following a slash), a slash, an optional ``system_settings/``, the name, a trailing slash.
+    The anchor is captured and pinned WITH the folder and with whichever prefix separates them, so
+    a personal sibling measures as ``username}/system_settings/archive`` and a shared one as
+    ``*/system_settings/archive`` — a sibling written under the wrong anchor is a different pair
+    from the right one, and a path replaced IN PLACE reddens the table rather than contributing the
+    same pair twice. The optional group is what keeps the two homes distinguishable: without it the
+    new path would measure as ``system_settings/archive``, reporting the prefix as the anchor and
+    agreeing with a sibling hung under any space at all. A bucket or module name containing the
+    word, and an ASL comment, do not match.
   ADMIN_BUCKET: The substring that marks a Resource as the admin bucket's, which is fact 3.
   SPACE_BUCKET_POPULATION: Measured by hand when this test was written. Per template, the
     ``<preceding segment>/<folder>`` pairs it names in a space bucket. ``*`` is the shared-space
@@ -38,20 +42,50 @@ import re
 
 INFRA = pathlib.Path(__file__).resolve().parent.parent / "infra"
 
-SEGMENT = re.compile(r"(?<=[\"/])([^/\"\s]+)/(athenaresults|archive|shared_tables)/")
+SEGMENT = re.compile(r"(?<=[\"/])([^/\"\s]+)/((?:system_settings/)?)(athenaresults|archive|shared_tables)/")
 
 ADMIN_BUCKET = "admin_bucket_arn"
 
 SPACE_BUCKET_POPULATION = {
-    "modules/analytics/policies/portal-role-analytics.json.tftpl": frozenset({"${principal_tag_key}}/athenaresults"}),
-    "modules/archive/policies/execution.json.tftpl": frozenset({"*/athenaresults", "*/archive"}),
-    "modules/data-quality/policies/execution.json.tftpl": frozenset({"*/athenaresults"}),
-    "modules/data/policies/portal-role-permissions.json.tftpl": frozenset({"username}/archive"}),
-    "modules/file-ops/policies/execution.json.tftpl": frozenset({"*/athenaresults", "*/archive"}),
-    "modules/results-conversion/policies/execution.json.tftpl": frozenset({"*/athenaresults", "*/archive", "*/shared_tables"}),
-    "modules/shared-spaces/policies/portal-role-shared-space.json.tftpl": frozenset({"*/athenaresults", "*/archive"}),
-    "modules/table-builder/policies/execution.json.tftpl": frozenset({"*/athenaresults"}),
-    "modules/table-share/policies/execution.json.tftpl": frozenset({"*/athenaresults", "*/shared_tables"}),
+    "modules/analytics/policies/portal-role-analytics.json.tftpl": frozenset(
+        {"${principal_tag_key}}/athenaresults", "${principal_tag_key}}/system_settings/athenaresults"}
+    ),
+    "modules/archive/policies/execution.json.tftpl": frozenset(
+        {"*/athenaresults", "*/archive", "*/system_settings/athenaresults", "*/system_settings/archive"}
+    ),
+    "modules/data-quality/policies/execution.json.tftpl": frozenset(
+        {"*/athenaresults", "*/system_settings/athenaresults"}
+    ),
+    "modules/data/policies/portal-role-permissions.json.tftpl": frozenset(
+        {"username}/archive", "username}/system_settings/archive"}
+    ),
+    "modules/file-ops/policies/execution.json.tftpl": frozenset(
+        {"*/athenaresults", "*/archive", "*/system_settings/athenaresults", "*/system_settings/archive"}
+    ),
+    "modules/results-conversion/policies/execution.json.tftpl": frozenset(
+        {
+            "*/athenaresults",
+            "*/archive",
+            "*/shared_tables",
+            "*/system_settings/athenaresults",
+            "*/system_settings/archive",
+            "*/system_settings/shared_tables",
+        }
+    ),
+    "modules/shared-spaces/policies/portal-role-shared-space.json.tftpl": frozenset(
+        {"*/athenaresults", "*/archive", "*/system_settings/athenaresults", "*/system_settings/archive"}
+    ),
+    "modules/table-builder/policies/execution.json.tftpl": frozenset(
+        {"*/athenaresults", "*/system_settings/athenaresults"}
+    ),
+    "modules/table-share/policies/execution.json.tftpl": frozenset(
+        {
+            "*/athenaresults",
+            "*/shared_tables",
+            "*/system_settings/athenaresults",
+            "*/system_settings/shared_tables",
+        }
+    ),
 }
 
 ADMIN_BUCKET_POPULATION = {
@@ -80,7 +114,7 @@ def _measure() -> tuple[dict[str, frozenset[str]], dict[str, frozenset[str]], in
         for line in path.read_text(encoding="utf-8").splitlines():
             for match in SEGMENT.finditer(line):
                 bucket = admin if ADMIN_BUCKET in line else space
-                bucket.setdefault(rel, set()).add(f"{match.group(1)}/{match.group(2)}")
+                bucket.setdefault(rel, set()).add(f"{match.group(1)}/{match.group(2)}{match.group(3)}")
     return (
         {k: frozenset(v) for k, v in space.items()},
         {k: frozenset(v) for k, v in admin.items()},

@@ -1,7 +1,7 @@
 # Spec: Admit `system_settings/` Additively
 
 **ID:** SPEC-219
-**Status:** Draft
+**Status:** In Progress
 **Last Updated:** 2026-09-05
 **Depends On:** SPEC-218
 
@@ -102,8 +102,14 @@ commit. The analytics template joins `CONTENT_ASSERTED` with a gained set of its
       equivalent — so a personal sibling measures as `username}/system_settings/archive` and a shared
       one as `*/system_settings/archive`, and a sibling written with the wrong anchor is
       distinguishable from the right one. The expected table gains, for every one of the eight
-      files, one such pair beside each existing pair; the two admin-bucket entries are unchanged; the
-      test fails when any one sibling is removed (plant one, watch it name the file, revert).
+      files, one such pair beside each existing pair; the two admin-bucket entries are unchanged.
+      **A single removed sibling is caught by the siblings test below, not by this one** — a
+      correction to this criterion, made when it was planted. This table is a per-file SET of
+      anchor/folder pairs and most templates name the same pair twice, once per bucket, so deleting
+      one of the two leaves the set identical; measured, two such deletions pass here and redden
+      the siblings test, which counts `(Sid, Resource)` pairs. What this test catches and the other
+      cannot is a file JOINING or LEAVING the population, and a sibling written under the wrong
+      anchor.
 - [ ] For the seven templates carrying no `%{ … }` directive, a test renders each with placeholder
       values, parses the JSON, and for every statement whose Resource names an old-anchor path finds
       a statement with an equal `Effect` and equal `Action` set naming the new-anchor path; a sibling
@@ -311,7 +317,10 @@ lambdas/test_app_managed_template_population.py   # SEGMENT captures the anchor 
                                                   #   expected pairs doubled
 lambdas/test_app_managed_template_siblings.py     # NEW — rendered Effect/Action pairs (seven), text (one)
 lambdas/test_lakeformation_registrations.py       # NEW — both registrations are the bare bucket ARN
-lambdas/test_portal_role_preservation.py          # BASELINE_COMMIT unchanged; analytics joins CONTENT_ASSERTED
+lambdas/test_portal_role_preservation.py          # BASELINE_COMMIT unchanged; analytics joins CONTENT_ASSERTED;
+                                                  #   every statement Sid-keyed; the exemptions carry their tests
+lambdas/test_catalog_grants_unchanged.py          # the branch-diff widening guard admits a twin, by shape
+lambdas/test_portal_role_inline_budget.py         # NEW — the three inline policies share one 10,240 aggregate
 lambdas/control-plane-common/cpcommon/app_managed.py   # SYSTEM_SETTINGS_FOLDER, MOVING_FOLDERS, app_managed_prefixes
 lambdas/file-ops-common/focommon/protected.py          # _is_root_folder / _is_under_root_folder through the plural
 apps/portal/src/lib/appManagedPaths.ts                 # SYSTEM_SETTINGS_FOLDER, MOVING_FOLDERS, appManagedPrefixes
