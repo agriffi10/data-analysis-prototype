@@ -384,6 +384,32 @@ ACCOUNT_LIMITS = (
 )
 
 
+def declaration_pattern(dimension: str) -> str:
+    """The regex that finds one dimension's declarations, used by the sweep AND its control.
+
+    Derived in one place because a control compiling its own copy of the pattern is a control
+    that keeps passing after the sweep's copy stops matching — the two drift apart silently and
+    the tree looks healthy from both sides.
+
+    The dimension may carry a prefix or a suffix: the module keys are ``memory`` and
+    ``ephemeral`` today, but ``ephemeral_storage_mb`` is the spelling a new module is as likely
+    to reach for, and a bare-token match walks straight past it while reporting nothing. The
+    trade is deliberate and one-sided — ``max_memory = 10240`` is now refused as well, which is a
+    number in an ``infra/modules/*/locals.tf`` that a person should look at either way, while the
+    miss it replaces was an over-ceiling declaration deploying unseen.
+
+    Args:
+      dimension: The token an account quota bites on, from ``ACCOUNT_LIMITS``.
+
+    Returns:
+      A regex whose first group is the key as written and whose second is the declared integer.
+
+    Raises:
+      None.
+    """
+    return rf"(?<![A-Za-z0-9_])([A-Za-z0-9_]*{dimension}[A-Za-z0-9_]*)\s*=\s*(\d+)"
+
+
 def over_account_limits(text: str, label: str) -> list[str]:
     """Names every declaration in one `locals.tf` that exceeds what this account will create.
 
@@ -397,17 +423,19 @@ def over_account_limits(text: str, label: str) -> list[str]:
       label: How to name the file in an offence, so the message points somewhere.
 
     Returns:
-      One string per offending declaration, naming the dimension, the value and the ceiling.
+      One string per offending declaration, naming the key AS WRITTEN, the value and the
+      ceiling — the key rather than the dimension, because a match on a suffixed spelling that
+      reported the bare token would send the reader looking for a line that is not there.
 
     Raises:
       None.
     """
     offences = []
     for dimension, ceiling in ACCOUNT_LIMITS:
-        for match in re.finditer(rf"{dimension}\s*=\s*(\d+)", text):
-            declared = int(match.group(1))
+        for match in re.finditer(declaration_pattern(dimension), text):
+            key, declared = match.group(1), int(match.group(2))
             if declared > ceiling:
-                offences.append(f"{label}: {dimension} = {declared}, over this account's {ceiling}")
+                offences.append(f"{label}: {key} = {declared}, over this account's {ceiling}")
     return offences
 
 
@@ -434,18 +462,38 @@ def test_no_module_declares_more_memory_than_this_account_will_create() -> None:
     )
 
 
-def test_the_memory_sweep_reads_the_declarations_it_claims_to() -> None:
-    """The positive control. The sweep above is a regex over files that may stop matching — a
-    renamed key or a reformatted map would make it find nothing and pass forever."""
+#: How few declarations each dimension may find before the sweep is presumed broken rather than
+#: the fleet presumed compliant. Written down, not counted from the tree: a floor derived from
+#: what the sweep just found is satisfied by finding nothing, which is the failure it exists to
+#: catch. Memory is one per function across a large fleet. Ephemeral is declared only where a
+#: function needs more than Lambda's 512 MB default, which today is one — so 1 is not a
+#: comfortable population, it is the number that still makes a renamed key visible.
+DECLARATIONS_AT_LEAST = {"memory": 50, "ephemeral": 1}
+
+
+@pytest.mark.parametrize(("dimension", "ceiling"), ACCOUNT_LIMITS, ids=[d for d, _ in ACCOUNT_LIMITS])
+def test_each_dimension_sweep_reads_the_declarations_it_claims_to(dimension: str, ceiling: int) -> None:
+    """The positive control, once per dimension rather than once for the fleet.
+
+    The sweep is a regex over files that may stop matching — a renamed key or a reformatted map
+    makes it find nothing and pass forever. Memory had this control from the start; ephemeral did
+    not, and its population is ONE declaration, which is precisely the case where a rename is
+    invisible. Parametrising over the same table the sweep reads means a third dimension arrives
+    with its control already attached instead of needing somebody to remember.
+    """
     found = [
-        int(match.group(1))
+        int(match.group(2))
         for path in (ROOT / "infra" / "modules").glob("*/locals.tf")
-        for match in re.finditer(r"memory\s*=\s*(\d+)", path.read_text(encoding="utf-8"))
+        for match in re.finditer(declaration_pattern(dimension), path.read_text(encoding="utf-8"))
     ]
-    assert len(found) > 50, f"the sweep found only {len(found)} memory declarations"
-    assert max(found) == ACCOUNT_MAX_MEMORY_MB, (
-        "the largest declared memory is not the ceiling this test is written against, so either "
-        "the converter's declaration moved or the ceiling did"
+    assert len(found) >= DECLARATIONS_AT_LEAST[dimension], (
+        f"the {dimension} sweep found only {len(found)} declarations, under the "
+        f"{DECLARATIONS_AT_LEAST[dimension]} this fleet has — the key was renamed, or the map "
+        "reformatted, and the gate is now reading an empty set"
+    )
+    assert max(found) == ceiling, (
+        f"the largest declared {dimension} is {max(found)}, not the {ceiling} this gate is "
+        "written against, so either the declaration at the ceiling moved or the ceiling did"
     )
 
 
@@ -476,6 +524,25 @@ ACCOUNT_LIMIT_CORPUS = (
         ["memory = 5000, over this account's 3008"],
     ),
     ("a module declaring neither is silent", 'requests_queue_name = "x-requests.fifo"', []),
+    (
+        "a suffixed spelling is not a way past the gate",
+        '"a" = { ephemeral_storage_mb = 10240 }',
+        ["ephemeral_storage_mb = 10240, over this account's 2048"],
+    ),
+    (
+        "a prefixed spelling is not either, and the offence quotes the key as written",
+        '"a" = { max_memory = 10240 }',
+        ["max_memory = 10240, over this account's 3008"],
+    ),
+    ("a suffixed spelling under the ceiling is silent", '"a" = { ephemeral_storage_mb = 512 }', []),
+    (
+        "the widening's cost, stated rather than hidden: a word merely CONTAINING the token trips it",
+        '"a" = { rememory = 10240, preephemeralism_seconds = 10240 }',
+        [
+            "rememory = 10240, over this account's 3008",
+            "preephemeralism_seconds = 10240, over this account's 2048",
+        ],
+    ),
 )
 
 

@@ -47,8 +47,11 @@ is SPEC-223 — so the route is live and unflagged and no UI enqueues into it.
 ## What changed from earlier specs?
 
 - **`describe-results` carries `precision` and `scale`.** Athena reports a decimal's type as bare
-  `decimal` and puts the parameters in sibling fields — captured, not assumed — so the verb was
-  dropping the only copy of them. It is inside `columns`, which the `Described` Pass names
+  `decimal` — that half is captured, in `lambdas/fixtures/` — and the parameters are documented to
+  arrive in sibling fields, which the capture route cannot show because the portal's results
+  endpoint drops every field but name and type. So the verb was dropping the only copy of them.
+  **That the siblings are POPULATED is owed, not settled**; if they are not, `athena_type_of`
+  refuses the column rather than guessing, which makes the failure a loud one. It is inside `columns`, which the `Described` Pass names
   opaquely, so no ASL moved.
 - **`system_settings` joined the refused destinations**, which SPEC-219 wrote into this spec's
   dependencies: the role denies `*/system_settings/*` in both buckets, so with the write grant

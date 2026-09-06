@@ -4,7 +4,8 @@
 execution, captured on 2026-09-06 from the `dat-prod-portal-wg` workgroup through the portal —
 not written by hand. SPEC-222 FR-001 requires that: the file's whole purpose is to prove how
 **Athena** encodes a result set, and a hand-written CSV would only prove how the author believes
-it does.
+it does. One thing about the JSON half IS re-authored, and *What is captured and what is
+re-cased* below says exactly which part and why.
 
 ## What it settles
 
@@ -12,10 +13,20 @@ it does.
 
 ```
 … ,"hi","ab","",,,"[1, 2]", …
-        └ char  └ CAST('' AS varchar)
-                   └ CAST(NULL AS varchar)
-                    └ CAST(NULL AS bigint)
 ```
+
+Six consecutive fields, in header order — the two NULLs are the empty spans between the three
+adjacent commas, which is why this is a table rather than a diagram with arrows pointing at
+nothing:
+
+| Column | Bytes | What it shows |
+|---|---|---|
+| `c_varchar` | `"hi"` | an ordinary text value |
+| `c_char` | `"ab"` | a fixed-width `char`, reported as `char` |
+| `c_empty` | `""` | a value that is present and empty |
+| `c_null_text` | *(nothing, between two commas)* | NULL in a text column |
+| `c_null_bigint` | *(nothing, between two commas)* | NULL in a numeric column, encoded identically |
+| `c_array` | `"[1, 2]"` | a text-kept type arriving as rendered text |
 
 A value present but empty is `""`. A NULL is a bare empty field with no quotes at all — for a
 text column and a numeric one alike. That is exactly what polars' `scan_csv` distinguishes by
@@ -57,9 +68,26 @@ populates the sibling fields. The evidence for that is AWS's own SDK for pandas,
 guessing a scale — the safe direction — and every decimal conversion would fail loudly rather
 than silently round. It is recorded as owed in `docs/testing/owed.md`.
 
+## What is captured and what is re-cased
+
+The CSV is Athena's own bytes, untouched. The JSON's **values are captured and its KEY CASING is
+not**, and the difference matters in a file whose whole argument is provenance.
+
+`ColumnInfo` is PascalCase (`Name`, `Type`) — the shape `describe-results` reads from boto3
+before emitting the lowercase `{name, type, precision, scale}` that `rccommon.types` consumes.
+The route this was captured through, `lambdas/api/routes/athena.py`, lowercases as well, so
+what came out of the browser was `{"name": ..., "type": ...}`. The type STRINGS here are
+Athena's — `float` for a `real` cast, `array` with no element type, `interval day to second` —
+and the two key names were restored to `ColumnInfo`'s spelling, because this fixture stands in
+for what `describe-results` is HANDED rather than for what the portal returns. Nothing else was
+edited and no field was added: `Precision` and `Scale` are absent because the route dropped them,
+not because the capture omitted them.
+
 ## Regenerating it
 
 Run the SQL in `test_rc_convert.py`'s `EVERY_TYPE` shape through the Query workspace, then use
 *Save results to my files* — the synchronous CSV path, which copies the result object Athena
-wrote rather than re-serialising it — and download the result. The types come from the results
-response, which is `ColumnInfo` verbatim.
+wrote rather than re-serialising it — and download the result. Take the columns from the results
+response and **re-case the two keys to `Name` and `Type`**, per the section above; leaving them
+lowercase produces a file every test here fails on with a `KeyError`, which is the loud direction
+but a confusing one to meet with no warning.

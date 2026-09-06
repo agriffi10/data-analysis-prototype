@@ -70,8 +70,21 @@ EYES
 
 # ── SPEC-222 §2 · the conditional write ──────────────────────────────────────
 # owed.md: "destination_occupied, staged as a real race"
+#
+# THIS SECTION MUST NOT RACE §1. The refusal it is checking for is "the name is already taken",
+# which is only what happened if §1's parquet has actually landed first — run concurrently, a
+# second request can win, the first can report the refusal, and the section passes while proving
+# the opposite of what it says. The `overwrite` check below is worse: "the modified time moves"
+# means nothing if two writes are in flight. So this waits.
 echo
 echo "== SPEC-222 §2 · a name already taken =="
+if [ -t 0 ]; then
+  printf '  Press RETURN once §1'"'"'s three notifications have arrived and spec-222/live.parquet exists. '
+  read -r _
+else
+  echo "  not a terminal — sleeping 60s instead of waiting for you"
+  sleep 60
+fi
 body="$(enqueue parquet "live.parquet" refuse race)"
 printf '%s' "$body" | grep -q '"requestId"'
 check $? "second refuse-mode request accepted: $body"
@@ -79,6 +92,12 @@ echo "  BY EYE: the notification must be the NAMED refusal —"
 echo '    …a file called "live.parquet" is already in that folder, so nothing was saved.'
 echo "  An AccessDenied or a generic sentence here means the conditional write is not the thing"
 echo "  doing the refusing, which is the whole design."
+if [ -t 0 ]; then
+  printf '  Press RETURN once the refusal above has arrived, so the overwrite is not racing it. '
+  read -r _
+else
+  sleep 60
+fi
 body="$(enqueue parquet "live.parquet" overwrite overwrite)"
 printf '%s' "$body" | grep -q '"requestId"'
 check $? "overwrite-mode request accepted: $body"

@@ -134,8 +134,11 @@ DLQ lets one malformed request dead-letter someone else's work.
 - **A conversion reads from the ACTOR'S space and writes to the DESTINATION'S**, and the two
   coincide only for a personal destination — which is why a suite whose fixtures are all personal
   cannot tell them apart, and why one shipped reading the result object out of the shared bucket.
-  Its **types come from the metadata**, where a decimal's parameters arrive in `Precision`/`Scale`
-  and never in `Type`; the vocabulary is closed and **refuses rather than falling back**. Excel is
+  Its **types come from the metadata**, where a decimal's parameters are **never in `Type`** —
+  captured — and are read from `Precision`/`Scale`, which no capture route available here can
+  show are populated; the verb refuses the column rather than guessing a scale, so being wrong
+  about that costs a loud refusal and not a silently rounded number. The vocabulary is closed and
+  **refuses rather than falling back**. Excel is
   the one format that cannot stream, so its size cap is set by MEMORY at a measured 23–32x the
   CSV while the others are set by the disk — one cap for all three either starves Parquet or
   promises an Excel conversion that OOMs. `Convert` retries **`TransientError` only**: a `Lambda.*`

@@ -6,6 +6,7 @@ disagreement there is a Parquet file the table builder reads back with the wrong
 nothing else in the fleet would notice.
 """
 
+import csv
 import json
 import os
 import pathlib
@@ -220,6 +221,29 @@ def test_every_type_the_captured_execution_reports_is_one_the_table_maps():
         assert isinstance(types.polars_dtype(types.athena_type_of(column)), pl.DataType), (
             f"{reported_type!r}, from a real execution, is unmapped"
         )
+
+
+def test_the_two_halves_of_the_capture_describe_the_same_execution():
+    """The fixture is a PAIR, and nothing else here holds the halves together.
+
+    Every other test reads one file or the other. So a column renamed in the JSON, reordered
+    against the CSV, or dropped from either side leaves a fixture that still passes while no
+    longer being one execution — and the converter's own rule is positional: `scan_csv` applied
+    to a metadata schema renames columns by POSITION when the names disagree, silently. A pair
+    that disagreed would be a fixture demonstrating the exact bug the converter's header check
+    exists to catch, while asserting the check is unnecessary.
+    """
+    with CAPTURED_CSV.open(encoding="utf-8", newline="") as handle:
+        header, *rows = list(csv.reader(handle))
+    described = [c["Name"] for c in json.loads(CAPTURED_COLUMNS.read_text(encoding="utf-8"))]
+    assert described == header, (
+        "the metadata and the CSV no longer name the same columns in the same order, so the two "
+        "files are not one execution any more"
+    )
+    assert [len(row) for row in rows] == [len(header)], (
+        "the data row no longer has one field per column, so the capture demonstrates a shape "
+        "Athena did not write"
+    )
 
 
 def test_the_capture_shows_athena_reporting_decimal_without_its_parameters():
