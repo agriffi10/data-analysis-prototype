@@ -87,9 +87,9 @@ def _check_contract(req) -> None:
     request_id = req.get("requestId")
     if not isinstance(request_id, str) or not request_id.strip():
         raise TerminalError(events.MALFORMED, "requestId missing or not a string")
-    if req.get("format") not in FORMATS:
+    if not events.in_vocabulary(req.get("format"), FORMATS):
         raise TerminalError(reasons.INVALID_REQUEST, f"unknown format {req.get('format')!r}")
-    if req.get("onConflict") not in ON_CONFLICT:
+    if not events.in_vocabulary(req.get("onConflict"), ON_CONFLICT):
         raise TerminalError(
             reasons.INVALID_REQUEST, f"unknown conflict answer {req.get('onConflict')!r}"
         )

@@ -434,6 +434,20 @@ def test_the_untrusted_sender_id_is_wired_to_the_PORTAL_ROLES_UNIQUE_ID_end_to_e
     )
 
 
+def test_an_unhashable_action_reaches_the_writer_s_own_refusal():
+    """A list HASHES on the way into the membership test, so before the type check it raised
+    TypeError there — reported as an unexpected error rather than as the named refusal, which on
+    this writer also decides whether the record is retried or dropped."""
+    s3 = _setup()
+
+    _raises(
+        lambda: w.handler(_msg({"action": ["markRead"], "id": "n-1"}, PORTAL_SENDER), None),
+        w.ValidationError,
+        "unknown action: ['markRead']",
+    )
+    assert _inbox(s3, "alice") is None
+
+
 if __name__ == "__main__":
     import sys
 
@@ -448,3 +462,4 @@ if __name__ == "__main__":
             print(f"FAIL {test.__name__}: {exc}")
     print(f"\n{len(tests) - failures}/{len(tests)} passed")
     sys.exit(1 if failures else 0)
+

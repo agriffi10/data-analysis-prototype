@@ -23,7 +23,7 @@ Attributes:
   _UNREACHABLE: The one operator detail for both refusals.
 """
 
-from cpcommon import config
+from cpcommon import config, events
 from cpcommon import registry as reg
 from cpcommon.errors import TerminalError
 from cpcommon.paths import normalize_root
@@ -55,10 +55,7 @@ def authorize_destination(username: str, space: object) -> dict:
     if not isinstance(space, dict):
         raise TerminalError(reasons.FORBIDDEN, "missing destination space")
     kind, name = space.get("kind"), space.get("name")
-    # The isinstance is not belt-and-braces: `kind not in SPACE_KINDS` HASHES the value, so a
-    # request naming a list or a dict raises TypeError out of the membership test itself — an
-    # unpredicted fault where the honest answer is a named refusal.
-    if not isinstance(kind, str) or kind not in SPACE_KINDS:
+    if not events.in_vocabulary(kind, SPACE_KINDS):
         raise TerminalError(reasons.FORBIDDEN, f"unknown destination space kind {kind!r}")
     if not isinstance(name, str) or not name.strip():
         raise TerminalError(reasons.FORBIDDEN, "destination space name missing")

@@ -222,13 +222,13 @@ def handler(event, context):
             refusal = auth.transfer_refusal(
                 requester, space, (req.get("payload") or {}).get("newOwner"), registry_doc
             )
-        elif action in config.MEMBER_ACTIONS:
+        elif events.in_vocabulary(action, config.MEMBER_ACTIONS):
             refusal = auth.member_refusal(
                 requester, space, action, (req.get("payload") or {}).get("members"), registry_doc
             )
         if refusal is None:
             auth.authorize(action, space, actor, registry_doc)
-            if action in _INTENT:
+            if events.in_vocabulary(action, _INTENT):
                 _record_intent(action, actor, space, req.get("requestId"))
 
     validated = {
@@ -251,7 +251,7 @@ def handler(event, context):
         space=space,
         actor=actor,
         schema_version=(registry_doc or {}).get("schemaVersion"),
-        intent_written=action in _INTENT and refusal is None,
+        intent_written=events.in_vocabulary(action, _INTENT) and refusal is None,
         known_space=registry_doc is not None,
         refused=refusal[0] if refusal is not None else None,
     )

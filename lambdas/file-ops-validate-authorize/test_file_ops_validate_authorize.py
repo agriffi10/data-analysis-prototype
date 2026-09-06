@@ -352,3 +352,26 @@ def test_a_shared_space_the_actor_belongs_to_resolves_to_the_SHARED_bucket():
 
     assert result["source"]["bucket"] == "shared-bkt"
     assert result["source"]["root"] == "sales/"
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "reason", "detail"),
+    [
+        ({"operation": ["copy"]}, "invalid_operation", "unknown operation ['copy']"),
+        ({"onConflict": ["refuse"]}, "invalid_conflict", "unknown conflict answer ['refuse']"),
+        (
+            {"items": [{"kind": ["file"], "key": "alice/q1.csv"}]},
+            "invalid_items",
+            "unknown item kind ['file']",
+        ),
+    ],
+    ids=["operation", "on-conflict", "item-kind"],
+)
+def test_an_unhashable_vocabulary_field_reaches_this_plane_s_own_refusal(kwargs, reason, detail):
+    """A list in any of the three HASHES on the way into its membership test, so before the type
+    check each raised TypeError there — reported as an unexpected error, with the plane's own
+    reason code never rendered onto the execution."""
+    refusal = _refusal(**kwargs)
+
+    assert refusal.reason == reason
+    assert refusal.detail == detail

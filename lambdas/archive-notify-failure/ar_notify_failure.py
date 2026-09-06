@@ -103,7 +103,7 @@ def _mode_from_raw_request(raw) -> str:
     except Exception as exc:  # noqa: BLE001
         logger.info("could not recover the mode from the request: %s", exc)
         return ""
-    return mode if mode in ARCHIVE_MODES else ""
+    return mode if events.in_vocabulary(mode, ARCHIVE_MODES) else ""
 
 
 def _actor_from_raw_request(raw) -> str:

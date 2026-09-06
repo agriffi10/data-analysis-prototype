@@ -15,7 +15,7 @@ module worked without it — but a future module importing only ``authz`` would 
 ``ValueError`` where it wrote a refusal, which is a worse failure than the one it was reporting.
 """
 
-from cpcommon import config
+from cpcommon import config, events
 from cpcommon import registry as reg
 from cpcommon.app_managed import athena_results_prefix
 from cpcommon.errors import TerminalError
@@ -62,7 +62,7 @@ def authorize_source(username: str, space) -> dict:
     if not isinstance(space, dict):
         raise TerminalError("forbidden", "missing source space")
     kind, name = space.get("kind"), space.get("name")
-    if not isinstance(kind, str) or kind not in SPACE_KINDS:
+    if not events.in_vocabulary(kind, SPACE_KINDS):
         raise TerminalError("forbidden", f"unknown source space kind {kind!r}")
     if not isinstance(name, str) or not name.strip():
         raise TerminalError("forbidden", "source space name missing")

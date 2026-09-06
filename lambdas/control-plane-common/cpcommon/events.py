@@ -6,6 +6,10 @@ opaque failure with no actor notification. These helpers turn that into a typed
 ``TerminalError`` with a specific reason, so the failure is both recorded meaningfully and
 surfaced to the actor.
 
+``in_vocabulary`` is the exception to that shape: it returns a bool rather than raising, because
+a closed vocabulary's refusal wording differs per plane and is deliberately not shared. What it
+does share is the type check that has to precede the membership test.
+
 ``timed_out_execution_input`` reads the other event shape a plane can receive: the EventBridge
 status-change event that reaches a notify-failure verb through its second door.
 
@@ -15,7 +19,9 @@ Attributes:
 
 import json
 import logging
-from typing import Any
+from collections.abc import Mapping
+from collections.abc import Set as AbstractSet
+from typing import Any, TypeGuard
 
 from . import clients
 from .errors import TerminalError
@@ -134,6 +140,39 @@ def require(event: Any, *path: str, reason: str = MALFORMED) -> Any:
     if node is None or (isinstance(node, str) and not node.strip()):
         raise TerminalError(reason, f"empty required field {'.'.join(path)!r}")
     return node
+
+
+def in_vocabulary(
+    value: Any, vocabulary: AbstractSet[str] | Mapping[str, object]
+) -> TypeGuard[str]:
+    """Reports whether an untrusted value is one of a closed vocabulary's members.
+
+    **The type check is not belt and braces.** ``in`` hashes its left operand, so a request field
+    carrying a list or a dict raises ``TypeError`` out of the membership test itself, before the
+    plane can raise its named refusal — and ``notifies_on_failure`` then records that ``TypeError``
+    on the execution instead of a reason code the actor can be told about. Testing the type first
+    is what keeps a malformed field a refusal rather than a crash.
+
+    It is a predicate rather than a raise so that each plane keeps its own refusal wording, which
+    is deliberately not shared: the same bad field means different things on different planes.
+
+    Args:
+      value: The untrusted value, of any type and possibly unhashable.
+      vocabulary: The closed vocabulary of accepted strings — a set or a mapping, since a plane
+        may key one as a dict of per-member data. Deliberately NOT any container: ``in`` on a
+        ``str`` is a SUBSTRING test, so a string vocabulary would quietly admit every prefix and
+        infix of itself, and this signature makes that a type error rather than a live widening.
+
+    Returns:
+      True when the value is a string and a member of the vocabulary, False otherwise. Typed as a
+      ``TypeGuard`` so a caller that refuses on False keeps the narrowing to ``str`` that the
+      inline ``isinstance`` used to give it, and can go on passing the value where a string is
+      wanted.
+
+    Raises:
+      None.
+    """
+    return isinstance(value, str) and value in vocabulary
 
 
 def timed_out_execution_input(detail: Any) -> str:

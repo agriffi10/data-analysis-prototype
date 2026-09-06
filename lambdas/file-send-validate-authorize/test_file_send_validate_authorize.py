@@ -249,3 +249,20 @@ def test_the_source_space_kind_vocabulary_is_closed(kind):
 
     assert caught.value.reason == "forbidden"
     assert caught.value.detail == f"unknown source space kind {kind!r}"
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "reason"),
+    [
+        ({"items": [{"kind": ["file"], "key": "alice/q1.csv"}]}, "invalid_items"),
+        ({"recipients": [{"kind": ["user"], "name": "bob"}]}, "invalid_recipients"),
+    ],
+    ids=["item-kind", "recipient-kind"],
+)
+def test_an_unhashable_vocabulary_field_reaches_this_plane_s_own_refusal(kwargs, reason):
+    """A list in either field HASHES on the way into its membership test, so before the type check
+    each raised TypeError there — reported as an unexpected error, with this plane's own reason
+    code never rendered onto the execution."""
+    _setup()
+
+    _expect_reason(_event(**kwargs), reason)
