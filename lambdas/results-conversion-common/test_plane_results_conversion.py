@@ -2,7 +2,8 @@
 
 Each test here is a fence, not a behaviour: the domain layer holds no algorithm, the role
 holds one write and no query start, the timeout door is the event one, the refused-destination
-set is a SUPERSET of the picker's, and every cap is computed rather than typed.
+set contains the picker's by rule rather than equalling it by accident, and every cap is
+computed rather than typed.
 """
 
 import ast

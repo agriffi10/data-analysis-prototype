@@ -51,10 +51,13 @@ is SPEC-223 — so the route is live and unflagged and no UI enqueues into it.
   dropping the only copy of them. It is inside `columns`, which the `Described` Pass names
   opaquely, so no ASL moved.
 - **`system_settings` joined the refused destinations**, which SPEC-219 wrote into this spec's
-  dependencies: the role denies `*/system_settings/*` in both buckets, so with a write grant in
-  hand a destination inside it would have reached the user as a bare `AccessDenied`. The refused
-  set became a **superset** of the browser's picker rather than equal to it — the equality
-  contradicted the rule `rccommon.paths` already stated, that the validator mirrors the Deny.
+  dependencies: the role denies `*/system_settings/*` in both buckets, so with the write grant
+  this spec adds, a destination inside it would have reached the user as a bare `AccessDenied`.
+  The refused set stopped being an **equality** with the browser's picker and became a
+  **superset by rule** — the equality contradicted what `rccommon.paths` already stated, that
+  the validator mirrors the Deny. SPEC-219's later phases then locked `system_settings` in the
+  picker too, so the two coincide again; the assertion stays an inclusion, because the next
+  divergence is the one that needs an argument made for it.
 - **`check_prefix` refuses control characters**, as `check_filename` always did.
 - **`rccommon` joined the mypy ratchet**, late; it entered at zero.
 - **`docker-lambda` gained `ephemeral_storage_mb`**, declared statically for every function.
