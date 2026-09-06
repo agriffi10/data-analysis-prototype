@@ -25,6 +25,12 @@ Attributes:
     pattern rather than named, so a new one joins by existing.
   CATALOG_PREFIXES: The action families this spec would have had to widen if it needed anything.
     Used only to confirm the baseline has a subject; the comparison itself reads every action.
+  SYSTEM_SETTINGS: The prefix the three app-managed folders are being admitted under ahead of the
+    move. The ONE admitted widening, and admitted by shape against the base rather than by naming
+    files — ``_is_admitted_twin``.
+  MOVING_FOLDERS: The three folders that get a second home, read from the module that OWNS those
+    names rather than spelled again here — a folder list written twice is a rule that can be wrong
+    in one copy.
 """
 
 import pathlib
@@ -33,10 +39,18 @@ import shutil
 import subprocess
 import tempfile
 
+from cpcommon.app_managed import (
+    ATHENA_RESULTS_FOLDER,
+    RECEIPT_FOLDER,
+    SHARED_TABLES_FOLDER,
+)
+
 REPO = pathlib.Path(__file__).resolve().parent.parent
 BASE_REF = "origin/main"
 POLICY_PATTERN = re.compile(r"infra/modules/[^/]+/policies/portal-role-.*\.json\.tftpl")
 CATALOG_PREFIXES = ("athena:", "glue:", "lakeformation:")
+SYSTEM_SETTINGS = "system_settings"
+MOVING_FOLDERS = frozenset({ATHENA_RESULTS_FOLDER, RECEIPT_FOLDER, SHARED_TABLES_FOLDER})
 
 _ACTION_BLOCK_RE = re.compile(r'"Action"\s*:\s*(\[[^\]]*\]|"[^"]*")', re.DOTALL)
 _RESOURCE_BLOCK_RE = re.compile(r'"Resource"\s*:\s*(\[[^\]]*\]|"[^"]*")', re.DOTALL)
@@ -167,6 +181,93 @@ def _resources(source: str) -> set[str]:
     return found
 
 
+def _is_admitted_twin(resource: str, base: set[str]) -> bool:
+    """Reports whether a gained resource is the ``system_settings/`` twin of one held at the base.
+
+    Three app-managed folders are being admitted at a second, equally protected location under
+    ``system_settings/`` before they move there, so every statement naming one gains a sibling
+    naming the same folder one segment deeper. Those siblings ARE new resources and this guard is
+    right to see them; what makes them acceptable is that each one names the SAME FOLDER, at the
+    same anchor, as a resource the base already named.
+
+    **Admitted by shape, derived from the BASE.** Removing the one ``system_settings/`` segment
+    must land on a string the base actually held — so a sibling hung under the wrong anchor is
+    still a widening. An exemption written as a list of file names would instead have vouched for
+    whatever those files did next.
+
+    **And restricted to the three folders that are actually moving.** Without that clause the
+    exemption admitted a second home for any path the base mentioned in any statement at all:
+    ``…/system_settings/user_settings/*`` reduces to ``…/user_settings/*``, which the base names in
+    a DENY, so an ``Allow`` at the new location was admitted as a twin of a refusal. That folder is
+    not moving and the spec puts a second home for it out of scope; found by review, planted, and
+    confirmed to pass every guard on this branch before this clause existed.
+
+    What this deliberately does NOT check is the Effect — a resource set carries no Effects. The
+    statement's Effect and actions are checked where statements are read whole, by the Sid-keyed
+    content tests in ``test_portal_role_preservation``, which is also why a statement without a Sid
+    is refused there.
+
+    The second home is temporary: once the folders move, the OLD halves come off, which this guard
+    does not see because a removal is not a gain.
+
+    Args:
+      resource: A resource string present now and absent at the base.
+      base: Every resource the same template named at the base.
+
+    Returns:
+      True when the resource is an admitted twin.
+
+    Raises:
+      None.
+    """
+    marker = f"/{SYSTEM_SETTINGS}/"
+    if marker not in resource:
+        return False
+    folder = resource.split(marker, 1)[1].split("/")[0]
+    if folder not in MOVING_FOLDERS:
+        return False
+    return resource.replace(marker, "/", 1) in base
+
+
+def test_the_twin_exemption_admits_ONLY_a_twin_of_something_already_held() -> None:
+    """The exemption's own guard: it must not be a hole a real widening can walk through.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the exemption admits a resource with no counterpart at the base, or
+        refuses a genuine twin.
+    """
+    # The base deliberately mirrors the REAL one: the templates on this branch name user_settings
+    # and the bare user prefix beside the moving folders, and a fixture that omitted them would
+    # make every negative below pass for want of a counterpart rather than on the rule.
+    base = {
+        "arn:aws:s3:::bucket/*/archive/*",
+        "arn:aws:s3:::bucket/*/user_settings/*",
+        "arn:aws:s3:::bucket/*/DO_NOT_DELETE.txt",
+        "arn:aws:s3:::bucket/*/*",
+    }
+
+    assert _is_admitted_twin("arn:aws:s3:::bucket/*/system_settings/archive/*", base)
+    assert not _is_admitted_twin("arn:aws:s3:::bucket/*/archive/*", base), "a non-twin is not exempt"
+    assert not _is_admitted_twin("arn:aws:s3:::other/*/system_settings/archive/*", base), "another bucket"
+    assert not _is_admitted_twin("arn:aws:s3:::bucket/alice/system_settings/archive/*", base), "another anchor"
+    assert not _is_admitted_twin("arn:aws:s3:::bucket/*/system_settings/saved_queries/*", base), (
+        "a folder the base never protected"
+    )
+    assert not _is_admitted_twin("arn:aws:s3:::bucket/*/system_settings/user_settings/*", base), (
+        "user_settings is NOT moving, so a second home for it is out of scope however the base "
+        "happens to name it — this is the case that passed before the moving-folder clause"
+    )
+    assert not _is_admitted_twin("arn:aws:s3:::bucket/*/system_settings/DO_NOT_DELETE.txt", base), (
+        "the marker is not a moving folder"
+    )
+
+
 def test_the_sweep_reaches_the_templates_it_claims_to() -> None:
     """Guard-the-guard: an empty population agrees with every possible change.
 
@@ -218,6 +319,10 @@ def test_this_branch_names_no_new_catalog_ACTION() -> None:
 def test_this_branch_names_no_new_RESOURCE() -> None:
     """The other half: an action already held, pointed at something new, is also a widening.
 
+    The one admitted widening is a ``system_settings/`` TWIN — see ``_is_admitted_twin``. It is
+    admitted by SHAPE against the base, not by a list of file names, so the exemption cannot
+    quietly cover anything else.
+
     Args:
       None.
 
@@ -225,11 +330,17 @@ def test_this_branch_names_no_new_RESOURCE() -> None:
       None.
 
     Raises:
-      AssertionError: If any template gains a resource it did not name at the branch's base.
+      AssertionError: If any template gains a resource that is not the system-settings twin of one
+        it already named at the branch's base.
     """
     added: dict[str, set[str]] = {}
     for path in _templates():
-        gained = _resources((REPO / path).read_text()) - _resources(_at_base(path))
+        base = _resources(_at_base(path))
+        gained = {
+            resource
+            for resource in _resources((REPO / path).read_text()) - base
+            if not _is_admitted_twin(resource, base)
+        }
         if gained:
             added[path] = gained
 

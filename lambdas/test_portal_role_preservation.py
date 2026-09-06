@@ -70,9 +70,24 @@ EDITED = "infra/modules/shared-spaces/policies/portal-role-shared-space.json.tft
 #: branches answer ``AccessDenied`` instead of the empty list and the ``NotFound`` they promise.
 LISTING_EDITED = "infra/modules/data/policies/portal-role-permissions.json.tftpl"
 
-#: Every template the byte comparison skips because a test below reads it instead. **Adding a
-#: name here without also adding that test is how a widening gets absorbed unread.**
-CONTENT_ASSERTED = frozenset({EDITED, LISTING_EDITED})
+#: The analytics permission template, exempted for the same reason and asserted by content in
+#: ``test_the_analytics_template_gained_ONLY_its_system_settings_siblings``. Its edit admits the
+#: results folder at a second location under ``system_settings/`` — an Allow and a Deny, each the
+#: twin of the statement above it — ahead of the folder moving there. A byte comparison can say
+#: only that it changed, and the whole question is whether the twins grant what their originals do.
+ANALYTICS_EDITED = "infra/modules/analytics/policies/portal-role-analytics.json.tftpl"
+
+#: Every template the byte comparison skips because a test below reads it instead, mapped to the
+#: test that reads it. **Adding a name here without also adding that test is how a widening gets
+#: absorbed unread** — so the mapping is asserted rather than described, and the byte comparison's
+#: population is now EMPTY, which is what makes that assertion load-bearing rather than tidy.
+CONTENT_TESTS = {
+    EDITED: "test_the_shared_space_template_lost_ONLY_its_enqueue_statement",
+    LISTING_EDITED: "test_the_user_space_template_gained_ONLY_the_shared_document_listing",
+    ANALYTICS_EDITED: "test_the_analytics_template_gained_ONLY_its_system_settings_siblings",
+}
+
+CONTENT_ASSERTED = frozenset(CONTENT_TESTS)
 
 API_ROLE_ARN = "arn:aws:iam::696000197480:role/dat-prod-api-role"
 PORTAL_ROLE_ARN = "arn:aws:iam::696000197480:role/dat-portal-user-role"
@@ -247,6 +262,96 @@ def _statements_by_sid(body: str) -> dict[str, str]:
     return found
 
 
+def test_every_content_asserted_template_actually_HAS_its_content_test() -> None:
+    """The byte comparison now covers NOTHING, so the exemptions are the whole guard.
+
+    All three live permission templates are content-asserted, which means
+    ``test_ACCEPTED_…byte_identical…`` compares an empty set of files and its per-file loop never
+    runs. That is legitimate — a content assertion says strictly more than a byte comparison — but
+    it moves the entire preservation claim onto the three tests named here, and a name added to the
+    exemption without its test would then be read by nothing at all.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If an exempted template has no named test, or the named test does not exist.
+    """
+    assert set(CONTENT_TESTS) == CONTENT_ASSERTED
+
+    for template, name in sorted(CONTENT_TESTS.items()):
+        assert name in globals(), f"{template} is exempted from the byte comparison but {name} does not exist"
+        assert callable(globals()[name]), f"{name} is not a test function"
+
+
+def test_every_policy_statement_is_KEYED_BY_A_SID() -> None:
+    """Every guard in this repo reads statements BY SID, so one without a Sid is invisible to all of them.
+
+    ``Sid`` is optional in IAM and mandatory here, and the difference is the whole of this test.
+    ``_statements_by_sid`` skips a chunk that has none, so the content assertions that decide what
+    each edited template gained cannot see such a statement; neither can the byte comparison, once
+    a template is content-asserted. Measured, on this branch: an un-Sid'd ``Allow`` of
+    ``s3:DeleteObject`` on a second home for a folder that is not moving passed every guard in this
+    module and in the four beside it.
+
+    The population is every PERMISSION policy template, not only the portal role's — the execution
+    roles are read the same way, by the same kind of Sid-keyed assertion. **Trust policies are
+    excluded because nothing reads them by Sid**: they carry one statement naming a service or role
+    principal, and ``_rendered_trust`` below reads ``Statement[0]`` positionally. That is an
+    exclusion by how a document is READ rather than by a list of names, which is why it does not
+    rot the way a name list would — three trust policies in the tree carry no Sid today, and giving
+    them one would change documents this spec has no business touching.
+
+    A duplicate Sid is refused for a different reason: IAM rejects the document at
+    ``PutRolePolicy``, so it is an apply-time failure a plan cannot see.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a statement carries no Sid, or two statements in one document share one.
+    """
+    templates = sorted(
+        path
+        for path in INFRA.glob("modules/*/policies/*.json.tftpl")
+        if not path.name.endswith("-trust.json.tftpl")
+    )
+
+    assert len(templates) >= 40, (
+        f"the glob resolved onto {len(templates)} permission templates, so this comparison is vacuous"
+    )
+
+    offenders = []
+    for path in templates:
+        body = path.read_text()
+        relative = str(path.relative_to(REPO))
+        # An IAM statement carries exactly one Effect, so counting them counts statements without
+        # needing the document to be JSON — which these are not until Terraform renders them.
+        statements = body.count('"Effect"')
+        sids = re.findall(r'"Sid"\s*:\s*"([^"]*)"', body)
+
+        if statements != len(sids):
+            offenders.append(f"{relative}: {statements} statements but {len(sids)} Sids")
+        if len(sids) != len(set(sids)):
+            duplicated = sorted({sid for sid in sids if sids.count(sid) > 1})
+            offenders.append(f"{relative}: duplicate Sid(s) {duplicated}, which IAM refuses at PutRolePolicy")
+        malformed = sorted(sid for sid in sids if not sid.isalnum())
+        if malformed:
+            offenders.append(
+                f"{relative}: Sid(s) {malformed} are not alphanumeric. IAM accepts only [A-Za-z0-9] "
+                "in an identity policy's Sid and answers MalformedPolicyDocument at PutRolePolicy — "
+                "on the apply, with a green plan behind it."
+            )
+
+    assert offenders == [], offenders
+
+
 def test_ACCEPTED_the_portal_role_permission_templates_are_byte_identical_to_the_baseline() -> (
     None
 ):
@@ -303,7 +408,14 @@ def test_ACCEPTED_the_portal_role_permission_templates_are_byte_identical_to_the
         "in ADDED_SINCE_BASELINE so it is an argued edit rather than a silent one."
     )
 
-    for path in sorted(baseline - RETIRED_SINCE_BASELINE - CONTENT_ASSERTED):
+    live = baseline - RETIRED_SINCE_BASELINE
+    stale = CONTENT_ASSERTED - live
+    assert not stale, (
+        f"{sorted(stale)} is exempted from the byte comparison but is not a live permission "
+        "template, so the exemption covers nothing and hides nothing — remove it"
+    )
+
+    for path in sorted(live - CONTENT_ASSERTED):
         assert _git("show", f"{BASELINE_COMMIT}:{path}") == (REPO / path).read_text(), (
             f"{path} differs from its pre-change bytes"
         )
@@ -495,9 +607,10 @@ def test_the_shared_space_template_lost_ONLY_its_enqueue_statement() -> None:
         f"this change should remove exactly the enqueue statement; it removed "
         f"{set(before) - set(after)}"
     )
-    assert set(after) - set(before) == set(), (
-        f"it should add none; it added {set(after) - set(before)}"
-    )
+    assert set(after) - set(before) == {
+        "SharedResultsNoDeleteSystemSettings",
+        "SharedArchiveReceiptsAreNotUserWritableSystemSettings",
+    }, f"it should add exactly the two system-settings Denies; it added {set(after) - set(before)}"
     assert "sqs:SendMessage" not in (REPO / EDITED).read_text()
 
 
@@ -541,9 +654,25 @@ def test_the_user_space_template_gained_ONLY_the_shared_document_listing() -> No
     assert set(before) - set(after) == set(), (
         f"this change should remove nothing; it removed {set(before) - set(after)}"
     )
-    assert set(after) - set(before) == {"ListTheSharedDocuments"}, (
-        f"it should add exactly the document listing; it added {set(after) - set(before)}"
+    assert set(after) - set(before) == {
+        "ListTheSharedDocuments",
+        "ArchiveReceiptsAreNotUserWritableSystemSettings",
+    }, f"it should add exactly the listing and the receipt Deny's twin; it added {set(after) - set(before)}"
+
+    twin = after["ArchiveReceiptsAreNotUserWritableSystemSettings"]
+    original = after["ArchiveReceiptsAreNotUserWritable"]
+
+    assert '"Effect": "Deny"' in twin, "the receipt folder's second home must be DENIED, not allowed"
+    for action in ("s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"):
+        assert action in twin, f"the twin Deny drops {action}, so it refuses less than the one it twins"
+    assert "system_settings/archive/*" in twin, "the twin must name the receipt folder's new home"
+    assert "PrincipalTag/username" in twin, (
+        "the twin must stay anchored at the caller's own prefix, exactly as the statement it twins "
+        "is — unanchored it would deny every user's receipts to everyone"
     )
+    assert original.replace("/archive/", "/system_settings/archive/") == twin.replace(
+        "ArchiveReceiptsAreNotUserWritableSystemSettings", "ArchiveReceiptsAreNotUserWritable"
+    ), "the twin must differ from its original by the prefix and the Sid, and by nothing else"
 
     added = after["ListTheSharedDocuments"]
     assert '"s3:ListBucket"' in added
@@ -561,6 +690,71 @@ def test_the_user_space_template_gained_ONLY_the_shared_document_listing() -> No
     assert re.findall(r'"(_[a-z]+/\*)"', added) == ["_directory/*", "_config/*"], (
         "the document listing may name those two prefixes and nothing else"
     )
+
+
+def test_the_analytics_template_gained_ONLY_its_system_settings_siblings() -> None:
+    """The third edited permission template, checked by content because bytes cannot say how.
+
+    Its other statements are what analytics access IS — the Glue grants scoped to the caller's own
+    database, the workgroup grant, the results read/write and the two Denies. The pair added here
+    is the results folder's second home: an Allow so Athena can still write results once they live
+    a segment deeper, and a Deny so the user cannot delete them there, which is the whole point of
+    admitting the location before anything is written to it. An edit that widened the Glue grants
+    at the same time would be the same diff.
+
+    **The Allow grants the role nothing it did not already hold**, and it is worth being exact
+    about that rather than describing it as a widening. ``UserPrefixObjects`` in the user-space
+    template already Allows ``GetObject``/``PutObject`` on
+    ``{user space bucket}/$${aws:PrincipalTag/username}/*`` — the same bucket, the same role, and a
+    wildcard that covers every depth beneath the caller's prefix. Measured against the deployed
+    role before this landed: ``s3:PutObject`` on ``…/alice/system_settings/archive/x`` simulated as
+    ``allowed``. What this pair is FOR is the Deny beside it, and the Allow exists so the grant
+    survives the narrowing that later removes the depth-one half.
+
+    It is still scoped to the caller's own prefix by the same principal tag as the statement it
+    twins, and that is asserted rather than assumed — an unanchored twin would be a widening even
+    though this one is not.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If anything but the two siblings changed, or a sibling does not mirror the
+        statement it twins.
+    """
+    before = _statements_by_sid(_git("show", f"{BASELINE_COMMIT}:{ANALYTICS_EDITED}"))
+    after = _statements_by_sid((REPO / ANALYTICS_EDITED).read_text())
+
+    assert len(before) >= 5, "the sweep found nothing, so every comparison below is vacuous"
+
+    survived = set(before) & set(after)
+    changed = [name for name in sorted(survived) if before[name] != after[name]]
+    assert changed == [], (
+        f"a statement that should be untouched changed: {changed}. These are the Glue grants scoped "
+        "to the caller's own database and the workgroup grant — widening one would be this same diff."
+    )
+
+    assert set(before) - set(after) == set(), (
+        f"this change should remove nothing; it removed {set(before) - set(after)}"
+    )
+    assert set(after) - set(before) == {
+        "ResultsReadWriteSystemSettings",
+        "ResultsNoDeleteSystemSettings",
+    }, f"it should add exactly the two results siblings; it added {set(after) - set(before)}"
+
+    for sid in ("ResultsReadWrite", "ResultsNoDelete"):
+        twin = after[f"{sid}SystemSettings"]
+        assert "system_settings/athenaresults/*" in twin, f"{sid}'s twin does not name the new home"
+        assert "PrincipalTag" in twin, (
+            f"{sid}'s twin is not tag-scoped, so it would reach every user's results rather than "
+            "the caller's own — the isolation the statement it twins provides"
+        )
+        assert after[sid].replace("/athenaresults/", "/system_settings/athenaresults/") == twin.replace(
+            f"{sid}SystemSettings", sid
+        ), f"{sid}'s twin must differ from it by the prefix and the Sid, and by nothing else"
 
 
 def _repo_with_a_non_ascii_template(work: str) -> pathlib.Path:
