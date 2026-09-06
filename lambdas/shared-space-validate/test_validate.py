@@ -778,3 +778,31 @@ def test_the_deleting_card_names_the_verb_it_belongs_to():
     entry = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])["connections"][0]
 
     assert entry["status"] == "deleting" and entry["failedAction"] == "delete"
+
+
+def test_an_unhashable_action_is_refused_on_the_operator_route_too():
+    """The operator route meets a DIFFERENT membership test, in ``operator_refusal``, and meets it
+    BEFORE the identity check the other route runs first — so a case driven on one route says
+    nothing about the other. This one answers with a refusal value rather than a raise."""
+    s3, *_ = install()
+    config.TRANSFER_READER_ROLE_ID = _READER_ROLE
+    _seed_reg(s3, owner="alice", members=["alice", "bob"])
+
+    ctx = v.handler(_operator_event(action=["transfer_ownership"], new_owner="bob"), None)
+
+    assert ctx["refusal"]["code"] == "TransferOriginActionNotAllowed"
+
+
+def test_an_unhashable_action_reaches_this_plane_s_own_refusal():
+    """A list HASHES on the way into the membership test, so before the type check it raised
+    TypeError — and it did so THREE checks deep, at the member-action branch and then inside
+    ``authorize``, after the registry had already been loaded. The refusal has to be the named
+    one: this validator's raise is what seeds the null actor the notifier reads."""
+    s3, *_ = install()
+    _seed_reg(s3)
+
+    raises(
+        lambda: v.handler(_event(action=["create"]), None),
+        auth.AuthorizationError,
+        "unknown action: ['create']",
+    )

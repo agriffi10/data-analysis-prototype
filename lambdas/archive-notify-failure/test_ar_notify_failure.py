@@ -108,5 +108,20 @@ def test_a_timed_out_execution_notifies_the_actor_from_the_block_in_its_input(mo
     assert "ran for too long" in sent[0][1]
 
 
+def test_a_timed_out_execution_with_an_unhashable_mode_still_notifies(monkeypatch, sent):
+    """The mode picks the WORDING and nothing else, so a bad one must cost the wording, not the
+    message. Only THIS door reads it off the untrusted body — the ASL door reads the mode the
+    machine recorded — and it HASHES on the way into the membership test, so before the type check
+    a list raised TypeError out of a reader documented as raising nothing, inside the notifier of
+    last resort, three hours into a restore the user is now told nothing about."""
+    body = json.loads(_raw()[0]["body"])
+    body["mode"] = ["restore"]
+
+    verb.handler(_timed_out(input_body=[{"messageId": "m-1", "body": json.dumps(body)}]), None)
+
+    assert [user for user, _ in sent] == ["alice"]
+    assert "ran for too long" in sent[0][1]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

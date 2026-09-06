@@ -308,7 +308,7 @@ def _parse_record(record):
     if not isinstance(req, dict):
         raise ValidationError("message body is not an object")
     action = req.get("action")
-    if action not in VALID_ACTIONS:
+    if not events.in_vocabulary(action, VALID_ACTIONS):
         raise ValidationError(f"unknown action: {action!r}")
     return req
 

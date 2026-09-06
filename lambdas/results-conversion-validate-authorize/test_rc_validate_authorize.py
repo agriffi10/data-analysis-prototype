@@ -308,3 +308,21 @@ def test_the_identity_is_stamped_on_the_span(captured_events):
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+@pytest.mark.parametrize(
+    ("field", "detail"),
+    [
+        ("format", "unknown format ['parquet']"),
+        ("onConflict", "unknown conflict answer ['refuse']"),
+    ],
+    ids=["format", "on-conflict"],
+)
+def test_an_unhashable_vocabulary_field_reaches_this_plane_s_own_refusal(field, detail):
+    """A list in either field HASHES on the way into its membership test, so before the type check
+    each raised TypeError there — reported as an unexpected error, with this plane's own reason
+    code never rendered onto the execution."""
+    err, _sent, _athena = _refused(_body(**{field: [_body()[field]]}))
+
+    assert err.reason == "invalid_request"
+    assert err.detail == detail

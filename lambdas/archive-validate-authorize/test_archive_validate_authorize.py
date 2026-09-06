@@ -212,3 +212,27 @@ def test_the_source_space_kind_vocabulary_is_closed_on_both_modes(kind, mode):
 
     assert caught.value.reason == "forbidden"
     assert caught.value.detail == f"unknown source space kind {kind!r}"
+
+
+@pytest.mark.parametrize(
+    ("field", "reason", "detail"),
+    [
+        ("mode", "malformed_event", "unexpected mode ['archive']"),
+        ("kind", "invalid_items", "unknown item kind ['file']"),
+    ],
+    ids=["mode", "item-kind"],
+)
+def test_an_unhashable_vocabulary_field_reaches_this_plane_s_own_refusal(field, reason, detail):
+    """A list in either field HASHES on the way into the membership test, so before the type
+    check each raised TypeError there — recorded by the failure notifier as an unexpected error,
+    with a TypeError on the execution in place of a reason code the actor could be told about."""
+    if field == "mode":
+        event = _event(mode=["archive"])
+    else:
+        event = _event(source=_source(items=[{"kind": ["file"], "key": "alice/q1.csv"}]))
+
+    with pytest.raises(TerminalError) as caught:
+        verb.handler(event, None)
+
+    assert caught.value.reason == reason
+    assert caught.value.detail == detail

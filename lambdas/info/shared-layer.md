@@ -23,7 +23,7 @@ not need the rest. Where a claim is a settled project decision, the authority is
 | `config` | env-derived configuration, resolved on first access |
 | `ddl` | `CREATE EXTERNAL TABLE` generation, with the storage clause injected |
 | `errors` | the error vocabulary, and the one decoder of a Step Functions `Cause` |
-| `events` | the SQS envelope parse |
+| `events` | the SQS envelope parse, the task-input readers, and `in_vocabulary` — the type-checked closed-vocabulary test every plane uses instead of a bare `in` |
 | `glue` | Glue catalog reads shared by the planes that read a live table |
 | `jwks` | the cooldown JWKS client |
 | `lock` | the object-lock protocol: conditional acquire, staleness steal, release by overwrite |

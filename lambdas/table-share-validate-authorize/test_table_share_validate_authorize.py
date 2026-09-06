@@ -123,3 +123,12 @@ def test_a_share_into_an_EMPTIED_space_is_refused_even_from_a_former_member():
     assert out["recipients"] == [
         {"kind": "space", "name": "salesteam", "valid": False, "reason": "unknown_space"}
     ]
+
+
+def test_an_unhashable_recipient_kind_reaches_this_plane_s_own_refusal():
+    """A list HASHES on the way into the membership test, so before the type check it raised
+    TypeError there — reported as an unexpected error, with this plane's own reason code never
+    rendered onto the execution."""
+    _setup()
+
+    _expect_reason(_event(recipients=[{"kind": ["user"], "name": "bob"}]), "invalid_recipients")

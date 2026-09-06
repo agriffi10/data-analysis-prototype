@@ -103,7 +103,7 @@ def _check_contract(req) -> str:
     if not isinstance(req.get("requestId"), str) or not req["requestId"].strip():
         raise TerminalError(events.MALFORMED, "requestId missing or not a string")
     mode = req.get("mode")
-    if mode not in ARCHIVE_MODES:
+    if not events.in_vocabulary(mode, ARCHIVE_MODES):
         raise TerminalError(events.MALFORMED, f"unexpected mode {mode!r}")
     unknown = sorted(set(req) - _ALLOWED_FIELDS[mode])
     if unknown:
@@ -158,7 +158,7 @@ def _normalize_items(items, source: dict) -> list:
         if not isinstance(entry, dict):
             raise TerminalError("invalid_items", "each item must be an object")
         kind = entry.get("kind")
-        if kind not in _ITEM_KINDS:
+        if not events.in_vocabulary(kind, _ITEM_KINDS):
             raise TerminalError("invalid_items", f"unknown item kind {kind!r}")
         key = entry.get("key")
         if not isinstance(key, str) or not key:
@@ -203,7 +203,7 @@ def _wording_mode(req) -> str:
       None.
     """
     mode = req.get("mode") if isinstance(req, dict) else None
-    return mode if mode in ARCHIVE_MODES else ""
+    return mode if events.in_vocabulary(mode, ARCHIVE_MODES) else ""
 
 
 def _restore(req: dict, request_id: str, actor: str) -> dict:

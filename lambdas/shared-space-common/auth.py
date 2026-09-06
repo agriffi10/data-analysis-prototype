@@ -38,6 +38,7 @@ Attributes:
 
 import membership
 import messages
+from cpcommon import events
 
 import config
 
@@ -120,7 +121,7 @@ def authorize(action, space, actor, registry):
         missing space, an owner-only action attempted by a non-owner, an owner trying to leave
         their own space, or a non-member attempting a member-only action.
     """
-    if action not in config.VALID_ACTIONS:
+    if not events.in_vocabulary(action, config.VALID_ACTIONS):
         raise AuthorizationError(f"unknown action: {action!r}")
     if action == "create":
         return
@@ -128,13 +129,13 @@ def authorize(action, space, actor, registry):
         return
     if action == "transfer_ownership":
         return
-    if action in config.MEMBER_ACTIONS:
+    if events.in_vocabulary(action, config.MEMBER_ACTIONS):
         return
     if not isinstance(registry, dict):
         raise AuthorizationError(f"space {space!r} does not exist")
     owner = registry.get("owner")
     members = membership.roster(registry)
-    if action in config.OWNER_ONLY_ACTIONS:
+    if events.in_vocabulary(action, config.OWNER_ONLY_ACTIONS):
         if actor != owner:
             raise AuthorizationError(f"{action} on {space!r} is owner-only")
         return
@@ -311,7 +312,7 @@ def operator_refusal(origin, action, space, has_identity, sender_id):
         return _refusal("TransferOriginUnknown", space)
     if has_identity:
         return _refusal("TransferOriginBothCredentials", space)
-    if action not in config.OPERATOR_ACTIONS:
+    if not events.in_vocabulary(action, config.OPERATOR_ACTIONS):
         return _refusal("TransferOriginActionNotAllowed", space)
     configured = config.TRANSFER_READER_ROLE_ID
     if not configured:

@@ -203,3 +203,27 @@ def test_a_described_execution_with_no_usable_input_yields_no_input(monkeypatch)
     monkeypatch.setattr(events.clients, "sfn", lambda: _FakeSfn(described={"input": None}))
 
     assert events.timed_out_execution_input({"inputDetails": {"included": False}, "executionArn": "arn:x"}) == ""
+
+
+_VOCABULARY = frozenset({"copy", "move"})
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("copy", True),
+        ("delete", False),
+        (None, False),
+        (["copy"], False),
+        ({"copy": 1}, False),
+        ({"copy"}, False),
+    ],
+    ids=["a-member", "a-non-member", "none", "a-list", "a-dict", "a-set"],
+)
+def test_in_vocabulary_answers_without_hashing_the_value(value, expected):
+    """The list and dict rows are the point: `value in vocabulary` HASHES its left operand, so
+    without the type check each raises TypeError out of the membership test itself and the caller
+    never reaches its own named refusal. The set row is NOT a third such case and must not be read
+    as one — CPython retries an unhashable `set` operand as a frozenset, so it answers False on its
+    own and survives the type check's removal."""
+    assert events.in_vocabulary(value, _VOCABULARY) is expected

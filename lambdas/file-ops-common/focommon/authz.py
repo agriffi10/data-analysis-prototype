@@ -23,7 +23,7 @@ plane's codes. A future module importing only ``authz`` would otherwise get a ``
 it wrote a refusal, which is a worse failure than the one it was reporting.
 """
 
-from cpcommon import config
+from cpcommon import config, events
 from cpcommon import registry as reg
 from cpcommon.errors import TerminalError
 
@@ -75,7 +75,7 @@ def _resolve(username: str, space: object, side: str) -> dict:
     if not isinstance(space, dict):
         raise TerminalError("forbidden", f"missing {side} space")
     kind, name = space.get("kind"), space.get("name")
-    if not isinstance(kind, str) or kind not in SPACE_KINDS:
+    if not events.in_vocabulary(kind, SPACE_KINDS):
         raise TerminalError("forbidden", f"unknown {side} space kind {kind!r}")
     if not isinstance(name, str) or not name.strip():
         raise TerminalError("forbidden", f"{side} space name missing")

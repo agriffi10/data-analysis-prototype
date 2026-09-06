@@ -132,7 +132,7 @@ def _normalize_items(items, source: dict) -> list:
         if not isinstance(entry, dict):
             raise TerminalError("invalid_items", "each item must be an object")
         kind = entry.get("kind")
-        if kind not in _ITEM_KINDS:
+        if not events.in_vocabulary(kind, _ITEM_KINDS):
             raise TerminalError("invalid_items", f"unknown item kind {kind!r}")
         key = entry.get("key")
         if not isinstance(key, str) or not key:
@@ -191,7 +191,7 @@ def _normalize_recipients(recipients) -> list:
         if not isinstance(entry, dict):
             raise TerminalError("invalid_recipients", "each recipient must be an object")
         kind = entry.get("kind")
-        if kind not in RECIPIENT_KINDS:
+        if not events.in_vocabulary(kind, RECIPIENT_KINDS):
             raise TerminalError("invalid_recipients", f"unknown recipient kind {kind!r}")
         name = entry.get("name")
         if not isinstance(name, str) or not name.strip():

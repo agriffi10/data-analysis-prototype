@@ -177,7 +177,7 @@ def _validate_partition_keys(keys):
             raise TerminalError("invalid_partition_keys", f"duplicate key name {name!r}")
         seen.add(name)
         ptype = key.get("type")
-        if ptype not in PARTITION_TYPES:
+        if not events.in_vocabulary(ptype, PARTITION_TYPES):
             raise TerminalError("invalid_partition_keys", f"{name}: invalid type {ptype!r}")
         if ptype in ("integer", "date"):
             rng = key.get("range")

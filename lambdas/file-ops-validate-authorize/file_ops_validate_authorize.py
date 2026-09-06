@@ -96,7 +96,7 @@ def _check_contract(req) -> str:
         raise TerminalError(events.MALFORMED, "requestId missing or not a string")
 
     operation = req.get("operation")
-    if operation not in OPERATIONS:
+    if not events.in_vocabulary(operation, OPERATIONS):
         raise TerminalError("invalid_operation", f"unknown operation {operation!r}")
     return operation
 
@@ -135,7 +135,7 @@ def _check_conflict_fields(req: dict, operation: str) -> None:
     if not isinstance(destination, dict) or not isinstance(destination.get("prefix"), str):
         raise TerminalError("invalid_destination", "destination missing or malformed")
 
-    if req.get("onConflict") not in ON_CONFLICT:
+    if not events.in_vocabulary(req.get("onConflict"), ON_CONFLICT):
         raise TerminalError("invalid_conflict", f"unknown conflict answer {req.get('onConflict')!r}")
 
     _check_submitted_at(req.get("submittedAt"))
@@ -223,7 +223,7 @@ def _normalize_items(items, root: str) -> list:
         if not isinstance(entry, dict):
             raise TerminalError("invalid_items", "each item must be an object")
         kind = entry.get("kind")
-        if kind not in _ITEM_KINDS:
+        if not events.in_vocabulary(kind, _ITEM_KINDS):
             raise TerminalError("invalid_items", f"unknown item kind {kind!r}")
         key = entry.get("key")
         if not isinstance(key, str) or not key:

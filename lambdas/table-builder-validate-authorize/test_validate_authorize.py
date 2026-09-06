@@ -183,3 +183,16 @@ def test_ACCEPTED_allow_removals_false_rides_a_create_while_true_is_refused():
     out = v.handler(_event(_personal(), allow_removals=False), None)
     assert out is not None
     _expect_reason(_event(_personal(), allow_removals=True), "removals_flag_not_applicable")
+
+
+def test_an_unhashable_partition_type_reaches_this_plane_s_own_refusal():
+    """A list HASHES on the way into the membership test, so before the type check it raised
+    TypeError there — reported as an unexpected error, with this plane's own reason code never
+    rendered onto the execution."""
+    _setup()
+
+    _expect_reason(
+        _event(_personal(), partition_keys=[{"name": "day", "type": ["date"]}]),
+        "invalid_partition_keys",
+        "day: invalid type ['date']",
+    )
