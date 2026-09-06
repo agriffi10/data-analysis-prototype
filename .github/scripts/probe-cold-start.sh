@@ -63,6 +63,10 @@ STARTED=0
 for NAME in "${NAMES[@]}"; do
   FUNCTION="${PROJECT_NAME}-${ENVIRONMENT}-${NAME}"
   PAYLOAD_FILE="$(mktemp)"
+  # PRIVATE, not a fixed name: this script is executed by `lambdas/test_probe_cold_start.py`,
+  # and a fixed path is one file shared by every run of the suite on the machine — a second
+  # run truncating it while this one reads it back turns a real diagnosis into an empty one.
+  STDERR_FILE="$(mktemp)"
   echo "::group::${NAME}"
 
   # A function still settling answers 409, which would land in the "could not be invoked" branch as
@@ -81,10 +85,10 @@ for NAME in "${NAMES[@]}"; do
         --cli-binary-format raw-in-base64-out \
         --log-type Tail \
         --output json \
-        "$PAYLOAD_FILE" 2>/tmp/probe-stderr); then
-    echo "::error::${FUNCTION} could not be invoked: $(cat /tmp/probe-stderr)"
+        "$PAYLOAD_FILE" 2>"$STDERR_FILE"); then
+    echo "::error::${FUNCTION} could not be invoked: $(cat "$STDERR_FILE")"
     FAILED+=("${NAME} (invoke failed)")
-    rm -f "$PAYLOAD_FILE"; echo "::endgroup::"; continue
+    rm -f "$PAYLOAD_FILE" "$STDERR_FILE"; echo "::endgroup::"; continue
   fi
 
   # `// empty` rather than a default string: the AWS CLI prints the literal `None` for an absent
@@ -93,7 +97,7 @@ for NAME in "${NAMES[@]}"; do
   LOG=$(jq -r '.LogResult // empty' <<<"$META" | base64 --decode 2>/dev/null || true)
   ERROR_KIND=$(jq -r '.FunctionError // empty' <<<"$META")
   ERROR_TYPE=$(jq -r '.errorType // empty' "$PAYLOAD_FILE" 2>/dev/null || true)
-  rm -f "$PAYLOAD_FILE"
+  rm -f "$PAYLOAD_FILE" "$STDERR_FILE"
 
   if [ -z "$ERROR_KIND" ]; then
     # It returned a result, so the handler ran. No log needed to conclude that.

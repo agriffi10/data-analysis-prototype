@@ -1,6 +1,7 @@
 ---
 paths:
   - "scripts/**"
+  - ".github/scripts/**"
   - ".github/workflows/**"
   - "pyproject.toml"
   - "apps/portal/eslint.config.js"
