@@ -460,7 +460,7 @@ per (user, space) by the shared-space control plane rather than written as an at
 new verb on an existing plane and it is **not** scoped anywhere yet — §3.9 states the obligation;
 Phase 3 and Phase 5 are where it lands.
 
-**What is unaffected:** the seven control-plane execution roles are ordinary IAM roles and are *not*
+**What is unaffected:** the control-plane execution roles are ordinary IAM roles and are *not*
 identity-enhanced, so their direct S3 and Glue grants keep working untouched. Every asynchronous
 plane in this repo — file operations, table builder, table share, send-files, archive, data quality,
 shared spaces — crosses this revision unchanged. That is what makes them safe to keep building now.
@@ -807,7 +807,7 @@ can consult it, so that bucket forces the literal form whatever this one decides
   found a standing role-level Lake Formation grant that becomes a union grant on every space the
   moment the tags retire.
 
-**What does not change:** the seven control-plane execution roles keep their direct S3 grants and are
+**What does not change:** the control-plane execution roles keep their direct S3 grants and are
 untouched by any of this (§3.4).
 
 ### 3.10 Third-party driver access — Excel, Access, Power BI and anything else on ODBC/JDBC

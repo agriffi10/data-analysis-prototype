@@ -7,6 +7,7 @@ paths:
   - "infra/modules/data-quality/**"
   - "infra/modules/file-send/**"
   - "infra/modules/file-ops/**"
+  - "infra/modules/results-conversion/**"
   - "infra/modules/archive/**"
   - "infra/modules/notifications/**"
   - "infra/modules/control-plane-dlq-drain/**"
@@ -16,5 +17,5 @@ paths:
   - "apps/portal/src/features/data-quality/**"
 ---
 
-This file is in the **Control planes — one pattern, seven planes, and the traps are shared** area of the Key Decisions register.
+This file is in the **Control planes — one pattern, eight planes, and the traps are shared** area of the Key Decisions register.
 Before changing it, read `docs/decisions/control-planes.md#fences` — the traps there apply green and fail later.

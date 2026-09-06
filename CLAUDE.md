@@ -27,7 +27,7 @@ govern, in each tree's `info/` folder. Three you will reach for beside this file
 
 A web portal where authenticated users upload/download files to/from their own S3 prefix.
 Auth is AWS Cognito — a standalone **User Pool**; the Identity Pool is retired and the browser holds
-no AWS credentials. Arc B moved the object surface, the catalog and the eight control-plane queues
+no AWS credentials. Arc B moved the object surface, the catalog and the nine control-plane queues
 behind an API (`api.dataquarry.app`), and the SPA is a container behind an ALB; what the browser
 still calls directly is **presigned S3 bytes** and Cognito through Amplify. Status: greenfield, no
 production users yet.
@@ -97,7 +97,7 @@ the register, its `INDEX.md` and the rules to it.
 |---|---|
 | Identity, access and the name that ties them together | [`identity-and-access.md`](docs/decisions/identity-and-access.md#fences) |
 | Storage, and the fact S3 is not a filesystem | [`storage.md`](docs/decisions/storage.md#fences) |
-| Control planes — one pattern, seven planes, and the traps are shared | [`control-planes.md`](docs/decisions/control-planes.md#fences) |
+| Control planes — one pattern, eight planes, and the traps are shared | [`control-planes.md`](docs/decisions/control-planes.md#fences) |
 | Analytics, the catalog, and two SQL dialects | [`analytics.md`](docs/decisions/analytics.md#fences) |
 | Archive and restore — the only place a mistake is unrecoverable | [`archive-and-restore.md`](docs/decisions/archive-and-restore.md#fences) |
 | The browser | [`browser.md`](docs/decisions/browser.md#fences) |

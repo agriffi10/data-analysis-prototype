@@ -1,7 +1,8 @@
 # The control-plane module shape
 
-Seven modules are the same machine with different verbs: **shared-spaces**, **table-builder**,
-**table-share**, **data-quality**, **file-send**, **archive** and **file-ops**. This page is what they
+Eight modules are the same machine with different verbs: **shared-spaces**, **table-builder**,
+**table-share**, **data-quality**, **file-send**, **archive**, **file-ops** and
+**results-conversion**. This page is what they
 have in common, so each module's own README carries only what is distinct about it.
 
 ```

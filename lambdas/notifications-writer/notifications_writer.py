@@ -205,7 +205,7 @@ def apply_create(notifications, message, link=None, payload=None):
     this Lambda could only disagree with the one that actually matters.
 
     **The payload is the same shape of optional field and is written on the same terms**, so a
-    producer that supplies none — six of the seven planes — still writes the four keys it always
+    producer that supplies none — six of the eight planes — still writes the four keys it always
     wrote. What differs is that a payload is a structured object of the producer's own choosing
     rather than one bounded string, so its SIZE is checked. Its CONTENTS are not: the browser
     rebuilds the row field by field, which is where a shape decision belongs.

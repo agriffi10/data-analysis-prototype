@@ -2845,9 +2845,10 @@ made:** the CSV exists before this plane and whether or not it runs, because it 
 result, and the plane adds exactly one object in the chosen format. The path that avoids the CSV
 is `UNLOAD`, and it is the one that writes several files. It is also what makes
 ownership a question about a path: an execution is the actor's iff its output sits under the
-results prefix the API writes with. Today that rule lives in the API alone (`cpcommon.results`
-holds a *different* fact — where a plane's own DDL writes — and the two are not the same shape on
-purpose), so 221 lifts the user-results builder into `cpcommon` and the API calls it. **221 depends
+results prefix the API writes with. That rule lived in the API alone (`cpcommon.results`
+held a *different* fact — where a plane's own DDL writes — and the two are not the same shape on
+purpose), so 221 lifted the user-results builder into `cpcommon`, where both facts now sit side by
+side, and the API calls it. **221 depends
 on 218 for something else:** the app-managed folder set it refuses as a destination lives today in
 `focommon` and the browser, and 218 is the spec that makes it one builder; a third copy in
 `rccommon` would be the duplication 218 exists to retire, and an import from `focommon` would be a
