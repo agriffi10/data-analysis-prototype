@@ -74,16 +74,24 @@ def may_receive_share(record: dict | None) -> bool:
     An owner is therefore the second half of the test, and it is expressed here once rather than
     at each call site, because the two callers are different planes.
 
+    The owner must be a string, for the reason spelled out under ``is_active_member``: these
+    predicates are the whole of the decision on planes that never look at the record themselves,
+    so a field's type is checked here rather than assumed. A truthy non-string owner is not a
+    person anybody could be notified at.
+
     Args:
       record: A record from ``load``, or None.
 
     Returns:
-      True if the space exists, is live, and still belongs to somebody.
+      True if the space exists, is live, and still names an owner.
 
     Raises:
       None.
     """
-    return bool(is_active(record) and (record or {}).get("owner"))
+    if not is_active(record):
+        return False
+    owner = cast("dict", record).get("owner")
+    return isinstance(owner, str) and bool(owner)
 
 
 def is_active_member(record: dict | None, actor: str) -> bool:
@@ -93,14 +101,36 @@ def is_active_member(record: dict | None, actor: str) -> bool:
     chip. Access is granted at add time, so a member whose chip still reads pending passes
     this check.
 
+    **The roster has to be a list, and asserting that is half the test.** ``in`` is not one
+    operator: against a list it compares whole elements, against a string it matches substrings,
+    and against a dict it matches keys. A record whose ``members`` arrived as ``"alice,bob"``
+    would therefore authorize ``alice`` and ``bob`` and equally ``ali``, ``lic`` and ``ce,b`` —
+    a predicate that reads as a membership test behaving as a substring match. Nothing writes a
+    roster that shape today, the shared-spaces plane being the only writer and always writing a
+    list. This is the read side, and every plane on it hands a loaded record straight to this
+    function and never reads the roster itself, so the type is checked where the decision is made
+    rather than trusted from a JSON document one plane away. The planes are deliberately not
+    listed here: ``lambdas/test_space_reachability_predicates.py`` derives that population from
+    the tree for the reason its own docstring gives, and a count written down beside the code
+    goes stale the week a plane is added.
+
+    The shared-space layer's own authorizer is not covered from here. It reads the same roster
+    with the same operator, in its own module.
+
+    The status is tested before the roster is read, so a record that is not a dict at all
+    answers False rather than raising, as it does through ``is_active``.
+
     Args:
       record: A record from ``load``, or None.
       actor: The verified username to look for.
 
     Returns:
-      True if the space is active and lists the actor.
+      True if the space is active and its roster is a list naming the actor.
 
     Raises:
       None.
     """
-    return is_active(record) and actor in ((record or {}).get("members") or [])
+    if not is_active(record):
+        return False
+    members = cast("dict", record).get("members")
+    return isinstance(members, list) and actor in members
