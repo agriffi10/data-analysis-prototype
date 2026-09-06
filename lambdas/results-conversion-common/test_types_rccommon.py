@@ -240,9 +240,13 @@ def test_the_two_halves_of_the_capture_describe_the_same_execution():
         "the metadata and the CSV no longer name the same columns in the same order, so the two "
         "files are not one execution any more"
     )
-    assert [len(row) for row in rows] == [len(header)], (
-        "the data row no longer has one field per column, so the capture demonstrates a shape "
-        "Athena did not write"
+    assert len(rows) == 1, (
+        f"the capture holds {len(rows)} data rows rather than one, so it is no longer the single "
+        "row every assertion here indexes into"
+    )
+    assert len(rows[0]) == len(header), (
+        f"the data row has {len(rows[0])} fields against {len(header)} columns, so the capture "
+        "demonstrates a shape Athena did not write"
     )
 
 

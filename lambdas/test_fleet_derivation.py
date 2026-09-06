@@ -384,15 +384,38 @@ ACCOUNT_LIMITS = (
 )
 
 
+
+#: How a caller wires a function's size into the shared Lambda module. Every Lambda in this repo
+#: goes through ``infra/modules/docker-lambda``, so a module that does not source it deploys no
+#: function and its numbers answer to a different service entirely — ``spa`` sizes a Fargate task,
+#: where 4,096 MB is ordinary and this gate's Lambda ceiling would be a false refusal of a correct
+#: value. The population is derived from that fact rather than from a list of module names, so a
+#: new plane joins it by wiring itself up and nobody has to remember.
+_SHARED_LAMBDA_MODULE = "docker-lambda"
+
+
 def declaration_files() -> list[pathlib.Path]:
-    """Every Terraform file an account-quota number can be declared in, in one place.
+    """Every Terraform file an account-quota number can reach ``CreateFunction`` through.
 
     The population this gate sweeps, and getting it wrong is how the gate stays green over a
     function it never read. It began as ``infra/modules/*/locals.tf`` — the per-module fleet map —
     and that missed TEN declarations: a module with one function passes ``memory_mb`` straight to
-    the shared ``docker-lambda`` block in its own ``lambda.tf`` and never builds a map at all. Any
-    of those ten raised past the ceiling would have deployed unseen, which is the exact failure
-    this gate exists for.
+    the shared block in its own ``lambda.tf`` and never builds a map. ``fleet.py``'s
+    ``_locals_bodies`` states the same lesson for its own sweep, naming ``api`` and ``auth``; both
+    were among the ten.
+
+    **The gate's known ceiling is INDIRECTION, and it is not closeable from here.** A value
+    assigned through a local or a variable — ``memory = local.heavy_tier`` — leaves no literal for
+    any text sweep to read. Refusing non-literal assignment is not open either: indirection is how
+    this fleet is wired, with seven legitimate ``memory_mb = each.value.memory`` sites. Resolving
+    it needs the plan's own values, which is a CI-side check beside the apply that already knows,
+    and it is recorded in ``docs/testing/owed.md`` rather than left as a silent limit.
+
+    It is scoped to modules that SOURCE the shared Lambda module, plus that module itself for its
+    variable defaults. Sweeping every ``.tf`` under ``infra/`` instead is one line shorter and
+    wrong in the expensive direction: it reaches ``spa``'s Fargate task memory, which this ceiling
+    does not govern, and a gate that refuses a correct value teaches the next person to route
+    around it.
 
     ``.terraform`` is excluded rather than merely absent today: it holds nothing after a
     provider-only ``init``, but a registry module would put third-party HCL under it, and a
@@ -403,16 +426,30 @@ def declaration_files() -> list[pathlib.Path]:
       None.
 
     Returns:
-      Every ``.tf`` file under ``infra/``, sorted, excluding vendored ones.
+      Every ``.tf`` file in a module that deploys a Lambda, sorted.
 
     Raises:
       None.
     """
+    modules = {MODULES / _SHARED_LAMBDA_MODULE}
+    for path in MODULES.rglob("*.tf"):
+        if ".terraform" in path.parts:
+            continue
+        if f'"../{_SHARED_LAMBDA_MODULE}"' in path.read_text(encoding="utf-8"):
+            modules.add(path.parent)
     return sorted(
         path
-        for path in (ROOT / "infra").rglob("*.tf")
+        for module in modules
+        for path in module.rglob("*.tf")
         if ".terraform" not in path.parts
     )
+
+
+#: HCL's three comment forms. Stripped before the sweep reads a file, because a commented-out
+#: declaration is the opposite of a deployed one and a gate that refuses
+#: ``# was: memory = 10240 until CreateFunction refused it`` punishes the person documenting this
+#: very trap. Applied to a population of many files, where commented HCL is ordinary.
+_HCL_COMMENT = re.compile(r"/\*.*?\*/|(?<!:)//[^\n]*|#[^\n]*", re.DOTALL)
 
 
 def declaration_pattern(dimension: str) -> str:
@@ -422,12 +459,21 @@ def declaration_pattern(dimension: str) -> str:
     that keeps passing after the sweep's copy stops matching — the two drift apart silently and
     the tree looks healthy from both sides.
 
-    The dimension may carry a prefix or a suffix: the module keys are ``memory`` and
-    ``ephemeral`` today, but ``ephemeral_storage_mb`` is the spelling a new module is as likely
-    to reach for, and a bare-token match walks straight past it while reporting nothing. The
-    trade is deliberate and one-sided — ``max_memory = 10240`` is now refused as well, which is a
-    number in a fleet ``.tf`` that a person should look at either way, while the
-    miss it replaces was an over-ceiling declaration deploying unseen.
+    The dimension may carry a prefix or a suffix: the keys are ``memory``, ``memory_mb`` and
+    ``ephemeral`` today, but ``ephemeral_storage_mb`` is the spelling a new module is as likely to
+    reach for, and a bare-token match walks straight past it while reporting nothing. The trade is
+    deliberate and one-sided — ``max_memory = 10240`` is refused as well, which is a number in a
+    fleet ``.tf`` a person should look at either way, against a miss that deploys unseen.
+
+    The value may be QUOTED. ``memory = "10240"`` is not a typo that Terraform rejects: HCL
+    converts a string to the declared ``number``, so ``tofu validate`` and ``tofu plan`` are both
+    green and only the apply refuses — verified against a scratch module rather than argued.
+    ``10_240`` needs no handling: HCL rejects numeric underscores outright.
+
+    There is deliberately NO left lookbehind. One was written and removed as provably dead: where
+    the rest of the pattern matches at a position whose predecessor is a word character, the
+    greedy prefix also matches one character earlier, so the leftmost match is never the one a
+    lookbehind would block. It read as anchoring and did nothing.
 
     Args:
       dimension: The token an account quota bites on, from ``ACCOUNT_LIMITS``.
@@ -438,7 +484,7 @@ def declaration_pattern(dimension: str) -> str:
     Raises:
       None.
     """
-    return rf"(?<![A-Za-z0-9_])([A-Za-z0-9_]*{dimension}[A-Za-z0-9_]*)\s*=\s*(\d+)"
+    return rf'([A-Za-z0-9_]*{dimension}[A-Za-z0-9_]*)\s*=\s*"?(\d+)"?'
 
 
 def over_account_limits(text: str, label: str) -> list[str]:
@@ -449,27 +495,43 @@ def over_account_limits(text: str, label: str) -> list[str]:
     whether the check fires, and a gate whose checks have gone quiet looks exactly like a healthy
     repo.
 
+    Two ways a number reaches ``CreateFunction`` are read, because they fail identically and are
+    written differently: a direct assignment, and a ``variable`` block's ``default``, whose key on
+    the line is the word ``default`` and which therefore no assignment pattern can see. The
+    default is the more dangerous of the two — one line in the shared module, applying to every
+    function that passes no argument, which is all of them but one.
+
     Args:
       text: The contents of one file from ``declaration_files`` — a module's ``locals.tf`` fleet
-        map, its single-function ``lambda.tf``, or a root ``.tf``. The checker is shape-agnostic:
-        it reads ``key = digits`` and does not care whether the key sits in a map or in a
-        ``module`` block.
+        map, its single-function ``lambda.tf``, or the shared module's ``variables.tf``. The
+        checker is shape-agnostic about the first two: it reads ``key = digits`` and does not care
+        whether the key sits in a map or in a ``module`` block.
       label: How to name the file in an offence, so the message points somewhere.
 
     Returns:
-      One string per offending declaration, naming the key AS WRITTEN, the value and the
-      ceiling — the key rather than the dimension, because a match on a suffixed spelling that
-      reported the bare token would send the reader looking for a line that is not there.
+      One string per offending declaration, naming the key AS WRITTEN, the value and the ceiling —
+      the key rather than the dimension, because a match on a suffixed spelling that reported the
+      bare token would send the reader looking for a line that is not there.
 
     Raises:
       None.
     """
+    live = _HCL_COMMENT.sub("", text)
     offences = []
     for dimension, ceiling in ACCOUNT_LIMITS:
-        for match in re.finditer(declaration_pattern(dimension), text):
+        for match in re.finditer(declaration_pattern(dimension), live):
             key, declared = match.group(1), int(match.group(2))
             if declared > ceiling:
                 offences.append(f"{label}: {key} = {declared}, over this account's {ceiling}")
+        for block in re.finditer(
+            rf'variable\s+"([A-Za-z0-9_]*{dimension}[A-Za-z0-9_]*)"\s*\{{(.*?)\n\}}', live, re.DOTALL
+        ):
+            default = re.search(r'\n\s*default\s*=\s*"?(\d+)"?', block.group(2))
+            if default and int(default.group(1)) > ceiling:
+                offences.append(
+                    f"{label}: variable {block.group(1)} defaults to {default.group(1)}, "
+                    f"over this account's {ceiling}"
+                )
     return offences
 
 
@@ -495,6 +557,40 @@ def test_no_module_declares_more_memory_than_this_account_will_create() -> None:
     assert offenders == [], (
         "these exceed what this account is known to create, and only the apply would say so: "
         f"{offenders}. Raise the AWS quota first, then this constant, then the declaration"
+    )
+
+
+#: The two ways a size is wired, by the file each lives in. Named rather than counted, because a
+#: COUNT cannot see this regression and a shape can: reverting the population to
+#: ``modules/*/locals.tf`` drops the ten single-function declarations and leaves 71, which clears
+#: a floor of 70 by one. The floor is the wrong instrument for a whole shape going missing.
+DECLARING_FILES = ("locals.tf", "lambda.tf")
+
+
+def test_the_population_carries_both_ways_a_size_is_wired() -> None:
+    """Both wiring shapes are present, so losing one is a red gate rather than a smaller number.
+
+    This is the guard on the fix rather than on the fleet. The population began at the fleet maps
+    alone and was blind to every module deploying a single function; a narrowing back to that glob
+    passes every count-based check in this file, because the ten it drops are fewer than the slack
+    any honest floor has to leave.
+    """
+    names = {path.name for path in declaration_files()}
+    missing = [name for name in DECLARING_FILES if name not in names]
+    assert not missing, (
+        f"the population no longer reaches {missing} — a whole way of declaring a size is "
+        "unread, and every count in this file is still large enough to pass"
+    )
+    sources = {
+        path.name
+        for path in declaration_files()
+        for _ in re.finditer(
+            declaration_pattern("memory"), _HCL_COMMENT.sub("", path.read_text(encoding="utf-8"))
+        )
+    }
+    assert set(DECLARING_FILES) <= sources, (
+        f"memory declarations are being read from {sorted(sources)} only; the sweep reaches a "
+        "file shape it finds nothing in, which is how the narrowing looked last time"
     )
 
 
@@ -524,7 +620,10 @@ def test_each_dimension_sweep_reads_the_declarations_it_claims_to(dimension: str
     found = [
         int(match.group(2))
         for path in declaration_files()
-        for match in re.finditer(declaration_pattern(dimension), path.read_text(encoding="utf-8"))
+        for match in re.finditer(
+            declaration_pattern(dimension),
+            _HCL_COMMENT.sub("", path.read_text(encoding="utf-8")),
+        )
     ]
     assert len(found) >= DECLARATIONS_AT_LEAST[dimension], (
         f"the {dimension} sweep found only {len(found)} declarations, under the "
@@ -589,6 +688,40 @@ ACCOUNT_LIMIT_CORPUS = (
         [],
     ),
     (
+        "a QUOTED value is not a way past it — HCL converts the string and only the apply refuses",
+        '"a" = { memory = "10240" }',
+        ["memory = 10240, over this account's 3008"],
+    ),
+    ("a quoted value under the ceiling is silent", '"a" = { memory = "256" }', []),
+    (
+        "a variable DEFAULT is read, because the key on that line is the word default",
+        'variable "ephemeral_storage_mb" {\n  type    = number\n  default = 10240\n}',
+        ["variable ephemeral_storage_mb defaults to 10240, over this account's 2048"],
+    ),
+    (
+        "a variable default under the ceiling is silent",
+        'variable "ephemeral_storage_mb" {\n  type    = number\n  default = 512\n}',
+        [],
+    ),
+    (
+        "a COMMENTED-OUT declaration is silent, in all three of HCL's comment forms",
+        (
+            '# was: memory = 10240 until CreateFunction refused it\n'
+            '// memory = 10240\n'
+            '/* memory = 10240 */\n'
+            '"a" = { memory = 256 }'
+        ),
+        [],
+    ),
+    (
+        "two offenders of the SAME dimension are both named, not just the first",
+        '"a" = { memory = 4096 }\n"b" = { memory = 5000 }',
+        [
+            "memory = 4096, over this account's 3008",
+            "memory = 5000, over this account's 3008",
+        ],
+    ),
+    (
         "the widening's cost, stated rather than hidden: a word merely CONTAINING the token trips it",
         '"a" = { rememory = 10240, preephemeralism_seconds = 10240 }',
         [
@@ -620,6 +753,37 @@ def test_the_account_ceiling_gate_fires_and_stays_silent_where_it_should(
     for offence, wanted in zip(offences, expected, strict=True):
         assert wanted in offence, f"{case}: {offence!r} does not say {wanted!r}"
         assert offence.startswith("fixture/locals.tf: "), f"{case}: the offence names no file"
+
+
+def test_an_offence_names_a_path_a_reader_can_open() -> None:
+    """The label the sweep passes is a repo-relative PATH, not a basename.
+
+    The corpus can only see the label it supplies itself, so nothing there constrains what the
+    sweep hands over. With a fleet-wide population that matters: fifteen modules have a
+    ``lambda.tf``, and an offence reading ``lambda.tf: memory_mb = 10240`` names all of them.
+    Planted by labelling with ``path.name``, which every other test in this file survives — so
+    this OBSERVES the label the sweep passes rather than recomputing it. A test that derives the
+    expected label from the same expression the sweep uses agrees with the sweep by construction
+    and cannot see the plant at all; the first draft of this did exactly that and passed.
+    """
+    seen: list[str] = []
+    original = globals()["over_account_limits"]
+    globals()["over_account_limits"] = lambda text, label: seen.append(label) or []
+    try:
+        test_no_module_declares_more_memory_than_this_account_will_create()
+    finally:
+        globals()["over_account_limits"] = original
+
+    assert seen, "the sweep called the checker for no file at all"
+    bare = [label for label in seen if "/" not in label]
+    assert not bare, (
+        "the sweep labels a file by its basename; fifteen modules have a lambda.tf, so an "
+        f"offence would not say which one: {bare[:3]}"
+    )
+    assert all(label.startswith("infra/") for label in seen), (
+        "a label is not relative to the repo root, so it does not resolve from where the reader "
+        "of the message is standing"
+    )
 
 
 def test_the_gate_covers_every_dimension_an_account_quota_can_bite() -> None:
