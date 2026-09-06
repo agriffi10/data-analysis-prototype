@@ -24,8 +24,9 @@ Attributes:
     leading underscore. Query output and the notification inbox plus saved queries have no
     leading underscore, so the segment rule would not catch them — but a folder-level scan
     reaching a space root must never treat them as source data. Matched against the remainder
-    after the listing prefix, so the results entry is built with an EMPTY root: the remainder is
-    relative, and the builder is what moves it when the folder moves.
+    after the listing prefix, so the results entries are built with an EMPTY root: the remainder is
+    relative. They come from the PLURAL builder, so there are two of them while both homes are
+    admitted, and they do **not** follow the singular when the write moves.
 """
 
 from collections.abc import Callable, Iterator

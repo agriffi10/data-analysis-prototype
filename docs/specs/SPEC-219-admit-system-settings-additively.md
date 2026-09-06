@@ -1,7 +1,7 @@
 # Spec: Admit `system_settings/` Additively
 
 **ID:** SPEC-219
-**Status:** In Progress
+**Status:** Completed
 **Last Updated:** 2026-09-06
 **Depends On:** SPEC-218
 
@@ -113,9 +113,13 @@ commit. The analytics template joins `CONTENT_ASSERTED` with a gained set of its
 **One template gains a statement that is a sibling of nothing, and it is FR-002 that forces it.**
 The results-conversion plane joined the population after this spec was authored. Its execution role
 Denies `s3:PutObject` on every folder the browser's picker refuses, and
-`test_plane_results_conversion.py` holds `rccommon.config.PROTECTED_DESTINATIONS` **set-equal** to
-`focommon.config.PICKER_LOCKED_FOLDERS` — so the moment FR-002 appends `system_settings` to that
-list, the same file's Deny test demands `{bucket}/*/system_settings/*` in both space buckets. Those
+`test_plane_results_conversion.py` held `rccommon.config.PROTECTED_DESTINATIONS` **set-equal** to
+`focommon.config.PICKER_LOCKED_FOLDERS` when this was written — so the moment FR-002 appends
+`system_settings` to that list, the same file's Deny test demands `{bucket}/*/system_settings/*` in
+both space buckets. **SPEC-222 has since loosened that to an inclusion plus an enumeration of the
+difference**, deliberately: the equality made the browser's picker the authority for a plane whose
+refusals mirror IAM, which is what hid `system_settings` from it. The Deny requirement is unchanged
+either way, because the folder is in both lists. Those
 two resources name the folder the three moving folders move *into*, not a moving folder, so no
 sibling rule reaches them and neither the population test nor the siblings test can see them. They
 land in the templates PR ahead of the rule change, with an assertion of their own, because a
@@ -124,8 +128,15 @@ statement no guard reads is how this arc already shipped one that was invisible.
 **Ordering, once that Deny exists:** it refuses `system_settings` at any depth while
 `rccommon.paths.protected_refusal` still does not, so between the templates PR and FR-002 the plane
 would answer a bare `AccessDenied` where it owes a named refusal — the inversion that module's
-docstring exists to warn about. It cannot bite while the role holds no write grant at all, which is
-true today; **FR-002 must therefore land before SPEC-222 gives the converter one.**
+docstring exists to warn about.
+
+**Resolved, and not in the order this predicted.** The constraint as written was that FR-002 land
+before SPEC-222 gave the converter a write grant. It did not: `WriteConvertedFiles` (`s3:PutObject`
+and `s3:AbortMultipartUpload` on both space buckets) merged first. No window opened, because
+SPEC-222 appended `system_settings` to `PROTECTED_DESTINATIONS` **in the same commit that took the
+grant**, so the named refusal existed from the moment the grant did. The constraint was satisfied by
+the other spec taking the append onto itself rather than by the ordering — which is the more robust
+resolution, since it does not depend on two specs merging in a particular sequence.
 
 #### Acceptance Criteria:
 
@@ -242,9 +253,11 @@ are asserted against the new home with a pair test and, for data quality, extend
       folder's direct arm — and appending last also leaves every existing member's seat alone,
       which prepending does not. `PICKER_LOCKED_FOLDERS` and `UNDELETABLE_ROOT_FOLDERS` gain it
       appended **last**, and so does
-      `rccommon.config.PROTECTED_DESTINATIONS`, which `test_plane_results_conversion.py` holds
-      set-equal to the picker's list — without it that plane's suite reddens the moment the picker
-      grows; and
+      `rccommon.config.PROTECTED_DESTINATIONS`, which `test_plane_results_conversion.py` holds as a
+      SUPERSET of the picker's list — an inclusion plus an enumerated difference, not an equality,
+      since SPEC-222 gave that up on purpose. Without the append, that plane's suite reddens the
+      moment the picker grows; **do not restore the equality to satisfy this criterion** — the
+      inclusion is the settled shape and the equality is what hid this folder from the plane; and
       `_IGNORED_SUBTREES` is `("athenaresults/", "system_settings/athenaresults/", "user_settings/")`;
       each per-list literal assertion from SPEC-218 is updated to the new exact membership, and no
       other member moves.

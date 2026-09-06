@@ -1,16 +1,23 @@
 /**
- * The folders the app manages inside a space, and the ONE function that turns a folder name
- * into the prefix it occupies.
+ * The folders the app manages inside a space, and the two functions that turn a folder name into
+ * the prefix or prefixes it occupies.
  *
  * Three folders are about to move under a real `system_settings/` prefix. Nearly every rule about
  * them is anchored at depth one — `${rootPrefix}${name}/` — so a move to depth two would leave each
- * hand-written comparison silently not matching. This module exists so that the move is one edit
- * to `appManagedPrefix` rather than a hunt: the names are declared here and nowhere else, and every
- * anchored construction in the app calls the builder. It lives in `lib/` because two features need
- * it and the archive feature deliberately imports nothing from another feature.
+ * hand-written comparison silently not matching. This module exists so that the move is an edit
+ * here rather than a hunt: the names are declared here and nowhere else, and every anchored
+ * construction in the app calls a builder. It lives in `lib/` because two features need it and the
+ * archive feature deliberately imports nothing from another feature.
  *
- * Today the builder is the depth-one form and every folder resolves to exactly the string it
- * always has. A sweep in CI refuses a new declaration or construction outside this file.
+ * **Which builder a caller takes is the design.** `appManagedPrefix` is where a WRITE goes.
+ * `appManagedPrefixes` is what every root-anchored COMPARISON calls, and it answers for every
+ * location a folder may occupy — two while both homes of a moving folder are admitted, one for
+ * anything else. So the move edits both, not one.
+ *
+ * Today the SINGULAR builder is the depth-one form and resolves every folder to exactly the string
+ * it always has, which is what keeps a write where it was. The plural answers with that string plus
+ * the second home, for a moving folder only. A sweep in CI refuses a new declaration or
+ * construction outside this file.
  */
 
 /** Athena writes every query's result set here. Visible, browsable, never a write destination. */

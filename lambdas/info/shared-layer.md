@@ -260,16 +260,24 @@ nothing there.
 that does not work here is no longer on any path, and no call site depends on credentials
 being threaded into it.
 
-## `cpcommon/app_managed.py` — the folder names, and one builder per fact
+## `cpcommon/app_managed.py` — the folder names, and the builders per fact
 
 Three app-managed folders — `athenaresults/`, `archive/` (the receipt folder) and `shared_tables/`
 — are about to move under a real `system_settings/` prefix. What breaks a move like that is not the
 spelling but the **depth**: nearly every rule across the fleet was anchored at depth one as
 `f"{root}{name}/"`, in eleven modules, and at depth two each would simply stop matching, silently.
 `fscommon.authz` had already written the warning into its own docstring. So the names are declared
-in this one module and every anchored construction calls a builder; the move is one edit to
-`app_managed_prefix`, and a CI sweep (`scripts/validate_app_managed_paths.py`) refuses a new
-declaration or construction anywhere else.
+in this one module and every anchored construction calls a builder, and a CI sweep
+(`scripts/validate_app_managed_paths.py`) refuses a new declaration or construction anywhere else.
+
+**There are TWO builders, and which one a caller takes is the whole design.** `app_managed_prefix`
+is the singular — where a WRITE goes, and the one the move edits. `app_managed_prefixes` is the
+plural: every root-anchored COMPARISON calls it, and it returns every location a folder may occupy,
+which is two for a member of `MOVING_FOLDERS` while both homes are admitted and one for anything
+else. **Its two elements are literals, never derived from the singular** — derived, moving the write
+would drag every rule's second home to a third location that holds nothing — so the move edits both
+functions, not one. A test in each tree guards the non-derivation directly, because no value can
+show it while the singular is still depth-one.
 
 **Nothing in it normalizes.** Every builder is a pure f-string over what it is handed, so each
 caller keeps its own `normalize_root` and produces the bytes it always produced. The reason is the
@@ -285,13 +293,23 @@ constants; the sweep names that file as a second owner. A tripwire in `archive-c
 three equal today and asks to be revisited, not deleted, when the receipt folder moves.
 
 **What this does not touch:** `user_settings/`, `saved_queries/`, `_data-quality-reports/` and the
-other non-moving folders keep the owners they have; the domain lists keep their membership
-(asserted member for member in each layer's tests) and only spell the three moving names through
-this module; and one rule is anchored WITHOUT the builder because it holds no root: `dq_validate_authorize`
-compares a key's first segment to a name, which stops firing at depth two and is on the move's own
-hunt list. `s3_listing._IGNORED_SUBTREES` looked like a second — it prefix-matches a
-listing-relative remainder — and is built through the builder with an EMPTY root instead, so it
-moves when the builder does.
+other non-moving folders keep the owners they have and gain no second home, which is what keeps
+`{root}system_settings/user_settings/` an ordinary folder; and one rule is anchored WITHOUT a builder
+because it holds no root: `dq_validate_authorize` compares a key's first segment to a name, which
+reaches exactly one depth — that is the point of it — so a folder moving to depth two would stop
+being caught. What covers the new location is `system_settings` itself joining `RESERVED_PREFIXES`,
+which is a list change rather than a re-pointing, and it makes the whole prefix unreachable as a
+check target. `s3_listing._IGNORED_SUBTREES` looked
+like a second — it prefix-matches a listing-relative remainder — and is built through the PLURAL
+with an EMPTY root, so it carries both homes and does **not** follow the singular when that moves.
+
+The domain lists no longer keep the membership they had: `system_settings` joined five of the
+fleet's — `arcommon.RESERVED_SOURCE_ROOTS`, `focommon.PICKER_LOCKED_FOLDERS` and
+`UNDELETABLE_ROOT_FOLDERS`, `dqcommon.RESERVED_PREFIXES` and `rccommon.PROTECTED_DESTINATIONS`
+(which took it a commit earlier, with the converter's write grant) — because the prefix the three
+folders move into is itself reserved — never a paste target, never
+deletable, never an archive source, never a data-quality or conversion destination. Each list is
+still asserted member for member in its own layer's tests.
 
 ## `cpcommon/transfer/config.py` — sizing the Distributed Map
 

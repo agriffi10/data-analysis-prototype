@@ -2791,8 +2791,10 @@ protection.
   depth 1 as `{space_root}{NAME}/` and simply stops matching at depth 2, silently. It also splits
   the **three** different facts spelled `archive` — the user's receipt folder, the Glacier vault's
   leading key segment, and the admin bucket's control-plane scratch — of which exactly one moves.
-- **SPEC-219 — admit `system_settings/` additively.** Every Allow and Deny gains a sibling naming
-  the new path; planes and browser read both; writes still go to the old one. Nothing user-visible
+- **SPEC-219 — admit `system_settings/` additively.** Every Allow and Deny naming a moving folder
+  gains a sibling naming the new path, and the results-conversion role gains a Deny on the prefix
+  ITSELF, which is a sibling of nothing; planes and browser read both; writes still go to the old
+  one. Nothing user-visible
   changes and the rollback stays exercisable, because the old path is still the live one.
 - **SPEC-220 — the move, then the narrowing.** Two merges. Writes switch, existing objects are
   copied, the shared tables' Glue `LOCATION`s are re-pointed and the Athena output location follows;
@@ -2811,6 +2813,9 @@ protection.
    `RESERVED_PREFIXES`. After the move the first segment is `system_settings` and every member
    becomes a *second* segment, so the refusal silently stops firing. Neither a name problem nor a
    membership problem — a third thing, and the same class as the depth trap 218 exists for.
+   **Retired by 219**, which put `system_settings` in `RESERVED_PREFIXES`: the first segment IS the
+   new prefix, so the refusal fires and names it, and the whole subtree is unreachable as a check
+   target. A first-segment rule still reaches exactly one depth — that is not what saved it.
 4. **FIFO group ids.** `apicommon/fifo.py` hashes `{kind}/{name}/archive/{id}/` into the SQS
    `MessageGroupId`, pinned to golden vectors captured before the browser's copy was deleted.
    Moving that value re-keys the ids and reddens the vectors — which is fact 2 in 218's table, and

@@ -34,6 +34,7 @@ same property, and a Chromium run standing in for Safari are all recorded here, 
 
 | Check | Why | Recipe |
 |---|---|---|
+| **The route layer refuses `PUT /v1/objects/content` under `{root}system_settings/archive/x`**, with the SAME code as under `{root}archive/x` (SPEC-219 FR-004) | A signed-in session CAN drive it — the recipe is a `curl`, and it sits in [`e2e.md`](e2e.md)'s API table beside its `{root}archive/` twin. It is listed here because that is where a reader auditing what is outstanding looks, and because nothing offline settles it: `apicommon.protected.is_write_locked` is unit-tested at both homes, which proves the PREDICATE and says nothing about whether the ROUTE consults it. | `e2e.md` §API table |
 | **The `DO_NOT_DELETE.txt` Deny on the portal role**, personal and shared (SPEC-173) | The portal issues **zero** `DeleteObject` against the marker — it is hidden by basename and the folder delete is refused client-side first. The Deny is the layer that matters if the SPA is ever wrong. | §2.1 |
 | **Refresh-lock contention** (SPEC-157) | Two UI submits 2 s apart both return independently — a small table's refresh finishes inside that window, so the lock is never contended. Nothing that runs today proves two real executions serialize. | §2.2 |
 | **A malformed message on a request DLQ** (SPEC-133 Phase 5; also discharges SPEC-126's) | The user is notified, the message is gone, and the redacted body is in `logs/service=dlq-drain/`. Nothing in the app can send a malformed request. | §2.2 |
@@ -958,6 +959,35 @@ than "gone from the plan":
 | **table-build and table-share notifications carry no `link`** — found 2026-09-01 | Not a failure of the run: it is a real finding against the section's "with a link" clause. Deliberate in code (`tbcommon/notify.py`'s `emit_created` passes none, while the same module passes one for `columns_removed`). | A decision, not a check: either the two planes gain a link or the clause goes. Not load-bearing the way data-quality's is — its reports folder is hidden, these two land where the user can already see the result. |
 
 ---
+
+## SPEC-219 — the new `system_settings/` Denies, proved either side of the apply (2026-09-06)
+
+**DISCHARGED.** FR-004's IAM half. The route half is **not** here: it runs from a signed-in session,
+so by this file's own scope it belongs in [`e2e.md`](e2e.md)'s API table, where it sits beside its
+`{root}archive/` twin marked *OWED, not yet run*.
+
+| Check | Before the apply | After |
+|---|---|---|
+| `s3:PutObject` on `alice/system_settings/archive/x` | `allowed` | **`explicitDeny`** |
+| `s3:DeleteObject` on `alice/system_settings/athenaresults/x` | `allowed` | **`explicitDeny`** |
+| `s3:PutObject` on `alice/system_settings/notes.txt` — the control | `allowed` | `allowed` |
+
+**The BEFORE column is the evidence, and it is why this was measured twice.** Read only afterwards,
+an `explicitDeny` proves nothing: `UserPrefixObjects` grants the whole personal prefix, so the
+before-value had to be `allowed` for the after-value to mean the sibling did it. The third row is the
+control that the Deny is not wider than its resource — a bare key under the same prefix stays
+writable.
+
+Run from the operator's CLI identity (`arn:aws:iam::696000197480:user/tofu-deploy-user`) against
+`arn:aws:iam::696000197480:role/dat-portal-user-role`, bucket `dat-prod-user-space`, **one resource
+per call** — `--output text` over a multi-resource simulate prints the verdict for row one only.
+
+```
+aws iam simulate-principal-policy --policy-source-arn "$R" --action-names <action> \
+  --resource-arns "arn:aws:s3:::dat-prod-user-space/<key>" \
+  --context-entries ContextKeyName=aws:PrincipalTag/username,ContextKeyValues=alice,ContextKeyType=string \
+  --query 'EvaluationResults[0].EvalDecision' --output text
+```
 
 ## 3. Discharged, and worth not re-litigating
 

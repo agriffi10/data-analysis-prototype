@@ -1,12 +1,17 @@
-"""The folders the app manages inside a space, and one builder per fact for the prefix each occupies.
+"""The folders the app manages inside a space, and the builders for the prefixes each occupies.
 
 Three of these folders are about to move under a real ``system_settings/`` prefix. Nearly every
 rule about them across the fleet is anchored at depth one — ``f"{root}{name}/"`` — so a move to
 depth two would leave each hand-written comparison silently not matching, which is the failure
 ``fscommon.authz`` already names in its own docstring. This module is the fix's precondition: the
 names are declared here and nowhere else, every anchored construction calls a builder, and the
-move becomes one edit to ``app_managed_prefix`` rather than a hunt across eleven modules. A CI
-sweep refuses a new declaration or construction outside this file.
+move becomes an edit here rather than a hunt across eleven modules. A CI sweep refuses a new
+declaration or construction outside this file.
+
+**Which builder a caller takes is the design.** ``app_managed_prefix`` is where a WRITE goes.
+``app_managed_prefixes`` is what every root-anchored COMPARISON calls, and it answers for every
+location a folder may occupy — two while both homes of a moving folder are admitted, one for
+anything else. So the move edits both, not one.
 
 **Nothing here normalizes.** Every builder is a pure string over the arguments it is handed, so
 each caller keeps whatever ``normalize_root`` call it already makes and produces exactly the bytes
@@ -65,9 +70,11 @@ MOVING_FOLDERS = (ATHENA_RESULTS_FOLDER, RECEIPT_FOLDER, SHARED_TABLES_FOLDER)
 def app_managed_prefix(root: str, folder: str) -> str:
     """Builds the prefix an app-managed folder occupies under a space root.
 
-    The one depth-one anchor in the fleet. Every list-driven rule — reserved roots, picker locks,
-    undeletable roots — builds its comparison prefixes here, so relocating the moving folders is a
-    change to this function and not to the rules.
+    Where a WRITE goes, and nothing else. **The list-driven rules do NOT build here** — reserved
+    roots, picker locks, undeletable roots and every other root-anchored comparison call
+    ``app_managed_prefixes``, which answers for both admitted homes. Re-pointing one of them back to
+    this function would drop the old home's protection the moment the write moves, which is the
+    failure the pair exists to prevent.
 
     Args:
       root: The space root, with its trailing slash, exactly as the caller holds it.
