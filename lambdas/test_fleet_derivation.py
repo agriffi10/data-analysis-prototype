@@ -346,3 +346,60 @@ def test_no_hand_maintained_function_list_survives_in_github() -> None:
         "declaration of which Lambdas exist; a second list drifts, and the drift is invisible "
         "until something deploys against the wrong one."
     )
+
+
+#: What `CreateFunction` accepts in THIS account, which is not what Lambda documents. Lambda's
+#: own maximum is 10,240 MB; an account keeps a 3,008 MB ceiling until someone asks AWS to lift
+#: the quota, and this one has not. Measured the expensive way, on 2026-09-06: a `convert` verb
+#: declared at 10,240 passed `tofu validate`, passed the module's own range check, planned green,
+#: and failed the APPLY on `main` with `'MemorySize' value failed to satisfy constraint: Member
+#: must have value less than or equal to 3008`.
+ACCOUNT_MAX_MEMORY_MB = 3008
+
+#: Ephemeral storage has no quota narrower than memory's and Lambda documents 10,240 MB — but no
+#: function in this account has ever run above the 512 MB default, so anything larger is unproven
+#: here. Held at the largest value actually deployed, so raising it is a deliberate act that
+#: reddens this and gets argued rather than discovered on a red trunk.
+ACCOUNT_PROVEN_EPHEMERAL_MB = 2048
+
+
+def test_no_module_declares_more_memory_than_this_account_will_create() -> None:
+    """The apply is the only thing that knows an account's quota, and the apply is too late.
+
+    Nothing local can see this: `tofu validate` type-checks, `docker-lambda`'s own validation
+    block enforces Lambda's DOCUMENTED range, and a plan does not call CreateFunction. So a
+    number above the account's ceiling reaches `main`, fails the apply, and leaves the trunk red
+    with half a plane deployed — which is exactly what happened.
+
+    It is a fleet-wide sweep rather than a rule on the one module that hit it, because the next
+    function to want more memory will be in a different module and its author will have the same
+    information available: none.
+    """
+    offenders = []
+    for path in sorted((ROOT / "infra" / "modules").glob("*/locals.tf")):
+        text = path.read_text(encoding="utf-8")
+        for match in re.finditer(r"memory\s*=\s*(\d+)", text):
+            if int(match.group(1)) > ACCOUNT_MAX_MEMORY_MB:
+                offenders.append(f"{path.relative_to(ROOT)}: memory = {match.group(1)}")
+        for match in re.finditer(r"ephemeral\s*=\s*(\d+)", text):
+            if int(match.group(1)) > ACCOUNT_PROVEN_EPHEMERAL_MB:
+                offenders.append(f"{path.relative_to(ROOT)}: ephemeral = {match.group(1)}")
+    assert offenders == [], (
+        "these exceed what this account is known to create, and only the apply would say so: "
+        f"{offenders}. Raise the AWS quota first, then this constant, then the declaration"
+    )
+
+
+def test_the_memory_sweep_reads_the_declarations_it_claims_to() -> None:
+    """The positive control. The sweep above is a regex over files that may stop matching — a
+    renamed key or a reformatted map would make it find nothing and pass forever."""
+    found = [
+        int(match.group(1))
+        for path in (ROOT / "infra" / "modules").glob("*/locals.tf")
+        for match in re.finditer(r"memory\s*=\s*(\d+)", path.read_text(encoding="utf-8"))
+    ]
+    assert len(found) > 50, f"the sweep found only {len(found)} memory declarations"
+    assert max(found) == ACCOUNT_MAX_MEMORY_MB, (
+        "the largest declared memory is not the ceiling this test is written against, so either "
+        "the converter's declaration moved or the ceiling did"
+    )

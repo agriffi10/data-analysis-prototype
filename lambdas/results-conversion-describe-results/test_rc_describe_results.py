@@ -161,7 +161,9 @@ def test_a_result_over_the_cap_is_refused_naming_the_cap_and_the_file():
         d.handler(_validated(), None)
     assert err.value.reason == "results_too_large"
     assert len(sent) == 1 and sent[0][0] == "alice"
-    assert "256 MB" in sent[0][1] and "as Excel" in sent[0][1]
+    from rccommon.messages import _human_bytes
+
+    assert _human_bytes(excel_cap) in sent[0][1] and "as Excel" in sent[0][1]
     _setup(size=excel_cap)
     assert d.handler(_validated(), None)["resultsBytes"] == excel_cap
 

@@ -10,8 +10,15 @@ Attributes:
     ceiling as the browser applies it.
   MAX_PREFIX_BYTES: The longest destination folder accepted, in UTF-8 bytes — S3's key ceiling.
   CONVERTER_MEMORY_MB: The converter verb's memory, mirrored from the module's ``locals.tf``.
+    **3,008 MB is this ACCOUNT's ceiling, not Lambda's.** Lambda documents 10,240 MB, and
+    `CreateFunction` refused it here with ``'MemorySize' value failed to satisfy constraint:
+    Member must have value less than or equal to 3008`` — the un-raised quota an account keeps
+    until someone asks AWS to lift it. Nothing local can see that: `tofu validate` passes, the
+    module's own range check passes, and the plan is green. It is only the apply that knows.
   CONVERTER_EPHEMERAL_MB: Its scratch disk, which holds the downloaded result object and the
-    written file at the same time.
+    written file at the same time. Lambda's documented range reaches 10,240 MB and this asks
+    for 2,048: no function in this account has ever run above the 512 MB default, so the larger
+    figure is unproven here, and a second red trunk costs more than the caps this gives up.
   CONVERTER_TIMEOUT_SECONDS: Its execution ceiling, likewise mirrored.
   DISK_RESERVE / MEMORY_RESERVE: The fraction of each the budget does NOT spend, so the
     converter is not sized to fill a disk exactly or to run at the edge of an OOM.
@@ -69,9 +76,9 @@ MAX_FILENAME_BYTES = 255
 
 MAX_PREFIX_BYTES = 1024
 
-CONVERTER_MEMORY_MB = 10_240
+CONVERTER_MEMORY_MB = 3_008
 
-CONVERTER_EPHEMERAL_MB = 10_240
+CONVERTER_EPHEMERAL_MB = 2_048
 
 CONVERTER_TIMEOUT_SECONDS = 600
 
@@ -84,9 +91,9 @@ OUTPUT_EXPANSION = {"parquet": 0.252, "json": 1.481, "xlsx": 0.603}
 EXCEL_MEMORY_EXPANSION = 32.45
 
 RESULTS_MAX_BYTES = {
-    "parquet": 7360 * 1024**2,
-    "json": 3712 * 1024**2,
-    "xlsx": 256 * 1024**2,
+    "parquet": 1472 * 1024**2,
+    "json": 704 * 1024**2,
+    "xlsx": 64 * 1024**2,
 }
 
 MAX_RESULT_COLUMNS = 1_500

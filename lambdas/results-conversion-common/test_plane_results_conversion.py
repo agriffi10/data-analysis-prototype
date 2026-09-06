@@ -416,11 +416,16 @@ def test_the_wording_names_the_format_and_the_file_where_they_are_known():
     )
     assert sentence.startswith("Couldn't save the query results as Excel: ")
     assert '"q1.xlsx"' in sentence
-    too_large = messages.failure_message(reasons.RESULTS_TOO_LARGE, {"format": "xlsx"})
-    assert "256 MB" in too_large, "the sentence quotes the cap for the format the user chose"
-    assert "3712 MB" in messages.failure_message(reasons.RESULTS_TOO_LARGE, {"format": "json"}), (
-        "and a different format's sentence quotes a different number, or the two caps have "
-        "collapsed into one somewhere between the config and the wording"
+    # Wired to the cap rather than re-typing its value: the VALUE is pinned by the budget test
+    # above, which derives it, and repeating it here would be a second copy to update when the
+    # account's memory quota is raised. What this asserts is the wiring — that the sentence a
+    # user reads quotes the cap for the format they chose, and that the formats differ.
+    for fmt in ("xlsx", "json"):
+        rendered = messages.failure_message(reasons.RESULTS_TOO_LARGE, {"format": fmt})
+        expected = messages._human_bytes(config.max_result_bytes(fmt))
+        assert expected in rendered, f"{fmt}'s sentence does not quote its own cap"
+    assert config.max_result_bytes("json") != config.max_result_bytes("xlsx"), (
+        "the two caps have collapsed into one somewhere between the config and the wording"
     )
     assert messages.failure_message(reasons.FORBIDDEN) == "You don't have access to save results there."
     assert messages.failure_message(reasons.MALFORMED_EVENT, {"format": "json"}).startswith(
