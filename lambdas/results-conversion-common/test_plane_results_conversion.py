@@ -1,8 +1,8 @@
 """The results-conversion plane's own invariants: what its layer, its role and its rule hold.
 
 Each test here is a fence, not a behaviour: the domain layer holds no algorithm, the role
-holds no write and no query start, the timeout door is the event one, the refused-destination
-set agrees with the picker the browser uses, and the two caps are computed rather than typed.
+holds one write and no query start, the timeout door is the event one, the refused-destination
+set is a SUPERSET of the picker's, and every cap is computed rather than typed.
 """
 
 import ast
@@ -171,9 +171,10 @@ def test_no_denied_resource_is_wide_enough_to_cover_a_whole_bucket():
     carries ``*/system_settings/*``, a strict superset of three siblings beside it: widening one
     of these is a one-character edit.
 
-    The direction that bites is over-width, not under: this role holds no write grant today, so a
-    bucket-wide ``s3:PutObject`` Deny is invisible until the converter gains one, and then it
-    refuses the plane's own output.
+    The direction that bites is over-width, not under, and it now bites for real: the converter
+    HAS its write grant, so a bucket-wide ``s3:PutObject`` Deny would refuse the plane's own
+    output rather than sitting harmlessly over a role that writes nothing. This was written when
+    the grant was still a spec away, which is when a guard against it is cheapest to add.
 
     A segment carrying ``*`` or ``?`` does not count, because both are S3 wildcards and the
     widening this guards against is a one-character edit — ``/*`` to ``/?*`` matches every key of
@@ -458,7 +459,7 @@ def test_the_wording_names_the_format_and_the_file_where_they_are_known():
 
 #: The granularity the derived caps are floored to, so the sentence a user reads is a round
 #: number rather than the raw quotient. 64 MiB is fine enough to keep the loss under 2% at
-#: every cap below and coarse enough that "3712 MB" is the worst it reads.
+#: every cap below and coarse enough that no cap reads as an arbitrary quotient.
 _CAP_GRANULARITY_MB = 64
 
 

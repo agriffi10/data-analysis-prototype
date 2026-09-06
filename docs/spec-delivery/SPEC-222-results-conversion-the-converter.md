@@ -29,7 +29,7 @@ is SPEC-223 — so the route is live and unflagged and no UI enqueues into it.
 
 - **Excel's 16,384-column ceiling is not a refusal this plane makes**, because it can never
   fire. The described columns ride on a Step Functions state capped at 256 KB, which a realistic
-  column entry fills between about 2,540 and 6,400 columns — measured. A check at 16,384 would
+  column entry fills between about 2,500 and 6,400 columns — measured. A check at 16,384 would
   be a fence that stops nobody, so the cap is the transport's, lives in `describe-results`, and
   applies to every format. FR-004 was amended.
 - **FR-003's round-trip criterion was false in both directions** and was rewritten. `date`, the

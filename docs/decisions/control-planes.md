@@ -143,7 +143,7 @@ DLQ lets one malformed request dead-letter someone else's work.
   meets its own object and reports `destination_occupied` for a save that succeeded.
 - **A refusal that cannot fire is a fence that misleads everyone downstream.** Excel's
   16,384-column ceiling is unreachable here — the described columns ride the 256 KB state, which
-  a realistic column entry fills between ~2,540 and ~6,400 — so the cap that exists is the
+  a realistic column entry fills between ~2,500 and ~6,400 — so the cap that exists is the
   TRANSPORT's, sits in describe-results, and applies to every format.
 - **A conversion's input is the EXECUTION'S RESULT OBJECT, never the source table**, and an
   execution is the actor's **iff Athena wrote it under `cpcommon.results.user_results_prefix`** —
@@ -1326,8 +1326,11 @@ execution exist?" for a caller trying ids. Two things the reviews added: the der
 if it carries a dot segment, because `startswith` passes a location that then escapes the prefix;
 and a non-string space kind is refused rather than raising `TypeError` out of the membership test.
 
-**The write grant is not here.** This plane ships read-only — no `s3:PutObject` Allow anywhere —
-while carrying the explicit **Deny** on every protected folder in both space buckets from its
+**The write grant is not here.** ~~This plane ships read-only — no `s3:PutObject` Allow
+anywhere~~ — **superseded by SPEC-222**, which added `s3:PutObject` and
+`s3:AbortMultipartUpload` on the two space buckets beside the verb that writes, exactly as this
+paragraph anticipated. What stands is the ORDER, and it is the part worth keeping: the plane
+carried the explicit **Deny** on every protected folder in both space buckets from its
 first apply — the three `cpcommon.app_managed` declares plus this plane's own non-moving four. Measured against the deployed role: `explicitDeny` for a write under `athenaresults/`,
 `archive/`, `shared_tables/` and `user_settings/`, `implicitDeny` for an ordinary path. So the Deny
 is discriminating before there is anything for it to override, which is the order that makes a
@@ -1356,7 +1359,7 @@ the rule names the word the sweep looks for.
 
 **A refusal that cannot fire is worse than no refusal.** FR-004 asked for a refusal above Excel's
 16,384 columns. It could never run: the described columns travel on a Step Functions state capped
-at 256 KB, which a realistic column entry fills somewhere between ~2,540 and ~6,400 columns —
+at 256 KB, which a realistic column entry fills somewhere between ~2,500 and ~6,400 columns —
 measured across entry widths, and the FLOOR is what a cap is set against. So the ceiling that
 exists is the transport's, it is refused in describe-results before the columns are put on the
 state that cannot carry them, and it applies to every format. The dead code was removed rather

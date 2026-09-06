@@ -1,10 +1,12 @@
 # ── Control-plane IAM roles ───────────────────────────────────────────────────
 # One shared execution role, the Step Function role and the Pipe role.
 #
-# THE EXECUTION ROLE IS READ-ONLY AT THIS STAGE, and the two absences are the point. It holds
-# no s3:PutObject Allow anywhere — the write grant arrives beside the verb that writes — and no
-# athena:StartQueryExecution: the input is the execution's own result object, never a second
-# query, so a grant to start one would be a grant nothing here may use.
+# THE EXECUTION ROLE'S ONLY WRITE is s3:PutObject + s3:AbortMultipartUpload on the two space
+# buckets, added with the converter and bounded by the Deny below. The abort rides with the put
+# because an incomplete multipart holds storage indefinitely and is invisible in a listing.
+# Still absent, and that absence is the point: no athena:StartQueryExecution — the input is the
+# execution's own result object, never a second query, so a grant to start one would be a grant
+# nothing here may use.
 #
 # THE DENY ON THE APP-MANAGED PREFIXES SHIPS BEFORE THE ALLOW IT BOUNDS, mirroring the portal
 # role's, so a validator defect can never write into a results, receipt or settings folder

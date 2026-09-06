@@ -3,11 +3,10 @@
 # EventBridge Pipe → Standard Step Function pipeline running single-task verb Lambdas on ONE
 # shared execution role. Mirrors the shared control-plane PATTERN (not its resources).
 #
-# THE EIGHTH PLANE. It takes a finished Athena execution and will write its result set into a
-# space the actor may write to, in a format they chose. This module is the foundation and the
-# front door: the plumbing, validate-authorize and describe-results. Nothing is read row by row
-# and nothing is written — the execution role holds no s3:PutObject at all, and the write grant
-# arrives beside the verb that uses it. Cross-module ARNs are CONSTRUCTED STRINGS (passed from
+# THE EIGHTH PLANE. It takes a finished Athena execution and writes its result set into a space
+# the actor may write to, in the format they chose. Five verbs: validate-authorize,
+# describe-results, convert, notify and notify-failure. Only convert reads bytes, and it is the
+# only one with a write grant. Cross-module ARNs are CONSTRUCTED STRINGS (passed from
 # root locals), never another module's output, so they are known at plan time and this module
 # plans standalone.
 

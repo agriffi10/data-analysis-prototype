@@ -28,9 +28,11 @@ Attributes:
     again the worst observed. It is large because that path cannot stream: polars materialises
     the frame and xlsxwriter builds the whole workbook in memory beside it.
   RESULTS_MAX_BYTES: The largest result object this plane converts, PER FORMAT. One number
-    could not be honest: the streamed formats are bounded by the scratch disk at about 3.6 GB,
-    and Excel by memory at a tenth of that, so a single cap would either starve Parquet and
-    JSON or promise an Excel conversion that runs out of memory. Held equal to what the budget
+    could not be honest: the streamed formats are bounded by the scratch disk and Excel by
+    memory, which on this account's numbers puts them an order of magnitude apart — so a single
+    cap would either starve Parquet and JSON or promise an Excel conversion that runs out of
+    memory. The values are not repeated here on purpose; they are derived below and the budget
+    test recomputes them, and a number written twice is the one that goes stale. Held equal to what the budget
     test recomputes from the constants above, so a hand edit to either side is a red test.
   MAX_RESULT_COLUMNS: The widest result set this plane converts, in ANY format. Bounded by the
     transport rather than by a file format: the described columns travel on the Step Functions
