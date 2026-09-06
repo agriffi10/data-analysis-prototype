@@ -755,6 +755,108 @@ def test_the_account_ceiling_gate_fires_and_stays_silent_where_it_should(
         assert offence.startswith("fixture/locals.tf: "), f"{case}: the offence names no file"
 
 
+_SIZE_KEY = re.compile(r"([A-Za-z0-9_]*(?:memory|ephemeral)[A-Za-z0-9_]*)\s*=\s*")
+
+
+def _size_assignments(text: str) -> list[tuple[str, str]]:
+    """Every ``<size key> = <value>`` in one file, with the value read to its real end.
+
+    A regex cannot do this alone. Stopping the value at the next comma truncates
+    ``try(each.value.ephemeral, 512)`` to something that matches no wiring form and reads as an
+    unknown expression; not stopping at a comma swallows the neighbour in
+    ``{ memory = 3008, ephemeral = 2048 }``. So the value is scanned with a paren depth: a comma
+    ends it only at depth zero, and so does a brace or a newline.
+
+    Args:
+      text: One Terraform file's contents, comments already stripped.
+
+    Returns:
+      One ``(key, value)`` pair per assignment, values stripped of surrounding space.
+
+    Raises:
+      None.
+    """
+    found = []
+    for match in _SIZE_KEY.finditer(text):
+        depth, end = 0, match.end()
+        while end < len(text):
+            char = text[end]
+            if char == "(":
+                depth += 1
+            elif char == ")" and depth:
+                depth -= 1
+            elif depth == 0 and char in ",}\n":
+                break
+            end += 1
+        found.append((match.group(1), text[match.end() : end].strip()))
+    return found
+
+
+#: The wiring forms a size may reach the shared module through WITHOUT carrying a literal this
+#: gate can read. Matched as FORMS rather than listed as files or counted: a new plane wiring
+#: itself up the ordinary way adds no new form and this stays green, while a genuinely new kind of
+#: indirection — ``memory = local.heavy_tier`` — is not in the set and reddens.
+#:
+#: This is the structural answer to a class of finding that recurred across two review frames.
+#: Each round widened the matcher and the next found another spelling past it; a text sweep over
+#: HCL has no last escape. So the blind spot is BOUNDED and named here instead: the gate cannot
+#: tell what these resolve to, and the check that could reads the plan's own values from CI —
+#: recorded in ``docs/testing/owed.md``.
+UNVERIFIABLE_WIRING = (
+    re.compile(r"^each\.value\.(?:memory|ephemeral)$"),
+    re.compile(r"^try\(each\.value\.(?:memory|ephemeral),\s*\d+\)$"),
+    re.compile(r"^var\.[A-Za-z0-9_]+$"),
+)
+
+#: Expressions that must NOT be covered by the forms above — the positive control on an ALLOWLIST,
+#: which fails in the widening direction. A list of exemptions has no natural red state: broadening
+#: one entry to ``.*`` silences the guard completely and every other test here still passes, which
+#: is the same "a check that cannot fire" shape this spec removed from production code.
+UNCOVERED_WIRING = ("local.heavy_tier", "local.memory_tier", "one_of(var.a, var.b)", "3008 + 1")
+
+
+def test_the_wiring_allowlist_still_refuses_an_unknown_expression() -> None:
+    """The control on the exemption list, because an allowlist has no natural failure.
+
+    Every other assertion in this file gets stricter as the tree grows. This one gets LOOSER: a
+    form broadened by one character stops refusing anything and nothing goes red. So the refusals
+    are asserted directly.
+    """
+    for expression in UNCOVERED_WIRING:
+        assert not any(form.match(expression) for form in UNVERIFIABLE_WIRING), (
+            f"{expression!r} is accepted as known wiring; a form here has been widened past the "
+            "three the fleet actually uses, and the blind-spot guard now permits anything"
+        )
+
+
+def test_every_size_the_gate_cannot_read_is_a_known_wiring_form() -> None:
+    """The gate's blind spot is bounded and named, rather than unbounded and unmentioned.
+
+    A value assigned through an expression carries no literal, so the sweep is silent on it — and
+    silence from a gate is indistinguishable from compliance. What keeps that honest is not
+    resolving the expression, which needs the plan, but refusing to let a NEW kind of expression
+    appear without anybody noticing.
+
+    A file list or a count would not do this. Both grow legitimately every time a plane is added,
+    so both get raised, and raising them is exactly how a new indirection slips in behind the
+    ordinary ones. The forms do not grow: every module wires a size the same three ways.
+    """
+    unknown = []
+    for path in declaration_files():
+        live = _HCL_COMMENT.sub("", path.read_text(encoding="utf-8"))
+        for key, value in _size_assignments(live):
+            if re.fullmatch(r'"?\d+"?', value):
+                continue
+            if any(form.match(value) for form in UNVERIFIABLE_WIRING):
+                continue
+            unknown.append(f"{path.relative_to(ROOT)}: {key} = {value}")
+    assert not unknown, (
+        "these declare a size through an expression this gate has never seen, so it cannot read "
+        f"the number and nothing else will until the apply: {unknown}. Either wire it the way the "
+        "fleet already does, or add the form above and say why it is safe"
+    )
+
+
 def test_an_offence_names_a_path_a_reader_can_open() -> None:
     """The label the sweep passes is a repo-relative PATH, not a basename.
 
