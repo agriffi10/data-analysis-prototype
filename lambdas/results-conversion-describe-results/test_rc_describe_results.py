@@ -27,10 +27,17 @@ class FakeAthena:
 
     def get_query_results(self, **kwargs):
         self.calls.append(kwargs)
+        info = []
+        for column in self.columns:
+            name, type_name, *parameters = column
+            # Athena reports a decimal's parameters HERE and not in `Type`, so a fixture that
+            # only ever supplies two fields cannot exercise the one column that needs them.
+            keyed = dict(zip(("Precision", "Scale"), parameters, strict=False))
+            info.append({"Name": name, "Type": type_name, **keyed})
         return {
             "ResultSet": {
-                "ResultSetMetadata": {"ColumnInfo": [{"Name": n, "Type": t} for n, t in self.columns]},
-                "Rows": [{"Data": [{"VarCharValue": n} for n, _ in self.columns]}],
+                "ResultSetMetadata": {"ColumnInfo": info},
+                "Rows": [{"Data": [{"VarCharValue": c[0]} for c in self.columns]}],
             }
         }
 
@@ -77,6 +84,18 @@ def test_the_columns_and_the_size_are_read_once_each_and_threaded_with_the_reque
     assert athena.calls == [{"QueryExecutionId": EXECUTION_ID, "MaxResults": 1}]
     assert s3.calls == [{"Bucket": "user-bkt", "Key": f"alice/athenaresults/{EXECUTION_ID}.csv"}]
     assert sent == []
+
+
+def test_a_decimals_precision_and_scale_are_carried_and_nothing_else_gains_them():
+    """Athena reports `decimal` bare and puts the parameters in sibling fields, so a describe
+    that drops them leaves the converter unable to type the column at all. Every other type
+    carries its parameters in the string, and must not gain the keys."""
+    _setup(columns=(("amount", "decimal", 10, 2), ("name", "varchar")))
+    described = d.handler(_validated(), None)["columns"]
+    assert described == [
+        {"name": "amount", "type": "decimal", "precision": 10, "scale": 2},
+        {"name": "name", "type": "varchar"},
+    ]
 
 
 def test_an_empty_result_set_is_a_valid_file_with_a_header():

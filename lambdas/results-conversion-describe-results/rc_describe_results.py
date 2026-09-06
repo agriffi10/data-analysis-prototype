@@ -41,7 +41,10 @@ def _columns(execution_id: str) -> list[dict]:
       execution_id: The execution, already proved to be the actor's.
 
     Returns:
-      One ``{name, type}`` per column, in result order.
+      One ``{name, type}`` per column, in result order, carrying ``precision`` and ``scale``
+      where Athena reported them. **A decimal's parameters arrive nowhere else** — Athena puts
+      the bare name in ``Type`` and the parameters in these sibling fields, so dropping them
+      leaves the converter unable to build the column's dtype at all.
 
     Raises:
       TransientError: On a throttled or failing Athena call.
@@ -54,7 +57,14 @@ def _columns(execution_id: str) -> list[dict]:
         errors.raise_if_transient(exc, "Athena")
         raise
     info = ((response.get("ResultSet") or {}).get("ResultSetMetadata") or {}).get("ColumnInfo")
-    return [{"name": column.get("Name"), "type": column.get("Type")} for column in info or []]
+    described = []
+    for column in info or []:
+        entry = {"name": column.get("Name"), "type": column.get("Type")}
+        for source, key in (("Precision", "precision"), ("Scale", "scale")):
+            if isinstance(column.get(source), int):
+                entry[key] = column[source]
+        described.append(entry)
+    return described
 
 
 def _check_columns(described: list[dict], tokens: dict) -> None:
