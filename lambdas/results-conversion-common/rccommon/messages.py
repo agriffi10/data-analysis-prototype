@@ -56,6 +56,10 @@ _BODIES = {
         "one of the result columns has no name. Please name every column in the query and run it "
         "again."
     ),
+    reasons.UNSUPPORTED_COLUMN_TYPE: (
+        'the column "{column}" has a type that can\'t be saved to a file. Please cast it in the '
+        "query — for example to text — and run it again."
+    ),
     reasons.UNEXPECTED: "something went wrong, so nothing was saved. Please try again.",
     reasons.CONVERSION_TIMED_OUT: (
         "the conversion was still running after {timeout} and was stopped. Nothing was saved."

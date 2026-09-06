@@ -18,6 +18,9 @@ Attributes:
   RESULTS_TOO_LARGE: The result object is over the converter's cap.
   DUPLICATE_COLUMN: Two result columns share a name once case-folded.
   INVALID_COLUMN_NAME: A result column has an empty name.
+  UNSUPPORTED_COLUMN_TYPE: A result column has an Athena type this plane has no answer for.
+    The vocabulary is closed and does not fall back to text, so an unmodelled type refuses
+    rather than becoming the wrong column in a file the user then trusts.
   MALFORMED_EVENT: The queue message could not be read as a request.
   UNEXPECTED: A fault nobody predicted.
   CONVERSION_TIMED_OUT: The machine's own ceiling stopped the run — the timeout door's code.
@@ -34,6 +37,7 @@ NO_RESULT_SET = "no_result_set"
 RESULTS_TOO_LARGE = "results_too_large"
 DUPLICATE_COLUMN = "duplicate_column"
 INVALID_COLUMN_NAME = "invalid_column_name"
+UNSUPPORTED_COLUMN_TYPE = "unsupported_column_type"
 MALFORMED_EVENT = "malformed_event"
 UNEXPECTED = "unexpected"
 CONVERSION_TIMED_OUT = "conversion_timed_out"
@@ -50,6 +54,7 @@ REASONS = frozenset(
         RESULTS_TOO_LARGE,
         DUPLICATE_COLUMN,
         INVALID_COLUMN_NAME,
+        UNSUPPORTED_COLUMN_TYPE,
         MALFORMED_EVENT,
         UNEXPECTED,
         CONVERSION_TIMED_OUT,

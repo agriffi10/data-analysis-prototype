@@ -1,8 +1,8 @@
 # Spec: Results Conversion — The Converter, the Three Writers & the Notification
 
 **ID:** SPEC-222
-**Status:** Draft
-**Last Updated:** 2026-09-05
+**Status:** In Progress
+**Last Updated:** 2026-09-06
 **Depends On:** SPEC-221 (the plane, the contract, validate-authorize, describe-results), SPEC-069 (table-builder's polars precedent), SPEC-107 (`cpcommon.type_mapping`, whose inverse this needs), SPEC-219 FR-002 (the execution role already denies `system_settings/` at any depth, so the validator must refuse it by name before this spec's write grant lands, or the refusal arrives as a bare `AccessDenied`)
 
 ## Overview
@@ -61,12 +61,27 @@ The CSV Athena wrote is all strings. The frame the writers see is typed as Athen
 
 - [ ] `rccommon.types.polars_dtype(athena_type)` maps every type Athena can report in
       `ColumnInfo.Type`: `boolean`, `tinyint`, `smallint`, `integer`/`int`, `bigint`, `real`/`float`,
-      `double`, `decimal(p,s)` (to `Decimal(p, s)`), `date`, `timestamp` (to `Datetime("us")`, naive —
-      Athena timestamps carry no zone), `varchar`/`char`/`string` (to `String`), and `json`,
-      `binary`, `varbinary`, `array`, `map`, `row`, `struct`, `ipaddress`, `time`,
-      `interval` and `unknown` **as text**, kept as the characters Athena rendered. A test walks
+      `double`, `decimal(p,s)` (to `Decimal(p, s)`), `date`, `timestamp` and
+      `timestamp without time zone` (to `Datetime("us")`, naive — the same type under two names),
+      `varchar`/`char`/`string` (to `String`), and `json`, `binary`, `varbinary`, `array`, `map`,
+      `row`, `struct`, `ipaddress`, `uuid`, `time`, `time with time zone`,
+      `timestamp with time zone`, `interval year to month`, `interval day to second`, the five
+      approximate-function digests (`HyperLogLog`, `P4HyperLogLog`, `SetDigest`, `QDigest`,
+      `TDigest`) and `unknown` **as text**, kept as the characters Athena rendered. A test walks
       every name Athena documents and asserts a mapping or a listed text-kept entry for each; a name
       in neither refuses with `unsupported_column_type` naming the column, never falls back.
+- [ ] **A decimal's parameters do not arrive in `ColumnInfo.Type`** — Athena reports the bare name
+      and puts them in the sibling `Precision`/`Scale` fields, which is why AWS's own SDK for
+      pandas composes the parametric string itself. `describe-results` therefore carries
+      `precision` and `scale` on a column when Athena supplies them, and `rccommon.types` owns the
+      one function that renders a described column into the canonical string; a bare `decimal`
+      with no precision is a shape Athena does not produce and refuses rather than guessing a
+      scale. This is inside `columns`, which the `Described` Pass names opaquely, so no ASL moves.
+- [ ] **A parameterised name is normalised by removing its parameter groups, not by cutting at the
+      first bracket.** `varchar(255)`, `array(integer)` and `row(a integer, b varchar)` all arrive
+      parameterised, and cutting at the first `(` maps `timestamp(3) with time zone` to `timestamp`
+      — typing a zoned column as naive, which is the one normalisation error that corrupts data
+      rather than refusing it.
 - [ ] The table is asserted against `cpcommon.type_mapping` over the **image of `polars_dtype`**:
       for every dtype this table produces, `map_dtype` of that dtype mapped back through this table
       is the same dtype (decimal parameters included). Dtypes only `map_dtype` knows — the unsigned
@@ -129,10 +144,15 @@ Newline-delimited JSON, one object per line.
       round it; `date` is `YYYY-MM-DD`; `timestamp` is ISO-8601 to microseconds with no zone
       designator; text-kept types are strings.
 - [ ] The written file is read back by `infer_schema._infer_columns(source, "json")` on the local
-      file and yields the column names `describe-results` reported, for the same every-type fixture
-      as FR-002. Types are asserted too, with one stated exception: infer-schema recovers a `date`
-      column from NDJSON by a regex over sample values, so `date` round-trips through that heuristic
-      and the test names it rather than pretending the format carries the type.
+      file and yields **the column names `describe-results` reported, in the same order**, for the
+      same every-type fixture as FR-002. Types are asserted too, against an **enumerated** exception
+      list, because the format itself loses five of them and the test says why rather than
+      weakening the assertion: `tinyint`, `smallint` and `int` read back as `bigint` and `float` as
+      `double`, since JSON carries no integer or float width; and `decimal` reads back as `string`,
+      which the criterion above **requires** by writing it as a JSON string. The six that do
+      round-trip are `boolean`, `bigint`, `double`, `date`, `timestamp` and `string` — and the test
+      names the mechanism for the last two, which infer-schema recovers by a regex over sample
+      values rather than from the format.
 - [ ] An empty result set writes a zero-byte `.json` object, and the notification says `0 rows`.
 
 ### FR-004: Excel
@@ -192,6 +212,14 @@ The write is where the race and the size both live.
       in the test's docstring. The throughput that sizes the timeout is **measured** on the image,
       not assumed. The constants in
       `rccommon` and `locals.tf` equal what the test computes, so a hand edit to one is a red test.
+- [ ] **`Convert` retries on `TransientError` alone, at `MaxAttempts: 1`**, where every other Task
+      on this plane also retries the four `Lambda.*` service errors three times. Both halves are
+      load-bearing. A `Lambda.SdkClientException` on the *response* path re-invokes a function that
+      has already completed its conditional `PutObject`, so the retry meets its own object and
+      refuses as `destination_occupied` — telling a user their save failed when it succeeded. And a
+      convert timeout near Lambda's 900-second ceiling, retried three times, puts more on that one
+      Task than the whole machine's ceiling. The verb raises `TransientError` only **before** the
+      upload begins, and a test asserts the upload path raises none.
 - [ ] Local storage is cleaned on every path, including refusal and fault, so a warm container does
       not carry a previous request's file into the next; a test runs two conversions on one
       container and asserts the second sees an empty scratch directory.
@@ -230,15 +258,26 @@ One producer, at the end of the machine, says what happened.
 ```py
 # lambdas/results-conversion-common/rccommon/types.py
 TEXT_KEPT: frozenset[str]                       # Athena types written as their rendered text
-def polars_dtype(athena_type: str) -> pl.DataType   # raises UnsupportedColumnType
+def schema_of(columns: list[dict]) -> dict[str, pl.DataType]   # THE ENTRY POINT the verb calls
+def athena_type_of(column: dict) -> str             # renders Precision/Scale into decimal(p,s)
+def polars_dtype(athena_type: str) -> pl.DataType   # the table itself
+# Every refusal is a TerminalError carrying `unsupported_column_type`; there is no exception
+# class of its own. Only `schema_of` knows the column NAME, so only it can attach the token the
+# user-facing sentence needs — which is why it, and not the two below it, is what a caller uses.
 
-# lambdas/results-conversion-convert/convert.py — the verb's one return shape
+# lambdas/results-conversion-convert/rc_convert.py — the verb's one return shape.
+# It REPLACES the state (every Task is Payload.$=$ + OutputPath=$.Payload), so it carries
+# everything downstream reads. `columns` and `resultsBytes` are deliberately dropped: nothing
+# after this verb reads either, and a Pass naming an absent key is an uncatchable States.Runtime.
 {
+  "requestId": str, "username": str, "format": str, "onConflict": str,
+  "queryExecutionId": str, "resultsKey": str,
+  "destination": {...as emitted by validate-authorize},
   "outcome": "converted" | "refused",
   "reason": str | None,                    # a registered rccommon code when refused
   "rows": int, "bytes": int,
   "precisionNote": bool,                   # FR-004's sentence applies
-  "destination": {...as emitted by validate-authorize}
+  "tokens": {"count": int} | None,         # what the refusal wording needs and $.raw cannot give
 }
 ```
 
@@ -246,9 +285,10 @@ def polars_dtype(athena_type: str) -> pl.DataType   # raises UnsupportedColumnTy
 
 ```
 lambdas/
-├── results-conversion-common/rccommon/types.py, links.py
-├── results-conversion-convert/  (convert.py, requirements.txt, fixtures/…)
-└── results-conversion-notify/
+├── fixtures/                    (the captured Athena result object and its ColumnInfo)
+├── results-conversion-common/rccommon/types.py, links.py, parquet_footer.py
+├── results-conversion-convert/  (rc_convert.py, requirements.txt)
+└── results-conversion-notify/   (rc_notify.py)
 infra/modules/results-conversion/locals.tf   (convert: memory, ephemeral_storage, timeout)
 ```
 

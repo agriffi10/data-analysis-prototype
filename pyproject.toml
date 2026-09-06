@@ -120,7 +120,7 @@ python_version = "3.12"
 
 # The layer roots, so `from cpcommon import …` and shared-space-common's FLAT modules
 # resolve the way conftest.py makes them resolve under pytest.
-mypy_path = "lambdas/control-plane-common:lambdas/table-builder-common:lambdas/table-share-common:lambdas/data-quality-common:lambdas/shared-space-common:lambdas/file-send-common:lambdas/archive-common:lambdas/file-ops-common"
+mypy_path = "lambdas/control-plane-common:lambdas/table-builder-common:lambdas/table-share-common:lambdas/data-quality-common:lambdas/shared-space-common:lambdas/file-send-common:lambdas/archive-common:lambdas/file-ops-common:lambdas/results-conversion-common"
 
 files = [
     ".github/scripts/lambda_plan_guard.py",
@@ -142,6 +142,11 @@ files = [
     # above and for its reason: added later it is a baseline of existing errors to argue about;
     # added now it is free, and this one entered at zero too.
     "lambdas/file-ops-common/focommon",
+    # The eighth plane's layer, joining LATE rather than with the spec that created it — which
+    # is the mistake the four notes above exist to prevent, caught by the spec that next added
+    # a module to it. It still entered at zero, so the debt was luck rather than absence: a
+    # layer that had grown first would have arrived as a baseline to argue about.
+    "lambdas/results-conversion-common/rccommon",
     # Not a layer, and here for the same reason the layers are: it joins the ratchet WITH
     # the change that creates it, where it enters at zero. This one module decides which
     # Lambdas a push deploys, so it is the last place in the fleet that should be the one
