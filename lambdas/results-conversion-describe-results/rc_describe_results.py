@@ -17,7 +17,7 @@ import logging
 from cpcommon import clients, columns, config, errors, events, observability
 from cpcommon.errors import TerminalError
 from rccommon import notify, reasons
-from rccommon.config import max_result_bytes
+from rccommon.config import MAX_RESULT_COLUMNS, max_result_bytes
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -77,10 +77,23 @@ def _check_columns(described: list[dict], tokens: dict) -> None:
     Returns:
       None.
 
+    The width check is FIRST and is about the transport rather than the data: the described
+    columns ride on the Step Functions state, which is capped at 256 KB, and a result set wide
+    enough to cross that would fail as an uncatchable payload error before any named refusal
+    could run. Excel's own 16,384-column ceiling sits more than three times above this cap and
+    is therefore unreachable, which is why the plane has no separate refusal for it.
+
     Raises:
-      TerminalError: ``invalid_column_name`` for an empty name; ``duplicate_column`` for two
-        names that collide once case-folded, naming the first.
+      TerminalError: ``too_many_columns`` for a result set wider than the state can carry;
+        ``invalid_column_name`` for an empty name; ``duplicate_column`` for two names that
+        collide once case-folded, naming the first.
     """
+    if len(described) > MAX_RESULT_COLUMNS:
+        raise TerminalError(
+            reasons.TOO_MANY_COLUMNS,
+            f"{len(described)} columns, over {MAX_RESULT_COLUMNS}",
+            tokens={**tokens, "count": len(described)},
+        )
     names = [column["name"] for column in described]
     if any(not isinstance(name, str) or not name for name in names):
         raise TerminalError(reasons.INVALID_COLUMN_NAME, "a result column has no name")

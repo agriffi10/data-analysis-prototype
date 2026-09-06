@@ -18,6 +18,11 @@ its ceiling is Excel's own row limit instead. The row count for the two streamed
 back from the written file, by ``rccommon.parquet_footer`` and by counting record separators;
 a count taken with polars would be the one ``collect`` that makes the streaming guard unprovable.
 
+**A refusal is logged by its CODE, never by its detail.** A detail can carry the destination
+key, and the plane's log line is plain text — a newline in a key forges a second line in it.
+``check_prefix`` and ``check_filename`` both refuse control characters, so this is the second of
+two gates rather than the only one.
+
 **The transient boundary is the upload.** Anything before it may raise ``TransientError`` for the
 machine to retry; nothing after it may, because a retry of an invocation that already completed
 its conditional ``PutObject`` meets its own object and reports ``destination_occupied`` to a user
@@ -31,8 +36,9 @@ Attributes:
   CONTENT_TYPES: The ``Content-Type`` each format is stored under. No user metadata is written:
     the SQL, the execution id and the actor are not stamped onto the object.
   EXCEL_MAX_ROWS: Excel's own data-row ceiling — one less than its 1,048,576 rows, because the
-    header takes one.
-  EXCEL_MAX_COLUMNS: Excel's column ceiling.
+    header takes one. Its COLUMN ceiling is deliberately absent: describe-results refuses a
+    result set wider than the state can carry, at a third of Excel's 16,384, so a check here
+    could never fire and would read as a fence that stops nobody.
   EXCEL_EXACT_INTEGER: The largest integer an Excel cell holds exactly; it stores every number
     as a double.
   EXCEL_EXACT_DIGITS: The significant digits a double holds, which is what bounds a decimal.
@@ -49,7 +55,7 @@ import re
 import shutil
 
 import polars as pl
-from cpcommon import clients, errors, events, observability
+from cpcommon import clients, config, errors, events, observability
 from cpcommon.errors import TerminalError
 from rccommon import notify, parquet_footer, reasons, types
 from rccommon.config import max_result_bytes
@@ -67,7 +73,6 @@ CONTENT_TYPES = {
 }
 
 EXCEL_MAX_ROWS = 1_048_575
-EXCEL_MAX_COLUMNS = 16_384
 EXCEL_EXACT_INTEGER = 2**53
 EXCEL_EXACT_DIGITS = 15
 
@@ -115,15 +120,21 @@ class _Refusal(Exception):
         super().__init__(f"{reason}: {detail}")
 
 
-def _scratch(request_id: str) -> pathlib.Path:
-    """Empties the scratch root and returns this request's own directory inside it.
+def _scratch() -> pathlib.Path:
+    """Empties the scratch root and returns the one directory this invocation works in.
 
     Emptied on ENTRY rather than only on exit, because the exit path of a previous invocation
     cannot run if that invocation was killed by the function's own timeout — and the container
     it leaves behind is reused.
 
+    **The name is FIXED and carries no request id.** The id is the caller's string, checked only
+    for being non-empty, and ``Path / "..%s"`` walks out of the root while ``Path / "/tmp/x"``
+    replaces it outright — either of which puts the directory somewhere the sweep above will not
+    find it, which is the warm-container property this function exists for. A Lambda container
+    runs one invocation at a time, so the id bought nothing; it is in the log line instead.
+
     Args:
-      request_id: The request id, which names the directory.
+      None.
 
     Returns:
       The created directory.
@@ -132,7 +143,7 @@ def _scratch(request_id: str) -> pathlib.Path:
       OSError: If the scratch root cannot be created, which is a fault rather than a refusal.
     """
     shutil.rmtree(SCRATCH_ROOT, ignore_errors=True)
-    directory = SCRATCH_ROOT / request_id
+    directory = SCRATCH_ROOT / "request"
     directory.mkdir(parents=True)
     return directory
 
@@ -201,6 +212,9 @@ def _frame(source: pathlib.Path, schema: dict) -> pl.LazyFrame:
     anything. Both facts come from the same execution, so a disagreement is a fault rather than
     a user error — but it must not be a quiet one.
 
+    ``collect_schema`` reads the header alone and materialises nothing, which is what lets the
+    streaming guard forbid ``collect`` outright while this still works.
+
     Args:
       source: The downloaded result object.
       schema: The dtypes, from ``rccommon.types.schema_of``, in the order Athena reported.
@@ -211,8 +225,6 @@ def _frame(source: pathlib.Path, schema: dict) -> pl.LazyFrame:
     Raises:
       RuntimeError: When the CSV's header is not the columns the metadata named, in order.
     """
-    # `collect_schema` reads the header alone and materialises nothing, which is why the
-    # streaming guard can forbid `collect` outright and this still works.
     header = pl.scan_csv(source, infer_schema_length=0).collect_schema().names()
     if header != list(schema):
         raise RuntimeError(
@@ -353,7 +365,9 @@ def _loses_precision(materialised: pl.DataFrame) -> bool:
     """Reports whether this frame holds a value Excel cannot represent exactly.
 
     Excel stores every number as a double, so an integer above 2^53 and a decimal carrying more
-    than fifteen significant digits both round on the way in. Computed from the frame rather
+    than fifteen significant digits both round on the way in. The magnitude is taken from the
+    column's ``min`` and ``max``, which come back as PYTHON ints and therefore cannot overflow
+    the way ``Series.abs()`` does on Int64's most negative value. Computed from the frame rather
     than assumed from the schema for integers, because a ``bigint`` column of small numbers
     loses nothing and warning about it would train the reader to ignore the sentence.
 
@@ -371,8 +385,6 @@ def _loses_precision(materialised: pl.DataFrame) -> bool:
             return True
         if dtype in (pl.Int64, pl.UInt64):
             column = materialised[name]
-            # min() and max() come back as PYTHON ints, so the comparison cannot overflow the
-            # way `Series.abs()` does on Int64's most negative value.
             extremes = [abs(value) for value in (column.min(), column.max()) if value is not None]
             if extremes and max(extremes) >= EXCEL_EXACT_INTEGER:
                 return True
@@ -390,6 +402,11 @@ def _upload(destination: dict, source: pathlib.Path, fmt: str, on_conflict: str)
     Nothing here raises ``TransientError``: a retry of this verb after the object exists would
     meet its own write and report the user's success as a name conflict.
 
+    The condition is written as "everything except an explicit overwrite" rather than "refuse".
+    The two are identical over the closed vocabulary the validator enforces and differ only if
+    a value ever escapes it — where this one refuses and the other silently overwrites
+    somebody's file.
+
     Args:
       destination: The resolved destination, carrying the bucket and the key.
       source: The written file.
@@ -404,7 +421,7 @@ def _upload(destination: dict, source: pathlib.Path, fmt: str, on_conflict: str)
       Exception: Any other S3 failure, as a fault.
     """
     size = source.stat().st_size
-    condition = {"IfNoneMatch": "*"} if on_conflict == "refuse" else {}
+    condition = {} if on_conflict == "overwrite" else {"IfNoneMatch": "*"}
     common = {
         "Bucket": destination["bucket"],
         "Key": destination["key"],
@@ -523,35 +540,36 @@ def _convert(event) -> dict:
       TerminalError: ``malformed_event`` when a carried key is missing.
       TransientError: On a retryable S3 fault before the upload.
       Exception: Any fault, including a result object that grew since it was described.
+
+    The download reads ``config.USER_SPACE_BUCKET`` and NOT ``destination["bucket"]``. An
+    execution's result object is always under the actor's own space; the destination may be a
+    SHARED space in another bucket, and the two coincide only for a personal one — which is why
+    a suite whose fixtures are all personal cannot tell the two apart, and why the fake in this
+    verb's tests refuses a read aimed anywhere else.
     """
     carried = {key: events.require(event, key) for key in _CARRIED}
     columns = events.require(event, "columns")
     described_bytes = events.require(event, "resultsBytes")
     destination = carried["destination"]
-    scratch = _scratch(carried["requestId"])
+    scratch = _scratch()
     try:
         try:
             schema = types.schema_of(columns)
         except TerminalError as err:
             raise _Refusal(err.reason, err.detail, err.tokens) from err
-        # Decided BEFORE the download, because it is a fact about the metadata alone: a result
-        # set too wide for a worksheet stays too wide however many bytes are fetched, and
-        # refusing first saves the user's request a gigabyte of transfer it cannot use.
-        if carried["format"] == "xlsx" and len(schema) > EXCEL_MAX_COLUMNS:
-            raise _Refusal(
-                reasons.EXCEL_COLUMN_LIMIT,
-                f"{len(schema)} columns, over {EXCEL_MAX_COLUMNS}",
-                {"count": len(schema)},
-            )
         source = scratch / "results.csv"
         _download(
-            destination["bucket"], carried["resultsKey"], source, carried["format"], described_bytes
+            config.USER_SPACE_BUCKET,
+            carried["resultsKey"],
+            source,
+            carried["format"],
+            described_bytes,
         )
         target = scratch / destination["key"].rsplit("/", 1)[-1]
         rows, precision_note = _write(carried["format"], _frame(source, schema), schema, target)
         written = _upload(destination, target, carried["format"], carried["onConflict"])
     except _Refusal as refusal:
-        logger.info("refused: %s", refusal)
+        logger.info("refused %s for %s", refusal.reason, carried["requestId"])
         observability.info(
             "conversion refused",
             actor=carried["username"],

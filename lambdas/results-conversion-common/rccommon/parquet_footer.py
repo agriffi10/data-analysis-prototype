@@ -185,6 +185,12 @@ class _Reader:
     def collection(self) -> list:
         """Reads a list or set header and its elements.
 
+        A boolean ELEMENT is one byte, while a boolean struct FIELD is zero — its value lives
+        in the type nibble — and ``value`` implements the field encoding. Decoding a boolean
+        list with it would consume nothing and read every following byte as the next field: a
+        wrong answer rather than an error. No Parquet footer reaches one, so it refuses instead
+        of growing a second decoder for a case that cannot arrive.
+
         Args:
           None.
 
@@ -192,17 +198,13 @@ class _Reader:
           The elements.
 
         Raises:
-          ParquetFooterError: Propagated from the element reads.
+          ParquetFooterError: For a boolean element type, and propagated from the element reads.
         """
         header = self.byte()
         size, kind = header >> 4, header & 0xF
         if size == 15:
             size = self.unsigned()
         if kind in (_TRUE, _FALSE):
-            # A boolean is one byte per ELEMENT here and zero bytes as a struct field, and
-            # `value` implements the field encoding. Decoding a list of them with it would
-            # consume nothing and read every following byte as the next field — a wrong answer
-            # rather than an error. Unreachable from a Parquet footer today, so it refuses.
             raise ParquetFooterError("a boolean list needs the element encoding, not the field one")
         return [self.value(kind) for _ in range(size)]
 

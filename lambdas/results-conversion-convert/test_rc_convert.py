@@ -14,6 +14,7 @@ import zipfile
 
 import polars as pl
 import pytest
+from botocore.exceptions import ClientError
 
 _HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
@@ -76,11 +77,26 @@ class FakeS3:
 
     def head_object(self, **kwargs):
         self.calls.append(("head_object", kwargs))
+        self._refuse_unless_results_bucket(kwargs["Bucket"], "HeadObject")
         return {"ContentLength": self.size}
 
     def download_fileobj(self, bucket, key, handle):
         self.calls.append(("download_fileobj", {"Bucket": bucket, "Key": key}))
+        self._refuse_unless_results_bucket(bucket, "GetObject")
         handle.write(self.payload)
+
+    def _refuse_unless_results_bucket(self, bucket, operation):
+        """Answers the way the execution role's grant does, which is the point of the fake.
+
+        `s3:GetObject` is granted on the USER-SPACE bucket's results prefixes and nowhere else,
+        so a read aimed at the shared bucket is an AccessDenied in production. A fake that
+        ignored the bucket would be green against a converter reading from the destination —
+        which is exactly the bug that shipped past two suites whose fixtures were all personal.
+        """
+        if bucket != "user-bkt":
+            raise ClientError(
+                {"Error": {"Code": "AccessDenied", "Message": "no grant"}}, operation
+            )
 
     def get_object(self, **kwargs):  # pragma: no cover - reaching this is the failure
         raise AssertionError("the result object must be streamed to disk, never read into memory")
@@ -96,8 +112,6 @@ class FakeS3:
 
 def _precondition_failed():
     """The error botocore raises when a conditional write meets an existing object."""
-    from botocore.exceptions import ClientError
-
     return ClientError({"Error": {"Code": "PreconditionFailed", "Message": "exists"}}, "PutObject")
 
 
@@ -206,6 +220,32 @@ def test_an_excel_conversion_writes_one_sheet_with_serials_and_no_formula(s3, tm
     assert "2020-01-02" not in sheet, "no date reached the sheet as text"
     put = next(kwargs for name, kwargs in s3.calls if name == "put_object")
     assert put["ContentType"].endswith("spreadsheetml.sheet")
+
+
+def test_a_shared_space_destination_still_reads_the_result_from_the_actors_own_space(s3):
+    """The two buckets differ only for a SHARED destination, and that is the whole test.
+
+    An execution's result object is always under the actor's own results prefix in the
+    user-space bucket; the destination may be a shared space in a different bucket entirely.
+    Reading from the destination's bucket is an AccessDenied in production — the read grant does
+    not extend there — reported to the user as "something went wrong". Every fixture in this
+    file used a personal destination, where the two strings coincide, so the suite agreed with
+    a converter that had them the wrong way round.
+    """
+    shared = {
+        "bucket": "shared-bkt",
+        "key": "finance/out/q1.parquet",
+        "prefix": "out/",
+        "spaceKind": "shared",
+        "spaceName": "finance",
+    }
+    result = c.handler({**_event("parquet"), "destination": shared}, None)
+
+    assert result["outcome"] == "converted"
+    reads = [kwargs for name, kwargs in s3.calls if name in ("head_object", "download_fileobj")]
+    assert {call["Bucket"] for call in reads} == {"user-bkt"}, "the result is read from the actor's space"
+    writes = [kwargs for name, kwargs in s3.calls if name == "put_object"]
+    assert writes[0]["Bucket"] == "shared-bkt", "and written to the space they chose"
 
 
 def test_the_formula_guard_would_see_a_workbook_that_evaluated_strings(s3, tmp_path):
@@ -322,19 +362,6 @@ def test_an_occupied_destination_is_refused_only_when_the_request_asked_to_be(s3
     assert "IfNoneMatch" not in put, "an overwrite carries no condition"
 
 
-def test_too_many_columns_for_a_spreadsheet_refuses_with_the_count(s3):
-    wide = [{"name": f"c{i}", "type": "varchar"} for i in range(c.EXCEL_MAX_COLUMNS + 1)]
-    result = c.handler(_event("xlsx", columns=wide), None)
-
-    assert result["outcome"] == "refused" and result["reason"] == "excel_column_limit"
-    assert result["tokens"] == {"count": c.EXCEL_MAX_COLUMNS + 1}
-    assert s3.written == []
-    assert [name for name, _ in s3.calls] == [], (
-        "a result too wide for a worksheet is refused from the metadata alone, before a byte "
-        "of it is fetched"
-    )
-
-
 def test_too_many_rows_for_a_spreadsheet_refuses_with_the_count(s3, monkeypatch):
     """Driven against a lowered ceiling rather than a million-row fixture: the guard is the
     comparison, and a fixture large enough to trip the real number would take minutes to build
@@ -439,12 +466,145 @@ def test_the_scratch_disk_is_empty_when_the_next_conversion_starts(s3):
         c.handler(_event("parquet"), None)
     finally:
         c._download = original
-    assert seen["contents"] == ["req-1"], "a previous request's bytes survived into this one"
+    assert seen["contents"] == ["request"], "a previous request's bytes survived into this one"
+
+
+def test_the_scratch_path_cannot_be_steered_by_the_request_id(s3):
+    """The request id is the CALLER's string, and the route validator is shape-only by design.
+
+    `Path / "../x"` walks out of the root and `Path / "/tmp/x"` replaces it outright, either of
+    which puts the working directory somewhere the entry sweep above will never find — so a run
+    killed by the function's own timeout would leave bytes behind that accumulate until the
+    10 GB disk is full and every later conversion in that container fails on the download.
+    The directory therefore carries no part of the id at all.
+    """
+    for hostile in ("../escaped", "/tmp/absolute-escape", "a/b/c"):  # noqa: S108
+        s3.calls.clear()
+        result = c.handler({**_event("parquet"), "requestId": hostile}, None)
+        assert result["outcome"] == "converted"
+        assert list(c.SCRATCH_ROOT.iterdir()) == [], "nothing is left inside the root"
+        assert not (c.SCRATCH_ROOT.parent / "escaped").exists()
+        assert not pathlib.Path("/tmp/absolute-escape").exists()  # noqa: S108
 
 
 def test_a_refusal_leaves_the_disk_clean_too(s3):
     c.handler(_event(columns=[{"name": "shape", "type": "geometry"}]), None)
     assert list(c.SCRATCH_ROOT.iterdir()) == []
+
+
+def test_the_precision_sentence_is_earned_by_the_frame_rather_than_assumed(s3):
+    """FR-004's condition, which was computed by nothing any test ran.
+
+    `precisionNote` was only ever supplied as an INPUT to the notifier, so `return False` at the
+    top of `_loses_precision` left the suite green while every spreadsheet lost its warning. The
+    condition is a property of the values, not of the schema: a bigint column of small numbers
+    loses nothing, and warning about it would train the reader to ignore the sentence.
+    """
+    def convert(columns, body):
+        s3.written.clear()
+        s3.payload = (",".join(f'"{c["name"]}"' for c in columns) + "\n" + body + "\n").encode()
+        s3.size = len(s3.payload)
+        return c.handler(_event("xlsx", columns=columns), None)
+
+    small = [{"name": "n", "type": "bigint"}]
+    assert convert(small, '"42"')["precisionNote"] is False, "a small bigint loses nothing"
+
+    exact = c.EXCEL_EXACT_INTEGER
+    assert convert(small, f'"{exact - 1}"')["precisionNote"] is False, "2^53 - 1 is exact"
+    assert convert(small, f'"{exact}"')["precisionNote"] is True
+    assert convert(small, f'"-{exact}"')["precisionNote"] is True, "the magnitude is what matters"
+    assert convert(small, "")["precisionNote"] is False, "an all-NULL column has no magnitude"
+
+    narrow = [{"name": "d", "type": "decimal", "precision": 10, "scale": 2}]
+    assert convert(narrow, '"1.25"')["precisionNote"] is False
+    wide = [{"name": "d", "type": "decimal", "precision": 20, "scale": 2}]
+    assert convert(wide, '"1.25"')["precisionNote"] is True, (
+        "a decimal wider than a double's 15 significant digits rounds whatever it holds"
+    )
+
+
+def test_a_file_too_large_for_one_put_is_uploaded_in_parts_under_the_same_condition(s3, monkeypatch):
+    """The multipart half of FR-005, which is reachable: JSON's cap times its measured expansion
+    is about 5.4 GB, past S3's 5 GB single-put limit. Driven against a lowered threshold rather
+    than a five-gigabyte fixture, because the guard is the branch and the condition on the
+    COMPLETE — the parts themselves carry none, and putting it there would be a silent no-op."""
+    completed, aborted, parts = [], [], []
+
+    def create(**kwargs):
+        s3.calls.append(("create_multipart_upload", kwargs))
+        return {"UploadId": "up-1"}
+
+    def upload_part(**kwargs):
+        parts.append(kwargs)
+        assert "IfNoneMatch" not in kwargs, "a part carries no condition; only the complete does"
+        return {"ETag": f'"etag-{kwargs["PartNumber"]}"'}
+
+    def complete(**kwargs):
+        completed.append(kwargs)
+        if s3.occupied and "IfNoneMatch" in kwargs:
+            raise _precondition_failed()
+        return {}
+
+    monkeypatch.setattr(c, "SINGLE_PUT_MAX_BYTES", 1)
+    monkeypatch.setattr(c, "PART_BYTES", 64)
+    s3.create_multipart_upload = create
+    s3.upload_part = upload_part
+    s3.complete_multipart_upload = complete
+    s3.abort_multipart_upload = lambda **kwargs: aborted.append(kwargs)
+
+    result = c.handler(_event("parquet"), None)
+
+    assert result["outcome"] == "converted" and result["bytes"] > 0
+    assert len(parts) > 1, "the fixture is large enough to need more than one part"
+    assert [part["PartNumber"] for part in parts] == list(range(1, len(parts) + 1))
+    assert completed[0]["IfNoneMatch"] == "*"
+    assert completed[0]["MultipartUpload"]["Parts"] == [
+        {"ETag": f'"etag-{n}"', "PartNumber": n} for n in range(1, len(parts) + 1)
+    ]
+    assert aborted == [], "a completed upload is not aborted"
+
+    s3.occupied = True
+    refused = c.handler(_event("parquet"), None)
+    assert refused["outcome"] == "refused" and refused["reason"] == "destination_occupied"
+    assert len(aborted) == 1, "a refused multipart is aborted, or it holds storage invisibly"
+
+
+def test_the_row_count_is_the_csvs_own_data_row_count(s3):
+    """Counted from the CSV independently, by a reader that is not polars and not the writer.
+
+    Both counts come from the OUTPUT — the Parquet footer and the newline count — so a count
+    that drifted from the source would agree with itself. Mutations inflating either above one
+    row survived, because the only fixtures were zero rows and one.
+    """
+    import csv
+    import io as _io
+
+    rows = 37
+    s3.payload = _csv(rows=rows)
+    s3.size = len(s3.payload)
+    independent = sum(1 for _ in csv.reader(_io.StringIO(s3.payload.decode()))) - 1
+    assert independent == rows, "the fixture builder and the CSV parser disagree"
+
+    for fmt in ("parquet", "json", "xlsx"):
+        s3.written.clear()
+        assert c.handler(_event(fmt), None)["rows"] == independent, f"{fmt} miscounted"
+
+
+def test_the_sheet_is_named_and_excels_row_ceiling_is_excels(s3):
+    """Two constants nothing pinned: the worksheet name (the XML is read positionally, so
+    dropping `worksheet=` survived) and the row ceiling itself (the refusal test monkeypatches
+    it, so changing it by 48,575 survived too)."""
+    import xml.etree.ElementTree as ET
+
+    c.handler(_event("xlsx"), None)
+    workbook = zipfile.ZipFile(io.BytesIO(s3.written[0]))
+    names = [
+        sheet.get("name")
+        for sheet in ET.fromstring(workbook.read("xl/workbook.xml")).iter()  # noqa: S314
+        if sheet.tag.endswith("}sheet")
+    ]
+    assert names == ["results"]
+    assert c.EXCEL_MAX_ROWS == 1_048_575, "one less than Excel's 1,048,576, because the header takes one"
 
 
 def test_the_upload_path_raises_no_transient_error(s3):

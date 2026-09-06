@@ -112,8 +112,8 @@ def _timed_out_request(detail) -> dict:
       detail: The event's ``detail`` block.
 
     Returns:
-      ``{"username": ..., "format": ...}``, with an empty username when the input was omitted
-      or cannot be attributed.
+      ``{"username": ..., "format": ..., "filename": ...}``, with an empty username when the
+      input was omitted or cannot be attributed.
 
     Raises:
       None. Every failure degrades to no verified actor: a raise here would be an async Lambda
@@ -232,6 +232,10 @@ def handler(event, context) -> dict:
         ``Step Functions Execution Status Change`` event.
       context: The Lambda context, unused.
 
+    The request body under ``$.raw`` is parsed UNCONDITIONALLY rather than only when the
+    username is missing: the file name a refusal's sentence names lives there whether or not
+    the actor had to be recovered from it.
+
     Returns:
       The request object, threaded onward unchanged.
 
@@ -245,8 +249,6 @@ def handler(event, context) -> dict:
     username = request.get("username")
     username = username if isinstance(username, str) else ""
     fmt = request.get("format") if isinstance(request.get("format"), str) else None
-    # Parsed unconditionally, not only when the username is missing: the file name a refusal's
-    # sentence names lives in the body whether or not the actor had to be recovered from it.
     recovered = _identity_from_raw(request.get("raw"))
     username, fmt = username or recovered["username"], fmt or recovered["format"]
     reason = failure_reason(request.get("error"))

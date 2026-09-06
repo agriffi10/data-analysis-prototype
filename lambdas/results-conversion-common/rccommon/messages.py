@@ -65,20 +65,20 @@ _BODIES = {
         "again."
     ),
     reasons.UNSUPPORTED_COLUMN_TYPE: (
-        'the column "{column}" has a type that can\'t be saved to a file. Please cast it in the '
-        "query, for example to text, and run it again."
+        'the column "{column}" has a type that can\'t be written to "{filename}". Please cast '
+        "it in the query, for example to text, and run it again."
     ),
     reasons.RESULTS_UNREADABLE: (
-        "one of the values in the results didn't match the type the query gave its column, so "
-        "nothing was saved. Please cast that column in the query and run it again."
+        'one of the values in the results didn\'t match the type the query gave its column, so '
+        '"{filename}" was not written. Please cast that column in the query and run it again.'
     ),
     reasons.EXCEL_ROW_LIMIT: (
-        "the results have {count} rows, which is more than a spreadsheet can hold. Please save "
-        "them as Parquet instead, or narrow the query."
+        'the results have {count} rows, which is more than a spreadsheet can hold, so '
+        '"{filename}" was not written. Please save them as Parquet instead, or narrow the query.'
     ),
-    reasons.EXCEL_COLUMN_LIMIT: (
-        "the results have {count} columns, which is more than a spreadsheet can hold. Please "
-        "save them as Parquet instead, or select fewer columns."
+    reasons.TOO_MANY_COLUMNS: (
+        'the results have {count} columns, which is more than "{filename}" can be built from. '
+        "Please select fewer columns in the query and run it again."
     ),
     reasons.DESTINATION_OCCUPIED: (
         'a file called "{filename}" is already in that folder, so nothing was saved. Please '
@@ -167,7 +167,10 @@ def failure_message(reason: str, tokens: dict | None = None) -> str:
     """Renders the sentence a user reads for one failure.
 
     The format is turned into the prefix's ``{asFormat}`` clause here, and the cap is filled
-    from the constant, so no raise site has to know either.
+    from the constant, so no raise site has to know either. The cap differs BY FORMAT, so it
+    is read from the format's own number rather than from one constant — a size refused for
+    Excel sits comfortably inside Parquet's, and quoting the wrong one would tell a user their
+    results are too large when they are not.
 
     Args:
       reason: The reason code.
@@ -183,8 +186,6 @@ def failure_message(reason: str, tokens: dict | None = None) -> str:
     fmt = str(filled.pop("format", ""))
     label = FORMAT_LABELS.get(fmt, "")
     filled["asFormat"] = f" as {label}" if label else ""
-    # The cap differs BY FORMAT, so the sentence has to be filled from the format's own number
-    # rather than from one constant — a size refused for Excel is comfortably inside Parquet's.
     filled.setdefault("maxBytes", _human_bytes(max_result_bytes(fmt)))
     filled.setdefault("timeout", _human_duration(MACHINE_TIMEOUT_SECONDS))
     return resolver.message(reason, **{k: str(v) for k, v in filled.items()})

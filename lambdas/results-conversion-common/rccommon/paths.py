@@ -37,9 +37,16 @@ def check_prefix(prefix: object) -> str:
     Returns:
       The prefix, unchanged.
 
+    Control characters are refused here for the same reason ``check_filename`` refuses them, and
+    the two used to disagree: a newline in a folder name reaches an operator's plain-text log
+    through the key it becomes, where it forges a second line.
+
+    Args-note: the two checks are deliberately the same shape rather than shared, because a
+    file name additionally refuses a slash and the dot segments, which a prefix is made of.
+
     Raises:
       TerminalError: ``invalid_request`` when it is not a string, is non-empty without a
-        trailing slash, or exceeds ``MAX_PREFIX_BYTES`` in UTF-8.
+        trailing slash, exceeds ``MAX_PREFIX_BYTES`` in UTF-8, or carries a control character.
     """
     if not isinstance(prefix, str):
         raise TerminalError(reasons.INVALID_REQUEST, "destination prefix is not a string")
@@ -49,6 +56,8 @@ def check_prefix(prefix: object) -> str:
         raise TerminalError(
             reasons.INVALID_REQUEST, f"destination prefix is over {MAX_PREFIX_BYTES} bytes"
         )
+    if any(ord(ch) in _CONTROL for ch in prefix):
+        raise TerminalError(reasons.INVALID_REQUEST, "destination prefix has a control character")
     return prefix
 
 

@@ -69,6 +69,35 @@ def test_the_domain_layer_defines_no_algorithm_of_its_own():
     assert offenders == [], f"rccommon defines an algorithm the shared layer owns: {offenders}"
 
 
+def test_importing_any_module_in_the_layer_registers_the_reason_codes():
+    """`TerminalError` validates its reason against the registered table at the RAISE site, and
+    importing `messages` is what registers it — so a module that raises without it raises
+    ValueError instead, and only when nothing else in the process imported `messages` first.
+
+    Run in a SUBPROCESS, one module at a time, because this process has already imported the
+    whole layer: an in-process check would pass on the very import order it exists to remove.
+    `paths` is the module that had the bug — it raises ten times and imported nothing.
+    """
+    import subprocess
+
+    for module in ("paths", "authz", "types", "config", "links"):
+        probe = (
+            f"import sys; sys.path[:0] = [{str(_HERE)!r}, {str(_HERE.parent / 'control-plane-common')!r}];"
+            f" from rccommon import {module};"
+            " from cpcommon.messages import is_known_reason;"
+            " from rccommon.reasons import REASONS;"
+            " assert all(is_known_reason(r) for r in REASONS), 'codes unregistered'"
+        )
+        finished = subprocess.run(  # noqa: S603
+            [sys.executable, "-c", probe],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "ADMIN_BUCKET": "a", "USER_SPACE_BUCKET": "u", "SHARED_SPACE_BUCKET": "s"},
+            check=False,
+        )
+        assert finished.returncode == 0, f"importing rccommon.{module} alone: {finished.stderr}"
+
+
 def test_the_layer_sweep_sees_the_functions_it_reads():
     """The positive control for the sweep above: it finds this plane's real functions."""
     found = {
@@ -257,14 +286,19 @@ def test_every_code_the_converter_can_return_is_registered_and_worded():
         reasons.RESULTS_UNREADABLE,
         reasons.UNSUPPORTED_COLUMN_TYPE,
         reasons.EXCEL_ROW_LIMIT,
-        reasons.EXCEL_COLUMN_LIMIT,
         reasons.DESTINATION_OCCUPIED,
     }, f"the converter's refusal vocabulary has changed: {sorted(codes)}"
     for code in codes:
         assert cpmessages.is_known_reason(code), f"{code} is returned but never registered"
         rendered = messages.failure_message(code, {"format": "xlsx", "filename": "q1.xlsx", "count": 3})
         assert "something went wrong" not in rendered, f"{code} reaches the user unworded"
-        assert "q1.xlsx" in rendered or "{" not in rendered
+        # Names the FILE and the FORMAT, which is what the criterion asks. This used to end
+        # `or "{" not in rendered`, a disjunct satisfied by any sentence that mentions no file
+        # at all — which three of these five did, so the assertion held while the criterion did
+        # not. There is no marker left unfilled either: `blank_unfilled` erases one silently.
+        assert "q1.xlsx" in rendered, f"{code} does not name the file the user chose"
+        assert "as Excel" in rendered, f"{code} does not name the format"
+        assert "{" not in rendered, f"{code} left a marker unfilled"
 
 
 #: The golden vector the browser's half of this test reads too, in
@@ -423,6 +457,23 @@ def test_the_ceiling_clears_the_longest_path_the_machine_can_walk():
     assert timeouts["convert"] == config.CONVERTER_TIMEOUT_SECONDS, (
         "the converter's Terraform timeout and the constant the size budget derives from have "
         "diverged, so the caps are computed against a function that runs for a different time"
+    )
+    # The other two halves of the budget. `config` DOCUMENTS them as mirrored from locals.tf and
+    # nothing held them there: dropping `memory = 10240, ephemeral = 10240` to 2048/512 left the
+    # whole suite green, while all three size caps go on being derived from the larger numbers.
+    # What that permits is an OOM on the Excel path or a full disk on the streamed ones, part of
+    # the way through a conversion — the failure the per-format budget exists to prevent.
+    convert_row = re.search(r'"convert"\s*=\s*\{(.*?)\}', locals_text, re.DOTALL).group(1)
+    deployed = {
+        key: int(value)
+        for key, value in re.findall(r"(memory|ephemeral)\s*=\s*(\d+)", convert_row)
+    }
+    assert deployed == {
+        "memory": config.CONVERTER_MEMORY_MB,
+        "ephemeral": config.CONVERTER_EPHEMERAL_MB,
+    }, (
+        f"locals.tf deploys {deployed} while the size caps are derived from "
+        f"memory={config.CONVERTER_MEMORY_MB} ephemeral={config.CONVERTER_EPHEMERAL_MB}"
     )
     raw = re.sub(r":\s*\$\{[^}]+\}", ": 0", _ASL.read_text(encoding="utf-8"))
     states = json.loads(re.sub(r"\$\{[^}]+\}", "stub", raw))["States"]

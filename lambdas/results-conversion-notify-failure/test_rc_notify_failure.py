@@ -24,8 +24,10 @@ def _request(error, username="alice", fmt="json", raw=None):
     return {"requestId": "req-1", "username": username, "format": fmt, "raw": raw, "status": "failed", "error": error}
 
 
-def _raw(identity=True, fmt="parquet"):
+def _raw(identity=True, fmt="parquet", filename=None):
     body = {"requestId": "req-1", "format": fmt, "actor": "not-a-username-a-token"}
+    if filename:
+        body["destination"] = {"filename": filename, "prefix": "out/", "space": {"kind": "personal", "name": "alice"}}
     if identity:
         body["identity"] = {"actor": "alice", "delegated_by": None, "assurance": "interactive"}
     return [{"body": json.dumps(body)}]
@@ -56,6 +58,63 @@ def test_a_request_with_no_identity_block_notifies_nobody_and_does_not_raise():
     sent = _capture()
     n.handler(_request({"Error": "RuntimeError", "Cause": None}, username=None, raw=_raw(identity=False)), None)
     assert sent == []
+
+
+def test_a_converters_refusal_reaches_the_user_with_the_count_and_the_file_name():
+    """The whole reason the machine routes a refusal through a Choice rather than a raise.
+
+    A raise arrives here as a TerminalError and is SUPPRESSED as a duplicate of the verb's own
+    notification; a refusal arrives as `{"Error": "<reason>"}` with no Cause, so this door is
+    the one producer. It has to assemble the sentence from two sources — the row count is on
+    the state, discovered by the converter, and the file name is in the request body under
+    `$.raw` — and neither had a test. Dropping the token merge left the suite green while the
+    user read "the results have  rows" and 'a file called ""'.
+    """
+    sent = _capture()
+    n.handler(
+        {
+            **_request({"Error": "excel_row_limit"}, fmt="xlsx", raw=_raw(filename="q1.xlsx")),
+            "tokens": {"count": 2_000_000},
+        },
+        None,
+    )
+
+    assert len(sent) == 1 and sent[0][0] == "alice"
+    message = sent[0][1]
+    assert "2000000 rows" in message, "the count is on the state and reaches the sentence"
+    assert '"q1.xlsx"' in message, "the file name is in the request body and reaches it too"
+    assert "as Excel" in message
+    assert "{" not in message, "no marker was left unfilled"
+
+
+def test_a_refusal_that_carries_no_count_still_names_the_file():
+    """`destination_occupied` needs the name and no count, and `tokens` is null on its seed's
+    two siblings — so the two sources have to be independent of each other."""
+    sent = _capture()
+    n.handler(
+        {**_request({"Error": "destination_occupied"}, fmt="parquet", raw=_raw(filename="q1.parquet")), "tokens": None},
+        None,
+    )
+
+    assert '"q1.parquet"' in sent[0][1]
+    assert "{" not in sent[0][1]
+
+
+def test_a_hostile_token_value_cannot_put_an_object_into_a_sentence():
+    """`tokens` arrives from the state, and only strings and integers are taken from it — a
+    bool is excluded too, because `isinstance(True, int)` is True and `{count}` would render
+    as `True`."""
+    sent = _capture()
+    n.handler(
+        {
+            **_request({"Error": "excel_row_limit"}, fmt="xlsx", raw=_raw(filename="q1.xlsx")),
+            "tokens": {"count": {"nested": "object"}, "filename": ["a"], "extra": True},
+        },
+        None,
+    )
+
+    assert "nested" not in sent[0][1] and "True" not in sent[0][1]
+    assert '"q1.xlsx"' in sent[0][1], "the recovered name still fills the marker"
 
 
 def test_a_verbs_own_terminal_error_is_not_notified_twice():
