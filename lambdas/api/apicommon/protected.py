@@ -17,7 +17,7 @@ a test asserting "no AWS call happened" passes over it — the assertions here a
 code.
 """
 
-from cpcommon.app_managed import RECEIPT_FOLDER, receipt_folder_prefix
+from cpcommon.app_managed import RECEIPT_FOLDER, app_managed_prefixes
 from cpcommon.errors import TerminalError
 from cpcommon.paths import assert_inside_root, has_dot_segment, normalize_root
 from cpcommon.s3_listing import MARKER_BASENAME
@@ -117,8 +117,7 @@ def is_write_locked(space: ResolvedSpace, key: str) -> bool:
     Raises:
       None.
     """
-    locked_root = receipt_folder_prefix(space.root)
-    if key.startswith(locked_root):
+    if key.startswith(app_managed_prefixes(space.root, RECEIPT_FOLDER)):
         return True
     if space.kind != "shared":
         return False

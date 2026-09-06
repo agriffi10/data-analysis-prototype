@@ -88,7 +88,11 @@ Attributes:
     user wants a search, not a longer list.
 """
 
-from cpcommon.app_managed import ATHENA_RESULTS_FOLDER, SHARED_TABLES_FOLDER
+from cpcommon.app_managed import (
+    ATHENA_RESULTS_FOLDER,
+    SHARED_TABLES_FOLDER,
+    SYSTEM_SETTINGS_FOLDER,
+)
 
 RESERVED_PREFIXES = frozenset(
     {
@@ -98,6 +102,7 @@ RESERVED_PREFIXES = frozenset(
         "_data-quality-reports",
         "_fc-work",
         "_directory",
+        SYSTEM_SETTINGS_FOLDER,
     }
 )
 

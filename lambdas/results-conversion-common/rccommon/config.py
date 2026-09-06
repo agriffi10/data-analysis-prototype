@@ -56,10 +56,9 @@ Attributes:
     denies ``*/system_settings/*`` in both buckets, so with a write grant in hand a destination
     inside it would reach the user as a bare ``AccessDenied`` instead of a named refusal.
     ``paths`` states the rule this follows — the validator mirrors the DENY, not the picker.
-    It is a literal rather than a shared constant because no owner declares that name yet: it
-    is a prefix three app-managed folders are moving under, and the spec doing that migration
-    owns when it gains one. This is a refusal list mirroring IAM, and nothing builds a key
-    from it.
+    The name comes from ``cpcommon.app_managed``, which owns it; spelling it here would be a
+    second declaration, and the path sweep refuses one. This is a refusal list mirroring IAM, and
+    nothing builds a key from it.
 """
 
 from cpcommon import app_managed as _app_managed
@@ -127,5 +126,5 @@ PROTECTED_DESTINATIONS = (
     "_data-quality-reports",
     "_directory",
     "_config",
-    "system_settings",
+    _app_managed.SYSTEM_SETTINGS_FOLDER,
 )

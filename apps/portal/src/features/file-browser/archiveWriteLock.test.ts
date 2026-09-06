@@ -59,8 +59,25 @@ function keyMatcher(resource: string, principal: string): (key: string) => boole
   return (key: string) => new RegExp(`^${pattern}$`).test(key);
 }
 
-const PERSONAL_DENY = keyMatcher(resourceOf(portalRolePolicy, 'ArchiveReceiptsAreNotUserWritable'), 'alice');
-const SHARED_DENY = keyMatcher(resourceOf(sharedSpacePolicy, 'SharedArchiveReceiptsAreNotUserWritable'), 'finance');
+/**
+ * The union of a Sid and its `…SystemSettings` sibling, because the folder now has two homes and
+ * IAM refuses each with its own statement.
+ *
+ * A matcher built from one of them would agree with the browser only where that one reaches, and
+ * the row that would catch it is the one the sibling exists for.
+ */
+function anyOf(...matchers: ((key: string) => boolean)[]): (key: string) => boolean {
+  return (key) => matchers.some((matches) => matches(key));
+}
+
+const PERSONAL_DENY = anyOf(
+  keyMatcher(resourceOf(portalRolePolicy, 'ArchiveReceiptsAreNotUserWritable'), 'alice'),
+  keyMatcher(resourceOf(portalRolePolicy, 'ArchiveReceiptsAreNotUserWritableSystemSettings'), 'alice')
+);
+const SHARED_DENY = anyOf(
+  keyMatcher(resourceOf(sharedSpacePolicy, 'SharedArchiveReceiptsAreNotUserWritable'), 'finance'),
+  keyMatcher(resourceOf(sharedSpacePolicy, 'SharedArchiveReceiptsAreNotUserWritableSystemSettings'), 'finance')
+);
 
 /** An upload into `prefix` writes this key — which is what IAM actually judges. */
 const uploadedKey = (prefix: string) => `${prefix}whatever.csv`;
@@ -74,7 +91,12 @@ describe('the UI write gate and the IAM Deny agree on the same prefixes', () => 
     // A user's own folder that happens to be called `archive`. The personal Deny is anchored at
     // the root, so IAM PERMITS a write here — and the browser must not refuse it.
     'alice/backups/archive/',
-    'alice/archived-notes/'
+    'alice/archived-notes/',
+    // The second home, refused by the sibling statement rather than by the original. The bare
+    // settings prefix is NOT denied — no statement names it — so the browser must still offer it.
+    'alice/system_settings/',
+    'alice/system_settings/archive/',
+    'alice/system_settings/archive/3f8a1c2e-9b4d-4a17-8c65-2e0d7b1f4a93/'
   ];
 
   it.each(personal)('personal: %s', (prefix) => {
@@ -89,7 +111,13 @@ describe('the UI write gate and the IAM Deny agree on the same prefixes', () => 
     // The wildcard is the SPACE slot and matches `/`, so IAM refuses a nested one here where it
     // permits the personal twin above. Averaging the two rules gets one of these wrong.
     'finance/backups/archive/',
-    'finance/archived-notes/'
+    'finance/archived-notes/',
+    // The shared wildcard already reached these before the sibling landed, which is why the
+    // sibling is redundant here and explicit anyway — the narrowing has to be able to remove the
+    // old form without re-deriving what it covered.
+    'finance/system_settings/',
+    'finance/system_settings/archive/',
+    'finance/system_settings/archive/3f8a1c2e-9b4d-4a17-8c65-2e0d7b1f4a93/'
   ];
 
   it.each(shared)('shared: %s', (prefix) => {
@@ -101,6 +129,20 @@ describe('the UI write gate and the IAM Deny agree on the same prefixes', () => 
     // rather than the table above being edited to agree with a rule nobody re-read.
     expect(PERSONAL_DENY('alice/backups/archive/x.csv')).toBe(false);
     expect(SHARED_DENY('finance/backups/archive/x.csv')).toBe(true);
+  });
+
+  it('proves the SystemSettings sibling is what covers the second home, not the original', () => {
+    // Without this the union above could be carried by either half and the sibling could be
+    // deleted with every row still green — the shape that makes a union matcher vacuous.
+    const original = keyMatcher(resourceOf(portalRolePolicy, 'ArchiveReceiptsAreNotUserWritable'), 'alice');
+    const sibling = keyMatcher(
+      resourceOf(portalRolePolicy, 'ArchiveReceiptsAreNotUserWritableSystemSettings'),
+      'alice'
+    );
+
+    expect(original('alice/system_settings/archive/x.csv')).toBe(false);
+    expect(sibling('alice/system_settings/archive/x.csv')).toBe(true);
+    expect(sibling('alice/archive/x.csv')).toBe(false);
   });
 
   it('matches the wildcard against a slash, which is the trap in reading these resources', () => {

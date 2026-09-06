@@ -35,7 +35,7 @@ Attributes:
 """
 
 from cpcommon import s3_listing
-from cpcommon.app_managed import app_managed_prefix
+from cpcommon.app_managed import app_managed_prefixes
 from cpcommon.errors import TerminalError
 
 from .authz import assert_not_results_folder
@@ -69,7 +69,9 @@ def _excluder(root: str):
     Raises:
       None.
     """
-    portal_managed = tuple(app_managed_prefix(root, folder) for folder in _PORTAL_MANAGED_FOLDERS)
+    portal_managed = tuple(
+        anchored for folder in _PORTAL_MANAGED_FOLDERS for anchored in app_managed_prefixes(root, folder)
+    )
 
     def ignore(key: str, size: int, prefix: str) -> bool:
         """Reports whether an object is something other than sendable data.

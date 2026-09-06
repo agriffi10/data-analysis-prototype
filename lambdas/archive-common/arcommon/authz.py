@@ -17,7 +17,7 @@ where it wrote a refusal, which is a worse failure than the one it was reporting
 
 from cpcommon import config, events
 from cpcommon import registry as reg
-from cpcommon.app_managed import app_managed_prefix
+from cpcommon.app_managed import app_managed_prefixes
 from cpcommon.errors import TerminalError
 from cpcommon.paths import normalize_root
 
@@ -106,6 +106,15 @@ def assert_not_reserved(root: str, key: str) -> str:
     ``alice/archived-notes.txt`` against ``alice/archive/`` — is an ordinary file and must still
     archive, which is why the key is compared in its trailing-slash form rather than raw.
 
+    **The first two arms run over every folder before the ancestor arm runs over any**, and that
+    ordering is what lets the refusal name the folder the key is actually IN. Each reserved folder
+    now has more than one location while both homes are admitted, so a key inside
+    ``{root}system_settings/archive/`` is the receipt folder and says so, while the bare
+    ``{root}system_settings/`` matches no direct arm until the loop reaches ``system_settings``
+    itself and is named for what it is. One combined loop would report whichever folder came
+    first in the list, which is how a selection of the whole settings prefix came to be described
+    as an archive.
+
     Args:
       root: The authorized, normalised space root prefix.
       key: The selected item's key, already confirmed inside the root.
@@ -119,10 +128,15 @@ def assert_not_reserved(root: str, key: str) -> str:
     """
     prefix = normalize_root(root)
     as_prefix = key if key.endswith("/") else f"{key}/"
-    for folder in RESERVED_SOURCE_ROOTS:
-        reserved = app_managed_prefix(prefix, folder)
-        if key == reserved.rstrip("/") or key.startswith(reserved) or reserved.startswith(as_prefix):
-            raise TerminalError("reserved_folder", f"{key!r} is or contains {folder!r}")
+    homes = [(folder, app_managed_prefixes(prefix, folder)) for folder in RESERVED_SOURCE_ROOTS]
+    for folder, reserved_homes in homes:
+        for reserved in reserved_homes:
+            if key == reserved.rstrip("/") or key.startswith(reserved):
+                raise TerminalError("reserved_folder", f"{key!r} is {folder!r}")
+    for folder, reserved_homes in homes:
+        for reserved in reserved_homes:
+            if reserved.startswith(as_prefix):
+                raise TerminalError("reserved_folder", f"{key!r} contains {folder!r}")
     return key
 
 

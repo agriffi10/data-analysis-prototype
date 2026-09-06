@@ -202,6 +202,12 @@ def test_the_refused_set_is_a_superset_of_the_pickers_and_of_the_shared_enumerat
     The direction that matters is kept: nothing the picker locks may be accepted here. What is
     given up is the reverse, and deliberately, because the picker is a browser affordance and
     IAM is the thing that actually refuses.
+
+    **The two sets coincide again, and that is a coincidence rather than the rule.** SPEC-219
+    added `system_settings` to the picker as well, so the difference this used to carry is now
+    empty — but the assertion stays an inclusion in one direction and an enumeration of the
+    difference in the other, because the moment they diverge again is the moment somebody has to
+    make the argument for the new member. Restoring an equality here would delete the question.
     """
     from focommon.config import PICKER_LOCKED_FOLDERS
 
@@ -211,9 +217,10 @@ def test_the_refused_set_is_a_superset_of_the_pickers_and_of_the_shared_enumerat
         "destination the browser refuses to name"
     )
     assert "system_settings" in refused
-    assert refused - set(PICKER_LOCKED_FOLDERS) == {"system_settings"}, (
-        "the superset has grown a second member; every one of them is a refusal the picker "
-        "does not make, so each needs the same argument system_settings has"
+    assert refused - set(PICKER_LOCKED_FOLDERS) == set(), (
+        "the superset has grown a member the picker does not lock; every one of them is a "
+        "refusal the browser never explains, so each needs the argument system_settings had "
+        "before the picker took it on"
     )
     assert set(app_managed.SPACE_FOLDERS) <= set(config.PROTECTED_DESTINATIONS)
     assert set(app_managed.SPACE_FOLDERS) == {
@@ -221,6 +228,22 @@ def test_the_refused_set_is_a_superset_of_the_pickers_and_of_the_shared_enumerat
         app_managed.RECEIPT_FOLDER,
         app_managed.SHARED_TABLES_FOLDER,
     }
+
+
+def test_both_homes_of_a_protected_folder_are_refused_as_destinations():
+    """The plane's rule is not re-pointed, and this is what says so rather than assuming it.
+
+    ``protected_refusal``'s second arm is a segment test, so it already reaches a moving folder's
+    new home; its first arm is root-anchored and does not. The pair holds either way, and the
+    folder each key is IN is what gets named — which is the reason ``system_settings`` is appended
+    last rather than first.
+    """
+    from rccommon.paths import protected_refusal
+
+    assert protected_refusal("alice", "alice/athenaresults/x.csv") == "athenaresults"
+    assert protected_refusal("alice", "alice/system_settings/athenaresults/x.csv") == "athenaresults"
+    assert protected_refusal("alice", "alice/system_settings/notes.csv") == "system_settings"
+    assert protected_refusal("alice", "alice/reports/mine.csv") is None
 
 
 def test_every_reason_is_worded_and_every_wording_is_a_reason():

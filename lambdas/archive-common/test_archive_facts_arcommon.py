@@ -23,7 +23,7 @@ def test_ACCEPTED_the_three_archive_facts_are_spelled_the_same_today():
     assert app_managed.RECEIPT_FOLDER == app_managed.VAULT_ARCHIVE_SEGMENT == plan.PREFIX == "archive"
 
 
-def test_the_reserved_source_roots_are_exactly_these_five():
+def test_the_reserved_source_roots_are_exactly_these_six():
     """Spelled out, in order: the browser mirrors this tuple, so a seat moving is a divergence."""
     assert config.RESERVED_SOURCE_ROOTS == (
         "archive",
@@ -31,6 +31,7 @@ def test_the_reserved_source_roots_are_exactly_these_five():
         "user_settings",
         "_data-quality-reports",
         "shared_tables",
+        "system_settings",
     )
 
 

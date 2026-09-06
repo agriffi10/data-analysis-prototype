@@ -280,3 +280,28 @@ def test_the_portal_managed_folders_swept_from_an_expansion_are_exactly_these_tw
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+# ── both homes of a managed folder (SPEC-219 FR-002) ─────────────────────────
+
+
+def test_the_excluder_sweeps_both_homes_of_the_results_folder():
+    """An expansion reaching a space root drops the results folder at either location."""
+    ignore = m._excluder("alice/", "alice/")
+
+    assert ignore("alice/athenaresults/q.csv", 1, "alice/") is True
+    assert ignore("alice/system_settings/athenaresults/q.csv", 1, "alice/") is True
+    assert ignore("alice/reports/mine.csv", 1, "alice/") is False
+
+
+def test_selecting_the_NEW_home_keeps_its_own_contents_listable():
+    """The carve-out is per ELEMENT, which is what keeps copying OUT of the folder working.
+
+    A root-anchored exclusion applied to a legally selected folder would list its every object,
+    exclude every one of them, and report the item as empty — the failure the carve-out exists to
+    prevent, now owed at two locations rather than one.
+    """
+    ignore = m._excluder("alice/", "alice/system_settings/athenaresults/")
+
+    assert ignore("alice/system_settings/athenaresults/q.csv", 1, "alice/system_settings/athenaresults/") is False
+    assert ignore("alice/athenaresults/q.csv", 1, "alice/system_settings/athenaresults/") is True

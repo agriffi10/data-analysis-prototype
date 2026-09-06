@@ -17,11 +17,11 @@ module worked without it — but a future module importing only ``authz`` would 
 
 from cpcommon import config, events
 from cpcommon import registry as reg
-from cpcommon.app_managed import athena_results_prefix
+from cpcommon.app_managed import app_managed_prefixes
 from cpcommon.errors import TerminalError
 
 from . import messages as _messages  # noqa: F401
-from .config import RECIPIENT_KINDS, SPACE_KINDS
+from .config import ATHENA_RESULTS_FOLDER, RECIPIENT_KINDS, SPACE_KINDS
 from .paths import normalize_root
 
 
@@ -113,9 +113,17 @@ def recipient_location(kind: str, name: str) -> dict:
 def assert_not_results_folder(root: str, key: str) -> str:
     """Refuses the space's own Athena results folder as a send source.
 
-    The refusal is anchored at the SPACE ROOT — ``{root}athenaresults/`` — which leaves
-    ``alice/reports/athenaresults/`` an ordinary folder the user made and may send, the same
-    anchoring ``isUndeletableRootFolder`` uses in the browser.
+    The refusal is anchored at the SPACE ROOT — every location the results folder may occupy,
+    which is ``{root}athenaresults/`` and, while both homes are admitted,
+    ``{root}system_settings/athenaresults/`` — leaving ``alice/reports/athenaresults/`` an
+    ordinary folder the user made and may send, the same anchoring ``isUndeletableRootFolder``
+    uses in the browser.
+
+    **The direct arms run over every home before the ancestor arm runs over any**, rather than
+    both arms per home. It changes which sentence a caller reads: selecting ``{root}system_settings/``
+    itself matches no direct arm and then matches the ancestor arm, so it is refused as
+    *containing* the results folder — correct, since it does, though the message names the folder
+    inside rather than the one selected.
 
     **This rule is written here rather than reused from anywhere**, and the reason is worth
     stating because reuse would look like the tidier choice: ``protectedFolders.ts`` keeps
@@ -149,10 +157,12 @@ def assert_not_results_folder(root: str, key: str) -> str:
       TerminalError: ``results_not_sendable`` when the key is the results folder, anything
         beneath it, or a folder that contains it.
     """
-    results = athena_results_prefix(normalize_root(root))
-    if key == results.rstrip("/") or key.startswith(results):
-        raise TerminalError("results_not_sendable", f"{key!r}")
+    homes = app_managed_prefixes(normalize_root(root), ATHENA_RESULTS_FOLDER)
+    for results in homes:
+        if key == results.rstrip("/") or key.startswith(results):
+            raise TerminalError("results_not_sendable", f"{key!r}")
     as_prefix = key if key.endswith("/") else f"{key}/"
-    if results.startswith(as_prefix):
-        raise TerminalError("results_not_sendable", f"{key!r} contains the results folder")
+    for results in homes:
+        if results.startswith(as_prefix):
+            raise TerminalError("results_not_sendable", f"{key!r} contains the results folder")
     return key

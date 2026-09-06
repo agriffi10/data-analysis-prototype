@@ -71,7 +71,13 @@
 // ever creates that folder; it is defensive there and would be dead config here.
 
 import type {SelectableItem} from './selectionContext';
-import {appManagedPrefix, ARCHIVE_FOLDER, ATHENA_RESULTS_FOLDER, SHARED_TABLES_FOLDER} from '../../lib/appManagedPaths';
+import {
+  appManagedPrefixes,
+  ARCHIVE_FOLDER,
+  ATHENA_RESULTS_FOLDER,
+  SHARED_TABLES_FOLDER,
+  SYSTEM_SETTINGS_FOLDER
+} from '../../lib/appManagedPaths';
 
 /** Hidden from the main file-browser listing. */
 export const HIDDEN_BROWSER_FOLDERS = ['user_settings', '_data-quality-reports', '_directory', '_config'] as const;
@@ -87,7 +93,10 @@ export const PICKER_LOCKED_FOLDERS = [
   // IAM denies `PutObject` beneath it, so offering it as a paste target only ever
   // produced an AccessDenied — and a receipt acquiring neighbours is how an archive folder
   // stops being a record of what this plane did.
-  ARCHIVE_FOLDER
+  ARCHIVE_FOLDER,
+  // The prefix the three above are moving into. Never a paste target in its own right, so the
+  // picker offers neither it nor anything below it.
+  SYSTEM_SETTINGS_FOLDER
 ] as const;
 
 /**
@@ -113,7 +122,12 @@ export const PICKER_LOCKED_FOLDERS = [
  * destroy the receipts that carry every archive id — and IAM denies the objects beneath it
  * anyway, so the row here is the browser saying so before the user finds out from S3.
  */
-export const UNDELETABLE_ROOT_FOLDERS = [ATHENA_RESULTS_FOLDER, 'saved_queries', ARCHIVE_FOLDER] as const;
+export const UNDELETABLE_ROOT_FOLDERS = [
+  ATHENA_RESULTS_FOLDER,
+  'saved_queries',
+  ARCHIVE_FOLDER,
+  SYSTEM_SETTINGS_FOLDER
+] as const;
 
 type UndeletableFolder = (typeof UNDELETABLE_ROOT_FOLDERS)[number];
 
@@ -131,6 +145,10 @@ const UNDELETABLE_REFUSALS: Record<UndeletableFolder, {delete: string; move: str
   archive: {
     delete: 'Your archive receipts live in this folder, so it can’t be deleted.',
     move: 'Your archive receipts live in this folder, so it can’t be moved or renamed.'
+  },
+  system_settings: {
+    delete: 'The folders the app manages for you live here, so this folder can’t be deleted.',
+    move: 'The folders the app manages for you live here, so this folder can’t be moved or renamed.'
   }
 };
 
@@ -147,7 +165,7 @@ export function undeletableRootFolderRefusal(
   rootPrefix: string,
   action: 'delete' | 'move'
 ): string | null {
-  const name = UNDELETABLE_ROOT_FOLDERS.find((folder) => folderPrefix === appManagedPrefix(rootPrefix, folder));
+  const name = UNDELETABLE_ROOT_FOLDERS.find((folder) => appManagedPrefixes(rootPrefix, folder).includes(folderPrefix));
   return name ? UNDELETABLE_REFUSALS[name][action] : null;
 }
 
@@ -207,5 +225,5 @@ export function undeletableSelectionRefusal(
  * folder that happens to share the name is a normal user folder.
  */
 export function isRootFolderNamed(folderPrefix: string, rootPrefix: string, names: readonly string[]): boolean {
-  return names.some((name) => folderPrefix === appManagedPrefix(rootPrefix, name));
+  return names.some((name) => appManagedPrefixes(rootPrefix, name).includes(folderPrefix));
 }

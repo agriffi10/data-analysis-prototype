@@ -140,6 +140,27 @@ def test_a_message_with_no_identity_block_is_refused():
     _expect_reason([{"body": json.dumps(body)}], "unauthorized")
 
 
+# ── reserved prefixes (SPEC-219 FR-002) ──────────────────────────────────────
+
+
+def test_a_check_targeting_a_reserved_first_segment_is_forbidden_by_name():
+    """The new prefix is refused with the same reason and wording as the results folder today.
+
+    The rule is a FIRST-SEGMENT test and so already reached any depth beneath the prefix; what
+    changes is that the prefix itself is now in the list. Asserted by name rather than by code,
+    because six of this verb's branches raise `forbidden`.
+    """
+    _setup()
+
+    for segment in ("athenaresults", "system_settings"):
+        exc = _expect_reason(
+            _event(location=f"alice/{segment}/x/"),
+            v.messages.FORBIDDEN,
+            f"{segment!r} is a reserved prefix",
+        )
+        assert exc.reason == v.messages.FORBIDDEN
+
+
 if __name__ == "__main__":
     tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
     failed = 0
@@ -152,3 +173,4 @@ if __name__ == "__main__":
             print(f"FAIL {fn.__name__}: {exc}")
     print(f"\n{len(tests) - failed}/{len(tests)} passed")
     sys.exit(1 if failed else 0)
+
