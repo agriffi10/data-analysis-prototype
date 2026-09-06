@@ -1,0 +1,98 @@
+[
+  {
+    "Name": "c_boolean",
+    "Type": "boolean"
+  },
+  {
+    "Name": "c_tinyint",
+    "Type": "tinyint"
+  },
+  {
+    "Name": "c_smallint",
+    "Type": "smallint"
+  },
+  {
+    "Name": "c_integer",
+    "Type": "int"
+  },
+  {
+    "Name": "c_bigint",
+    "Type": "bigint"
+  },
+  {
+    "Name": "c_real",
+    "Type": "float"
+  },
+  {
+    "Name": "c_double",
+    "Type": "double"
+  },
+  {
+    "Name": "c_decimal",
+    "Type": "decimal"
+  },
+  {
+    "Name": "c_date",
+    "Type": "date"
+  },
+  {
+    "Name": "c_timestamp",
+    "Type": "timestamp"
+  },
+  {
+    "Name": "c_varchar",
+    "Type": "string"
+  },
+  {
+    "Name": "c_char",
+    "Type": "char"
+  },
+  {
+    "Name": "c_empty",
+    "Type": "string"
+  },
+  {
+    "Name": "c_null_text",
+    "Type": "string"
+  },
+  {
+    "Name": "c_null_bigint",
+    "Type": "bigint"
+  },
+  {
+    "Name": "c_array",
+    "Type": "array"
+  },
+  {
+    "Name": "c_json",
+    "Type": "json"
+  },
+  {
+    "Name": "c_varbinary",
+    "Type": "binary"
+  },
+  {
+    "Name": "c_time",
+    "Type": "time"
+  },
+  {
+    "Name": "c_ipaddress",
+    "Type": "ipaddress"
+  },
+  {
+    "Name": "c_uuid",
+    "Type": "uuid"
+  },
+  {
+    "Name": "c_interval_day",
+    "Type": "interval day to second"
+  },
+  {
+    "Name": "c_interval_month",
+    "Type": "interval year to month"
+  },
+  {
+    "Name": "c_unknown",
+    "Type": "unknown"
+  }
+]

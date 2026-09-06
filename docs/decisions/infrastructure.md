@@ -9,6 +9,7 @@ entry you need, not the file.**
 ## Contents
 
 - [Fences](#fences)
+- [An account quota is invisible until the apply, and the apply is on `main` (SPEC-222)](#an-account-quota-is-invisible-until-the-apply-and-the-apply-is-on-main-spec-222)
 - [IaC](#iac)
 - [Deploy-role refresh deadlock has an in-repo lever (`skip_refresh`)](#deploy-role-refresh-deadlock-has-an-in-repo-lever-skip_refresh)
 - [Response headers / CSP (SPEC-140)](#response-headers--csp-spec-140)
@@ -142,6 +143,58 @@ only reads; the API enqueues on its behalf.
   `/assets/`. The S3 path it replaced deployed in three prefix-scoped passes, and its one finding
   that outlives it: **`--exclude` PROTECTS keys from `--delete`**, so a pass excluding a prefix can
   never reconcile it.
+- **An ACCOUNT QUOTA is invisible to every local gate, so the APPLY is the only thing that knows
+  — and it finds out on `main`, with a partial apply behind it.** `tofu validate` type-checks,
+  `docker-lambda`'s validation block enforces the range AWS *documents*, and a plan never calls
+  `CreateFunction`; a value inside the documented range and outside the account's passes all
+  three and is refused at create. Measured: a Lambda at Lambda's documented 10,240 MB, against an
+  account whose un-raised quota is 3,008. The write grant, the log groups and the sibling
+  function had already applied. `Deploy Lambdas` then names the wreckage precisely — *"planned
+  but never pointed at this commit's code"* — which is the reconcile gate's signature for a
+  refused create rather than a generic failure. `test_fleet_derivation.py` holds every module's
+  declaration against what this account will actually create; it is fleet-wide because the next
+  author will have the same information the last one did, which is none. **These constants are
+  account quotas and therefore MOVE** — unlike a documented maximum, which is a service limit —
+  so raising the AWS quota and raising the constant are one change, and the guard is wrong in
+  the *denying* direction until both happen.
+
+## An account quota is invisible until the apply, and the apply is on `main` (SPEC-222)
+
+The converter asked for Lambda's documented maximum memory, 10,240 MB. `CreateFunction` refused
+it: `'MemorySize' value failed to satisfy constraint: Member must have value less than or equal
+to 3008`. That 3,008 is this account's un-raised quota, and nothing in the repository could see
+it — `tofu validate` type-checks the value, the `docker-lambda` module's own `validation` block
+enforces 512–10,240 because that is what AWS documents, and a plan never calls `CreateFunction`
+at all. Every gate was green and the trunk went red.
+
+**What makes it expensive is that the apply is partial.** By the time the converter was refused,
+the execution role's new write grant, both new log groups and the sibling `notify` function had
+already been created. So the failure is not "nothing happened" but "half a plane exists", and
+recovery is a second apply rather than a retry. `Deploy Lambdas` failed alongside it with the
+reconcile gate's message — *"these functions were planned but never pointed at this commit's
+code"* — which is worth recognising on sight: it is what a refused create looks like one workflow
+over, and it reads like a packaging problem rather than a quota one.
+
+**The guard is fleet-wide and lives in `lambdas/test_fleet_derivation.py`**, not on the module
+that hit it, because the next function to want more memory will be in a different module and its
+author will have exactly the information this one had. It reads every module's `locals.tf` and
+refuses a declaration above what this account is known to create, on both dimensions a quota can
+bite. It owes a corpus rather than a green run — a gate run against the thing it guards proves
+the artifact passes and never that a check still fires — so it carries eleven fixture cases at
+both boundaries of both dimensions, half of them asserting SILENCE, because a check that refuses
+the value it was written to allow is as broken as one that allows what it must refuse.
+
+**Two numbers, two different kinds of fact.** Memory's 3,008 is a ceiling: `CreateFunction` named
+it. Ephemeral storage's 2,048 is only what has been observed to be ACCEPTED — the converter runs
+at it — which is not knowledge of where that ceiling is, and somebody writing 4,096 later is back
+where this started. The distinction is in the constants' own comments because the guard would
+otherwise read as two ceilings.
+
+**Re-derive rather than re-check.** Both are account quotas and move on a support request, unlike
+a documented maximum. `aws service-quotas list-service-quotas --service-code lambda` shows what is
+adjustable, but `CreateFunction`'s refusal is the authority — it names the ceiling verbatim, which
+is how 3,008 was learned. Raising the AWS quota and raising the constant are one change: apart,
+the fleet keeps refusing a value the account would now accept, with nothing to explain why.
 
 ## IaC
 

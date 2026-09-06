@@ -40,6 +40,12 @@ looks right" is never one. Record the outcome in a dated session file (§5).
   — it really moves and deletes files now, on buckets with **versioning off and no trash**. It ends
   in a placeholder no longer; treat every fixture it names as disposable and recreate them between
   runs.
+- **The results-conversion plane's script**
+  ([`fixtures/results-conversion-plane.sh`](fixtures/results-conversion-plane.sh)) — it writes
+  real files into a real space and deliberately stages a name collision. Same bucket rules: no
+  versioning, no trash. It needs a token and a finished execution id, and every check in it is an
+  `owed.md` row that running it discharges. **The plane has no browser surface until SPEC-223**,
+  which is why this is a script rather than steps in a feature section here.
 - Anything touching data he did not say is disposable.
 
 Everything else here is safe to run unattended. A missing approval means that part is recorded as

@@ -166,9 +166,17 @@ CASES = [
      0, ""),
 
     # ---- check_fixture_scripts ------------------------------------------------------------
-    ("fixture_scripts_second",
+    # The ratchet is 2, so TWO plane scripts are allowed and a THIRD is refused. Both halves are
+    # here deliberately: a corpus of only-refusals cannot see a cap that has been lowered by
+    # accident, which would refuse the second plane's script while reading as the same rule.
+    ("fixture_scripts_at_the_ratchet",
      lambda r: [_write(r, D("testing", "fixtures", "plane-a.sh"), "#!/bin/sh\n"),
                 _write(r, D("testing", "fixtures", "plane-b.sh"), "#!/bin/sh\n")],
+     0, ""),
+    ("fixture_scripts_over_the_ratchet",
+     lambda r: [_write(r, D("testing", "fixtures", "plane-a.sh"), "#!/bin/sh\n"),
+                _write(r, D("testing", "fixtures", "plane-b.sh"), "#!/bin/sh\n"),
+                _write(r, D("testing", "fixtures", "plane-c.sh"), "#!/bin/sh\n")],
      1, "fixtures"),
 
     # ---- check_claude_budget --------------------------------------------------------------
