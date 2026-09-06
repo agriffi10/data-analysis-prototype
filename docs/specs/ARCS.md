@@ -2864,9 +2864,14 @@ than a select that enqueues into a placeholder.
 **Two decisions worth reading before building 222.** JSON is **newline-delimited**, one object per
 line — the shape the table builder and Athena ingest, so "save as JSON, then build a table"
 composes; the Explorer's *Copy* offers a pretty-printed array for a page, and that is a different
-tool for a different job. And Excel gets the two fences a spreadsheet export owes: a cell is never a
-formula, whatever the value starts with, and the 1,048,575-row and 16,384-column limits are
-refusals that name the count and suggest Parquet, never a truncated sheet that looks complete.
+tool for a different job. And Excel gets the fences a spreadsheet export owes: a cell is never a
+formula, whatever the value starts with, and the 1,048,575-row limit is a refusal that names the
+count and suggests Parquet, never a truncated sheet that looks complete. **Its 16,384-column
+limit is not**, and 222 measured why: the described columns ride on the Step Functions state,
+which a realistic column entry fills at somewhere between 2,500 and 6,400 columns — so the
+transport refuses a wide result set two to three times before Excel's own ceiling could, and a
+check at 16,384 would be a fence that stops nobody. The refusal that exists is the transport's,
+it lives in describe-results, and it applies to every format.
 
 **Considered and rejected (2026-09-05, user decision): a lazy frame over the SOURCE files, with the
 exploration's filters re-applied in polars.** It reads as more robust and is less so here, for four

@@ -33,6 +33,10 @@ resource "aws_lambda_function" "this" {
   architectures                  = var.architectures
   reserved_concurrent_executions = var.reserved_concurrency
 
+  ephemeral_storage {
+    size = var.ephemeral_storage_mb
+  }
+
   environment {
     variables = var.environment
   }

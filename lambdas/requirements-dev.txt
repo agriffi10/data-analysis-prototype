@@ -4,6 +4,12 @@
 #   pip install -r lambdas/table-builder-infer-schema/requirements.txt   # polars: infer-schema,
 #                                                                       # cpcommon.type_mapping +
 #                                                                       # data-quality inspect-source
+#   pip install -r lambdas/results-conversion-convert/requirements.txt   # xlsxwriter: the
+#                                                                       # converter's Excel writer
+#
+# THE SECOND AND THIRD LINES ARE NOT OPTIONAL, and CI cannot tell you so: the lambdas job runs
+# no pytest, so the local suite is the only gate this repo has, and a session missing either
+# package fails at collection with an import error that looks like a broken checkout.
 # ruff is BOUNDED TO A MINOR, not left open. This repo has no ruff config, so it lints on
 # ruff's DEFAULT rule set — and 0.16.0 widened that default from 59 rules to 413, turning a
 # green main red overnight with 500 findings in files nobody had touched. An unpinned linter

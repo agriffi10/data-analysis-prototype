@@ -17,7 +17,7 @@ import logging
 from cpcommon import clients, columns, config, errors, events, observability
 from cpcommon.errors import TerminalError
 from rccommon import notify, reasons
-from rccommon.config import RESULTS_MAX_BYTES
+from rccommon.config import MAX_RESULT_COLUMNS, max_result_bytes
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -68,7 +68,13 @@ def _columns(execution_id: str) -> list[dict]:
 
 
 def _check_columns(described: list[dict], tokens: dict) -> None:
-    """Refuses a result set whose names the written file could not carry faithfully.
+    """Refuses a result set the written file could not carry faithfully, or the state at all.
+
+    The width check is FIRST and is about the transport rather than the data: the described
+    columns ride on the Step Functions state, capped at 256 KB, and a result set wide enough to
+    cross that fails as an uncatchable payload error before any named refusal could run. Excel's
+    own 16,384-column ceiling sits two to three times above this cap and is therefore
+    unreachable, which is why the plane has no separate refusal for it.
 
     Args:
       described: The columns, as ``_columns`` returns them.
@@ -78,9 +84,16 @@ def _check_columns(described: list[dict], tokens: dict) -> None:
       None.
 
     Raises:
-      TerminalError: ``invalid_column_name`` for an empty name; ``duplicate_column`` for two
-        names that collide once case-folded, naming the first.
+      TerminalError: ``too_many_columns`` for a result set wider than the state can carry;
+        ``invalid_column_name`` for an empty name; ``duplicate_column`` for two names that
+        collide once case-folded, naming the first.
     """
+    if len(described) > MAX_RESULT_COLUMNS:
+        raise TerminalError(
+            reasons.TOO_MANY_COLUMNS,
+            f"{len(described)} columns, over {MAX_RESULT_COLUMNS}",
+            tokens={**tokens, "count": len(described)},
+        )
     names = [column["name"] for column in described]
     if any(not isinstance(name, str) or not name for name in names):
         raise TerminalError(reasons.INVALID_COLUMN_NAME, "a result column has no name")
@@ -152,9 +165,10 @@ def _describe(event) -> dict:
     described = _columns(carried["queryExecutionId"])
     _check_columns(described, tokens)
     size = _size(carried["resultsKey"])
-    if size > RESULTS_MAX_BYTES:
+    cap = max_result_bytes(carried["format"])
+    if size > cap:
         raise TerminalError(
-            reasons.RESULTS_TOO_LARGE, f"{size} bytes, over {RESULTS_MAX_BYTES}", tokens=tokens
+            reasons.RESULTS_TOO_LARGE, f"{size} bytes, over {cap}", tokens=tokens
         )
     logger.info("described %d column(s), %d byte(s) for %s", len(described), size, carried["username"])
     observability.info(

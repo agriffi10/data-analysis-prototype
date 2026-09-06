@@ -46,6 +46,18 @@
       "Resource": "${user_space_bucket_arn}/*/system_settings/athenaresults/*"
     },
     {
+      "Sid": "WriteConvertedFiles",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:AbortMultipartUpload"
+      ],
+      "Resource": [
+        "${user_space_bucket_arn}/*",
+        "${shared_space_bucket_arn}/*"
+      ]
+    },
+    {
       "Sid": "NeverWriteAppManagedObjects",
       "Effect": "Deny",
       "Action": "s3:PutObject",

@@ -176,10 +176,17 @@ One workbook, one sheet, and the fences Excel needs that the other two do not.
       and the plant is a caller-built `xlsxwriter.Workbook(path, {"strings_to_formulas": True})`
       handed in through `write_excel(workbook=…)`; the assertion reddens under it, and the verb is
       asserted never to pass a workbook of its own.
-- [ ] A result with more than 1,048,575 data rows or more than 16,384 columns refuses with
-      `excel_row_limit` or `excel_column_limit`, carrying the count, and writes nothing. The row
-      count is known only after the read, so the refusal is a return value from the convert verb
-      and the notification names the count and suggests Parquet.
+- [ ] A result with more than 1,048,575 data rows refuses with `excel_row_limit`, carrying the
+      count, and writes nothing. The row count is known only after the read, so the refusal is a
+      return value from the convert verb and the notification names the count and suggests
+      Parquet.
+- [ ] **Excel's 16,384-column ceiling is NOT a refusal this plane makes, because it can never
+      fire.** The described columns ride on the Step Functions state, which is capped at 256 KB,
+      and a realistic column entry puts that boundary at about 4,900 columns — measured. A check
+      at 16,384 would be a fence that stops nobody while reading as one that does, so the cap
+      that exists is the transport's: `describe-results` refuses above `MAX_RESULT_COLUMNS` with
+      `too_many_columns`, before the columns are put on the state that cannot carry them, and it
+      applies to every format rather than to Excel alone.
 - [ ] Precision is stated, not hidden: a `bigint` above 2^53 or a `decimal` with more than 15
       significant digits loses precision in Excel, and the notification for an `.xlsx` whose frame
       contains such a column says so in one sentence. The condition is computed from the frame.
@@ -243,7 +250,7 @@ One producer, at the end of the machine, says what happened.
 - [ ] The success message names the precision sentence of FR-004 when it applies, and nothing else
       about the data — no column name, no cell value.
 - [ ] Every code the convert verb can return — `results_unreadable`, `unsupported_column_type`,
-      `excel_row_limit`, `excel_column_limit`, `destination_occupied` — is registered in `rccommon`
+      `excel_row_limit`, `destination_occupied` — is registered in `rccommon`
       with wording that names the file and the format, and reaches the user through `NotifyFailure`
       as a return value routed by the machine's `Choice`, never as a raised error. The code
       enumeration test from SPEC-221 FR-006 is extended and stays a set equality.

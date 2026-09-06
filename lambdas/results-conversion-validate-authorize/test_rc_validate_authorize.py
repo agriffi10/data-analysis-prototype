@@ -193,8 +193,22 @@ def test_a_deleting_space_and_a_registry_denial_are_told_apart():
         {"space": {"kind": "personal", "name": "alice"}, "prefix": "", "filename": ".."},
         {"space": {"kind": "personal", "name": "alice"}, "prefix": "", "filename": "a\x01.parquet"},
         {"space": {"kind": "personal", "name": "alice"}, "prefix": "", "filename": ""},
+        # The PREFIX half of the control-character rule. `check_filename` had a row here and
+        # `check_prefix` did not, so the prefix's own refusal was a guard nothing held — and a
+        # newline in a folder reaches an operator's plain-text log through the key it becomes.
+        {"space": {"kind": "personal", "name": "alice"}, "prefix": "out\n/", "filename": "a.parquet"},
+        {"space": {"kind": "personal", "name": "alice"}, "prefix": "out\x00/", "filename": "a.parquet"},
     ],
-    ids=["dot-segment", "prefix-without-slash", "slash-in-name", "dot-dot-name", "control-char", "empty-name"],
+    ids=[
+        "dot-segment",
+        "prefix-without-slash",
+        "slash-in-name",
+        "dot-dot-name",
+        "control-char",
+        "empty-name",
+        "newline-in-prefix",
+        "nul-in-prefix",
+    ],
 )
 def test_a_malformed_destination_is_invalid_request(destination):
     err, sent, athena = _refused(_body(destination=destination))

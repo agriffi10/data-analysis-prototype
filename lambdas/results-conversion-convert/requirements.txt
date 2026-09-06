@@ -1,0 +1,18 @@
+# xlsxwriter, for the results-conversion CONVERT verb's Excel writer and no other function.
+#
+# polars' `write_excel` builds its own `xlsxwriter.Workbook` and imports the package lazily, so
+# without this the verb raises `ModuleNotFoundError: Excel export requires 'xlsxwriter'` at the
+# moment a user asks for `.xlsx` — a runtime failure on one of three formats, which no import
+# check and no cold-start probe would see.
+#
+# THE IMAGE INSTALLS IT FLEET-WIDE, like every other requirements file here: there is one
+# site-packages shared by all the functions, so this declaration says who is MEANT to write a
+# workbook rather than who can. `lambdas/Dockerfile` names each requirements file explicitly in
+# its COPY and its install, and an unnamed one is silently not installed at all.
+#
+# NOTHING ELSE IS ADDED. `write_excel` needs no openpyxl and no pyarrow; the reader half of
+# Excel support is what would pull those in, and this plane never reads a workbook.
+#
+# Exact pin, as the two polars declarations are, so a version move is a reviewed change rather
+# than whatever the build day produces.
+xlsxwriter==3.2.9

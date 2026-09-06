@@ -162,6 +162,11 @@ DISPOSITIONS = {
     # object changed under a range read, not that it is gone. Swept because the handler returns;
     # kept here because a reader checking this table should not have to re-derive that.
     "lambdas/data-quality-byte-scan/dq_byte_scan.py::_scan_region": ABSENCE_IS_TERMINAL,
+    # Also not an absence branch. The handler that returns catches the verb's OWN internal
+    # refusal type, which carries a registered reason code and never an S3 one; the reads it
+    # encloses propagate every S3 failure, absence included, as a fault. Swept because the
+    # handler returns a value, and kept here for the same reason as the row above it.
+    "lambdas/results-conversion-convert/rc_convert.py::_convert": ABSENCE_IS_TERMINAL,
 }
 
 

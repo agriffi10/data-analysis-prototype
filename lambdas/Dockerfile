@@ -40,12 +40,18 @@
 FROM public.ecr.aws/lambda/python:3.12@sha256:3f57e489de055cfcd849d91c480bd4d50f95ec6c2a51616d45808dabfcbe105f
 
 # The union of every shared source's dependencies plus the fleet-wide file, copied first so the
-# install layer survives a source-only change. Renamed on the way in because three of the four are called
-# `requirements.txt` and a single COPY of all four would collapse them onto one destination.
+# install layer survives a source-only change. Renamed on the way in because four of the five are called
+# `requirements.txt` and a single COPY of all five would collapse them onto one destination.
+#
+# EVERY REQUIREMENTS FILE UNDER lambdas/ MUST BE NAMED HERE, TWICE — once in a COPY and once in
+# the install below. Nothing derives this list from the tree, so a new file that is not added is
+# not installed, and the function that needed it fails at the moment a user first reaches the
+# code path that imports it.
 COPY lambdas/requirements.txt /tmp/requirements/base.txt
 COPY lambdas/control-plane-common/requirements.txt /tmp/requirements/cpcommon.txt
 COPY lambdas/table-builder-infer-schema/requirements.txt /tmp/requirements/table-builder-polars.txt
 COPY lambdas/data-quality-polars/requirements.txt /tmp/requirements/data-quality-polars.txt
+COPY lambdas/results-conversion-convert/requirements.txt /tmp/requirements/results-conversion-convert.txt
 
 # EVERY REQUIREMENT MUST CARRY A VERSION CONSTRAINT, and the build refuses one that does not.
 # Not "must be pinned exactly": PyJWT[crypto]>=2.8,<3 is a deliberate range while log-foundry
@@ -75,6 +81,7 @@ sys.exit('\n'.join(f'{f}:{n} {l!r} carries no version constraint' for f, n, l in
       --requirement /tmp/requirements/cpcommon.txt \
       --requirement /tmp/requirements/table-builder-polars.txt \
       --requirement /tmp/requirements/data-quality-polars.txt \
+      --requirement /tmp/requirements/results-conversion-convert.txt \
  && rm -rf /tmp/requirements
 
 # The tree. What is shared code and what is a function is decided by the assembler from the tree

@@ -34,6 +34,17 @@ locals {
     # 60s rather than 15s: the EventBridge TIMED_OUT door parses the forwarded record and
     # cold-starts the shared layer before the send.
     "notify-failure" = { handler = "rc_notify_failure.handler", timeout = 60, memory = 256 }
+    # THE ONLY FUNCTION IN THIS PLANE THAT READS BYTES, and the only one whose numbers are
+    # derived rather than chosen. Memory and disk are Lambda's maxima because the Excel path
+    # cannot stream — polars materialises the frame and xlsxwriter builds the whole workbook
+    # beside it — and both feed the per-format size cap in rccommon.config, which a test
+    # recomputes from these three numbers. Edit one here and that test goes red.
+    "convert" = {
+      handler = "rc_convert.handler", timeout = 600, memory = 10240, ephemeral = 10240
+    }
+    # One notification. Sized like notify-failure and for the same reason: the cold start of the
+    # shared layer dominates, not the send.
+    "notify" = { handler = "rc_notify.handler", timeout = 60, memory = 256 }
   }
 
   # RESERVED FOR OPTIONAL action env ONLY — anything the shared layer needs belongs in the
@@ -60,10 +71,13 @@ locals {
   # The shared role writes to EVERY verb's log group, so one wildcard covers them.
   results_conversion_log_group_wildcard_arn = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/lambda/${var.project_name}-${var.environment}-results-conversion-*"
 
-  # A TOP-LEVEL ASL field. PROVISIONAL: the converter that will spend most of this budget is not
-  # built yet, and the spec that builds it re-derives the ceiling in the same test that sizes
-  # the converter. What the number must clear today is the sum of every Task's timeout times
-  # its attempts along the longest path, which a test computes from the rows above.
+  # A TOP-LEVEL ASL field. What it must clear is the sum of every Task's timeout times its
+  # attempts along the longest path, plus the backoff between attempts, which a test computes
+  # from the rows above and the template's own Retry blocks. Convert dominates it and retries
+  # ONCE on TransientError alone rather than four times on the four Lambda service errors, for
+  # a reason that is about correctness rather than arithmetic: a retry of an invocation that
+  # already completed its conditional PutObject meets its own object and reports the user's
+  # success as a name conflict.
   #
   # IT DOES NOT ON ITS OWN REACH NotifyFailure — the EventBridge TIMED_OUT rule does.
   state_machine_timeout_seconds = 3600

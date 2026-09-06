@@ -15,7 +15,7 @@ os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 import rc_describe_results as d
 from cpcommon import clients
 from cpcommon.errors import TerminalError, TransientError
-from rccommon.config import RESULTS_MAX_BYTES
+from rccommon.config import MAX_RESULT_COLUMNS, max_result_bytes
 
 EXECUTION_ID = "11111111-2222-4333-8444-555555555555"
 
@@ -98,20 +98,76 @@ def test_a_decimals_precision_and_scale_are_carried_and_nothing_else_gains_them(
     ]
 
 
+def test_a_result_set_wider_than_the_state_can_carry_is_refused_before_it_is_put_on_one():
+    """The cap is the TRANSPORT's, not a file format's, and it fires here or nowhere.
+
+    The described columns ride on the Step Functions state, capped at 256 KB. Measured across
+    realistic column entries, that boundary falls between about 2,500 columns (a long name plus
+    a decimal's precision and scale) and about 6,400 (a short name and a bare type) — so
+    Excel's own 16,384-column ceiling is two to three times past what the state can carry and
+    could never have been reached. Above the cap the payload fails as an uncatchable error
+    before any named refusal runs, which is why this refusal is the one that exists and why it
+    applies to every format rather than to Excel alone.
+    """
+    cap = MAX_RESULT_COLUMNS
+    sent, _, _ = _setup(columns=tuple((f"c{i}", "varchar") for i in range(cap + 1)))
+    with pytest.raises(TerminalError) as err:
+        d.handler(_validated(), None)
+
+    assert err.value.reason == "too_many_columns"
+    assert str(err.value.tokens["count"]) == str(cap + 1)
+    assert len(sent) == 1 and sent[0][0] == "alice"
+    assert f"{cap + 1} columns" in sent[0][1], "the sentence names the count the user has"
+    assert '"q1.xlsx"' in sent[0][1], "and the file they asked for"
+    assert "{" not in sent[0][1]
+
+
+def test_the_width_cap_is_the_threshold_it_says_it_is():
+    """The positive control for the refusal above: exactly at the cap is accepted, so the test
+    is about the boundary rather than about any large number at all."""
+    _setup(columns=tuple((f"c{i}", "varchar") for i in range(MAX_RESULT_COLUMNS)))
+    described = d.handler(_validated(), None)
+    assert len(described["columns"]) == MAX_RESULT_COLUMNS
+
+
+def test_the_width_refusal_comes_before_the_name_checks():
+    """A result set both too wide AND carrying a duplicate name refuses for the width, because
+    the width is what stops the state being built at all — a duplicate is a fact about data the
+    state could have carried."""
+    columns = [(f"c{i}", "varchar") for i in range(MAX_RESULT_COLUMNS + 1)]
+    columns[0] = ("Total", "varchar")
+    columns[1] = ("total", "varchar")
+    _setup(columns=tuple(columns))
+    with pytest.raises(TerminalError) as err:
+        d.handler(_validated(), None)
+    assert err.value.reason == "too_many_columns"
+
+
 def test_an_empty_result_set_is_a_valid_file_with_a_header():
     _setup(size=0)
     assert d.handler(_validated(), None)["resultsBytes"] == 0
 
 
 def test_a_result_over_the_cap_is_refused_naming_the_cap_and_the_file():
-    sent, _, _ = _setup(size=RESULTS_MAX_BYTES + 1)
+    """The cap applied is the one for the format the request asked for.
+
+    `_validated()` asks for `xlsx`, the memory-bound format and by far the smallest cap — so a
+    size the spreadsheet path refuses sits comfortably inside JSON's, and the second half here
+    proves the two really are different numbers rather than one constant reached by two names.
+    """
+    excel_cap = max_result_bytes("xlsx")
+    sent, _, _ = _setup(size=excel_cap + 1)
     with pytest.raises(TerminalError) as err:
         d.handler(_validated(), None)
     assert err.value.reason == "results_too_large"
     assert len(sent) == 1 and sent[0][0] == "alice"
-    assert "1 GB" in sent[0][1] and "as Excel" in sent[0][1]
-    _setup(size=RESULTS_MAX_BYTES)
-    assert d.handler(_validated(), None)["resultsBytes"] == RESULTS_MAX_BYTES
+    assert "256 MB" in sent[0][1] and "as Excel" in sent[0][1]
+    _setup(size=excel_cap)
+    assert d.handler(_validated(), None)["resultsBytes"] == excel_cap
+
+    assert max_result_bytes("json") > excel_cap
+    _setup(size=excel_cap + 1)
+    assert d.handler({**_validated(), "format": "json"}, None)["resultsBytes"] == excel_cap + 1
 
 
 def test_a_case_folded_duplicate_names_the_column_to_the_user_and_nowhere_else(captured_events):

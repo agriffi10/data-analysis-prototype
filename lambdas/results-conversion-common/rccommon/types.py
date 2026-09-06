@@ -20,12 +20,6 @@ normalisation error that corrupts a value instead of refusing it. Everything Ath
 (``varchar(255)``, ``array(integer)``, ``row(a integer, b varchar)``) survives the removal with
 its base name intact.
 
-The ``messages`` import is load-bearing, as it is in ``authz``: ``TerminalError`` validates its
-reason at the raise site against the registered table, and importing that module is what
-registers this plane's codes. Without it the refusals here raise ``ValueError`` instead — and
-only when nothing else in the process happened to import ``messages`` first, which is a green
-suite that depends on test ordering.
-
 Attributes:
   TEXT_KEPT: The Athena types written as the characters Athena rendered. Nested values are here
     because reconstructing structure from rendered text is a parser this arc does not build;
@@ -45,7 +39,6 @@ import re
 import polars as pl
 from cpcommon.errors import TerminalError
 
-from . import messages as _messages  # noqa: F401
 from . import reasons
 
 __all__ = ["TEXT_KEPT", "athena_type_of", "normalise", "polars_dtype", "schema_of"]
@@ -127,7 +120,9 @@ def athena_type_of(column: dict) -> str:
     """Renders one described column into the canonical type string this module maps.
 
     Only ``decimal`` needs rendering: every other parameterised type carries its parameters in
-    the string already, and this module discards them.
+    the string already, and this module discards them. A ``decimal`` that arrives ALREADY
+    parametric is returned untouched — Athena is not observed to send that shape, but refusing
+    a type string carrying everything needed would be a refusal of a correct input.
 
     Args:
       column: A described column — ``name``, ``type``, and ``precision``/``scale`` when Athena
@@ -144,8 +139,6 @@ def athena_type_of(column: dict) -> str:
     if normalise(reported) != _DECIMAL:
         return reported
     if _DECIMAL_PARAMS.search(reported):
-        # Already parametric. Athena is not observed to send this shape, but refusing a type
-        # string that carries everything needed would be a refusal of a CORRECT input.
         return reported
     precision, scale = column.get("precision"), column.get("scale")
     if not isinstance(precision, int) or isinstance(precision, bool):

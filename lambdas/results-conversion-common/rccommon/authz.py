@@ -16,9 +16,6 @@ shared is the registry read and its predicate, from ``cpcommon.registry`` — in
 record that cannot be read because of a real ``AccessDenied`` raises rather than reading as
 absence.
 
-The ``messages`` import is load-bearing: ``TerminalError`` validates its reason at the raise site
-against the registered table, and importing that module is what registers this plane's codes.
-
 Attributes:
   _UNREACHABLE: The one operator detail for both refusals.
 """
@@ -28,7 +25,6 @@ from cpcommon import registry as reg
 from cpcommon.errors import TerminalError
 from cpcommon.paths import normalize_root
 
-from . import messages as _messages  # noqa: F401
 from . import reasons
 from .config import SPACE_KINDS
 
