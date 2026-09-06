@@ -16,9 +16,11 @@ Attributes:
     until someone asks AWS to lift it. Nothing local can see that: `tofu validate` passes, the
     module's own range check passes, and the plan is green. It is only the apply that knows.
   CONVERTER_EPHEMERAL_MB: Its scratch disk, which holds the downloaded result object and the
-    written file at the same time. Lambda's documented range reaches 10,240 MB and this asks
-    for 2,048: no function in this account has ever run above the 512 MB default, so the larger
-    figure is unproven here, and a second red trunk costs more than the caps this gives up.
+    written file at the same time. Lambda's documented range reaches 10,240 MB and this asks for
+    2,048, which is the largest this account is KNOWN to accept rather than the largest it might:
+    every other function in the fleet runs at the 512 MB default, so 2,048 is proven by this
+    converter alone and everything above it is untested. Asking for more and meeting a second
+    quota refusal costs a red trunk, which is worth more than the caps this gives up.
   CONVERTER_TIMEOUT_SECONDS: Its execution ceiling, likewise mirrored.
   DISK_RESERVE / MEMORY_RESERVE: The fraction of each the budget does NOT spend, so the
     converter is not sized to fill a disk exactly or to run at the edge of an OOM.

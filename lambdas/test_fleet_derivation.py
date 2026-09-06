@@ -426,7 +426,7 @@ def declaration_pattern(dimension: str) -> str:
     ``ephemeral`` today, but ``ephemeral_storage_mb`` is the spelling a new module is as likely
     to reach for, and a bare-token match walks straight past it while reporting nothing. The
     trade is deliberate and one-sided — ``max_memory = 10240`` is now refused as well, which is a
-    number in an ``infra/modules/*/locals.tf`` that a person should look at either way, while the
+    number in a fleet ``.tf`` that a person should look at either way, while the
     miss it replaces was an over-ceiling declaration deploying unseen.
 
     Args:
@@ -442,7 +442,7 @@ def declaration_pattern(dimension: str) -> str:
 
 
 def over_account_limits(text: str, label: str) -> list[str]:
-    """Names every declaration in one `locals.tf` that exceeds what this account will create.
+    """Names every declaration in ONE Terraform file that exceeds what this account will create.
 
     Split out from the sweep so the FIXTURES below can drive it against text rather than against
     the tree. Running a gate over the real tree proves the tree passes; it proves nothing about
@@ -450,7 +450,10 @@ def over_account_limits(text: str, label: str) -> list[str]:
     repo.
 
     Args:
-      text: The contents of a module's ``locals.tf``.
+      text: The contents of one file from ``declaration_files`` — a module's ``locals.tf`` fleet
+        map, its single-function ``lambda.tf``, or a root ``.tf``. The checker is shape-agnostic:
+        it reads ``key = digits`` and does not care whether the key sits in a map or in a
+        ``module`` block.
       label: How to name the file in an offence, so the message points somewhere.
 
     Returns:
@@ -534,7 +537,10 @@ def test_each_dimension_sweep_reads_the_declarations_it_claims_to(dimension: str
     )
 
 
-#: The gate's own corpus: one `locals.tf` fragment per case, with what it must produce. Half of
+#: The gate's own corpus: one Terraform fragment per case, with what it must produce. Both DECLARING
+#: SHAPES appear — the `locals.tf` fleet map and the `module` block a single-function module writes
+#: in its own `lambda.tf` — because the sweep reads both and a corpus sampling one shape is a claim
+#: about a population it never saw. Half of
 #: these assert SILENCE, because half of a gate's regressions are false positives — a check that
 #: refuses the value it was written to allow is as broken as one that allows what it must refuse,
 #: and only a boundary pair can tell the two apart.
@@ -572,6 +578,16 @@ ACCOUNT_LIMIT_CORPUS = (
         ["max_memory = 10240, over this account's 3008"],
     ),
     ("a suffixed spelling under the ceiling is silent", '"a" = { ephemeral_storage_mb = 512 }', []),
+    (
+        "the OTHER declaring shape: a module block, aligned with spaces, is read the same way",
+        'module "api" {\n  timeout_seconds = 29\n  memory_mb       = 10240\n}',
+        ["memory_mb = 10240, over this account's 3008"],
+    ),
+    (
+        "and is silent under the ceiling, so the shape is not what decides it",
+        'module "api" {\n  timeout_seconds = 29\n  memory_mb       = 256\n}',
+        [],
+    ),
     (
         "the widening's cost, stated rather than hidden: a word merely CONTAINING the token trips it",
         '"a" = { rememory = 10240, preephemeralism_seconds = 10240 }',

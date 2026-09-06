@@ -192,14 +192,13 @@ def test_no_denied_resource_is_wide_enough_to_cover_a_whole_bucket():
 
 def test_the_refused_set_is_a_superset_of_the_pickers_and_of_the_shared_enumerator():
     """This plane refuses everything the browser's picker never offers, every folder the shared
-    owner enumerates, AND `system_settings`, which neither of those two names.
+    owner enumerates, AND anything the execution role denies that neither of those two names.
 
     It used to be an equality with the picker, and the equality contradicted the rule
     `rccommon.paths` states in its own docstring: the validator mirrors the execution role's
-    DENY, not the picker. The role denies `*/system_settings/*` in both buckets, so once the
-    converter holds a write grant a destination inside it would reach the user as a bare
-    AccessDenied instead of a named refusal — which is precisely the failure SPEC-219 wrote into
-    this spec's dependencies.
+    DENY, not the picker. The role denies `*/system_settings/*` in both buckets, and the
+    converter now HOLDS a write grant, so a destination inside it would reach the user as a bare
+    AccessDenied instead of a named refusal.
 
     The direction that matters is kept: nothing the picker locks may be accepted here. What is
     given up is the reverse, and deliberately, because the picker is a browser affordance and
