@@ -123,6 +123,45 @@ admin bucket are the only places it may write, and it is on the user-space bucke
   point, in one dispatcher; the in-flight record is session-scoped and settles on a notification
   carrying its request id.
 
+## What holds the browser's copy of a rule to this plane's
+
+Two rules are duplicated between the runtimes, and they are held together by different mechanisms
+with different strengths. Reading them as one is the mistake this section exists to prevent.
+
+**The LISTS are compared directly.** `protectedFoldersMirror.test.ts` reads `focommon/config.py` as
+text, resolves each member to the string it denotes — the module mixes quoted literals, owner
+attributes and local aliases, so this needs a three-shape resolver — and holds
+`PICKER_LOCKED_FOLDERS` and `UNDELETABLE_ROOT_FOLDERS` equal as sets against the browser's. Each
+tree also pins its own membership to spelled-out literals (`test_config_focommon.py`,
+`fileBrowserPure.test.ts`), so an edit to one tree alone reddens that tree first. What the mirror
+uniquely catches is a change made CONSISTENTLY within one tree.
+
+**The ARCHIVE WRITE-LOCK rule is not compared at all.** It exists in three implementations of the
+bucket policies' asymmetric Deny — root-anchored in a personal space, any-depth in a shared one:
+`isWriteLockedPrefix` in the browser, `apicommon.protected.is_write_locked`, and this package's
+`protected._is_at_or_below`. Nothing holds any of the three against another. (`focommon.delete` and
+`arcommon.plan` carry a fourth and fifth archive refusal, but those deliberately mirror the
+EXECUTION roles' strictly-any-depth Deny instead, and say so in their own docstrings.)
+
+What each side is tied to, and what each therefore cannot see:
+
+| Guard | Reads the policy for | Blind to |
+|---|---|---|
+| `archiveWriteLock.test.ts` | the Resource STRINGS — it turns each Sid's `Resource` into a key matcher (`*` matching `/`, which is the trap) and runs the browser predicate over a key table | a change to `Effect` or `Action` |
+| `test_archive_bucket_isolation.py` | the `Effect`, the exact `Action` set, and that the `Resource` ends `/archive/*` | any change to the anchor that preserves that suffix |
+| `test_spaces_and_protection.py`, `test_protected_focommon.py` | nothing — hand-written expectations whose docstrings narrate the Deny | everything about the policy |
+
+**Measured rather than argued, three ways.** Widening the personal Deny's anchor to
+`${bucket_arn}/*/archive/*` — still parses, still ends `/archive/*`, now means any user's archive
+rather than the caller's own — reddens `archiveWriteLock.test.ts` and leaves every Python test of a
+write-lock PREDICATE green. Four Python template tests do redden, but they pin the anchor's text,
+not either predicate's answer. Flipping that Sid's `Effect` to `Allow` inverts it: the browser test
+stays fully green and `test_archive_bucket_isolation.py` catches it.
+
+So the gap is specific: **no Python test connects a write-lock predicate to what the policy means.**
+Closing it is the browser test's shape applied to the two Python copies, and it is owed rather than
+done.
+
 ## The layer — `file-ops-common/focommon/`
 
 | Module | Holds |
