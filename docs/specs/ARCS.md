@@ -2820,6 +2820,13 @@ protection.
 `system_settings` row from #641), and `docs/testing/owed.md` holds runnable `aws s3api` commands
 with these prefixes in the key.
 
+> **Decided at drafting, 2026-09-05, product-visible:** after the move the three retired root names
+> (`athenaresults`, `archive`, `shared_tables`) are **not** reserved — a user may create a folder by
+> any of them, at the root as at any depth. `system_settings` alone stays a refused folder name. The
+> validator runs at every depth, so reserving the three would refuse `alice/projects/archive/`, and
+> uploads, plane moves and pastes create folders without it. Reserving them at the root only is a
+> root-aware validator and a small spec of its own, if wanted. SPEC-220, Out of Scope.
+
 ## Results-conversion arc (SPEC-221 → 222 → 223)
 
 **The request.** *Save results to my files* writes the CSV Athena already produced, and a user

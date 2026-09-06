@@ -52,9 +52,10 @@ the second merge for the fences.
   and nothing else. An earlier draft reserved the three names too; it was dropped because the
   validator runs at every depth (it would have refused `alice/projects/archive/`, which SPEC-219 and
   FR-005 call ordinary) and because uploads, plane moves and pastes create folders without it, so it
-  could not deliver what it promised. **This is a product-visible decision and is flagged as such in
-  the arc entry; if the user wants the names reserved at the root, that is a root-aware validator and
-  a small spec of its own.**
+  could not deliver what it promised. **This is a product-visible decision; the arc entry in
+  `ARCS.md` carries it as a dated note from the day these drafts landed, so it is seen before anything
+  is irreversible. If the user wants the names reserved at the root, that is a root-aware validator
+  and a small spec of its own.**
 - **Any change to the group row's caption or behaviour**: it is deleted, not restyled.
 - **A migration that overwrites, or that resolves a conflict on its own.** A destination key that
   already exists with different content is reported and left alone; an operator resolves it through
@@ -127,7 +128,9 @@ the archive and table-share state machines, and the one workgroup, measured with
 group; unlike the precedent it also carries an explicit step that fails on any ref but `main`). It
 imports the four folder names from `cpcommon.app_managed` through the `sys.path` shim
 `scripts/generate_api_contract.py` already uses — never as literals — and the sweep's Python tree
-gains `scripts/` so a literal there is refused. It enumerates every space by listing each bucket
+gains `scripts/` so a literal there is refused, with the sweep's own module and corpus excluded by
+path (they spell `"archive"` as the rule they enforce, and its filename-prefix exclusions do not
+cover them). It enumerates every space by listing each bucket
 root with `Delimiter="/"`, skipping the user-space bucket's `_config/` and `_directory/` (they hold
 no space), and for each space and each of the three folders copies `{space}/{folder}/**` to
 `{space}/system_settings/{folder}/**`, re-points the Glue `LOCATION` of every table under an old
@@ -292,9 +295,10 @@ has landed its own `athenaresults` template by then, that file is one more row, 
 `MOVING_FOLDERS` — an edit inside the two owner modules and nowhere else, which is why SPEC-219 typed
 them `tuple[str, ...]` — so every rule that consults them now protects the new home alone, and a
 depth-one `alice/archive/x` is an ordinary user path. `RESERVED_PREFIXES` keeps `system_settings`,
-and keeps the three depth-one names too — **the one deliberate exception** to "ordinary": a user
-folder at a retired home's name is a legal folder but not a data-quality target, so that the
-plane's own refusal cannot be confused with a results folder's. The old prefixes are proved empty
+and keeps the two depth-one names it already holds (`athenaresults`, `shared_tables`; it never held
+`archive`) — **the one deliberate exception** to "ordinary": a user folder at a retired home's name
+is a legal folder but not a data-quality target, so that the plane's own refusal cannot be confused
+with a results folder's. The old prefixes are proved empty
 **positively**, from the account and not from a plan, and the Checkov plan-scan accept list is
 re-measured, because a removed statement whose findings were accepted makes the acceptances stale,
 which is a hard error (SPEC-202).
@@ -321,8 +325,8 @@ which is a hard error (SPEC-202).
 - [ ] The delivery doc states the two points of no return plainly: the `finish` run (named by id)
       for the objects, this merge for the fences; and names FR-001's merge commit as the last point
       at which reverting the switch was a rollback rather than a split store.
-- [ ] `ARCS.md`'s arc entry gains its in-place note that the row from #641 is deleted, the prefix is
-      real, and the three retired names are **not** reserved (the product decision above);
+- [ ] `ARCS.md`'s arc entry gains its in-place note that the row from #641 is deleted and the prefix
+      is real (the reservation decision is already recorded there from drafting);
       `docs/testing/e2e.md` and `owed.md` carry no path keyed on a root-level `athenaresults/`,
       `archive/` or `shared_tables/` in a **space** bucket — the vault rows
       (`personal/{user}/archive/…`, fact 2) and the admin-bucket row (`archive/{requestId}/`, fact 3)
@@ -365,7 +369,7 @@ infra/modules/base/policies/github-actions-deploy*.json.tftpl   # UpdateTable/Ge
 scripts/migrate_system_settings.py                # the module; refuses anything outside the three prefixes
 lambdas/test_migrate_system_settings.py           # against the extended fakes; plants a rewritten source
 lambdas/shared-space-common/fakes.py              # the extensions named in FR-002
-scripts/validate_app_managed_paths.py             # its Python tree gains scripts/
+scripts/validate_app_managed_paths.py             # its Python tree gains scripts/, itself and its corpus excluded
 apps/portal/src/features/file-browser/            # systemFolders.ts, SystemFolderGroupRow.tsx and their
                                                   #   tests DELETED; FileListTable, FileListMobile and
                                                   #   FileBrowser lose the partition and systemExpanded;

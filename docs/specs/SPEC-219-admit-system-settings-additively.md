@@ -311,7 +311,7 @@ lambdas/test_app_managed_template_population.py   # SEGMENT captures the anchor 
                                                   #   expected pairs doubled
 lambdas/test_app_managed_template_siblings.py     # NEW — rendered Effect/Action pairs (seven), text (one)
 lambdas/test_lakeformation_registrations.py       # NEW — both registrations are the bare bucket ARN
-lambdas/test_portal_role_preservation.py          # BASELINE_COMMIT moved with its note; gained-Sid sets
+lambdas/test_portal_role_preservation.py          # BASELINE_COMMIT unchanged; analytics joins CONTENT_ASSERTED
 lambdas/control-plane-common/cpcommon/app_managed.py   # SYSTEM_SETTINGS_FOLDER, MOVING_FOLDERS, app_managed_prefixes
 lambdas/file-ops-common/focommon/protected.py          # _is_root_folder / _is_under_root_folder through the plural
 apps/portal/src/lib/appManagedPaths.ts                 # SYSTEM_SETTINGS_FOLDER, MOVING_FOLDERS, appManagedPrefixes
@@ -325,7 +325,7 @@ docs/testing/e2e.md · docs/testing/owed.md             # one row each (FR-004)
 
 - Sibling statements and elements in the eight templates; `SEGMENT` widened and the population
   test's expectations doubled; the siblings test; the LF registration test; the preservation test
-  re-baselined with its note; the Checkov plan scan read and any finding scoped.
+  extended with the analytics template's gained set; the Checkov plan scan read and any finding scoped.
 
 ### Phase 2: The fleet reads both
 
