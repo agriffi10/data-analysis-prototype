@@ -1,7 +1,8 @@
 """Refuse an app-managed folder path declared or constructed outside its owner, in either tree.
 
 Three folders — ``athenaresults/``, ``archive/`` (the user's receipt folder) and ``shared_tables/``
-— are about to move under a real ``system_settings/`` prefix. Nearly every rule about them was
+— are about to move under a real ``system_settings/`` prefix, which is itself a fourth name this
+sweep guards, because a rule that spells it by hand is a rule the narrowing will not find. Nearly every rule about them was
 anchored at depth one as ``f"{root}{name}/"`` or ``` `${rootPrefix}${name}/` ```, which a move to
 depth two leaves silently not matching. The names are now declared once per tree and every anchored
 construction goes through one builder; this sweep is what keeps it that way, because a new literal
@@ -14,7 +15,8 @@ rules parse rather than grep, and the TypeScript rules run over source with its 
 
 Python (AST), every shipped module under ``lambdas/`` — tests, ``conftest.py`` and ``fakes.py``
 excluded, the two owners excluded:
-  (a) a string constant equal to ``athenaresults`` or ``shared_tables``, with or without a leading or
+  (a) a string constant equal to ``athenaresults``, ``shared_tables`` or ``system_settings``, with
+      or without a leading or
       trailing slash, or equal to ``archive/`` or ``/archive/`` — a declaration (a docstring or a sentence merely
       containing the word is not EQUAL to it, so prose is never flagged);
   (b) an f-string whose literal parts carry ``<name>/`` at the start or after a ``/``: a construction;
@@ -30,7 +32,8 @@ excluded, the two owners excluded:
 
 TypeScript (regex over comment-stripped source), every module under ``apps/portal/src`` — tests,
 ``src/test/`` and generated files excluded, the owner excluded:
-  (a) a quoted literal exactly ``athenaresults`` or ``shared_tables``, with or without a leading or
+  (a) a quoted literal exactly ``athenaresults``, ``shared_tables`` or ``system_settings``, with or
+      without a leading or
       trailing slash, or ``archive/`` / ``/archive/``: a declaration. A bare ``'archive'`` is a
       declaration only beside another app-managed name in the same file (a membership list) or as a
       module-level ``const`` — a typed mode ``'archive' | 'restore'`` or a ``kind === 'archive'`` is not;
@@ -40,6 +43,13 @@ TypeScript (regex over comment-stripped source), every module under ``apps/porta
       comment nor a string.
   Refusal-table keys are unquoted identifiers and invisible by design; Help copy names these
   folders in prose, which stays where it is.
+
+**What this sweep cannot see: a prefix built from a PARAMETER.** ``f"{normalize_root(root)}{name}/"``
+names no folder — the name arrives as an argument — so the AST rules have nothing to match, and two
+rules hid there through a whole spec: ``focommon.protected._is_root_folder`` and
+``_is_under_root_folder``, both anchored at depth one and both invisible here. What covers them
+instead is a parametrised pair test per rule, asserting the same refusal for a key under each home,
+so the rule cannot silently answer for one and not the other. A new rule of that shape owes one.
 
 Exit ``0`` when the tree is clean, ``1`` with one line per finding — ``path:line: <folder>
 <declared|constructed> outside its owner (<rule>)`` — and ``2`` on a hard error: an owner file
@@ -55,6 +65,13 @@ Attributes:
   TS_OWNER: The one TypeScript file allowed to spell one.
   UNAMBIGUOUS: The names that mean a folder wherever they appear as a string.
   OVERLOADED: The name that is also a mode and a service, flagged only in path-shaped positions.
+  MOVING: The three folders that relocate. Distinct from ``PATH_SHAPED``, which adds the prefix they
+    relocate INTO — that one is guarded but does not itself move.
+  PATH_SHAPED: Every name this sweep treats as a path when it appears as a literal or a template
+    segment. The single source for the THREE path alternations — the Python segment rule and the
+    two TypeScript ones — which were three hand-written copies of one list before, and a list
+    written three times is wrong in one copy. The fourth alternation, ``_TS_SIBLING``, enumerates a
+    DIFFERENT set and derives from ``MANAGED_NAMES``.
   MANAGED_NAMES: Every app-managed folder name, moving or not — the company that makes a bare
     ``"archive"`` in a collection literal a path fact under rule (d).
   OWNER_IDENTIFIERS: The names both owners export (and the ``ARCHIVE_FOLDER`` alias the file-ops
@@ -76,18 +93,27 @@ PY_OWNERS = (
 )
 TS_OWNER = "apps/portal/src/lib/appManagedPaths.ts"
 
-UNAMBIGUOUS = ("athenaresults", "shared_tables")
+UNAMBIGUOUS = ("athenaresults", "shared_tables", "system_settings")
 OVERLOADED = "archive"
-MOVING = (*UNAMBIGUOUS, OVERLOADED)
+MOVING = ("athenaresults", "shared_tables", OVERLOADED)
+PATH_SHAPED = (*UNAMBIGUOUS, OVERLOADED)
 MANAGED_NAMES = frozenset(
-    {*MOVING, "user_settings", "saved_queries", "_data-quality-reports", "shared_files", "_directory", "_config", "_fc-work"}
+    {*PATH_SHAPED, "user_settings", "saved_queries", "_data-quality-reports", "shared_files", "_directory", "_config", "_fc-work"}
 )
-OWNER_IDENTIFIERS = ("ATHENA_RESULTS_FOLDER", "ARCHIVE_FOLDER", "SHARED_TABLES_FOLDER", "RECEIPT_FOLDER", "VAULT_ARCHIVE_SEGMENT")
+OWNER_IDENTIFIERS = (
+    "ATHENA_RESULTS_FOLDER",
+    "ARCHIVE_FOLDER",
+    "SHARED_TABLES_FOLDER",
+    "RECEIPT_FOLDER",
+    "VAULT_ARCHIVE_SEGMENT",
+    "SYSTEM_SETTINGS_FOLDER",
+)
 
 _PY_EXCLUDED_PREFIXES = ("test_", "conftest.", "fakes.")
-_SEGMENT = re.compile(r"(?:^|/)(athenaresults|archive|shared_tables)/")
-_TS_LITERAL = re.compile(r"""(['"`])/?(athenaresults|archive|shared_tables)/?\1""")
-_TS_TEMPLATE_SEGMENT = re.compile(r"\$\{[^}]*\}/?(athenaresults|archive|shared_tables)/")
+_PATH_SHAPED = "|".join(re.escape(name) for name in sorted(PATH_SHAPED))
+_SEGMENT = re.compile(rf"(?:^|/)({_PATH_SHAPED})/")
+_TS_LITERAL = re.compile(rf"""(['"`])/?({_PATH_SHAPED})/?\1""")
+_TS_TEMPLATE_SEGMENT = re.compile(rf"\$\{{[^}}]*\}}/?({_PATH_SHAPED})/")
 _TS_TEMPLATE_IDENT = re.compile(r"\$\{(" + "|".join(OWNER_IDENTIFIERS) + r")\}/")
 _IDENT_TO_NAME = {
     "ATHENA_RESULTS_FOLDER": "athenaresults",
@@ -95,11 +121,12 @@ _IDENT_TO_NAME = {
     "SHARED_TABLES_FOLDER": "shared_tables",
     "RECEIPT_FOLDER": "archive",
     "VAULT_ARCHIVE_SEGMENT": "archive",
+    "SYSTEM_SETTINGS_FOLDER": "system_settings",
 }
 _TS_CONCAT_IDENT = re.compile(r"\b(" + "|".join(OWNER_IDENTIFIERS) + r")\s*\+\s*['\"`]/")
 _TS_MODULE_LEVEL_ARCHIVE = re.compile(r"^\s*(?:export\s+)?const\s+\w+(?:\s*:[^=]+)?\s*=\s*(['\"`])archive\1")
 _TS_SIBLING = re.compile(
-    r"(['\"`])(athenaresults|shared_tables|user_settings|saved_queries|_data-quality-reports|shared_files|_directory|_config|_fc-work)\1"
+    r"(['\"`])(" + "|".join(re.escape(name) for name in sorted(MANAGED_NAMES - {OVERLOADED})) + r")\1"
 )
 _REGEX_PRECEDERS = frozenset("=(,:[!&|?{};")
 

@@ -31,12 +31,12 @@ Attributes:
 from collections.abc import Callable, Iterator
 
 from . import clients, errors
-from .app_managed import ATHENA_RESULTS_FOLDER, app_managed_prefix
+from .app_managed import ATHENA_RESULTS_FOLDER, app_managed_prefixes
 from .errors import TerminalError
 
 MARKER_BASENAME = "DO_NOT_DELETE.txt"
 
-_IGNORED_SUBTREES = (app_managed_prefix("", ATHENA_RESULTS_FOLDER), "user_settings/")
+_IGNORED_SUBTREES = (*app_managed_prefixes("", ATHENA_RESULTS_FOLDER), "user_settings/")
 
 
 def _basename(key: str) -> str:

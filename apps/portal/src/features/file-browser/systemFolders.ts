@@ -1,5 +1,10 @@
 import {isRootFolderNamed} from './protectedFolders';
-import {ARCHIVE_FOLDER, ATHENA_RESULTS_FOLDER, SHARED_TABLES_FOLDER} from '../../lib/appManagedPaths';
+import {
+  ARCHIVE_FOLDER,
+  ATHENA_RESULTS_FOLDER,
+  SHARED_TABLES_FOLDER,
+  SYSTEM_SETTINGS_FOLDER
+} from '../../lib/appManagedPaths';
 import type {S3FolderItem} from '../../types/s3.types';
 
 /**
@@ -9,7 +14,7 @@ import type {S3FolderItem} from '../../types/s3.types';
  * exists in S3 and none is ever created: the row is a listing affordance, and every
  * folder inside it keeps the key it has always had.
  */
-export const SYSTEM_FOLDER_GROUP_NAME = 'system_settings';
+export const SYSTEM_FOLDER_GROUP_NAME = SYSTEM_SETTINGS_FOLDER;
 
 /**
  * The root-level folders collapsed behind the group row, in a personal space and a
@@ -55,7 +60,11 @@ export function systemFolderGroupCaption(count: number): string {
  * Root-anchored through `isRootFolderNamed`, so a user's own `archive/` nested inside
  * some other folder stays an ordinary row — and below the space root the grouped list
  * comes back empty, which is what keeps the group row off every other listing without a
- * flag saying so.
+ * flag saying so. **One prefix is the exception**: that predicate answers for both homes of a
+ * folder now being admitted under `system_settings/`, so a listing of `{root}system_settings/`
+ * groups those second homes behind a nested row. Nothing is written there yet, so no listing
+ * reaches it; the behaviour is inherited from the shared predicate rather than chosen here, and
+ * `bothHomes.test.ts` pins it so it cannot change unnoticed.
  *
  * @param folders - The listing's folders, already filtered of hidden ones.
  * @param rootPrefix - The space root, trailing slash, so the rule holds in a shared space.

@@ -219,6 +219,7 @@ from cpcommon.app_managed import (
     ATHENA_RESULTS_FOLDER,
     RECEIPT_FOLDER,
     SHARED_TABLES_FOLDER,
+    SYSTEM_SETTINGS_FOLDER,
 )
 from cpcommon.config import require as _require_env
 
@@ -262,6 +263,7 @@ RESERVED_SOURCE_ROOTS = (
     "user_settings",
     "_data-quality-reports",
     SHARED_TABLES_FOLDER,
+    SYSTEM_SETTINGS_FOLDER,
 )
 
 PROTECTED_MARKER_BASENAME = "DO_NOT_DELETE.txt"

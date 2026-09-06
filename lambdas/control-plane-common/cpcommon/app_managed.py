@@ -32,6 +32,14 @@ Attributes:
     inside a SPACE's own bucket. The enumerator a plane refusing app-managed destinations
     reads, so its refused set is a superset of what this module declares by construction
     rather than by a list it copies.
+  SYSTEM_SETTINGS_FOLDER: The prefix the three moving folders are moving INTO. It is not itself
+    app-managed content — nothing is written directly under it — but it is reserved on every
+    plane and in the browser, so a user can neither paste into it, delete it, nor archive it.
+  MOVING_FOLDERS: The folders that gain a second home while both are admitted, declared as its
+    own tuple rather than aliased to ``SPACE_FOLDERS`` even though the two hold the same three
+    names today. They answer different questions — ``SPACE_FOLDERS`` is every app-managed folder
+    in a space's own bucket, this is which of them MOVE — and an alias would silently hand a
+    second home to a future space folder that stays where it is.
   VAULT_ARCHIVE_SEGMENT: **Fact 2 of ``archive``.** The segment after the space in every key of
     the ARCHIVE (Glacier vault) bucket — ``{kind}/{name}/archive/{id}/``. It is the same word as
     the receipt folder by design, so a user reading ``archive/{uuid}/`` in their own space sees the
@@ -47,7 +55,11 @@ SHARED_TABLES_FOLDER = "shared_tables"
 
 VAULT_ARCHIVE_SEGMENT = "archive"
 
+SYSTEM_SETTINGS_FOLDER = "system_settings"
+
 SPACE_FOLDERS = (ATHENA_RESULTS_FOLDER, RECEIPT_FOLDER, SHARED_TABLES_FOLDER)
+
+MOVING_FOLDERS = (ATHENA_RESULTS_FOLDER, RECEIPT_FOLDER, SHARED_TABLES_FOLDER)
 
 
 def app_managed_prefix(root: str, folder: str) -> str:
@@ -68,6 +80,39 @@ def app_managed_prefix(root: str, folder: str) -> str:
       None.
     """
     return f"{root}{folder}/"
+
+
+def app_managed_prefixes(root: str, folder: str) -> tuple[str, ...]:
+    """Builds every root-anchored location a folder may occupy, depth-one first.
+
+    Two elements for a member of ``MOVING_FOLDERS`` while both homes are admitted, one for any
+    other name — so a folder that is not moving never acquires a phantom second home, and a rule
+    looping over a mixed list stays uniform.
+
+    **Both elements are LITERALS, and neither is derived from ``app_managed_prefix``.** That is
+    the whole point of the duplication: the singular is where a WRITE goes and moves on its own,
+    and if the plural were built from it, moving the singular would drag every rule's second home
+    to a third location instead of leaving it where the data actually is. The narrowing shrinks
+    this to one element inside this function and touches no caller, which is why the return type
+    is a variable-length tuple rather than a pair.
+
+    Normalizes nothing, exactly as ``app_managed_prefix`` does not, so a caller keeps whatever
+    ``normalize_root`` call it already makes and produces the bytes it produced before.
+
+    Args:
+      root: The space root, with its trailing slash, exactly as the caller holds it.
+      folder: The folder's name — one of this module's constants, or a member of a domain list.
+
+    Returns:
+      ``(f"{root}{folder}/", f"{root}system_settings/{folder}/")`` for a moving folder, else
+      ``(f"{root}{folder}/",)``.
+
+    Raises:
+      None.
+    """
+    if folder in MOVING_FOLDERS:
+        return (f"{root}{folder}/", f"{root}system_settings/{folder}/")
+    return (f"{root}{folder}/",)
 
 
 def athena_results_prefix(root: str) -> str:

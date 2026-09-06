@@ -181,6 +181,37 @@ CASES: list[tuple[str, dict[str, str], int, list[str]]] = [
         [],
     ),
     (
+        "py_system_settings_construction_fails",
+        {"lambdas/x/verb.py": 'def f(root, folder):\n    return f"{root}system_settings/{folder}/"\n'},
+        1,
+        ["lambdas/x/verb.py:2", "system_settings", "constructed outside"],
+    ),
+    (
+        "py_system_settings_literal_fails",
+        {"lambdas/x/verb.py": 'ROOTS = ("system_settings",)\n'},
+        1,
+        ["lambdas/x/verb.py:1", "system_settings", "declared outside"],
+    ),
+    (
+        "py_system_settings_owner_name_in_an_fstring_fails",
+        {"lambdas/x/verb.py": 'from cpcommon.app_managed import SYSTEM_SETTINGS_FOLDER\ndef f(root):\n    return f"{root}{SYSTEM_SETTINGS_FOLDER}/"\n'},
+        1,
+        ["lambdas/x/verb.py:3", "system_settings", "constructed outside"],
+    ),
+    (
+        "py_system_settings_as_wording_ok",
+        {
+            "lambdas/x/verb.py": (
+                '"""Gathered under system_settings for the user."""\n'
+                'MSG = "the folders are gathered under system_settings"\n'
+                'def f(name):\n'
+                '    return f"{name}/ is managed for you"\n'
+            )
+        },
+        0,
+        [],
+    ),
+    (
         "py_owners_declaring_everything_ok",
         {},
         0,
@@ -298,6 +329,36 @@ CASES: list[tuple[str, dict[str, str], int, list[str]]] = [
         [],
     ),
     (
+        "ts_system_settings_template_construction_fails",
+        {"apps/portal/src/features/x/y.ts": "export const f = (r: string, k: string) => `${r}system_settings/${k}/`;\n"},
+        1,
+        ["apps/portal/src/features/x/y.ts:1", "system_settings", "constructed outside"],
+    ),
+    (
+        "ts_system_settings_literal_fails",
+        {"apps/portal/src/features/x/y.ts": "export const A = ['system_settings'];\n"},
+        1,
+        ["apps/portal/src/features/x/y.ts:1", "system_settings", "declared outside"],
+    ),
+    (
+        "ts_archive_beside_system_settings_fails",
+        {"apps/portal/src/features/x/y.ts": "export const A = (k: string) => k === 'archive';\nexport const B = ['system_settings'];\n"},
+        1,
+        ["apps/portal/src/features/x/y.ts:1", "archive", "declared outside"],
+    ),
+    (
+        "ts_system_settings_in_prose_ok",
+        {
+            "apps/portal/src/features/x/y.ts": (
+                "// The folders are gathered under `system_settings` in the listing.\n"
+                "/** Reads as a folder because that is what it stands in for. */\n"
+                "export const x = 1;\n"
+            )
+        },
+        0,
+        [],
+    ),
+    (
         "ts_owner_declaring_everything_ok",
         {},
         0,
@@ -356,6 +417,38 @@ def main() -> int:
     else:
         print("ok   empty_tree_is_a_hard_error")
 
+    # The sibling set is DERIVED from MANAGED_NAMES rather than written out a second time, which
+    # removes one copy of a list that used to exist twice — and removes with it the thing that
+    # would redden if a name silently left. Spelled out here instead, which is the assertion the
+    # derivation cannot make about itself.
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("_sweep", SWEEP)
+    sweep = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sweep)
+    expected_siblings = {
+        "_config",
+        "_data-quality-reports",
+        "_directory",
+        "_fc-work",
+        "athenaresults",
+        "saved_queries",
+        "shared_files",
+        "shared_tables",
+        "system_settings",
+        "user_settings",
+    }
+    if sweep.MANAGED_NAMES - {sweep.OVERLOADED} != expected_siblings:
+        failures.append("sibling_names_are_exactly_these_ten")
+        print(f"FAIL sibling_names — {sorted(sweep.MANAGED_NAMES - {sweep.OVERLOADED})}")
+    else:
+        print("ok   sibling_names_are_exactly_these_ten")
+    if set(sweep.PATH_SHAPED) != {"athenaresults", "shared_tables", "system_settings", "archive"}:
+        failures.append("path_shaped_names_are_exactly_these_four")
+        print(f"FAIL path_shaped_names — {sorted(sweep.PATH_SHAPED)}")
+    else:
+        print("ok   path_shaped_names_are_exactly_these_four")
+
     # The wiring: CI runs the sweep AND this corpus, unconditionally. A step behind an `if:` whose
     # output never exists is skipped on every run while looking wired. Plain string parsing, not a
     # regex over the whole workflow: the step list is split on its `- name:` lines and each block is
@@ -379,7 +472,7 @@ def main() -> int:
     if failures:
         print(f"\n{len(failures)} case(s) did not behave as declared: {', '.join(failures)}")
         return 1
-    print(f"\nall {len(CASES) + 4} cases behaved as declared")
+    print(f"\nall {len(CASES) + 6} cases behaved as declared")
     return 0
 
 

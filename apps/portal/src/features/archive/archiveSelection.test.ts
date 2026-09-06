@@ -34,14 +34,15 @@ describe('the browser and the plane refuse the same folders', () => {
     expect([...ARCHIVE_RESERVED_ROOTS].sort()).toEqual([...plane].sort());
   });
 
-  it('names exactly these five, spelled out', () => {
+  it('names exactly these six, spelled out', () => {
     // The mirror above proves agreement with the plane; this proves neither side widened.
     expect(ARCHIVE_RESERVED_ROOTS).toEqual([
       'archive',
       'athenaresults',
       'user_settings',
       '_data-quality-reports',
-      'shared_tables'
+      'shared_tables',
+      'system_settings'
     ]);
   });
 });

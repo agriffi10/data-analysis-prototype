@@ -165,7 +165,7 @@ describe('protectedFolders', () => {
       expect(HIDDEN_BROWSER_FOLDERS).toEqual(['user_settings', '_data-quality-reports', '_directory', '_config']);
     });
 
-    it('locks exactly these seven out of the picker', () => {
+    it('locks exactly these eight out of the picker', () => {
       expect(PICKER_LOCKED_FOLDERS).toEqual([
         'athenaresults',
         'user_settings',
@@ -173,12 +173,13 @@ describe('protectedFolders', () => {
         '_directory',
         '_config',
         'shared_tables',
-        'archive'
+        'archive',
+        'system_settings'
       ]);
     });
 
-    it('refuses to destroy exactly these three', () => {
-      expect(UNDELETABLE_ROOT_FOLDERS).toEqual(['athenaresults', 'saved_queries', 'archive']);
+    it('refuses to destroy exactly these four', () => {
+      expect(UNDELETABLE_ROOT_FOLDERS).toEqual(['athenaresults', 'saved_queries', 'archive', 'system_settings']);
     });
   });
 

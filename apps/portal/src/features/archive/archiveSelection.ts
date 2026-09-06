@@ -1,4 +1,10 @@
-import {appManagedPrefix, ARCHIVE_FOLDER, ATHENA_RESULTS_FOLDER, SHARED_TABLES_FOLDER} from '../../lib/appManagedPaths';
+import {
+  appManagedPrefixes,
+  ARCHIVE_FOLDER,
+  ATHENA_RESULTS_FOLDER,
+  SHARED_TABLES_FOLDER,
+  SYSTEM_SETTINGS_FOLDER
+} from '../../lib/appManagedPaths';
 import type {ArchiveItem} from '../../types/archive.types';
 
 /**
@@ -20,7 +26,8 @@ export const ARCHIVE_RESERVED_ROOTS = [
   ATHENA_RESULTS_FOLDER,
   'user_settings',
   '_data-quality-reports',
-  SHARED_TABLES_FOLDER
+  SHARED_TABLES_FOLDER,
+  SYSTEM_SETTINGS_FOLDER
 ] as const;
 
 /**
@@ -40,14 +47,22 @@ export const ARCHIVE_RESERVED_ROOTS = [
  * @returns The explanation to show on the disabled control, or null.
  */
 export function archiveRefusal(items: readonly ArchiveItem[], rootPrefix: string): string | null {
+  const homes = ARCHIVE_RESERVED_ROOTS.map((folder) => [folder, appManagedPrefixes(rootPrefix, folder)] as const);
   for (const item of items) {
     // Compared in its trailing-slash form for the ancestor test only: a FILE whose key merely
     // starts the same way — `alice/archived-notes.txt` against `alice/archive/` — is an ordinary
     // file and must still archive.
     const asPrefix = item.key.endsWith('/') ? item.key : `${item.key}/`;
-    for (const folder of ARCHIVE_RESERVED_ROOTS) {
-      const reserved = appManagedPrefix(rootPrefix, folder);
-      if (item.key === reserved.replace(/\/$/, '') || item.key.startsWith(reserved) || reserved.startsWith(asPrefix)) {
+    // Both passes run for THIS item before the next one is looked at. Hoisting the item loop
+    // inside them instead would let a later item's direct hit outrank an earlier item's ancestor
+    // hit, which changes the message a mixed selection gets today.
+    for (const [folder, reserved] of homes) {
+      if (reserved.some((home) => item.key === home.replace(/\/$/, '') || item.key.startsWith(home))) {
+        return `“${folder}” is managed for you and can’t be archived.`;
+      }
+    }
+    for (const [folder, reserved] of homes) {
+      if (reserved.some((home) => home.startsWith(asPrefix))) {
         return `“${folder}” is managed for you and can’t be archived.`;
       }
     }

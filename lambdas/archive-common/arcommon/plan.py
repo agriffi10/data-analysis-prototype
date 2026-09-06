@@ -78,7 +78,7 @@ from cpcommon import config as cpconfig
 from cpcommon.app_managed import (
     ATHENA_RESULTS_FOLDER,
     RECEIPT_FOLDER,
-    app_managed_prefix,
+    app_managed_prefixes,
 )
 from cpcommon.errors import TerminalError
 from cpcommon.paths import assert_inside_root, normalize_root
@@ -426,7 +426,9 @@ def _excluder(root: str):
     Raises:
       None.
     """
-    reserved = tuple(app_managed_prefix(root, folder) for folder in RESERVED_SOURCE_ROOTS)
+    reserved = tuple(
+        anchored for folder in RESERVED_SOURCE_ROOTS for anchored in app_managed_prefixes(root, folder)
+    )
 
     def ignore(key: str, size: int, prefix: str) -> bool:
         """Reports whether an object is something an archive must not carry.

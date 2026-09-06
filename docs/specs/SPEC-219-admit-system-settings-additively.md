@@ -44,7 +44,19 @@ knowing both locations are already fenced.
 - **Copying, moving or deleting any object**, and re-pointing any Glue `LOCATION`. SPEC-220.
 - **Deleting the `system_settings` group row.** It keeps standing in for the three unmoved folders
   until the folder is real; `SystemFolderGroupRow.tsx`, the partition and their tests are untouched,
-  and `systemFolders.ts` changes exactly one declaration into an alias (FR-003).
+  and `systemFolders.ts` changes exactly one declaration into an alias (FR-003). **The partition's
+  ANSWER widens all the same**, because it shares `isRootFolderNamed` with the four rules that are
+  re-pointed: a listing of `{root}system_settings/` would group the moving folders' second homes
+  behind a nested row. Unobservable until SPEC-220 writes there, pinned by a test outside
+  `systemFolders.test.ts` so that file stays byte-identical, and it falsifies the module's own
+  sentence about the grouped list coming back empty below the space root, which is corrected here
+  rather than deferred.
+- **Which RULE answers first, in a shared space.** A moving folder's new home is now matched by the
+  root-anchored rules, which learned it, rather than falling through to the any-depth arms that
+  always covered it — so nine shared-space refusals change their reason code and wording while the
+  answer stays identical. Inherited from the re-pointing rather than chosen, unobservable until the
+  prefix is real, and pinned by a test so the change is findable here instead of surfacing later as
+  a difference nobody can date.
 - **Narrowing anything.** No statement, rule or list loses a member here. The narrowing is
   SPEC-220's second merge, after the live checks, while this spec's state is still the rollback.
 - **A second home for any non-moving folder.** `user_settings/`, `saved_queries/`,
@@ -217,9 +229,19 @@ are asserted against the new home with a pair test and, for data quality, extend
 - [ ] `dqcommon.RESERVED_PREFIXES` gains `system_settings`, so a check whose first segment is the
       new prefix is refused with the same `FORBIDDEN` reason as one under `athenaresults` today —
       asserted by name.
-- [ ] `RESERVED_SOURCE_ROOTS` gains `system_settings` as its **first** member (the refusal loop
-      names the first match, and the folder itself must be named before anything beneath it);
-      `PICKER_LOCKED_FOLDERS` and `UNDELETABLE_ROOT_FOLDERS` gain it appended **last**, and so does
+- [ ] `RESERVED_SOURCE_ROOTS` gains `system_settings` appended **last**, like every other list.
+      **Amended from "first" during the build, and the mechanism changed rather than the goal.**
+      Prepending was one way to make the folder itself named before anything beneath it, but it
+      bought that at the cost of naming `system_settings` for *every* key under the prefix —
+      including `{root}system_settings/archive/`, which FR-003 requires be named `archive`. The
+      two clauses could not both hold under a single first-match loop. Splitting the direct and
+      beneath arms from the ancestor arm into **two passes** satisfies both: a key inside a
+      moving folder's new home matches that folder in pass one, and the bare prefix matches
+      nothing until the loop reaches `system_settings` itself. Verified behaviour-preserving for
+      today's inputs — the ancestor arm can only fire for the space root, which matches no
+      folder's direct arm — and appending last also leaves every existing member's seat alone,
+      which prepending does not. `PICKER_LOCKED_FOLDERS` and `UNDELETABLE_ROOT_FOLDERS` gain it
+      appended **last**, and so does
       `rccommon.config.PROTECTED_DESTINATIONS`, which `test_plane_results_conversion.py` holds
       set-equal to the picker's list — without it that plane's suite reddens the moment the picker
       grows; and
@@ -247,9 +269,12 @@ are asserted against the new home with a pair test and, for data quality, extend
 `appManagedPrefixes(rootPrefix, folder): readonly string[]` with the same member rule and the same
 literal spelling as the fleet's; `isRootFolderNamed`, `undeletableRootFolderRefusal`,
 `archiveRefusal` and `isWriteLockedPrefix`'s anchored arm test against every element. The
-`system_settings` name joins `PICKER_LOCKED_FOLDERS` and `UNDELETABLE_ROOT_FOLDERS` appended last,
-and `ARCHIVE_RESERVED_ROOTS` **first** — `archiveRefusal` names the first match, and with `archive`
-ahead of it the folder itself would be reported as "archive" — each with its own refusal wording. `systemFolders.ts`'s
+`system_settings` name joins `PICKER_LOCKED_FOLDERS`, `UNDELETABLE_ROOT_FOLDERS` and
+`ARCHIVE_RESERVED_ROOTS` appended **last** — amended from "first" with FR-002 AC5 and for the same
+reason, since `archiveRefusal` mirrors `assert_not_reserved` and gets the same two passes. The item
+loop stays OUTERMOST: each item runs both passes before the next is looked at, because hoisting it
+inside them lets a later item's direct hit outrank an earlier item's ancestor hit, which silently
+changes the message a mixed selection gets today. Each gains its own refusal wording. `systemFolders.ts`'s
 `SYSTEM_FOLDER_GROUP_NAME` becomes an alias of `SYSTEM_SETTINGS_FOLDER` rather than a second
 declaration; the row component, the partition and their tests are untouched.
 
@@ -269,9 +294,13 @@ declaration; the row component, the partition and their tests are untouched.
 - [ ] The plane-mirror test in `archiveSelection.test.ts` still passes with `ARCHIVE_RESERVED_ROOTS`
       and `RESERVED_SOURCE_ROOTS` at six members each (it compares sorted sets, so order is free
       to differ), and the literal membership assertions on both sides are updated to exactly six,
-      `system_settings` first.
+      `system_settings` last.
 - [ ] `git diff` of `SystemFolderGroupRow.tsx`, `systemFolders.test.ts`, `FileListTable.tsx` and
-      `FileListMobile.tsx` is empty; `systemFolders.ts` changes only the one declaration.
+      `FileListMobile.tsx` is empty; `systemFolders.ts` changes the one declaration, the import that
+      feeds it, **and the one JSDoc sentence this spec falsifies** — the partition's behaviour widens
+      with the predicate it shares, so a sentence saying the grouped list is empty below the space
+      root stops being true, and leaving it for a later spec is how a false claim outlives the change
+      that made it false.
 - [ ] Help & guides are unchanged: the text already says the folders are "gathered under
       `system_settings`", which is what a user sees before and after.
 

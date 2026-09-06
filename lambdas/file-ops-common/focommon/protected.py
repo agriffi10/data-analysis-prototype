@@ -31,7 +31,7 @@ Every refusal names the folder in operator text and carries its own reason code,
 can word it without re-deriving which rule fired.
 """
 
-from cpcommon.app_managed import app_managed_prefix
+from cpcommon.app_managed import app_managed_prefixes
 
 from .config import (
     ARCHIVE_FOLDER,
@@ -72,7 +72,7 @@ def _is_root_folder(key: str, root: str, name: str) -> bool:
     Raises:
       None.
     """
-    return key.endswith("/") and key == f"{normalize_root(root)}{name}/"
+    return key.endswith("/") and key in app_managed_prefixes(normalize_root(root), name)
 
 
 def _is_under_root_folder(key: str, root: str, name: str) -> bool:
@@ -94,8 +94,7 @@ def _is_under_root_folder(key: str, root: str, name: str) -> bool:
     Raises:
       None.
     """
-    anchored = f"{normalize_root(root)}{name}/"
-    return key == anchored or key.startswith(anchored)
+    return key.startswith(app_managed_prefixes(normalize_root(root), name))
 
 
 def _is_at_or_below(key: str, root: str, name: str, *, space_kind: str) -> bool:
@@ -123,8 +122,7 @@ def _is_at_or_below(key: str, root: str, name: str, *, space_kind: str) -> bool:
       None.
     """
     root = normalize_root(root)
-    anchored = app_managed_prefix(root, name)
-    if key == anchored or key.startswith(anchored):
+    if key.startswith(app_managed_prefixes(root, name)):
         return True
     if space_kind != "shared" or not key.startswith(root):
         return False

@@ -133,6 +133,23 @@ class TestTheArchiveWriteLockMirrorsEachBucket:
         assert protected.is_write_locked(PERSONAL, key_personal) is False
         assert protected.is_write_locked(SHARED, key_shared) is True
 
+    def test_personal_locks_the_receipt_folders_SECOND_home_too(self) -> None:
+        """The anchored arm learned both locations, so the new home is refused before it exists."""
+        assert protected.is_write_locked(PERSONAL, "alice/system_settings/archive/receipt.json") is True
+
+    def test_shared_reaches_the_second_home_through_its_own_any_depth_arm(self) -> None:
+        """Not re-pointed: the segment scan already sees `archive` under any prefix."""
+        assert protected.is_write_locked(SHARED, "finance/x/system_settings/archive/y") is True
+
+    def test_the_settings_prefix_itself_is_NOT_write_locked(self) -> None:
+        """The Deny names the receipt folder, not the prefix above it — the rule must not widen.
+
+        The browser offers writes wherever IAM permits them, and nothing denies `PutObject` on
+        `{root}system_settings/` itself in a personal space, so refusing here would disable an
+        upload that would have worked.
+        """
+        assert protected.is_write_locked(PERSONAL, "alice/system_settings/notes.txt") is False
+
     def test_a_marker_key_may_not_be_REMOVED_or_replaced_at_any_depth(self) -> None:
         """By basename — the rule both bucket policies encode as `*/DO_NOT_DELETE.txt`."""
         with pytest.raises(ApiError) as raised:
