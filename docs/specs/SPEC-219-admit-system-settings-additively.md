@@ -2,7 +2,7 @@
 
 **ID:** SPEC-219
 **Status:** In Progress
-**Last Updated:** 2026-09-05
+**Last Updated:** 2026-09-06
 **Depends On:** SPEC-218
 
 ## Overview
@@ -24,7 +24,9 @@ knowing both locations are already fenced.
 ### In Scope
 
 - Every IAM statement naming a moving folder in a **space** bucket gains a sibling naming the same
-  folder under `system_settings/`, in the eight templates SPEC-218 pinned.
+  folder under `system_settings/`, in every template `SPACE_BUCKET_POPULATION` pins — eight when
+  SPEC-218 wrote that list, nine once the results-conversion plane joined it mid-build. The count
+  is the guard's to state, not this spec's; a number here goes stale the next time a plane lands.
 - One **plural** builder per tree beside SPEC-218's singular one — the root-anchored locations a
   folder may occupy, spelled as literals, with a second home **only for a member of the moving set**
   — and every rule that tests a key against a root-anchored prefix goes through it, so both homes
@@ -70,7 +72,8 @@ knowing both locations are already fenced.
 #### Description:
 
 `lambdas/test_app_managed_template_population.py` pins, per template, the `<anchor>/<folder>`
-pairs naming a moving folder in a space bucket: eight files. Each such Resource gains a sibling
+pairs naming a moving folder in a space bucket — nine files, since results-conversion. Each such
+Resource gains a sibling
 naming `<anchor>/system_settings/<folder>/` with the same actions and effect — an Allow that lets a
 plane or Athena read and write there later, a Deny that already refuses what the old Deny refuses.
 The shared-space Denies are written `*/archive/*` and an S3 `*` matches `/`, so they already cover
@@ -85,7 +88,7 @@ nothing under the new prefix until this lands.
 portal-role templates (`analytics`, `data`, `shared-spaces`) a sibling is its **own statement**, with
 the original Sid suffixed `SystemSettings` and a single-string Resource — because
 `archiveWriteLock.test.ts` builds its matcher from one Sid's single-string Resource and says so. In
-the five plane execution templates, whose Resources are already arrays, a sibling is a new array
+the plane execution templates, whose Resources are already arrays, a sibling is a new array
 element beside the old one.
 
 **An existing guard pins these templates and is extended, not re-baselined.**
@@ -95,14 +98,31 @@ exact set of Sids gained and lost since the baseline. The baseline stays where i
 would empty the gained sets and break the lost-set assertion, and a PR cannot name its own merge
 commit. The analytics template joins `CONTENT_ASSERTED` with a gained set of its own.
 
+**One template gains a statement that is a sibling of nothing, and it is FR-002 that forces it.**
+The results-conversion plane joined the population after this spec was authored. Its execution role
+Denies `s3:PutObject` on every folder the browser's picker refuses, and
+`test_plane_results_conversion.py` holds `rccommon.config.PROTECTED_DESTINATIONS` **set-equal** to
+`focommon.config.PICKER_LOCKED_FOLDERS` — so the moment FR-002 appends `system_settings` to that
+list, the same file's Deny test demands `{bucket}/*/system_settings/*` in both space buckets. Those
+two resources name the folder the three moving folders move *into*, not a moving folder, so no
+sibling rule reaches them and neither the population test nor the siblings test can see them. They
+land in the templates PR ahead of the rule change, with an assertion of their own, because a
+statement no guard reads is how this arc already shipped one that was invisible.
+
+**Ordering, once that Deny exists:** it refuses `system_settings` at any depth while
+`rccommon.paths.protected_refusal` still does not, so between the templates PR and FR-002 the plane
+would answer a bare `AccessDenied` where it owes a named refusal — the inversion that module's
+docstring exists to warn about. It cannot bite while the role holds no write grant at all, which is
+true today; **FR-002 must therefore land before SPEC-222 gives the converter one.**
+
 #### Acceptance Criteria:
 
 - [ ] `SEGMENT` in the population test captures the anchoring segment **before** `system_settings`
       as well — `(?<=["/])([^/"\s]+)/((?:system_settings/)?)(athenaresults|archive|shared_tables)/` or
       equivalent — so a personal sibling measures as `username}/system_settings/archive` and a shared
       one as `*/system_settings/archive`, and a sibling written with the wrong anchor is
-      distinguishable from the right one. The expected table gains, for every one of the eight
-      files, one such pair beside each existing pair; the two admin-bucket entries are unchanged.
+      distinguishable from the right one. The expected table gains, for every pinned
+      file, one such pair beside each existing pair; the two admin-bucket entries are unchanged.
       **A single removed sibling is caught by the siblings test below, not by this one** — a
       correction to this criterion, made when it was planted. This table is a per-file SET of
       anchor/folder pairs and most templates name the same pair twice, once per bucket, so deleting
@@ -110,10 +130,12 @@ commit. The analytics template joins `CONTENT_ASSERTED` with a gained set of its
       the siblings test, which counts `(Sid, Resource)` pairs. What this test catches and the other
       cannot is a file JOINING or LEAVING the population, and a sibling written under the wrong
       anchor.
-- [ ] For the seven templates carrying no `%{ … }` directive, a test renders each with placeholder
+- [ ] For every pinned template carrying no `%{ … }` directive (eight of the nine), a test renders
+      each with placeholder
       values, parses the JSON, and for every statement whose Resource names an old-anchor path finds
       a statement with an equal `Effect` and equal `Action` set naming the new-anchor path; a sibling
-      with a narrower action list fails it. The eighth, `shared-spaces/policies/portal-role-shared-space.json.tftpl`,
+      with a narrower action list fails it. The remaining one,
+      `shared-spaces/policies/portal-role-shared-space.json.tftpl`,
       carries `%{ for }` loops and is checked as text, the way `archiveWriteLock.test.ts` already
       checks it: each old-anchor Sid has a `…SystemSettings` sibling with the same Effect and Action
       lines.
@@ -166,7 +188,9 @@ excluder, `arcommon.authz.assert_not_reserved`, `arcommon.plan`'s excluder,
 which is built as `(*app_managed_prefixes("", ATHENA_RESULTS_FOLDER), "user_settings/")`. Rules that
 already hold at any depth — the segment-membership checks in `focommon.delete` and
 `arcommon.plan._assert_deletable_folder`, the shared-bucket arms of `_is_at_or_below` and
-`is_write_locked`, and `dq_validate_authorize`'s first-segment test — are **not** re-pointed; they
+`is_write_locked`, `dq_validate_authorize`'s first-segment test, and
+`rccommon.paths.protected_refusal`, whose second arm is a segment test that already reaches the
+new home — are **not** re-pointed; they
 are asserted against the new home with a pair test and, for data quality, extended by list.
 
 #### Acceptance Criteria:
@@ -195,7 +219,10 @@ are asserted against the new home with a pair test and, for data quality, extend
       asserted by name.
 - [ ] `RESERVED_SOURCE_ROOTS` gains `system_settings` as its **first** member (the refusal loop
       names the first match, and the folder itself must be named before anything beneath it);
-      `PICKER_LOCKED_FOLDERS` and `UNDELETABLE_ROOT_FOLDERS` gain it appended **last**; and
+      `PICKER_LOCKED_FOLDERS` and `UNDELETABLE_ROOT_FOLDERS` gain it appended **last**, and so does
+      `rccommon.config.PROTECTED_DESTINATIONS`, which `test_plane_results_conversion.py` holds
+      set-equal to the picker's list — without it that plane's suite reddens the moment the picker
+      grows; and
       `_IGNORED_SUBTREES` is `("athenaresults/", "system_settings/athenaresults/", "user_settings/")`;
       each per-list literal assertion from SPEC-218 is updated to the new exact membership, and no
       other member moves.
@@ -312,10 +339,10 @@ export function appManagedPrefixes(rootPrefix: string, folder: string): readonly
 ## File & Folder Structure
 
 ```
-infra/modules/*/policies/*.json.tftpl        # the eight pinned templates gain sibling statements/elements
+infra/modules/*/policies/*.json.tftpl        # every pinned template gains sibling statements/elements
 lambdas/test_app_managed_template_population.py   # SEGMENT captures the anchor before system_settings;
                                                   #   expected pairs doubled
-lambdas/test_app_managed_template_siblings.py     # NEW — rendered Effect/Action pairs (seven), text (one)
+lambdas/test_app_managed_template_siblings.py     # NEW — rendered Effect/Action pairs (eight), text (one)
 lambdas/test_lakeformation_registrations.py       # NEW — both registrations are the bare bucket ARN
 lambdas/test_portal_role_preservation.py          # BASELINE_COMMIT unchanged; analytics joins CONTENT_ASSERTED;
                                                   #   every statement Sid-keyed; the exemptions carry their tests
@@ -332,7 +359,7 @@ docs/testing/e2e.md · docs/testing/owed.md             # one row each (FR-004)
 
 ### Phase 1: The templates (their own PR, by convention first)
 
-- Sibling statements and elements in the eight templates; `SEGMENT` widened and the population
+- Sibling statements and elements in every pinned template; `SEGMENT` widened and the population
   test's expectations doubled; the siblings test; the LF registration test; the preservation test
   extended with the analytics template's gained set; the Checkov plan scan read and any finding scoped.
 
