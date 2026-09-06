@@ -356,11 +356,59 @@ def test_no_hand_maintained_function_list_survives_in_github() -> None:
 #: must have value less than or equal to 3008`.
 ACCOUNT_MAX_MEMORY_MB = 3008
 
-#: Ephemeral storage has no quota narrower than memory's and Lambda documents 10,240 MB — but no
-#: function in this account has ever run above the 512 MB default, so anything larger is unproven
-#: here. Held at the largest value actually deployed, so raising it is a deliberate act that
-#: reddens this and gets argued rather than discovered on a red trunk.
+#: Ephemeral storage. 2,048 is what this account has been observed to ACCEPT — the converter runs
+#: at it — which is not the same as knowing the ceiling is 2,048. Somebody writing 4,096 later is
+#: back where this morning started, and that is the point of holding the line at what is proven
+#: rather than at what is documented.
 ACCOUNT_PROVEN_EPHEMERAL_MB = 2048
+
+#: BOTH NUMBERS ABOVE ARE ACCOUNT QUOTAS, WHICH MEANS THEY MOVE. Lambda's documented maxima —
+#: 10,240 for either — are service limits and do not; an account's are raised by a support
+#: request. So this gate is wrong in the DENYING direction the moment somebody lifts one, and
+#: whoever hits it then meets a number that matches no documentation they can find.
+#:
+#: To re-derive rather than re-check: `aws service-quotas list-service-quotas --service-code
+#: lambda` lists what is adjustable, but the authority is `CreateFunction` itself — the refusal
+#: names the ceiling verbatim, which is how 3,008 was learned. Raising the AWS quota and raising
+#: the constant here are ONE change, not two: leave them apart and the fleet keeps refusing a
+#: value the account would now accept, with nothing to explain why.
+
+
+
+#: The two dimensions this gate covers, and the constant bounding each. Written as a table so
+#: the sweep, the fixtures and the failure message all read the same list — a third dimension
+#: added to one and not the others is the way a gate goes half-quiet.
+ACCOUNT_LIMITS = (
+    ("memory", ACCOUNT_MAX_MEMORY_MB),
+    ("ephemeral", ACCOUNT_PROVEN_EPHEMERAL_MB),
+)
+
+
+def over_account_limits(text: str, label: str) -> list[str]:
+    """Names every declaration in one `locals.tf` that exceeds what this account will create.
+
+    Split out from the sweep so the FIXTURES below can drive it against text rather than against
+    the tree. Running a gate over the real tree proves the tree passes; it proves nothing about
+    whether the check fires, and a gate whose checks have gone quiet looks exactly like a healthy
+    repo.
+
+    Args:
+      text: The contents of a module's ``locals.tf``.
+      label: How to name the file in an offence, so the message points somewhere.
+
+    Returns:
+      One string per offending declaration, naming the dimension, the value and the ceiling.
+
+    Raises:
+      None.
+    """
+    offences = []
+    for dimension, ceiling in ACCOUNT_LIMITS:
+        for match in re.finditer(rf"{dimension}\s*=\s*(\d+)", text):
+            declared = int(match.group(1))
+            if declared > ceiling:
+                offences.append(f"{label}: {dimension} = {declared}, over this account's {ceiling}")
+    return offences
 
 
 def test_no_module_declares_more_memory_than_this_account_will_create() -> None:
@@ -377,13 +425,9 @@ def test_no_module_declares_more_memory_than_this_account_will_create() -> None:
     """
     offenders = []
     for path in sorted((ROOT / "infra" / "modules").glob("*/locals.tf")):
-        text = path.read_text(encoding="utf-8")
-        for match in re.finditer(r"memory\s*=\s*(\d+)", text):
-            if int(match.group(1)) > ACCOUNT_MAX_MEMORY_MB:
-                offenders.append(f"{path.relative_to(ROOT)}: memory = {match.group(1)}")
-        for match in re.finditer(r"ephemeral\s*=\s*(\d+)", text):
-            if int(match.group(1)) > ACCOUNT_PROVEN_EPHEMERAL_MB:
-                offenders.append(f"{path.relative_to(ROOT)}: ephemeral = {match.group(1)}")
+        offenders.extend(
+            over_account_limits(path.read_text(encoding="utf-8"), str(path.relative_to(ROOT)))
+        )
     assert offenders == [], (
         "these exceed what this account is known to create, and only the apply would say so: "
         f"{offenders}. Raise the AWS quota first, then this constant, then the declaration"
@@ -402,4 +446,78 @@ def test_the_memory_sweep_reads_the_declarations_it_claims_to() -> None:
     assert max(found) == ACCOUNT_MAX_MEMORY_MB, (
         "the largest declared memory is not the ceiling this test is written against, so either "
         "the converter's declaration moved or the ceiling did"
+    )
+
+
+#: The gate's own corpus: one `locals.tf` fragment per case, with what it must produce. Half of
+#: these assert SILENCE, because half of a gate's regressions are false positives — a check that
+#: refuses the value it was written to allow is as broken as one that allows what it must refuse,
+#: and only a boundary pair can tell the two apart.
+#:
+#: Each offending case names its DIMENSION and its CEILING rather than only failing, because a
+#: gate that says "something is over" sends the next reader to the wrong file.
+ACCOUNT_LIMIT_CORPUS = (
+    ("memory at the ceiling is allowed", '"a" = { memory = 3008 }', []),
+    ("memory one over is refused", '"a" = { memory = 3009 }', ["memory = 3009, over this account's 3008"]),
+    ("memory far over is refused", '"a" = { memory = 10240 }', ["memory = 10240, over this account's 3008"]),
+    ("the old default is allowed", '"a" = { memory = 256 }', []),
+    ("ephemeral at the proven value is allowed", '"a" = { ephemeral = 2048 }', []),
+    ("ephemeral one over is refused", '"a" = { ephemeral = 2049 }', ["ephemeral = 2049, over this account's 2048"]),
+    ("ephemeral at Lambda's documented max is refused", '"a" = { ephemeral = 10240 }', ["ephemeral = 10240, over this account's 2048"]),
+    ("lambda's own default is allowed", '"a" = { ephemeral = 512 }', []),
+    (
+        "both dimensions over are both reported",
+        '"a" = { memory = 4096, ephemeral = 4096 }',
+        ["memory = 4096, over this account's 3008", "ephemeral = 4096, over this account's 2048"],
+    ),
+    (
+        "one offender among many compliant rows is the only one named",
+        '"a" = { memory = 256 }\n"b" = { memory = 3008, ephemeral = 2048 }\n"c" = { memory = 5000 }',
+        ["memory = 5000, over this account's 3008"],
+    ),
+    ("a module declaring neither is silent", 'requests_queue_name = "x-requests.fifo"', []),
+)
+
+
+@pytest.mark.parametrize(
+    ("case", "fragment", "expected"),
+    ACCOUNT_LIMIT_CORPUS,
+    ids=[case for case, _, _ in ACCOUNT_LIMIT_CORPUS],
+)
+def test_the_account_ceiling_gate_fires_and_stays_silent_where_it_should(
+    case: str, fragment: str, expected: list[str]
+) -> None:
+    """A gate owes a corpus, not a green run against the tree it guards.
+
+    Running this gate over today's modules proves the modules pass and says nothing about whether
+    the check fires — and a gate whose checks have gone quiet is indistinguishable from a healthy
+    repo. This drives the checker against text, at both boundaries of both dimensions, and asserts
+    the REASON rather than a count: the message has to name which dimension and which ceiling, or
+    it sends the next reader to the wrong place.
+    """
+    offences = over_account_limits(fragment, "fixture/locals.tf")
+    assert len(offences) == len(expected), f"{case}: got {offences}"
+    for offence, wanted in zip(offences, expected, strict=True):
+        assert wanted in offence, f"{case}: {offence!r} does not say {wanted!r}"
+        assert offence.startswith("fixture/locals.tf: "), f"{case}: the offence names no file"
+
+
+def test_the_gate_covers_every_dimension_an_account_quota_can_bite() -> None:
+    """The gate is two checks, and both are listed in one table the sweep and the corpus share.
+
+    A third dimension added to the sweep and not the corpus — or to neither, while the constants
+    grow one — is how this goes half-quiet while still reading as installed. Naming the covered
+    set out loud is also the honest scope: it covers what this account has actually refused or
+    accepted, and nothing about dimensions nobody has tested.
+    """
+    assert [dimension for dimension, _ in ACCOUNT_LIMITS] == ["memory", "ephemeral"]
+    covered = {
+        dimension
+        for dimension, _ in ACCOUNT_LIMITS
+        for case, _, expected in ACCOUNT_LIMIT_CORPUS
+        if expected and dimension in expected[0]
+    }
+    assert covered == {"memory", "ephemeral"}, (
+        f"the corpus exercises {covered}; a dimension the sweep checks and the corpus does not "
+        "is a check that can go quiet without anything noticing"
     )
