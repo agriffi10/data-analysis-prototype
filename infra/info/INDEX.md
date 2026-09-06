@@ -4,7 +4,7 @@ Every module under `infra/modules/`, and what it owns. This is a **lookup**: fin
 the one module. Each module's own `README.md` carries the reasoning its `.tf` files used to hold
 inline — what applies green when it is wrong, and what must not be "tidied".
 
-The seven control planes share one machine; that shape is written once in
+The eight control planes share one machine; that shape is written once in
 [`control-plane-shape.md`](control-plane-shape.md), so each of their READMEs carries only what is
 distinct.
 
@@ -61,6 +61,7 @@ and shared traps: [`control-plane-shape.md`](control-plane-shape.md).
 | `file-send` | send files to another user or space | [README](../modules/file-send/README.md) |
 | `archive` | archive to a GLACIER vault and restore, **and the archive bucket (Bucket 5)** | [README](../modules/archive/README.md) |
 | `file-ops` | move, copy and delete, behind a per-space lock | [README](../modules/file-ops/README.md) |
+| `results-conversion` | a finished execution's result set into a space, as Parquet, JSON or Excel | [README](../modules/results-conversion/README.md) |
 
 ## Standalone
 

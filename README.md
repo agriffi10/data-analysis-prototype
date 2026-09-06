@@ -4,7 +4,7 @@ A web portal that lets authenticated users upload and download files to/from the
 private space in AWS S3. Authentication is handled by **AWS Cognito**; per‑user isolation is
 enforced at the **IAM layer**, not in application code. The single‑page app talks to AWS **directly
 from the browser** using short‑lived, scoped credentials for most of what it does, with an HTTP API
-and seven async control planes behind it for work a browser session must not be trusted with.
+and eight async control planes behind it for work a browser session must not be trusted with.
 
 > **New here?** Start with this README for the big picture and setup, then read
 > [`docs/architecture.md`](docs/architecture.md) for the design and

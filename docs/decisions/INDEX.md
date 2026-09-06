@@ -16,7 +16,7 @@ these that decide the system's **shape**, and links back here.
 |---|---|---|
 | Identity, access and the name that ties them together | [`identity-and-access.md`](identity-and-access.md) | Cognito, the one shared role and its principal tags, the API's verifier and credential planes, the username that is also a prefix and a database name |
 | Storage, and the fact S3 is not a filesystem | [`storage.md`](storage.md) | filesystem UX over a store with no move or rename, the file-send and file-ops rules, saved queries, the settings document |
-| Control planes — one pattern, seven planes, and the traps are shared | [`control-planes.md`](control-planes.md) | the shape every privileged pipeline follows, the ASL and notification fences, the layer split, structured logging |
+| Control planes — one pattern, eight planes, and the traps are shared | [`control-planes.md`](control-planes.md) | the shape every privileged pipeline follows, the ASL and notification fences, the layer split, structured logging |
 | Analytics, the catalog, and two SQL dialects | [`analytics.md`](analytics.md) | the Athena/Glue/Lake Formation workspace, TBAC table creation, the two escaper axes, refresh and the data explorer |
 | Archive and restore — the only place a mistake is unrecoverable | [`archive-and-restore.md`](archive-and-restore.md) | the GLACIER vault, the commit gate, the destination guard that runs twice, and the surface built to refuse its own affordance |
 | The browser | [`browser.md`](browser.md) | state split, dialogs, the shared-layer import rule, the measured palette, grid geometry, error wording |

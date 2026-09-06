@@ -1,7 +1,7 @@
 # Spec: Results Conversion — The Plane, the Request Contract & validate-authorize
 
 **ID:** SPEC-221
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-09-05
 **Depends On:** SPEC-187/189 (the file-ops plane as the pattern, and its destination rules), SPEC-200 (the enqueue paths and the `identity` block), SPEC-152 (`NotifyFailure` on every plane), SPEC-126 (DLQ drain), SPEC-218 (one builder per app-managed path — the protected-folder set this plane refuses as a destination, which today lives only in `focommon` and the browser)
 
@@ -266,12 +266,15 @@ Every way the machine can stop short of its terminal tells the user.
 - [ ] `rccommon` registers every reason code this plane can return — `forbidden`, `invalid_request`,
       `protected_location`, `execution_not_found`, `execution_not_finished`, `execution_failed`,
       `no_result_set`, `results_too_large`, `duplicate_column`, `invalid_column_name`,
-      `malformed_event`, `unexpected` — each with wording that
+      `malformed_event`, `unexpected`, `conversion_timed_out` — each with wording that
       names the format and the file name where they are known, and the generic sentence only for
       what a user cannot act on. A test enumerates the codes raised against the codes registered.
 - [ ] A refused request produces exactly one notification, from `NotifyFailure`, addressed to the
-      actor from `identity.actor`; a request refused before identity produces none and is
-      dead-lettered, which the DLQ drain then notifies from the same field.
+      actor from `identity.actor`; a request refused before identity produces none, and the
+      machine records the failure. **It does NOT dead-letter** — the Pipe is `FIRE_AND_FORGET`,
+      so a message whose execution started is gone from the queue whatever the execution then
+      does, and the DLQ holds only what never started one. (Corrected at completion: the
+      criterion as written asked for evidence the plane's own delivery mode makes impossible.)
 - [ ] Structured logging goes through `cpcommon.observability` only; no log field carries a column
       name, a file name or the SQL (which this plane never reads at all). The notification names the
       file and, on the two column refusals, the column — that is the user's own text returned to

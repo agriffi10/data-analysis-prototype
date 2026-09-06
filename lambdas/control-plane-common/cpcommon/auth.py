@@ -27,7 +27,7 @@ claim name as a literal again.
 interpolated provider string, and chains the provider exception as ``__cause__``. An
 internet-facing caller reads the code and never touches the cause; the control planes rebuild
 their historical wording from the cause, whose exposure is a queue body that is already redacted.
-That split is what lets the API refuse to leak a provider message while the seven planes keep
+That split is what lets the API refuse to leak a provider message while the planes keep
 byte-identical text.
 
 **A key-retrieval fault is not an authentication failure.** ``PyJWKClientConnectionError``

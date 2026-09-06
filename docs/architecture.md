@@ -135,8 +135,8 @@ download presign and the four upload routes. File **bytes** do not travel throug
 a presigned `GET`, and an upload is a presigned `PUT` **or a multipart plan, whichever the server
 chooses** from the declared size. Both are signed server-side by the caller's own assumed session,
 so the transfer is between the browser and S3 and compute never touches it. It also serves the **catalog surface** —
-Athena start, status, results and stop, and Glue get-database and list-tables — and the **ten enqueue
-routes** over the eight control-plane queues, so **no `@aws-sdk/*` package is left in the browser at
+Athena start, status, results and stop, and Glue get-database and list-tables — and the **eleven
+enqueue routes** over the nine control-plane queues, so **no `@aws-sdk/*` package is left in the browser at
 all**. The browser still reaches AWS without one: a presigned
 `PUT`/`GET` goes straight to S3, and Amplify talks to Cognito throughout. The rule that keeps the two from drifting is **no new
 browser-side AWS SDK call on a path an API route already serves**, and **no second API**.
@@ -261,9 +261,10 @@ user data lands.
 
 ## The control planes
 
-Seven features do privileged, cross-user, multi-step AWS work that browser-scoped credentials must
+Eight features do privileged, cross-user, multi-step AWS work that browser-scoped credentials must
 not: shared-space lifecycle, table creation, table sharing, data-quality checks, sending files,
-archiving into Glacier with its restore, and copying/moving/deleting files. Each is a deliberate,
+archiving into Glacier with its restore, copying/moving/deleting files, and converting a query's
+result set into another format. Each is a deliberate,
 recorded exception to browser-direct access, **for its mutations only**.
 
 ```
@@ -301,6 +302,7 @@ browser ──▶ API ──sqs:SendMessage──▶ FIFO request queue ──�
 | File send | a selection into another person's or space's inbox | [`file-send.md`](../lambdas/info/planes/file-send.md) |
 | Archive | the GLACIER vault and its restore — the one unrecoverable surface | [`archive.md`](../lambdas/info/planes/archive.md) |
 | File operations | one machine for copy, move and delete; the per-space lock; the plan | [`file-ops.md`](../lambdas/info/planes/file-ops.md) |
+| Results conversion | a finished execution's result set written into a space as Parquet, JSON or Excel | [`results-conversion.md`](../lambdas/info/planes/results-conversion.md) |
 
 The Terraform side of the shared machine is
 [`infra/info/control-plane-shape.md`](../infra/info/control-plane-shape.md); the Lambda side, with

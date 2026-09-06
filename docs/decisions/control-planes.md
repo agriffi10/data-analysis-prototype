@@ -1,4 +1,4 @@
-# Control planes — one pattern, seven planes, and the traps are shared
+# Control planes — one pattern, eight planes, and the traps are shared
 
 Part of the **Key Decisions register** — [`INDEX.md`](INDEX.md) is the router, and `CLAUDE.md`
 carries a table pointing at each area's Fences. This file opens with those fences — the traps that
@@ -44,11 +44,12 @@ entry you need, not the file.**
 - [A transfer's refusals are RETURN VALUES, because a raise in the validator reaches nobody (SPEC-208)](#a-transfers-refusals-are-return-values-because-a-raise-in-the-validator-reaches-nobody-spec-208)
 - [A single-verb write pipeline is a queue and a writer, and its DLQ is undrained for a reason of its own (SPEC-211)](#a-single-verb-write-pipeline-is-a-queue-and-a-writer-and-its-dlq-is-undrained-for-a-reason-of-its-own-spec-211)
 - [The operator door widens to member management, and that is a threat-model decision (SPEC-217)](#the-operator-door-widens-to-member-management-and-that-is-a-threat-model-decision-spec-217)
+- [A conversion reads the RESULT, never the source, and ownership is a question about a path (SPEC-221)](#a-conversion-reads-the-result-never-the-source-and-ownership-is-a-question-about-a-path-spec-221)
 
 ## Fences
 
-Shared spaces, table builder, table share, data quality, file send, **archive** and file
-operations each get:
+Shared spaces, table builder, table share, data quality, file send, **archive**, file
+operations and results conversion each get:
 a **FIFO SQS** queue → EventBridge Pipe → Step Functions → single-task verb Lambdas, **one execution
 role per plane** and its own DLQ; `cpcommon` and a domain module are a CODE split, not a packaging
 one, since the cutover. A plane sharing another's
@@ -90,8 +91,8 @@ DLQ lets one malformed request dead-letter someone else's work.
   `authorize`/`authorize_source` have **zero diff**. `cpcommon.actor` **cannot verify** (no `jwt`,
   `auth`, network or env — import sweep), and the flat `actor` is **never** read: it carried a raw
   JWT, and a JWT and a username are both non-empty, so the guard is the **shape rule**.
-  `assurance` fails closed on an unknown value **including an absent one**. Do **NOT** add a queue resource policy — notifications has eight writers and a blanket
-  `Deny` silences seven notifying roles, invisibly. A pre-cutover message is `unauthorized` and
+  `assurance` fails closed on an unknown value **including an absent one**. Do **NOT** add a queue resource policy — a blanket
+  `Deny` there silences EVERY notifying role in the fleet, invisibly, and the fleet grows. A pre-cutover message is `unauthorized` and
   does **not** dead-letter (`FIRE_AND_FORGET`), so plane allowed-field sets stay untightened.
 - **The DLQ drain** sweeps request DLQs and notifies from **`identity.actor`**; its redaction
   blanks the two LEGACY token fields, since a stale message still carries one. Two are undrained:
@@ -117,6 +118,12 @@ DLQ lets one malformed request dead-letter someone else's work.
   fleet produces**, silently.
 - **`cpcommon` owns the algorithm; a domain layer owns its wording.** Do **NOT** merge the domain
   layers wholesale.
+- **A conversion's input is the EXECUTION'S RESULT OBJECT, never the source table**, and an
+  execution is the actor's **iff Athena wrote it under `cpcommon.results.user_results_prefix`** —
+  the one builder the API starts every query with, so a guessed id names nothing the actor cannot
+  already read. A plane refusing protected destinations mirrors its role's **any-depth** Deny
+  rather than the browser's root-anchored picker: an IAM wildcard matches `/`, so a validator
+  anchored at the root accepts a key IAM then refuses at the write.
 - **A notification's optional `link` is gated by `isSafeInAppPath`**, and a route that renders one
   must not become an existence oracle: the data-quality report view takes its space **from the route,
   never derived**, and an unreachable space renders denied while issuing **no S3 request at all**.
@@ -862,9 +869,10 @@ like one that works) and not `startswith` (which would refuse an unrelated role 
 shares an opening). The session-name half is never examined: Cognito's enhanced flow does not document
 what it puts there.
 
-**The rule is a DENY of one principal, not an ALLOW of eight.** Nine principals hold the grant — seven
-control-plane execution roles, the DLQ drain, the portal role — and exactly one is user-reachable, which
-is what makes a single-principal refusal complete rather than partial. An allow-list would be a
+**The rule is a DENY of one principal, not an ALLOW of the rest.** The grant is held by every
+control-plane execution role, the DLQ drain and the portal role — and exactly one of them is
+user-reachable, which is what makes a single-principal refusal complete rather than partial. The
+count is deliberately not written here: it moved with the eighth plane, and it will move again. An allow-list would be a
 hand-maintained list of role IDs that fails closed on the day a plane is added: that plane's
 notifications would stop, drop or dead-letter unnoticed and nobody would connect the two. One
 environment variable beats eight, and the deny direction fails open only toward principals that require
@@ -1039,7 +1047,7 @@ notifications writer already carries, for the same reason.
 
 **Rejected: a queue resource policy.** It is the obvious way to say "these two principals and no
 others" and it is the trap the notifications queue already documents — a blanket `Deny` there
-silences seven notifying roles, invisibly. The access model here stays identity-based.
+silences every notifying role, invisibly. The access model here stays identity-based.
 
 **Rejected: an in-app admin surface.** The operator path is a file in a bucket and a scheduled
 reader precisely so that *no admin group, admin role or admin route* is created. `CLAUDE.md`'s
@@ -1256,3 +1264,44 @@ vended, nothing in the fleet revokes a token, and the pool client sets no token 
 token's one-hour Cognito default is the window plus the life of any presigned URL already minted.
 Revocation is what this door is for, so the reader's own module docstring says it where an operator
 reads it.
+
+
+## A conversion reads the RESULT, never the source, and ownership is a question about a path (SPEC-221)
+
+Saving a query's results as Parquet, JSON or Excel means producing a new file from a result set of
+unbounded size, which needs polars and must never run inside a request. Three ways were put to the
+user; **he chose a control plane** over building the file in the browser (two dependencies and a
+row ceiling the tab's memory sets) and over re-running the query as an Athena `UNLOAD` (a second
+bill, several files under names Athena chooses, and no Excel at all).
+
+**The input is the execution's result object.** The tables a query reads are mostly Parquet, some
+CSV, some JSON, and it changes nothing: Athena writes every result set as one CSV object under the
+actor's own results prefix, so the converter reads one shape whatever was queried, no second query
+starts and nothing is billed. **No intermediate file is made** — that CSV exists whether or not
+this plane runs, because it *is* the query's result. The path that avoids it is `UNLOAD`, and it
+is the one that writes several files.
+
+**A lazy frame over the SOURCE files was considered and rejected** (2026-09-05, user decision) on
+four grounds this repo had already measured — no source files behind a view or a saved query,
+polars' lazy S3 scan downloading whole objects in Lambda, fidelity lost to re-implementing Trino's
+own comparison semantics, and the plane becoming a second authority on table access. The reasoning
+is written once, in [`ARCS.md`](../specs/ARCS.md#results-conversion-arc-spec-221--222--223), with
+what the result path costs and what the honest remedy would be if it ever mattered.
+
+**Ownership is a question about a path, and that is what makes a guessed execution id harmless.**
+An execution is the actor's iff its recorded `OutputLocation` begins with the prefix the API starts
+every one of that user's queries with — so `cpcommon.results.user_results_prefix` is one builder
+called by both, and a test holds the API's `output_location` byte-identical to it. It is a
+**different fact** from `results_location`, which is where a plane's own DDL writes, and the two
+are deliberately not merged. An id Athena does not know and an execution written anywhere else
+refuse with the **same** code and the same sentence, so the refusal cannot answer "does this
+execution exist?" for a caller trying ids. Two things the reviews added: the derived key is refused
+if it carries a dot segment, because `startswith` passes a location that then escapes the prefix;
+and a non-string space kind is refused rather than raising `TypeError` out of the membership test.
+
+**The write grant is not here.** This plane ships read-only — no `s3:PutObject` Allow anywhere —
+while carrying the explicit **Deny** on every protected folder in both space buckets from its
+first apply — the three `cpcommon.app_managed` declares plus this plane's own non-moving four. Measured against the deployed role: `explicitDeny` for a write under `athenaresults/`,
+`archive/`, `shared_tables/` and `user_settings/`, `implicitDeny` for an ordinary path. So the Deny
+is discriminating before there is anything for it to override, which is the order that makes a
+validator defect unable to write into a receipt folder the day the Allow arrives.
