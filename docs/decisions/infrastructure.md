@@ -177,12 +177,24 @@ over, and it reads like a packaging problem rather than a quota one.
 
 **The guard is fleet-wide and lives in `lambdas/test_fleet_derivation.py`**, not on the module
 that hit it, because the next function to want more memory will be in a different module and its
-author will have exactly the information this one had. It reads every module's `locals.tf` and
+author will have exactly the information this one had. It reads every `.tf` under `infra/` and
 refuses a declaration above what this account is known to create, on both dimensions a quota can
-bite. It owes a corpus rather than a green run — a gate run against the thing it guards proves
-the artifact passes and never that a check still fires — so it carries eleven fixture cases at
-both boundaries of both dimensions, half of them asserting SILENCE, because a check that refuses
-the value it was written to allow is as broken as one that allows what it must refuse.
+bite.
+
+**Its file population is the part that was wrong first, and the repo had already learned why.**
+It began at `infra/modules/*/locals.tf` — the per-module fleet map — and was green over ten
+declarations, because a module deploying ONE function passes `memory_mb` straight to the shared
+`docker-lambda` block in its own `lambda.tf` and builds no map. `fleet.py`'s `_locals_bodies`
+carries that lesson in its own docstring, naming `api` and `auth` as the modules that do this;
+both were in the ten. **A new sweep over an existing tree should read what the existing sweeps
+say about that tree before choosing its glob.**
+
+It owes a corpus rather than a green run — a gate run against the thing it guards proves the
+artifact passes and never that a check still fires — so it carries fixture cases at both
+boundaries of both dimensions, in BOTH declaring shapes, and half of them assert SILENCE, because
+a check that refuses the value it was written to allow is as broken as one that allows what it
+must refuse. The count is not stated here; the corpus is the population and a number beside it
+goes stale.
 
 **Two numbers, two different kinds of fact.** Memory's 3,008 is a ceiling: `CreateFunction` named
 it. Ephemeral storage's 2,048 is only what has been observed to be ACCEPTED — the converter runs
