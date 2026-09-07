@@ -47,9 +47,10 @@ BASE_IAM = ROOT / "infra" / "modules" / "base" / "iam.tf"
 LAMBDA_DIRS = ROOT / "lambdas"
 
 PROJECT = "dat"
-#: The placeholder account these tests build their probe ARNs with. It must match the
-#: account the deploy templates now pin, or every ARN renders in a different account than
-#: the pattern it is checked against and the coverage assertions all go vacuous.
+#: The placeholder account these tests build their probe ARNs with. The templates pin a
+#: VARIABLE, so this need not be the real account — but it must be the same value this file
+#: renders `${account_id}` as, or every probe ARN lands in a different account from the
+#: pattern it is checked against and the coverage assertions all pass vacuously.
 ACCOUNT_ID = "123456789012"
 ENVIRONMENT = "prod"
 

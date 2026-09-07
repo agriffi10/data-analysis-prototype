@@ -36,9 +36,10 @@ POLICY = INFRA / "modules" / "base" / "policies" / "github-actions-deploy-feedba
 MANAGED_LIMIT = 6_144
 MAX_ATTACHED_MANAGED_POLICIES = 20
 
-#: The placeholder account these tests build their probe ARNs with. It must match the
-#: account the deploy templates now pin, or every ARN renders in a different account than
-#: the pattern it is checked against and the coverage assertions all go vacuous.
+#: The placeholder account these tests build their probe ARNs with. The templates pin a
+#: VARIABLE, so this need not be the real account — but it must be the same value this file
+#: renders `${account_id}` as, or every probe ARN lands in a different account from the
+#: pattern it is checked against and the coverage assertions all pass vacuously.
 ACCOUNT_ID = "123456789012"
 
 SUBSTITUTIONS = {

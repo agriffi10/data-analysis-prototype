@@ -1560,15 +1560,17 @@ def test_no_deploy_grant_wildcards_the_account(path: pathlib.Path) -> None:
     Raises:
       AssertionError: When an ARN's account field is ``*``.
     """
+    allowed = {ACCOUNT_ID, ""} | FOREIGN_OWNERS
     offenders = [
-        arn
+        (arn, arn.split(":")[4])
         for arn in _arns(path)
-        if len(arn.split(":")) > 4 and arn.split(":")[4] == "*"
+        if len(arn.split(":")) > 4 and arn.split(":")[4] not in allowed
     ]
     assert not offenders, (
-        f"{path.name} wildcards the account on {len(offenders)} ARN(s): {offenders}. A grant "
-        "names one account. Pin it to ${account_id}, or — if AWS owns the resource — to the "
-        f"owner, as the prefix-list ARNs do: {sorted(FOREIGN_OWNERS)}."
+        f"{path.name} names a foreign account on {len(offenders)} ARN(s): {offenders}. The "
+        f"account field must be {ACCOUNT_ID}, empty, or an owner AWS itself holds "
+        f"({sorted(FOREIGN_OWNERS)}). Note this refuses a NAMED foreign account and a partial "
+        "wildcard such as '69600019748*', not only a bare '*' — those are the same grant."
     )
 
 
@@ -1691,3 +1693,98 @@ def test_the_terraform_passes_the_real_account_id() -> None:
         "infra/main.tf must pass module.base its account_id from aws_caller_identity; a "
         "hard-coded or variable-supplied id can disagree with the account being applied to."
     )
+
+
+@pytest.mark.parametrize("path", ARN_BEARING_POLICIES, ids=lambda p: p.name)
+def test_a_prefix_list_arn_is_pinned_to_aws_not_to_this_account(path: pathlib.Path) -> None:
+    """The one ARN that must NOT name this account.
+
+    Every managed prefix list here is AWS-owned, and the SPA task's egress rule names the S3
+    one because a CIDR rule does not match gateway-endpoint traffic. Pinned to this account,
+    ``ec2:ModifySecurityGroupRules`` reads ``implicitDeny`` against the real list — and the
+    check above would not notice, because this account's id is exactly what it wants to see.
+    That makes "correcting" the odd-looking ``aws`` the most likely wrong edit here.
+
+    Args:
+      path: The template to check.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a prefix-list ARN names anything but ``aws``.
+    """
+    wrong = [
+        arn
+        for arn in _arns(path)
+        if ":prefix-list/" in arn and arn.split(":")[4] != "aws"
+    ]
+    assert not wrong, (
+        f"{path.name} pins a prefix-list ARN to something other than 'aws': {wrong}. AWS owns "
+        "every managed prefix list; this account owns none. Pinning it here denies "
+        "ec2:ModifySecurityGroupRules on the SPA's own egress rule, at apply."
+    )
+
+
+@pytest.mark.parametrize("path", ARN_BEARING_POLICIES, ids=lambda p: p.name)
+def test_no_statement_inverts_its_resource_or_action_list(path: pathlib.Path) -> None:
+    """``NotResource`` and ``NotAction`` grant the complement, and the ARN checks cannot see it.
+
+    Every check in this file reads ARNs and reasons about what they match. A statement written
+    with ``NotResource`` grants everything those ARNs do NOT name — the inverse of what a
+    reader of the ARN list would conclude, and an account pin in such a statement is worse than
+    useless. Neither key appears in any of these documents today, and neither has a reason to.
+
+    Args:
+      path: The template to check.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a statement uses an inverting key.
+    """
+    inverted = [
+        (statement.get("Sid", "<no Sid>"), key)
+        for statement in _statements(path)
+        for key in ("NotResource", "NotAction", "NotPrincipal")
+        if key in statement
+    ]
+    assert not inverted, (
+        f"{path.name} inverts a statement: {inverted}. These grant the COMPLEMENT of what they "
+        "list, so every ARN check in this file reads them backwards. Write the grant out."
+    )
+
+
+def test_the_merged_ec2_statement_still_grants_tagging_on_every_type() -> None:
+    """Folding the tagging statement in must not have dropped what it granted.
+
+    ``PlatformNetworkTags`` named the same ten resource types as ``PlatformNetworkManage`` and
+    was merged into it; nothing else records what it used to grant, so an edit dropping
+    ``ec2:CreateTags`` from the merged action list would be invisible. The failure it permits
+    is a denied tag on ``aws_default_security_group`` at apply, behind a green suite.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the merged statement stops granting tagging on all ten types.
+    """
+    platform = POLICY_DIR / "github-actions-deploy-platform.json.tftpl"
+    manage = next(
+        s for s in _statements(platform) if s.get("Sid") == "PlatformNetworkManage"
+    )
+    actions = set(_actions(manage))
+    assert {"ec2:CreateTags", "ec2:DeleteTags"} <= actions, (
+        "PlatformNetworkManage no longer grants ec2:CreateTags/DeleteTags. They were folded "
+        "in from PlatformNetworkTags, so this statement is the only thing granting them."
+    )
+    types = {resource.split(":")[5].split("/")[0] for resource in manage["Resource"]}
+    assert types == {
+        "vpc", "subnet", "route-table", "internet-gateway", "security-group",
+        "security-group-rule", "vpc-endpoint", "vpc-flow-log", "network-interface",
+        "prefix-list",
+    }, f"the merged statement covers {sorted(types)}, not the ten types it was folded from"

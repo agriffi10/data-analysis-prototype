@@ -1016,8 +1016,14 @@ half, so the `*` authorized nothing that a pinned ARN would not. It mattered whe
 carries its own policy — SQS, ECR, `lambda:InvokeFunction`, EventBridge, and the Glue catalog
 under Lake Formation, which is the case that prompted the sweep: were this account ever made an
 LF recipient of another account's catalog, nothing in the grant stopped the deploy role altering
-that shared table. Measured against the account's own resources, the wildcard made **496**
-foreign-account resource identities reachable and the pin closes all of them.
+that shared table. Measured against the account's own resources, every foreign-account identity
+those patterns reached is closed by the pin, and no live resource stopped being reachable.
+
+**The Lake Formation case is only half closed, and the other half is not this change's to
+close.** Pinning the account closes the `glue:` catalog, database and table ARNs. The inline
+document's `LakeFormationManage` still grants fourteen `lakeformation:*` actions on
+`Resource: "*"`, which no account pin reaches — that is a question about the `NON_SCOPABLE` set,
+and it is still open.
 
 **One ARN must NOT be pinned, and a simulate against a self-owned resource would never say so.**
 All sixteen managed prefix lists here are AWS-owned — `arn:aws:ec2:us-east-1:aws:prefix-list/…`,
@@ -1034,9 +1040,13 @@ simulate answers "does this pattern match this string" for a string you chose; b
 "pinned matches same-account, refuses foreign-account" are true by construction. The risk that
 actually costs a trunk is a pattern that stops matching a resource the account **holds** — and it
 would not fail on this apply, which refreshes under the *current* wildcard document, but on the
-next apply's refresh, on an unrelated PR, where the fix is itself denied. So all 516 live ARNs
-across 29 resource types were matched against the pre- and post-change pattern sets: zero reached
-before and not after, zero widenings, 514 reached by the pinned grant as the positive control.
+next apply's refresh, on an unrelated PR, where the fix is itself denied. So every ARN the
+account holds, across the twenty-nine resource types these grants scope, was matched against the
+pre- and post-change pattern sets: **zero** reached before and not after, **zero** widenings,
+and all but a handful reached by the pinned grant as the positive control. Two independent runs
+agreed on all three directional results and disagreed on the raw totals, because each enumerated
+the account slightly differently — which is why no total is written here. Re-derive it; a
+population counted once rots between the count and the next reader.
 
 **The population is textual, not the `Resource` field.** Two of the 192 sit in `Condition` values
 (`ArnLike` on `lambda:FunctionArn`, in the feedback and notifications event-source-mapping
@@ -1051,7 +1061,7 @@ none of them.
 
 **A budget the change nearly spent, and the constraint that was false.** Pinning costs eleven
 characters an ARN, and `github-actions-deploy-platform` sits closest to the hard, unadjustable
-6,144: 5,794 → 6,113, leaving 31. The first plan justified restructuring by claiming the role was
+6,144: pinned but unmerged it measures 6,117, leaving **27**. The first plan justified restructuring by claiming the role was
 at its attachment ceiling — it is not, it carries **16** against 20 (the 20 was read off the
 constant asserting the ceiling, not off a count). The restructuring stands on its own reason
 instead: `PlatformNetworkManage` and `PlatformNetworkTags` held byte-identical ten-ARN lists that
