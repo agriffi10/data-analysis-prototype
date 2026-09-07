@@ -1,8 +1,8 @@
 # Spec: Results Conversion — "Save as" in the Browser, the Flag & Help
 
 **ID:** SPEC-223
-**Status:** Draft
-**Last Updated:** 2026-09-05
+**Status:** In Progress
+**Last Updated:** 2026-09-07
 **Depends On:** SPEC-222 (the converter and its notification), SPEC-049 and SPEC-185 (the two Save-results surfaces and `useSaveResults`), SPEC-162/163 (feature flags and the gated-surfaces registry), SPEC-207 (Help)
 
 ## Overview
@@ -126,10 +126,22 @@ What arrives when the plane finishes.
 
 #### Acceptance Criteria:
 
-- [ ] A success notification renders its `link` as **Open folder** through the existing
-      `isSafeInAppPath` gate, and following it lands on the destination folder in Files (personal)
-      or the shared space's browser. **Following the link** invalidates that folder's listing before
-      navigating, so the file is present on arrival; the notification's arrival invalidates nothing,
+- [ ] A success notification's `link` stays the **message anchor** the row already renders,
+      through the existing `isSafeInAppPath` gate, and following it lands on the destination folder
+      in Files (personal) or the shared space's browser. **Following the link** invalidates that
+      folder's listing before navigating, so the file is present on arrival;
+
+      **Amended mid-build.** This criterion said the link renders *as "Open folder"*, which
+      contradicts the rule `NotificationRow` states and justifies for every producer — the message
+      IS the link, never a trailing control, so the row is one target whose accessible name says
+      where it goes. Honouring both would have put two anchors on one href, which is the duplicate
+      the component records having shipped twice. Andrew took the call: keep the message anchor and
+      drop the label. The invalidation is therefore a **mechanism over any `/files` link** rather
+      than a clause for this producer — file send and archive deep-link into folders they have just
+      written to as well, and a per-producer version would silently do nothing for the next plane.
+      It also means the link needs **no gated-surfaces row**: its destination is `/files`, already
+      covered by that flag's link clause, exactly as the archive plane's link is.
+ the notification's arrival invalidates nothing,
       because notification-driven listing reconciliation is the mechanism the file-ops provider
       records as deliberately not used (the poll is a minute wide and pauses on a hidden tab), and
       the listing's own focus refetch already covers the user who is simply looking at the folder.
@@ -151,8 +163,18 @@ The surface is documented only once it is wired end to end.
       notification, that JSON is one object per line, and Excel's row limit and precision note.
 - [ ] The dialog passes the axe assertion with the select present; the select is reachable by
       keyboard and Enter still submits from the file-name field only.
-- [ ] At 375 px the dialog's fields stack and the primary button keeps its 38 px height; verified
-      in the responsive band 375–899 as well as at 900.
+- [ ] At 375 px the dialog's fields stack — the format `<select>` is full-width like the name and
+      space fields above it — and the primary button is unchanged by this spec; verified in the
+      responsive band 375–899 as well as at 900.
+
+      **Amended mid-build: the 38 px was a false premise.** The dialog's primary button is
+      `DestinationPicker`'s, which is the `Button` primitive at its default `h-9` — **31.5 px** at
+      this app's 14 px root, at every width, and the same in all six DestinationPicker dialogs. The
+      38 px figure is this repo's *mobile touch* pattern (`h-[38px] tablet:h-9`), which that button
+      has never used. Resizing it would change six dialogs no part of this spec is about, so the
+      criterion asserts what this change owes instead: the select does not disturb the button, and
+      the fields stack. 31.5 px clears SC 2.5.8's 24 px minimum comfortably, so nothing is being
+      waived. The measurement itself is a live check — jsdom measures no geometry at all.
 - [ ] `docs/testing/e2e.md` gains the live checks: each format saved from the Query workspace and
       from the Explorer, the file read back (Parquet through *Create table*, JSON through *Create
       table*, Excel opened), the overwrite confirm, a shared-space destination, the flag off, and a

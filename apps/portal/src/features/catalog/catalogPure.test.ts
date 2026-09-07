@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest';
 import {act, renderHook} from '@testing-library/react';
-import {normalizeColumnType} from './catalog.format';
+import {normalizeColumnType, normalizeResultsName} from './catalog.format';
 import {DEFAULT_COLUMN_WIDTH, MIN_COLUMN_WIDTH} from './catalog.constants';
 import {useColumnWidths} from './useColumnWidths';
 import {partitionSchema} from './schema.partition';
@@ -24,6 +24,33 @@ describe('catalog.format', () => {
       expect(normalizeColumnType('decimal(10,2)')).toBe('decimal(10,2)');
       expect(normalizeColumnType('array(integer)')).toBe('array(integer)');
       expect(normalizeColumnType('')).toBe('');
+    });
+  });
+
+  describe('normalizeResultsName', () => {
+    it('appends the format’s extension, and does not double one the user already typed', () => {
+      expect(normalizeResultsName('report', 'csv')).toBe('report.csv');
+      expect(normalizeResultsName('report', 'parquet')).toBe('report.parquet');
+      expect(normalizeResultsName('report', 'xlsx')).toBe('report.xlsx');
+      expect(normalizeResultsName('report.json', 'json')).toBe('report.json');
+      // Case is matched, and the name the user typed is returned as they typed it.
+      expect(normalizeResultsName('report.CSV', 'csv')).toBe('report.CSV');
+      expect(normalizeResultsName('  spaced  ', 'csv')).toBe('spaced.csv');
+    });
+
+    it('replaces another format’s extension rather than stacking onto it', () => {
+      // The format is a control the user can change after typing a name, which is the whole
+      // reason this is a replacement and not an append.
+      expect(normalizeResultsName('report.csv', 'parquet')).toBe('report.parquet');
+      expect(normalizeResultsName('report.XLSX', 'json')).toBe('report.json');
+      expect(normalizeResultsName('report.parquet', 'csv')).toBe('report.csv');
+    });
+
+    it('leaves a dot-segment that is not one of the four formats alone', () => {
+      // Guessing which trailing dot-segment was meant as a file type is how a name the user
+      // chose quietly loses part of itself.
+      expect(normalizeResultsName('sales.2026', 'csv')).toBe('sales.2026.csv');
+      expect(normalizeResultsName('v1.2', 'parquet')).toBe('v1.2.parquet');
     });
   });
 });

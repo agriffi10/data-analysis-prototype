@@ -224,6 +224,22 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
       path: '/help',
       helpId: 'resolve-file-operation-conflicts'
     }
+  ],
+  // Neither an area nor a kill switch: a PRESENTATION flag over one control. Off, the
+  // Save-results dialog offers no format choice and saves the CSV it always did; the enqueue
+  // route stays live and ungated either way, so this takes nobody's access away.
+  //
+  // Two rows for one control, because there are two dialogs — the Query workspace's and the
+  // Data Explorer's — and they are reached down different paths. The `sharedWorkspaces` list
+  // above carries the same pair for the same reason, and it records why: the twin rows render
+  // other surfaces, so nothing would notice if one of the two stopped being gated.
+  //
+  // The completion notification's link gets NO row. Its destination is `/files`, already gated
+  // by the `files` and `sharedWorkspaces` link clauses — a mechanism registered twice over,
+  // which the archive plane's link is the precedent for leaving alone.
+  resultsConversion: [
+    {name: 'Format in the save-results dialog', kind: 'control', path: '/query'},
+    {name: 'Format in the Data Explorer export dialog', kind: 'control', path: '/explore'}
   ]
 };
 

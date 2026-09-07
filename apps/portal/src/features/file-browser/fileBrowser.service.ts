@@ -339,6 +339,31 @@ export async function folderExists(params: {bucket: string; prefix: string}): Pr
 }
 
 /**
+ * Is there an object at exactly this key?
+ *
+ * The OBJECT-level twin of `folderExists`, and the difference is the whole point: that one asks
+ * whether anything lives *under* a prefix and passes `target: 'prefix'`; this one asks about one
+ * key and leaves `target` at the route's default. Asking the prefix question about a file key
+ * would answer true for `report.csv` when only `report.csv.bak` existed.
+ *
+ * **A failure is NOT an answer.** A 403 in particular means "the space may hold a file you cannot
+ * see", which for a caller about to write there is closer to occupied than to free — but that is
+ * the caller's call to make from the code, not a decision to bury here by returning `true`.
+ *
+ * @param params.bucket - The bucket.
+ * @param params.key - The full object key.
+ * @returns True when an object exists at that key.
+ */
+export async function objectExists(params: {bucket: string; key: string}): Promise<ServiceResult<boolean>> {
+  const {bucket, key} = params;
+  const answer = await apiRequest('objects.exists', {
+    query: {...spaceQuery(bucket, key), key}
+  });
+  if (!answer.success) return fromApiFailure(answer.error, 'Failed to check whether the file exists');
+  return ok(answer.data.exists);
+}
+
+/**
  * The first unused `{name} (N)` under a prefix, resolved in ONE call.
  *
  * The browser used to walk `(1)` … `(999)` with a `HeadObject` each. Behind the API every one of

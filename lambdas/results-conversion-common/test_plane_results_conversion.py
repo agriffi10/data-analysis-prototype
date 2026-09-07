@@ -371,6 +371,20 @@ NAMES_THE_FILE = (
 GOLDEN_LINK_PREFIX = "finance/a b&c?d#e/"
 GOLDEN_LINK = "/files?space=finance&prefix=finance/a%20b%26c%3Fd%23e/"
 
+#: The row-limit refusal, written out in full and duplicated in the browser suite.
+#:
+#: The browser half is `apps/portal/src/features/notifications/resultsConversionNotification.test.tsx`.
+#: The spec requires this one sentence checked END TO END — that the wording registered on the
+#: plane is the wording a user reads — and this table is a Python literal no vitest run can
+#: import. So it is written on both sides on the `GOLDEN_LINK` precedent above: deliberately
+#: duplicated rather than shared through a fixture file, since a file both halves read would go
+#: stale together. Change one and the other fails.
+GOLDEN_ROW_LIMIT = (
+    "Couldn't save the query results as Excel: the results have 1,400,000 rows, which is more "
+    'than a spreadsheet can hold, so "q1.xlsx" was not written. Please save them as Parquet '
+    "instead, or narrow the query."
+)
+
 
 #: Step Functions' ceiling on a task state's input or output, in bytes.
 STATE_LIMIT_BYTES = 256 * 1024
@@ -431,6 +445,17 @@ def test_the_link_encodes_every_component_and_puts_the_space_first():
     assert links.destination_link("shared", "../etc", "x/q1.parquet") is None
     assert links.destination_link("personal", "alice", "bob/secret/q1.parquet") == "/files?prefix=alice/", (
         "a key outside the space root falls back to the root rather than linking into another"
+    )
+
+
+def test_the_row_limit_refusal_is_the_sentence_the_browser_renders():
+    """The producing half of a two-language assertion; see GOLDEN_ROW_LIMIT."""
+    assert (
+        messages.failure_message(
+            reasons.EXCEL_ROW_LIMIT,
+            {"format": "xlsx", "filename": "q1.xlsx", "count": "1,400,000"},
+        )
+        == GOLDEN_ROW_LIMIT
     )
 
 

@@ -57,7 +57,8 @@ const ALL_ON: FeatureFlags = {
   sharedWorkspaces: true,
   dataQuality: true,
   dataExplorer: true,
-  asyncFileOperations: true
+  asyncFileOperations: true,
+  resultsConversion: true
 };
 const opts = {auth: authenticated('alice'), seedFeatureFlags: false} as const;
 

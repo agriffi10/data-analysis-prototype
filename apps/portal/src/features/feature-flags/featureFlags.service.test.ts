@@ -29,7 +29,8 @@ const allOn = {
   sharedWorkspaces: true,
   dataQuality: true,
   dataExplorer: true,
-  asyncFileOperations: true
+  asyncFileOperations: true,
+  resultsConversion: true
 };
 
 beforeEach(() => {
@@ -77,7 +78,8 @@ describe('getFeatureFlags — resolution', () => {
         sharedWorkspaces: true,
         dataQuality: false,
         dataExplorer: true,
-        asyncFileOperations: true
+        asyncFileOperations: true,
+        resultsConversion: true
       }
     });
   });
@@ -135,7 +137,8 @@ describe('getFeatureFlags — one bad value is not a bad document', () => {
         sharedWorkspaces: false,
         dataQuality: true,
         dataExplorer: true,
-        asyncFileOperations: true
+        asyncFileOperations: true,
+        resultsConversion: true
       }
     });
   });

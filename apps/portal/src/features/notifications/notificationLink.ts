@@ -1,3 +1,5 @@
+import {spaceBuckets} from '../../lib/userSpace';
+
 /**
  * Is `link` a safe IN-APP path that may be rendered as a router `<Link>`?
  *
@@ -44,4 +46,33 @@ export function reviewHref(base: string | undefined, requestId: string): string 
   const params = new URLSearchParams(query);
   params.set('requestId', requestId);
   return `${path}?${params.toString()}`;
+}
+
+/**
+ * The bucket and folder a `/files` notification link resolves to, or undefined for any other link.
+ *
+ * A link carries a space NAME and a prefix; the file browser's cache is keyed by BUCKET and
+ * prefix, and the two buckets are runtime config. So following a link cannot refresh the folder
+ * it lands on without this translation — the notification has no bucket in it and never will,
+ * because a bucket name is deployment detail a control plane has no business minting into a URL.
+ *
+ * The presence of `space` is what decides which bucket: the link producer writes it only for a
+ * shared destination, which is the same signal the row's own feature gate reads.
+ *
+ * Returns undefined rather than guessing when the link is not a `/files` one, carries no usable
+ * prefix, or names a bucket this deployment has not configured — each of which is a reason to
+ * navigate without refreshing rather than to refresh the wrong folder.
+ *
+ * @param link - A link already accepted by `isSafeInAppPath`.
+ * @returns The listing to invalidate, or undefined.
+ */
+export function filesLinkListing(link: string): {bucket: string; prefix: string} | undefined {
+  const [path, query] = link.split('?');
+  if (path !== '/files' || !query) return undefined;
+  const params = new URLSearchParams(query);
+  const prefix = params.get('prefix');
+  if (!prefix) return undefined;
+  const {user, shared} = spaceBuckets();
+  const bucket = params.get('space') ? shared : user;
+  return bucket ? {bucket, prefix} : undefined;
 }

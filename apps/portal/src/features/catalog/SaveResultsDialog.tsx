@@ -3,9 +3,10 @@ import {Input} from '../../components/Input';
 import {Modal} from '../../components/Modal';
 import {DestinationPicker, validateFolderName} from '../file-browser';
 import {SpaceSelect} from '../../components/SpaceSelect';
-import {normalizeCsvName} from './catalog.format';
-import type {QuerySpace} from './catalog.types';
-import {SECTION_CAPTION} from '../../components/fieldStyles';
+import {useFeature} from '../feature-flags';
+import {normalizeResultsName, RESULTS_FORMATS} from './catalog.format';
+import type {QuerySpace, ResultsFormat} from './catalog.types';
+import {FIELD_LABEL, SECTION_CAPTION} from '../../components/fieldStyles';
 import {DIALOG_PANEL, DIALOG_TITLE} from '../../components/dialogChrome';
 
 type Props = {
@@ -14,22 +15,37 @@ type Props = {
   /** Suggested base name (without extension). */
   defaultName: string;
   isBusy?: boolean;
-  /** `destPrefix` is a full in-space key prefix (ends with "/"); `filename` is the ".csv"-normalized leaf. */
-  onSave: (args: {destBucket: string; destPrefix: string; filename: string}) => void;
+  /**
+   * `destPrefix` is a full in-space key prefix (ends with "/"); `filename` is the leaf, normalized
+   * to the chosen format's extension. `format` decides which path the hook takes — `csv` is the
+   * synchronous copy, the rest go to the conversion plane.
+   */
+  onSave: (args: {destBucket: string; destPrefix: string; filename: string; format: ResultsFormat}) => void;
   onCancel: () => void;
 };
 
+const FORMAT_ORDER: ResultsFormat[] = ['csv', 'parquet', 'json', 'xlsx'];
+
 /**
- * Destination-folder picker + a validated file-name field for saving results
- * as CSV. When the user belongs to shared spaces, a space selector chooses
- * which space to browse; the picker remounts per space (keyed) so its
- * breadcrumb/browse state resets cleanly. Save is disabled until a
- * destination is chosen and the name is valid.
+ * Destination-folder picker, a validated file-name field and a format choice, for saving a
+ * result set into a space.
+ *
+ * CSV is the instant copy of the object Athena already wrote; Parquet, JSON and Excel are built
+ * by the conversion plane and come back as a notification. The primary button says which of the
+ * two is about to happen, so the wait is announced before the click rather than after it.
+ *
+ * When the user belongs to shared spaces, a space selector chooses which space to browse; the
+ * picker remounts per space (keyed) so its breadcrumb/browse state resets cleanly. Save is
+ * disabled until a destination is chosen and the name is valid.
  */
 export function SaveResultsDialog({spaces, defaultName, isBusy = false, onSave, onCancel}: Props) {
   const [name, setName] = useState(defaultName);
+  const [format, setFormat] = useState<ResultsFormat>('csv');
   const [spaceId, setSpaceId] = useState(spaces[0]?.id ?? '');
   const inputRef = useRef<HTMLInputElement>(null);
+  // Off, the field is ABSENT rather than disabled, and the dialog is the one it was before this
+  // spec: `format` stays 'csv' and the hook takes the copy path it always took.
+  const canConvert = useFeature('resultsConversion');
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -44,6 +60,8 @@ export function SaveResultsDialog({spaces, defaultName, isBusy = false, onSave, 
 
   if (!space) return null;
 
+  const isCopy = format === 'csv';
+
   return (
     <Modal
       ariaLabel="Save results to my files"
@@ -52,7 +70,16 @@ export function SaveResultsDialog({spaces, defaultName, isBusy = false, onSave, 
       className={DIALOG_PANEL}>
       <h2 className={DIALOG_TITLE}>Save results</h2>
       <p className="mt-1 text-sm text-text-2">
-        Saves the full result set as a CSV. A <code>.csv</code> extension is added automatically.
+        {canConvert ? (
+          <>
+            Saves the full result set. <b>CSV</b> is saved straight away; the other formats are converted first and
+            arrive as a notification. The file extension is added automatically.
+          </>
+        ) : (
+          <>
+            Saves the full result set as a CSV. A <code>.csv</code> extension is added automatically.
+          </>
+        )}
       </p>
 
       <div className="mt-3">
@@ -68,6 +95,32 @@ export function SaveResultsDialog({spaces, defaultName, isBusy = false, onSave, 
           onChange={(e) => setName(e.target.value)}
         />
       </div>
+
+      {/* Not `SpaceSelect`: that one renders nothing below two options and carries a space's
+          shared-ness in its option text. These four are always all four. */}
+      {canConvert && (
+        <div className="mt-3">
+          <label
+            htmlFor="save-results-format"
+            className={FIELD_LABEL}>
+            Format
+          </label>
+          <select
+            id="save-results-format"
+            value={format}
+            disabled={isBusy}
+            onChange={(e) => setFormat(e.target.value as ResultsFormat)}
+            className="h-9 w-full rounded-md border border-border bg-surface px-3 text-base text-text focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-45">
+            {FORMAT_ORDER.map((key) => (
+              <option
+                key={key}
+                value={key}>
+                {RESULTS_FORMATS[key].label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* No `kind` passed, so no " (shared)" suffix — this dialog has never carried one and
           changing what a shipped option says is not this change's business. The difference
@@ -92,9 +145,11 @@ export function SaveResultsDialog({spaces, defaultName, isBusy = false, onSave, 
         isBusy={isBusy}
         allowCurrentParent
         confirmDisabled={!nameValid}
-        confirmLabel="Save here"
+        confirmLabel={isCopy ? 'Save here' : 'Convert and save'}
         busyLabel="Saving…"
-        onConfirm={(destPrefix) => onSave({destBucket: space.bucket, destPrefix, filename: normalizeCsvName(name)})}
+        onConfirm={(destPrefix) =>
+          onSave({destBucket: space.bucket, destPrefix, filename: normalizeResultsName(name, format), format})
+        }
         onCancel={onCancel}
       />
     </Modal>

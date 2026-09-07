@@ -1,8 +1,12 @@
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 import {screen} from '@testing-library/react';
-import {renderWithProviders} from '../../test/renderWithProviders';
+import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
+import type {QueryClient} from '@tanstack/react-query';
+import {createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
+import {FEATURE_FLAG_DEFAULTS, featureFlagKeys} from '../feature-flags';
+import {configValue} from '../../lib/runtimeConfig';
+import type {FeatureFlags} from '../feature-flags';
 import {SaveResultsDialog} from './SaveResultsDialog';
-import {normalizeCsvName} from './catalog.format';
 import * as fileService from '../file-browser/fileBrowser.service';
 import type {FileListPage, S3FolderItem} from '../../types/s3.types';
 
@@ -36,7 +40,15 @@ const sharedSpace = {
   rootLabel: 'salesdata'
 };
 
-function renderDialog(props?: Partial<React.ComponentProps<typeof SaveResultsDialog>>) {
+/** A client answering the flags query with the compiled-in defaults plus `overrides`. */
+function clientWithFlags(overrides: Partial<FeatureFlags>): QueryClient {
+  const client = createTestQueryClient();
+  client.setQueryDefaults(featureFlagKeys.all, {gcTime: Infinity, staleTime: Infinity});
+  client.setQueryData(featureFlagKeys.resolved(configValue('environment')), {...FEATURE_FLAG_DEFAULTS, ...overrides});
+  return client;
+}
+
+function renderDialog(props?: Partial<React.ComponentProps<typeof SaveResultsDialog>>, flags?: Partial<FeatureFlags>) {
   const onSave = vi.fn();
   const onCancel = vi.fn();
   const result = renderWithProviders(
@@ -46,7 +58,8 @@ function renderDialog(props?: Partial<React.ComponentProps<typeof SaveResultsDia
       onSave={onSave}
       onCancel={onCancel}
       {...props}
-    />
+    />,
+    flags ? {queryClient: clientWithFlags(flags), seedFeatureFlags: false} : undefined
   );
   return {...result, onSave, onCancel};
 }
@@ -60,15 +73,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('normalizeCsvName (SPEC-049)', () => {
-  it('appends .csv when missing and does not double it', () => {
-    expect(normalizeCsvName('report')).toBe('report.csv');
-    expect(normalizeCsvName('report.csv')).toBe('report.csv');
-    expect(normalizeCsvName('report.CSV')).toBe('report.CSV');
-    expect(normalizeCsvName('  spaced  ')).toBe('spaced.csv');
-  });
-});
-
 describe('SaveResultsDialog (SPEC-049 FR-002)', () => {
   it('saves the .csv-normalized name into the chosen root folder', async () => {
     const {user, onSave} = renderDialog();
@@ -76,7 +80,8 @@ describe('SaveResultsDialog (SPEC-049 FR-002)', () => {
     expect(onSave).toHaveBeenCalledWith({
       destBucket: 'user-bucket',
       destPrefix: 'alice/',
-      filename: 'query-results-20260622-1430.csv'
+      filename: 'query-results-20260622-1430.csv',
+      format: 'csv'
     });
   });
 
@@ -87,7 +92,8 @@ describe('SaveResultsDialog (SPEC-049 FR-002)', () => {
     expect(onSave).toHaveBeenCalledWith({
       destBucket: 'user-bucket',
       destPrefix: 'alice/reports/',
-      filename: 'query-results-20260622-1430.csv'
+      filename: 'query-results-20260622-1430.csv',
+      format: 'csv'
     });
   });
 
@@ -104,7 +110,8 @@ describe('SaveResultsDialog (SPEC-049 FR-002)', () => {
     expect(onSave).toHaveBeenCalledWith({
       destBucket: 'shared-bucket',
       destPrefix: 'salesdata/',
-      filename: 'query-results-20260622-1430.csv'
+      filename: 'query-results-20260622-1430.csv',
+      format: 'csv'
     });
   });
 
@@ -115,6 +122,56 @@ describe('SaveResultsDialog (SPEC-049 FR-002)', () => {
     await user.type(name, 'bad/name');
     expect(screen.getByRole('button', {name: 'Save here'})).toBeDisabled();
     expect(screen.getByText(/cannot contain/i)).toBeInTheDocument();
+  });
+
+  it('re-extensions the name for the chosen format and announces the wait on the button', async () => {
+    const {user, onSave} = renderDialog();
+    // "Save here" for the copy, "Convert and save" for a conversion — the user is told a wait
+    // is coming before they click rather than after.
+    expect(screen.getByRole('button', {name: 'Save here'})).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Format'), 'parquet');
+
+    const convert = await screen.findByRole('button', {name: 'Convert and save'});
+    expect(screen.queryByRole('button', {name: 'Save here'})).not.toBeInTheDocument();
+    await user.click(convert);
+    expect(onSave).toHaveBeenCalledWith({
+      destBucket: 'user-bucket',
+      destPrefix: 'alice/',
+      filename: 'query-results-20260622-1430.parquet',
+      format: 'parquet'
+    });
+  });
+
+  it('drops the format field entirely with resultsConversion off, and still saves a CSV', async () => {
+    // ABSENT, not disabled — with the flag off this is the dialog it was before the format
+    // choice existed, down to the button's label.
+    const {user, onSave} = renderDialog(undefined, {resultsConversion: false});
+    expect(screen.queryByLabelText('Format')).not.toBeInTheDocument();
+
+    await user.click(await screen.findByRole('button', {name: 'Save here'}));
+    expect(onSave).toHaveBeenCalledWith({
+      destBucket: 'user-bucket',
+      destPrefix: 'alice/',
+      filename: 'query-results-20260622-1430.csv',
+      format: 'csv'
+    });
+  });
+
+  it('has no axe violations with the format select present, and keeps Enter on the name field', async () => {
+    // The DRIVEN container, not a re-render: `expectNoA11yViolations` renders the element it is
+    // given, which for a dialog means axe never sees the state the user is actually in.
+    const {user, container, onSave} = renderDialog();
+    await screen.findByRole('button', {name: 'Save here'});
+    await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
+
+    // The select is keyboard-reachable and does not steal submission: Enter still submits from
+    // the file-name field ONLY, which is the dialog rule this control could quietly break.
+    const format = screen.getByLabelText('Format');
+    format.focus();
+    expect(format).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(onSave).not.toHaveBeenCalled();
   });
 
   it('excludes the protected athenaresults folder from the picker', async () => {

@@ -332,9 +332,14 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Results don’t have to stay in the Query tab. Save a query’s output as a file — in your own space or a shared one — and it becomes just another file you can download, share, or even build a new table from. If a multi-statement script failed or you stopped it part-way, the earlier statement’s full result can still be saved, so you don’t have to re-run to get it.',
         steps: [
           'Click <b>Save results to my files</b> in the status bar, beside the run’s status.',
-          'Choose a destination space and a file name.',
-          'The whole result set is copied — every row, not just the page on screen — and a message confirms where it landed.'
-        ]
+          'Choose a destination space, a file name, and a <b>Format</b>: <b>CSV</b>, <b>Parquet</b>, <b>JSON</b> or <b>Excel</b>. The file extension is added for you.',
+          '<b>CSV</b> is saved straight away and a message confirms where it landed. The other three have to be converted first, so the button reads <b>Convert and save</b> and you get a <b>notification</b> when the file is ready — you can close the tab and carry on working.',
+          'The whole result set is saved either way — every row, not just the page on screen.'
+        ],
+        callout: {
+          kind: 'tip',
+          text: 'Which to choose: <b>CSV</b> and <b>Excel</b> open in a spreadsheet; <b>Parquet</b> is the one to build a table from, and the only one with no size limit worth worrying about; <b>JSON</b> is written one object per line, which is what most tools expect. <b>Excel</b> holds about a million rows and no more — over that you are asked to save as Parquet instead — and it stores numbers approximately, so very large whole numbers and long decimals may be rounded.'
+        }
       },
       {
         id: 'query-on-a-phone',
@@ -505,11 +510,12 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Copy or save what you found',
         subtitle: 'Take a selection to the clipboard, or the whole result to a file.',
         intro:
-          'Two ways out, for two different jobs. <b>Copy</b> takes the cells you have selected on the page. <b>Save results to my files</b> saves every row the query returned as a CSV file in your files — neither one runs another query.',
+          'Two ways out, for two different jobs. <b>Copy</b> takes the cells you have selected on the page. <b>Save results to my files</b> saves every row the query returned as a file in your files — as <b>CSV</b>, <b>Parquet</b>, <b>JSON</b> or <b>Excel</b> — and neither one runs another query.',
         steps: [
           'Select some cells and press <b>Ctrl+C</b> (<b>⌘C</b> on a Mac) to copy them as plain columns you can paste straight into a spreadsheet.',
           'Pick <b>Copy…</b> from <b>Options</b> instead to choose a format — <b>CSV</b>, <b>JSON</b>, a <b>Markdown table</b>, a <b>SQL INSERT</b> or <b>XML</b> — and whether to include column names, row numbers or quotes.',
-          'Click <b>Save results to my files</b> beside the pager (it is in <b>Options</b> too) to save the full result. Give the file a name, choose the space and folder, and click <b>Save here</b>.',
+          'Click <b>Save results to my files</b> beside the pager (it is in <b>Options</b> too) to save the full result. Give the file a name, choose the space and folder, and pick a <b>Format</b>.',
+          '<b>CSV</b> is saved straight away — the button reads <b>Save here</b>. <b>Parquet</b>, <b>JSON</b> and <b>Excel</b> are converted first: the button reads <b>Convert and save</b>, and a <b>notification</b> tells you when the file is ready. JSON is written one object per line; Excel holds about a million rows and stores numbers approximately, so long decimals may be rounded.',
           'If a file of that name is already there you are asked before anything is replaced.'
         ],
         callout: {

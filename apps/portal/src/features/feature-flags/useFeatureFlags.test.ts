@@ -17,7 +17,8 @@ const allOn = {
   sharedWorkspaces: true,
   dataQuality: true,
   dataExplorer: true,
-  asyncFileOperations: true
+  asyncFileOperations: true,
+  resultsConversion: true
 };
 
 const resolved = (flags: Partial<typeof allOn> = {}) => ({success: true as const, data: {...allOn, ...flags}});

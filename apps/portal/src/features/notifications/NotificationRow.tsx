@@ -3,7 +3,9 @@ import {formatRelativeTime} from '../../lib/format';
 import {cx} from '../../lib/cx';
 import {useIsMobile} from '../../lib/useBreakpoint';
 import {useFeature} from '../feature-flags';
-import {isSafeInAppPath, reviewHref} from './notificationLink';
+import {useQueryClient} from '@tanstack/react-query';
+import {invalidateListing} from '../file-browser';
+import {filesLinkListing, isSafeInAppPath, reviewHref} from './notificationLink';
 import type {Notification} from './notifications.types';
 
 type NotificationRowProps = {
@@ -72,6 +74,25 @@ export function NotificationRow({notification, onMarkRead}: NotificationRowProps
   // one button exists (a CSS swap would duplicate it in the DOM).
   const isMobile = useIsMobile();
 
+  // FOLLOWING a `/files` link refreshes the folder it lands on, so a file a control plane has
+  // just written is present on arrival rather than a refetch later.
+  //
+  // A MECHANISM over the link, not a clause for one producer: results conversion, file send and
+  // archive all deep-link into a folder they have just written to, and a per-producer version
+  // would silently do nothing for the next one — which is the failure the flag map above was
+  // widened to fix.
+  //
+  // The notification's ARRIVAL still invalidates nothing. Notification-driven listing
+  // reconciliation is the mechanism the file-ops provider records as deliberately not used: the
+  // poll is a minute wide and pauses on a hidden tab, so it would be a refresh that arrives late
+  // for the user who is looking at the folder and never for the one who is not — and that user
+  // is already covered by the listing's own refetch on focus.
+  const queryClient = useQueryClient();
+  const listing = to ? filesLinkListing(to) : undefined;
+  const refreshDestination = listing
+    ? () => void invalidateListing(queryClient, listing.bucket, listing.prefix)
+    : undefined;
+
   return (
     <li
       className={cx(
@@ -98,6 +119,7 @@ export function NotificationRow({notification, onMarkRead}: NotificationRowProps
           {to ? (
             <Link
               to={to}
+              onClick={refreshDestination}
               className="underline underline-offset-2 hover:text-accent-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
               {message}
             </Link>
