@@ -165,13 +165,20 @@ describe('SaveResultsDialog (SPEC-049 FR-002)', () => {
     await screen.findByRole('button', {name: 'Save here'});
     await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
 
-    // The select is keyboard-reachable and does not steal submission: Enter still submits from
-    // the file-name field ONLY, which is the dialog rule this control could quietly break.
+    // The select is keyboard-reachable, and it introduces no Enter-to-submit path — this dialog
+    // has never had one, and the button is the only way to save.
     const format = screen.getByLabelText('Format');
     format.focus();
     expect(format).toHaveFocus();
     await user.keyboard('{Enter}');
+    await user.type(screen.getByLabelText('File name'), '{Enter}');
     expect(onSave).not.toHaveBeenCalled();
+
+    // POSITIVE CONTROL. Without it the two absences above pass on a dialog that cannot save at
+    // all — which is exactly how this assertion read before: Enter submits from NOWHERE here,
+    // so a keystroke on any element proved nothing about the select.
+    await user.click(screen.getByRole('button', {name: 'Save here'}));
+    expect(onSave).toHaveBeenCalledTimes(1);
   });
 
   it('excludes the protected athenaresults folder from the picker', async () => {

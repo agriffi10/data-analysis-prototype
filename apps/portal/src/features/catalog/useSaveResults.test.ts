@@ -2,7 +2,7 @@ import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, waitFor} from '@testing-library/react';
 import {renderHookWithProviders} from '../../test/renderWithProviders';
 import {useSaveResults} from './useSaveResults';
-import {objectExists} from '../file-browser/fileBrowser.service';
+import {copyObject, objectExists} from '../file-browser/fileBrowser.service';
 import {enqueueResultsConversion} from './resultsConversion.service';
 import type {QuerySpace} from './catalog.types';
 
@@ -76,7 +76,8 @@ describe('useSaveResults, the conversion path (SPEC-223 FR-002, FR-003)', () => 
     // A shared destination is used deliberately: read and write coincide for a personal one,
     // so a personal-only fixture cannot tell a root-relative prefix from an absolute one.
     vi.mocked(objectExists).mockResolvedValue({success: true, data: false});
-    const {result} = renderSave();
+    const {result, queryClient} = renderSave();
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
 
     act(() => result.current.save(saveParquet));
 
@@ -91,6 +92,36 @@ describe('useSaveResults, the conversion path (SPEC-223 FR-002, FR-003)', () => 
     expect(pushed).toEqual([
       {variant: 'success', message: 'Converting to Parquet — you’ll get a notification when q1.parquet is ready.'}
     ]);
+    // Nothing has been written yet, so nothing is invalidated — the plane has only been asked.
+    // The CSV path's own invalidation is the positive control that this spy would see one.
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it('mints a fresh request id per submit, so the double-submit guard is not a collision', async () => {
+    // Hoisting the id to a module constant turns the guard into its opposite and every other
+    // assertion in this file still passes, because they all read the body with `toMatchObject`.
+    vi.mocked(objectExists).mockResolvedValue({success: true, data: false});
+    const {result} = renderSave();
+
+    act(() => result.current.save(saveParquet));
+    await waitFor(() => expect(enqueueResultsConversion).toHaveBeenCalledTimes(1));
+    act(() => result.current.save(saveParquet));
+    await waitFor(() => expect(enqueueResultsConversion).toHaveBeenCalledTimes(2));
+
+    const [first, second] = vi.mocked(enqueueResultsConversion).mock.calls.map(([req]) => req.requestId);
+    expect(first).toEqual(expect.any(String));
+    expect(first).not.toBe(second);
+  });
+
+  it('DOES invalidate on the CSV path, which is what makes the assertion above mean something', async () => {
+    vi.mocked(copyObject).mockResolvedValue({success: true, data: {destKey: 'salesdata/reports/q1.csv'}});
+    const {result, queryClient} = renderSave();
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+
+    act(() => result.current.save({...saveParquet, filename: 'q1.csv', format: 'csv'}));
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalled());
+    expect(objectExists).not.toHaveBeenCalled();
   });
 
   it('asks before overwriting an occupied name, then re-submits with onConflict overwrite', async () => {

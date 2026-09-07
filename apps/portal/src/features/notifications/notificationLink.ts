@@ -73,6 +73,6 @@ export function filesLinkListing(link: string): {bucket: string; prefix: string}
   const prefix = params.get('prefix');
   if (!prefix) return undefined;
   const {user, shared} = spaceBuckets();
-  const bucket = params.get('space') ? shared : user;
+  const bucket = params.has('space') ? shared : user;
   return bucket ? {bucket, prefix} : undefined;
 }

@@ -116,7 +116,12 @@ One hook, two paths.
       and keeps the dialog open; raw route text is never rendered, asserted by rendering a refusal
       whose body carries a sentinel string and finding it absent from the document.
 - [ ] `apiRequest` retries nothing for this route; `idempotent` is `false` in the generated contract,
-      asserted by reading the generated route table.
+      asserted through `apiRetryPolicy`.
+
+      **Amended mid-build.** The criterion said "by reading the generated route table". Reading a
+      generated file back to itself passes on a route whose policy nothing consults, so the
+      assertion goes through the function that actually decides the retry — which reads that table
+      and is what `apiRequest` calls.
 
 ### FR-004: The notification, the link and the listing
 
@@ -134,8 +139,10 @@ What arrives when the plane finishes.
       **Amended mid-build.** This criterion said the link renders *as "Open folder"*, which
       contradicts the rule `NotificationRow` states and justifies for every producer — the message
       IS the link, never a trailing control, so the row is one target whose accessible name says
-      where it goes. Honouring both would have put two anchors on one href, which is the duplicate
-      the component records having shipped twice. Andrew took the call: keep the message anchor and
+      where it goes. Honouring both would have put two anchors on **one href** — a duplicate
+      target, which is a different and narrower objection than the `nested-interactive` failure the
+      component records shipping twice, and the reason the sibling `Review conflicts` control is
+      fine where this would not have been: that one has a destination of its own. Andrew took the call: keep the message anchor and
       drop the label. The invalidation is therefore a **mechanism over any `/files` link** rather
       than a clause for this producer — file send and archive deep-link into folders they have just
       written to as well, and a per-producer version would silently do nothing for the next plane.
@@ -162,16 +169,25 @@ The surface is documented only once it is wired end to end.
       you found* say the four formats, that CSV is immediate and the others arrive as a
       notification, that JSON is one object per line, and Excel's row limit and precision note.
 - [ ] The dialog passes the axe assertion with the select present; the select is reachable by
-      keyboard and Enter still submits from the file-name field only.
+      keyboard and introduces **no** Enter-to-submit path.
+
+      **Amended mid-build: "Enter still submits from the file-name field only" is false of this
+      dialog.** It has no `<form>`, no `onSubmit` and no `onKeyDown` anywhere in its tree, and the
+      `Button` primitive defaults to `type="button"` — so Enter submits from **nowhere** here, and
+      the original clause could not fail whatever the select did. Asserted as written it was a
+      vacuous test. What this change owes is that the select does not *introduce* one, asserted
+      with a positive control (the button does save) so the absence is not passing on a dialog
+      that cannot save at all.
 - [ ] At 375 px the dialog's fields stack — the format `<select>` is full-width like the name and
       space fields above it — and the primary button is unchanged by this spec; verified in the
       responsive band 375–899 as well as at 900.
 
       **Amended mid-build: the 38 px was a false premise.** The dialog's primary button is
       `DestinationPicker`'s, which is the `Button` primitive at its default `h-9` — **31.5 px** at
-      this app's 14 px root, at every width, and the same in all six DestinationPicker dialogs. The
+      this app's 14 px root, at every width, and the same in all four DestinationPicker dialogs
+      (Save results, Start quality check, Copy, Move), because the picker owns the button. The
       38 px figure is this repo's *mobile touch* pattern (`h-[38px] tablet:h-9`), which that button
-      has never used. Resizing it would change six dialogs no part of this spec is about, so the
+      has never used. Resizing it would change four dialogs no part of this spec is about, so the
       criterion asserts what this change owes instead: the select does not disturb the button, and
       the fields stack. 31.5 px clears SC 2.5.8's 24 px minimum comfortably, so nothing is being
       waived. The measurement itself is a live check — jsdom measures no geometry at all.

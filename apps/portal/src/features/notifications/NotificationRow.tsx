@@ -80,7 +80,9 @@ export function NotificationRow({notification, onMarkRead}: NotificationRowProps
   // A MECHANISM over the link, not a clause for one producer: results conversion, file send and
   // archive all deep-link into a folder they have just written to, and a per-producer version
   // would silently do nothing for the next one — which is the failure the flag map above was
-  // widened to fix.
+  // widened to fix. BOTH anchors carry it, for the same reason: `reviewHref` is this same path
+  // with a request id attached, so it lands on the same listing and a user who arrived that way
+  // would be the one person the refresh missed.
   //
   // The notification's ARRIVAL still invalidates nothing. Notification-driven listing
   // reconciliation is the mechanism the file-ops provider records as deliberately not used: the
@@ -133,6 +135,7 @@ export function NotificationRow({notification, onMarkRead}: NotificationRowProps
           <p className="mt-2">
             <Link
               to={review}
+              onClick={refreshDestination}
               className="text-xs font-medium underline underline-offset-2 hover:text-accent-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
               Review conflicts
             </Link>
