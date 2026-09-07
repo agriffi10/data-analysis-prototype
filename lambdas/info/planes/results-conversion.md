@@ -28,7 +28,11 @@ request off the EVENT and holds no `states:DescribeExecution`.
 ## The request envelope
 
 `{requestId, queryExecutionId, format, destination: {space, prefix, filename}, onConflict,
-submittedAt, identity}`. Unknown top-level fields are rejected. `MessageGroupId` is the actor's
+submittedAt, identity}`. Unknown top-level fields are rejected. **`destination.prefix` is RELATIVE
+to the space root** — `paths.destination_key` builds `{root}{prefix}{filename}` — and a caller
+sending an absolute in-space prefix instead writes `alice/alice/…` that nothing here refuses, since
+`assert_inside_root` only proves containment and a doubled root is contained. Empty or
+slash-terminated, both accepted. `MessageGroupId` is the actor's
 username; `MessageDeduplicationId` is the `requestId`.
 
 ## Traps

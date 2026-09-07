@@ -46,6 +46,7 @@ entry you need, not the file.**
 - [The operator door widens to member management, and that is a threat-model decision (SPEC-217)](#the-operator-door-widens-to-member-management-and-that-is-a-threat-model-decision-spec-217)
 - [A conversion reads the RESULT, never the source, and ownership is a question about a path (SPEC-221)](#a-conversion-reads-the-result-never-the-source-and-ownership-is-a-question-about-a-path-spec-221)
 - [The converter's shape is decided by what cannot stream and what cannot be retried (SPEC-222)](#the-converters-shape-is-decided-by-what-cannot-stream-and-what-cannot-be-retried-spec-222)
+- [The destination prefix is relative, and the doubling it invites is refused by nothing (SPEC-223)](#the-destination-prefix-is-relative-and-the-doubling-it-invites-is-refused-by-nothing-spec-223)
 - [A closed vocabulary is type-checked before it is looked up (PR #662, control-plane-wide)](#a-closed-vocabulary-is-type-checked-before-it-is-looked-up-pr-662-control-plane-wide)
 
 ## Fences
@@ -1386,6 +1387,27 @@ the same string for a personal destination and different for a shared one, so a 
 fixtures are all personal agrees with a converter that has them the wrong way round — which is
 what shipped, and what two review frames caught independently. The fake in that verb's tests now
 answers the way the IAM grant does, refusing a read aimed anywhere but the user-space bucket.
+
+## The destination prefix is relative, and the doubling it invites is refused by nothing (SPEC-223)
+
+`ConversionDestination.prefix` is **relative to the space root** — `rccommon.paths.destination_key`
+builds `{root}{prefix}{filename}` — while the browser's `DestinationPicker` deals in full in-space
+prefixes rooted at `alice/`. Handing one straight to the plane writes `alice/alice/reports/q1.parquet`,
+and **no gate catches it**: `cpcommon.paths.assert_inside_root` proves the key sits inside the root,
+which a doubled root does, and the write then succeeds into a folder the user never chose.
+
+The browser slices the root off, and **derives** it from the very string being sliced rather than
+looking it up in its list of spaces. That is the part worth keeping: the first revision did look it
+up, with `?? ''` when the destination was not found, and `startsWith('')` is universally true — so
+the fallback re-created the exact bug the slice existed to prevent, through the one branch no test
+covered. Derived, `spaceFor(...).name` *is* the prefix's first segment, so the slice is total and
+there is no branch to get wrong. A guard around it was tried and deleted: a review planted its
+removal and the whole suite stayed green, because no reachable input can fail it.
+
+**A fixture set that is all personal cannot see any of this.** The read space and the write space
+coincide for a personal destination, and so do the absolute and relative prefixes' first segments —
+the conversion tests use a shared-space destination for that reason, and the live check in
+`e2e.md` §4.3 is the one row worth running even if no other is.
 
 ## A closed vocabulary is type-checked before it is looked up (PR #662, control-plane-wide)
 

@@ -101,22 +101,24 @@ recipe anywhere** — write one when you run it.
 
 ### SPEC-223's live checks — WRITTEN, UNRUN, and the reason is this session's not the feature's
 
-Every one of these is reachable from a single signed-in session with no second account, no CLI and
-no hand-crafted request — the surface shipped, which is what SPEC-223 was for. They are owed because
-**the session that built it had no browser connected to drive them**, so nothing was observed. That
+All but one are reachable from a single signed-in session with no second account, no CLI and no
+hand-crafted request — the surface shipped, which is what SPEC-223 was for. They are owed because
+**the session that built it had no browser connected to drive them**, so nothing was observed. The
+exception is the row-limit refusal, which needs a fixture larger than anything §2 builds; it is
+marked below rather than left to be discovered by whoever picks this up. That
 is a different kind of owing from every other row on this page, and it is recorded as such rather
-than blurred into them: the steps are in [`e2e.md`](e2e.md) §4.3, §4.5 and §4.14, ready to run.
+than blurred into them: the steps are in [`e2e.md`](e2e.md) §4.3, §4.5, §4.14 and §4.15, ready to run.
 
 | Check | Where | What would settle it |
 |---|---|---|
-| **Each of the four formats saved from the Query workspace**, and each read back — Parquet and JSON through **Create table** to `count(*) = 5000`, the `.xlsx` opened | §4.3 | One signed-in sitting. The conversion is asynchronous, so allow a minute per format for the notification. |
+| **Each of the four formats saved from the Query workspace**, and each read back — Parquet and JSON through **Create table** to `count(*) = 150` against the `explorer150` fixture, the `.xlsx` opened | §4.3 | One signed-in sitting. The conversion is asynchronous, so allow a minute per format for the notification. |
 | **The same four from the Data Explorer**, and the two surfaces agreeing on every label | §4.5 steps 11–13 | The same sitting. The dialog is one component, so a disagreement between the two is the regression the pair exists to catch. |
 | **The overwrite confirm on a conversion**, and the pre-flight asking *before* the request leaves | §4.3 | The same sitting. Distinct from SPEC-222's `destination_occupied` row above, which is the plane's half; this is the browser asking first. |
 | **A shared-space destination writes an undoubled key** | §4.3 | The same sitting, plus a shared space. **The highest-value check here** — the root-relative prefix is the one defect on this branch that a personal-space fixture cannot see, and a doubled root is refused by nothing. |
 | **The notification's link refreshes the folder it lands on** — the file is present on arrival | §4.3 | The same sitting. Asserted offline against a spy; what is unobserved is that a real listing is stale without it. |
 | **`resultsConversion` off hides the select on both surfaces** | §4.14 | A config publish and a hard reload, per §4.14's method. |
-| **The `excel_row_limit` refusal, staged above the limit** | §4.3 | A result over 1,048,576 rows. The wording is pinned in both languages by `test_the_row_limit_refusal_is_the_sentence_the_browser_renders`; what is unobserved is a user receiving it. |
-| **The dialog at 375 px, and across the 375–899 band** | §4.15 | The fields stack and the format select is full width. jsdom measures no geometry at all, so this is the only place the layout is checked. |
+| **The `excel_row_limit` refusal, staged above the limit** — the one row here that needs more than a sitting | §4.3 | A result over 1,048,576 rows, which **no §2 fixture reaches** — the largest is 150. Building one is the cost: a generated CSV in its own folder, a table over it, then `SELECT *`. The wording is pinned in both languages by `test_the_row_limit_refusal_is_the_sentence_the_browser_renders`; what is unobserved is a user receiving it. |
+| **The dialog at 375 px, and across the 375–899 band** | §4.15 | Four widths — 375, 768, 899, 900. The fields stack and the format select is full width at each. jsdom measures no geometry at all, so this is the only place the layout is checked. |
 
 ### Needs a second account for the REFUSAL half
 

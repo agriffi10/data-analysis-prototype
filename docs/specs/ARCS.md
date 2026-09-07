@@ -126,6 +126,8 @@ files** — a destination+filename prompt that server-side-copies Athena's compl
 the user's space (all rows, not just the loaded page). 047 is a dependency of 048; the rest are
 independent. No IAM/infra change (all reuse existing user-scoped S3 + analytics access).
 
+> **Superseded in part by SPEC-223 (2026-09-07):** Save-results is no longer CSV-only. It carries a **Format** — CSV stays this server-side copy, while Parquet, JSON and Excel are built by the results-conversion plane and arrive as a notification. Full entry: `docs/decisions/browser.md` → *A flag can be neither an area nor a kill switch*, and the results-conversion arc below.
+
 > **047's active-database model was removed by SPEC-077** (round 5, below): no workspace/current database anywhere —
 > every base table is fully-qualified `database.table` and the schema rail is browse-only. Read the switcher and DB-chip
 > text above as history; full entry in `docs/decisions/`.
@@ -2912,7 +2914,7 @@ planes inherit it. And the flag turned out to be a **third kind** — neither an
 but presentation over one control — which the taxonomy in `decisions/browser.md` did not have a slot
 for.
 
-**What the arc still owes is a sitting, not a mechanism.** Every live check is now reachable by
-clicking, which is what 223 was for; none has been run, because the closing session had no browser
-connected. `docs/testing/owed.md` records that as its own section rather than blurring it into the
-rows that need a second account or a CLI.
+**What the arc owes changed KIND at 223.** Its checks used to need a hand-crafted authenticated
+request, because there was no surface; now they need a sitting. `docs/testing/owed.md` is the single
+home for which of them are outstanding — this paragraph deliberately names no status, since a
+narrative that duplicates the ledger is the copy nobody updates.
