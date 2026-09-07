@@ -53,7 +53,8 @@ const ALL_ON: FeatureFlags = {
   sharedWorkspaces: true,
   dataQuality: true,
   dataExplorer: true,
-  asyncFileOperations: true
+  asyncFileOperations: true,
+  resultsConversion: true
 };
 
 function lastSql(): string {

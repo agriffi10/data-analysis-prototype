@@ -371,6 +371,20 @@ NAMES_THE_FILE = (
 GOLDEN_LINK_PREFIX = "finance/a b&c?d#e/"
 GOLDEN_LINK = "/files?space=finance&prefix=finance/a%20b%26c%3Fd%23e/"
 
+#: The row-limit refusal, written out in full and duplicated in the browser suite.
+#:
+#: The browser half is `apps/portal/src/features/notifications/resultsConversionNotification.test.tsx`.
+#: The spec requires this one sentence checked END TO END — that the wording registered on the
+#: plane is the wording a user reads — and this table is a Python literal no vitest run can
+#: import. So it is written on both sides on the `GOLDEN_LINK` precedent above: deliberately
+#: duplicated rather than shared through a fixture file, since a file both halves read would go
+#: stale together. Change one and the other fails.
+GOLDEN_ROW_LIMIT = (
+    "Couldn't save the query results as Excel: the results have 1,400,000 rows, which is more "
+    'than a spreadsheet can hold, so "q1.xlsx" was not written. Please save them as Parquet '
+    "instead, or narrow the query."
+)
+
 
 #: Step Functions' ceiling on a task state's input or output, in bytes.
 STATE_LIMIT_BYTES = 256 * 1024
@@ -431,6 +445,68 @@ def test_the_link_encodes_every_component_and_puts_the_space_first():
     assert links.destination_link("shared", "../etc", "x/q1.parquet") is None
     assert links.destination_link("personal", "alice", "bob/secret/q1.parquet") == "/files?prefix=alice/", (
         "a key outside the space root falls back to the root rather than linking into another"
+    )
+
+
+#: The browser file holding the other half of the row-limit golden.
+BROWSER_GOLDEN_FILE = (
+    pathlib.Path(__file__).resolve().parents[2]
+    / "apps"
+    / "portal"
+    / "src"
+    / "features"
+    / "notifications"
+    / "resultsConversionNotification.test.tsx"
+)
+
+
+def _browser_golden() -> str:
+    """The VALUE of the browser half's GOLDEN_ROW_LIMIT, read out of its source.
+
+    The value, not the file. Searching the whole file for the sentence passes when the sentence
+    sits in a comment above a constant that says something else — a review planted exactly that
+    and both suites stayed green, which is the drift this gate exists to catch wearing the shape
+    of a passing gate. So the declaration is bounded and only its template literal is read.
+
+    Returns:
+      The sentence the browser file actually assigns.
+
+    Raises:
+      AssertionError: If the declaration is missing or is not a single template literal. Both are
+        failures of this gate's own reading rather than of the sentence, and the messages say so.
+    """
+    source = BROWSER_GOLDEN_FILE.read_text(encoding="utf-8")
+    marker = "const GOLDEN_ROW_LIMIT ="
+    assert marker in source, f"{BROWSER_GOLDEN_FILE.name} no longer declares GOLDEN_ROW_LIMIT"
+    declaration = source.split(marker, 1)[1].split(";", 1)[0]
+    quoted = declaration.split("`")
+    assert len(quoted) == 3, (
+        "GOLDEN_ROW_LIMIT must be exactly ONE template literal, so this gate reads a value rather "
+        "than re-implementing TypeScript string concatenation"
+    )
+    return quoted[1]
+
+
+def test_the_row_limit_refusal_is_the_sentence_the_browser_renders():
+    """The cross-language gate the two-language golden actually needs.
+
+    The Python half alone only proves the producer agrees with itself, and the browser half
+    alone proves that `NotificationRow` renders whatever `message` it is handed — it feeds the
+    literal in and reads it back, which holds for any string. Neither can see the other drift.
+
+    This closes it from the side that can: the sentence is produced for real here, and compared
+    against the literal read out of the browser's own source. Change the wording, the Python
+    golden, or the browser copy, and this fails.
+    """
+    produced = messages.failure_message(
+        reasons.EXCEL_ROW_LIMIT,
+        {"format": "xlsx", "filename": "q1.xlsx", "count": "1,400,000"},
+    )
+    assert produced == GOLDEN_ROW_LIMIT
+    assert produced == _browser_golden(), (
+        "the browser's copy of the row-limit sentence disagrees with the plane's wording — if the "
+        "sentences read the same, check the browser copy is still ONE template literal, which is "
+        "the layout this gate reads rather than a second string parser"
     )
 
 

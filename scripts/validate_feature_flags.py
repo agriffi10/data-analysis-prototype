@@ -20,7 +20,8 @@ Attributes:
   SUPPORTED_VERSIONS: The document versions this validator (and the browser reader) understand.
   FLAG_KEYS: Every flag. A key outside this set is a typo, never a new flag — adding one is a
     code change here, in the browser's key list, and in the document. Five are primary features;
-    `asyncFileOperations` is a kill switch over the file browser's copy/move/delete routing.
+    `asyncFileOperations` is a kill switch over the file browser's copy/move/delete routing, and
+    `resultsConversion` is a presentation flag over the Save-results dialog's format choice.
   DOCUMENT: The one file a flag value may be edited in.
   PUBLISH_WORKFLOW: The workflow whose matrix declares where the document is published.
   TARGET_RE: Matches one ``environment_name:`` entry in that matrix. Deliberately not
@@ -42,7 +43,15 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 SUPPORTED_VERSIONS = frozenset({1})
 FLAG_KEYS = frozenset(
-    {"files", "query", "sharedWorkspaces", "dataQuality", "dataExplorer", "asyncFileOperations"}
+    {
+        "files",
+        "query",
+        "sharedWorkspaces",
+        "dataQuality",
+        "dataExplorer",
+        "asyncFileOperations",
+        "resultsConversion",
+    }
 )
 DOCUMENT = ROOT / "config" / "feature-flags.json"
 PUBLISH_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-config.yml"

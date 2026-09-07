@@ -139,7 +139,8 @@ const ALL_ON: FeatureFlags = {
   sharedWorkspaces: true,
   dataQuality: true,
   dataExplorer: true,
-  asyncFileOperations: true
+  asyncFileOperations: true,
+  resultsConversion: true
 };
 
 /** Point the mocked service at one flag set, as the real reader would resolve it. */
@@ -567,6 +568,45 @@ const RECIPES: Record<string, Recipe> = {
     anchor: async () =>
       within(await screen.findByRole('dialog', {name: 'Save results to my files'})).findByLabelText('File name'),
     find: async () => screen.queryByRole('option', {name: 'teamspace'})
+  },
+  // SPEC-223. The SAME two recipes as the two save-results rows above — the dialog is reached
+  // the same way and the flag under test is the only difference. The `find` is the format select
+  // itself, which is `absent` rather than disabled with the flag off.
+  'Format in the Data Explorer export dialog': {
+    render: async () => {
+      seedExplorationTab();
+      renderWithProviders(<DataExplorerWorkspace />, {auth: authenticated('alice'), seedFeatureFlags: false});
+      const {default: userEvent} = await import('@testing-library/user-event');
+      const user = userEvent.setup({delay: null});
+      await waitFor(async () =>
+        expect(await explorationOption(user, 'Save results to my files')).not.toHaveAttribute('aria-disabled', 'true')
+      );
+      await chooseExplorationOption(user, 'Save results to my files');
+    },
+    anchor: async () =>
+      within(await screen.findByRole('dialog', {name: 'Save results to my files'})).findByLabelText('File name'),
+    find: async () => screen.queryByLabelText('Format')
+  },
+  'Format in the save-results dialog': {
+    render: async () => {
+      sessionStorage.setItem(
+        's3portal.query.tabs.alice',
+        JSON.stringify({
+          version: 1,
+          tabs: [{id: 'a', label: 'Query 1', sql: 'SELECT 1;'}],
+          activeTabId: 'a',
+          nextQueryNumber: 2
+        })
+      );
+      renderQueryWorkspace();
+      const {default: userEvent} = await import('@testing-library/user-event');
+      const user = userEvent.setup({delay: null});
+      await user.click(await screen.findByRole('button', {name: 'Run statement'}));
+      await user.click(await screen.findByRole('button', {name: 'Save results to my files'}));
+    },
+    anchor: async () =>
+      within(await screen.findByRole('dialog', {name: 'Save results to my files'})).findByLabelText('File name'),
+    find: async () => screen.queryByLabelText('Format')
   },
   'Shared spaces in the Data Explorer save dialog': {
     render: async () => {
@@ -1081,7 +1121,10 @@ describe('the registry itself', () => {
       // handed to the plane, and the guide for a round trip that only exists while the routing
       // does. It does not hide Copy/Move/Delete — with the flag off those still work, just
       // synchronously — and a registry row can only assert presence or absence.
-      asyncFileOperations: ['File operations in progress', 'Background file operations guide']
+      asyncFileOperations: ['File operations in progress', 'Background file operations guide'],
+      // SPEC-223: one control, two dialogs. The completion notification's link is deliberately
+      // not here — it is a `/files` link, already covered by that flag's link clause.
+      resultsConversion: ['Format in the save-results dialog', 'Format in the Data Explorer export dialog']
     };
     for (const key of FEATURE_FLAG_KEYS) {
       expect(GATED_SURFACES[key].map((s) => s.name).sort(), key).toEqual([...contract[key]].sort());

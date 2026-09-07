@@ -106,6 +106,7 @@ export function DataExplorerWorkspace() {
     // on a SUCCEEDED execution, so "nothing has finished running" and "there is nothing to
     // export" are the same fact rather than two that could drift apart.
     outputLocation: exploration.outputLocation,
+    executionId: exploration.queryExecutionId,
     // The linked saved query's name when the tab has one — the same default the Query
     // workspace uses, and the closest thing an exploration has to a name the user chose.
     linkedSavedName: tabs.activeTab?.savedQuery?.name,

@@ -261,6 +261,9 @@ export function QueryWorkspace() {
     spaces: savedSpaces,
     username,
     outputLocation: displayOutputLocation,
+    // The execution `displayOutputLocation` was derived from, so a conversion converts the
+    // result that is on screen rather than the batch's last statement.
+    executionId: displayExecutionId,
     linkedSavedName: activeLinkedSaved?.name,
     toast
   });

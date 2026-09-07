@@ -30,6 +30,7 @@ FLAG_KEYS = (
     "dataQuality",
     "dataExplorer",
     "asyncFileOperations",
+    "resultsConversion",
 )
 
 DOCUMENT = ROOT / "config" / "feature-flags.json"

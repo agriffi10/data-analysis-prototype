@@ -17,7 +17,9 @@ export const FEATURE_FLAG_KEYS: readonly FeatureFlagKey[] = [
   'sharedWorkspaces',
   'dataQuality',
   'dataExplorer',
-  'asyncFileOperations'
+  'asyncFileOperations',
+  // Appended LAST, per the order rule above.
+  'resultsConversion'
 ];
 
 /**
@@ -40,5 +42,6 @@ export const FEATURE_FLAG_DEFAULTS: FeatureFlags = {
   sharedWorkspaces: true,
   dataQuality: true,
   dataExplorer: true,
-  asyncFileOperations: true
+  asyncFileOperations: true,
+  resultsConversion: true
 };

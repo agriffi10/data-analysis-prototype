@@ -82,7 +82,8 @@ beforeEach(() => {
       sharedWorkspaces: true,
       dataQuality: true,
       dataExplorer: true,
-      asyncFileOperations: true
+      asyncFileOperations: true,
+      resultsConversion: true
     }
   });
 });

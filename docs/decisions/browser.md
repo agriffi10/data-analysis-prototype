@@ -48,6 +48,7 @@ entry you need, not the file.**
 - [A persistent in-flight surface is NEW scope, with no precedent here (SPEC-190)](#a-persistent-in-flight-surface-is-new-scope-with-no-precedent-here-spec-190)
 - [There is no progress percentage, and there cannot be one (SPEC-190)](#there-is-no-progress-percentage-and-there-cannot-be-one-spec-190)
 - [The kill switch is a flag key, and it is the sixth (SPEC-190)](#the-kill-switch-is-a-flag-key-and-it-is-the-sixth-spec-190)
+- [A flag can be neither an area nor a kill switch (SPEC-223)](#a-flag-can-be-neither-an-area-nor-a-kill-switch-spec-223)
 - [Help is read where the work is, and a gated page's help is gated by derivation (SPEC-207)](#help-is-read-where-the-work-is-and-a-gated-pages-help-is-gated-by-derivation-spec-207)
 - [One split, two clamp domains, and the pair has to agree (SPEC-209)](#one-split-two-clamp-domains-and-the-pair-has-to-agree-spec-209)
 - [The divider needs a click path, because a drag is not an alternative to itself (SPEC-209)](#the-divider-needs-a-click-path-because-a-drag-is-not-an-alternative-to-itself-spec-209)
@@ -979,6 +980,18 @@ beginning a new gesture — and it keeps the `Review conflicts` control already 
 notification rows from becoming a link to nothing. A row's `name` is its accessible name and
 `RECIPES` keys are unique, so one control cannot hold a row under two flags; the choice had to be
 made rather than hedged.
+
+## A flag can be neither an area nor a kill switch (SPEC-223)
+
+`resultsConversion` is the seventh key and the third kind: a **presentation** flag over one
+control — the Save-results dialog's format choice. Off, the dialog offers no format and saves the
+CSV it always did; the enqueue route is live and ungated either way, so it hides three options and
+takes nobody's access away. The taxonomy above is therefore five areas, one kill switch and one
+presentation flag, and the sentence naming the first two is not a complete account of the set.
+
+Its two registry rows are the same control on two routes, and the completion notification's link
+gets **none**: that link is a `/files` one, already covered by the `files` and `sharedWorkspaces`
+link clauses, on the precedent the archive plane's link set.
 
 ## Help is read where the work is, and a gated page's help is gated by derivation (SPEC-207)
 

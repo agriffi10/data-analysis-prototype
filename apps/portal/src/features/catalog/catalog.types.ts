@@ -63,3 +63,13 @@ export type QuerySpace = {
   /** Label for the root row in a folder picker. */
   rootLabel: string;
 };
+
+/**
+ * The file types a result set can be saved as.
+ *
+ * `csv` is the results object Athena already wrote, copied server-side; the other three are
+ * built by the results-conversion plane and arrive as a notification. The three the plane
+ * accepts are a narrower union in the generated contract, which is why the enqueue path
+ * narrows rather than casts — a cast would let `csv` reach a route that has no writer for it.
+ */
+export type ResultsFormat = 'csv' | 'parquet' | 'json' | 'xlsx';

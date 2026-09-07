@@ -1,17 +1,21 @@
 import {useState} from 'react';
 import {useNavigate} from 'react-router';
 import {useQueryClient} from '@tanstack/react-query';
-import {copyObject} from '../file-browser/fileBrowser.service';
+import {copyObject, objectExists} from '../file-browser/fileBrowser.service';
 import {invalidateListing} from '../file-browser';
 import {parseS3Url} from '../../lib/s3Url';
+import {spaceFor} from '../../lib/objectSpace';
 import {toUserText} from '../../lib/errorMessages';
+import {enqueueResultsConversion} from './resultsConversion.service';
+import {RESULTS_FORMATS} from './catalog.format';
 import type {ToastApi} from '../../components/toastContext';
-import type {QuerySpace} from './catalog.types';
+import type {QuerySpace, ResultsFormat} from './catalog.types';
 
 /**
  * A pending overwrite confirm when the chosen destination key already exists.
  * carries source + dest buckets so the retry repeats the same
- * (possibly cross-bucket) copy.
+ * (possibly cross-bucket) copy, and the format so it re-submits down the same
+ * of the two paths.
  */
 export type OverwritePrompt = {
   sourceBucket: string;
@@ -19,7 +23,26 @@ export type OverwritePrompt = {
   destBucket: string;
   destPrefix: string;
   filename: string;
+  format: ResultsFormat;
 };
+
+/**
+ * The prompt to store for a destination that turned out to be taken.
+ *
+ * Written field by field rather than spread, so the caller's `overwrite` flag — which is an
+ * argument to one attempt, not a property of the pending request — cannot ride into the state
+ * that drives the next one.
+ */
+function pendingOverwrite(args: OverwritePrompt & {overwrite: boolean}): OverwritePrompt {
+  return {
+    sourceBucket: args.sourceBucket,
+    sourceKey: args.sourceKey,
+    destBucket: args.destBucket,
+    destPrefix: args.destPrefix,
+    filename: args.filename,
+    format: args.format
+  };
+}
 
 export type UseSaveResultsResult = {
   /** The destinations offered by the picker; the dialog is suppressed when empty. */
@@ -32,8 +55,8 @@ export type UseSaveResultsResult = {
   /** Sanitized default file name for the picker. */
   defaultName: string;
   overwritePrompt: OverwritePrompt | null;
-  /** Save the currently displayed result into the chosen destination. */
-  save: (args: {destBucket: string; destPrefix: string; filename: string}) => void;
+  /** Save the currently displayed result into the chosen destination, in the chosen format. */
+  save: (args: {destBucket: string; destPrefix: string; filename: string; format: ResultsFormat}) => void;
   confirmOverwrite: () => void;
   cancelOverwrite: () => void;
 };
@@ -54,6 +77,16 @@ type Params = {
   username: string;
   /** The S3 URL of the result being displayed, or undefined when there is none. */
   outputLocation: string | undefined;
+  /**
+   * The execution `outputLocation` belongs to, or null when there is none.
+   *
+   * A SEPARATE parameter rather than the id parsed back out of the results URL: the two would
+   * then be one fact with two derivations, and the conversion plane reads the execution rather
+   * than the object — it re-reads the results and its metadata from Athena, so handing it an id
+   * that disagreed with the URL would convert a different result than the one on screen. Both
+   * callers already hold the id the location was derived from.
+   */
+  executionId: string | null;
   /** The active tab's linked saved-query name, used for the default file name. */
   linkedSavedName: string | undefined;
   toast: ToastApi;
@@ -72,6 +105,7 @@ export function useSaveResults({
   spaces,
   username,
   outputLocation,
+  executionId,
   linkedSavedName,
   toast
 }: Params): UseSaveResultsResult {
@@ -117,13 +151,7 @@ export function useSaveResults({
       if (!result.success) {
         if (result.error.code === 'Collision') {
           setOpen(false);
-          setOverwritePrompt({
-            sourceBucket: args.sourceBucket,
-            sourceKey: args.sourceKey,
-            destBucket: args.destBucket,
-            destPrefix: args.destPrefix,
-            filename: args.filename
-          });
+          setOverwritePrompt(pendingOverwrite(args));
           return;
         }
         toast.push({variant: 'danger', message: `Couldn’t save results. ${toUserText(result.error)}`});
@@ -151,7 +179,84 @@ export function useSaveResults({
     })();
   };
 
-  const save = (args: {destBucket: string; destPrefix: string; filename: string}) => {
+  /**
+   * Hand the conversion to the plane, after asking about a name already taken.
+   *
+   * The pre-flight is a COURTESY, not the guard: the plane's write is conditional and stays the
+   * authority, so a name taken between this probe and that write comes back as a
+   * `destination_occupied` notification rather than silently overwriting. What the probe buys is
+   * the question being asked while the user is still looking at the dialog, instead of minutes
+   * later in their inbox.
+   */
+  const doConvert = (args: OverwritePrompt & {overwrite: boolean}) => {
+    if (!executionId || args.format === 'csv') return;
+    // The plane's destination prefix is RELATIVE TO THE SPACE ROOT — it builds the key as
+    // `{root}{prefix}{filename}`, so passing the full in-space prefix the picker deals in would
+    // write `alice/alice/reports/…`. Nothing refuses that: the containment check only proves the
+    // key starts with the root, which a doubled root does.
+    const format = args.format;
+    const space = spaceFor(args.destBucket, args.destPrefix);
+    // The root is derived from the very string being sliced, and that is what makes the slice
+    // TOTAL rather than conditional: `spaceFor` reads the name as `destPrefix.split('/')[0]`, so
+    // `${name}/` is a prefix of `destPrefix` for every value that contains a slash — which every
+    // folder prefix does, since the picker only ever hands out `rootPrefix` or a slash-terminated
+    // descendant of it. Looking the root up in `spaces` instead needed a fallback for a
+    // destination not in the list, and the only fallback available was the absolute prefix, which
+    // is exactly the doubled-root key this slice exists to prevent.
+    //
+    // There is deliberately no guard here. An earlier revision refused a `destPrefix` that did not
+    // start with its own first segment; a review planted its deletion and the whole suite stayed
+    // green, because no reachable input can fail that test. A refusal that cannot fire reads as a
+    // fence to everyone downstream while denying nobody, and it did not even cover the one shape
+    // that could slip past it — a leading slash, which satisfies it and yields a doubled slash.
+    const relativePrefix = args.destPrefix.slice(space.name.length + 1);
+
+    setBusy(true);
+    void (async () => {
+      if (!args.overwrite) {
+        const probe = await objectExists({bucket: args.destBucket, key: `${args.destPrefix}${args.filename}`});
+        // A 403 counts as OCCUPIED. The space may hold a file this actor cannot see, and the
+        // plane's conditional write will refuse it — so the honest question to ask now is the
+        // overwrite one, not a failure the user can do nothing with.
+        const occupied = probe.success ? probe.data : probe.error.code === 'AccessDenied';
+        if (!probe.success && !occupied) {
+          setBusy(false);
+          toast.push({variant: 'danger', message: `Couldn’t save results. ${toUserText(probe.error)}`});
+          return;
+        }
+        if (occupied) {
+          setBusy(false);
+          setOpen(false);
+          setOverwritePrompt(pendingOverwrite(args));
+          return;
+        }
+      }
+
+      const result = await enqueueResultsConversion({
+        requestId: crypto.randomUUID(),
+        queryExecutionId: executionId,
+        format,
+        destination: {space, prefix: relativePrefix, filename: args.filename},
+        onConflict: args.overwrite ? 'overwrite' : 'refuse',
+        submittedAt: new Date().toISOString()
+      });
+      setBusy(false);
+      if (!result.success) {
+        toast.push({variant: 'danger', message: `Couldn’t save results. ${toUserText(result.error)}`});
+        return;
+      }
+      setOpen(false);
+      setOverwritePrompt(null);
+      // NOTHING is invalidated: the plane has written nothing yet. The notification is the
+      // completion channel, and the toast says so rather than implying the file is there.
+      toast.push({
+        variant: 'success',
+        message: `Converting to ${RESULTS_FORMATS[format].label} — you’ll get a notification when ${args.filename} is ready.`
+      });
+    })();
+  };
+
+  const save = (args: {destBucket: string; destPrefix: string; filename: string; format: ResultsFormat}) => {
     // Save the DISPLAYED result (the active result tab's execution),
     // not necessarily the batch's last statement.
     if (!outputLocation) return;
@@ -160,7 +265,10 @@ export function useSaveResults({
       toast.push({variant: 'danger', message: 'Couldn’t read the query result location.'});
       return;
     }
-    doSaveCopy({...args, sourceBucket: parsed.bucket, sourceKey: parsed.key, overwrite: false});
+    const pending = {...args, sourceBucket: parsed.bucket, sourceKey: parsed.key};
+    // CSV is the copy this dialog has always done, unchanged; the other three go to the plane.
+    if (args.format === 'csv') doSaveCopy({...pending, overwrite: false});
+    else doConvert({...pending, overwrite: false});
   };
 
   return {
@@ -173,7 +281,12 @@ export function useSaveResults({
     overwritePrompt,
     save,
     confirmOverwrite: () => {
-      if (overwritePrompt) doSaveCopy({...overwritePrompt, overwrite: true});
+      // Routed on the format the prompt was raised for, not on the dialog's current state —
+      // the dialog is closed while the prompt is up, so its `format` is not readable from here
+      // and re-deriving it would be a second source for one fact.
+      if (!overwritePrompt) return;
+      if (overwritePrompt.format === 'csv') doSaveCopy({...overwritePrompt, overwrite: true});
+      else doConvert({...overwritePrompt, overwrite: true});
     },
     cancelOverwrite: () => {
       setOverwritePrompt(null);
