@@ -16,7 +16,7 @@ plane and come back as a notification with a link to the folder.
 - **The `resultsConversion` flag**, its two registry rows and the both-states walk.
 - **The notification link now refreshes the folder it lands on**, as a mechanism over any `/files`
   link rather than a clause for this plane.
-- Help on both surfaces, and the live checks in `e2e.md` §4.3, §4.5 and §4.14.
+- Help on both surfaces, and the live checks in `e2e.md` §4.3, §4.5, §4.14 and §4.15.
 
 ### Deliberate deviations
 
@@ -32,7 +32,7 @@ plane and come back as a notification with a link to the folder.
   file-send and archive notifications get it too, and the link needs no registry row of its own.
 - **FR-005's "the primary button keeps its 38 px height" was a false premise.** That button is the
   `Button` primitive at `h-9` — **31.5 px** at this app's 14 px root, in all four DestinationPicker
-  dialogs. 38 px is this repo's *mobile touch* pattern, which it has never used. It clears SC 2.5.8
+  dialogs. 38 px is this repo's touch-target pattern elsewhere (`Pager`, the archive and metadata panels) — **that button** has never used it. It clears SC 2.5.8
   comfortably, and resizing four dialogs is not this spec's business.
 - **FR-005's "Enter still submits from the file-name field only" was false of the dialog**, which has
   no `<form>`, no `onSubmit` and no `onKeyDown`. Enter submits from nowhere, so the criterion could
@@ -46,10 +46,17 @@ plane and come back as a notification with a link to the folder.
 - **`resultsConversion` is the seventh flag key and the third kind** — neither an area nor a kill
   switch but presentation over one control. The taxonomy in `decisions/browser.md` said five areas
   and one kill switch, which was a complete account of a set that had grown.
-- **SPEC-222's owed rows said "no browser surface until SPEC-223"** three times. That is now false:
-  the end-to-end conversion is a click, and `owed.md` says so in place.
-- **`normalizeCsvName` is gone**, and with it two `query-feature.md` inventory rows that had been
-  describing a `query.format.ts` SPEC-185 deleted.
+- **"No browser surface until SPEC-223" was stated in four live places**, and the first pass at this
+  found two — both `owed.md` rows — because it grepped one file and stopped. The two it missed were
+  the ones that mattered: `e2e.md` §0, explaining why the plane's checks are a script "rather than
+  steps in a feature section here", in the file that now carries those steps; and
+  `results-conversion-plane.sh`'s **"WHEN IT GOES AWAY"** header, which is ritual step 8 work
+  addressed to this spec. A forward instruction is obeyed, not checked — it went stale exactly as
+  written, and the close it named had to be told about it.
+- **`normalizeCsvName` is gone.** Three inventory rows described it as live; a fourth,
+  `query-feature.md`'s `useSaveResults` row, asserted as current the unfiltered-`useQuerySpaces`
+  defect the register records SPEC-185 as having closed. All four are rewritten as pointers to where
+  the symbol went rather than deleted, so a reader arriving at the old location is told.
 
 ## Verification
 
@@ -76,7 +83,11 @@ the sentence — the Python test reads the value between the backticks of the br
 compares. A first attempt searched the whole file, which passed with the old wording sitting in a
 comment above a constant that said something else.
 
-**The live checks are written and unrun.** The surface shipped, so every one of them is reachable
-from a single signed-in sitting with no second account and no CLI — but this session had no browser
-connected. `owed.md` records that as its own section, because "nobody has looked yet" is a different
-kind of owing from "one account cannot do this".
+**The live checks are written and unrun.** The surface shipped, so **six of the eight** need only a
+signed-in sitting — no second account, no CLI, no hand-crafted request — and this session had no
+browser connected. `owed.md` gives them their own section, because "nobody has looked yet" is a
+different kind of owing from "one account cannot do this". The other two cost more and say so in
+their own rows: the flag-off check needs a config change merged and published, and the row-limit
+refusal needs a fixture that is over a million rows **and** under 64 MB, since `describe-results`
+refuses on size before `convert` ever counts rows. The first draft of both rows claimed a sitting
+was enough, which would have sent someone to a check that cannot be staged the way it was written.
