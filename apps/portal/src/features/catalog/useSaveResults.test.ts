@@ -126,6 +126,31 @@ describe('useSaveResults, the conversion path (SPEC-223 FR-002, FR-003)', () => 
     expect(pushed).toEqual([]);
   });
 
+  it('renders the mapped sentence for a refused enqueue, never the route’s own text', async () => {
+    // The sentinel is the point: `InvalidRequest` maps to an authored sentence, so any part of
+    // the route's raw body reaching a toast would be raw API text on screen — which the browser
+    // fence forbids outright.
+    const SENTINEL = 'ZZ_RAW_ROUTE_TEXT_ZZ';
+    vi.mocked(objectExists).mockResolvedValue({success: true, data: false});
+    vi.mocked(enqueueResultsConversion).mockResolvedValue({
+      success: false,
+      error: {message: SENTINEL, code: 'InvalidRequest'}
+    });
+    const {result} = renderSave();
+    act(() => result.current.openDialog());
+
+    act(() => result.current.save(saveParquet));
+
+    await waitFor(() => expect(pushed).toHaveLength(1));
+    // POSITIVE CONTROL: the mapped sentence is present. Without it the absence below passes on
+    // a toast that said nothing at all.
+    expect(pushed[0].message).toContain('Something went wrong');
+    expect(pushed[0].message).not.toContain(SENTINEL);
+    expect(pushed[0].variant).toBe('danger');
+    // The dialog stays open so the name or folder can be changed and tried again.
+    expect(result.current.open).toBe(true);
+  });
+
   it('submits nothing and keeps the dialog open when the probe fails for any other reason', async () => {
     vi.mocked(objectExists).mockResolvedValue({success: false, error: {message: '', code: 'InternalError'}});
     const {result} = renderSave();

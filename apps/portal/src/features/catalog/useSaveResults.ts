@@ -24,8 +24,6 @@ export type OverwritePrompt = {
   destPrefix: string;
   filename: string;
   format: ResultsFormat;
-  /** The space root of the destination, which the conversion request's prefix is relative to. */
-  destRootPrefix: string;
 };
 
 export type UseSaveResultsResult = {
@@ -141,8 +139,7 @@ export function useSaveResults({
             destBucket: args.destBucket,
             destPrefix: args.destPrefix,
             filename: args.filename,
-            format: args.format,
-            destRootPrefix: args.destRootPrefix
+            format: args.format
           });
           return;
         }
@@ -188,9 +185,17 @@ export function useSaveResults({
     // key starts with the root, which a doubled root does.
     const format = args.format;
     const space = spaceFor(args.destBucket, args.destPrefix);
-    const relativePrefix = args.destPrefix.startsWith(args.destRootPrefix)
-      ? args.destPrefix.slice(args.destRootPrefix.length)
-      : args.destPrefix;
+    // The root is derived from the very string being sliced — a space's root IS its name plus a
+    // slash, which is also how the plane's own link builder derives it. Looking it up in `spaces`
+    // instead would need a fallback for a destination that is not in the list, and the only
+    // available fallback is the absolute prefix, which is precisely the doubled-root key this
+    // slice exists to prevent. Derived, there is no such branch to get wrong.
+    const root = `${space.name}/`;
+    if (!args.destPrefix.startsWith(root)) {
+      toast.push({variant: 'danger', message: 'Couldn’t read the destination folder.'});
+      return;
+    }
+    const relativePrefix = args.destPrefix.slice(root.length);
 
     setBusy(true);
     void (async () => {
@@ -246,15 +251,7 @@ export function useSaveResults({
       toast.push({variant: 'danger', message: 'Couldn’t read the query result location.'});
       return;
     }
-    const destRootPrefix = spaces.find(
-      (s) => s.bucket === args.destBucket && args.destPrefix.startsWith(s.rootPrefix)
-    )?.rootPrefix;
-    const pending = {
-      ...args,
-      sourceBucket: parsed.bucket,
-      sourceKey: parsed.key,
-      destRootPrefix: destRootPrefix ?? ''
-    };
+    const pending = {...args, sourceBucket: parsed.bucket, sourceKey: parsed.key};
     // CSV is the copy this dialog has always done, unchanged; the other three go to the plane.
     if (args.format === 'csv') doSaveCopy({...pending, overwrite: false});
     else doConvert({...pending, overwrite: false});
