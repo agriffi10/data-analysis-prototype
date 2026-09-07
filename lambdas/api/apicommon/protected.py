@@ -9,6 +9,9 @@ them.** The user-space bucket's Deny is root-anchored — `{root}archive/` and b
 shared-space bucket's wildcard segment matches `/` too, so *any* `archive` folder below the space
 root is covered. Averaging them either leaves a hole on one bucket or refuses work the other
 permits, and both failures are invisible until someone hits them.
+``test_archive_write_lock_mirrors_iam.py`` is what keeps this paragraph honest: it builds a key
+matcher out of each bucket policy and runs ``is_write_locked`` against it, so the asymmetry is
+asserted rather than described.
 
 **Key containment wraps `cpcommon.paths` rather than calling it bare.** `assert_inside_root`
 raises `TerminalError`, which `errors.for_exception` does not recognise, so an unwrapped call
@@ -107,6 +110,13 @@ def is_write_locked(space: ResolvedSpace, key: str) -> bool:
     space root, which IAM permits and the browser's predicate allows — a bare 403 for an upload
     that would have worked.
 
+    **The shared bucket's segment scan drops the final segment of a file key for that same
+    reason**, and it did not until a test read the Deny instead of describing it: the anchored arm
+    above gets its slash from ``app_managed_prefixes``, but a bare ``in segments`` finds the word
+    in a key's LAST segment too, so ``finance/reports/archive`` — a file *called* ``archive``, not
+    a file *inside* one — matched a Deny whose Resource requires ``/archive/``.
+    ``focommon.protected._is_at_or_below`` already made this distinction; this copy did not.
+
     Args:
       space: The resolved space.
       key: The object key or prefix being written.
@@ -123,7 +133,8 @@ def is_write_locked(space: ResolvedSpace, key: str) -> bool:
         return False
     if not key.startswith(space.root):
         return False
-    return RECEIPT_FOLDER in key[len(space.root) :].split("/")
+    segments = key[len(space.root) :].split("/")
+    return RECEIPT_FOLDER in (segments if key.endswith("/") else segments[:-1])
 
 
 def assert_writable(space: ResolvedSpace, key: str) -> None:

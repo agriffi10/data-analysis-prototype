@@ -136,31 +136,59 @@ tree also pins its own membership to spelled-out literals (`test_config_focommon
 `fileBrowserPure.test.ts`), so an edit to one tree alone reddens that tree first. What the mirror
 uniquely catches is a change made CONSISTENTLY within one tree.
 
-**The ARCHIVE WRITE-LOCK rule is not compared at all.** It exists in three implementations of the
-bucket policies' asymmetric Deny — root-anchored in a personal space, any-depth in a shared one:
-`isWriteLockedPrefix` in the browser, `apicommon.protected.is_write_locked`, and this package's
-`protected._is_at_or_below`. Nothing holds any of the three against another. (`focommon.delete` and
-`arcommon.plan` carry a fourth and fifth archive refusal, but those deliberately mirror the
-EXECUTION roles' strictly-any-depth Deny instead, and say so in their own docstrings.)
+**The ARCHIVE WRITE-LOCK rule is held to the POLICY, never to another copy.** It exists in three
+implementations of the bucket policies' asymmetric Deny — root-anchored in a personal space,
+any-depth in a shared one: `isWriteLockedPrefix` in the browser, `apicommon.protected.is_write_locked`,
+and this package's `protected._is_at_or_below`. Each is run against a matcher built from the Deny it
+mirrors, and none is compared to another, which is deliberately the stronger claim: two copies can
+agree with each other and both be wrong about the policy. (`focommon.delete` and `arcommon.plan`
+carry a fourth and fifth archive refusal, but those deliberately mirror the EXECUTION roles'
+strictly-any-depth Deny instead, and say so in their own docstrings.)
 
 What each side is tied to, and what each therefore cannot see:
 
 | Guard | Reads the policy for | Blind to |
 |---|---|---|
 | `archiveWriteLock.test.ts` | the Resource STRINGS — it turns each Sid's `Resource` into a key matcher (`*` matching `/`, which is the trap) and runs the browser predicate over a key table | a change to `Effect` or `Action` |
-| `test_archive_bucket_isolation.py` | the `Effect`, the exact `Action` set, and that the `Resource` ends `/archive/*` | any change to the anchor that preserves that suffix |
-| `test_spaces_and_protection.py`, `test_protected_focommon.py` | nothing — hand-written expectations whose docstrings narrate the Deny | everything about the policy |
+| `test_archive_write_lock_mirrors_iam.py` | the same Resource strings **and** the `Effect`, over ONE key table run against BOTH Python predicates | everything else in the statement — `Action`, `Condition`, `NotAction` — and everything outside it |
+| `test_archive_bucket_isolation.py` | the `Effect`, the exact `Action` set, and that the `Resource` ends `/archive/*` — for the two PRIMARY Sids only | any change to the anchor that preserves that suffix |
+| `test_spaces_and_protection.py`, `test_protected_focommon.py` | nothing — hand-written expectations whose docstrings narrate the Deny. They pin each predicate's SHAPE, which is still worth having | everything about the policy |
 
-**Measured rather than argued, three ways.** Widening the personal Deny's anchor to
-`${bucket_arn}/*/archive/*` — still parses, still ends `/archive/*`, now means any user's archive
-rather than the caller's own — reddens `archiveWriteLock.test.ts` and leaves every Python test of a
-write-lock PREDICATE green. Four Python template tests do redden, but they pin the anchor's text,
-not either predicate's answer. Flipping that Sid's `Effect` to `Allow` inverts it: the browser test
-stays fully green and `test_archive_bucket_isolation.py` catches it.
+**Measured rather than argued.** Widening the personal Deny's anchor to `${bucket_arn}/*/archive/*` —
+still parses, still ends `/archive/*`, now means any user's archive rather than the caller's own —
+once reddened `archiveWriteLock.test.ts` alone and left every Python test of a write-lock PREDICATE
+green; four Python template tests reddened, but they pin the anchor's text, not either predicate's
+answer. It now reddens ten rows of `test_archive_write_lock_mirrors_iam.py` as well. Flipping that
+Sid's `Effect` to `Allow` reddens the new guard and `test_archive_bucket_isolation.py`, and leaves
+the browser test fully green.
 
-So the gap is specific: **no Python test connects a write-lock predicate to what the policy means.**
-Closing it is the browser test's shape applied to the two Python copies, and it is owed rather than
-done.
+**Writing that guard is what found the divergence between the two Python copies.**
+`_is_at_or_below` drops a file key's final segment before scanning for the folder name, because a
+file *called* `archive` is not a file *inside* one; `is_write_locked` did not, so the API answered
+403 for `finance/reports/archive` — a key the shared Deny's `*/archive/*` does not match. Neither
+copy's own suite could see it: each was written from the same prose, and prose is what they agreed
+with.
+
+**What no guard here reads is the document AROUND the statement**, and two changes exploit that.
+Wrapping a Deny in a balanced `%{ if … }` directive deletes it from the RENDERED policy while every
+guard in the table above still reads it as text and passes. And the policy `Version` is asserted
+nowhere in the repo: under `2008-10-17` IAM stops expanding policy variables, so
+`${aws:PrincipalTag/username}` becomes a literal that matches nothing — which is the premise the
+key matcher's whole substitution rests on. A third has the same shape: every guard reads the
+`.tftpl` FILE, and none reads the `aws_iam_role_policy` that attaches it, so deleting that
+attachment leaves each of them green with no Deny deployed at all. All three were measured. None is
+ranked urgent — the first two also break `UserPrefixObjects` and the third breaks the shared-space
+plane loudly, so each fails in the direction where something stops working rather than quietly
+opening — but a guard that reads statements can never see any of them, and saying so is the point
+of this table.
+
+The `Action` sets, by contrast, ARE covered — all four statements, by three guards that divide the
+work unevenly. `test_archive_bucket_isolation.py` pins the exact set on the two PRIMARY Sids.
+`test_app_managed_template_siblings.py` holds the SHARED sibling's actions equal to its twin's (its
+`TEXT_CHECKED` names the shared template only). `test_portal_role_preservation.py` reaches the
+PERSONAL sibling, comparing the twin against the statement it was copied from. So a sibling can
+only drift together with its original, and dropping `s3:PutObject` from both shared archive Denies
+still reddens `test_archive_bucket_isolation.py` and `test_portal_role_preservation.py` — measured.
 
 ## The layer — `file-ops-common/focommon/`
 

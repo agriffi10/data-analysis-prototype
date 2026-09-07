@@ -26,6 +26,8 @@ ordinary file. In the shared bucket the Deny puts a wildcard where the space nam
 resource wildcard matches ``/`` too, so it reaches an ``archive`` folder at ANY depth below the
 space root. Anchoring both at the root would accept a destination IAM refuses; applying the
 any-depth rule to both would refuse a personal file IAM permits deleting.
+``test_archive_write_lock_mirrors_iam.py`` builds a key matcher out of each bucket policy and runs
+``_is_at_or_below`` against it, so this paragraph is asserted rather than described.
 
 Every refusal names the folder in operator text and carries its own reason code, so the notifier
 can word it without re-deriving which rule fired.
