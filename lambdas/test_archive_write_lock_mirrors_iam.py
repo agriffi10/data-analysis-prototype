@@ -28,6 +28,15 @@ The question being asked — what does this Sid's Resource say — does not need
 Deny at all for the second, which is this plane's own rule. Holding the general predicate to the
 archive Deny would assert something the policy does not say.
 
+**And it is the PORTAL role's Deny throughout, which is not the only one in play.** The file
+operations plane acts under its own execution role, and that role's personal-bucket Deny is
+``{user_space_bucket_arn}/*/archive/*`` — any-depth in BOTH buckets, where the portal role's is
+anchored at the caller's root. So ``_is_at_or_below`` is deliberately looser than the role its
+plane runs under: it mirrors the browser's affordance, and ``focommon.delete`` carries the
+execution role's stricter rule and refuses before the first ``DeleteObjects``. Reading a green run
+here as "the file-ops plane agrees with its own IAM" is the misreading to avoid; what it says is
+that the plane's affordance agrees with the browser's, against the policy that defines it.
+
 Attributes:
   ROOT: The repository root.
   PERSONAL_TEMPLATE: The user-space bucket's portal-role policy template.
@@ -149,8 +158,40 @@ def _key_matcher(resource: str, principal: str) -> "Callable[[str], bool]":
         f"a principal tag survived substitution in {resource!r} — the matcher would compare keys "
         "against a literal placeholder and deny nothing"
     )
+    assert "?" not in key_part, (
+        f"{resource!r} uses IAM's OTHER wildcard, which this matcher does not model: `?` matches "
+        "any single character in a Resource ARN, and escaping it to a literal would make the "
+        "matcher cover fewer keys than the Deny does"
+    )
     pattern = "[\\s\\S]*".join(re.escape(part) for part in key_part.split("*"))
     return lambda key: re.fullmatch(pattern, key) is not None
+
+
+def _archive_deny_sids(body: str) -> set[str]:
+    """Every Sid in a template whose statement denies something under an ``archive`` folder.
+
+    The union below NAMES its Sids rather than deriving them, which is what keeps a deleted
+    statement loud — a derived list would shrink along with the thing it derives from and go on
+    passing. This is the other half of that trade: a THIRD archive Deny added to either template
+    would be unioned by nothing, and the matcher would keep agreeing with the two it knows about
+    while the predicates were held to less than the policy says.
+
+    Args:
+      body: The template's text.
+
+    Returns:
+      The Sids of its archive Denies.
+
+    Raises:
+      None.
+    """
+    found = set()
+    for match in re.finditer(r'"Sid":\s*"([^"]+)"', body):
+        end = body.find('"Sid"', match.end())
+        statement = body[match.start() :] if end == -1 else body[match.start() : end]
+        if re.search(r'"Effect":\s*"Deny"', statement) and "/archive/" in statement:
+            found.add(match.group(1))
+    return found
 
 
 def _any_of(*matchers: "Callable[[str], bool]") -> "Callable[[str], bool]":
@@ -226,11 +267,15 @@ def test_the_api_write_lock_answers_what_the_deny_says(suffix, root, kind, deny)
 @pytest.mark.parametrize("root, kind, deny", BUCKETS)
 @pytest.mark.parametrize("suffix", KEY_SUFFIXES)
 def test_the_file_ops_write_lock_answers_what_the_deny_says(suffix, root, kind, deny):
-    """``focommon.protected._is_at_or_below`` agrees with the same Deny, for the archive name.
+    """``focommon.protected._is_at_or_below`` agrees with the PORTAL role's Deny, for the archive name.
 
     Called with ``ARCHIVE_FOLDER`` only. The same function serves ``athenaresults`` and
     ``user_settings``, whose rules this Deny does not describe, and constraining those here would
     pin the general predicate to a policy that says nothing about them.
+
+    The role matters as much as the folder: this plane executes under its own role, whose personal
+    Deny is any-depth, and this predicate deliberately does not mirror that one — see the module
+    docstring.
     """
     key = f"{root}{suffix}"
 
@@ -244,6 +289,23 @@ def test_the_key_table_exercises_both_answers(root, kind, deny):
     and pass every row above.
     """
     assert {deny(f"{root}{suffix}") for suffix in KEY_SUFFIXES} == {True, False}
+
+
+def test_the_union_names_every_archive_deny_in_each_template():
+    """A third archive Deny would be covered by neither predicate test, silently.
+
+    The union is hard-coded on purpose — deriving it would make deleting a statement invisible —
+    so this is what stops the enumeration falling behind the templates. If it fails because a
+    legitimate new Deny landed, the fix is to union it above, not to widen the sets here.
+    """
+    assert _archive_deny_sids(_PERSONAL_BODY) == {
+        "ArchiveReceiptsAreNotUserWritable",
+        "ArchiveReceiptsAreNotUserWritableSystemSettings",
+    }
+    assert _archive_deny_sids(_SHARED_BODY) == {
+        "SharedArchiveReceiptsAreNotUserWritable",
+        "SharedArchiveReceiptsAreNotUserWritableSystemSettings",
+    }
 
 
 def test_the_table_can_tell_an_ANCHORED_personal_deny_from_a_widened_one():

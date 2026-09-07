@@ -174,10 +174,13 @@ Wrapping a Deny in a balanced `%{ if … }` directive deletes it from the RENDER
 guard in the table above still reads it as text and passes. And the policy `Version` is asserted
 nowhere in the repo: under `2008-10-17` IAM stops expanding policy variables, so
 `${aws:PrincipalTag/username}` becomes a literal that matches nothing — which is the premise the
-key matcher's whole substitution rests on. Both were measured. Neither is ranked as urgent, because
-each also breaks `UserPrefixObjects` and so fails in the direction where the personal bucket stops
-working rather than quietly opening; but a guard that reads statements can never see either, and
-saying so is the point of this table.
+key matcher's whole substitution rests on. A third has the same shape: every guard reads the
+`.tftpl` FILE, and none reads the `aws_iam_role_policy` that attaches it, so deleting that
+attachment leaves each of them green with no Deny deployed at all. All three were measured. None is
+ranked urgent — the first two also break `UserPrefixObjects` and the third breaks the shared-space
+plane loudly, so each fails in the direction where something stops working rather than quietly
+opening — but a guard that reads statements can never see any of them, and saying so is the point
+of this table.
 
 The `Action` sets, by contrast, ARE covered — all four statements, by three guards that divide the
 work unevenly. `test_archive_bucket_isolation.py` pins the exact set on the two PRIMARY Sids.
