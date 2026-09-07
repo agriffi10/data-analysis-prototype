@@ -15,9 +15,11 @@ The protected-folder names are duplicated from the browser's ``protectedFolders.
 Python and TypeScript cannot share a list. ``protectedFoldersMirror.test.ts`` reads THIS file as
 text, resolves each member to the string it denotes, and holds ``PICKER_LOCKED_FOLDERS`` and
 ``UNDELETABLE_ROOT_FOLDERS`` equal as sets against the browser's. **It covers those two lists and
-nothing else** — in particular not the archive write-lock rule, which is a different shape with a
-weaker guarantee. ``lambdas/info/planes/file-ops.md`` carries that, because it took four attempts
-to state in three sentences and the fourth was still wider than the evidence.
+nothing else** — in particular not the archive write-lock rule, which is a different shape and is
+guarded differently: ``test_archive_write_lock_mirrors_iam.py`` runs this package's predicate and
+the API's against a matcher built from the bucket policies themselves, rather than against each
+other. ``lambdas/info/planes/file-ops.md`` carries which guard reads what, and what each is still
+blind to.
 
 Attributes:
   OPERATIONS: The three operations one plane serves. Validated rather than inferred, because the
