@@ -45,11 +45,13 @@ entry you need, not the file.**
 - **No silent caps.** If a check bounds coverage, say what was dropped — silent truncation reads as
   "covered everything".
 - **A gate's POPULATION is a claim, and an EXEMPTION is a hole shaped like one.** Two wildcard rules
-  read 2 of 17 IAM documents and passed on the 2 they read; the file set is now asserted by exact
-  count, because a floor passes a deletion. And an exemption carved for a real case must name the
-  ITEM it excuses, never the container: "a conditioned wildcard is narrowed" admitted an
-  account-wide `iam:PassRole` behind `aws:RequestedRegion`, where "this ACTION is narrowed by this
-  measured key" costs nothing and admits none. Both were found by planting, not by reading.
+  read 2 of 17 IAM documents and passed on the 2 they read. Counting the population against the
+  directory it came from catches an ADDITION and nothing else — both sides shrink together on a
+  deletion, so only a comparison against an **independent** source sees that. And an exemption
+  carved for a real case must name the ITEM it excuses, never the container: "a conditioned
+  wildcard is narrowed" admitted an account-wide `iam:PassRole` behind `aws:RequestedRegion`,
+  where "this ACTION is narrowed by this measured key" costs nothing and admits none. All three
+  were found by planting, not by reading.
 - Coverage floors and `"strict": true` are **declared, never inherited**. The floors are a flat
   **85**, no longer ratchets at the measured level — a ratchet fails CI on any deliberate reduction
   in test volume, and is bought back by testing internals. Never lower one for a regression, and

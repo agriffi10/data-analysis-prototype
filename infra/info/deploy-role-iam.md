@@ -41,9 +41,9 @@ role already holds and why it is split across one managed policy per resource fa
 - **Some actions are not resource-scopable** — they only authorize on `Resource: "*"`; a narrower ARN
   is an implicit deny. Known offenders: `logs:DescribeLogGroups`, `cognito-idp:DescribeUserPoolDomain`,
   `cognito-idp:CreateUserPool`. Put each in its own `"*"` statement. Verify with
-  `aws iam simulate-custom-policy` before spending a CI round — but **the `allowed`/`implicitDeny`
-  pair is not enough on its own**, and the third leg it needs is *The wildcard* below. Reading the
-  pair as sufficient is what makes an action of the **wrong resource type** look non-scopable.
+  `aws iam simulate-custom-policy` before spending a CI round — and scope the deny leg to a
+  **service-wide `arn:aws:<svc>:<region>:<acct>:*`**, per *The wildcard* below. Any narrower ARN
+  risks being the wrong resource *type*, which reads exactly like non-scopable.
 - **CloudWatch log-group actions need both ARN forms.** `logs:ListTagsForResource` authorizes against
   the **bare** ARN (`…:log-group:NAME`) while others use the `…:log-group:NAME:*` form — scope the
   statement to a list of both.
@@ -195,8 +195,8 @@ pins the mapping to one function-name pattern — and, since a mapping is always
 region, pins the region too, which is the only other thing an `event-source-mapping:*` pattern could
 have added. That is why those three keep the wildcard: their sole resource type is the one the
 condition already covers, so an ARN pattern would be ceremony. **Splitting the statement is not
-impossible** — it costs about 270 characters against a 6,144 budget and was built to check — it just
-buys nothing.
+impossible** — built and measured, it costs a couple of hundred characters against roughly 3,600 of
+remaining budget — it just buys nothing.
 
 The exemption is per **action**, never per statement, and the suite enforces that: an action is
 excused only where a key the statement actually tests is recorded in `CONDITION_NARROWED_ACTIONS` as

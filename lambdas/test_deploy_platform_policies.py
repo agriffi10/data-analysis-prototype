@@ -589,11 +589,14 @@ def _label(path: pathlib.Path, statement: dict) -> str:
 
 
 @pytest.mark.parametrize("path", POLICIES, ids=lambda p: p.name)
-def test_a_wildcard_resource_holds_only_non_scopable_actions(path: pathlib.Path) -> None:
-    """``Resource: "*"`` is for actions IAM defines no resource type for, and nothing else.
+def test_a_wildcard_resource_holds_nothing_unnarrowed(path: pathlib.Path) -> None:
+    """Every action on a ``Resource: "*"`` must be narrowed by something, or take no ARN at all.
 
-    A scopable action parked in a wildcard statement is a grant nobody narrowed, and it reads
-    in a diff exactly like one that could not be.
+    Not "only actions IAM defines no resource type for" — that was the rule before the
+    event-source-mapping statements, and they falsify it: three of their actions DO accept an
+    ARN and sit on a wildcard, narrowed by a measured condition key instead. A scopable action
+    narrowed by neither is a grant nobody narrowed, and it reads in a diff exactly like one that
+    could not be.
 
     Every deploy-role document is walked, the inline one included. Held for the two platform
     templates alone, this rule inspected two documents of seventeen: planting a member of
@@ -627,8 +630,8 @@ def test_a_conditioned_wildcard_tests_a_key_its_actions_populate(path: pathlib.P
     available pattern is the whole resource type — and ``lambda:FunctionArn`` already pins the
     function and, since a mapping shares its function's region, the region with it. That is
     everything the pattern could have added, which is why the condition stands in for it.
-    Splitting the statement is not impossible, only pointless: it was built and measured at about
-    270 characters against a 6,144 budget.
+    Splitting the statement is not impossible, only pointless: it was built and measured, and
+    costs a couple of hundred characters against roughly 3,600 of remaining budget.
 
     What can go wrong is the pairing: an action added here that does not populate the key is
     denied at runtime by the condition meant to protect it.
@@ -714,6 +717,12 @@ def test_the_wildcard_rules_walk_every_deploy_policy_template() -> None:
     asserted against the directory: a new deploy policy is measured the day it lands, and the
     trust template is named as the one deliberate exclusion rather than silently absent.
 
+    What this does NOT catch is a deleted managed template, because ``POLICIES`` is derived from
+    the same glob and both sides of the count shrink together. That half belongs to
+    ``test_every_attached_managed_policy_is_one_this_suite_measures``, which compares against
+    ``iam.tf`` — an independent source. Said here because the reverse was written down first, and
+    a guard vouched for by a reason it does not deliver is worse than one with no reason at all.
+
     Args:
       None.
 
@@ -732,14 +741,95 @@ def test_the_wildcard_rules_walk_every_deploy_policy_template() -> None:
     )
     assert len(on_disk) == len(POLICIES) + 1, (
         f"the policy directory holds {len(on_disk)} templates against {len(POLICIES)} measured "
-        "plus the trust template. A count that drifts either way means a document was added "
-        "outside the glob or deleted from under it — and a floor here would pass a deletion."
+        "plus the trust template. Something was added outside the glob, or the inline or trust "
+        "document was deleted. A DELETED MANAGED template is invisible here — both sides of this "
+        "count come from the same directory, so they shrink together — and is caught instead by "
+        "test_every_attached_managed_policy_is_one_this_suite_measures, against iam.tf."
     )
     unmeasured = sorted(path.name for path in on_disk - set(POLICIES) - {TRUST_POLICY})
     assert not unmeasured, (
         f"{unmeasured} are deploy policy templates the wildcard rules never read. Add them to "
         "POLICIES, or name the reason they are exempt the way the trust template is."
     )
+
+#: Where the non-scopable rule is written in PROSE, and therefore where a count of the set would
+#: rot. Derived by searching these trees for the rule's own vocabulary rather than listed, because
+#: a list of sites is the thing that went stale three times running. Prose means ``.md`` and the
+#: comments in ``.tf``; this file is deliberately outside it, since the set is defined here and a
+#: number beside its definition can be read against it.
+SCOPABILITY_PROSE_TREES = (
+    ROOT / "infra",
+    ROOT / "docs" / "decisions",
+)
+
+SCOPABILITY_PHRASES = ("non-scopable", "NON_SCOPABLE", "resource-scopable", "scopability")
+
+#: Same line only — ``\s+`` spans newlines, which matched a loop counter followed by a variable
+#: named ``actions`` and made the first version of this guard fire on Python it does not police.
+COUNT_OF_ACTIONS = re.compile(r"\b\d+[ ]+actions\b")
+
+
+def _scopability_prose() -> list[pathlib.Path]:
+    """Every prose file that states the non-scopable rule.
+
+    Args:
+      None.
+
+    Returns:
+      The ``.md`` and ``.tf`` files whose text uses the rule's vocabulary.
+
+    Raises:
+      None.
+    """
+    return sorted(
+        path
+        for tree in SCOPABILITY_PROSE_TREES
+        for path in tree.rglob("*")
+        if path.suffix in {".md", ".tf"}
+        and path.is_file()
+        and ".terraform" not in path.parts
+        and any(phrase in path.read_text() for phrase in SCOPABILITY_PHRASES)
+    )
+
+
+def test_no_prose_site_writes_down_a_count_of_the_non_scopable_set() -> None:
+    """The set's SIZE belongs to the suite, never to prose that cannot be re-measured.
+
+    A structural answer to a defect that recurred in three consecutive review rounds: the rule is
+    written in several places, and each round found another copy stale. The concrete instance was
+    a hardcoded count of the set — wrong by one the day it was written, wrong by twenty-two by the
+    time it was found, and surviving in a second file after the first sweep deleted it from the
+    first.
+
+    A count is the one part of this rule that cannot be kept true by care, so it is the part
+    forbidden outright; everything else the copies say is prose a reader can check. Matched over
+    the whole FILE rather than the line, because the count and the rule it belongs to sit in the
+    same paragraph and never on the same line — the line-scoped first draft passed both plants.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a prose site carries a count, or when the search finds nothing.
+    """
+    prose = _scopability_prose()
+    assert len(prose) >= 5, (
+        f"the scopability rule was found in only {len(prose)} prose files, which means the search "
+        "stopped matching rather than the tree going quiet — a guard that finds nothing passes."
+    )
+    offenders = []
+    for path in prose:
+        for number, line in enumerate(path.read_text().splitlines(), 1):
+            if COUNT_OF_ACTIONS.search(line):
+                offenders.append(f"{path.relative_to(ROOT)}:{number}: {line.strip()}")
+    assert not offenders, (
+        "these sites write down a count of the non-scopable set, which goes stale silently and "
+        f"has twice: {offenders}. State the principle and let the suite hold the number."
+    )
+
 
 #: Synthetic statements for the four statement rules, each row a ``(label, statement, expected)``
 #: triple. Running the rules over the shipped templates proves those templates pass; it cannot

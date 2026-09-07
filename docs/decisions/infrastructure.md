@@ -511,8 +511,8 @@ hatch.** The second is a `Resource: "*"` narrowed by **condition** — the two e
 statements, where `lambda:FunctionArn` pins the mapping to one function-name pattern and, since a
 mapping shares its function's region, pins the region too. That is the whole of what an
 `event-source-mapping:*` pattern could have added, which is why those three keep the wildcard.
-**Splitting the statement is possible** — about 270 characters against a 6,144 budget, built and
-measured — it simply buys nothing; the impossibility first written down here was false, and it was
+**Splitting the statement is possible** — built and measured at a couple of hundred characters
+against roughly 3,600 of remaining budget — it simply buys nothing; the impossibility first written down here was false, and it was
 the entire stated justification for the exemption.
 
 **The exemption is per ACTION, never per statement.** Excusing any statement that carries some

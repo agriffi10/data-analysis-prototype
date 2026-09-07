@@ -75,19 +75,20 @@ all**.
 **A `Resource: "*"` statement is forced in one of two ways, and never in a third — and the suite
 enforces that rather than assuming it.** Either IAM defines no resource type for every action in
 it, or a **measured** condition key narrows what an ARN cannot; the event-source-mapping
-statements below are the whole of the second kind. *Measured* is load-bearing: exempting any
-conditioned wildcard makes a condition an escape hatch, and the cheapest one narrows nothing —
-`aws:SecureTransport` is true on every AWS API call, and a wildcard `iam:CreateRole` behind it
-read as forced. Each action was
-checked with **`simulate-custom-policy`** before it was written, reading `implicitDeny` under a
-scoped ARN of its own service and `allowed` under `"*"`. No count is written here: the suite walks
-the set, and the last figure recorded in this paragraph was stale by twenty-one actions.
+statements below are the whole of the second kind. *Measured* is load-bearing, and so is *per
+action*: excusing a whole statement because it carries some condition makes a condition an escape
+hatch, and a condition the caller chooses narrows nothing — behind `aws:RequestedRegion`, an
+account-wide `iam:PassRole` on a bare wildcard read as forced. No count of the set is written
+here: the suite walks it, and the figure this paragraph used to carry was wrong when written and
+staler every year after.
 
-**That pair is not sufficient.** `implicitDeny` reads identically to a **wrong ARN**, including an
-ARN of the right service and the wrong *resource type*, and the `allowed` leg does not rule that
-out — it does not even rule out an action name that does not exist. The third leg is a sibling
-action IAM *does* scope to that resource type, reading `allowed` under the very same ARN; the
-worked failure is in [`../../info/deploy-role-iam.md`](../../info/deploy-role-iam.md).
+**Each action is measured with `simulate-custom-policy`, and WHICH ARN the deny leg names decides
+whether the answer means anything.** `implicitDeny` reads identically to a **wrong ARN**,
+including an ARN of the right service and the wrong *resource type*. So the deny leg uses a
+**service-wide `arn:aws:<service>:<region>:<account>:*`**, which is type-agnostic and therefore
+cannot be the wrong type, against `allowed` under `"*"`. **Do not reach for a scopable sibling
+action to validate the ARN** — that method fails on the case it was derived from, and
+[`../../info/deploy-role-iam.md`](../../info/deploy-role-iam.md) works it through.
 
 **`test_deploy_platform_policies.py` pins that recorded measurement rather than re-deriving it.** It
 holds the set as a literal and asserts the policies agree in both directions, because a test that
