@@ -168,13 +168,27 @@ def _key_matcher(resource: str, principal: str) -> "Callable[[str], bool]":
 
 
 def _archive_deny_sids(body: str) -> set[str]:
-    """Every Sid in a template whose statement denies something under an ``archive`` folder.
+    """Every Sid in a template whose RESOURCE denies something under an ``archive`` folder.
 
     The union below NAMES its Sids rather than deriving them, which is what keeps a deleted
     statement loud — a derived list would shrink along with the thing it derives from and go on
     passing. This is the other half of that trade: a THIRD archive Deny added to either template
     would be unioned by nothing, and the matcher would keep agreeing with the two it knows about
     while the predicates were held to less than the policy says.
+
+    Two readings are deliberately narrow. It is the Resource that names the folder, so a
+    ``/archive/`` appearing in an ``s3:prefix`` Condition is not one of these — reading the whole
+    statement made an ordinary ``ListBucket`` Deny report as an archive one, and the advice this
+    test then gives ("union it above") would build a matcher from a bare bucket ARN. And ``archive``
+    is read as a whole path SEGMENT rather than as the literal ``/archive/``, because that is only
+    the spelling used today: ``/archive*`` and a bare ``/archive`` name the same folder, and a Deny
+    spelled either way covers keys the table asserts are permitted while every row stays green.
+    ``/archived-notes/*`` names a different folder and is not matched.
+
+    Reach: statements whose ``"Sid"`` is their FIRST key, which is how every Sid-slicing reader in
+    this repo finds them. One written with ``"Sid"`` last is invisible to this AND to the matchers
+    above — measured, an any-depth archive Deny written that way leaves every row green — so that
+    shape has to be refused where statements are counted, which is not this file.
 
     Args:
       body: The template's text.
@@ -189,7 +203,11 @@ def _archive_deny_sids(body: str) -> set[str]:
     for match in re.finditer(r'"Sid":\s*"([^"]+)"', body):
         end = body.find('"Sid"', match.end())
         statement = body[match.start() :] if end == -1 else body[match.start() : end]
-        if re.search(r'"Effect":\s*"Deny"', statement) and "/archive/" in statement:
+        if not re.search(r'"Effect":\s*"Deny"', statement):
+            continue
+        resource = re.search(r'"Resource":\s*(\[[^\]]*\]|"[^"]*")', statement)
+        named = re.findall(r'"([^"]*)"', resource.group(1)) if resource else []
+        if any(re.search(r"/archive([/*]|$)", one) for one in named):
             found.add(match.group(1))
     return found
 

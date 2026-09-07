@@ -32,8 +32,17 @@ function resourceOf(body: string, sid: string): string {
   expect(start, `no ${sid} statement`).toBeGreaterThan(-1);
   const nextSid = body.indexOf('"Sid"', start + 1);
   const statement = body.slice(start, nextSid === -1 ? undefined : nextSid);
-  // Guard the guard: a slice that swallowed the document would match any Resource anywhere.
-  expect(statement.length).toBeLessThan(body.length);
+  // The slice runs to the next `"Sid"`, which is safe only while every statement carries one. A
+  // statement with no Sid of its own, between this one and the next, is what makes it run on — and
+  // it brings a second `"Effect"` with it, which a slice LENGTH cannot see.
+  expect(
+    statement.match(/"Effect"/g)?.length,
+    `the ${sid} slice covers more than one statement, so the Resource read below may belong to a neighbour`
+  ).toBe(1);
+  // A matcher built from an ALLOW's Resource would compare the predicate against a permission
+  // rather than a refusal, which is a precondition of this matcher's MEANING and not a restatement
+  // of a policy rule.
+  expect(/"Effect":\s*"Deny"/.test(statement), `${sid} is not a Deny, so its Resource is a grant`).toBe(true);
   const resource = /"Resource":\s*"([^"]+)"/.exec(statement);
   expect(resource, `${sid} has no single-string Resource`).not.toBeNull();
   return resource![1];
@@ -45,13 +54,30 @@ function resourceOf(body: string, sid: string): string {
  * and is exactly what an intuition about globs gets wrong.
  */
 function keyMatcher(resource: string, principal: string): (key: string) => boolean {
+  // With no bucket ARN to strip, the slice keeps the bucket in the pattern and the matcher answers
+  // false for every key — a total disagreement the table would report as the predicate's fault.
+  const bucketEnd = resource.indexOf('}/');
+  expect(bucketEnd, `no bucket ARN placeholder in ${resource}`).toBeGreaterThan(-1);
   const keyPart = resource
-    .slice(resource.indexOf('}/') + 2)
+    .slice(bucketEnd + 2)
     // The principal tag, as it survives BOTH stages: `$${aws:PrincipalTag/username}` in the
     // template escapes to `${aws:PrincipalTag/username}` in the rendered policy, and at request
     // time IAM substitutes the caller's own username for it.
     .replace('$${aws:PrincipalTag/username}', principal)
     .replace('${aws:PrincipalTag/username}', principal);
+  // No policy variable may survive: one left standing is compared against keys as a literal. Asked
+  // of `${` rather than of the tag name above, because the substitution is only the reachable case
+  // — a renamed tag key, a default value like `${aws:PrincipalTag/team, 'all'}`, and the `${*}`
+  // escape for a LITERAL asterisk all pass a check that names one variable. The escape is the
+  // dangerous direction: the split below would read it as a wildcard and cover MORE keys than the
+  // Deny, which is how a predicate that permits what IAM refuses would pass.
+  expect(keyPart, `a policy variable survived substitution in ${resource}`).not.toContain('${');
+  // IAM's OTHER wildcard, which this matcher does not model: `?` matches any single character
+  // within an ARN segment, and the escape below would turn it into a literal, leaving the matcher
+  // covering FEWER keys than the Deny does. A limitation of this matcher, not a rule about the
+  // policy — neither template uses one today, and the disagreement it would report would be
+  // spurious rather than a missed refusal.
+  expect(keyPart, `${resource} uses \`?\`, which this matcher does not model`).not.toContain('?');
   const pattern = keyPart
     .split('*')
     .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
@@ -68,6 +94,40 @@ function keyMatcher(resource: string, principal: string): (key: string) => boole
  */
 function anyOf(...matchers: ((key: string) => boolean)[]): (key: string) => boolean {
   return (key) => matchers.some((matches) => matches(key));
+}
+
+/**
+ * Every Sid in a template whose statement denies something under an `archive` folder.
+ *
+ * The union below NAMES its Sids rather than deriving them, which is what keeps a deleted statement
+ * loud — a derived list would shrink along with the thing it derives from and go on passing. This is
+ * the other half of that trade: a third archive Deny added to either template would be unioned by
+ * nothing, and the matcher would keep agreeing with the two it knows about while the browser
+ * predicate was held to less than the policy says.
+ *
+ * Reach: statements whose `"Sid"` is their FIRST key, which is how every Sid-slicing reader here
+ * finds them. One written with `"Sid"` last is invisible to this AND to the matchers above —
+ * measured, an any-depth archive Deny written that way leaves every row below green — so that
+ * shape has to be refused where statements are counted, which is not this file.
+ */
+function archiveDenySids(body: string): Set<string> {
+  const found = new Set<string>();
+  for (const match of body.matchAll(/"Sid":\s*"([^"]+)"/g)) {
+    const end = body.indexOf('"Sid"', match.index + match[0].length);
+    const statement = body.slice(match.index, end === -1 ? undefined : end);
+    if (!/"Effect":\s*"Deny"/.test(statement)) continue;
+    // The RESOURCE names the folder, so a `/archive/` sitting in an `s3:prefix` Condition is not
+    // one of these. Read as a whole path SEGMENT, because `/archive/*` is merely the spelling used
+    // today: a Deny spelled `/archive*` reaches `alice/backups/archive/whatever.csv`, which is a key
+    // the table below asserts IAM PERMITS, and a bare `/archive` names the folder as an object.
+    // `/archived-notes/*` names a different folder and is not one of these.
+    const resource = /"Resource":\s*(\[[^\]]*\]|"[^"]*")/.exec(statement);
+    const named = [...(resource?.[1] ?? '').matchAll(/"([^"]*)"/g)];
+    if (named.some(([, one]) => /\/archive([/*]|$)/.test(one))) {
+      found.add(match[1]);
+    }
+  }
+  return found;
 }
 
 const PERSONAL_DENY = anyOf(
@@ -143,6 +203,18 @@ describe('the UI write gate and the IAM Deny agree on the same prefixes', () => 
     expect(original('alice/system_settings/archive/x.csv')).toBe(false);
     expect(sibling('alice/system_settings/archive/x.csv')).toBe(true);
     expect(sibling('alice/archive/x.csv')).toBe(false);
+  });
+
+  it('names every archive Deny the Sid slicing can see, so a third one is not unioned by nothing', () => {
+    // If this fails because a legitimate new Deny landed, union it into the matchers above rather
+    // than widening the sets here — the point is that the enumeration cannot fall behind the
+    // templates while every row above goes on passing.
+    expect(archiveDenySids(portalRolePolicy)).toEqual(
+      new Set(['ArchiveReceiptsAreNotUserWritable', 'ArchiveReceiptsAreNotUserWritableSystemSettings'])
+    );
+    expect(archiveDenySids(sharedSpacePolicy)).toEqual(
+      new Set(['SharedArchiveReceiptsAreNotUserWritable', 'SharedArchiveReceiptsAreNotUserWritableSystemSettings'])
+    );
   });
 
   it('matches the wildcard against a slash, which is the trap in reading these resources', () => {
