@@ -24,7 +24,10 @@ type Props = {
   onCancel: () => void;
 };
 
-const FORMAT_ORDER: ResultsFormat[] = ['csv', 'parquet', 'json', 'xlsx'];
+// Derived from the map, not restated: a format added there but forgotten here would be silently
+// missing from the select, which is the second source of truth `RESULTS_FORMATS` exists to remove.
+// Insertion order for string keys is specified, so `csv` stays first and stays the default.
+const FORMAT_ORDER = Object.keys(RESULTS_FORMATS) as ResultsFormat[];
 
 /**
  * Destination-folder picker, a validated file-name field and a format choice, for saving a
