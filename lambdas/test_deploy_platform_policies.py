@@ -16,7 +16,12 @@ Attributes:
   POLICIES: Every deploy-role policy document the wildcard rules judge: the inline one and each
     managed one. The rules ran over ``PLATFORM_POLICIES`` alone until a plant showed the other
     fifteen documents were unread, so the population is asserted against the directory rather
-    than trusted.
+    than trusted. The account-pin rules walk the same set, for the same reason.
+  ACCOUNT_ID: The account these grants name. Every ARN in every document must carry it, be
+    empty, or — where AWS owns the resource type — name an owner in FOREIGN_OWNERS.
+  FOREIGN_OWNERS: The account fields AWS itself holds. Scoped at the point of use to the one
+    resource type that earns it (``prefix-list``), because applied to every ARN it is an
+    exemption rather than a pin.
   TRUST_POLICY: The one template in the directory the wildcard rules exempt, because it grants no
     actions on resources at all. Named so the exemption is visible rather than silent.
   BASE_IAM: The Terraform that renders every template and attaches every managed policy.
@@ -64,11 +69,6 @@ INLINE_AGGREGATE_LIMIT = 10_240
 
 MANAGED_POLICIES = tuple(sorted(POLICY_DIR.glob("github-actions-deploy-*.json.tftpl")))
 
-#: The glob above ends in ``-``, which excludes ``github-actions-deploy.json.tftpl`` — the
-#: INLINE document, and the largest. Any check about ARNs has to walk both, or it silently
-#: skips the Glue, Athena, Cognito and state-lock grants entirely.
-ARN_BEARING_POLICIES = (*MANAGED_POLICIES, INLINE_POLICY)
-
 ACCOUNT_ID = "696000197480"
 
 #: The one account field in these documents that is legitimately not this account. AWS owns
@@ -82,6 +82,9 @@ PLATFORM_POLICIES = (
     POLICY_DIR / "github-actions-deploy-platform-frontdoor.json.tftpl",
 )
 
+#: The MANAGED_POLICIES glob ends in ``-``, which excludes ``github-actions-deploy.json.tftpl``
+#: — the inline document, and the largest. Every rule over these documents has to walk both, or
+#: it silently skips the Glue, Athena, Cognito and state-lock grants entirely.
 POLICIES = (INLINE_POLICY, *MANAGED_POLICIES)
 
 TRUST_POLICY = POLICY_DIR / "github-actions-trust.json.tftpl"
@@ -1551,7 +1554,7 @@ def _arns(path: pathlib.Path) -> list[str]:
     return found
 
 
-@pytest.mark.parametrize("path", ARN_BEARING_POLICIES, ids=lambda p: p.name)
+@pytest.mark.parametrize("path", POLICIES, ids=lambda p: p.name)
 def test_no_deploy_grant_wildcards_the_account(path: pathlib.Path) -> None:
     """An ARN in a deploy grant names one account, never any.
 
@@ -1592,7 +1595,7 @@ def test_no_deploy_grant_wildcards_the_account(path: pathlib.Path) -> None:
     )
 
 
-@pytest.mark.parametrize("path", ARN_BEARING_POLICIES, ids=lambda p: p.name)
+@pytest.mark.parametrize("path", POLICIES, ids=lambda p: p.name)
 def test_every_deploy_document_carries_arns_to_check(path: pathlib.Path) -> None:
     """The wildcard check must have seen something in every document.
 
@@ -1638,7 +1641,7 @@ def test_the_account_pin_is_what_makes_a_foreign_resource_denied() -> None:
       AssertionError: When a foreign-account ARN is still matched by some pattern.
     """
     patterns = [
-        arn for path in ARN_BEARING_POLICIES for arn in _arns(path) if arn.startswith("arn:")
+        arn for path in POLICIES for arn in _arns(path) if arn.startswith("arn:")
     ]
     intruder = "111122223333"
     assert intruder != ACCOUNT_ID
@@ -1687,7 +1690,7 @@ def test_the_terraform_passes_the_real_account_id() -> None:
         re.DOTALL,
     )
     rendered = {name for name, _ in maps}
-    expected = {path.name for path in ARN_BEARING_POLICIES}
+    expected = {path.name for path in POLICIES}
     assert rendered == expected, (
         f"iam.tf renders {sorted(rendered)} but this suite checks {sorted(expected)}; a "
         "template nobody renders is dead, and one nobody checks is unguarded."
@@ -1735,7 +1738,7 @@ def test_a_prefix_list_arn_is_pinned_to_aws_not_to_this_account() -> None:
     """
     found = [
         arn
-        for path in ARN_BEARING_POLICIES
+        for path in POLICIES
         for arn in _arns(path)
         if ":prefix-list/" in arn
     ]
@@ -1753,7 +1756,7 @@ def test_a_prefix_list_arn_is_pinned_to_aws_not_to_this_account() -> None:
     )
 
 
-@pytest.mark.parametrize("path", ARN_BEARING_POLICIES, ids=lambda p: p.name)
+@pytest.mark.parametrize("path", POLICIES, ids=lambda p: p.name)
 def test_no_statement_inverts_its_resource_or_action_list(path: pathlib.Path) -> None:
     """``NotResource`` and ``NotAction`` grant the complement, and the ARN checks cannot see it.
 
@@ -1836,7 +1839,7 @@ def test_the_arn_collector_still_reaches_outside_the_resource_field() -> None:
       AssertionError: When no collected ARN comes from outside a ``Resource`` field.
     """
     outside = []
-    for path in ARN_BEARING_POLICIES:
+    for path in POLICIES:
         for statement in _statements(path):
             condition = statement.get("Condition")
             if not condition:
@@ -1860,8 +1863,8 @@ def test_the_arn_collector_still_reaches_outside_the_resource_field() -> None:
             total += sum(1 for r in resource if isinstance(r, str) and r.startswith("arn:"))
         return total
 
-    collected = sum(len(_arns(path)) for path in ARN_BEARING_POLICIES)
-    resources = sum(resource_only(path) for path in ARN_BEARING_POLICIES)
+    collected = sum(len(_arns(path)) for path in POLICIES)
+    resources = sum(resource_only(path) for path in POLICIES)
     assert collected == resources + len(outside), (
         f"_arns collected {collected} ARNs; the documents hold {resources} in Resource fields "
         f"and {len(outside)} in Conditions. A collector narrowed to Resource still yields every "

@@ -1057,11 +1057,12 @@ population counted once rots between the count and the next reader.
 statements). A sweep reading `Resource` reports those two clean forever, and a guard built the
 same way inherits the blind spot.
 
-**The guard's own population claim was the near-miss.** `MANAGED_POLICIES` globs
-`github-actions-deploy-*.json.tftpl`; that trailing `-` excludes `github-actions-deploy.json.tftpl`
-— the inline document, the largest, holding 18 of the 192 including the Glue, Athena, Cognito and
-state-lock grants. A guard written over the existing constant would have passed while checking
-none of them.
+**The same population trap caught this change too, and it is recorded above** — *The rules also
+guarded two documents of seventeen*. `MANAGED_POLICIES` globs `github-actions-deploy-*.json.tftpl`,
+and that trailing `-` excludes the inline document, which holds 18 of the 192. Both changes reached
+for that constant and both had to widen it; the second one knew to look only because the first had
+written the lesson down. `POLICIES` is now the single population, and it is one constant rather
+than the two these two changes independently created.
 
 **A budget the change nearly spent, and the constraint that was false.** Pinning costs eleven
 characters an ARN, and `github-actions-deploy-platform` sits closest to the hard, unadjustable
