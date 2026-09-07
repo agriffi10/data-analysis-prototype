@@ -2,7 +2,7 @@
 
 **ID:** SPEC-220
 **Status:** Draft
-**Last Updated:** 2026-09-05
+**Last Updated:** 2026-09-07
 **Depends On:** SPEC-219
 
 ## Overview
@@ -78,8 +78,20 @@ the second merge for the fences.
 
 #### Description:
 
-`app_managed_prefix(root, folder)` returns `f"{root}{SYSTEM_SETTINGS_FOLDER}/{folder}/"` and
-`appManagedPrefix` its twin. Because SPEC-218 routed every construction through them, the Athena
+`app_managed_prefix(root, folder)` returns `f"{root}{SYSTEM_SETTINGS_FOLDER}/{folder}/"` **for a
+member of `MOVING_FOLDERS`, and `f"{root}{folder}/"` for anything else**, and `appManagedPrefix` its
+twin. The branch mirrors the plural's, and it is not optional: the singular takes a folder name from
+a domain list as well as from this module's constants, and `rccommon.paths` calls it for every member
+of `PROTECTED_DESTINATIONS` — five of whose eight members (`user_settings`, `_data-quality-reports`,
+`_directory`, `_config` and `system_settings` itself) do not move. Unconditional, that call builds
+`{root}system_settings/user_settings/`, a prefix nothing is stored under, and the refusal degrades in
+silence because the same predicate's second leg matches the folder name at any depth. The two
+builder tests that pin a non-moving name — `test_app_managed_cpcommon.py` for `user_settings` and
+`appManagedPaths.test.ts` for the same — are the check that the branch is present, and they pass
+**unchanged** through this FR. On the **TS** side the branch is parity rather than necessity: the
+browser's singular builder has no production caller (`rccommon.paths` is the only one on either
+side), so it branches to keep the two trees one design and to be correct for the first caller that
+arrives, not to fix a live path. Because SPEC-218 routed every construction through them, the Athena
 output location (`cpcommon.results`, `api/routes/athena.py`), a new shared table's `destPrefix` and
 `LOCATION` (`table_share_check_target_absent`, `table_share_create_table`) and the receipt folder
 (`arcommon.paths.receipt_root`) all move with one edit per tree. **Nothing that SPEC-219 routed
@@ -93,6 +105,9 @@ docstring records the revisit.
 
 #### Acceptance Criteria:
 
+- [ ] `app_managed_prefix("alice/", "user_settings") == "alice/user_settings/"` and its TS twin
+      still — the existing rows, passing unchanged, which is what proves the singular branched
+      rather than moving every name it is handed.
 - [ ] `app_managed_prefix("alice/", "archive") == "alice/system_settings/archive/"` and
       `appManagedPrefix('alice/', 'archive') === 'alice/system_settings/archive/'`; the SPEC-218
       builder tests are rewritten to the new values and to nothing else.
@@ -141,6 +156,11 @@ the user-space bucket's `_config/` and `_directory/` (they hold no space). Becau
 bounds it, the module **itself** refuses, as `outside_migration_scope`, to read, copy or delete any
 key not under `{space}/{folder}/` for the three folders, and, as `location_not_migrated`, to touch
 any `LOCATION` not under an old `shared_tables/` path; a test plants each and asserts the code.
+**Both are correctness guards on this script, and neither is an authorization boundary.** They bind
+`scripts/migrate_system_settings.py` and nothing else, and they deny nobody who reaches the deploy
+role by another path. The sentence above says IAM no longer bounds the module, which is true and is
+precisely why the distinction has to be written down: read as a fence, these refusals leave the next
+author believing a bound exists where none does.
 
 **The record outlives a run.** `run_id` is the workflow run's `GITHUB_RUN_ID`, written to
 `$GITHUB_STEP_SUMMARY` (the precedent's channel) so the operator can copy it. `copy` persists the
@@ -326,12 +346,16 @@ identities differ, and the rows say which.
 #### Description:
 
 The second merge. Every **old-anchor** statement (three portal-role templates) and array element
-(five plane templates) comes out; the `…SystemSettings` Sids keep their names, because
+(**six** plane templates — `archive`, `data-quality`, `file-ops`, `results-conversion`,
+`table-builder` and `table-share`; results-conversion joined the population table on a rebase, which
+is how an earlier count of five survived into this draft) comes out; the `…SystemSettings` Sids keep
+their names, because
 `archiveWriteLock.test.ts` keys on them, and its matcher returns to one Sid per bucket; SPEC-219's
 sibling-pair test is deleted, since with no old-anchor statement left it can pass on nothing;
 `test_portal_role_preservation.py`'s gained and lost sets are rewritten to the end state. The
-population test's expected pairs shrink to the `system_settings/` anchors — and if SPEC-221's plane
-has landed its own `athenaresults` template by then, that file is one more row, not a failure.
+population test's expected pairs shrink to the `system_settings/` anchors — and SPEC-221's plane
+**has** landed its own `athenaresults` template (`2a526959`, #659), so results-conversion is simply
+one of the six above rather than the conditional extra row an earlier draft allowed for.
 `app_managed_prefixes` / `appManagedPrefixes` shrink to a one-element tuple for a member of
 `MOVING_FOLDERS` — an edit inside the two owner modules and nowhere else, which is why SPEC-219 typed
 them `tuple[str, ...]` — so every rule that consults them now protects the new home alone, and a
@@ -356,6 +380,20 @@ which is a hard error (SPEC-202).
       `alice/archive/x` now expect the key to be treated as an **ordinary** user path;
       `_IGNORED_SUBTREES` is asserted as the two-tuple `("system_settings/athenaresults/", "user_settings/")`;
       the data-quality first-segment refusal for `athenaresults` is asserted as the named exception.
+- [ ] **The three grants come back out**, in this merge — all four actions: `glue:UpdateTable`,
+      `athena:ListQueryExecutions`, `athena:BatchGetQueryExecution` and both `states:ListExecutions`.
+      They were granted for a one-shot that has now run, and the ARN was never the axis that could be
+      narrowed — a Glue database name is a username with no project prefix and the set is created per
+      user, LF-Tags are invisible to IAM, and the obvious narrower principal (the table-share
+      execution role) carries the identical `table/*/*` scope. Lifetime is the axis that is available,
+      and it is free here: this merge already edits IAM templates and re-measures the accept list, and
+      the removal cannot deadlock, because a refresh reads policies with `iam:GetPolicyVersion`, which
+      the role holds independently. The precedent is the layer grants that "outlived the resources by
+      exactly one apply … and came off immediately after" (`infra/modules/base/README.md`). It matters
+      because Lake Formation adds no restraint here — the deploy role is a data-lake admin holding
+      `lakeformation:GrantPermissions` on `*`, so it can self-grant `ALTER` on any table — which makes
+      the IAM action list the only fence over re-pointing a `LOCATION`, and a re-pointed `LOCATION`
+      makes the portal serve the wrong space's data through credential vending, silently.
 - [ ] `checkov` on the deploy plan: zero unaccepted findings and zero stale acceptances; the accept
       list's diff, if any, is in the PR with a one-line disposition per line.
 - [ ] Proved empty by the workflow's `prove-empty` mode under the deploy role, recorded in

@@ -279,7 +279,9 @@
         "athena:DeleteWorkGroup",
         "athena:TagResource",
         "athena:UntagResource",
-        "athena:ListTagsForResource"
+        "athena:ListTagsForResource",
+        "athena:ListQueryExecutions",
+        "athena:BatchGetQueryExecution"
       ],
       "Resource": "arn:aws:athena:${aws_region}:*:workgroup/${project_name}-*"
     },
@@ -292,6 +294,7 @@
         "glue:GetDatabases",
         "glue:GetTable",
         "glue:GetTables",
+        "glue:UpdateTable",
         "glue:CreateDatabase",
         "glue:UpdateDatabase",
         "glue:DeleteDatabase"
