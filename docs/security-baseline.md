@@ -643,7 +643,8 @@ settles what is possible:
 
 So the statement became two:
 
-- `NotificationsEventSourceMappingManage` — the four scopable actions, `Resource: "*"` with
+- `NotificationsEventSourceMappingManage` — the four CONDITION-scopable actions (only three of
+  them take an ARN, and the table above is the authority), `Resource: "*"` with
   `ArnLike lambda:FunctionArn = arn:aws:lambda:${aws_region}:*:function:${project_name}-*-notifications-writer`.
   The deploy role can no longer attach a mapping to an arbitrary Lambda in the account.
 - `NotificationsEventSourceMappingList` — `ListEventSourceMappings` alone, bare `"*"`, **deliberately
@@ -687,7 +688,8 @@ unfixable findings remain. Gate by **check ID plus resource**, or accept a docum
 
 - **DLQ drain:** `DlqDrainEventSourceMappingManage` deleted — dead permission for a control plane
   that has had no event-source mapping since SPEC-126. That policy now has **zero** wildcards.
-- **Notifications:** the four scopable actions are condition-scoped on `lambda:FunctionArn`;
+- **Notifications:** the four condition-scopable actions are condition-scoped on
+  `lambda:FunctionArn` (three of them also take an ARN; the table above is the authority);
   `ListEventSourceMappings` keeps a bare `"*"` because AWS defines no resource types or condition
   keys for it; `lambda:ListTags` sits in its own statement scoped to
   `arn:aws:lambda:${aws_region}:*:event-source-mapping:*`.

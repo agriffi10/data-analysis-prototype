@@ -40,9 +40,10 @@ role already holds and why it is split across one managed policy per resource fa
   a tightening — it is a bet that the caller supplies the key.
 - **Some actions are not resource-scopable** — they only authorize on `Resource: "*"`; a narrower ARN
   is an implicit deny. Known offenders: `logs:DescribeLogGroups`, `cognito-idp:DescribeUserPoolDomain`,
-  `cognito-idp:CreateUserPool`. Put each in its own `"*"` statement. Verify scopability cheaply with
-  `aws iam simulate-custom-policy --action-names <a> --resource-arns <arn>` (`allowed` vs `implicitDeny`)
-  before spending a CI round.
+  `cognito-idp:CreateUserPool`. Put each in its own `"*"` statement. Verify with
+  `aws iam simulate-custom-policy` before spending a CI round — and scope the deny leg to a
+  **service-wide `arn:aws:<svc>:<region>:<acct>:*`**, per *The wildcard* below. Any narrower ARN
+  risks being the wrong resource *type*, which reads exactly like non-scopable.
 - **CloudWatch log-group actions need both ARN forms.** `logs:ListTagsForResource` authorizes against
   the **bare** ARN (`…:log-group:NAME`) while others use the `…:log-group:NAME:*` form — scope the
   statement to a list of both.
@@ -150,15 +151,67 @@ figure is written down here, because the last one written down rotted; the suite
 and both numbers when one goes over, so measure there.
 
 **The wildcard.** `Resource: "*"` on a deploy grant is sometimes forced and sometimes laziness,
-and the two read identically in a diff. IAM defines no resource type at all for the actions in
-that suite's `NON_SCOPABLE` set, so a narrower ARN on one of them is an implicit deny that
-presents as a missing grant; every other action accepts an ARN and must carry one. The set was
-**measured**, not assembled by eye — each entry read back from `aws iam simulate-custom-policy`
-as `implicitDeny` under a scoped ARN of its own service and `allowed` under `"*"`. The
-`implicitDeny` leg alone proves nothing, because a wrong ARN reads exactly the same; the
-`allowed` control is what makes the pair evidence. It is a recorded measurement rather than a
-live read of the AWS Service Reference: a test that reaches the network fails on a runner with no
-egress and passes by finding nothing when the endpoint changes shape.
+and the two read identically in a diff. A wildcard is forced in exactly two ways, and the suite
+carries a rule for each — over **every** deploy policy document, the inline one included.
+
+**Forced because IAM defines no resource type.** A narrower ARN on one of those actions is an
+implicit deny that presents as a missing grant; every other action accepts an ARN and must carry
+one. `NON_SCOPABLE` was **measured**, not assembled by eye — each entry read back from `aws iam
+simulate-custom-policy` as `implicitDeny` under a scoped ARN and `allowed` under `"*"`. **Which
+scoped ARN decides whether that answer means anything**, which is the next paragraph and not a
+detail.
+
+**That pair is not sufficient, and treating it as sufficient nearly bought three wrong entries.**
+`implicitDeny` is what a **wrong** ARN reads, including one of the right service and the wrong
+*resource type*. Measured: `lambda:GetEventSourceMapping`, `UpdateEventSourceMapping` and
+`DeleteEventSourceMapping` all read `implicitDeny` under a **function** ARN, which is the answer a
+non-scopable action gives; they in fact scope to an `event-source-mapping` ARN, whose UUID does not
+exist when the policy is written.
+
+**Use a SERVICE-WIDE ARN as the scoped leg** — `arn:aws:<service>:<region>:<account>:*` — because it
+is type-agnostic and therefore cannot be the wrong resource type. Measured across the whole
+`NON_SCOPABLE` set plus eleven known-scopable controls: **zero disagreements** with the AWS Service
+Reference. Its one caveat is that the ARN shape is per service, so S3 and IAM take `arn:aws:s3:::*`
+and `arn:aws:iam::<account>:*` rather than the regional form.
+
+**The tempting fix is the one that does not work, so it is written down here rather than
+rediscovered.** "Validate the ARN with a sibling action IAM *does* scope to that resource type"
+sounds right and fails on the very case it was derived from: under a function ARN, `lambda:GetFunction`
+reads `allowed` while all three event-source-mapping actions still read `implicitDeny`. The sibling
+proves the ARN is a well-formed resource *of the service* and says nothing about whether it is the
+right type *for the action* — and picking the right sibling requires already knowing the answer.
+
+Where the service defines no resource type at all, no ARN of any shape can match:
+`lakeformation` publishes **zero** resource types across all 61 of its actions, and one condition key
+supported by a single action, so its wildcard is narrowable neither way. That comes from the AWS
+Service Reference, which is the **second frame** the whole set is checked against while recording,
+and the frame that caught the three above where the simulate alone agreed with the wrong answer. It
+stays out of the suite: a test that reaches the network fails on a runner with no egress and passes
+by finding nothing when the endpoint changes shape.
+
+**Forced because a condition narrows it instead.** A statement may take `Resource: "*"` and narrow by
+condition key, which is how the two event-source-mapping grants are written. `lambda:FunctionArn`
+pins the mapping to one function-name pattern — and, since a mapping is always in its function's
+region, pins the region too, which is the only other thing an `event-source-mapping:*` pattern could
+have added. That is why those three keep the wildcard: their sole resource type is the one the
+condition already covers, so an ARN pattern would be ceremony. **Splitting the statement is not
+impossible** — built and measured, it costs a couple of hundred characters against roughly 3,600 of
+remaining budget — it just buys nothing.
+
+The exemption is per **action**, never per statement, and the suite enforces that: an action is
+excused only where a key the statement actually tests is recorded in `CONDITION_NARROWED_ACTIONS` as
+narrowing that action. Exempting a whole conditioned statement is an escape hatch, and the cheapest
+condition narrows nothing — behind `aws:RequestedRegion`, an account-wide `iam:PassRole` on a bare
+wildcard read as forced with the whole suite green. The other failure the pairing watches for is the
+register's own **condition on a key the caller does not populate**: an action that never supplies
+`lambda:FunctionArn` is denied at runtime by the condition meant to protect it, naming neither.
+
+**The population is the other half of both rules, and it was wrong for as long as they existed.**
+They walked the two platform templates of seventeen documents, and every run passed, on the two
+they read. A member of `NON_SCOPABLE` planted into a scoped statement in a plane policy, and again
+in the inline document, left the suite green; the same plant in a platform template reddened it.
+The file set is now asserted against the directory, so a template named outside the glob fails
+here rather than shipping unmeasured, and the trust template is named as the one exemption.
 
 ## Preserving an authorization artefact across a move
 

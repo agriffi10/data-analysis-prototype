@@ -72,17 +72,29 @@ all**.
 
 ## Scopability is measured, never assumed
 
-**Every `Resource: "*"` statement holds only actions IAM defines no resource type for**, and each was
-checked with **`simulate-custom-policy`** before it was written: **37 actions, each reading
-`implicitDeny` under a scoped ARN and `allowed` under `"*"`**.
+**A `Resource: "*"` statement is forced in one of two ways, and never in a third — and the suite
+enforces that rather than assuming it.** Either IAM defines no resource type for every action in
+it, or a **measured** condition key narrows what an ARN cannot; the event-source-mapping
+statements below are the whole of the second kind. *Measured* is load-bearing, and so is *per
+action*: excusing a whole statement because it carries some condition makes a condition an escape
+hatch, and a condition the caller chooses narrows nothing — behind `aws:RequestedRegion`, an
+account-wide `iam:PassRole` on a bare wildcard read as forced. No count of the set is written
+here: the suite walks it, and the figure this paragraph used to carry was wrong when written and
+staler every year after.
 
-**The `implicitDeny` alone proves nothing — it reads identically to a wrong ARN** — so the `allowed`
-control is what makes the pair evidence.
+**Each action is measured with `simulate-custom-policy`, and WHICH ARN the deny leg names decides
+whether the answer means anything.** `implicitDeny` reads identically to a **wrong ARN**,
+including an ARN of the right service and the wrong *resource type*. So the deny leg uses a
+**service-wide `arn:aws:<service>:<region>:<account>:*`**, which is type-agnostic and therefore
+cannot be the wrong type, against `allowed` under `"*"`. **Do not reach for a scopable sibling
+action to validate the ARN** — that method fails on the case it was derived from, and
+[`../../info/deploy-role-iam.md`](../../info/deploy-role-iam.md) works it through.
 
 **`test_deploy_platform_policies.py` pins that recorded measurement rather than re-deriving it.** It
 holds the set as a literal and asserts the policies agree in both directions, because a test that
 reads the AWS Service Reference over the network **fails on a runner with no egress and passes by
-finding nothing when the endpoint changes shape**.
+finding nothing when the endpoint changes shape**. It walks **every** deploy policy document; for
+most of its life it walked the two platform templates alone, and passed on the two it read.
 
 The recurring non-scopable actions, each isolated in its own wildcard statement:
 

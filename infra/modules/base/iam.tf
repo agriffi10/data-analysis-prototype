@@ -53,8 +53,9 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
 # last number written down rotted by a thousand characters before anyone noticed.
 #
 # Each one is scoped by {project_name}-*-<plane>-* name patterns, and every `Resource: "*"`
-# statement holds only actions IAM defines no resource type for. GRANTS LAND IN THEIR OWN PR,
-# BEFORE THE RESOURCES THAT NEED THEM. README.md.
+# statement is forced one of two ways: no resource type exists for its actions, or a measured
+# condition key narrows them. GRANTS LAND IN THEIR OWN PR, BEFORE THE RESOURCES THAT NEED
+# THEM. README.md.
 resource "aws_iam_policy" "deploy_shared_spaces" {
   name        = "${var.project_name}-deploy-shared-spaces"
   description = "Deploy-role grants for the shared-space control plane (SQS/Pipes/Step Functions/Lambda/roles/logs/S3), kept off the role's inline-policy aggregate limit."
@@ -73,10 +74,13 @@ resource "aws_iam_role_policy_attachment" "deploy_shared_spaces" {
   policy_arn = aws_iam_policy.deploy_shared_spaces.arn
 }
 
-# Notifications. lambda:*EventSourceMapping is not RESOURCE-scopable but Create/Get/Update/
-# Delete ARE condition-scopable on lambda:FunctionArn. ListEventSourceMappings is the one that
-# genuinely cannot be narrowed — AWS defines no resource types and no condition keys — so it
-# keeps a bare "*"; conditioning it would deny the call outright. README.md.
+# Notifications. Get/Update/Delete EventSourceMapping are resource-scopable, to an
+# event-source-mapping ARN whose UUID does not exist at write time; Create is not. All four are
+# condition-scopable on lambda:FunctionArn, which pins the function and with it the region — the
+# whole of what that ARN pattern could add — so the statement narrows by condition instead.
+# ListEventSourceMappings genuinely cannot be narrowed either way, having no resource types and
+# no condition keys, so it keeps a bare "*"; conditioning it would deny the call outright.
+# README.md.
 resource "aws_iam_policy" "deploy_notifications" {
   name        = "${var.project_name}-deploy-notifications"
   description = "Deploy-role grants for the notifications write pipeline (FIFO SQS queue + DLQ, writer Lambda + role + log group, SQS event-source mapping), kept off the role's inline-policy aggregate limit."
@@ -402,10 +406,13 @@ resource "time_sleep" "wait_for_verification_grant" {
 # policy against the ceiling on every run, and names the measurement when it fails. `deploy_platform` keeps its name
 # because the scanner accept list names it.
 #
-# ⚠ EVERY `Resource: "*"` STATEMENT HOLDS ONLY ACTIONS IAM DEFINES NO RESOURCE TYPE FOR, each
-# checked with simulate-custom-policy: 37 actions, each reading implicitDeny under a scoped ARN
-# AND allowed under "*". THE implicitDeny ALONE PROVES NOTHING — it reads identically to a
-# wrong ARN — so the `allowed` control is what makes the pair evidence.
+# ⚠ EVERY `Resource: "*"` STATEMENT IS FORCED, one of two ways: no resource type exists for its
+# actions, or a MEASURED condition key narrows them — and the exemption is per action, never per
+# statement, or any condition buys a bare wildcard. Each action was checked with
+# simulate-custom-policy, reading implicitDeny under a scoped ARN AND allowed under "*". SCOPE
+# THAT DENY LEG TO A SERVICE-WIDE arn:aws:<svc>:<region>:<acct>:* — implicitDeny reads identically
+# to a WRONG ARN, the wrong resource type of the right service included, and a service-wide ARN
+# cannot be the wrong type. No count is written here; the suite walks the set.
 # test_deploy_platform_policies.py PINS THAT MEASUREMENT rather than re-deriving it over the
 # network, which would fail on a runner with no egress and pass by finding nothing.
 #
