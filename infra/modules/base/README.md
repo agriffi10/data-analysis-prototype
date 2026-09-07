@@ -72,17 +72,24 @@ all**.
 
 ## Scopability is measured, never assumed
 
-**Every `Resource: "*"` statement holds only actions IAM defines no resource type for**, and each was
-checked with **`simulate-custom-policy`** before it was written: **37 actions, each reading
-`implicitDeny` under a scoped ARN and `allowed` under `"*"`**.
+**A `Resource: "*"` statement is forced in one of two ways, and never in a third.** Either IAM
+defines no resource type for every action in it, or a **condition** narrows what an ARN cannot —
+the event-source-mapping statements below are the whole of the second kind. Each action was
+checked with **`simulate-custom-policy`** before it was written, reading `implicitDeny` under a
+scoped ARN of its own service and `allowed` under `"*"`. No count is written here: the suite walks
+the set, and the last figure recorded in this paragraph was stale by twenty-one actions.
 
-**The `implicitDeny` alone proves nothing — it reads identically to a wrong ARN** — so the `allowed`
-control is what makes the pair evidence.
+**That pair is not sufficient.** `implicitDeny` reads identically to a **wrong ARN**, including an
+ARN of the right service and the wrong *resource type*, and the `allowed` leg does not rule that
+out — it does not even rule out an action name that does not exist. The third leg is a sibling
+action IAM *does* scope to that resource type, reading `allowed` under the very same ARN; the
+worked failure is in [`../../info/deploy-role-iam.md`](../../info/deploy-role-iam.md).
 
 **`test_deploy_platform_policies.py` pins that recorded measurement rather than re-deriving it.** It
 holds the set as a literal and asserts the policies agree in both directions, because a test that
 reads the AWS Service Reference over the network **fails on a runner with no egress and passes by
-finding nothing when the endpoint changes shape**.
+finding nothing when the endpoint changes shape**. It walks **every** deploy policy document; for
+most of its life it walked the two platform templates alone, and passed on the two it read.
 
 The recurring non-scopable actions, each isolated in its own wildcard statement:
 

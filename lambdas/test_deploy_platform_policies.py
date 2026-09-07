@@ -11,7 +11,14 @@ Attributes:
   INLINE_AGGREGATE_LIMIT: IAM's character budget for all of a role's inline policies together.
   MANAGED_POLICIES: Every template that becomes a customer-managed policy, derived from the
     directory rather than listed, so a new one is measured the day it lands.
-  PLATFORM_POLICIES: The two container-platform templates the wildcard rules apply to.
+  PLATFORM_POLICIES: The two container-platform templates, which the grant-coverage and registry
+    assertions are about. The wildcard rules are NOT limited to these — see ``POLICIES``.
+  POLICIES: Every deploy-role policy document the wildcard rules judge: the inline one and each
+    managed one. The rules ran over ``PLATFORM_POLICIES`` alone until a plant showed the other
+    fifteen documents were unread, so the population is asserted against the directory rather
+    than trusted.
+  TRUST_POLICY: The one template in the directory the wildcard rules exempt, because it grants no
+    actions on resources at all. Named so the exemption is visible rather than silent.
   BASE_IAM: The Terraform that renders every template and attaches every managed policy.
   PLANNED_RESOURCES: The ARN each platform resource will have, keyed by what it is. The grant is
     written against these names, so a module that names one differently is denied. One row is an
@@ -27,8 +34,15 @@ Attributes:
     document that ships BOTH read ``allowed`` — and they must, since the SPA's grant is what the
     container pipeline pushes with every day. A simulate also caps its policy input at 2,000
     characters, so the shipped document cannot be handed to one whole.
-  NON_SCOPABLE: Every action IAM defines no resource type for, and therefore the only actions
-    a ``Resource: "*"`` statement in those two templates may hold.
+  NON_SCOPABLE: Every action IAM defines no resource type for, and therefore the only actions an
+    unconditioned ``Resource: "*"`` statement may hold anywhere in ``POLICIES``.
+  CONDITION_NARROWED_ACTIONS: The second way a wildcard is forced — condition key to the actions
+    measured to populate it. An action paired with a key it never supplies is denied at runtime
+    by the very condition meant to narrow it, and the refusal names neither.
+  UNNARROWED_WILDCARD_FIXTURES: Synthetic statements holding the unnarrowed-wildcard rule to what
+    it reports.
+  UNPOPULATED_CONDITION_FIXTURES: The same for the condition rule.
+  DEAD_SCOPED_FIXTURES: The same for the dead-grant rule.
   SERVICE_LINKED_ROLE_TRIGGERS: Resource types whose creation makes AWS create a service-linked
     role, mapped to the service name the grant must name.
 """
@@ -52,6 +66,10 @@ PLATFORM_POLICIES = (
     POLICY_DIR / "github-actions-deploy-platform.json.tftpl",
     POLICY_DIR / "github-actions-deploy-platform-frontdoor.json.tftpl",
 )
+
+POLICIES = (INLINE_POLICY, *MANAGED_POLICIES)
+
+TRUST_POLICY = POLICY_DIR / "github-actions-trust.json.tftpl"
 
 BASE_IAM = ROOT / "infra" / "modules" / "base" / "iam.tf"
 #: The attach ceiling is asserted in ``test_feedback_deploy_grant.py``, against the role's own
@@ -178,8 +196,40 @@ NON_SCOPABLE = frozenset(
         "logs:PutResourcePolicy",
         "logs:DescribeResourcePolicies",
         "logs:DescribeLogGroups",
+        "cognito-idp:CreateUserPool",
+        "cognito-idp:DescribeUserPoolDomain",
+        "lakeformation:PutDataLakeSettings",
+        "lakeformation:GetDataLakeSettings",
+        "lakeformation:GrantPermissions",
+        "lakeformation:RevokePermissions",
+        "lakeformation:ListPermissions",
+        "lakeformation:RegisterResource",
+        "lakeformation:DeregisterResource",
+        "lakeformation:DescribeResource",
+        "lakeformation:ListResources",
+        "lakeformation:CreateLFTag",
+        "lakeformation:GetLFTag",
+        "lakeformation:UpdateLFTag",
+        "lakeformation:DeleteLFTag",
+        "lakeformation:ListLFTags",
+        "states:ValidateStateMachineDefinition",
+        "lambda:CreateEventSourceMapping",
+        "lambda:ListEventSourceMappings",
+        "cloudtrail:DescribeTrails",
+        "cloudtrail:ListTrails",
     }
 )
+
+CONDITION_NARROWED_ACTIONS = {
+    "lambda:FunctionArn": frozenset(
+        {
+            "lambda:CreateEventSourceMapping",
+            "lambda:GetEventSourceMapping",
+            "lambda:UpdateEventSourceMapping",
+            "lambda:DeleteEventSourceMapping",
+        }
+    )
+}
 
 
 def _render(path: pathlib.Path) -> str:
@@ -402,26 +452,110 @@ def test_every_attached_managed_policy_is_one_this_suite_measures() -> None:
     )
 
 
-@pytest.mark.parametrize("path", PLATFORM_POLICIES, ids=lambda p: p.name)
+def _condition_keys(statement: dict) -> set[str]:
+    """Collects every condition key a statement constrains, across all its operators.
+
+    Args:
+      statement: One policy statement.
+
+    Returns:
+      The condition keys named under any operator, empty when the statement has no Condition.
+
+    Raises:
+      None.
+    """
+    return {key for operands in statement.get("Condition", {}).values() for key in operands}
+
+
+def _unnarrowed_wildcard_actions(statement: dict) -> list[str]:
+    """Scopable actions sitting in a wildcard statement that narrows them by nothing at all.
+
+    A statement carrying a Condition is narrowed by that condition and is judged by
+    ``_unpopulated_condition_actions`` instead, because the two failures are different: this one
+    is a grant nobody bothered to scope, that one is a grant that denies at runtime.
+
+    Args:
+      statement: One policy statement.
+
+    Returns:
+      The actions IAM accepts an ARN for, or empty when the statement is scoped, conditioned, or
+      holds only non-scopable actions.
+
+    Raises:
+      None.
+    """
+    if "*" not in _resources(statement) or _condition_keys(statement):
+        return []
+    return [action for action in _actions(statement) if action not in NON_SCOPABLE]
+
+
+def _unpopulated_condition_actions(statement: dict) -> list[tuple[str, str]]:
+    """Actions in a conditioned wildcard that do not populate the key the condition tests.
+
+    A condition on a key the caller never supplies fails CLOSED, and the refusal names neither
+    the key nor the action — so this is the failure that reads as a missing grant on a statement
+    that visibly grants it. Keys outside the recorded table are not judged: the table is a
+    measurement, and an unmeasured key is unknown rather than wrong.
+
+    Args:
+      statement: One policy statement.
+
+    Returns:
+      ``(action, condition key)`` for each pairing the recorded measurement says cannot work.
+
+    Raises:
+      None.
+    """
+    if "*" not in _resources(statement):
+        return []
+    return [
+        (action, key)
+        for key in sorted(_condition_keys(statement) & CONDITION_NARROWED_ACTIONS.keys())
+        for action in _actions(statement)
+        if action not in CONDITION_NARROWED_ACTIONS[key]
+    ]
+
+
+def _dead_scoped_actions(statement: dict) -> list[str]:
+    """Non-scopable actions sitting under an ARN, where they authorize nothing.
+
+    Args:
+      statement: One policy statement.
+
+    Returns:
+      The actions IAM defines no resource type for, or empty when the statement is a wildcard.
+
+    Raises:
+      None.
+    """
+    if "*" in _resources(statement):
+        return []
+    return [action for action in _actions(statement) if action in NON_SCOPABLE]
+
+
+@pytest.mark.parametrize("path", POLICIES, ids=lambda p: p.name)
 def test_a_wildcard_resource_holds_only_non_scopable_actions(path: pathlib.Path) -> None:
     """``Resource: "*"`` is for actions IAM defines no resource type for, and nothing else.
 
     A scopable action parked in a wildcard statement is a grant nobody narrowed, and it reads
     in a diff exactly like one that could not be.
 
+    Every deploy-role document is walked, the inline one included. Held for the two platform
+    templates alone, this rule inspected two documents of seventeen: planting a member of
+    ``NON_SCOPABLE`` into a plane policy, and into the inline document, left the suite green
+    both times, while the same plant in a platform template reddened it.
+
     Args:
-      path: One of the two platform policy templates.
+      path: One deploy-role policy template.
 
     Returns:
       None.
 
     Raises:
-      AssertionError: When a wildcard statement holds an action that accepts an ARN.
+      AssertionError: When an unconditioned wildcard statement holds an action that accepts an ARN.
     """
     for statement in _statements(path):
-        if "*" not in _resources(statement):
-            continue
-        scopable = [a for a in _actions(statement) if a not in NON_SCOPABLE]
+        scopable = _unnarrowed_wildcard_actions(statement)
         assert not scopable, (
             f"{path.name} statement {statement['Sid']!r} grants {scopable} on Resource \"*\", "
             "but IAM accepts an ARN for each. Scope it, or measure it with "
@@ -429,11 +563,68 @@ def test_a_wildcard_resource_holds_only_non_scopable_actions(path: pathlib.Path)
         )
 
 
-def test_a_scoped_statement_holds_no_non_scopable_action() -> None:
+@pytest.mark.parametrize("path", POLICIES, ids=lambda p: p.name)
+def test_a_conditioned_wildcard_tests_a_key_its_actions_populate(path: pathlib.Path) -> None:
+    """The other way a wildcard is forced: narrowed by a condition rather than by an ARN.
+
+    Two statements are shaped this way, and both are right to be. Three of their four actions
+    accept an ``event-source-mapping`` ARN, but its UUID is generated at create time, so the only
+    pattern available is the whole resource type — no narrowing at all, where the condition names
+    the one function the mapping may attach to. Splitting them to satisfy the rule above would
+    also strand ``CreateEventSourceMapping``, which takes no ARN, in a scoped statement.
+
+    What can go wrong is the pairing: an action added here that does not populate the key is
+    denied at runtime by the condition meant to protect it.
+
+    Args:
+      path: One deploy-role policy template.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a conditioned wildcard holds an action that never supplies the key.
+    """
+    for statement in _statements(path):
+        unpopulated = _unpopulated_condition_actions(statement)
+        assert not unpopulated, (
+            f"{path.name} statement {statement['Sid']!r} narrows a wildcard with a condition "
+            f"its own actions cannot satisfy: {unpopulated}. A condition on a key the caller "
+            "does not populate fails closed, naming neither the key nor the action."
+        )
+
+
+@pytest.mark.parametrize("path", POLICIES, ids=lambda p: p.name)
+def test_a_scoped_statement_holds_no_non_scopable_action(path: pathlib.Path) -> None:
     """The other half: a non-scopable action under an ARN is a dead grant.
 
     It authorizes nothing and denies implicitly, so the symptom is a missing permission on an
     action the policy visibly grants — the slowest kind of IAM failure to read.
+
+    Args:
+      path: One deploy-role policy template.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a scoped statement holds an action IAM cannot scope.
+    """
+    for statement in _statements(path):
+        dead = _dead_scoped_actions(statement)
+        assert not dead, (
+            f"{path.name} statement {statement['Sid']!r} scopes {dead} to an ARN, but IAM "
+            "defines no resource type for them — the grant is an implicit deny."
+        )
+
+
+def test_the_wildcard_rules_walk_every_deploy_policy_template() -> None:
+    """The population is a claim, and a glob that quietly stops matching makes it a false one.
+
+    The rules above ran over two templates of seventeen for as long as they existed, and nothing
+    said so — every one of them passed, on the two documents they read. So the file set is
+    asserted against the directory: a new deploy policy is measured the day it lands, and the
+    trust template is named as the one deliberate exclusion rather than silently absent.
 
     Args:
       None.
@@ -442,17 +633,243 @@ def test_a_scoped_statement_holds_no_non_scopable_action() -> None:
       None.
 
     Raises:
-      AssertionError: When a scoped statement holds an action IAM cannot scope.
+      AssertionError: When a template in the policy directory is neither measured nor the
+        trust template.
     """
-    for path in PLATFORM_POLICIES:
-        for statement in _statements(path):
-            if "*" in _resources(statement):
-                continue
-            dead = [a for a in _actions(statement) if a in NON_SCOPABLE]
-            assert not dead, (
-                f"{path.name} statement {statement['Sid']!r} scopes {dead} to an ARN, but IAM "
-                "defines no resource type for them — the grant is an implicit deny."
-            )
+    on_disk = set(POLICY_DIR.glob("*.json.tftpl"))
+    assert len(on_disk) > len(PLATFORM_POLICIES), (
+        "the policy directory globbed to almost nothing — the parse went trivial rather than "
+        "passing."
+    )
+    assert INLINE_POLICY in POLICIES, (
+        "the inline deploy document is outside the measured population, which is where two of "
+        "the three wildcard rules' blind spot was."
+    )
+    unmeasured = sorted(path.name for path in on_disk - set(POLICIES) - {TRUST_POLICY})
+    assert not unmeasured, (
+        f"{unmeasured} are deploy policy templates the wildcard rules never read. Add them to "
+        "POLICIES, or name the reason they are exempt the way the trust template is."
+    )
+
+
+#: Synthetic statements for the three wildcard rules, each row a ``(label, statement, expected)``
+#: triple. Running the rules over the shipped templates proves those templates pass; it cannot
+#: prove a rule would still refuse anything, which is what a gate has to be held to. Half of these
+#: rows assert SILENCE, because a rule that fires on a correct statement is the failure that gets
+#: it deleted.
+UNNARROWED_WILDCARD_FIXTURES = (
+    (
+        "a scopable action on a bare wildcard",
+        {"Sid": "X", "Action": ["lambda:CreateFunction"], "Resource": "*"},
+        ["lambda:CreateFunction"],
+    ),
+    (
+        "a wildcard hidden in a one-element list",
+        {"Sid": "X", "Action": "lambda:CreateFunction", "Resource": ["*"]},
+        ["lambda:CreateFunction"],
+    ),
+    (
+        "a scopable action beside a non-scopable one, reported alone",
+        {
+            "Sid": "X",
+            "Action": ["logs:DescribeLogGroups", "lambda:CreateFunction"],
+            "Resource": "*",
+        },
+        ["lambda:CreateFunction"],
+    ),
+    (
+        "silence: a wildcard holding only non-scopable actions",
+        {"Sid": "X", "Action": ["logs:DescribeLogGroups"], "Resource": "*"},
+        [],
+    ),
+    (
+        "silence: a scopable action that carries an ARN",
+        {
+            "Sid": "X",
+            "Action": ["lambda:CreateFunction"],
+            "Resource": "arn:aws:lambda:us-east-1:696000197480:function:dat-prod-api",
+        },
+        [],
+    ),
+    (
+        "silence: a wildcard a condition narrows, which the next rule judges",
+        {
+            "Sid": "X",
+            "Action": ["lambda:GetEventSourceMapping"],
+            "Resource": "*",
+            "Condition": {"ArnLike": {"lambda:FunctionArn": "arn:aws:lambda:*:*:function:dat-*"}},
+        },
+        [],
+    ),
+)
+
+#: The same for the condition rule. The failure it names is the one that reads as a missing
+#: grant on a statement that visibly grants it.
+UNPOPULATED_CONDITION_FIXTURES = (
+    (
+        "an action that never supplies the key the condition tests",
+        {
+            "Sid": "X",
+            "Action": ["lambda:ListEventSourceMappings"],
+            "Resource": "*",
+            "Condition": {"ArnLike": {"lambda:FunctionArn": "arn:aws:lambda:*:*:function:dat-*"}},
+        },
+        [("lambda:ListEventSourceMappings", "lambda:FunctionArn")],
+    ),
+    (
+        "silence: every action populates the key",
+        {
+            "Sid": "X",
+            "Action": ["lambda:CreateEventSourceMapping", "lambda:DeleteEventSourceMapping"],
+            "Resource": "*",
+            "Condition": {"ArnLike": {"lambda:FunctionArn": "arn:aws:lambda:*:*:function:dat-*"}},
+        },
+        [],
+    ),
+    (
+        "silence: a key outside the recorded measurement is unknown, not wrong",
+        {
+            "Sid": "X",
+            "Action": ["iam:CreateServiceLinkedRole"],
+            "Resource": "*",
+            "Condition": {"StringEquals": {"iam:AWSServiceName": ["ecs.amazonaws.com"]}},
+        },
+        [],
+    ),
+    (
+        "silence: a scoped statement, whose condition this rule does not judge",
+        {
+            "Sid": "X",
+            "Action": ["lambda:ListEventSourceMappings"],
+            "Resource": "arn:aws:lambda:us-east-1:696000197480:event-source-mapping:*",
+            "Condition": {"ArnLike": {"lambda:FunctionArn": "arn:aws:lambda:*:*:function:dat-*"}},
+        },
+        [],
+    ),
+)
+
+#: And for the dead-grant rule, the mirror of the first.
+DEAD_SCOPED_FIXTURES = (
+    (
+        "a non-scopable action pinned to an ARN",
+        {
+            "Sid": "X",
+            "Action": ["logs:DescribeLogGroups"],
+            "Resource": "arn:aws:logs:us-east-1:696000197480:log-group:/aws/lambda/dat-prod-api",
+        },
+        ["logs:DescribeLogGroups"],
+    ),
+    (
+        "silence: the same action on a wildcard, where it belongs",
+        {"Sid": "X", "Action": ["logs:DescribeLogGroups"], "Resource": "*"},
+        [],
+    ),
+    (
+        "silence: a scoped statement holding only scopable actions",
+        {
+            "Sid": "X",
+            "Action": ["logs:PutRetentionPolicy"],
+            "Resource": "arn:aws:logs:us-east-1:696000197480:log-group:/aws/lambda/dat-prod-api",
+        },
+        [],
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "label,statement,expected", UNNARROWED_WILDCARD_FIXTURES, ids=lambda v: v if isinstance(v, str) else ""
+)
+def test_the_unnarrowed_wildcard_rule_fires_and_stays_quiet(
+    label: str, statement: dict, expected: list[str]
+) -> None:
+    """Holds the rule to what it reports, not to an exit code.
+
+    Args:
+      label: What the fixture stands for, carried into the failure message.
+      statement: The synthetic statement to judge.
+      expected: The actions the rule must name, empty where it must say nothing.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the rule names something other than the fixture expects.
+    """
+    assert _unnarrowed_wildcard_actions(statement) == expected, label
+
+
+@pytest.mark.parametrize(
+    "label,statement,expected", UNPOPULATED_CONDITION_FIXTURES, ids=lambda v: v if isinstance(v, str) else ""
+)
+def test_the_condition_rule_fires_and_stays_quiet(
+    label: str, statement: dict, expected: list[tuple[str, str]]
+) -> None:
+    """Holds the condition rule to the exact action-and-key pairing it reports.
+
+    Args:
+      label: What the fixture stands for, carried into the failure message.
+      statement: The synthetic statement to judge.
+      expected: The pairings the rule must name, empty where it must say nothing.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the rule names something other than the fixture expects.
+    """
+    assert _unpopulated_condition_actions(statement) == expected, label
+
+
+@pytest.mark.parametrize(
+    "label,statement,expected", DEAD_SCOPED_FIXTURES, ids=lambda v: v if isinstance(v, str) else ""
+)
+def test_the_dead_grant_rule_fires_and_stays_quiet(
+    label: str, statement: dict, expected: list[str]
+) -> None:
+    """Holds the dead-grant rule to what it reports.
+
+    Args:
+      label: What the fixture stands for, carried into the failure message.
+      statement: The synthetic statement to judge.
+      expected: The actions the rule must name, empty where it must say nothing.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the rule names something other than the fixture expects.
+    """
+    assert _dead_scoped_actions(statement) == expected, label
+
+
+def test_the_fixture_corpus_carries_both_polarities() -> None:
+    """Every rule owes a firing row and a silent one, or its corpus proves half a rule.
+
+    A corpus that drifts to all-silent rows passes while the rule refuses nothing, and a corpus
+    that drifts to all-firing rows says nothing about false positives — which are half of what
+    gets a gate switched off.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When any rule's fixtures are all of one polarity.
+    """
+    corpora = {
+        "unnarrowed wildcard": UNNARROWED_WILDCARD_FIXTURES,
+        "unpopulated condition": UNPOPULATED_CONDITION_FIXTURES,
+        "dead scoped grant": DEAD_SCOPED_FIXTURES,
+    }
+    for name, rows in corpora.items():
+        polarities = {bool(expected) for _, _, expected in rows}
+        assert polarities == {True, False}, (
+            f"the {name} fixtures are all {'firing' if True in polarities else 'silent'} rows. "
+            "A rule needs both: one polarity proves it refuses, the other that it does not "
+            "refuse what it should allow."
+        )
 
 
 def _resources(statement: dict) -> list[str]:

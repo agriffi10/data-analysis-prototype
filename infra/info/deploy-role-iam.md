@@ -40,9 +40,10 @@ role already holds and why it is split across one managed policy per resource fa
   a tightening — it is a bet that the caller supplies the key.
 - **Some actions are not resource-scopable** — they only authorize on `Resource: "*"`; a narrower ARN
   is an implicit deny. Known offenders: `logs:DescribeLogGroups`, `cognito-idp:DescribeUserPoolDomain`,
-  `cognito-idp:CreateUserPool`. Put each in its own `"*"` statement. Verify scopability cheaply with
-  `aws iam simulate-custom-policy --action-names <a> --resource-arns <arn>` (`allowed` vs `implicitDeny`)
-  before spending a CI round.
+  `cognito-idp:CreateUserPool`. Put each in its own `"*"` statement. Verify with
+  `aws iam simulate-custom-policy` before spending a CI round — but **the `allowed`/`implicitDeny`
+  pair is not enough on its own**, and the third leg it needs is *The wildcard* below. Reading the
+  pair as sufficient is what makes an action of the **wrong resource type** look non-scopable.
 - **CloudWatch log-group actions need both ARN forms.** `logs:ListTagsForResource` authorizes against
   the **bare** ARN (`…:log-group:NAME`) while others use the `…:log-group:NAME:*` form — scope the
   statement to a list of both.
@@ -150,15 +151,51 @@ figure is written down here, because the last one written down rotted; the suite
 and both numbers when one goes over, so measure there.
 
 **The wildcard.** `Resource: "*"` on a deploy grant is sometimes forced and sometimes laziness,
-and the two read identically in a diff. IAM defines no resource type at all for the actions in
-that suite's `NON_SCOPABLE` set, so a narrower ARN on one of them is an implicit deny that
-presents as a missing grant; every other action accepts an ARN and must carry one. The set was
-**measured**, not assembled by eye — each entry read back from `aws iam simulate-custom-policy`
-as `implicitDeny` under a scoped ARN of its own service and `allowed` under `"*"`. The
-`implicitDeny` leg alone proves nothing, because a wrong ARN reads exactly the same; the
-`allowed` control is what makes the pair evidence. It is a recorded measurement rather than a
-live read of the AWS Service Reference: a test that reaches the network fails on a runner with no
-egress and passes by finding nothing when the endpoint changes shape.
+and the two read identically in a diff. A wildcard is forced in exactly two ways, and the suite
+carries a rule for each — over **every** deploy policy document, the inline one included.
+
+**Forced because IAM defines no resource type.** A narrower ARN on one of those actions is an
+implicit deny that presents as a missing grant; every other action accepts an ARN and must carry
+one. `NON_SCOPABLE` was **measured**, not assembled by eye — each entry read back from `aws iam
+simulate-custom-policy` as `implicitDeny` under a scoped ARN of its own service and `allowed`
+under `"*"`.
+
+**That pair is not sufficient, and treating it as sufficient nearly bought three wrong entries.**
+The `allowed` leg controls less than it appears to: with both the policy and the request resource
+set to `"*"`, the simulator answers `allowed` for an action name that does not exist —
+`lakeformation:NotARealAction` reads `allowed`. And `implicitDeny` is what a **wrong** ARN reads,
+including one of the right service and the wrong *resource type*. Measured:
+`lambda:GetEventSourceMapping`, `UpdateEventSourceMapping` and `DeleteEventSourceMapping` all read
+`implicitDeny` under a **function** ARN, which is the answer a non-scopable action gives; they in
+fact scope to an `event-source-mapping` ARN, whose UUID does not exist when the policy is written.
+So the pair needs a **third leg**: a sibling action of the same service that IAM *does* scope to
+that resource type, reading `allowed` under the very same ARN. Until that passes, the ARN is
+unvalidated and no `implicitDeny` from it means anything.
+
+Where no sibling exists the third leg is unavailable, and something else has to carry it:
+`lakeformation` defines **zero** resource types across all of its actions, so no ARN could match
+and none can be proved well-formed. That is read from the AWS Service Reference while recording —
+which is also the **second frame** the whole set is checked against, and the frame that caught the
+three above where the simulate alone did not. It stays out of the suite: a test that reaches the
+network fails on a runner with no egress and passes by finding nothing when the endpoint changes
+shape.
+
+**Forced because a condition narrows it instead.** A statement may take `Resource: "*"` and narrow
+by condition key, which is how the two event-source-mapping grants are written — the mapping's ARN
+is a UUID AWS generates, so the only pattern available is the whole resource type, no narrowing at
+all, where `lambda:FunctionArn` names the single function the mapping may attach to. The rule that
+applies there is a different one, and so is the failure: an action added to such a statement that
+never populates the key is denied at runtime **by the condition meant to protect it**. So
+`CONDITION_NARROWED_ACTIONS` records which actions supply which key, and the two rules are kept
+apart rather than merged — a conditioned wildcard judged by the first rule would have to be split,
+stranding a genuinely non-scopable action in a scoped statement.
+
+**The population is the other half of both rules, and it was wrong for as long as they existed.**
+They walked the two platform templates of seventeen documents, and every run passed, on the two
+they read. A member of `NON_SCOPABLE` planted into a scoped statement in a plane policy, and again
+in the inline document, left the suite green; the same plant in a platform template reddened it.
+The file set is now asserted against the directory, so a template named outside the glob fails
+here rather than shipping unmeasured, and the trust template is named as the one exemption.
 
 ## Preserving an authorization artefact across a move
 

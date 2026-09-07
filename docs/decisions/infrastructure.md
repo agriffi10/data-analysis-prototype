@@ -20,6 +20,7 @@ entry you need, not the file.**
 - [There is no NAT gateway, and the endpoints are the whole outbound story (SPEC-193)](#there-is-no-nat-gateway-and-the-endpoints-are-the-whole-outbound-story-spec-193)
 - [The API function is not in the VPC (SPEC-193)](#the-api-function-is-not-in-the-vpc-spec-193)
 - [The image tag is the commit sha, and `:latest` does not exist (SPEC-193)](#the-image-tag-is-the-commit-sha-and-latest-does-not-exist-spec-193)
+- [The scopability measurement has a third leg, and the population it guards was two of seventeen](#the-scopability-measurement-has-a-third-leg-and-the-population-it-guards-was-two-of-seventeen)
 - [The origins are admitted additively, and narrowed only at the cutover (SPEC-193)](#the-origins-are-admitted-additively-and-narrowed-only-at-the-cutover-spec-193)
 - [A Fargate task volume cannot give a non-root container a writable path (SPEC-193)](#a-fargate-task-volume-cannot-give-a-non-root-container-a-writable-path-spec-193)
 - [The nginx configuration reproduces CloudFront's jobs, and three are divergences (SPEC-194)](#the-nginx-configuration-reproduces-cloudfronts-jobs-and-three-are-divergences-spec-194)
@@ -43,9 +44,13 @@ only reads; the API enqueues on its behalf.
   their own PR before the resources that need them** — every grants-only PR in Arc B applied green
   first run. That is the whole claim: it does **not** prevent a red main, which this arc hit three
   times afterwards on things no grant review would have found.
-- **Scopability is MEASURED, never assumed.** `simulate-custom-policy` gives an
-  `implicitDeny`/`allowed` pair before the policy is written. Actions with no resource type sit alone
-  in a wildcard statement. **A simulate matches PATTERNS, not the ARN the service passes** — it
+- **Scopability is MEASURED, never assumed — and the `implicitDeny`/`allowed` pair is only two
+  thirds of it.** `implicitDeny` is equally what a **wrong ARN** reads, the wrong *resource type*
+  of the right service included, and the `allowed` leg controls for neither. The third leg is a
+  **sibling action IAM does scope to that type, reading `allowed` under the very same ARN**;
+  without it no `implicitDeny` means anything. Actions with no resource type sit alone in a
+  wildcard statement; the only other forced wildcard is one a **condition** narrows, where an
+  action that never populates the key is denied by the condition meant to protect it. **A simulate matches PATTERNS, not the ARN the service passes** — it
   cannot tell you that a service calls something on your behalf, or that a condition key goes
   unpopulated, which are the two traps that cost this project an apply each. Contradicting intuition: `ec2:DescribeVpcAttribute` and
   `route53:GetChange` **are** scopable; `ecs:DescribeTaskDefinition` is not, and scoping it is the
@@ -458,6 +463,47 @@ Terraform owns the count, because raising it from 0 to 1 is a verification step 
 attribute would make that step a silent no-op.
 
 Detail: `spec-delivery/SPEC-193`.
+
+## The scopability measurement has a third leg, and the population it guards was two of seventeen
+
+`implicitDeny` under a scoped ARN plus `allowed` under `"*"` was the recorded method, and it is
+insufficient in both directions. `implicitDeny` is what a **wrong ARN** reads — including an ARN of
+the right service and the wrong **resource type** — and the `allowed` leg does not control for that,
+because with the policy and the request resource both `"*"` the simulator answers `allowed` for an
+action name that does not exist: `lakeformation:NotARealAction` reads `allowed`.
+
+Measured, on the widening that found it: `lambda:GetEventSourceMapping`, `UpdateEventSourceMapping`
+and `DeleteEventSourceMapping` each read `implicitDeny` under a **function** ARN and were on their
+way into the non-scopable set. They scope to an `event-source-mapping` ARN. The register already
+carried the general form of this — *a mapping ARN and a function ARN are different resource types* —
+which is exactly the trap re-derived by someone holding the rule and not the instance.
+
+**So the pair takes a third leg: a sibling action IAM does scope to that resource type, reading
+`allowed` under the very same ARN.** That is what proves the ARN well-formed, and until it passes
+no `implicitDeny` from that ARN is interpretable. Where the service defines no resource type at all
+there is no sibling to ask — `lakeformation` defines **zero** across all 61 of its actions — and the
+AWS Service Reference carries it instead, as a **second frame while recording**, never as a live
+read in the suite: a test that reaches the network fails on a runner with no egress and passes by
+finding nothing when the endpoint changes shape. That second frame is what caught the three above;
+the simulate alone agreed with the wrong answer.
+
+**The rules also guarded two documents of seventeen.** `test_deploy_platform_policies.py` held both
+wildcard rules over the two platform templates while the inline document and fourteen plane policies
+went unread, and every run passed on the two it saw. A member of the non-scopable set planted into a
+scoped statement in a plane policy left the suite green; so did the same plant in the inline
+document; the same plant in a platform template reddened it. Widening the population added
+twenty-one measured actions and found **no defect in the shipped policies** — the value was the
+blind spot, not a bug. The file set is now asserted against the policy directory, so a template
+named outside the glob fails rather than shipping unmeasured.
+
+**A wildcard is forced in exactly two ways, and collapsing them would damage the grants.** The
+second is a `Resource: "*"` narrowed by **condition** — the two event-source-mapping statements,
+where the mapping's UUID is generated at create time, so the only available pattern is the whole
+resource type and the condition on `lambda:FunctionArn` is the real narrowing. Forcing those into
+the first rule would strand `CreateEventSourceMapping`, which takes no ARN, in a scoped statement.
+The failure that rule watches for instead is the register's own **condition on a key the caller does
+not populate**: an action added there that never supplies `lambda:FunctionArn` is denied at runtime
+by the condition meant to protect it, naming neither.
 
 ## The origins are admitted additively, and narrowed only at the cutover (SPEC-193)
 
