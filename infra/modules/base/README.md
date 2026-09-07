@@ -72,9 +72,13 @@ all**.
 
 ## Scopability is measured, never assumed
 
-**A `Resource: "*"` statement is forced in one of two ways, and never in a third.** Either IAM
-defines no resource type for every action in it, or a **condition** narrows what an ARN cannot —
-the event-source-mapping statements below are the whole of the second kind. Each action was
+**A `Resource: "*"` statement is forced in one of two ways, and never in a third — and the suite
+enforces that rather than assuming it.** Either IAM defines no resource type for every action in
+it, or a **measured** condition key narrows what an ARN cannot; the event-source-mapping
+statements below are the whole of the second kind. *Measured* is load-bearing: exempting any
+conditioned wildcard makes a condition an escape hatch, and the cheapest one narrows nothing —
+`aws:SecureTransport` is true on every AWS API call, and a wildcard `iam:CreateRole` behind it
+read as forced. Each action was
 checked with **`simulate-custom-policy`** before it was written, reading `implicitDeny` under a
 scoped ARN of its own service and `allowed` under `"*"`. No count is written here: the suite walks
 the set, and the last figure recorded in this paragraph was stale by twenty-one actions.

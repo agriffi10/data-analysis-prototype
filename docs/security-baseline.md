@@ -643,7 +643,8 @@ settles what is possible:
 
 So the statement became two:
 
-- `NotificationsEventSourceMappingManage` — the four scopable actions, `Resource: "*"` with
+- `NotificationsEventSourceMappingManage` — the four CONDITION-scopable actions (only three of
+  them take an ARN, and the table above is the authority), `Resource: "*"` with
   `ArnLike lambda:FunctionArn = arn:aws:lambda:${aws_region}:*:function:${project_name}-*-notifications-writer`.
   The deploy role can no longer attach a mapping to an arbitrary Lambda in the account.
 - `NotificationsEventSourceMappingList` — `ListEventSourceMappings` alone, bare `"*"`, **deliberately

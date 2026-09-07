@@ -296,14 +296,18 @@ def test_each_family_is_scoped_to_the_name_the_module_will_use(sid: str, resourc
     )
 
 
-def test_the_only_wildcards_are_the_two_that_cannot_be_scoped() -> None:
-    """``Resource: "*"`` is for an action IAM defines no resource type for, and nothing else.
+def test_the_only_wildcards_are_the_two_that_must_be_wildcards() -> None:
+    """``Resource: "*"`` is forced here two different ways, and neither is laziness.
 
-    Both wildcards here are inherited from the notifications grant, which measured them: an
-    event-source mapping does not exist when ``CreateEventSourceMapping`` is called, so the
-    statement is conditioned on the FUNCTION's ARN instead, and ``ListEventSourceMappings`` is a
-    list over the account. A scopable action parked in a wildcard reads in a diff exactly like
-    one that could not be.
+    Both wildcards are inherited from the notifications grant, which measured them.
+    ``ListEventSourceMappings`` is the unnarrowable one: IAM defines no resource type and no
+    condition key for it, so a bare wildcard is all there is. The Manage statement is the other
+    kind — Get, Update and Delete DO accept an ``event-source-mapping`` ARN, but its UUID does not
+    exist when the policy is written, and ``lambda:FunctionArn`` pins the function and with it the
+    region, which is everything that ARN pattern could have added. So it narrows by condition.
+
+    A scopable action parked in a wildcard reads in a diff exactly like one that could not be;
+    which of the two applies to every deploy document is ``test_deploy_platform_policies.py``.
     """
     wildcards = {sid for sid, s in _statements().items() if s["Resource"] == "*"}
 

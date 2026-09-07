@@ -157,38 +157,54 @@ carries a rule for each — over **every** deploy policy document, the inline on
 **Forced because IAM defines no resource type.** A narrower ARN on one of those actions is an
 implicit deny that presents as a missing grant; every other action accepts an ARN and must carry
 one. `NON_SCOPABLE` was **measured**, not assembled by eye — each entry read back from `aws iam
-simulate-custom-policy` as `implicitDeny` under a scoped ARN of its own service and `allowed`
-under `"*"`.
+simulate-custom-policy` as `implicitDeny` under a scoped ARN and `allowed` under `"*"`. **Which
+scoped ARN decides whether that answer means anything**, which is the next paragraph and not a
+detail.
 
 **That pair is not sufficient, and treating it as sufficient nearly bought three wrong entries.**
-The `allowed` leg controls less than it appears to: with both the policy and the request resource
-set to `"*"`, the simulator answers `allowed` for an action name that does not exist —
-`lakeformation:NotARealAction` reads `allowed`. And `implicitDeny` is what a **wrong** ARN reads,
-including one of the right service and the wrong *resource type*. Measured:
-`lambda:GetEventSourceMapping`, `UpdateEventSourceMapping` and `DeleteEventSourceMapping` all read
-`implicitDeny` under a **function** ARN, which is the answer a non-scopable action gives; they in
-fact scope to an `event-source-mapping` ARN, whose UUID does not exist when the policy is written.
-So the pair needs a **third leg**: a sibling action of the same service that IAM *does* scope to
-that resource type, reading `allowed` under the very same ARN. Until that passes, the ARN is
-unvalidated and no `implicitDeny` from it means anything.
+`implicitDeny` is what a **wrong** ARN reads, including one of the right service and the wrong
+*resource type*. Measured: `lambda:GetEventSourceMapping`, `UpdateEventSourceMapping` and
+`DeleteEventSourceMapping` all read `implicitDeny` under a **function** ARN, which is the answer a
+non-scopable action gives; they in fact scope to an `event-source-mapping` ARN, whose UUID does not
+exist when the policy is written.
 
-Where no sibling exists the third leg is unavailable, and something else has to carry it:
-`lakeformation` defines **zero** resource types across all of its actions, so no ARN could match
-and none can be proved well-formed. That is read from the AWS Service Reference while recording —
-which is also the **second frame** the whole set is checked against, and the frame that caught the
-three above where the simulate alone did not. It stays out of the suite: a test that reaches the
-network fails on a runner with no egress and passes by finding nothing when the endpoint changes
-shape.
+**Use a SERVICE-WIDE ARN as the scoped leg** — `arn:aws:<service>:<region>:<account>:*` — because it
+is type-agnostic and therefore cannot be the wrong resource type. Measured across the whole
+`NON_SCOPABLE` set plus eleven known-scopable controls: **zero disagreements** with the AWS Service
+Reference. Its one caveat is that the ARN shape is per service, so S3 and IAM take `arn:aws:s3:::*`
+and `arn:aws:iam::<account>:*` rather than the regional form.
 
-**Forced because a condition narrows it instead.** A statement may take `Resource: "*"` and narrow
-by condition key, which is how the two event-source-mapping grants are written — the mapping's ARN
-is a UUID AWS generates, so the only pattern available is the whole resource type, no narrowing at
-all, where `lambda:FunctionArn` names the single function the mapping may attach to. The rule that
-applies there is a different one, and so is the failure: an action added to such a statement that
-never populates the key is denied at runtime **by the condition meant to protect it**. So
-`CONDITION_NARROWED_ACTIONS` records which actions supply which key, and the two rules are kept
-apart rather than merged — a conditioned wildcard judged by the first rule would have to be split,
-stranding a genuinely non-scopable action in a scoped statement.
+**The tempting fix is the one that does not work, so it is written down here rather than
+rediscovered.** "Validate the ARN with a sibling action IAM *does* scope to that resource type"
+sounds right and fails on the very case it was derived from: under a function ARN, `lambda:GetFunction`
+reads `allowed` while all three event-source-mapping actions still read `implicitDeny`. The sibling
+proves the ARN is a well-formed resource *of the service* and says nothing about whether it is the
+right type *for the action* — and picking the right sibling requires already knowing the answer.
+
+Where the service defines no resource type at all, no ARN of any shape can match:
+`lakeformation` publishes **zero** resource types across all 61 of its actions, and one condition key
+supported by a single action, so its wildcard is narrowable neither way. That comes from the AWS
+Service Reference, which is the **second frame** the whole set is checked against while recording,
+and the frame that caught the three above where the simulate alone agreed with the wrong answer. It
+stays out of the suite: a test that reaches the network fails on a runner with no egress and passes
+by finding nothing when the endpoint changes shape.
+
+**Forced because a condition narrows it instead.** A statement may take `Resource: "*"` and narrow by
+condition key, which is how the two event-source-mapping grants are written. `lambda:FunctionArn`
+pins the mapping to one function-name pattern — and, since a mapping is always in its function's
+region, pins the region too, which is the only other thing an `event-source-mapping:*` pattern could
+have added. That is why those three keep the wildcard: their sole resource type is the one the
+condition already covers, so an ARN pattern would be ceremony. **Splitting the statement is not
+impossible** — it costs about 270 characters against a 6,144 budget and was built to check — it just
+buys nothing.
+
+The exemption is per **action**, never per statement, and the suite enforces that: an action is
+excused only where a key the statement actually tests is recorded in `CONDITION_NARROWED_ACTIONS` as
+narrowing that action. Exempting a whole conditioned statement is an escape hatch, and the cheapest
+condition narrows nothing — behind `aws:RequestedRegion`, an account-wide `iam:PassRole` on a bare
+wildcard read as forced with the whole suite green. The other failure the pairing watches for is the
+register's own **condition on a key the caller does not populate**: an action that never supplies
+`lambda:FunctionArn` is denied at runtime by the condition meant to protect it, naming neither.
 
 **The population is the other half of both rules, and it was wrong for as long as they existed.**
 They walked the two platform templates of seventeen documents, and every run passed, on the two
