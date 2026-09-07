@@ -1,7 +1,7 @@
 # Spec: Results Conversion — "Save as" in the Browser, the Flag & Help
 
 **ID:** SPEC-223
-**Status:** In Progress
+**Status:** Completed
 **Last Updated:** 2026-09-07
 **Depends On:** SPEC-222 (the converter and its notification), SPEC-049 and SPEC-185 (the two Save-results surfaces and `useSaveResults`), SPEC-162/163 (feature flags and the gated-surfaces registry), SPEC-207 (Help)
 

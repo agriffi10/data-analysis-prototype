@@ -144,6 +144,10 @@ DLQ lets one malformed request dead-letter someone else's work.
   promises an Excel conversion that OOMs. `Convert` retries **`TransientError` only**: a `Lambda.*`
   retry can re-run an invocation that already completed its conditional `PutObject`, and it then
   meets its own object and reports `destination_occupied` for a save that succeeded.
+- **A conversion's destination prefix is RELATIVE to the space root; the browser's picker is
+  absolute.** Passing one through writes `alice/alice/…` and **nothing refuses it** — containment
+  only proves the key starts with the root, which a doubled root does. Derive the root from the
+  string being sliced: a lookup needs a fallback, and the only one available is the bug.
 - **A refusal that cannot fire is a fence that misleads everyone downstream.** Excel's
   16,384-column ceiling is unreachable here — the described columns ride the 256 KB state, which
   a realistic column entry fills between ~2,500 and ~6,400 — so the cap that exists is the

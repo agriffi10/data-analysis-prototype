@@ -2900,3 +2900,19 @@ path, if ever wanted, is a fourth spec after 223, not a change to these three.
 with `If-None-Match` unless told to overwrite, so a name taken in between is a refusal with a
 notification rather than a silent replacement. No lock, because one object is written and S3 can
 refuse the write itself.
+
+**The arc closed 2026-09-07, and three things it planned turned out differently.** The prefix the
+plane wants is **relative to the space root** while the picker's is absolute, and passing one through
+writes a doubled root that no validator refuses — the containment check only proves the key starts
+with the root, which `alice/alice/…` does. That is the arc's sharpest trap and it is now stated
+beside the code that slices. The notification's link kept the **message as its anchor** rather than
+gaining an *Open folder* control, because a second anchor to one href is the duplicate the row was
+built to avoid; the invalidation became a mechanism over any `/files` link, so the send and archive
+planes inherit it. And the flag turned out to be a **third kind** — neither an area nor a kill switch
+but presentation over one control — which the taxonomy in `decisions/browser.md` did not have a slot
+for.
+
+**What the arc still owes is a sitting, not a mechanism.** Every live check is now reachable by
+clicking, which is what 223 was for; none has been run, because the closing session had no browser
+connected. `docs/testing/owed.md` records that as its own section rather than blurring it into the
+rows that need a second account or a CLI.

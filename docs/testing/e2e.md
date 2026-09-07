@@ -390,6 +390,13 @@ two-lock path and the pagination boundary are not reachable from the UI. They li
 | History | Records and re-runs. |
 | **Save results** | Writes a CSV where asked, with an overwrite confirm. With `sharedWorkspaces` off it offers **My files only** — a colleague's space must never be a write target. |
 | **Save results after a script FAILS part-way** — run three statements with **Run Multiple Queries** where the first is a `SELECT` and the third has a syntax error | The bar shows **Failed** and, beside it, "N rows from an earlier statement" plus **Save results to my files**. Saving writes the FIRST statement's full CSV — check the row count against that statement run alone, not the batch. The point is that no re-run is needed to get it, so an absent button is the regression. |
+| **Save results in each format** — run `SELECT * FROM sales150 LIMIT 5000`, then **Save results to my files** → **Format** | The select offers **CSV**, **Parquet**, **JSON**, **Excel** in that order, defaulting to **CSV**. With CSV the button reads **Save here** and the file appears immediately; with any other it reads **Convert and save**, the dialog closes, and a toast says *"Converting to Parquet — you'll get a notification when {name}.parquet is ready."* Nothing is written yet, so the destination folder does **not** gain a row until the notification arrives. |
+| **Read each converted file back** | Parquet and JSON through **Create table** on their folder — the table builds and `SELECT count(*)` returns **5000** for both. Excel opens in a spreadsheet with 5000 data rows plus a header. JSON is **one object per line**, not a JSON array — open it and check the first two lines each parse alone. |
+| **The notification, and its link** | One notification per conversion: *"Saved 5,000 rows as Parquet to "{name}.parquet"."* The **message itself** is the link (there is no separate "Open folder" control). Following it lands on the destination folder **with the file already listed** — that is the check, since the listing is invalidated on the way. Neither the notification nor the toast names a column or any SQL. |
+| **The overwrite confirm on a conversion** — save Parquet twice to the same name | The second save raises **Overwrite "{name}.parquet"?** *before* anything is enqueued, and confirming re-submits. Cancelling returns to the dialog with the name editable. The plane still decides: it is a conditional write, so a name taken between the question and the write comes back as a failure notification, not a silent replacement. |
+| **A shared-space destination** | Save Parquet into a shared space. The file lands under that space's root — **not** doubled (`teamspace/reports/…`, never `teamspace/teamspace/reports/…`), which is the whole reason the prefix is sliced. The notification's link carries `?space=` and lands in that space's browser. |
+| **`resultsConversion` off** (§4.14's method) | The **Format** select is **absent**, not disabled; the button reads **Save here**; saving still writes a CSV exactly as before. Notifications from conversions already run keep their working links — the record outlives the surface. |
+| **The Excel row limit** — save a result of more than 1,048,576 rows as Excel | A **failure** notification naming the count and suggesting Parquet: *"Couldn't save the query results as Excel: the results have N rows, which is more than a spreadsheet can hold, so "{name}.xlsx" was not written. Please save them as Parquet instead, or narrow the query."* Nothing is written. The same query as **Parquet** succeeds, which is what makes the suggestion honest. |
 | **Drag the divider** between the editor and the results, release, then reload the page | The panes follow the pointer continuously and the two always fill the column with no gap; Monaco's gutter and scrollbar match the new height (the reason the pane height alone is not the check). The split you left survives the reload and is gone in a private window — it is per session, per user. |
 | Reach the divider by tabbing (**not** forward from the editor — Monaco swallows Tab; come backwards from the results, which is two Shift+Tabs, since the ▼ button sits between them), then use the arrow keys, **Home** and **End**; then double-click it | Focus is visible on the divider itself; the arrows step the split, `Home`/`End` go to the floors, and a double-click returns it to even. Then click the divider and press an arrow **without** dragging — the click must leave it focused, or the keyboard path is unreachable for anyone who found it with a mouse. |
 | Use the **▲** and **▼** buttons on the divider, without dragging | Each click steps the split by one notch and the split sticks. This is the non-drag pointer path — run it with a click only, since a drag would pass it vacuously. **Measure one button** in the inspector: it must be at least 24x24 CSS px — they are `h-[24px] w-[24px]`, an absolute value chosen so neither the 14px root nor the type scale reaches them. axe's `target-size` cannot evaluate this and is now disabled; §4.13 carries the rule itself, including SC 2.5.8's spacing exception. |
@@ -495,6 +502,17 @@ as honestly as a succeeding one.
 8. Steps 1–7 started **zero** `StartQueryExecution`.
 9. Save again, same name → the **Overwrite** confirm.
 10. Save into a **shared space** → the cross-bucket copy succeeds.
+11. **The format choice, on this surface too.** Re-open **Save results to my files** → **Format** now
+    offers **CSV**, **Parquet**, **JSON**, **Excel**, defaulting to **CSV**. Choose **Parquet**: the
+    button changes to **Convert and save**, the dialog closes on submit, and the toast names the
+    format and the file. Still **zero** `StartQueryExecution` — a conversion reads the execution's
+    results object and starts no query.
+12. **The notification lands and its link works.** *"Saved 150 rows as Parquet to
+    "explorer-export.parquet"."* — 150, the whole result, not the 100 on the page. Following the
+    message link lands on the folder with the file already listed.
+13. **Both surfaces, one dialog.** Save the same exploration as **Excel** and confirm the file opens
+    with 150 data rows. This surface and §4.3's are the same component — if the two ever disagree
+    about a label or the button text, that is the regression this pair exists to catch.
 
 > **A query that outruns the poll guard.** Results are read only at `SUCCEEDED`.
 > `MAX_POLL_DURATION_MS` is 5 minutes and `refetchOnWindowFocus` is off, so an execution still
@@ -880,6 +898,19 @@ it is checked against:
 3. Move a folder. It runs in the browser — `CopyObject`/`DeleteObject` in the network panel, no
    `SendMessage`, no in-progress card, and the listing updated when it finishes.
 4. Set it back to `{}`, publish, hard-reload, and confirm §4.2's async rows behave again.
+
+**`resultsConversion` is the seventh key and the third kind** — neither an area nor a kill switch
+but a **presentation** flag over one control, so what it hides is three options in one `<select>`
+and nothing else. It takes nobody's access away: the enqueue route is live and ungated either way.
+
+1. Set `environments.prod` to `{"resultsConversion": false}`; publish; hard-reload.
+2. **Save results to my files**, on **both** the Query workspace and the Data Explorer: the
+   **Format** select is **absent** — not present-and-disabled — and the button reads **Save here**.
+   Saving writes a CSV exactly as it did before this key existed.
+3. **A notification from a conversion run while the flag was on still links**, and following it still
+   refreshes the folder. Notifications are never gated: the record of what happened outlives the
+   surface that would show it.
+4. Set it back to `{}`, publish, hard-reload, and confirm the select returns on both surfaces.
 
 ### 4.15 Responsive, and the Safari pass
 
