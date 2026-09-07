@@ -26,6 +26,24 @@ export type OverwritePrompt = {
   format: ResultsFormat;
 };
 
+/**
+ * The prompt to store for a destination that turned out to be taken.
+ *
+ * Written field by field rather than spread, so the caller's `overwrite` flag — which is an
+ * argument to one attempt, not a property of the pending request — cannot ride into the state
+ * that drives the next one.
+ */
+function pendingOverwrite(args: OverwritePrompt & {overwrite: boolean}): OverwritePrompt {
+  return {
+    sourceBucket: args.sourceBucket,
+    sourceKey: args.sourceKey,
+    destBucket: args.destBucket,
+    destPrefix: args.destPrefix,
+    filename: args.filename,
+    format: args.format
+  };
+}
+
 export type UseSaveResultsResult = {
   /** The destinations offered by the picker; the dialog is suppressed when empty. */
   spaces: QuerySpace[];
@@ -133,14 +151,7 @@ export function useSaveResults({
       if (!result.success) {
         if (result.error.code === 'Collision') {
           setOpen(false);
-          setOverwritePrompt({
-            sourceBucket: args.sourceBucket,
-            sourceKey: args.sourceKey,
-            destBucket: args.destBucket,
-            destPrefix: args.destPrefix,
-            filename: args.filename,
-            format: args.format
-          });
+          setOverwritePrompt(pendingOverwrite(args));
           return;
         }
         toast.push({variant: 'danger', message: `Couldn’t save results. ${toUserText(result.error)}`});
@@ -213,7 +224,7 @@ export function useSaveResults({
         if (occupied) {
           setBusy(false);
           setOpen(false);
-          setOverwritePrompt({...args});
+          setOverwritePrompt(pendingOverwrite(args));
           return;
         }
       }
