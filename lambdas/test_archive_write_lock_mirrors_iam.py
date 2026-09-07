@@ -74,9 +74,13 @@ def _deny_resource_of(body: str, sid: str) -> str:
     """The Resource string of the named Deny, as the template spells it.
 
     Sliced out by Sid rather than parsed: the shared template renders to JSON and is not JSON. The
-    slice runs to the NEXT ``"Sid"`` and its length is checked against the document's, because a
-    slice that ran to the end of the file would pick up a Resource belonging to another statement
-    and agree with anything.
+    slice runs to the NEXT ``"Sid"``, and what makes that safe is that every statement carries one
+    — so it is the ``"Effect"`` COUNT that is checked, not the slice's length. A length check
+    cannot fire: both ``…SystemSettings`` lookups are the last statement in their document and run
+    to EOF in normal operation, which is exactly the case a length check was supposed to catch
+    (measured — removing it left every suite green). A statement with no Sid of its own, between
+    this one and the next, is the real way the slice grows, and it brings a second ``"Effect"``
+    with it.
 
     The Effect is checked here rather than left to the policy suites because it is a precondition
     of this matcher's MEANING, not a restatement of a policy rule: a key matcher built from an
@@ -90,14 +94,17 @@ def _deny_resource_of(body: str, sid: str) -> str:
       The statement's Resource, with its template placeholders intact.
 
     Raises:
-      AssertionError: If the Sid is absent, if the slice swallowed the document, if the statement
-        is not a Deny, or if it carries no single-string Resource.
+      AssertionError: If the Sid is absent, if the slice covers more than one statement, if the
+        statement is not a Deny, or if it carries no single-string Resource.
     """
     start = body.find(f'"Sid": "{sid}"')
     assert start > -1, f"no {sid} statement — this matcher would otherwise be built from nothing"
     end = body.find('"Sid"', start + 1)
     statement = body[start:] if end == -1 else body[start:end]
-    assert len(statement) < len(body), f"the {sid} slice swallowed the document"
+    assert statement.count('"Effect"') == 1, (
+        f"the {sid} slice covers more than one statement, so the Resource read below may belong to "
+        "a neighbour — a statement carrying no Sid of its own is what makes the slice run on"
+    )
     assert re.search(r'"Effect":\s*"Deny"', statement), f"{sid} is not a Deny, so its Resource is a grant"
     resource = re.search(r'"Resource":\s*"([^"]+)"', statement)
     assert resource, f"{sid} has no single-string Resource"
@@ -239,12 +246,72 @@ def test_the_key_table_exercises_both_answers(root, kind, deny):
     assert {deny(f"{root}{suffix}") for suffix in KEY_SUFFIXES} == {True, False}
 
 
+def test_the_table_can_tell_an_ANCHORED_personal_deny_from_a_widened_one():
+    """The key table's adequacy, derived rather than counted.
+
+    A row deleted from ``KEY_SUFFIXES`` takes a whole mutation class's only detector with it, and
+    the loss is invisible twice over: the row names come from ``parametrize``, so no source grep
+    sees the table shrink, and every agreement row that remains still passes. Measured — widening
+    the personal ``…SystemSettings`` anchor reddens two rows while
+    ``backups/system_settings/archive/…`` is in the table, and nothing at all once it is removed.
+
+    So what is asserted is the PROPERTY rather than the membership: each personal Deny is compared
+    against a copy of itself with the principal tag replaced by ``*`` — the widening that turns
+    "the caller's own archive" into "any user's" while the document still parses and still ends
+    ``/archive/*`` — and the table must hold a key that tells the two apart. A row count would pin
+    the table's size and say nothing about what it can see.
+    """
+    for sid in ("ArchiveReceiptsAreNotUserWritable", "ArchiveReceiptsAreNotUserWritableSystemSettings"):
+        resource = _deny_resource_of(_PERSONAL_BODY, sid)
+        widened_resource = resource.replace("$${aws:PrincipalTag/username}", "*")
+        assert widened_resource != resource, f"{sid} is not anchored at the principal tag any more"
+
+        anchored = _key_matcher(resource, "alice")
+        widened = _key_matcher(widened_resource, "alice")
+
+        assert any(anchored(f"alice/{s}") != widened(f"alice/{s}") for s in KEY_SUFFIXES), (
+            f"no key in the table distinguishes {sid} from an unanchored copy of itself, so the "
+            "widening that denies every user's archive would pass every row above"
+        )
+
+
+def test_the_table_can_tell_the_SHARED_wildcard_from_a_space_anchored_one():
+    """The same property from the other side, where there is no anchor left to widen.
+
+    The shared Denies already put ``*`` where the space name goes, so the change that would go
+    unnoticed is the reverse: narrowing that slot to one literal space still refuses every
+    ``finance/`` key the table asks about, while quietly ceasing to cover any other space.
+    """
+    for sid in ("SharedArchiveReceiptsAreNotUserWritable", "SharedArchiveReceiptsAreNotUserWritableSystemSettings"):
+        resource = _deny_resource_of(_SHARED_BODY, sid)
+        narrowed_resource = resource.replace("}/*/", "}/finance/", 1)
+        assert narrowed_resource != resource, f"{sid} has no wildcard space slot to narrow"
+
+        wildcarded = _key_matcher(resource, "finance")
+        narrowed = _key_matcher(narrowed_resource, "finance")
+
+        assert any(wildcarded(f"finance/{s}") != narrowed(f"finance/{s}") for s in KEY_SUFFIXES), (
+            f"no key in the table distinguishes {sid} from a space-anchored copy of itself"
+        )
+
+
 def test_the_two_denies_really_do_differ_so_the_asymmetry_is_not_an_artefact():
     """One key, two answers. If this fails, a policy changed shape and the predicates should
     follow it rather than the table being edited to agree with a rule nobody re-read.
+
+    Asserted twice, and the second is the one that keeps the TABLE honest. The canonical example
+    is spelled out because it is what a reader needs to see; the sweep over ``KEY_SUFFIXES`` is
+    what fails if the rows carrying the asymmetry are ever removed, since a table on which the two
+    buckets never disagree would let a predicate that averaged them pass every row above while
+    this test still passed on its own hard-coded pair.
     """
     assert PERSONAL_DENY("alice/backups/archive/x.csv") is False
     assert SHARED_DENY("finance/backups/archive/x.csv") is True
+
+    assert any(PERSONAL_DENY(f"alice/{s}") != SHARED_DENY(f"finance/{s}") for s in KEY_SUFFIXES), (
+        "no key in the table is answered differently by the two buckets, so the asymmetry this "
+        "whole file exists to hold is exercised by nothing in the rows above"
+    )
 
 
 def test_the_wildcard_matches_a_slash_which_is_the_trap_in_reading_these_resources():

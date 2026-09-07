@@ -150,7 +150,7 @@ What each side is tied to, and what each therefore cannot see:
 | Guard | Reads the policy for | Blind to |
 |---|---|---|
 | `archiveWriteLock.test.ts` | the Resource STRINGS — it turns each Sid's `Resource` into a key matcher (`*` matching `/`, which is the trap) and runs the browser predicate over a key table | a change to `Effect` or `Action` |
-| `test_archive_write_lock_mirrors_iam.py` | the same Resource strings **and** the `Effect`, over ONE key table run against BOTH Python predicates | a change to the `Action` set |
+| `test_archive_write_lock_mirrors_iam.py` | the same Resource strings **and** the `Effect`, over ONE key table run against BOTH Python predicates | everything else in the statement — `Action`, `Condition`, `NotAction` — and everything outside it |
 | `test_archive_bucket_isolation.py` | the `Effect`, the exact `Action` set, and that the `Resource` ends `/archive/*` — for the two PRIMARY Sids only | any change to the anchor that preserves that suffix |
 | `test_spaces_and_protection.py`, `test_protected_focommon.py` | nothing — hand-written expectations whose docstrings narrate the Deny. They pin each predicate's SHAPE, which is still worth having | everything about the policy |
 
@@ -169,9 +169,23 @@ file *called* `archive` is not a file *inside* one; `is_write_locked` did not, s
 copy's own suite could see it: each was written from the same prose, and prose is what they agreed
 with.
 
-**What is still not pinned:** the `Action` set of the two `…SystemSettings` siblings. The personal
-one is compared to its twin by `test_portal_role_preservation.py`; the SHARED sibling's actions are
-asserted nowhere, so dropping `s3:PutObject` from it would leave every guard above green.
+**What no guard here reads is the document AROUND the statement**, and two changes exploit that.
+Wrapping a Deny in a balanced `%{ if … }` directive deletes it from the RENDERED policy while every
+guard in the table above still reads it as text and passes. And the policy `Version` is asserted
+nowhere in the repo: under `2008-10-17` IAM stops expanding policy variables, so
+`${aws:PrincipalTag/username}` becomes a literal that matches nothing — which is the premise the
+key matcher's whole substitution rests on. Both were measured. Neither is ranked as urgent, because
+each also breaks `UserPrefixObjects` and so fails in the direction where the personal bucket stops
+working rather than quietly opening; but a guard that reads statements can never see either, and
+saying so is the point of this table.
+
+The `Action` sets, by contrast, ARE covered — all four statements, by three guards that divide the
+work unevenly. `test_archive_bucket_isolation.py` pins the exact set on the two PRIMARY Sids.
+`test_app_managed_template_siblings.py` holds the SHARED sibling's actions equal to its twin's (its
+`TEXT_CHECKED` names the shared template only). `test_portal_role_preservation.py` reaches the
+PERSONAL sibling, comparing the twin against the statement it was copied from. So a sibling can
+only drift together with its original, and dropping `s3:PutObject` from both shared archive Denies
+still reddens `test_archive_bucket_isolation.py` and `test_portal_role_preservation.py` — measured.
 
 ## The layer — `file-ops-common/focommon/`
 
