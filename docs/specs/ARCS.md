@@ -126,6 +126,8 @@ files** — a destination+filename prompt that server-side-copies Athena's compl
 the user's space (all rows, not just the loaded page). 047 is a dependency of 048; the rest are
 independent. No IAM/infra change (all reuse existing user-scoped S3 + analytics access).
 
+> **Superseded in part by SPEC-223 (2026-09-07):** Save-results is no longer CSV-only. It carries a **Format** — CSV stays this server-side copy, while Parquet, JSON and Excel are built by the results-conversion plane and arrive as a notification. Full entry: `docs/decisions/browser.md` → *A flag can be neither an area nor a kill switch*, and the results-conversion arc below.
+
 > **047's active-database model was removed by SPEC-077** (round 5, below): no workspace/current database anywhere —
 > every base table is fully-qualified `database.table` and the schema rail is browse-only. Read the switcher and DB-chip
 > text above as history; full entry in `docs/decisions/`.
@@ -2900,3 +2902,19 @@ path, if ever wanted, is a fourth spec after 223, not a change to these three.
 with `If-None-Match` unless told to overwrite, so a name taken in between is a refusal with a
 notification rather than a silent replacement. No lock, because one object is written and S3 can
 refuse the write itself.
+
+**The arc closed 2026-09-07, and three things it planned turned out differently.** The prefix the
+plane wants is **relative to the space root** while the picker's is absolute, and passing one through
+writes a doubled root that no validator refuses — the containment check only proves the key starts
+with the root, which `alice/alice/…` does. That is the arc's sharpest trap and it is now stated
+beside the code that slices. The notification's link kept the **message as its anchor** rather than
+gaining an *Open folder* control, because a second anchor to one href is the duplicate the row was
+built to avoid; the invalidation became a mechanism over any `/files` link, so the send and archive
+planes inherit it. And the flag turned out to be a **third kind** — neither an area nor a kill switch
+but presentation over one control — which the taxonomy in `decisions/browser.md` did not have a slot
+for.
+
+**What the arc owes changed KIND at 223.** Its checks used to need a hand-crafted authenticated
+request, because there was no surface; now they need a sitting. `docs/testing/owed.md` is the single
+home for which of them are outstanding — this paragraph deliberately names no status, since a
+narrative that duplicates the ledger is the copy nobody updates.

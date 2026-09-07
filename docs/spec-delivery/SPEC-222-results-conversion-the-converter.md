@@ -79,6 +79,13 @@ its result object captured as the fixture. **The end-to-end conversion itself is
 [`docs/testing/owed.md`](../testing/owed.md); this plane has no browser surface until SPEC-223,
 so a live conversion needs an authenticated API call rather than a click.
 
+> **Superseded by SPEC-223 (2026-09-07):** the sentence above is no longer true. The Save-results
+> dialog's format choice enqueues into this plane, so the end-to-end conversion **is** a click and
+> its steps are `e2e.md` §4.3 and §4.5. What still needs a hand-crafted request is narrower: the
+> raw envelope, and `destination_occupied` raced past the browser's pre-flight probe — which the
+> browser cannot stage at all, since the probe turns an occupied destination into the overwrite
+> question. Full entry: `docs/decisions/control-planes.md` → *The destination prefix is relative*.
+
 ## The apply is the only thing that knows an account quota
 
 `main` went red on this spec. `CreateFunction` refused the converter — `'MemorySize' value

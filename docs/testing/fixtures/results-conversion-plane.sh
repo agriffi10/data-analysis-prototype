@@ -5,14 +5,20 @@
 # thing, and a script each would be four files sharing a token, a queue URL and an envelope
 # builder. A spec that owes a CLI check ADDS A SECTION HERE and points its owed.md row at it.
 #
-# WHY A SCRIPT AND NOT STEPS IN e2e.md: nothing in the browser reaches this plane. SPEC-221 built
-# the front door and SPEC-222 the converter, and both shipped with "nothing a user can reach" as
-# an explicit scope line — the browser surface is SPEC-223. So a conversion is an authenticated
-# POST rather than a click, and every check here is an `owed.md` row that running this discharges.
+# WHAT IS LEFT HERE, AND WHY (updated when SPEC-223 shipped the browser surface). This file used to
+# carry every check, because nothing in the browser reached this plane. A conversion is now a click:
+# the per-format saves, the read-back, the overwrite question and the notification's link are steps
+# in e2e.md §4.3 and §4.5, and this script is no longer the way to run them.
 #
-# WHEN IT GOES AWAY: SPEC-223 gives the plane a UI. The checks a signed-in session can then drive
-# move into e2e.md's query section, and this file keeps only what a browser cannot express — the
-# refusals that need a hand-crafted envelope, and the CloudWatch reads.
+# What stays is what a browser cannot express, which is a shorter list than it looks:
+#   - The raw envelope — a literal 200 with the echoed request id, which a click only shows with
+#     the network panel open.
+#   - `destination_occupied` staged as a REAL race. The browser cannot send `onConflict: refuse`
+#     at an occupied destination at all: `useSaveResults` runs an `objects.exists` pre-flight and
+#     turns an occupied answer into the overwrite question, so reaching the plane's own conditional
+#     refusal needs a hand-crafted envelope that skips the probe.
+#   - Refusals with no browser path — a malformed envelope, an execution that is not the actor's.
+#   - The CloudWatch reads.
 #
 # USAGE
 #   1. Sign in to the portal as the account you want to act as.
