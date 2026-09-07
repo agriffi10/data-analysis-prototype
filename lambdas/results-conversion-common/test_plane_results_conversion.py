@@ -460,24 +460,31 @@ BROWSER_GOLDEN_FILE = (
 )
 
 
-def _browser_source() -> str:
-    """The browser half's source, with its GOLDEN_ROW_LIMIT declaration proved present.
+def _browser_golden() -> str:
+    """The VALUE of the browser half's GOLDEN_ROW_LIMIT, read out of its source.
 
-    The declaration is checked separately from the sentence so a rename cannot turn this gate
-    into one that passes over a file no longer holding the golden at all.
+    The value, not the file. Searching the whole file for the sentence passes when the sentence
+    sits in a comment above a constant that says something else — a review planted exactly that
+    and both suites stayed green, which is the drift this gate exists to catch wearing the shape
+    of a passing gate. So the declaration is bounded and only its template literal is read.
 
     Returns:
-      The file's text.
+      The sentence the browser file actually assigns.
 
     Raises:
-      AssertionError: If the declaration is gone, which means this gate has stopped reading what
-        it claims to read.
+      AssertionError: If the declaration is missing or is not a single template literal. Both are
+        failures of this gate's own reading rather than of the sentence, and the messages say so.
     """
     source = BROWSER_GOLDEN_FILE.read_text(encoding="utf-8")
-    assert "const GOLDEN_ROW_LIMIT =" in source, (
-        f"{BROWSER_GOLDEN_FILE.name} no longer declares GOLDEN_ROW_LIMIT"
+    marker = "const GOLDEN_ROW_LIMIT ="
+    assert marker in source, f"{BROWSER_GOLDEN_FILE.name} no longer declares GOLDEN_ROW_LIMIT"
+    declaration = source.split(marker, 1)[1].split(";", 1)[0]
+    quoted = declaration.split("`")
+    assert len(quoted) == 3, (
+        "GOLDEN_ROW_LIMIT must be exactly ONE template literal, so this gate reads a value rather "
+        "than re-implementing TypeScript string concatenation"
     )
-    return source
+    return quoted[1]
 
 
 def test_the_row_limit_refusal_is_the_sentence_the_browser_renders():
@@ -496,11 +503,10 @@ def test_the_row_limit_refusal_is_the_sentence_the_browser_renders():
         {"format": "xlsx", "filename": "q1.xlsx", "count": "1,400,000"},
     )
     assert produced == GOLDEN_ROW_LIMIT
-    # The browser copy is written as ONE literal on one line precisely so this is a plain
-    # substring check: reconstructing a concatenation here would be a second parser to get
-    # wrong, and getting it wrong reads as a mismatch on a file that is in fact correct.
-    assert produced in _browser_source(), (
-        "the browser's copy of the row-limit sentence has drifted from the plane's wording"
+    assert produced == _browser_golden(), (
+        "the browser's copy of the row-limit sentence disagrees with the plane's wording — if the "
+        "sentences read the same, check the browser copy is still ONE template literal, which is "
+        "the layout this gate reads rather than a second string parser"
     )
 
 

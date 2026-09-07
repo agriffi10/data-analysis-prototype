@@ -28,15 +28,15 @@ vi.mock('../../lib/userSpace', async (importOriginal) => ({
  * Python golden, or this copy, and `pytest lambdas/` fails — which is why the literal is one
  * template literal on one line, and why the apostrophe is ASCII.
  */
-const GOLDEN_ROW_LIMIT =
-  // A TEMPLATE literal on ONE line, and both choices are load-bearing. One line, so the Python
-  // gate is a substring check rather than a second parser to get wrong. Backticks, so neither
-  // the apostrophe nor the inner quotes need escaping — an escaped quote would put bytes in this
-  // file that the produced sentence does not have, and the gate would then fail on a copy that
-  // is in fact correct. The apostrophe is ASCII, which is what the plane emits; the portal’s own
-  // authored wording uses a curly one, and a curly apostrophe here would agree with nothing.
-  // prettier-ignore
-  `Couldn't save the query results as Excel: the results have 1,400,000 rows, which is more than a spreadsheet can hold, so "q1.xlsx" was not written. Please save them as Parquet instead, or narrow the query.`;
+// ONE template literal, on ONE line, and each of those is load-bearing for the Python gate that
+// compares this against the sentence the plane really produces. One literal, because that gate
+// reads the VALUE between the backticks rather than re-implementing TypeScript concatenation —
+// it refuses anything else rather than guess. One line, so nothing has to reassemble it.
+// Backticks, so neither the apostrophe nor the inner quotes need escaping: an escaped quote
+// would put bytes in this file the produced sentence does not have. The apostrophe is ASCII,
+// which is what the plane emits; the portal’s own authored wording uses a curly one, and a
+// curly apostrophe here would agree with nothing.
+const GOLDEN_ROW_LIMIT = `Couldn't save the query results as Excel: the results have 1,400,000 rows, which is more than a spreadsheet can hold, so "q1.xlsx" was not written. Please save them as Parquet instead, or narrow the query.`;
 
 const note = (over: Partial<Notification> = {}): Notification => ({
   id: 'n1',
@@ -72,6 +72,22 @@ describe('a results-conversion notification (SPEC-223 FR-004)', () => {
     await user.click(screen.getByRole('link', {name: 'Saved 1,234 rows as Parquet to "q1.parquet".'}));
 
     expect(invalidate).toHaveBeenCalledWith({queryKey: fileBrowserKeys.list(bucket, prefix)});
+  });
+
+  it('refreshes the same folder when the sibling Review conflicts control is the way in', async () => {
+    // `reviewHref` is this same path plus a request id, so it lands on the same listing — which
+    // makes a user who arrived that way the one person an anchor-only refresh would miss.
+    const {user, queryClient} = renderRow(
+      note({
+        link: '/files?prefix=alice/reports/',
+        payload: {requestId: 'req-1', conflicts: [{itemKey: 'alice/reports/a.csv'}]}
+      })
+    );
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+
+    await user.click(screen.getByRole('link', {name: 'Review conflicts'}));
+
+    expect(invalidate).toHaveBeenCalledWith({queryKey: fileBrowserKeys.list('user-space', 'alice/reports/')});
   });
 
   it('renders the plane’s row-limit sentence verbatim, naming the count and suggesting Parquet', () => {

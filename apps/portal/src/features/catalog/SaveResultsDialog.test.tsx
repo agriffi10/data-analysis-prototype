@@ -1,5 +1,5 @@
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
-import {screen} from '@testing-library/react';
+import {screen, within} from '@testing-library/react';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import type {QueryClient} from '@tanstack/react-query';
 import {createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
@@ -141,6 +141,14 @@ describe('SaveResultsDialog (SPEC-049 FR-002)', () => {
       filename: 'query-results-20260622-1430.parquet',
       format: 'parquet'
     });
+  });
+
+  it('offers the four formats in order, with CSV first because it is the default', async () => {
+    // The order is derived from `RESULTS_FORMATS`' keys, so it is an insertion-order dependency
+    // nothing else would notice: reordering that map silently reorders the select.
+    renderDialog();
+    const options = within(screen.getByLabelText('Format')).getAllByRole('option');
+    expect(options.map((o) => o.textContent)).toEqual(['CSV', 'Parquet', 'JSON', 'Excel']);
   });
 
   it('drops the format field entirely with resultsConversion off, and still saves a CSV', async () => {

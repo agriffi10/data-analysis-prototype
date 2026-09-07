@@ -196,17 +196,20 @@ export function useSaveResults({
     // key starts with the root, which a doubled root does.
     const format = args.format;
     const space = spaceFor(args.destBucket, args.destPrefix);
-    // The root is derived from the very string being sliced — a space's root IS its name plus a
-    // slash, which is also how the plane's own link builder derives it. Looking it up in `spaces`
-    // instead would need a fallback for a destination that is not in the list, and the only
-    // available fallback is the absolute prefix, which is precisely the doubled-root key this
-    // slice exists to prevent. Derived, there is no such branch to get wrong.
-    const root = `${space.name}/`;
-    if (!args.destPrefix.startsWith(root)) {
-      toast.push({variant: 'danger', message: 'Couldn’t read the destination folder.'});
-      return;
-    }
-    const relativePrefix = args.destPrefix.slice(root.length);
+    // The root is derived from the very string being sliced, and that is what makes the slice
+    // TOTAL rather than conditional: `spaceFor` reads the name as `destPrefix.split('/')[0]`, so
+    // `${name}/` is a prefix of `destPrefix` for every value that contains a slash — which every
+    // folder prefix does, since the picker only ever hands out `rootPrefix` or a slash-terminated
+    // descendant of it. Looking the root up in `spaces` instead needed a fallback for a
+    // destination not in the list, and the only fallback available was the absolute prefix, which
+    // is exactly the doubled-root key this slice exists to prevent.
+    //
+    // There is deliberately no guard here. An earlier revision refused a `destPrefix` that did not
+    // start with its own first segment; a review planted its deletion and the whole suite stayed
+    // green, because no reachable input can fail that test. A refusal that cannot fire reads as a
+    // fence to everyone downstream while denying nobody, and it did not even cover the one shape
+    // that could slip past it — a leading slash, which satisfies it and yields a doubled slash.
+    const relativePrefix = args.destPrefix.slice(space.name.length + 1);
 
     setBusy(true);
     void (async () => {
