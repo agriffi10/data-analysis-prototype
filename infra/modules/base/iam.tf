@@ -441,9 +441,10 @@ resource "time_sleep" "wait_for_verification_grant" {
 #
 # PREFIX-LIST IS PINNED TO `aws`, NOT TO THIS ACCOUNT. Every managed prefix list here is
 # AWS-owned (arn:aws:ec2:<region>:aws:prefix-list/…), and the SPA task's egress rule names the
-# S3 one because a CIDR rule does not match gateway-endpoint traffic. Of the actions here only
-# ec2:ModifySecurityGroupRules accepts a prefix-list resource type — Authorize/Revoke
-# SecurityGroupEgress do not — so that one action is what the pin is load-bearing for.
+# S3 one because a CIDR rule does not match gateway-endpoint traffic. Of the security-group
+# MUTATORS only ec2:ModifySecurityGroupRules accepts a prefix-list resource type —
+# Authorize/RevokeSecurityGroupEgress do not — so that is the action the pin is load-bearing
+# for. CreateTags/DeleteTags accept one too, and are inert on a list this account cannot tag.
 #
 # THE PUSH GRANTS ARE HERE because the image pipeline runs as this role, and a registry token
 # with no layer-upload actions beside it would authorize nothing at all.

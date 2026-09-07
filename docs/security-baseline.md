@@ -645,8 +645,9 @@ So the statement became two:
 
 - `NotificationsEventSourceMappingManage` — the four CONDITION-scopable actions (only three of
   them take an ARN, and the table above is the authority), `Resource: "*"` with
-  `ArnLike lambda:FunctionArn = arn:aws:lambda:${aws_region}:*:function:${project_name}-*-notifications-writer`.
-  The deploy role can no longer attach a mapping to an arbitrary Lambda in the account.
+  `ArnLike lambda:FunctionArn = arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-notifications-writer`.
+  The deploy role can no longer attach a mapping to an arbitrary Lambda in the account — nor,
+  since the account was pinned, to one in any other account.
 - `NotificationsEventSourceMappingList` — `ListEventSourceMappings` alone, bare `"*"`, **deliberately
   unconditioned**. AWS defines no resource types and no condition keys for it, so a condition would
   deny the call outright — the "unknown-ARN-in-list" trap from `infra/info/deploy-role-iam.md`. This one is a
@@ -692,7 +693,7 @@ unfixable findings remain. Gate by **check ID plus resource**, or accept a docum
   `lambda:FunctionArn` (three of them also take an ARN; the table above is the authority);
   `ListEventSourceMappings` keeps a bare `"*"` because AWS defines no resource types or condition
   keys for it; `lambda:ListTags` sits in its own statement scoped to
-  `arn:aws:lambda:${aws_region}:*:event-source-mapping:*`.
+  `arn:aws:lambda:${aws_region}:${account_id}:event-source-mapping:*`.
 
 ## The lockout, recorded because it will happen again
 

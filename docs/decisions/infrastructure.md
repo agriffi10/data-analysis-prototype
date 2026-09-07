@@ -1003,8 +1003,9 @@ versions while every assertion passed over the eight it did reach.
 
 ## An account wildcard is a scoping decision nobody made
 
-Every ARN in the deploy role's seventeen policy templates wildcarded the account:
-`arn:aws:glue:${aws_region}:*:catalog`, and 191 others. Sibling modules had pinned the identical
+192 of the 216 ARNs in the deploy role's seventeen policy templates wildcarded the account:
+`arn:aws:glue:${aws_region}:*:catalog`, and 191 others. Of the remaining 24, 21 carry an empty
+account field, which is legal, and 3 already named the id. Sibling modules had pinned the identical
 shapes with `${account_id}` all along (`infra/modules/table-share/locals.tf`,
 `analytics/policies/portal-role-analytics.json.tftpl`), so this was house style in one tree and
 not the other, and neither reads as deliberate.
@@ -1030,10 +1031,13 @@ All sixteen managed prefix lists here are AWS-owned — `arn:aws:ec2:us-east-1:a
 `OwnerId: AWS` — and the SPA task's egress rule names the S3 one, because a CIDR rule does not
 match gateway-endpoint traffic. Pinned to this account, `ec2:ModifySecurityGroupRules` reads
 `implicitDeny` against the real list; pinned to `aws` it reads `allowed`. It is pinned to the
-owner rather than left wildcarded, which leaves the guard with no exemption list to rot. Of the
-actions in that statement **only `ModifySecurityGroupRules` accepts a `prefix-list` resource
-type** — `AuthorizeSecurityGroupEgress` and `RevokeSecurityGroupEgress` do not, per the live
-Service Reference — so the first draft of this paragraph was wrong on two actions of three.
+owner rather than left wildcarded, which leaves the exemption scoped to the one resource type
+that earns it. Of the security-group **mutators** only `ModifySecurityGroupRules` accepts a
+`prefix-list` resource type — `AuthorizeSecurityGroupEgress` and `RevokeSecurityGroupEgress` do
+not, per the live Service Reference — so that is the action the pin is load-bearing for. Say
+"the mutators", not "the actions in that statement": the merge below puts `ec2:CreateTags` and
+`DeleteTags` in the same statement and **both** accept a `prefix-list`, so the narrower sentence
+was falsified by its own commit. This paragraph has now been wrong twice, in both directions.
 
 **The evidence is a live-ARN sweep, not the simulate pair the fence normally asks for.** A
 simulate answers "does this pattern match this string" for a string you chose; both legs of

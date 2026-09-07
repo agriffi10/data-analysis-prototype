@@ -1502,6 +1502,33 @@ def test_the_role_holds_every_ecr_action_creating_an_image_lambda_needs() -> Non
     )
 
 
+def _collect_arns(node: object, into: list[str]) -> None:
+    """Appends every ARN-looking string reachable from ``node`` to ``into``.
+
+    The accumulator is a parameter rather than a closed-over name so this can be called from
+    inside a loop without binding whichever list the last iteration happened to create.
+
+    Args:
+      node: Any part of a parsed policy document.
+      into: The list to append to, mutated in place.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    if isinstance(node, str):
+        if node.startswith("arn:"):
+            into.append(node)
+    elif isinstance(node, list):
+        for item in node:
+            _collect_arns(item, into)
+    elif isinstance(node, dict):
+        for value in node.values():
+            _collect_arns(value, into)
+
+
 def _arns(path: pathlib.Path) -> list[str]:
     """Collects every ARN in a rendered document, wherever it sits.
 
@@ -1520,19 +1547,7 @@ def _arns(path: pathlib.Path) -> list[str]:
       None.
     """
     found: list[str] = []
-
-    def walk(node: object) -> None:
-        if isinstance(node, str):
-            if node.startswith("arn:"):
-                found.append(node)
-        elif isinstance(node, list):
-            for item in node:
-                walk(item)
-        elif isinstance(node, dict):
-            for value in node.values():
-                walk(value)
-
-    walk(json.loads(_render(path)))
+    _collect_arns(json.loads(_render(path)), found)
     return found
 
 
@@ -1560,11 +1575,14 @@ def test_no_deploy_grant_wildcards_the_account(path: pathlib.Path) -> None:
     Raises:
       AssertionError: When an ARN's account field is ``*``.
     """
-    allowed = {ACCOUNT_ID, ""} | FOREIGN_OWNERS
+    def permitted(arn: str) -> set[str]:
+        """An AWS-owned account is allowed only where AWS owns the resource type."""
+        return {ACCOUNT_ID, ""} | (FOREIGN_OWNERS if ":prefix-list/" in arn else set())
+
     offenders = [
         (arn, arn.split(":")[4])
         for arn in _arns(path)
-        if len(arn.split(":")) > 4 and arn.split(":")[4] not in allowed
+        if len(arn.split(":")) > 4 and arn.split(":")[4] not in permitted(arn)
     ]
     assert not offenders, (
         f"{path.name} names a foreign account on {len(offenders)} ARN(s): {offenders}. The "
@@ -1580,10 +1598,12 @@ def test_every_deploy_document_carries_arns_to_check(path: pathlib.Path) -> None
 
     ``all()`` over an empty collection is true, so a collector that silently found nothing
     passes the test above in exactly the way a clean document does. This catches a collector
-    that went dark, not the loss of one ARN — every document here carries several. The
-    aggregate floor is asserted separately, over the whole population, in
-    ``test_the_account_pin_is_what_makes_a_foreign_resource_denied``; between them a collector
-    that half-works is caught too.
+    that went dark, not the loss of one ARN — every document here carries several.
+
+    A HALF-working collector needs its own assertion, which is the companion test below: the
+    aggregate floor elsewhere in this file does not do it, because narrowing ``_arns`` back to
+    the ``Resource`` field drops only the two ``Condition`` ARNs and still clears that floor by
+    a hundred.
 
     Args:
       path: The template to check.
@@ -1695,8 +1715,7 @@ def test_the_terraform_passes_the_real_account_id() -> None:
     )
 
 
-@pytest.mark.parametrize("path", ARN_BEARING_POLICIES, ids=lambda p: p.name)
-def test_a_prefix_list_arn_is_pinned_to_aws_not_to_this_account(path: pathlib.Path) -> None:
+def test_a_prefix_list_arn_is_pinned_to_aws_not_to_this_account() -> None:
     """The one ARN that must NOT name this account.
 
     Every managed prefix list here is AWS-owned, and the SPA task's egress rule names the S3
@@ -1706,22 +1725,30 @@ def test_a_prefix_list_arn_is_pinned_to_aws_not_to_this_account(path: pathlib.Pa
     That makes "correcting" the odd-looking ``aws`` the most likely wrong edit here.
 
     Args:
-      path: The template to check.
+      None.
 
     Returns:
       None.
 
     Raises:
-      AssertionError: When a prefix-list ARN names anything but ``aws``.
+      AssertionError: When a prefix-list ARN names anything but ``aws``, or none is granted.
     """
-    wrong = [
+    found = [
         arn
+        for path in ARN_BEARING_POLICIES
         for arn in _arns(path)
-        if ":prefix-list/" in arn and arn.split(":")[4] != "aws"
+        if ":prefix-list/" in arn
     ]
+    # Only one document carries one; parametrizing over all seventeen asserted nothing in
+    # sixteen of them, and deleting the ARN outright left this test green.
+    assert found, (
+        "no prefix-list ARN is granted anywhere. If the grant was deliberately removed, remove "
+        "FOREIGN_OWNERS and this test with it rather than leaving an exemption for nothing."
+    )
+    wrong = [arn for arn in found if arn.split(":")[4] != "aws"]
     assert not wrong, (
-        f"{path.name} pins a prefix-list ARN to something other than 'aws': {wrong}. AWS owns "
-        "every managed prefix list; this account owns none. Pinning it here denies "
+        f"a prefix-list ARN names something other than 'aws': {wrong}. AWS owns every managed "
+        "prefix list; this account owns none. Pinning it here denies "
         "ec2:ModifySecurityGroupRules on the SPA's own egress rule, at apply."
     )
 
@@ -1788,3 +1815,56 @@ def test_the_merged_ec2_statement_still_grants_tagging_on_every_type() -> None:
         "security-group-rule", "vpc-endpoint", "vpc-flow-log", "network-interface",
         "prefix-list",
     }, f"the merged statement covers {sorted(types)}, not the ten types it was folded from"
+
+
+def test_the_arn_collector_still_reaches_outside_the_resource_field() -> None:
+    """The reason ``_arns`` walks the parsed document must itself be asserted.
+
+    Two ARNs in these templates sit in ``Condition`` values rather than ``Resource`` — the
+    ``ArnLike`` on ``lambda:FunctionArn`` in the feedback and notifications
+    event-source-mapping statements. A collector narrowed back to ``Resource`` loses exactly
+    those two out of two hundred and clears every count-based floor in this file, which is the
+    quiet way the account check stops covering them.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When no collected ARN comes from outside a ``Resource`` field.
+    """
+    outside = []
+    for path in ARN_BEARING_POLICIES:
+        for statement in _statements(path):
+            condition = statement.get("Condition")
+            if not condition:
+                continue
+            found: list[str] = []
+            _collect_arns(condition, found)
+            outside.extend((path.name, statement.get("Sid"), arn) for arn in found)
+    assert outside, (
+        "no ARN was found in any Condition block. Either the two that live there are gone — "
+        "in which case delete this test and _arns's justification with it — or _arns has been "
+        "narrowed to the Resource field and silently stopped checking them."
+    )
+    # COUNTS, not membership. Each of those two ARNs is byte-identical to the `Resource` of
+    # the statement it conditions, so a set of collected strings contains it either way and a
+    # narrowed collector looks correct. Only the multiplicity changes.
+    def resource_only(path: pathlib.Path) -> int:
+        total = 0
+        for statement in _statements(path):
+            resource = statement.get("Resource")
+            resource = resource if isinstance(resource, list) else [resource]
+            total += sum(1 for r in resource if isinstance(r, str) and r.startswith("arn:"))
+        return total
+
+    collected = sum(len(_arns(path)) for path in ARN_BEARING_POLICIES)
+    resources = sum(resource_only(path) for path in ARN_BEARING_POLICIES)
+    assert collected == resources + len(outside), (
+        f"_arns collected {collected} ARNs; the documents hold {resources} in Resource fields "
+        f"and {len(outside)} in Conditions. A collector narrowed to Resource still yields every "
+        "Condition ARN as a STRING, because each equals the Resource it conditions — so this "
+        "compares counts. Fix _arns rather than this number."
+    )
