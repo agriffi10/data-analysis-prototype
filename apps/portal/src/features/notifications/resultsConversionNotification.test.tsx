@@ -16,21 +16,27 @@ vi.mock('../../lib/userSpace', async (importOriginal) => ({
 /**
  * The browser's half of a two-language assertion on the row-limit refusal.
  *
- * `rccommon/messages.py` composes this sentence and the Python suite asserts it, which proves
- * the producer is consistent with itself. What it cannot prove is that the wording registered
- * on the plane is the wording a user READS — that needs the row rendering it. So the same
- * string is written out on both sides, deliberately duplicated rather than shared through a
- * fixture file, since a shared file both halves read would go stale together. The Python copy
- * is `GOLDEN_ROW_LIMIT` in `lambdas/results-conversion-common/test_plane_results_conversion.py`;
- * change one and this fails.
+ * **What this half can and cannot prove.** It proves the row renders the plane's sentence as
+ * plain text — unlinked, untruncated, whole. It CANNOT prove the sentence is still the plane's:
+ * the literal is fed in as the notification's `message` and read back out, which holds for any
+ * string at all, so drift between the two languages is invisible from here.
+ *
+ * The gate that closes that is on the Python side, where the sentence can actually be produced:
+ * `test_the_row_limit_refusal_is_the_sentence_the_browser_renders` in
+ * `lambdas/results-conversion-common/test_plane_results_conversion.py` renders it for real and
+ * compares it against the literal below, read out of THIS file. Change the plane's wording, the
+ * Python golden, or this copy, and `pytest lambdas/` fails — which is why the literal is one
+ * template literal on one line, and why the apostrophe is ASCII.
  */
 const GOLDEN_ROW_LIMIT =
-  // ASCII apostrophe, byte for byte what the plane emits. The portal's own authored copy uses a
-  // curly one, and a curly apostrophe here would make this string agree with nothing at all —
-  // the two halves would each pass against themselves while the sentence differed.
-  "Couldn't save the query results as Excel: the results have 1,400,000 rows, which is more " +
-  'than a spreadsheet can hold, so "q1.xlsx" was not written. Please save them as Parquet ' +
-  'instead, or narrow the query.';
+  // A TEMPLATE literal on ONE line, and both choices are load-bearing. One line, so the Python
+  // gate is a substring check rather than a second parser to get wrong. Backticks, so neither
+  // the apostrophe nor the inner quotes need escaping — an escaped quote would put bytes in this
+  // file that the produced sentence does not have, and the gate would then fail on a copy that
+  // is in fact correct. The apostrophe is ASCII, which is what the plane emits; the portal’s own
+  // authored wording uses a curly one, and a curly apostrophe here would agree with nothing.
+  // prettier-ignore
+  `Couldn't save the query results as Excel: the results have 1,400,000 rows, which is more than a spreadsheet can hold, so "q1.xlsx" was not written. Please save them as Parquet instead, or narrow the query.`;
 
 const note = (over: Partial<Notification> = {}): Notification => ({
   id: 'n1',

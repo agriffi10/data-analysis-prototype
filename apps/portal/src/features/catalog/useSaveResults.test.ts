@@ -95,6 +95,7 @@ describe('useSaveResults, the conversion path (SPEC-223 FR-002, FR-003)', () => 
     // Nothing has been written yet, so nothing is invalidated — the plane has only been asked.
     // The CSV path's own invalidation is the positive control that this spy would see one.
     expect(invalidate).not.toHaveBeenCalled();
+    expect(result.current.busy).toBe(false);
   });
 
   it('mints a fresh request id per submit, so the double-submit guard is not a collision', async () => {
@@ -133,6 +134,10 @@ describe('useSaveResults, the conversion path (SPEC-223 FR-002, FR-003)', () => 
     await waitFor(() => expect(result.current.overwritePrompt?.filename).toBe('q1.parquet'));
     expect(objectExists).toHaveBeenCalledWith({bucket: 'shared-space', key: 'salesdata/reports/q1.parquet'});
     expect(enqueueResultsConversion).not.toHaveBeenCalled();
+    // `busy` drives `dismissible` and BOTH buttons' disabled state on the confirm dialog, so a
+    // prompt raised while it is still true has no Confirm, no Cancel and no Escape — a reload is
+    // the only way out. Asserted on every branch that leaves the async path.
+    expect(result.current.busy).toBe(false);
 
     act(() => result.current.confirmOverwrite());
 
@@ -178,6 +183,7 @@ describe('useSaveResults, the conversion path (SPEC-223 FR-002, FR-003)', () => 
     expect(pushed[0].message).toContain('Something went wrong');
     expect(pushed[0].message).not.toContain(SENTINEL);
     expect(pushed[0].variant).toBe('danger');
+    expect(result.current.busy).toBe(false);
     // The dialog stays open so the name or folder can be changed and tried again.
     expect(result.current.open).toBe(true);
   });
@@ -195,5 +201,6 @@ describe('useSaveResults, the conversion path (SPEC-223 FR-002, FR-003)', () => 
     expect(result.current.overwritePrompt).toBeNull();
     // The dialog stays open, so the user can change the name or the folder and try again.
     expect(result.current.open).toBe(true);
+    expect(result.current.busy).toBe(false);
   });
 });

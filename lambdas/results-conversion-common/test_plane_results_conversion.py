@@ -448,14 +448,59 @@ def test_the_link_encodes_every_component_and_puts_the_space_first():
     )
 
 
+#: The browser file holding the other half of the row-limit golden.
+BROWSER_GOLDEN_FILE = (
+    pathlib.Path(__file__).resolve().parents[2]
+    / "apps"
+    / "portal"
+    / "src"
+    / "features"
+    / "notifications"
+    / "resultsConversionNotification.test.tsx"
+)
+
+
+def _browser_source() -> str:
+    """The browser half's source, with its GOLDEN_ROW_LIMIT declaration proved present.
+
+    The declaration is checked separately from the sentence so a rename cannot turn this gate
+    into one that passes over a file no longer holding the golden at all.
+
+    Returns:
+      The file's text.
+
+    Raises:
+      AssertionError: If the declaration is gone, which means this gate has stopped reading what
+        it claims to read.
+    """
+    source = BROWSER_GOLDEN_FILE.read_text(encoding="utf-8")
+    assert "const GOLDEN_ROW_LIMIT =" in source, (
+        f"{BROWSER_GOLDEN_FILE.name} no longer declares GOLDEN_ROW_LIMIT"
+    )
+    return source
+
+
 def test_the_row_limit_refusal_is_the_sentence_the_browser_renders():
-    """The producing half of a two-language assertion; see GOLDEN_ROW_LIMIT."""
-    assert (
-        messages.failure_message(
-            reasons.EXCEL_ROW_LIMIT,
-            {"format": "xlsx", "filename": "q1.xlsx", "count": "1,400,000"},
-        )
-        == GOLDEN_ROW_LIMIT
+    """The cross-language gate the two-language golden actually needs.
+
+    The Python half alone only proves the producer agrees with itself, and the browser half
+    alone proves that `NotificationRow` renders whatever `message` it is handed — it feeds the
+    literal in and reads it back, which holds for any string. Neither can see the other drift.
+
+    This closes it from the side that can: the sentence is produced for real here, and compared
+    against the literal read out of the browser's own source. Change the wording, the Python
+    golden, or the browser copy, and this fails.
+    """
+    produced = messages.failure_message(
+        reasons.EXCEL_ROW_LIMIT,
+        {"format": "xlsx", "filename": "q1.xlsx", "count": "1,400,000"},
+    )
+    assert produced == GOLDEN_ROW_LIMIT
+    # The browser copy is written as ONE literal on one line precisely so this is a plain
+    # substring check: reconstructing a concatenation here would be a second parser to get
+    # wrong, and getting it wrong reads as a mismatch on a file that is in fact correct.
+    assert produced in _browser_source(), (
+        "the browser's copy of the row-limit sentence has drifted from the plane's wording"
     )
 
 
