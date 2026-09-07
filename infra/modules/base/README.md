@@ -90,6 +90,12 @@ cannot be the wrong type, against `allowed` under `"*"`. **Do not reach for a sc
 action to validate the ARN** — that method fails on the case it was derived from, and
 [`../../info/deploy-role-iam.md`](../../info/deploy-role-iam.md) works it through.
 
+**Every ARN names ONE account** — `${account_id}`, from the root's `aws_caller_identity`. The one
+exception is the managed prefix lists, which AWS owns (`arn:aws:ec2:<region>:aws:prefix-list/…`)
+and which are therefore pinned to `aws`; an **empty** account field (S3, Route 53, API Gateway) is
+legal and is not a wildcard. The reasoning, and why a simulate cannot find the AWS-owned case, is in
+`../../info/deploy-role-iam.md`.
+
 **`test_deploy_platform_policies.py` pins that recorded measurement rather than re-deriving it.** It
 holds the set as a literal and asserts the policies agree in both directions, because a test that
 reads the AWS Service Reference over the network **fails on a runner with no egress and passes by
@@ -116,12 +122,14 @@ The recurring non-scopable actions, each isolated in its own wildcard statement:
   implicit deny.**
 - **The EC2 mutators are scoped by RESOURCE TYPE, not by name.** An EC2 ARN carries a generated id, so
   there is no name pattern and no tag to condition on at create time — but the actions accept ARNs, so
-  the grant names the nine resource types the platform builds and reaches no other kind. **The tagging
-  statement names the same nine**, so it cannot reach an instance, a volume or an AMI. It carries **no
-  condition**: `ec2:CreateAction` does not exist as a condition key on `DeleteTags`, so a condition
-  there is an implicit deny that can never be widened without a refresh that itself needs the grant —
-  and on `CreateTags` it would forbid tagging anything that already exists, **which is exactly what
-  `aws_default_security_group` is**.
+  the grant names the ten resource types the platform builds and reaches no other kind. It cannot
+  reach an instance, a volume or an AMI. **`ec2:CreateTags`/`DeleteTags` are in that same statement**
+  rather than a second one repeating the ten: the duplicate list had to be hand-synced, and had
+  already drifted from the sentence describing it. They carry **no condition**: `ec2:CreateAction`
+  does not exist as a condition key on `DeleteTags`, so a condition there is an implicit deny that can
+  never be widened without a refresh that itself needs the grant — and on `CreateTags` it would forbid
+  tagging anything that already exists, **which is exactly what `aws_default_security_group` is**.
+  Merging is what forecloses conditioning the tagging pair alone, and that is the trade made.
 - **The logs queue statement names BOTH `-logs` and `-logs.fifo`.** A FIFO queue's name must end in
   `.fifo`, which made that rename a **destroy-and-create**, so the one apply performing it needed
   `DeleteQueue` on the old name and `CreateQueue` on the new one **at the same time**. The old ARN

@@ -5,13 +5,13 @@
       "Sid": "PreSignupProbeInvoke",
       "Effect": "Allow",
       "Action": "lambda:InvokeFunction",
-      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-pre-signup"
+      "Resource": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-pre-signup"
     },
     {
       "Sid": "PostConfirmationProbeInvoke",
       "Effect": "Allow",
       "Action": "lambda:InvokeFunction",
-      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-post-confirmation"
+      "Resource": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-post-confirmation"
     },
     {
       "Sid": "IAMSelfManage",
@@ -50,7 +50,7 @@
         "iam:TagPolicy",
         "iam:UntagPolicy"
       ],
-      "Resource": "arn:aws:iam::*:policy/${project_name}-deploy-*"
+      "Resource": "arn:aws:iam::${account_id}:policy/${project_name}-deploy-*"
     },
     {
       "Sid": "IAMOIDCProvider",
@@ -105,7 +105,7 @@
         "cognito-idp:UntagResource",
         "cognito-idp:ListTagsForResource"
       ],
-      "Resource": "arn:aws:cognito-idp:${aws_region}:*:userpool/*"
+      "Resource": "arn:aws:cognito-idp:${aws_region}:${account_id}:userpool/*"
     },
     {
       "Sid": "IAMPortalRole",
@@ -152,7 +152,7 @@
         "lambda:UntagResource",
         "lambda:ListTags"
       ],
-      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-pre-signup"
+      "Resource": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-pre-signup"
     },
     {
       "Sid": "PreSignupLambdaExecRole",
@@ -173,7 +173,7 @@
         "iam:UpdateAssumeRolePolicy",
         "iam:PassRole"
       ],
-      "Resource": "arn:aws:iam::*:role/${project_name}-*-pre-signup-role"
+      "Resource": "arn:aws:iam::${account_id}:role/${project_name}-*-pre-signup-role"
     },
     {
       "Sid": "PreSignupLambdaLogs",
@@ -188,8 +188,8 @@
         "logs:UntagResource"
       ],
       "Resource": [
-        "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-pre-signup",
-        "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-pre-signup:*"
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/lambda/${project_name}-*-pre-signup",
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/lambda/${project_name}-*-pre-signup:*"
       ]
     },
     {
@@ -220,7 +220,7 @@
         "lambda:UntagResource",
         "lambda:ListTags"
       ],
-      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-post-confirmation"
+      "Resource": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-post-confirmation"
     },
     {
       "Sid": "PostConfirmationLambdaExecRole",
@@ -241,7 +241,7 @@
         "iam:UpdateAssumeRolePolicy",
         "iam:PassRole"
       ],
-      "Resource": "arn:aws:iam::*:role/${project_name}-*-post-confirmation-role"
+      "Resource": "arn:aws:iam::${account_id}:role/${project_name}-*-post-confirmation-role"
     },
     {
       "Sid": "PostConfirmationLambdaLogs",
@@ -256,8 +256,8 @@
         "logs:UntagResource"
       ],
       "Resource": [
-        "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-post-confirmation",
-        "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-post-confirmation:*"
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/lambda/${project_name}-*-post-confirmation",
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/lambda/${project_name}-*-post-confirmation:*"
       ]
     },
     {
@@ -283,7 +283,7 @@
         "athena:ListQueryExecutions",
         "athena:BatchGetQueryExecution"
       ],
-      "Resource": "arn:aws:athena:${aws_region}:*:workgroup/${project_name}-*"
+      "Resource": "arn:aws:athena:${aws_region}:${account_id}:workgroup/${project_name}-*"
     },
     {
       "Sid": "GlueCatalogManage",
@@ -300,9 +300,9 @@
         "glue:DeleteDatabase"
       ],
       "Resource": [
-        "arn:aws:glue:${aws_region}:*:catalog",
-        "arn:aws:glue:${aws_region}:*:database/*",
-        "arn:aws:glue:${aws_region}:*:table/*/*"
+        "arn:aws:glue:${aws_region}:${account_id}:catalog",
+        "arn:aws:glue:${aws_region}:${account_id}:database/*",
+        "arn:aws:glue:${aws_region}:${account_id}:table/*/*"
       ]
     },
     {
@@ -354,7 +354,7 @@
         "iam:UpdateAssumeRolePolicy",
         "iam:PassRole"
       ],
-      "Resource": "arn:aws:iam::*:role/${project_name}-analytics-lf-registration-role"
+      "Resource": "arn:aws:iam::${account_id}:role/${project_name}-analytics-lf-registration-role"
     },
     {
       "Sid": "TofuStateS3",
@@ -378,7 +378,7 @@
         "dynamodb:PutItem",
         "dynamodb:DeleteItem"
       ],
-      "Resource": "arn:aws:dynamodb:${aws_region}:*:table/${state_lock_table}"
+      "Resource": "arn:aws:dynamodb:${aws_region}:${account_id}:table/${state_lock_table}"
     }
   ]
 }

@@ -33,6 +33,7 @@ entry you need, not the file.**
 - [A ForceNew packaging change is a rename in state plus 86 replacements, and the permissions are what nobody looks at (SPEC-213)](#a-forcenew-packaging-change-is-a-rename-in-state-plus-86-replacements-and-the-permissions-are-what-nobody-looks-at-spec-213)
 - [A guard is retired by proving its replacement, then deleting (SPEC-214)](#a-guard-is-retired-by-proving-its-replacement-then-deleting-spec-214)
 - [The SPA deploy decides from what is running, not from a path filter — and the Lambda image deliberately does not](#the-spa-deploy-decides-from-what-is-running-not-from-a-path-filter--and-the-lambda-image-deliberately-does-not)
+- [An account wildcard is a scoping decision nobody made](#an-account-wildcard-is-a-scoping-decision-nobody-made)
 
 ## Fences
 
@@ -58,6 +59,18 @@ only reads; the API enqueues on its behalf.
   refresh deadlock arriving by your own hand.
 - **A service may call an action on your behalf that appears in no action list** — ELB calls
   `ec2:GetSecurityGroupsForVpc` inside `CreateLoadBalancer`.
+- **An ARN in a deploy grant names ONE account.** The account field is a scoping decision like
+  any other, and a `*` there reads identically to a considered one. It is not inert everywhere:
+  where a resource carries its own policy — SQS, ECR, `lambda:InvokeFunction`, EventBridge, and
+  the Glue catalog under Lake Formation — a foreign account holding a `dat-*`-matching resource
+  whose policy admits this role was reachable. Elsewhere (EC2, Logs, Lambda config, Step
+  Functions, Pipes) the request evaluates in the owner's account with nothing to say yes, so the
+  wildcard authorized nothing; pin it anyway, because the two are indistinguishable in a diff.
+  **The exception is a resource AWS owns:** every managed prefix list is
+  `arn:aws:ec2:<region>:aws:prefix-list/…`, and the SPA's egress rule names the S3 one — so that
+  ARN is pinned to `aws`, not to this account. **An empty account field is legal** (S3, Route 53,
+  API Gateway) and is not a wildcard. `test_no_deploy_grant_wildcards_the_account` walks the
+  parsed document, not the `Resource` field, because two of these ARNs live in `Condition`s.
 - **A role that cannot LIST a bucket cannot be told an object is ABSENT** — S3 answers `NoSuchKey`
   only to a caller holding `s3:ListBucket`, so every `except NoSuchKey: return None` needs a
   covering grant or its absence branch fails as a fault. Found live: an unregistered space raised
@@ -987,3 +1000,62 @@ versions while every assertion passed over the eight it did reach.
 **The Lambda image was deliberately left alone, and the asymmetry is worth knowing before someone "finishes the job".** Two downstream workflows name `github.sha` as the Lambda image tag and both fire on trigger sets **wider** than that image's own inputs: `deploy-infra.yml` polls ECR for `<sha>` for ten minutes and then hard-errors, and `deploy-lambdas.yml` fires on `infra/modules/**` while `point-lambda.sh` waits per function. With 19 of those 40 merges touching `infra/` and 18 touching `infra/modules/`, filtering that build converts a routine infrastructure merge into a red `main`. The saving it would buy is about a minute on the 10 merges in 40 that touch no Lambda input.
 
 **There is a way to have both, it was verified, and it is still not worth it.** ECR with `image_tag_mutability = "IMMUTABLE"` **accepts** `put-image` adding a *new* tag to a manifest it already holds — confirmed against a throwaway repository, with the positive control that the same repository refuses a *different* manifest under an existing tag ("cannot be overwritten because the tag is immutable") and returns `ImageAlreadyExistsException` for the same manifest under its own tag. So a content-addressed build could alias `<sha>` onto an image it did not rebuild and keep every downstream consumer naming the commit. The reason not to: the alias makes an image tagged `<sha>` carry a **different** sha in `BUILD_VERSION`, which `lambda-image-matrix.sh` asserts against directly and which every log record correlates by. Buying a minute on 10 merges in 40 with a fleet-wide change to what the deploy stamp means is the wrong trade — but the capability is real, so the next person weighing it does not need to run the experiment again.
+
+## An account wildcard is a scoping decision nobody made
+
+Every ARN in the deploy role's seventeen policy templates wildcarded the account:
+`arn:aws:glue:${aws_region}:*:catalog`, and 191 others. Sibling modules had pinned the identical
+shapes with `${account_id}` all along (`infra/modules/table-share/locals.tf`,
+`analytics/policies/portal-role-analytics.json.tftpl`), so this was house style in one tree and
+not the other, and neither reads as deliberate.
+
+**What it was actually worth is narrower than "wildcards are bad", and worth stating so it is not
+re-litigated.** An identity policy alone cannot authorize a cross-account call. For EC2, Logs,
+Lambda configuration, Step Functions and Pipes there is no resource policy to supply the other
+half, so the `*` authorized nothing that a pinned ARN would not. It mattered where a resource
+carries its own policy — SQS, ECR, `lambda:InvokeFunction`, EventBridge, and the Glue catalog
+under Lake Formation, which is the case that prompted the sweep: were this account ever made an
+LF recipient of another account's catalog, nothing in the grant stopped the deploy role altering
+that shared table. Measured against the account's own resources, the wildcard made **496**
+foreign-account resource identities reachable and the pin closes all of them.
+
+**One ARN must NOT be pinned, and a simulate against a self-owned resource would never say so.**
+All sixteen managed prefix lists here are AWS-owned — `arn:aws:ec2:us-east-1:aws:prefix-list/…`,
+`OwnerId: AWS` — and the SPA task's egress rule names the S3 one, because a CIDR rule does not
+match gateway-endpoint traffic. Pinned to this account, `ec2:ModifySecurityGroupRules` reads
+`implicitDeny` against the real list; pinned to `aws` it reads `allowed`. It is pinned to the
+owner rather than left wildcarded, which leaves the guard with no exemption list to rot. Of the
+actions in that statement **only `ModifySecurityGroupRules` accepts a `prefix-list` resource
+type** — `AuthorizeSecurityGroupEgress` and `RevokeSecurityGroupEgress` do not, per the live
+Service Reference — so the first draft of this paragraph was wrong on two actions of three.
+
+**The evidence is a live-ARN sweep, not the simulate pair the fence normally asks for.** A
+simulate answers "does this pattern match this string" for a string you chose; both legs of
+"pinned matches same-account, refuses foreign-account" are true by construction. The risk that
+actually costs a trunk is a pattern that stops matching a resource the account **holds** — and it
+would not fail on this apply, which refreshes under the *current* wildcard document, but on the
+next apply's refresh, on an unrelated PR, where the fix is itself denied. So all 516 live ARNs
+across 29 resource types were matched against the pre- and post-change pattern sets: zero reached
+before and not after, zero widenings, 514 reached by the pinned grant as the positive control.
+
+**The population is textual, not the `Resource` field.** Two of the 192 sit in `Condition` values
+(`ArnLike` on `lambda:FunctionArn`, in the feedback and notifications event-source-mapping
+statements). A sweep reading `Resource` reports those two clean forever, and a guard built the
+same way inherits the blind spot.
+
+**The guard's own population claim was the near-miss.** `MANAGED_POLICIES` globs
+`github-actions-deploy-*.json.tftpl`; that trailing `-` excludes `github-actions-deploy.json.tftpl`
+— the inline document, the largest, holding 18 of the 192 including the Glue, Athena, Cognito and
+state-lock grants. A guard written over the existing constant would have passed while checking
+none of them.
+
+**A budget the change nearly spent, and the constraint that was false.** Pinning costs eleven
+characters an ARN, and `github-actions-deploy-platform` sits closest to the hard, unadjustable
+6,144: 5,794 → 6,113, leaving 31. The first plan justified restructuring by claiming the role was
+at its attachment ceiling — it is not, it carries **16** against 20 (the 20 was read off the
+constant asserting the ceiling, not off a count). The restructuring stands on its own reason
+instead: `PlatformNetworkManage` and `PlatformNetworkTags` held byte-identical ten-ARN lists that
+had to be hand-synced, and the comment above them already said "nine". Merged — their union is
+IAM-equivalent, both having no `Condition` — the document ends at 5,534 with 610 free, more than
+the 350 it had before the pin. The cost is that `CreateTags` can no longer be conditioned alone,
+which the same comment argues against wanting.

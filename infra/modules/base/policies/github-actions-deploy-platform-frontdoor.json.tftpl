@@ -5,7 +5,7 @@
       "Sid": "ApiProbeInvoke",
       "Effect": "Allow",
       "Action": "lambda:InvokeFunction",
-      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-api"
+      "Resource": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-api"
     },
     {
       "Sid": "FrontDoorApiGatewayManage",
@@ -46,7 +46,7 @@
         "acm:RemoveTagsFromCertificate",
         "acm:ListTagsForCertificate"
       ],
-      "Resource": "arn:aws:acm:${aws_region}:*:certificate/*"
+      "Resource": "arn:aws:acm:${aws_region}:${account_id}:certificate/*"
     },
     {
       "Sid": "FrontDoorDnsManage",
@@ -78,14 +78,14 @@
         "logs:UntagResource"
       ],
       "Resource": [
-        "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-api",
-        "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-api:*",
-        "arn:aws:logs:${aws_region}:*:log-group:/aws/apigateway/${project_name}-*",
-        "arn:aws:logs:${aws_region}:*:log-group:/aws/apigateway/${project_name}-*:*",
-        "arn:aws:logs:${aws_region}:*:log-group:/aws/vpc/${project_name}-*",
-        "arn:aws:logs:${aws_region}:*:log-group:/aws/vpc/${project_name}-*:*",
-        "arn:aws:logs:${aws_region}:*:log-group:/ecs/${project_name}-*-spa*",
-        "arn:aws:logs:${aws_region}:*:log-group:/ecs/${project_name}-*-spa*:*"
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/lambda/${project_name}-*-api",
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/lambda/${project_name}-*-api:*",
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/apigateway/${project_name}-*",
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/apigateway/${project_name}-*:*",
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/vpc/${project_name}-*",
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/vpc/${project_name}-*:*",
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/ecs/${project_name}-*-spa*",
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/ecs/${project_name}-*-spa*:*"
       ]
     },
     {
@@ -125,7 +125,7 @@
         "lambda:UntagResource",
         "lambda:ListTags"
       ],
-      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-api"
+      "Resource": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-api"
     },
     {
       "Sid": "FrontDoorRolesManage",
@@ -146,17 +146,17 @@
         "iam:UpdateAssumeRolePolicy"
       ],
       "Resource": [
-        "arn:aws:iam::*:role/${project_name}-*-api-role",
-        "arn:aws:iam::*:role/${project_name}-*-spa-task-role",
-        "arn:aws:iam::*:role/${project_name}-*-spa-task-execution-role",
-        "arn:aws:iam::*:role/${project_name}-*-vpc-flow-logs-role"
+        "arn:aws:iam::${account_id}:role/${project_name}-*-api-role",
+        "arn:aws:iam::${account_id}:role/${project_name}-*-spa-task-role",
+        "arn:aws:iam::${account_id}:role/${project_name}-*-spa-task-execution-role",
+        "arn:aws:iam::${account_id}:role/${project_name}-*-vpc-flow-logs-role"
       ]
     },
     {
       "Sid": "FrontDoorPassApiFunctionRole",
       "Effect": "Allow",
       "Action": "iam:PassRole",
-      "Resource": "arn:aws:iam::*:role/${project_name}-*-api-role",
+      "Resource": "arn:aws:iam::${account_id}:role/${project_name}-*-api-role",
       "Condition": {
         "StringEquals": {
           "iam:PassedToService": "lambda.amazonaws.com"
@@ -168,8 +168,8 @@
       "Effect": "Allow",
       "Action": "iam:PassRole",
       "Resource": [
-        "arn:aws:iam::*:role/${project_name}-*-spa-task-role",
-        "arn:aws:iam::*:role/${project_name}-*-spa-task-execution-role"
+        "arn:aws:iam::${account_id}:role/${project_name}-*-spa-task-role",
+        "arn:aws:iam::${account_id}:role/${project_name}-*-spa-task-execution-role"
       ],
       "Condition": {
         "StringEquals": {
@@ -181,7 +181,7 @@
       "Sid": "FrontDoorPassFlowLogsRole",
       "Effect": "Allow",
       "Action": "iam:PassRole",
-      "Resource": "arn:aws:iam::*:role/${project_name}-*-vpc-flow-logs-role",
+      "Resource": "arn:aws:iam::${account_id}:role/${project_name}-*-vpc-flow-logs-role",
       "Condition": {
         "StringEquals": {
           "iam:PassedToService": "vpc-flow-logs.amazonaws.com"

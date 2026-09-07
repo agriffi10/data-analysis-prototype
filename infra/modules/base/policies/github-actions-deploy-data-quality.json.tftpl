@@ -5,7 +5,7 @@
       "Sid": "DataQualityProbeInvoke",
       "Effect": "Allow",
       "Action": "lambda:InvokeFunction",
-      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-data-quality-validate-authorize"
+      "Resource": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-data-quality-validate-authorize"
     },
     {
       "Sid": "DataQualityQueuesManage",
@@ -22,7 +22,7 @@
         "sqs:AddPermission",
         "sqs:RemovePermission"
       ],
-      "Resource": "arn:aws:sqs:${aws_region}:*:${project_name}-*-data-quality-*"
+      "Resource": "arn:aws:sqs:${aws_region}:${account_id}:${project_name}-*-data-quality-*"
     },
     {
       "Sid": "DataQualityPipesManage",
@@ -38,7 +38,7 @@
         "pipes:UntagResource",
         "pipes:ListTagsForResource"
       ],
-      "Resource": "arn:aws:pipes:${aws_region}:*:pipe/${project_name}-*-data-quality-*"
+      "Resource": "arn:aws:pipes:${aws_region}:${account_id}:pipe/${project_name}-*-data-quality-*"
     },
     {
       "Sid": "DataQualityStateMachineManage",
@@ -54,7 +54,7 @@
         "states:ListStateMachineVersions",
         "states:ListStateMachineAliases"
       ],
-      "Resource": "arn:aws:states:${aws_region}:*:stateMachine:${project_name}-*-data-quality-*"
+      "Resource": "arn:aws:states:${aws_region}:${account_id}:stateMachine:${project_name}-*-data-quality-*"
     },
     {
       "Sid": "DataQualityStateMachineValidate",
@@ -84,7 +84,7 @@
         "lambda:UntagResource",
         "lambda:ListTags"
       ],
-      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-data-quality-*"
+      "Resource": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-data-quality-*"
     },
     {
       "Sid": "DataQualityRolesManage",
@@ -105,7 +105,7 @@
         "iam:UpdateAssumeRolePolicy",
         "iam:PassRole"
       ],
-      "Resource": "arn:aws:iam::*:role/${project_name}-*-data-quality-*"
+      "Resource": "arn:aws:iam::${account_id}:role/${project_name}-*-data-quality-*"
     },
     {
       "Sid": "DataQualityLogs",
@@ -120,10 +120,10 @@
         "logs:UntagResource"
       ],
       "Resource": [
-        "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-data-quality-*",
-        "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-data-quality-*:*",
-        "arn:aws:logs:${aws_region}:*:log-group:/aws/vendedlogs/states/${project_name}-*-data-quality-*",
-        "arn:aws:logs:${aws_region}:*:log-group:/aws/vendedlogs/states/${project_name}-*-data-quality-*:*"
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/lambda/${project_name}-*-data-quality-*",
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/lambda/${project_name}-*-data-quality-*:*",
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/vendedlogs/states/${project_name}-*-data-quality-*",
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/vendedlogs/states/${project_name}-*-data-quality-*:*"
       ]
     }
   ]

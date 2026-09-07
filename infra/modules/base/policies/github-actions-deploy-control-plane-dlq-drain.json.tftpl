@@ -5,7 +5,7 @@
       "Sid": "DlqDrainProbeInvoke",
       "Effect": "Allow",
       "Action": "lambda:InvokeFunction",
-      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-control-plane-dlq-drain"
+      "Resource": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-control-plane-dlq-drain"
     },
     {
       "Sid": "DlqDrainLambdaManage",
@@ -29,7 +29,7 @@
         "lambda:UntagResource",
         "lambda:ListTags"
       ],
-      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-control-plane-dlq-drain"
+      "Resource": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-control-plane-dlq-drain"
     },
     {
       "Sid": "DlqDrainRolesManage",
@@ -50,7 +50,7 @@
         "iam:UpdateAssumeRolePolicy",
         "iam:PassRole"
       ],
-      "Resource": "arn:aws:iam::*:role/${project_name}-*-control-plane-dlq-drain"
+      "Resource": "arn:aws:iam::${account_id}:role/${project_name}-*-control-plane-dlq-drain"
     },
     {
       "Sid": "DlqDrainLogs",
@@ -65,8 +65,8 @@
         "logs:UntagResource"
       ],
       "Resource": [
-        "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-control-plane-dlq-drain",
-        "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-control-plane-dlq-drain:*"
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/lambda/${project_name}-*-control-plane-dlq-drain",
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/lambda/${project_name}-*-control-plane-dlq-drain:*"
       ]
     },
     {
@@ -83,7 +83,7 @@
         "events:TagResource",
         "events:UntagResource"
       ],
-      "Resource": "arn:aws:events:${aws_region}:*:rule/${project_name}-*-control-plane-dlq-drain-sweep"
+      "Resource": "arn:aws:events:${aws_region}:${account_id}:rule/${project_name}-*-control-plane-dlq-drain-sweep"
     }
   ]
 }

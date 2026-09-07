@@ -64,6 +64,19 @@ INLINE_AGGREGATE_LIMIT = 10_240
 
 MANAGED_POLICIES = tuple(sorted(POLICY_DIR.glob("github-actions-deploy-*.json.tftpl")))
 
+#: The glob above ends in ``-``, which excludes ``github-actions-deploy.json.tftpl`` — the
+#: INLINE document, and the largest. Any check about ARNs has to walk both, or it silently
+#: skips the Glue, Athena, Cognito and state-lock grants entirely.
+ARN_BEARING_POLICIES = (*MANAGED_POLICIES, INLINE_POLICY)
+
+ACCOUNT_ID = "696000197480"
+
+#: The one account field in these documents that is legitimately not this account. AWS owns
+#: every managed prefix list (``arn:aws:ec2:<region>:aws:prefix-list/…``) and this account
+#: declares none of its own, so the owner is PINNED rather than wildcarded and this set holds
+#: what a pin may say instead of the account id — not a list of patterns exempt from checking.
+FOREIGN_OWNERS = frozenset({"aws"})
+
 PLATFORM_POLICIES = (
     POLICY_DIR / "github-actions-deploy-platform.json.tftpl",
     POLICY_DIR / "github-actions-deploy-platform-frontdoor.json.tftpl",
@@ -260,6 +273,7 @@ def _render(path: pathlib.Path) -> str:
     """
     substitutions = {
         "aws_region": "us-east-1",
+        "account_id": ACCOUNT_ID,
         "project_name": "dat",
         "user_space_bucket_arn": "arn:aws:s3:::dat-prod-user-space",
         "portal_role_arn": "arn:aws:iam::696000197480:role/dat-portal-user-role",
@@ -1485,4 +1499,195 @@ def test_the_role_holds_every_ecr_action_creating_an_image_lambda_needs() -> Non
         f"the deploy role is missing {missing} on the Lambda image repository. AWS requires all "
         f"of {sorted(IMAGE_CREATOR_ECR_ACTIONS)} on the principal that calls CreateFunction with "
         "an image; the failure is at apply, after a green plan."
+    )
+
+
+def _arns(path: pathlib.Path) -> list[str]:
+    """Collects every ARN in a rendered document, wherever it sits.
+
+    Walks the parsed document rather than the ``Resource`` field, because two ARNs live in
+    ``Condition`` values instead — the ``ArnLike`` on ``lambda:FunctionArn`` in the feedback
+    and notifications event-source-mapping statements. A collector reading ``Resource`` alone
+    reports those two clean forever.
+
+    Args:
+      path: The ``.tftpl`` template to read.
+
+    Returns:
+      Every string beginning ``arn:`` anywhere in the document, in document order.
+
+    Raises:
+      None.
+    """
+    found: list[str] = []
+
+    def walk(node: object) -> None:
+        if isinstance(node, str):
+            if node.startswith("arn:"):
+                found.append(node)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+        elif isinstance(node, dict):
+            for value in node.values():
+                walk(value)
+
+    walk(json.loads(_render(path)))
+    return found
+
+
+@pytest.mark.parametrize("path", ARN_BEARING_POLICIES, ids=lambda p: p.name)
+def test_no_deploy_grant_wildcards_the_account(path: pathlib.Path) -> None:
+    """An ARN in a deploy grant names one account, never any.
+
+    An account wildcard is not inert for every service. Where a resource carries its own
+    policy — SQS, ECR, ``lambda:InvokeFunction``, EventBridge, and the Glue catalog under Lake
+    Formation — a foreign account holding a resource whose name matches the pattern and whose
+    resource policy admits this role is reachable through the wildcard. For EC2, Logs, Lambda
+    configuration, Step Functions and Pipes the request is evaluated in the owner's account
+    with nothing to say yes, so the wildcard authorized nothing there; it is pinned anyway,
+    because a reader cannot tell the two apart in a diff.
+
+    The empty account field is a THIRD case and a legal one: S3 and Route 53 ARNs carry no
+    account, and API Gateway's carry none in this document. Only ``*`` is refused.
+
+    Args:
+      path: The template to check.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When an ARN's account field is ``*``.
+    """
+    offenders = [
+        arn
+        for arn in _arns(path)
+        if len(arn.split(":")) > 4 and arn.split(":")[4] == "*"
+    ]
+    assert not offenders, (
+        f"{path.name} wildcards the account on {len(offenders)} ARN(s): {offenders}. A grant "
+        "names one account. Pin it to ${account_id}, or — if AWS owns the resource — to the "
+        f"owner, as the prefix-list ARNs do: {sorted(FOREIGN_OWNERS)}."
+    )
+
+
+@pytest.mark.parametrize("path", ARN_BEARING_POLICIES, ids=lambda p: p.name)
+def test_every_deploy_document_carries_arns_to_check(path: pathlib.Path) -> None:
+    """The wildcard check must have seen something in every document.
+
+    ``all()`` over an empty collection is true, so a collector that silently found nothing
+    passes the test above in exactly the way a clean document does. This catches a collector
+    that went dark, not the loss of one ARN — every document here carries several. The
+    aggregate floor is asserted separately, over the whole population, in
+    ``test_the_account_pin_is_what_makes_a_foreign_resource_denied``; between them a collector
+    that half-works is caught too.
+
+    Args:
+      path: The template to check.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a document yields no ARNs at all.
+    """
+    assert _arns(path), (
+        f"{path.name} yielded no ARNs, so the account-wildcard check over it asserted nothing. "
+        "Either the document changed shape or the collector stopped reading it."
+    )
+
+
+def test_the_account_pin_is_what_makes_a_foreign_resource_denied() -> None:
+    """A pinned pattern must refuse the same resource in another account.
+
+    ``test_the_grant_covers_every_resource_the_platform_will_create`` matches every planned ARN
+    against the patterns, and every planned ARN is in this account — so it passed before the
+    pin and would pass again the day someone reverted it. This is the direction that would not:
+    the identical resource, one account over, matched by nothing.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a foreign-account ARN is still matched by some pattern.
+    """
+    patterns = [
+        arn for path in ARN_BEARING_POLICIES for arn in _arns(path) if arn.startswith("arn:")
+    ]
+    intruder = "111122223333"
+    assert intruder != ACCOUNT_ID
+    reachable = []
+    for name, arn in PLANNED_RESOURCES.items():
+        fields = arn.split(":")
+        if len(fields) <= 4 or fields[4] != ACCOUNT_ID:
+            continue  # No account to swap: S3, Route 53, API Gateway.
+        fields[4] = intruder
+        foreign = ":".join(fields)
+        if any(_iam_match(pattern, foreign) for pattern in patterns):
+            reachable.append(name)
+    assert not reachable, (
+        f"a grant still reaches these resources in account {intruder}: {reachable}. The account "
+        "pin is what stops it, so this failing means a pattern went back to ':*:'."
+    )
+    assert len(patterns) > 100, (
+        f"only {len(patterns)} patterns collected; the sweep above proved nothing about a "
+        "population this small."
+    )
+
+
+def test_the_terraform_passes_the_real_account_id() -> None:
+    """Every rendered template must receive ``account_id``, and it must be the caller's.
+
+    Nothing offline can check this: ``_render`` substitutes the suite's own literal, and
+    ``PLANNED_RESOURCES`` carries the same one, so a template rendered with the WRONG account
+    would satisfy every other test here. ``templatefile()`` errors on a key a template uses and
+    the map omits, so an omission fails ``tofu validate`` — a wrong value does not.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a template map omits ``account_id``, or the root passes something
+        other than the caller identity.
+    """
+    iam = BASE_IAM.read_text()
+    maps = re.findall(
+        r'templatefile\("\$\{path\.module\}/policies/(github-actions-deploy[^"]*'
+        r'\.json\.tftpl)", \{(.*?)\n  \}\)',
+        iam,
+        re.DOTALL,
+    )
+    rendered = {name for name, _ in maps}
+    expected = {path.name for path in ARN_BEARING_POLICIES}
+    assert rendered == expected, (
+        f"iam.tf renders {sorted(rendered)} but this suite checks {sorted(expected)}; a "
+        "template nobody renders is dead, and one nobody checks is unguarded."
+    )
+    # `tofu fmt` aligns the `=` in these maps, so the assignment is matched with the run of
+    # spaces left free rather than as a literal.
+    passes_account = re.compile(r"\n\s*account_id\s*=\s*var\.account_id\s*\n")
+    missing = [name for name, body in maps if not passes_account.search(body + "\n")]
+    assert not missing, (
+        f"these templatefile maps do not pass account_id: {missing}. Every ARN in them renders "
+        "with an empty account field, which is a valid ARN that matches nothing."
+    )
+    root = (ROOT / "infra" / "main.tf").read_text()
+    # Scoped to module "base"'s own block. Eighteen modules take an account_id from the same
+    # data source, so a search of the whole file reads it as satisfied while the one call this
+    # test is about passes a literal.
+    block = re.search(r'\nmodule "base" \{\n(.*?)\n\}\n', root, re.DOTALL)
+    assert block, "infra/main.tf no longer declares module \"base\" in the expected shape"
+    passes_root = re.compile(
+        r"\n\s*account_id\s*=\s*data\.aws_caller_identity\.current\.account_id\s*(?:\n|$)"
+    )
+    assert passes_root.search(block.group(1)), (
+        "infra/main.tf must pass module.base its account_id from aws_caller_identity; a "
+        "hard-coded or variable-supplied id can disagree with the account being applied to."
     )

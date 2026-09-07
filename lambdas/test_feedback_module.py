@@ -38,7 +38,16 @@ ADMIN_S3 = INFRA / "modules" / "analytics" / "s3.tf"
 
 PROJECT = "dat"
 ENVIRONMENT = "prod"
-SUBSTITUTIONS = {"aws_region": "us-east-1", "project_name": PROJECT}
+#: The placeholder account these tests build their probe ARNs with. It must match the
+#: account the deploy templates now pin, or every ARN renders in a different account than
+#: the pattern it is checked against and the coverage assertions all go vacuous.
+ACCOUNT_ID = "123456789012"
+
+SUBSTITUTIONS = {
+    "aws_region": "us-east-1",
+    "project_name": PROJECT,
+    "account_id": ACCOUNT_ID,
+}
 
 
 def _constructed_names() -> dict[str, str]:
