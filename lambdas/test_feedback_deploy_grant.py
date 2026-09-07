@@ -36,7 +36,17 @@ POLICY = INFRA / "modules" / "base" / "policies" / "github-actions-deploy-feedba
 MANAGED_LIMIT = 6_144
 MAX_ATTACHED_MANAGED_POLICIES = 20
 
-SUBSTITUTIONS = {"aws_region": "us-east-1", "project_name": "dat"}
+#: The placeholder account these tests build their probe ARNs with. The templates pin a
+#: VARIABLE, so this need not be the real account — but it must be the same value this file
+#: renders `${account_id}` as, or every probe ARN lands in a different account from the
+#: pattern it is checked against and the coverage assertions all pass vacuously.
+ACCOUNT_ID = "123456789012"
+
+SUBSTITUTIONS = {
+    "aws_region": "us-east-1",
+    "project_name": "dat",
+    "account_id": ACCOUNT_ID,
+}
 
 
 def _rendered() -> str:
@@ -238,8 +248,8 @@ def test_the_log_group_grant_carries_BOTH_arn_forms() -> None:
     resources = _statements()["FeedbackLogs"]["Resource"]
 
     assert resources == [
-        "arn:aws:logs:us-east-1:*:log-group:/aws/lambda/dat-*-feedback-writer",
-        "arn:aws:logs:us-east-1:*:log-group:/aws/lambda/dat-*-feedback-writer:*",
+        f"arn:aws:logs:us-east-1:{ACCOUNT_ID}:log-group:/aws/lambda/dat-*-feedback-writer",
+        f"arn:aws:logs:us-east-1:{ACCOUNT_ID}:log-group:/aws/lambda/dat-*-feedback-writer:*",
     ], f"the log-group grant carries {resources}, not both ARN forms"
 
 
@@ -264,12 +274,12 @@ def test_the_role_stays_under_the_attached_managed_policy_ceiling() -> None:
 @pytest.mark.parametrize(
     ("sid", "resource"),
     [
-        ("FeedbackQueuesManage", "arn:aws:sqs:us-east-1:*:dat-*-feedback-*"),
+        ("FeedbackQueuesManage", f"arn:aws:sqs:us-east-1:{ACCOUNT_ID}:dat-*-feedback-*"),
         (
             "FeedbackWriterLambdaManage",
-            "arn:aws:lambda:us-east-1:*:function:dat-*-feedback-writer",
+            f"arn:aws:lambda:us-east-1:{ACCOUNT_ID}:function:dat-*-feedback-writer",
         ),
-        ("FeedbackRolesManage", "arn:aws:iam::*:role/dat-*-feedback-*"),
+        ("FeedbackRolesManage", f"arn:aws:iam::{ACCOUNT_ID}:role/dat-*-feedback-*"),
     ],
 )
 def test_each_family_is_scoped_to_the_name_the_module_will_use(sid: str, resource: str) -> None:

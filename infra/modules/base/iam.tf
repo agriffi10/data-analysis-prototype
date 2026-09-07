@@ -33,6 +33,7 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
   role = aws_iam_role.github_actions_deploy.id
 
   policy = templatefile("${path.module}/policies/github-actions-deploy.json.tftpl", {
+    account_id                  = var.account_id
     project_name                = var.project_name
     user_space_bucket_arn       = var.user_space_bucket_arn
     portal_role_arn             = var.portal_role_arn
@@ -61,6 +62,7 @@ resource "aws_iam_policy" "deploy_shared_spaces" {
   description = "Deploy-role grants for the shared-space control plane (SQS/Pipes/Step Functions/Lambda/roles/logs/S3), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-shared-spaces.json.tftpl", {
+    account_id              = var.account_id
     project_name            = var.project_name
     aws_region              = var.aws_region
     shared_space_bucket_arn = var.shared_space_bucket_arn
@@ -86,6 +88,7 @@ resource "aws_iam_policy" "deploy_notifications" {
   description = "Deploy-role grants for the notifications write pipeline (FIFO SQS queue + DLQ, writer Lambda + role + log group, SQS event-source mapping), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-notifications.json.tftpl", {
+    account_id   = var.account_id
     project_name = var.project_name
     aws_region   = var.aws_region
   })
@@ -107,6 +110,7 @@ resource "aws_iam_policy" "deploy_feedback" {
   description = "Deploy-role grants for the feedback write pipeline (FIFO SQS queue + DLQ, writer Lambda + role + log group, SQS event-source mapping), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-feedback.json.tftpl", {
+    account_id   = var.account_id
     project_name = var.project_name
     aws_region   = var.aws_region
   })
@@ -126,6 +130,7 @@ resource "aws_iam_policy" "deploy_table_builder" {
   description = "Deploy-role grants for the table-builder control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, five verb Lambdas + roles, polars layer, log groups), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-table-builder.json.tftpl", {
+    account_id   = var.account_id
     project_name = var.project_name
     aws_region   = var.aws_region
   })
@@ -144,6 +149,7 @@ resource "aws_iam_policy" "deploy_table_share" {
   description = "Deploy-role grants for the table-share control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, five verb Lambdas + shared execution role, tscommon layer, log groups), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-table-share.json.tftpl", {
+    account_id   = var.account_id
     project_name = var.project_name
     aws_region   = var.aws_region
   })
@@ -163,6 +169,7 @@ resource "aws_iam_policy" "deploy_data_quality" {
   description = "Deploy-role grants for the data-quality control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, nine verb Lambdas + shared execution role, dqcommon + polars layers, log groups), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-data-quality.json.tftpl", {
+    account_id   = var.account_id
     project_name = var.project_name
     aws_region   = var.aws_region
   })
@@ -186,6 +193,7 @@ resource "aws_iam_policy" "deploy_control_plane_dlq_drain" {
   description = "Deploy-role grants for the control-plane DLQ drain (one Lambda + execution role + log group + the EventBridge sweep schedule), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-control-plane-dlq-drain.json.tftpl", {
+    account_id   = var.account_id
     project_name = var.project_name
     aws_region   = var.aws_region
   })
@@ -213,6 +221,7 @@ resource "aws_iam_policy" "deploy_observability" {
   description = "Deploy-role grants for the structured-logging foundation (one standard SQS logs queue + one scheduled sweep Lambda, its execution role, log group and EventBridge rule), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-observability.json.tftpl", {
+    account_id   = var.account_id
     project_name = var.project_name
     aws_region   = var.aws_region
   })
@@ -236,6 +245,7 @@ resource "aws_iam_policy" "deploy_user_directory" {
   description = "Deploy-role grants for the username-directory builder (one scheduled Lambda, its execution role, log group and EventBridge rule), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-user-directory.json.tftpl", {
+    account_id   = var.account_id
     project_name = var.project_name
     aws_region   = var.aws_region
   })
@@ -258,6 +268,7 @@ resource "aws_iam_policy" "deploy_file_send" {
   description = "Deploy-role grants for the file-send control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, verb Lambdas + shared execution role, fscommon layer, log groups), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-file-send.json.tftpl", {
+    account_id   = var.account_id
     project_name = var.project_name
     aws_region   = var.aws_region
   })
@@ -281,6 +292,7 @@ resource "aws_iam_policy" "deploy_file_ops" {
   description = "Deploy-role grants for the file-operations control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, verb Lambdas + shared execution role, focommon layer, log groups, TIMED_OUT rule), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-file-ops.json.tftpl", {
+    account_id   = var.account_id
     project_name = var.project_name
     aws_region   = var.aws_region
   })
@@ -304,6 +316,7 @@ resource "aws_iam_policy" "deploy_results_conversion" {
   description = "Deploy-role grants for the results-conversion control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, verb Lambdas + shared execution role, log groups, TIMED_OUT rule), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-results-conversion.json.tftpl", {
+    account_id   = var.account_id
     project_name = var.project_name
     aws_region   = var.aws_region
   })
@@ -329,6 +342,7 @@ resource "aws_iam_policy" "deploy_archive" {
   description = "Deploy-role grants for the archive control plane (the archive bucket, FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, verb Lambdas + shared execution role, arcommon layer, log groups), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-archive.json.tftpl", {
+    account_id          = var.account_id
     project_name        = var.project_name
     aws_region          = var.aws_region
     archive_bucket_name = var.archive_bucket_name
@@ -381,6 +395,7 @@ resource "aws_iam_policy" "deploy_verification" {
   description = "Deploy-role grants for the verification access: the archive-audit trail bucket, the CloudTrail trail over the archive vault's object-level events, and the read-only verification role."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-verification.json.tftpl", {
+    account_id        = var.account_id
     project_name      = var.project_name
     aws_region        = var.aws_region
     trail_bucket_name = var.verification_trail_bucket_name
@@ -417,9 +432,19 @@ resource "time_sleep" "wait_for_verification_grant" {
 # network, which would fail on a runner with no egress and pass by finding nothing.
 #
 # THE EC2 MUTATORS ARE SCOPED BY RESOURCE TYPE, NOT BY NAME — an EC2 ARN carries a generated
-# id. The tagging statement names the SAME nine types and carries NO condition:
-# ec2:CreateAction does not exist on DeleteTags, and on CreateTags it would forbid tagging
-# anything that already exists — which is exactly what aws_default_security_group is.
+# id. ec2:CreateTags/DeleteTags sit in that same statement rather than a second one naming the
+# same ten types: the duplicate list had to be hand-synced, and it had already drifted from the
+# sentence describing it. They carry NO condition, and could not usefully: ec2:CreateAction does
+# not exist on DeleteTags, and on CreateTags it would forbid tagging anything that already
+# exists — which is exactly what aws_default_security_group is. Merging is what forecloses
+# conditioning them separately, and that is the trade: a condition nothing wants, for one list.
+#
+# PREFIX-LIST IS PINNED TO `aws`, NOT TO THIS ACCOUNT. Every managed prefix list here is
+# AWS-owned (arn:aws:ec2:<region>:aws:prefix-list/…), and the SPA task's egress rule names the
+# S3 one because a CIDR rule does not match gateway-endpoint traffic. Of the security-group
+# MUTATORS only ec2:ModifySecurityGroupRules accepts a prefix-list resource type —
+# Authorize/RevokeSecurityGroupEgress do not — so that is the action the pin is load-bearing
+# for. CreateTags/DeleteTags accept one too, and are inert on a list this account cannot tag.
 #
 # THE PUSH GRANTS ARE HERE because the image pipeline runs as this role, and a registry token
 # with no layer-upload actions beside it would authorize nothing at all.
@@ -434,6 +459,7 @@ resource "aws_iam_policy" "deploy_platform" {
   description = "Deploy-role grants for the container platform's network and compute (VPC, subnets, route tables, gateway, security groups, VPC endpoints, ALB, target groups, listeners, ECS cluster/service/task definitions, ECR), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-platform.json.tftpl", {
+    account_id   = var.account_id
     project_name = var.project_name
     aws_region   = var.aws_region
   })
@@ -460,6 +486,7 @@ resource "aws_iam_policy" "deploy_platform_frontdoor" {
   description = "Deploy-role grants for the API's front door (HTTP API, regional custom domain, ACM certificates, Route 53 records, access-log delivery, the placeholder API function) plus the log groups and the four IAM roles the whole platform needs, kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-platform-frontdoor.json.tftpl", {
+    account_id      = var.account_id
     project_name    = var.project_name
     aws_region      = var.aws_region
     route53_zone_id = var.route53_zone_id

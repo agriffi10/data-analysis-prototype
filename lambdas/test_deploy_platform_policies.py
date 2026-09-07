@@ -16,7 +16,12 @@ Attributes:
   POLICIES: Every deploy-role policy document the wildcard rules judge: the inline one and each
     managed one. The rules ran over ``PLATFORM_POLICIES`` alone until a plant showed the other
     fifteen documents were unread, so the population is asserted against the directory rather
-    than trusted.
+    than trusted. The account-pin rules walk the same set, for the same reason.
+  ACCOUNT_ID: The account these grants name. Every ARN in every document must carry it, be
+    empty, or — where AWS owns the resource type — name an owner in FOREIGN_OWNERS.
+  FOREIGN_OWNERS: The account fields AWS itself holds. Scoped at the point of use to the one
+    resource type that earns it (``prefix-list``), because applied to every ARN it is an
+    exemption rather than a pin.
   TRUST_POLICY: The one template in the directory the wildcard rules exempt, because it grants no
     actions on resources at all. Named so the exemption is visible rather than silent.
   BASE_IAM: The Terraform that renders every template and attaches every managed policy.
@@ -64,11 +69,22 @@ INLINE_AGGREGATE_LIMIT = 10_240
 
 MANAGED_POLICIES = tuple(sorted(POLICY_DIR.glob("github-actions-deploy-*.json.tftpl")))
 
+ACCOUNT_ID = "696000197480"
+
+#: The one account field in these documents that is legitimately not this account. AWS owns
+#: every managed prefix list (``arn:aws:ec2:<region>:aws:prefix-list/…``) and this account
+#: declares none of its own, so the owner is PINNED rather than wildcarded and this set holds
+#: what a pin may say instead of the account id — not a list of patterns exempt from checking.
+FOREIGN_OWNERS = frozenset({"aws"})
+
 PLATFORM_POLICIES = (
     POLICY_DIR / "github-actions-deploy-platform.json.tftpl",
     POLICY_DIR / "github-actions-deploy-platform-frontdoor.json.tftpl",
 )
 
+#: The MANAGED_POLICIES glob ends in ``-``, which excludes ``github-actions-deploy.json.tftpl``
+#: — the inline document, and the largest. Every rule over these documents has to walk both, or
+#: it silently skips the Glue, Athena, Cognito and state-lock grants entirely.
 POLICIES = (INLINE_POLICY, *MANAGED_POLICIES)
 
 TRUST_POLICY = POLICY_DIR / "github-actions-trust.json.tftpl"
@@ -260,6 +276,7 @@ def _render(path: pathlib.Path) -> str:
     """
     substitutions = {
         "aws_region": "us-east-1",
+        "account_id": ACCOUNT_ID,
         "project_name": "dat",
         "user_space_bucket_arn": "arn:aws:s3:::dat-prod-user-space",
         "portal_role_arn": "arn:aws:iam::696000197480:role/dat-portal-user-role",
@@ -1485,4 +1502,372 @@ def test_the_role_holds_every_ecr_action_creating_an_image_lambda_needs() -> Non
         f"the deploy role is missing {missing} on the Lambda image repository. AWS requires all "
         f"of {sorted(IMAGE_CREATOR_ECR_ACTIONS)} on the principal that calls CreateFunction with "
         "an image; the failure is at apply, after a green plan."
+    )
+
+
+def _collect_arns(node: object, into: list[str]) -> None:
+    """Appends every ARN-looking string reachable from ``node`` to ``into``.
+
+    The accumulator is a parameter rather than a closed-over name so this can be called from
+    inside a loop without binding whichever list the last iteration happened to create.
+
+    Args:
+      node: Any part of a parsed policy document.
+      into: The list to append to, mutated in place.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    if isinstance(node, str):
+        if node.startswith("arn:"):
+            into.append(node)
+    elif isinstance(node, list):
+        for item in node:
+            _collect_arns(item, into)
+    elif isinstance(node, dict):
+        for value in node.values():
+            _collect_arns(value, into)
+
+
+def _arns(path: pathlib.Path) -> list[str]:
+    """Collects every ARN in a rendered document, wherever it sits.
+
+    Walks the parsed document rather than the ``Resource`` field, because two ARNs live in
+    ``Condition`` values instead — the ``ArnLike`` on ``lambda:FunctionArn`` in the feedback
+    and notifications event-source-mapping statements. A collector reading ``Resource`` alone
+    reports those two clean forever.
+
+    Args:
+      path: The ``.tftpl`` template to read.
+
+    Returns:
+      Every string beginning ``arn:`` anywhere in the document, in document order.
+
+    Raises:
+      None.
+    """
+    found: list[str] = []
+    _collect_arns(json.loads(_render(path)), found)
+    return found
+
+
+@pytest.mark.parametrize("path", POLICIES, ids=lambda p: p.name)
+def test_no_deploy_grant_wildcards_the_account(path: pathlib.Path) -> None:
+    """An ARN in a deploy grant names one account, never any.
+
+    An account wildcard is not inert for every service. Where a resource carries its own
+    policy — SQS, ECR, ``lambda:InvokeFunction``, EventBridge, and the Glue catalog under Lake
+    Formation — a foreign account holding a resource whose name matches the pattern and whose
+    resource policy admits this role is reachable through the wildcard. For EC2, Logs, Lambda
+    configuration, Step Functions and Pipes the request is evaluated in the owner's account
+    with nothing to say yes, so the wildcard authorized nothing there; it is pinned anyway,
+    because a reader cannot tell the two apart in a diff.
+
+    The empty account field is a THIRD case and a legal one: S3 and Route 53 ARNs carry no
+    account, and API Gateway's carry none in this document. Only ``*`` is refused.
+
+    Args:
+      path: The template to check.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When an ARN's account field is ``*``.
+    """
+    def permitted(arn: str) -> set[str]:
+        """An AWS-owned account is allowed only where AWS owns the resource type."""
+        return {ACCOUNT_ID, ""} | (FOREIGN_OWNERS if ":prefix-list/" in arn else set())
+
+    offenders = [
+        (arn, arn.split(":")[4])
+        for arn in _arns(path)
+        if len(arn.split(":")) > 4 and arn.split(":")[4] not in permitted(arn)
+    ]
+    assert not offenders, (
+        f"{path.name} names a foreign account on {len(offenders)} ARN(s): {offenders}. The "
+        f"account field must be {ACCOUNT_ID}, empty, or an owner AWS itself holds "
+        f"({sorted(FOREIGN_OWNERS)}). Note this refuses a NAMED foreign account and a partial "
+        "wildcard such as '69600019748*', not only a bare '*' — those are the same grant."
+    )
+
+
+@pytest.mark.parametrize("path", POLICIES, ids=lambda p: p.name)
+def test_every_deploy_document_carries_arns_to_check(path: pathlib.Path) -> None:
+    """The wildcard check must have seen something in every document.
+
+    ``all()`` over an empty collection is true, so a collector that silently found nothing
+    passes the test above in exactly the way a clean document does. This catches a collector
+    that went dark, not the loss of one ARN — every document here carries several.
+
+    A HALF-working collector needs its own assertion, which is the companion test below: the
+    aggregate floor elsewhere in this file does not do it, because narrowing ``_arns`` back to
+    the ``Resource`` field drops only the two ``Condition`` ARNs and still clears that floor by
+    a hundred.
+
+    Args:
+      path: The template to check.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a document yields no ARNs at all.
+    """
+    assert _arns(path), (
+        f"{path.name} yielded no ARNs, so the account-wildcard check over it asserted nothing. "
+        "Either the document changed shape or the collector stopped reading it."
+    )
+
+
+def test_the_account_pin_is_what_makes_a_foreign_resource_denied() -> None:
+    """A pinned pattern must refuse the same resource in another account.
+
+    ``test_the_grant_covers_every_resource_the_platform_will_create`` matches every planned ARN
+    against the patterns, and every planned ARN is in this account — so it passed before the
+    pin and would pass again the day someone reverted it. This is the direction that would not:
+    the identical resource, one account over, matched by nothing.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a foreign-account ARN is still matched by some pattern.
+    """
+    patterns = [
+        arn for path in POLICIES for arn in _arns(path) if arn.startswith("arn:")
+    ]
+    intruder = "111122223333"
+    assert intruder != ACCOUNT_ID
+    reachable = []
+    for name, arn in PLANNED_RESOURCES.items():
+        fields = arn.split(":")
+        if len(fields) <= 4 or fields[4] != ACCOUNT_ID:
+            continue  # No account to swap: S3, Route 53, API Gateway.
+        fields[4] = intruder
+        foreign = ":".join(fields)
+        if any(_iam_match(pattern, foreign) for pattern in patterns):
+            reachable.append(name)
+    assert not reachable, (
+        f"a grant still reaches these resources in account {intruder}: {reachable}. The account "
+        "pin is what stops it, so this failing means a pattern went back to ':*:'."
+    )
+    assert len(patterns) > 100, (
+        f"only {len(patterns)} patterns collected; the sweep above proved nothing about a "
+        "population this small."
+    )
+
+
+def test_the_terraform_passes_the_real_account_id() -> None:
+    """Every rendered template must receive ``account_id``, and it must be the caller's.
+
+    Nothing offline can check this: ``_render`` substitutes the suite's own literal, and
+    ``PLANNED_RESOURCES`` carries the same one, so a template rendered with the WRONG account
+    would satisfy every other test here. ``templatefile()`` errors on a key a template uses and
+    the map omits, so an omission fails ``tofu validate`` — a wrong value does not.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a template map omits ``account_id``, or the root passes something
+        other than the caller identity.
+    """
+    iam = BASE_IAM.read_text()
+    maps = re.findall(
+        r'templatefile\("\$\{path\.module\}/policies/(github-actions-deploy[^"]*'
+        r'\.json\.tftpl)", \{(.*?)\n  \}\)',
+        iam,
+        re.DOTALL,
+    )
+    rendered = {name for name, _ in maps}
+    expected = {path.name for path in POLICIES}
+    assert rendered == expected, (
+        f"iam.tf renders {sorted(rendered)} but this suite checks {sorted(expected)}; a "
+        "template nobody renders is dead, and one nobody checks is unguarded."
+    )
+    # `tofu fmt` aligns the `=` in these maps, so the assignment is matched with the run of
+    # spaces left free rather than as a literal.
+    passes_account = re.compile(r"\n\s*account_id\s*=\s*var\.account_id\s*\n")
+    missing = [name for name, body in maps if not passes_account.search(body + "\n")]
+    assert not missing, (
+        f"these templatefile maps do not pass account_id: {missing}. Every ARN in them renders "
+        "with an empty account field, which is a valid ARN that matches nothing."
+    )
+    root = (ROOT / "infra" / "main.tf").read_text()
+    # Scoped to module "base"'s own block. Eighteen modules take an account_id from the same
+    # data source, so a search of the whole file reads it as satisfied while the one call this
+    # test is about passes a literal.
+    block = re.search(r'\nmodule "base" \{\n(.*?)\n\}\n', root, re.DOTALL)
+    assert block, "infra/main.tf no longer declares module \"base\" in the expected shape"
+    passes_root = re.compile(
+        r"\n\s*account_id\s*=\s*data\.aws_caller_identity\.current\.account_id\s*(?:\n|$)"
+    )
+    assert passes_root.search(block.group(1)), (
+        "infra/main.tf must pass module.base its account_id from aws_caller_identity; a "
+        "hard-coded or variable-supplied id can disagree with the account being applied to."
+    )
+
+
+def test_a_prefix_list_arn_is_pinned_to_aws_not_to_this_account() -> None:
+    """The one ARN that must NOT name this account.
+
+    Every managed prefix list here is AWS-owned, and the SPA task's egress rule names the S3
+    one because a CIDR rule does not match gateway-endpoint traffic. Pinned to this account,
+    ``ec2:ModifySecurityGroupRules`` reads ``implicitDeny`` against the real list — and the
+    check above would not notice, because this account's id is exactly what it wants to see.
+    That makes "correcting" the odd-looking ``aws`` the most likely wrong edit here.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a prefix-list ARN names anything but ``aws``, or none is granted.
+    """
+    found = [
+        arn
+        for path in POLICIES
+        for arn in _arns(path)
+        if ":prefix-list/" in arn
+    ]
+    # Only one document carries one; parametrizing over all seventeen asserted nothing in
+    # sixteen of them, and deleting the ARN outright left this test green.
+    assert found, (
+        "no prefix-list ARN is granted anywhere. If the grant was deliberately removed, remove "
+        "FOREIGN_OWNERS and this test with it rather than leaving an exemption for nothing."
+    )
+    wrong = [arn for arn in found if arn.split(":")[4] != "aws"]
+    assert not wrong, (
+        f"a prefix-list ARN names something other than 'aws': {wrong}. AWS owns every managed "
+        "prefix list; this account owns none. Pinning it here denies "
+        "ec2:ModifySecurityGroupRules on the SPA's own egress rule, at apply."
+    )
+
+
+@pytest.mark.parametrize("path", POLICIES, ids=lambda p: p.name)
+def test_no_statement_inverts_its_resource_or_action_list(path: pathlib.Path) -> None:
+    """``NotResource`` and ``NotAction`` grant the complement, and the ARN checks cannot see it.
+
+    Every check in this file reads ARNs and reasons about what they match. A statement written
+    with ``NotResource`` grants everything those ARNs do NOT name — the inverse of what a
+    reader of the ARN list would conclude, and an account pin in such a statement is worse than
+    useless. Neither key appears in any of these documents today, and neither has a reason to.
+
+    Args:
+      path: The template to check.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a statement uses an inverting key.
+    """
+    inverted = [
+        (statement.get("Sid", "<no Sid>"), key)
+        for statement in _statements(path)
+        for key in ("NotResource", "NotAction", "NotPrincipal")
+        if key in statement
+    ]
+    assert not inverted, (
+        f"{path.name} inverts a statement: {inverted}. These grant the COMPLEMENT of what they "
+        "list, so every ARN check in this file reads them backwards. Write the grant out."
+    )
+
+
+def test_the_merged_ec2_statement_still_grants_tagging_on_every_type() -> None:
+    """Folding the tagging statement in must not have dropped what it granted.
+
+    ``PlatformNetworkTags`` named the same ten resource types as ``PlatformNetworkManage`` and
+    was merged into it; nothing else records what it used to grant, so an edit dropping
+    ``ec2:CreateTags`` from the merged action list would be invisible. The failure it permits
+    is a denied tag on ``aws_default_security_group`` at apply, behind a green suite.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the merged statement stops granting tagging on all ten types.
+    """
+    platform = POLICY_DIR / "github-actions-deploy-platform.json.tftpl"
+    manage = next(
+        s for s in _statements(platform) if s.get("Sid") == "PlatformNetworkManage"
+    )
+    actions = set(_actions(manage))
+    assert {"ec2:CreateTags", "ec2:DeleteTags"} <= actions, (
+        "PlatformNetworkManage no longer grants ec2:CreateTags/DeleteTags. They were folded "
+        "in from PlatformNetworkTags, so this statement is the only thing granting them."
+    )
+    types = {resource.split(":")[5].split("/")[0] for resource in manage["Resource"]}
+    assert types == {
+        "vpc", "subnet", "route-table", "internet-gateway", "security-group",
+        "security-group-rule", "vpc-endpoint", "vpc-flow-log", "network-interface",
+        "prefix-list",
+    }, f"the merged statement covers {sorted(types)}, not the ten types it was folded from"
+
+
+def test_the_arn_collector_still_reaches_outside_the_resource_field() -> None:
+    """The reason ``_arns`` walks the parsed document must itself be asserted.
+
+    Two ARNs in these templates sit in ``Condition`` values rather than ``Resource`` — the
+    ``ArnLike`` on ``lambda:FunctionArn`` in the feedback and notifications
+    event-source-mapping statements. A collector narrowed back to ``Resource`` loses exactly
+    those two out of two hundred and clears every count-based floor in this file, which is the
+    quiet way the account check stops covering them.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When no collected ARN comes from outside a ``Resource`` field.
+    """
+    outside = []
+    for path in POLICIES:
+        for statement in _statements(path):
+            condition = statement.get("Condition")
+            if not condition:
+                continue
+            found: list[str] = []
+            _collect_arns(condition, found)
+            outside.extend((path.name, statement.get("Sid"), arn) for arn in found)
+    assert outside, (
+        "no ARN was found in any Condition block. Either the two that live there are gone — "
+        "in which case delete this test and _arns's justification with it — or _arns has been "
+        "narrowed to the Resource field and silently stopped checking them."
+    )
+    # COUNTS, not membership. Each of those two ARNs is byte-identical to the `Resource` of
+    # the statement it conditions, so a set of collected strings contains it either way and a
+    # narrowed collector looks correct. Only the multiplicity changes.
+    def resource_only(path: pathlib.Path) -> int:
+        total = 0
+        for statement in _statements(path):
+            resource = statement.get("Resource")
+            resource = resource if isinstance(resource, list) else [resource]
+            total += sum(1 for r in resource if isinstance(r, str) and r.startswith("arn:"))
+        return total
+
+    collected = sum(len(_arns(path)) for path in POLICIES)
+    resources = sum(resource_only(path) for path in POLICIES)
+    assert collected == resources + len(outside), (
+        f"_arns collected {collected} ARNs; the documents hold {resources} in Resource fields "
+        f"and {len(outside)} in Conditions. A collector narrowed to Resource still yields every "
+        "Condition ARN as a STRING, because each equals the Resource it conditions — so this "
+        "compares counts. Fix _arns rather than this number."
     )

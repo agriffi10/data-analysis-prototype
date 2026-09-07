@@ -28,7 +28,7 @@
         "cloudtrail:AddTags",
         "cloudtrail:RemoveTags"
       ],
-      "Resource": "arn:aws:cloudtrail:${aws_region}:*:trail/${project_name}-*-archive-audit"
+      "Resource": "arn:aws:cloudtrail:${aws_region}:${account_id}:trail/${project_name}-*-archive-audit"
     },
     {
       "Sid": "TrailGlobalReads",
@@ -57,7 +57,7 @@
         "iam:UntagRole",
         "iam:UpdateAssumeRolePolicy"
       ],
-      "Resource": "arn:aws:iam::*:role/${project_name}-*-verification"
+      "Resource": "arn:aws:iam::${account_id}:role/${project_name}-*-verification"
     }
   ]
 }

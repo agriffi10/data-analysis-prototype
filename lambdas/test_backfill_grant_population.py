@@ -18,6 +18,12 @@ import re
 REPO = pathlib.Path(__file__).resolve().parent.parent
 LOCALS = REPO / "infra" / "modules" / "shared-spaces" / "locals.tf"
 STEPFUNCTION = REPO / "infra" / "modules" / "shared-spaces" / "stepfunction.tf"
+#: The placeholder account these tests build their probe ARNs with. The templates pin a
+#: VARIABLE, so this need not be the real account — but it must be the same value this file
+#: renders `${account_id}` as, or every probe ARN lands in a different account from the
+#: pattern it is checked against and the coverage assertions all pass vacuously.
+ACCOUNT_ID = "123456789012"
+
 DEPLOY_POLICY = (
     REPO / "infra" / "modules" / "base" / "policies" / "github-actions-deploy-shared-spaces.json.tftpl"
 )
@@ -88,7 +94,11 @@ def _invoke_statement():
       StopIteration: When no such statement exists.
     """
     rendered = DEPLOY_POLICY.read_text()
-    for marker, value in (("${aws_region}", "us-east-1"), ("${project_name}", "dat")):
+    for marker, value in (
+        ("${aws_region}", "us-east-1"),
+        ("${project_name}", "dat"),
+        ("${account_id}", ACCOUNT_ID),
+    ):
         rendered = rendered.replace(marker, value)
     rendered = re.sub(r"\$\{\w+\}", "arn:aws:s3:::placeholder", rendered)
     document = json.loads(rendered)
@@ -116,7 +126,11 @@ def test_the_granted_pattern_actually_matches_the_deployed_function_name():
     grants, so either side moving alone fails here rather than as an AccessDenied in CI.
     """
     pattern = re.search(r'"(arn:aws:lambda:[^"]*backfill[^"]*)"', DEPLOY_POLICY.read_text()).group(1)
-    pattern = pattern.replace("${aws_region}", "us-east-1").replace("${project_name}", "dat")
+    pattern = (
+        pattern.replace("${aws_region}", "us-east-1")
+        .replace("${project_name}", "dat")
+        .replace("${account_id}", ACCOUNT_ID)
+    )
     # Rendered from locals.tf's OWN template, not restated here: a hard-coded name pins the
     # policy side only, so renaming the template would silently stop this from testing anything.
     template = re.search(

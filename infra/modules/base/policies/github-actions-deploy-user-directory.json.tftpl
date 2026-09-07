@@ -5,7 +5,7 @@
       "Sid": "UserDirectoryProbeInvoke",
       "Effect": "Allow",
       "Action": "lambda:InvokeFunction",
-      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-user-directory-build"
+      "Resource": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-user-directory-build"
     },
     {
       "Sid": "UserDirectoryLambdaManage",
@@ -29,7 +29,7 @@
         "lambda:UntagResource",
         "lambda:ListTags"
       ],
-      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-user-directory-build"
+      "Resource": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-user-directory-build"
     },
     {
       "Sid": "UserDirectoryRolesManage",
@@ -50,7 +50,7 @@
         "iam:UpdateAssumeRolePolicy",
         "iam:PassRole"
       ],
-      "Resource": "arn:aws:iam::*:role/${project_name}-*-user-directory-build"
+      "Resource": "arn:aws:iam::${account_id}:role/${project_name}-*-user-directory-build"
     },
     {
       "Sid": "UserDirectoryLogs",
@@ -65,8 +65,8 @@
         "logs:UntagResource"
       ],
       "Resource": [
-        "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-user-directory-build",
-        "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-user-directory-build:*"
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/lambda/${project_name}-*-user-directory-build",
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/lambda/${project_name}-*-user-directory-build:*"
       ]
     },
     {
@@ -83,7 +83,7 @@
         "events:TagResource",
         "events:UntagResource"
       ],
-      "Resource": "arn:aws:events:${aws_region}:*:rule/${project_name}-*-user-directory-build-schedule"
+      "Resource": "arn:aws:events:${aws_region}:${account_id}:rule/${project_name}-*-user-directory-build-schedule"
     }
   ]
 }

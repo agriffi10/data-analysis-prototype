@@ -23,6 +23,19 @@ variable "aws_region" {
   type        = string
 }
 
+variable "account_id" {
+  description = "This account's id, rendered into every ARN in the deploy role's policies so a grant names one account rather than any. Passed from the root module's aws_caller_identity rather than read here: a data source inside a module carrying a module-level depends_on defers to apply time."
+  type        = string
+
+  # No default, AND a shape check. A required variable is still satisfied by an empty string,
+  # which renders arn:aws:glue:us-east-1::catalog — a syntactically valid ARN that matches
+  # nothing, applies green, and denies on first use.
+  validation {
+    condition     = can(regex("^[0-9]{12}$", var.account_id))
+    error_message = "account_id must be a 12-digit AWS account id."
+  }
+}
+
 variable "user_space_bucket_arn" {
   description = "ARN of the user-space (Bucket 1) S3 bucket the deploy role manages. Passed as a constructed string from the root module to avoid a dependency cycle with the data module."
   type        = string

@@ -5,7 +5,7 @@
       "Sid": "FeedbackProbeInvoke",
       "Effect": "Allow",
       "Action": "lambda:InvokeFunction",
-      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-feedback-writer"
+      "Resource": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-feedback-writer"
     },
     {
       "Sid": "FeedbackQueuesManage",
@@ -22,7 +22,7 @@
         "sqs:AddPermission",
         "sqs:RemovePermission"
       ],
-      "Resource": "arn:aws:sqs:${aws_region}:*:${project_name}-*-feedback-*"
+      "Resource": "arn:aws:sqs:${aws_region}:${account_id}:${project_name}-*-feedback-*"
     },
     {
       "Sid": "FeedbackWriterLambdaManage",
@@ -46,7 +46,7 @@
         "lambda:UntagResource",
         "lambda:ListTags"
       ],
-      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-feedback-writer"
+      "Resource": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-feedback-writer"
     },
     {
       "Sid": "FeedbackEventSourceMappingManage",
@@ -60,7 +60,7 @@
       "Resource": "*",
       "Condition": {
         "ArnLike": {
-          "lambda:FunctionArn": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-feedback-writer"
+          "lambda:FunctionArn": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-feedback-writer"
         }
       }
     },
@@ -78,7 +78,7 @@
       "Action": [
         "lambda:ListTags"
       ],
-      "Resource": "arn:aws:lambda:${aws_region}:*:event-source-mapping:*"
+      "Resource": "arn:aws:lambda:${aws_region}:${account_id}:event-source-mapping:*"
     },
     {
       "Sid": "FeedbackRolesManage",
@@ -99,7 +99,7 @@
         "iam:UpdateAssumeRolePolicy",
         "iam:PassRole"
       ],
-      "Resource": "arn:aws:iam::*:role/${project_name}-*-feedback-*"
+      "Resource": "arn:aws:iam::${account_id}:role/${project_name}-*-feedback-*"
     },
     {
       "Sid": "FeedbackLogs",
@@ -114,8 +114,8 @@
         "logs:UntagResource"
       ],
       "Resource": [
-        "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-feedback-writer",
-        "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-feedback-writer:*"
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/lambda/${project_name}-*-feedback-writer",
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/lambda/${project_name}-*-feedback-writer:*"
       ]
     }
   ]

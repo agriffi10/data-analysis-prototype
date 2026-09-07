@@ -47,6 +47,11 @@ BASE_IAM = ROOT / "infra" / "modules" / "base" / "iam.tf"
 LAMBDA_DIRS = ROOT / "lambdas"
 
 PROJECT = "dat"
+#: The placeholder account these tests build their probe ARNs with. The templates pin a
+#: VARIABLE, so this need not be the real account — but it must be the same value this file
+#: renders `${account_id}` as, or every probe ARN lands in a different account from the
+#: pattern it is checked against and the coverage assertions all pass vacuously.
+ACCOUNT_ID = "123456789012"
 ENVIRONMENT = "prod"
 
 #: Every function CI may invoke, mapped to what it actually does on the probe payload. Six of them
@@ -106,6 +111,7 @@ def _rendered(path):
     text = text.replace("${aws_region}", "us-east-1")
     text = text.replace("${project_name}", PROJECT)
     text = text.replace("${environment}", ENVIRONMENT)
+    text = text.replace("${account_id}", ACCOUNT_ID)
     return re.sub(r"\$\{\w+\}", "placeholder", text)
 
 

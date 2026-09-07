@@ -60,6 +60,20 @@ role already holds and why it is split across one managed policy per resource fa
   what IAM evaluates against. Trust the Service Reference. And note what a policy simulate can
   answer: whether a **pattern matches a string**, never **which resource the service passes** — so it
   can prove a grant sufficient and cannot tell you which form is required.
+- **An ARN's ACCOUNT field is a scoping decision, and a resource AWS owns breaks the rule.**
+  Every ARN in these templates names this account (`${account_id}`, passed from the root's
+  `aws_caller_identity`) — except the managed prefix lists, which are AWS-owned
+  (`arn:aws:ec2:<region>:aws:prefix-list/…`, `OwnerId: AWS`) and pinned to `aws` instead. The SPA
+  task's egress rule names the S3 one, because a CIDR rule does not match gateway-endpoint
+  traffic; account-pinned, `ec2:ModifySecurityGroupRules` reads `implicitDeny` against it. Note
+  which action that is: of the security-group mutators **only `ModifySecurityGroupRules` accepts a
+  `prefix-list` resource type** — `Authorize`/`RevokeSecurityGroupEgress` do not. An **empty**
+  account field is legal and is not a wildcard (S3, Route 53, API Gateway).
+  **A simulate cannot find this class of trap**: against a self-owned ARN it answers `allowed` and
+  proves nothing, because the ARN the *service* passes is the one that is foreign. What finds it is
+  reading ownership off the live account, and what proves a pin safe is matching it against the
+  ARNs the account actually holds — a bad pin does **not** fail on the apply that writes it, which
+  refreshes under the old document, but on the next apply's refresh, where the fix is itself denied.
 - **`s3:ListBucketMultipartUploads` does not support `s3:prefix`** — under a prefix condition it is
   always an implicit deny (a dead grant), and it would leak other users' in-progress uploads. Don't
   grant it. The prefix-scopable multipart actions are `s3:AbortMultipartUpload` /
@@ -138,6 +152,12 @@ so many of them. All three ceilings are enforced at `CreatePolicy` / `PutRolePol
 `AttachRolePolicy` — an apply-time `LimitExceeded` on a document that rendered, validated and
 planned green. The container platform's grants are two managed policies rather than one for
 exactly this reason.
+
+**The attach count is a COUNT, not the constant beside it.** `MAX_ATTACHED_MANAGED_POLICIES = 20`
+in `test_feedback_deploy_grant.py` is the ceiling being asserted against; the role carries
+**sixteen**. A `grep -c` of `aws_iam_role_policy_attachment` returns 20 because it counts matching
+*lines*, not resource blocks — which is how a restructuring once got justified by a ceiling that
+was four attachments away. Count the blocks, or ask the account.
 
 **Which one you can buy your way out of, read from the account.** The 6,144 is Service Quotas
 `L-ED111B8C`, `Adjustable: false` — a hard limit, so a document over it gets **split**, never a

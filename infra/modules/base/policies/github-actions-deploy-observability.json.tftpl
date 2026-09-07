@@ -5,7 +5,7 @@
       "Sid": "LogSweepProbeInvoke",
       "Effect": "Allow",
       "Action": "lambda:InvokeFunction",
-      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-log-sweep"
+      "Resource": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-log-sweep"
     },
     {
       "Sid": "ObservabilityLogsQueueManage",
@@ -23,8 +23,8 @@
         "sqs:RemovePermission"
       ],
       "Resource": [
-        "arn:aws:sqs:${aws_region}:*:${project_name}-*-logs",
-        "arn:aws:sqs:${aws_region}:*:${project_name}-*-logs.fifo"
+        "arn:aws:sqs:${aws_region}:${account_id}:${project_name}-*-logs",
+        "arn:aws:sqs:${aws_region}:${account_id}:${project_name}-*-logs.fifo"
       ]
     },
     {
@@ -49,7 +49,7 @@
         "lambda:UntagResource",
         "lambda:ListTags"
       ],
-      "Resource": "arn:aws:lambda:${aws_region}:*:function:${project_name}-*-log-sweep"
+      "Resource": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-log-sweep"
     },
     {
       "Sid": "LogSweepRolesManage",
@@ -70,7 +70,7 @@
         "iam:UpdateAssumeRolePolicy",
         "iam:PassRole"
       ],
-      "Resource": "arn:aws:iam::*:role/${project_name}-*-log-sweep"
+      "Resource": "arn:aws:iam::${account_id}:role/${project_name}-*-log-sweep"
     },
     {
       "Sid": "LogSweepLogs",
@@ -85,8 +85,8 @@
         "logs:UntagResource"
       ],
       "Resource": [
-        "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-log-sweep",
-        "arn:aws:logs:${aws_region}:*:log-group:/aws/lambda/${project_name}-*-log-sweep:*"
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/lambda/${project_name}-*-log-sweep",
+        "arn:aws:logs:${aws_region}:${account_id}:log-group:/aws/lambda/${project_name}-*-log-sweep:*"
       ]
     },
     {
@@ -103,7 +103,7 @@
         "events:TagResource",
         "events:UntagResource"
       ],
-      "Resource": "arn:aws:events:${aws_region}:*:rule/${project_name}-*-log-sweep-schedule"
+      "Resource": "arn:aws:events:${aws_region}:${account_id}:rule/${project_name}-*-log-sweep-schedule"
     }
   ]
 }

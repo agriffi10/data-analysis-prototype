@@ -455,6 +455,7 @@ module "base" {
   state_bucket     = var.state_bucket
   state_lock_table = var.state_lock_table
   aws_region       = var.aws_region
+  account_id       = data.aws_caller_identity.current.account_id
 
   # Scopes the deploy role's Route 53 grant to the single zone the front door owns.
   # The grant and the records that use it read the SAME variable, so they cannot
