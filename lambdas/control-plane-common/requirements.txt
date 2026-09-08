@@ -37,11 +37,10 @@ PyJWT[crypto]>=2.8,<3
 # 250 MB ceiling to gain nothing. The core install declares zero runtime dependencies: every
 # Requires-Dist is behind an extra, re-confirmed on this pin.
 #
-# WHAT THE VERSION BUYS, as opposed to what it fixed on the way here. The floors that justified
-# Every floor that justified an earlier pin is gone, because this one clears all of them; what is
-# kept below is the set of
-# facts that are TRUE OF THE RUNNING LIBRARY and are recorded in no other live file. Deleting one
-# of these deletes it from the repo.
+# WHAT THE VERSION BUYS, as opposed to what it fixed on the way here. Every floor that justified
+# an earlier pin is gone, because this one clears all of them. What is kept below is the set of
+# facts that are TRUE OF THE RUNNING LIBRARY and are recorded in no other live file — deleting one
+# deletes it from the repo, which a test now refuses.
 #
 # 1. `error.stack` keeps the cause's text, clipped at 32 KB, tail-preserving — well above a real
 #    traceback. That ceiling is what makes the SPEC-110 tripwire's premise checkable.

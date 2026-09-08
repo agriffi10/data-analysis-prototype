@@ -200,7 +200,7 @@ def test_the_reset_clears_an_adopted_trace_context(sink):
     assert span.get("parent_span_id") is None
 
 
-def test_a_field_named_fields_is_dropped_and_its_siblings_still_land(sink):
+def test_a_field_named_fields_is_dropped_and_its_siblings_still_land(sink, caplog):
     """`fields` is the library's escape hatch, so an un-dropped one is silently reinterpreted.
 
     Both halves are asserted. A guard that dropped everything would satisfy the first alone.
@@ -214,15 +214,20 @@ def test_a_field_named_fields_is_dropped_and_its_siblings_still_land(sink):
     Raises:
       None.
     """
-    observability.info("narrative", fields={"a": 1}, sibling="kept")
+    with caplog.at_level("WARNING"):
+        observability.info("narrative", fields={"a": 1}, sibling="kept")
     observability.flush()
 
     landed = sink.fields_of("narrative")[0]
     assert landed.get("sibling") == "kept"
     assert "a" not in landed, "the reserved name was forwarded and unpacked over the event"
+    assert any("narrative" in r.getMessage() and "fields" in r.getMessage() for r in caplog.records), (
+        "no warning named the message — the warning is the ONLY signal an author gets that their "
+        "field vanished, so a silent drop is barely better than the silent reinterpretation"
+    )
 
 
-def test_a_field_named_echo_is_dropped_before_it_can_raise(sink):
+def test_a_field_named_echo_is_dropped_before_it_can_raise(sink, caplog):
     """The other prohibited name, dropped for a different reason.
 
     Left in, `echo` collides with the keyword `_emit` always passes and raises `TypeError` at the
@@ -238,12 +243,16 @@ def test_a_field_named_echo_is_dropped_before_it_can_raise(sink):
     Raises:
       None.
     """
-    observability.info("narrative", echo=True, sibling="kept")
+    with caplog.at_level("WARNING"):
+        observability.info("narrative", echo=True, sibling="kept")
     observability.flush()
 
     landed = sink.fields_of("narrative")[0]
     assert landed.get("sibling") == "kept"
     assert "echo" not in landed
+    assert any("narrative" in r.getMessage() and "echo" in r.getMessage() for r in caplog.records), (
+        "no warning named the message"
+    )
 
 
 def test_an_emitter_that_raises_does_not_reach_the_verb(sink, monkeypatch):
@@ -439,11 +448,13 @@ def test_no_module_reaches_into_log_foundrys_privates():
         "log-sweep/test_log_sweep.py",
     }
     offenders = []
+    parsed = 0
     for path in sorted(_LAMBDAS.rglob("*.py")):
         relative = str(path.relative_to(_LAMBDAS))
         if "__pycache__" in str(path) or relative in allowed:
             continue
         source = path.read_text()
+        parsed += 1
         if "log_foundry" not in source:
             continue
         try:
@@ -465,6 +476,15 @@ def test_no_module_reaches_into_log_foundrys_privates():
                 ]
                 if any(name.startswith("_") for name in literals):
                     offenders.append(f"{relative}:{node.lineno} {ast.unparse(node)}")
+    assert parsed > 300, (
+        f"the walk read only {parsed} modules, so it is not reaching the tree — the population of "
+        "files mentioning log_foundry is tiny BY DESIGN, so counting those proves nothing and this "
+        "counts what the walk actually traversed"
+    )
+    assert _log_foundry_aliases(ast.parse("import log_foundry as lf\n")) == {"lf"}, (
+        "the alias resolver does not resolve the aliased spelling, which is the one this repo "
+        "uses and the one an offender would wear"
+    )
     assert not offenders, f"private log-foundry reaches outside the sanctioned files: {offenders}"
 
 
@@ -635,3 +655,41 @@ def test_every_event_carries_the_build_stamp_and_the_verb(sink):
     assert (start.get("fields") or {}).get("verb") == "probe-verb"
     assert (start.get("fields") or {}).get("request_id") == "REQ-4"
     assert json.dumps(start), "the event does not serialize, so the sweep could not write it"
+
+
+def test_the_pins_comment_still_states_every_fact_it_is_the_sole_home_of():
+    """The requirements block is the only live home of seven facts, held by a test rather than care.
+
+    The count went wrong four times in one spec — three, then five, then six, then seven — which is
+    the signature of a missing mechanism rather than four oversights. Prose said the check was
+    "derived"; nothing read the file. This does.
+
+    Each fact is anchored to an identifier rather than to wording, so rewriting a sentence is free
+    and deleting the fact is not. A rewrite that drops one fails here instead of silently erasing
+    it from the repo — which is what would have happened to the orphan-path emit fact, whose only
+    other statement was a docstring the same change rewrote.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    block = (_LAMBDAS / "control-plane-common" / "requirements.txt").read_text()
+    facts = {
+        "the error.stack clip": "32 KB",
+        "error.message / error.module": "error.module",
+        "safe by construction": "size-bounded",
+        "span.end carries duration and outcome": "duration_ms",
+        "the synchronous orphan emit": "SYNCHRONOUSLY",
+        "the MultiSink disposition": "MultiSink",
+        "the non-JSON sink disposition": "clickhouse",
+    }
+    missing = sorted(name for name, anchor in facts.items() if anchor not in block)
+    assert not missing, (
+        f"the pin's comment no longer states: {missing}. Each is stated in no other live file, so "
+        "a rewrite that drops one deletes it from the repo."
+    )
