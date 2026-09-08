@@ -105,8 +105,7 @@ export function useCopy(bucket: string, username?: string): UseCopyResult {
     setSummary(null);
 
     let outcome:
-      | {ok: true; copied: number; errors: CopySummary['errors']}
-      | {ok: false; code?: string; message: string};
+      {ok: true; copied: number; errors: CopySummary['errors']} | {ok: false; code?: string; message: string};
 
     if (item.type === 'file') {
       const r = await copyObject({

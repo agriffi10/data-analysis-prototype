@@ -75,13 +75,11 @@ export function ColumnFilterMenu({column, actions, onRequestValue}: ColumnFilter
         {kind: 'separator'},
         // Derived from the operator list rather than re-listed: a hand-written array cast to
         // `FilterOperator[]` type-checks with three of the six missing.
-        ...FILTER_OPERATORS.filter(operatorTakesValue).map(
-          (operator): MenuItem => ({
-            kind: 'action',
-            label: `Filter: ${FILTER_OPERATOR_LABELS[operator]}…`,
-            onSelect: () => onRequestValue(column, operator)
-          })
-        ),
+        ...FILTER_OPERATORS.filter(operatorTakesValue).map((operator): MenuItem => ({
+          kind: 'action',
+          label: `Filter: ${FILTER_OPERATOR_LABELS[operator]}…`,
+          onSelect: () => onRequestValue(column, operator)
+        })),
         {kind: 'action', label: 'Filter: is null', onSelect: () => actions.filter(column, 'isNull')},
         {kind: 'action', label: 'Filter: is not null', onSelect: () => actions.filter(column, 'isNotNull')},
         {kind: 'action', label: 'Clear filter', disabled: !filter, onSelect: () => actions.clearFilter(column)}

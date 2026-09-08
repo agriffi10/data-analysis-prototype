@@ -59,15 +59,13 @@ function render(route = '/explore') {
 function seedTabs(tables: {id: string; table: string}[], activeTabId = tables[0]?.id ?? '') {
   const state: ExplorationTabsState = {
     version: 1,
-    tabs: tables.map(
-      ({id, table}): ExplorationTab => ({
-        id,
-        label: table,
-        exploration: newExploration({kind: 'table', spaceId: 'personal', database: 'alice', table}, id),
-        scannedByExecution: {},
-        history: {past: [], future: []}
-      })
-    ),
+    tabs: tables.map(({id, table}): ExplorationTab => ({
+      id,
+      label: table,
+      exploration: newExploration({kind: 'table', spaceId: 'personal', database: 'alice', table}, id),
+      scannedByExecution: {},
+      history: {past: [], future: []}
+    })),
     activeTabId
   };
   sessionStorage.setItem(`${EXPLORATION_TABS_STORAGE_PREFIX}alice`, JSON.stringify(state));

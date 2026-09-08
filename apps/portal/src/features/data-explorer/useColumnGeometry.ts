@@ -70,16 +70,14 @@ export function useColumnGeometry(
   const {columnOrder, hiddenColumns, pinnedColumns, columnWidths} = presentation;
 
   const all = useMemo((): GridColumn[] => {
-    const resolved = columns.map(
-      (column, index): GridColumn => ({
-        name: column.name,
-        type: column.type,
-        index,
-        width: columnWidths[column.name] ?? DEFAULT_COLUMN_WIDTH,
-        pinned: pinnedColumns.includes(column.name),
-        hidden: hiddenColumns.includes(column.name)
-      })
-    );
+    const resolved = columns.map((column, index): GridColumn => ({
+      name: column.name,
+      type: column.type,
+      index,
+      width: columnWidths[column.name] ?? DEFAULT_COLUMN_WIDTH,
+      pinned: pinnedColumns.includes(column.name),
+      hidden: hiddenColumns.includes(column.name)
+    }));
 
     // Ordering is "named first, in the order named; everything else after, in the order
     // the execution reported it". A column the stored order has never heard of — a new

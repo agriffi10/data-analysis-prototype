@@ -1,4 +1,4 @@
-import '@testing-library/jest-dom';
+import '@testing-library/jest-dom/vitest';
 
 // `expect.extend` registers `toHaveNoViolations` at runtime so every test can
 // assert axe results without a per-file import; its TypeScript types are
