@@ -115,6 +115,33 @@ Attributes:
     sweep that looked only for ``SPEC-``, and a requirement number without its spec is strictly
     less useful than the citation it hung off. The PR form is bounded at four digits: unbounded, it
     matches a six-digit hex colour such as the palette tokens in the Data Explorer.
+  TEST_CITATION_SCAN: The file types a test citation is looked for in. Markdown is in the set
+    because a doc naming a guard makes the same promise a comment does, and Vitest ``*.test.tsx``
+    files are deliberately NOT excluded — they carry four citations to Python tests, one of which
+    names a test that no longer exists. Workflows and shell scripts are in it for the same reason
+    a comment is: measured, they hold 12 citations, all of which resolve today, so the set costs
+    nothing and closes a place a promise could be made unwatched.
+  TEST_CITATION_WINDOW: How far either side of a citation a retirement record is looked for, in
+    characters. Measured by binary search against the tree: the furthest record puts its verb 82
+    characters past the citation, on the following line, so 81 drops it and 82 does not. It is not
+    a budget with headroom to spend — widening it buys FALSE EXEMPTIONS, and widening it to the
+    whole file was measured to drop 17 of this repo's findings in silence. A retirement verb in a
+    neighbouring sentence within this distance will exempt a live citation; measured, that happens
+    nowhere today. The corpus pins BOTH edges — the tree pins the low side at 82, and a fixture
+    whose verb sits just past this number pins the high side — because an upper edge left to the
+    tree alone is not pinned at all: nothing in a repository objects to being exempted.
+  TEST_CITATION_GRAMMARS: The three forms a citation is written in, held as a POSITIVE CONTROL:
+    each must match at least once per run. The reason is ``check_spec_size``'s — a ratchet at zero
+    goes vacuous the moment the scan stops matching, and a scan finding nothing then looks exactly
+    like a repository with nothing wrong. A global floor was the other option and the weaker one:
+    only 11 of 255 sites are written bare and nowhere else, so that form could go dead in full
+    while any plausible floor still passed. Paying the debt down does not remove sites — a
+    repaired citation still cites — so this control does not weaken as the ratchet falls.
+  TEST_CITATION_MAX: How many citations may name a test that does not exist. A ratchet at the
+    measured level, and the one budget here whose end state is ZERO with no headroom: every unit
+    it counts is a defect rather than a legitimate cost, so room to spare would be permission to
+    add one. The single legitimate case that reaches a zero ratchet is a retirement record worded
+    outside ``RETIREMENT_RE``, and the answer to that is to reword it, never to raise this.
 """
 
 import fnmatch
@@ -122,6 +149,7 @@ import os
 import pathlib
 import re
 import sys
+import typing
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -228,6 +256,65 @@ WARNING = "warning: "
 STATUS_WORDS = ("shipped", "complete", "active", "draft", "in progress", "filed", "scoped")
 SOURCE_TREES = (("apps/portal/src", (".ts", ".tsx")), ("lambdas", (".py",)), ("infra", (".tf", ".tftpl")))
 CITATION_RE = re.compile(r"SPEC-\d{3}|(?<![\w#])#\d{3,4}(?![\w])|\b(?:FR|AC)-?\d+\b")
+#: A cited test name. The character class carries UPPERCASE deliberately: 290 names in the
+#: population have a capital in them, and a lowercase-only class truncates the longest of them
+#: mid-word and then reports the stub it made as an unresolved citation.
+TEST_NAME_RE = re.compile(r"\btest_[A-Za-z0-9_]+")
+
+#: A citation written as a filename. Matched separately so the name resolves against a FILE as
+#: well as a function — a citation naming a module names a module-wide sweep, not one assertion.
+TEST_FILENAME_RE = re.compile(r"\btest_[A-Za-z0-9_]+\.py\b")
+
+#: A code span, single or double backticked. The ``{1,2}`` is load-bearing, though not for the
+#: reason it looks: a single-backtick pattern does not fail on ``x`` by matching an empty span —
+#: ``[^`]+`` cannot match empty — it fails by treating the PROSE BETWEEN two double-backticked
+#: names as a span of its own, and then losing the second name. Measured on ```` ``a`` then `b` ````
+#: the single pattern returns ``a`` and `` then ``, and never sees ``b``.
+CODE_SPAN_RE = re.compile(r"`{1,2}([^`]+)`{1,2}")
+
+#: A code span left OPEN at end of line whose content has already reached ``test_``. This is the
+#: only place lines are rejoined, and it is deliberately narrow: joining on any unclosed backtick
+#: would fuse prose all over the tree, while this shape is exactly a citation that wrapped.
+WRAPPED_CITATION_RE = re.compile(r"`[^`]*test_[A-Za-z0-9_]*$")
+
+#: The start of a trailing comment. Two markers rather than a per-language table, for the reason
+#: ``CITATION_RE`` gives: four languages' comment syntax is four ways to miss one.
+COMMENT_START_RE = re.compile(r"#|//")
+
+#: A past-tense retirement, sought in a window either side of a citation — a record of a guard
+#: that is gone is legitimate prose, not a stale claim. ONE mechanism, and the window looks
+#: BOTH ways because the four records in this repo put the verb on either side and one puts it
+#: on the following line, 90 characters along. Retirement
+#: words ONLY. `delete` and `remove` are deliberately absent, and that is not fastidiousness: this
+#: repo is full of live sentences about deletion semantics, and admitting those two words would
+#: exempt three of the findings this check was written to report — among them a manifest sweep and
+#: a queue drain, each of which describes deleting and cites a test that does not exist.
+RETIREMENT_RE = re.compile(r"retir(?:e|es|ed|ing|ement)\b", re.IGNORECASE)
+
+TEST_CITATION_SCAN = (".py", ".tf", ".tftpl", ".ts", ".tsx", ".md", ".yml", ".yaml", ".sh")
+TEST_CITATION_WINDOW = 100
+TEST_CITATION_GRAMMARS = ("bare in a comment", "code span", "filename")
+
+
+class Citations(typing.NamedTuple):
+    """What one file cites: the deduped sites, and the grammar of every match behind them.
+
+    Two fields rather than one list because they answer different questions. ``sites`` is the
+    finding list, so a name written twice on one line is one finding. ``grammars`` is the
+    positive control's input, so it counts matches rather than findings — a tally taken after
+    the dedup measures which grammar saw a name FIRST, which is not the same as which grammars
+    still work.
+
+    Attributes:
+      sites: ``(line number, name, exempt)`` per distinct name per line.
+      grammars: The form of every match, before that dedup. A list rather than a set because the
+        caller unions them across files, and because recording only the FIRST grammar per site was
+        the bug this field exists to avoid.
+    """
+
+    sites: list[tuple[int, str, bool]]
+    grammars: list[str]
+TEST_CITATION_MAX = 45
 
 
 class DocsError(Exception):
@@ -1030,6 +1117,296 @@ def check_source_citations() -> list[str]:
     return errors
 
 
+def _test_name_population() -> set[str]:
+    """Every name a test citation may legitimately resolve against.
+
+    Two kinds, because the repo cites both: the FUNCTION names a ``def test_…`` line declares,
+    and the STEM of every test module, since a citation naming a module names a module-wide
+    sweep rather than one assertion.
+
+    Walks the working tree rather than ``git ls-files``, for the reason
+    ``check_doc_paths_everywhere`` records: the fixture corpus runs this file in a tree with no
+    repository, where a ``git`` population would collapse to empty and take every case with it.
+    The residual is the same one — an untracked local ``test_*.py`` resolves a citation here that
+    CI's clean checkout will refuse.
+
+    Args:
+      None.
+
+    Returns:
+      The function names and module stems, as one set.
+
+    Raises:
+      None.
+    """
+    definition = re.compile(r"\s*def (test_[A-Za-z0-9_]+)")
+    names: set[str] = set()
+    for path in ROOT.rglob("*.py"):
+        if any(part in VENDORED for part in path.relative_to(ROOT).parts):
+            continue
+        # Only the ``test_`` prefix, deliberately, where ``_cites_tests`` needs both forms. A
+        # citation can only ever name something matching ``\btest_``, so a ``*_test.py`` stem is
+        # unreachable here — it would read as symmetry while resolving nothing.
+        if path.name.startswith("test_"):
+            names.add(path.stem)
+        for line in path.read_text().split("\n"):
+            found = definition.match(line)
+            if found:
+                names.add(found.group(1))
+    return names
+
+
+def _citation_lines(path: pathlib.Path, text: str) -> tuple[str, list[tuple[int, int, str]]]:
+    """One file flattened for citation matching, and a map back to its line numbers.
+
+    Two transformations. Markdown goes through ``_prose_lines`` first, so a citation quoted inside
+    a fenced example is not judged. Then a citation WRAPPED across a line break is rejoined —
+    one register entry splits a name mid-identifier and three Python docstrings split theirs at an
+    indent, and without this each reports a truncated stub that resolves against nothing. The continuation's leading whitespace and blockquote marker come off, and no space is
+    inserted, because the two halves are halves of one identifier.
+
+    The flattened text is what the retirement window is measured over: the one strikethrough site
+    carries its verb on the FOLLOWING line, so a window confined to a single line cannot see it.
+
+    Args:
+      path: The file, whose suffix decides whether markdown stripping applies.
+      text: Its full text.
+
+    Returns:
+      ``(flat, spans)`` where ``flat`` is the joined text and each span is
+      ``(offset, line number, line)`` for one joined line.
+
+    Raises:
+      None.
+    """
+    pairs = _prose_lines(text) if path.suffix == ".md" else list(enumerate(text.split("\n"), 1))
+    joined: list[tuple[int, str]] = []
+    index = 0
+    while index < len(pairs):
+        number, line = pairs[index]
+        while WRAPPED_CITATION_RE.search(line) and index + 1 < len(pairs):
+            index += 1
+            line += re.sub(r"^[\s>]*", "", pairs[index][1])
+        joined.append((number, line))
+        index += 1
+    spans: list[tuple[int, int, str]] = []
+    offset = 0
+    for number, line in joined:
+        spans.append((offset, number, line))
+        offset += len(line) + 1
+    return "\n".join(line for _, line in joined), spans
+
+
+def _citations(path: pathlib.Path, text: str) -> "Citations":
+    """Every test a file cites, and whether the citation is an exempt retirement record.
+
+    Three grammars, because the repo writes citations three ways. A name in backticks is the
+    common form. A ``test_*.py`` filename is how a module-wide sweep is named. A BARE identifier
+    in a comment is how 11 citations in this repo are written — 10 in Terraform comments, one in
+    a state-machine template — and it is not a stylistic variant to be tidied away: a
+    backticks-only grammar cannot see the seven ``locals.tf`` claims this check exists for.
+
+    Bare matching is scoped to a comment in code, and to nothing at all in markdown, where ``#``
+    opens a heading rather than a comment; measured, admitting markdown yields one match tree-wide
+    and it is a user-visible folder name, not a citation. ``.tftpl`` is the exception in the other
+    direction: an ASL template carries no ``#`` or ``//`` anywhere in the tree, and its citations
+    live inside JSON ``"Comment"`` strings, so a comment-scoped rule would be dead there.
+
+    A name followed by ``/`` is a directory and not a citation.
+
+    Args:
+      path: The file being scanned.
+      text: Its full text.
+
+    Returns:
+      ``Citations(sites, grammars)``. ``sites`` holds ``(line number, name, exempt)`` once per
+      distinct name per line; ``grammars`` holds the form of EVERY match, before that dedup, so
+      the positive control counts what the scan actually matched. Counting after the dedup made
+      one grammar's tally depend on which grammar happened to see a name first, and measured, that
+      left the filename form reading as live while it was unreachable in markdown — every filename
+      citation in a doc is written inside backticks, so the code span always won the key.
+
+    Raises:
+      None.
+    """
+    flat, spans = _citation_lines(path, text)
+    seen: dict[tuple[int, str], bool] = {}
+    matched: list[str] = []
+    for offset, number, line in spans:
+        found: list[tuple[str, int, str]] = []
+        for span in CODE_SPAN_RE.finditer(line):
+            for name in TEST_NAME_RE.finditer(span.group(1)):
+                found.append((name.group(0), span.start(1) + name.start(), "code span"))
+        for name in TEST_FILENAME_RE.finditer(line):
+            found.append((name.group(0)[: -len(".py")], name.start(), "filename"))
+        bare_from = None
+        if path.suffix == ".tftpl":
+            bare_from = 0
+        elif path.suffix != ".md":
+            marker = COMMENT_START_RE.search(line)
+            bare_from = marker.start() if marker else None
+        if bare_from is not None:
+            for name in TEST_NAME_RE.finditer(line, bare_from):
+                found.append((name.group(0), name.start(), "bare in a comment"))
+        for name, column, grammar in found:
+            if line[column + len(name):].startswith("/"):
+                continue
+            start = max(0, offset + column - TEST_CITATION_WINDOW)
+            window = flat[start: offset + column + len(name) + TEST_CITATION_WINDOW]
+            matched.append(grammar)
+            seen[(number, name)] = seen.get((number, name), False) or bool(
+                RETIREMENT_RE.search(window)
+            )
+    return Citations(
+        sites=[(number, name, exempt) for (number, name), exempt in seen.items()],
+        grammars=matched,
+    )
+
+
+def _cites_tests(relative: pathlib.PurePath) -> bool:
+    """Whether a file is scanned for test citations.
+
+    Four exclusions, each for its own reason. ``docs/specs/SPEC-*.md`` and ``docs/spec-delivery/``
+    are HISTORY: they record what a spec cited when it was written, and holding them to today's
+    test suite would make 101 findings out of documents that are correct as they stand. The
+    per-spec glob is deliberately narrower than the tree — ``ARCS.md`` is live narrative the
+    completion ritual still edits, and blanket-excluding the directory hid two present-tense false
+    citations in it.
+
+    Test modules and ``conftest.py`` are excluded so a suite's own ``def test_…`` lines are not
+    read as citations of themselves. That exclusion is NOT free and the cost is stated rather than
+    implied: it also hides four genuine false citations, in which one test's comment delegates a
+    check to a named guard in the same suite that no longer exists. Lifting it would admit eight
+    false positives, of five kinds — an author's deliberate ellipsis, a dict key in an inline
+    fixture, a prefix being described, a provenance record, and a record of a guard that never
+    existed at all, which no rewording can turn into a retirement — so the four are paid down by
+    hand instead.
+
+    ``lambdas/fixtures/retired-layer-artifacts/`` holds verbatim captures of code that was
+    deliberately deleted. It suppresses nothing today: its only scanned file is ``PROVENANCE.md``
+    and that file's one citation still resolves. It is here for what the directory is FOR, and a
+    reader should not take it as evidence anything is being held back.
+
+    Args:
+      relative: The file's path from the repository root.
+
+    Returns:
+      True when the file's citations are judged.
+
+    Raises:
+      None.
+    """
+    text = relative.as_posix()
+    if relative.name == "conftest.py":
+        return False
+    if fnmatch.fnmatch(relative.name, "test_*.py") or fnmatch.fnmatch(relative.name, "*_test.py"):
+        return False
+    if fnmatch.fnmatch(text, "docs/specs/SPEC-*.md"):
+        return False
+    return not text.startswith(("docs/spec-delivery/", "lambdas/fixtures/retired-layer-artifacts/"))
+
+
+def check_test_citations() -> list[str]:
+    """Refuse a comment or doc that names a test which does not exist.
+
+    A citation that has gone stale is worse than no citation at all: it tells a reader the claim
+    beside it is already enforced, so the check a careful engineer would otherwise make is the one
+    thing the comment talks them out of. Every one of these arrived the same way — one commit
+    deleted 57 files, 53 of them test modules, and left every reference to them standing.
+
+    Unresolved citations are reported as WARNINGS on every run and the RATCHET decides the exit
+    code, so the debt is legible while it is being paid rather than only at the moment it crosses
+    a line. The direction matches ``check_spec_size``: measured above the constant fails.
+
+    Three things a name-resolution gate cannot see, recorded here rather than answered with more
+    mechanism — an earlier attempt at a cross-plane check produced nine false positives, no true
+    positive, and contradicted its own path to zero, because ``cpcommon`` is shared by every plane
+    by design: (a) a citation written as a filename resolves on the filename whatever the file
+    contains; (b) a module deleted and recreated as a stub keeps its citations green — file-ops
+    carries seven false claims that resolve exactly this way; (c) resolution is global by name, so
+    one plane's guard satisfies another plane's identical citation, which is why two guards this
+    repo restored to two planes carry plane-qualified names. And (d) the ratchet compares a TOTAL,
+    so a change that narrows the scanned set and adds an offsetting citation in the same commit
+    nets to zero and passes — the exact ratchet catches a narrowing on its own, not a narrowing
+    paid for.
+
+    Each grammar is a positive control on itself, for ``check_spec_size``'s reason: a ratchet
+    sitting at zero goes vacuous the moment the scan stops matching, and a broken scanner finding
+    nothing is then indistinguishable from a clean repository, forever.
+
+    Args:
+      None.
+
+    Returns:
+      One warning per unresolved citation, plus an error when the count exceeds the ratchet or
+      any grammar matched nothing at all.
+
+    Raises:
+      None.
+    """
+    names = _test_name_population()
+    grammars: set[str] = set()
+    unresolved: list[str] = []
+    for path in sorted(ROOT.rglob("*")):
+        if path.suffix not in TEST_CITATION_SCAN or not path.is_file():
+            continue
+        relative = path.relative_to(ROOT)
+        if any(part in VENDORED for part in relative.parts) or not _cites_tests(relative):
+            continue
+        found = _citations(path, path.read_text())
+        grammars.update(found.grammars)
+        for number, name, exempt in sorted(found.sites):
+            if not exempt and name not in names:
+                unresolved.append(f"{relative}:{number} names {name}, which no test defines")
+    findings = [f"{WARNING}stale test citation: {site}" for site in unresolved]
+    if unresolved:
+        # The remedy is repeated here because the ratchet error below is the only other
+        # place it appears, and that error does not fire while the count sits AT the
+        # ratchet — which is the whole of the paydown, and exactly when this wording gets
+        # written. An author who reaches for "dropped" or "no longer exists" would
+        # otherwise get a warning with no hint and a green run.
+        findings.insert(
+            0,
+            WARNING
+            + "each stale citation below names a test that no `def` and no test module\n"
+            "    provides. Restore the guard, or say what is true without naming a\n"
+            "    test. If the sentence RECORDS a retirement, the exemption is the word\n"
+            "    'retired' within 100 characters of the name — not 'deleted' or\n"
+            "    'removed', which this repo uses in live claims about deletion\n"
+            "    semantics.",
+        )
+    silent = sorted(set(TEST_CITATION_GRAMMARS) - grammars)
+    if silent:
+        findings.append(
+            f"the test-citation scan matched nothing in {len(silent)} of its "
+            f"{len(TEST_CITATION_GRAMMARS)} grammars ({', '.join(silent)}). That is a broken scan, "
+            "not a clean tree: every citation written that way now reads as resolved, and the "
+            "ratchet below agrees. Each grammar is how some part of this repo actually writes a "
+            "citation — 11 sites are written bare and nowhere else — so none may go quiet."
+        )
+    if len(unresolved) > TEST_CITATION_MAX:
+        findings.append(
+            f"{len(unresolved)} citations name a test that does not exist (ratchet "
+            f"{TEST_CITATION_MAX}); each is a WARNING above. A comment that names a guard which "
+            "is gone actively discourages the check a reader would otherwise make, so write what "
+            "is true instead, or restore the guard. If the citation is a past-tense record of a "
+            "RETIREMENT, word it with 'retired' — that is the exemption, and it is the one "
+            "legitimate case that reaches a ratchet of zero. Raising this number is not."
+        )
+    elif len(unresolved) < TEST_CITATION_MAX:
+        findings.append(
+            f"{len(unresolved)} citations name a test that does not exist, below the ratchet of "
+            f"{TEST_CITATION_MAX} — lower it to {len(unresolved)} in this pull request. This is "
+            "the good direction and the message is still an error, because a count that FELL has "
+            "two causes that look identical from here: citations were repaired, or the scan "
+            "stopped seeing a file. A ceiling cannot tell them apart, so it never reddens on lost "
+            "detection — narrowing the scanned set by one filename was measured to drop eight "
+            "findings in silence. Read the warnings above, confirm they went away for the reason "
+            "you intended, then move the number."
+        )
+    return findings
+
+
 def check_workflow_table() -> list[str]:
     """Every workflow has a row in the workflows README, and every row a workflow.
 
@@ -1439,6 +1816,7 @@ def main() -> int:
         check_spec_size,
         check_delivery_size,
         check_source_citations,
+        check_test_citations,
         check_workflow_table,
         check_links,
         check_section_pointers,
