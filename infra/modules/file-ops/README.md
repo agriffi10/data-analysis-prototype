@@ -121,13 +121,22 @@ starts, and a redelivered message either returns the original ARN or fails with
 `ExecutionAlreadyExists`. **Recovery is the DLQ drain.** Its own queue and its own DLQ: a malformed
 file operation must never dead-letter someone's file send.
 
-## Three verbs hold the parsed plan, and their memory rows are inputs to a cap
+## Five verbs hold the parsed plan, and their memory rows are inputs to a cap
 
 `FILE_OPS_MAX_OBJECTS` is the **minimum** over every plan-holding verb's memory, and
 **`test_config_focommon` reads these numbers back out of `locals.tf`**. Adding a sixth plan-holder
 without adding it to that set **would have the cap certify memory it never checked**.
 
-- **`build-transfer-manifest` is the worst of the three**: it holds the parsed plan **and** the joined
+The five are `inspect-source`, `check-destinations`, `build-transfer-manifest`,
+`collect-transfer-results` and `delete-source` — and that list is not maintained by hand here. The
+guard **derives** it by reading every non-test module in every `lambdas/file-ops-*/` directory for
+a `plan.load(` or `plan.write(` — **not** the `file_ops_*.py` ones, because one verb ships as
+`fo_notify_failure.py` and a glob on the common prefix leaves a twelfth of the plane unchecked — and
+holds the derived set **equal** to the one the budget measures, so a sixth
+plan-holder fails the build rather than the invocation. **The set the budget measures stays written
+out**: making it derive itself too would leave the guard green and this promise empty.
+
+- **`build-transfer-manifest` is the worst of the five**: it holds the parsed plan **and** the joined
   manifest body at once, because `cpcommon.transfer.manifest` builds the whole payload with
   `"\n".join(...).encode()` before the PUT. **Both terms are charged in the cap's own test rather than
   assumed to fit.**
@@ -138,9 +147,13 @@ without adding it to that set **would have the cap certify memory it never check
   floor rather than a function of the data. Its timeout is `COPY_TIMEOUT_SECONDS`, which the batch
   size is computed against, and a test holds the two equal.
 
-**`validate-authorize`'s timeout is an input to the lock budget**, and **`delete-source`'s and
-`notify`'s are terms in the machine's ceiling.** A test recomputes each. Raising one without
-re-deriving fails the build.
+**`acquire-lock`'s timeout is the input to the lock give-up bound** — the waiter's per-attempt cost
+is the `Wait` plus that Task's worst case under the retry block, and nothing else in the table feeds
+it. **Every other verb's timeout is a term in the machine's ceiling**, `release-lock`'s included,
+since **at most one** release state runs, and exactly one on every path that took the lock — a
+validate failure refuses before the lock and releases nothing, so charging it once is an upper
+bound. A test recomputes both budgets and
+reads every row back. Raising one without re-deriving fails the build.
 
 ## `TimeoutSeconds` ships from the first version, and the CAP moved rather than the ceiling
 

@@ -123,6 +123,29 @@ admin bucket are the only places it may write, and it is on the user-space bucke
   point, in one dispatcher; the in-flight record is session-scoped and settles on a notification
   carrying its request id.
 
+## What the cap chain reads, and what it only computes
+
+`test_config_focommon` holds almost every file-ops number, and its guards divide by **what they
+open**. Of 31, **seventeen** reach outside the package: **thirteen** read verb rows or scalars out of
+`infra/modules/file-ops/locals.tf` (one of those also reads the state machine's ASL template, to hold
+the twice-swept destination guard charged twice); one globs the verb directories for
+`plan.load(`/`plan.write(` and holds the derived plan-holder set **equal** to the one the memory
+budget measures; one reads the browser's `fileOps.service.ts`; one reads botocore's real
+`max_pool_connections`; and one reads `MAX_PAYLOAD_BYTES` out of the notifications writer. **Those
+are the ones a change elsewhere can redden.**
+
+The other **fourteen** compute a cap against a modelled worst case — the escaped Pipe record, the
+state after the transfer, the inbox row — and can only be broken by moving a constant in
+`focommon/config.py`. That is the split to hold in mind before trusting one: a guard that opens
+nothing cannot notice Terraform moving underneath it.
+
+**Not quite every number**: `PLAN_PREFIX` is held to its Terraform local and the admin bucket's
+lifecycle rule in `lambdas/test_file_ops_admin_list_grant.py`, not here.
+
+**What none of them covers**: `notifications_writer`'s ceiling is read as the two operands it is
+written as, so a rewrite of that expression fails the read rather than the comparison — deliberately,
+because a reader that evaluated it would accept a form this should be failing on.
+
 ## What holds the browser's copy of a rule to this plane's
 
 Two rules are duplicated between the runtimes, and they are held together by different mechanisms

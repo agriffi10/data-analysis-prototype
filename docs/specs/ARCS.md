@@ -1640,8 +1640,12 @@ neither.
    deliberate, recorded state — do not flip the flag without running §14 of the plane's script.
 4. **The byte cap is 2 TiB, down from 3.** The joint budget had no lock-give-up term and came to
    ~12,700s against a 10,800s ceiling. Any spec adding a state to this machine re-runs
-   `test_the_JOINT_budget_fits_the_machines_own_ceiling` — it reads every verb timeout back out of
-   `locals.tf`, so a new verb is counted automatically but a raised timeout is not free.
+   `test_the_JOINT_budget_fits_the_machines_own_ceiling` — it reads eleven of the twelve verb
+   timeouts back out of `locals.tf`, `copy-objects` being held to `COPY_TIMEOUT_SECONDS` by its own
+   guard instead, so a raised timeout is not free. **A new verb is NOT counted automatically**: the
+   budget sums a written-out list, because the terms are not one per row — `check-destinations` is
+   charged twice for its two sweeps, and `copy-objects` is charged through the copy makespan
+   instead. A state added to this machine joins that list by hand.
 
 **SPEC-188 IS ALSO COMPLETE, and it settled five things 189 inherits rather than re-decides.**
 
