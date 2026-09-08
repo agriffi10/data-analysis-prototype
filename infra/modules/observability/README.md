@@ -19,7 +19,7 @@ this repo logs.
 The original reason was concrete: log-foundry's `SQSSink` built its batch entries as `{"Id",
 "MessageBody"}` and nothing else, and a **FIFO queue rejects a `SendMessageBatch` that omits
 `MessageGroupId`** — every batch would have failed and the events would have been abandoned to
-stderr. log-foundry 0.5.0 added FIFO support and removed that constraint.
+stderr. log-foundry later added FIFO support and removed that constraint.
 
 `.fifo` is not decoration: AWS requires a FIFO queue's name to end in it, and the name is a
 **ForceNew** attribute — so that rename was a **destroy-and-create**. The deploy role was granted

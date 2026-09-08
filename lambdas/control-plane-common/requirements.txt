@@ -27,41 +27,40 @@ PyJWT[crypto]>=2.8,<3
 
 # log-foundry — structured logging for the control-plane verbs (SPEC-127).
 #
-# PINNED EXACTLY, not >=. Every control-plane verb resolves this package — and one image now
-# carries it to all 86 functions — so an unattended minor bump would change the behaviour of
-# all of them at once, at cold start, with no PR to review it.
+# PINNED EXACTLY, not >=. Every control-plane verb resolves this package — and one image carries it
+# to the whole fleet — so an unattended minor bump would change the behaviour of all of them at
+# once, at cold start, with no PR to review it.
 #
 # The CORE package, deliberately NOT the [aws] extra. The extra exists only to pull boto3;
 # SQSSink imports it lazily inside __init__, and the Lambda runtime already provides boto3 —
 # installing the extra would put a second copy of boto3/botocore on every control-plane verb's
-# 250 MB ceiling to gain nothing. The core install declares zero runtime dependencies, so the
-# layer size delta is tens of KB.
+# 250 MB ceiling to gain nothing. The core install declares zero runtime dependencies: every
+# Requires-Dist is behind an extra, re-confirmed on this pin.
 #
-# 0.4.0 is the floor that works here. 0.2.0 could not be installed at all (requires-python
-# >=3.13 against this fleet's python3.12) and had no repeatable flush() — a handler calling
-# shutdown() logs nothing for the rest of that warm container's life (log-forge SPEC-013).
-# 0.4.0 added baggage on the span boundary events (log-forge SPEC-015), without which a filter
-# on fields.request_id returns a span's narration but not the span.end carrying duration_ms
-# and status — i.e. not the record worth finding.
+# WHAT THE VERSION BUYS, as opposed to what it fixed on the way here. The floors that justified
+# 0.2.0 → 0.6.0 are gone, because a 1.0.0 pin clears all of them; what is kept below is the set of
+# facts that are TRUE OF THE RUNNING LIBRARY and are recorded in no other live file. Deleting one
+# of these deletes it from the repo.
 #
-# 0.5.0 (log-forge SPEC-016) adds FIFO support to SQSSink. Before it, the sink sent entries
-# carrying only {Id, MessageBody}, and a FIFO queue REJECTS a batch with no MessageGroupId — so
-# the logs queue had to be the one standard queue in this repo. SPEC-129 converts it to FIFO,
-# which makes 0.5.0 a hard floor rather than a nice-to-have: on 0.4.0 every batch would fail and
-# the events would be abandoned to stderr.
+# 1. `error.stack` keeps the cause's text, clipped at 32 KB, tail-preserving — well above a real
+#    traceback. That ceiling is what makes the SPEC-110 tripwire's premise checkable.
+# 2. `error.message` and `error.module` exist as their own fields, so filtering an error stops
+#    meaning substring-matching the free-text `stack` blob. This is the counterpart to the
+#    `error.stack` exemption the register leans on: the exemption accepts a stack that may quote
+#    file contents, and these two are why an operator need not read it to find anything.
+# 3. An event is safe by construction — every value is coerced and size-bounded once at assembly,
+#    so a field whose JSON cannot serialize no longer raises. That is what lets a call site put an
+#    arbitrary object in a field.
+# 4. A `stamp`/`info` OUTSIDE a span emits SYNCHRONOUSLY on the caller's thread, where one inside a
+#    span is buffered until the worker flushes. This is why the orphan path is the one that used to
+#    raise into the verb, and it is why decorating a helper that already narrates changes when its
+#    existing events are delivered.
+# 5. `MultiSink` re-raising when every child fails does not reach this repo: the sink here is
+#    SQSSink ALONE (SPEC-127, asserted).
+# 6. The non-JSON sinks' datetime storage does not reach it either — mongo/postgres/sqlite/
+#    clickhouse are none of them used.
 #
-# 0.6.0 (log-forge SPEC-017) makes an event safe by construction — every value is coerced and
-# size-bounded once at assembly, so a field JSON cannot serialize no longer raises. That matters
-# here because the fleet emits on the orphan path (a `stamp`/`info` outside a span emits
-# synchronously on the caller's thread), where an unserializable field raised TypeError INTO the
-# verb — a logging call breaking the request it was narrating. Inside a span the same field
-# destroyed the whole flattened batch, taking co-batched events from unrelated spans with it.
-# Also adds `error.message`/`error.module`, so filtering a message stops meaning substring-matching
-# the free-text `stack` blob.
-#
-# Two 0.6.0 changes were checked against this repo and do NOT reach it: `MultiSink` now re-raises
-# when every child fails (the sink here is SQSSink ALONE — SPEC-127, asserted), and datetime fields
-# now store as ISO-8601 strings in the non-JSON sinks (mongo/postgres/sqlite/clickhouse — none used).
-# `error.stack` keeps the cause's text: the new ceiling is a 32 KB tail-preserving clip, well above
-# a real traceback, and the SPEC-110 tripwire in test_dq_inspect_source.py still passes.
-log-foundry==0.6.0
+# 5 and 6 are stated without a version deliberately. They were introduced before this pin, so
+# naming their release would leave a superseded version string in the one block a sweep exists to
+# clear; and attributing them to this pin would be false. The disposition holds for every version.
+log-foundry==1.0.0

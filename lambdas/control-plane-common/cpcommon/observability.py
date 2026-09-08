@@ -18,8 +18,10 @@ handler and flushes on the way out, on both the success and the failure path; ``
 a child span around one named internal step; the three level emitters attach an event to
 whichever span is currently open.
 
-Nothing outside this module imports ``log_foundry``, so the field rule has one door rather
-than thirty-four. Messages are literals and everything variable is a field: a literal groups
+No VERB imports ``log_foundry``, so the field rule has one door rather than thirty-four. Two
+test harnesses do — ``lambdas/conftest.py`` and ``log-sweep/test_log_sweep.py`` — because a
+harness that swaps the process sink has to call ``configure``; the rule binds the code that
+runs in production. Messages are literals and everything variable is a field: a literal groups
 across invocations and can be counted, filtered and alerted on, while an f-string mints a
 distinct message per run and can do none of those things.
 
@@ -40,6 +42,12 @@ reach ``config`` for nothing. So ``LOGS_QUEUE_URL`` is read with ``os.environ.ge
 ``NOTIFICATIONS_QUEUE_URL`` as an explicitly optional variable.
 
 Attributes:
+  PROHIBITED_FIELDS: Field names a call site may not use, because each collides with a
+    parameter ``_emit`` passes to the library. ``echo`` collides with the keyword this module
+    always sets, so an un-dropped one raises ``TypeError`` into business logic; ``fields`` is
+    the library's own escape hatch, so an un-dropped one is silently REINTERPRETED — the event
+    lands carrying the mapping's contents instead of a field called ``fields``. The two are
+    dropped for different reasons and warn differently.
   LOGS_QUEUE_URL: Optional and never required, for the cold-start reason above. Unset means
     stdout, not a crash.
   UNSTAMPED_VERSION: What ``version`` reads when no build stamp can be found at all. It is a
@@ -58,6 +66,8 @@ import log_foundry as lf
 from cpcommon import clients
 
 logger = logging.getLogger(__name__)
+
+PROHIBITED_FIELDS = ("echo", "fields")
 
 LOGS_QUEUE_URL = os.environ.get("LOGS_QUEUE_URL", "")
 
@@ -307,7 +317,7 @@ def traced(verb: str):
             Raises:
               Exception: Whatever the handler raised; the flush still runs.
             """
-            _reset_baggage()
+            _reset_context()
             _stamp_verb(verb)
             _stamp_request_id(args[0] if args else None)
             try:
@@ -358,7 +368,7 @@ def stamp(**fields: object) -> None:
     the join is not a join key. Use it for the one or two values identifying the invocation,
     never for per-item detail.
 
-    ``traced`` clears baggage at the start of every invocation, so a warm container cannot
+    ``traced`` clears the trace context at the start of every invocation, so a warm container cannot
     leak one invocation's identity onto the next. Call this inside the handler, after that
     clear. It exists so a call site never has to import ``log_foundry`` directly — the one-door
     rule survives by widening the door, not by making an exception to it.
@@ -434,19 +444,23 @@ def error(message: str, **fields: object) -> None:
 def _emit(level_fn, message: str, fields: dict[str, object]) -> None:
     """Routes one level event through log-foundry, never failing the caller.
 
-    ``echo`` is dropped and warned rather than forwarded. It is an unusually quiet mistake:
-    ``**fields`` swallows the keyword, so an author who sets it gets neither a failure nor a
-    console line, just a silently emitted field named ``echo`` that an operator cannot tell
-    from an intentional one.
+    ``PROHIBITED_FIELDS`` are dropped and warned rather than forwarded, and the two are dropped
+    for DIFFERENT reasons — a reader who collapses them will merge the warnings and lose one.
+    ``echo`` collides with the keyword this function always passes, so leaving it in raises
+    ``TypeError: got multiple values for keyword argument 'echo'`` at the call boundary, inside
+    business logic. ``fields`` is the library's own escape hatch, so leaving it in raises
+    NOTHING: the mapping is unpacked over the event and the author's field silently disappears.
+    Measured both ways.
 
-    Swallowing matters most on the orphan path — an emitter called with no span open goes
-    straight to the sink synchronously, so a sink that raises raises here, in the middle of
-    business logic, rather than on the worker thread where the span path absorbs it.
+    The ``try`` therefore still earns its place, and not for the reason it used to give. The
+    library now absorbs a sink failure on both the span path and the orphan path, so a raising
+    SINK no longer reaches here. What reaches here is the ``TypeError`` above — raised by this
+    function's own call, before the library sees it.
 
     Args:
       level_fn: The log-foundry level function to call.
       message: The literal message.
-      fields: Event fields, mutated in place to drop a prohibited ``echo``.
+      fields: Event fields, mutated in place to drop any name in ``PROHIBITED_FIELDS``.
 
     Returns:
       None.
@@ -462,6 +476,14 @@ def _emit(level_fn, message: str, fields: dict[str, object]) -> None:
                 "narrative goes to the logs queue, never the console",
                 message,
             )
+        if "fields" in fields:
+            del fields["fields"]
+            logger.warning(
+                "structured logging: `fields` is reserved by the library and was dropped from "
+                "%r — a mapping passed under that name is unpacked over the event instead of "
+                "landing as a field, so use a different name",
+                message,
+            )
         level_fn(message, echo=False, **fields)
     except Exception as exc:  # noqa: BLE001
         logger.warning(
@@ -469,8 +491,8 @@ def _emit(level_fn, message: str, fields: dict[str, object]) -> None:
         )
 
 
-def _reset_baggage() -> None:
-    """Clears trace baggage at the start of every invocation.
+def _reset_context() -> None:
+    """Clears trace baggage AND any adopted trace context at the start of every invocation.
 
     Baggage lives in a context variable, and a warm Lambda container reuses the same context
     across invocations. Without this, a run that sets a request id leaves it set for the next
@@ -479,8 +501,11 @@ def _reset_baggage() -> None:
     into one query result and nothing about the output looks wrong. A missing request id must
     stay missing rather than be invented, and a leaked one is an invented one.
 
-    Uses the library's private context variable because there is no public clear —
-    ``set_baggage`` only merges.
+    ``reset_context`` clears an adopted trace context as well as baggage, which is more than
+    this function's old name advertised and is the reason it was renamed. Nothing in this repo
+    adopts one yet; the clear is correct in advance, because an adopted context that outlived
+    its invocation would put a warm container into a trace whose run had ended — the same
+    fabricated-correlation failure as a leaked request id, one level up.
 
     Args:
       None.
@@ -494,10 +519,12 @@ def _reset_baggage() -> None:
     try:
         from log_foundry import context as lf_context
 
-        lf_context._baggage.set({})
+        lf_context.reset_context()
     except Exception as exc:  # noqa: BLE001
         logger.warning(
-            "structured logging: could not reset baggage (%s: %s)", type(exc).__name__, exc
+            "structured logging: could not reset the trace context (%s: %s)",
+            type(exc).__name__,
+            exc,
         )
 
 
@@ -507,7 +534,7 @@ def _stamp_verb(verb: str) -> None:
     Baggage rather than a span default: a default applies to that span's own events and to
     nothing nested inside it, so the first child step would carry the request id but not the
     verb that produced it — joinable to its run, and unattributable to the verb. Must run
-    after ``_reset_baggage``, which clears the whole mapping.
+    after ``_reset_context``, which clears the whole mapping.
 
     Args:
       verb: The control-plane verb name.
