@@ -1101,7 +1101,10 @@ def _span_names(scan):
     """
     traced, stepped = {}, {}
     for path in sorted(_LAMBDAS.rglob("*.py")):
-        if "__pycache__" in str(path):
+        # Test files are excluded because the guard is about the names an OPERATOR queries. A
+        # probe span in a suite never reaches the store, so a collision with one is a false
+        # positive on a real verb's name.
+        if "__pycache__" in str(path) or path.name.startswith(("test_", "conftest.")):
             continue
         try:
             tree = ast.parse(path.read_text())
@@ -1144,7 +1147,11 @@ def test_no_step_name_collides_with_a_verbs_own_span_name(step_scan):
       None.
     """
     traced, stepped = _span_names(step_scan)
-    assert len(traced) > 40 and len(stepped) > 15, (
+    # 58 verb names and 34 step names on this branch. The floors sit well under both so an
+    # ordinary deletion does not redden them, and well over zero so a scan that stopped reading
+    # the fleet does — the failure this is here to catch is a matcher that resolves nothing, not
+    # a plane being retired.
+    assert len(traced) > 40 and len(stepped) > 20, (
         f"the scan found {len(traced)} verb names and {len(stepped)} step names, so it is not "
         "reading the fleet and an empty result would pass this guard vacuously"
     )

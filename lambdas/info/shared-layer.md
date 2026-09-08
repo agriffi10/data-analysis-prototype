@@ -219,8 +219,16 @@ where one goes is a volume decision rather than a taste one.
   per-verb read. One collision predates the guard and is named in it as an item.
 
 Every one of these is held by a guard that resolves the NAME A DECORATOR IS BOUND TO rather than
-matching its rendered text. Measured: a `from cpcommon.observability import step` and a bare
-`@step(...)` put per-recipient instrumentation on `emit_notification` with every guard green.
+matching its rendered text. Measured twice, because the first fix was incomplete: a
+`from cpcommon.observability import step` with a bare `@step(...)` put per-recipient
+instrumentation on `emit_notification` with every guard green, and after that was closed a plain
+`import cpcommon.observability` did it again — that form binds the ROOT package, so the usable
+spelling is the full dotted path and resolving the last segment registered a name no decorator can
+wear. What the scanner covers is every `import`/`from … import` binding of `observability` or of
+`step` itself, with the span name read from a keyword as well as a positional argument. What it
+does NOT cover, deliberately, is a module-level rebinding, a decorator built by a factory, or a
+step applied as a plain function — each is a deliberate act rather than an ordinary spelling, and a
+star import is refused by ruff before this guard sees it.
 
 **Decorating a helper that already narrates changes WHEN its existing events are delivered.**
 log-foundry delivers an event emitted with no span open **synchronously**, and buffers one emitted

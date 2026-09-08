@@ -147,9 +147,12 @@ def test_an_operator_driven_removal_is_attributable_to_an_actor_and_an_origin(ca
 def test_the_remove_emits_a_child_span_for_the_fan_out_and_the_notifications(captured_events):
     """This verb's two bounded call sites, both around a LOOP rather than inside one.
 
-    TWO members, not one, and that is the fixture doing work: both spans wrap a loop, so at one
-    member a span around the loop and a span around its body emit one span each and the
-    assertion cannot tell the correct instrumentation from the prohibited kind.
+    THE FIXTURE HAS TO MAKE BOTH LOOPS RUN, and the two loops are driven by different sets. The
+    notification loop iterates the members REMOVED, so removing two covers it. The roster fan-out
+    iterates the members who REMAIN, skipping the owner — so a fixture that removes everyone but
+    the owner runs it zero times, and a per-member plant would emit zero spans and be caught for
+    the wrong reason, then pass silently the day one member survived. Five members, two removed,
+    leaves two non-owners for the fan-out to write.
 
     Args:
       captured_events: The shared capturing sink.
@@ -162,10 +165,10 @@ def test_the_remove_emits_a_child_span_for_the_fan_out_and_the_notifications(cap
     """
     s3, _glue, _lf, cognito = install()
     cognito.users = {
-        "bob": {"custom:shared_space_1": "sales"},
-        "carol": {"custom:shared_space_1": "sales"},
+        name: {"custom:shared_space_1": "sales"}
+        for name in ("bob", "carol", "dave", "erin")
     }
-    reg = _active_reg(members=["alice", "bob", "carol"])
+    reg = _active_reg(members=["alice", "bob", "carol", "dave", "erin"])
     _seed_reg(s3, reg)
 
     r.handler(

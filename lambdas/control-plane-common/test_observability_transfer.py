@@ -6,7 +6,8 @@ cheap win and are called once per RECIPIENT, per MEMBER or per TARGET, so steppi
 per-item instrumentation the design forbids. Both halves are held here — the three that are
 instrumented, exactly, and the five that must never be.
 
-Runnable under pytest or directly: ``python3 test_observability_transfer.py``.
+Runnable under pytest. This file has no direct-run block: its guards need the
+``captured_events`` and ``step_scan`` fixtures.
 """
 
 import ast
@@ -814,7 +815,7 @@ def test_the_span_count_does_not_move_with_the_item_count(span, captured_events)
     TWO of the three parametrisations have a reachable plant and one does not, which is said here
     rather than left to be assumed. ``copy-batch`` has its worker pool and ``read-failed-items``
     loops over one result file per item, so a step in either place reddens this — both verified by
-    planting. ``write-manifest`` has no per-item function at all: its lines are built by one
+    planting. ``write-transfer-manifest`` has no per-item function at all: its lines are built by one
     ``join``, so there is nowhere for a per-item step to go and this case asserts a property that
     cannot currently be violated.
 

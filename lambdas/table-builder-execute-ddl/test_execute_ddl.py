@@ -6,6 +6,7 @@ path is deterministic with no real sleeping. Runnable under pytest OR directly:
 ``python3 test_execute_ddl.py``.
 """
 
+import inspect
 import os
 import sys
 
@@ -186,7 +187,21 @@ def test_the_ddl_run_is_a_child_span_of_the_verbs_own_span(captured_events):
 
 
 if __name__ == "__main__":
-    tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
+    # This runner injects no fixtures, so a test that takes one is skipped rather than called
+    # with the wrong arity. Without the skip, adding the first fixture-taking test to this file
+    # turns the documented direct-run mode red for a reason that is about the runner.
+    tests = [
+        fn
+        for name, fn in sorted(globals().items())
+        if name.startswith("test_") and not inspect.signature(fn).parameters
+    ]
+    skipped = [
+        name
+        for name, fn in sorted(globals().items())
+        if name.startswith("test_") and inspect.signature(fn).parameters
+    ]
+    for name in skipped:
+        print(f"SKIP {name} (needs a pytest fixture; run this file under pytest for it)")
     failed = 0
     for fn in tests:
         try:

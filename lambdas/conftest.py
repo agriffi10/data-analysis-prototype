@@ -398,7 +398,11 @@ def observability_decorator_names(tree, attribute="step"):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name.endswith("observability"):
-                    names.add(f"{alias.asname or alias.name.split('.')[-1]}.{attribute}")
+                    # `import a.b.observability` binds `a`, so the only spelling that works at a
+                    # call site is the FULL dotted path — taking the last segment registered a
+                    # name no decorator can wear, and three forbidden functions took a step with
+                    # the whole suite green. `as` binds the alias alone, which is the other case.
+                    names.add(f"{alias.asname or alias.name}.{attribute}")
         elif isinstance(node, ast.ImportFrom):
             module = node.module or ""
             for alias in node.names:
@@ -418,7 +422,8 @@ def stepped_functions(tree, attribute="step"):
 
     Returns:
       A list of ``(function name, span name)`` pairs; the span name is None when the decorator
-      names none.
+      names none. A name passed by KEYWORD counts: read from positional arguments alone it came
+      back None, and the collision sweep skips a None.
 
     Raises:
       None.
@@ -432,9 +437,14 @@ def stepped_functions(tree, attribute="step"):
             call = decorator.func if isinstance(decorator, ast.Call) else decorator
             if ast.unparse(call) not in bound:
                 continue
+            arguments = list(getattr(decorator, "args", [])) + [
+                keyword.value
+                for keyword in getattr(decorator, "keywords", [])
+                if keyword.arg == "name"
+            ]
             literals = [
                 a.value
-                for a in getattr(decorator, "args", [])
+                for a in arguments
                 if isinstance(a, ast.Constant) and isinstance(a.value, str)
             ]
             found.append((node.name, literals[0] if literals else None))
