@@ -81,6 +81,38 @@ def _reads(parameters: dict) -> set[str]:
     return {k.removesuffix(".$") for k in parameters}
 
 
+#: Keys that describe the RUN rather than the request. They are excluded from the three
+#: set-equality cross-checks below, and the exclusion is a deploy-ordering fact rather than a
+#: convenience: `Deploy Infrastructure` applies the ASL while `Deploy Lambdas` separately repoints
+#: the functions, on the same push and with no ordering between them, so a verb's return and the
+#: state that reads it CANNOT change in one release. The verb has to return the key first, in a
+#: release where no state reads it, or the window between the two applies an ASL reading
+#: `$.traceparent` off a state the still-live old image does not produce — an uncatchable
+#: `States.Runtime` that kills the execution before `NotifyFailure`. Held to equality here, these
+#: guards would forbid that safe order.
+#:
+#: Neither side is left unguarded. The ASL side is `test_state_machines_cpcommon.py`'s
+#: success-path sweep, which pins the exact set of states naming the key and is mutation-tested
+#: per state; the verb side is asserted directly in each test below. What is carved out is only
+#: the pairing, for keys no domain state consumes.
+_RUN_KEYS = frozenset({"traceparent"})
+
+
+def _domain(keys) -> set[str]:
+    """The request keys a cross-check owns — everything but the run-scoped ones.
+
+    Args:
+      keys: Any iterable of key names.
+
+    Returns:
+      The keys with `_RUN_KEYS` removed.
+
+    Raises:
+      None.
+    """
+    return set(keys) - _RUN_KEYS
+
+
 def _event() -> list:
     body = {
         "requestId": "req-1",
@@ -106,8 +138,9 @@ def _stubbed():
 
 def test_validated_reads_exactly_the_keys_validate_authorize_returns(_stubbed):
     validated = v.handler(_event(), None)
-    assert _reads(_machine()["States"]["Validated"]["Parameters"]) == set(validated)
-    assert set(validated) == {
+    assert _domain(_reads(_machine()["States"]["Validated"]["Parameters"])) == _domain(validated)
+    assert "traceparent" in validated, "the run has no trace for its later verbs to join"
+    assert _domain(validated) == {
         "requestId", "username", "format", "onConflict", "queryExecutionId", "resultsKey", "destination",
     }
     assert set(validated["destination"]) == {"bucket", "key", "prefix", "spaceKind", "spaceName"}
@@ -115,8 +148,11 @@ def test_validated_reads_exactly_the_keys_validate_authorize_returns(_stubbed):
 
 def test_described_reads_exactly_the_keys_describe_results_returns(_stubbed):
     described = d.handler(v.handler(_event(), None), None)
-    assert _reads(_machine()["States"]["Described"]["Parameters"]) == set(described)
-    assert set(described) == _reads(_machine()["States"]["Validated"]["Parameters"]) | {"columns", "resultsBytes"}
+    assert _domain(_reads(_machine()["States"]["Described"]["Parameters"])) == _domain(described)
+    assert "traceparent" in described, "this verb replaces the state and dropped the run's trace"
+    assert _domain(described) == _domain(
+        _reads(_machine()["States"]["Validated"]["Parameters"])
+    ) | {"columns", "resultsBytes"}
 
 
 def test_no_fail_state_is_reachable_except_through_notify_failure():
@@ -167,7 +203,8 @@ def test_converted_reads_exactly_the_keys_the_convert_verb_returns(_stubbed):
     so any key a later state names and the verb does not return is an uncatchable
     States.Runtime on a request that had already been written to the user's space."""
     converted = c.handler(d.handler(v.handler(_event(), None), None), None)
-    assert _reads(_machine()["States"]["Converted"]["Parameters"]) == set(converted)
+    assert _domain(_reads(_machine()["States"]["Converted"]["Parameters"])) == _domain(converted)
+    assert "traceparent" in converted, "this verb replaces the state and dropped the run's trace"
     assert converted["outcome"] == "converted"
     assert {"columns", "resultsBytes"}.isdisjoint(converted), (
         "the described columns and size are deliberately dropped: nothing downstream reads "

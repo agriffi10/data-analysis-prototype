@@ -76,6 +76,10 @@ def _setup(columns=(("id", "bigint"), ("name", "varchar")), size=1234, s3_error=
 def test_the_columns_and_the_size_are_read_once_each_and_threaded_with_the_request():
     sent, athena, s3 = _setup()
     described = d.handler(_validated(), None)
+    # This verb MINTS the key rather than carrying it: `_CARRIED` is a fixed tuple read through
+    # `events.require`, so adding it there would make a logging value a required field and a
+    # missing one a TerminalError.
+    assert described.pop("traceparent").startswith("00-")
     assert described == {
         **_validated(),
         "columns": [{"name": "id", "type": "bigint"}, {"name": "name", "type": "varchar"}],

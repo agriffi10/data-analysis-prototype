@@ -125,6 +125,8 @@ def test_a_valid_archive_request_resolves_its_source_and_its_destination():
     assert out["source"]["bucket"] == "user-bkt"
     assert out["source"]["root"] == "alice/"
     assert out["source"]["items"] == [{"kind": "file", "key": "alice/reports/q1.csv"}]
+    # The run's trace, which every later verb on this plane adopts.
+    assert out["traceparent"].startswith("00-")
 
 
 # ── Containment: the two rules, each with its own case (FR-005) ──────────────

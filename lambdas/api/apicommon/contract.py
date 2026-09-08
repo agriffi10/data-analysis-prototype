@@ -1335,6 +1335,15 @@ class EnqueueRoute(Route):
       stamped: The top-level keys the sender writes that the caller may not. Declared rather than
         inferred, because the envelope-agreement test needs the term and an escape hatch would let
         a caller be handed a field that chooses behaviour.
+
+        Two kinds sit here and they are worth telling apart. ``mode`` and ``schemaVersion``
+        CHOOSE BEHAVIOUR — ``mode`` is the difference between archiving and restoring — so
+        handing one to a caller would hand them that branch. ``traceparent`` chooses nothing; it
+        is on every enqueue route because a run begins at the API and the trace has to leave with
+        the message. It is still declared rather than special-cased, because the four planes that
+        refuse an unknown top-level body field are held to set equality against this term: a
+        field the sender adds and this set omits is refused by the plane at run time as
+        ``malformed_event``, which is a green build and a failed request.
     """
 
     queue: str
@@ -1582,7 +1591,7 @@ ROUTES: Final[tuple[Route, ...]] = (
         query=None,
         response=EnqueueAccepted,
         queue="shared-space",
-        stamped=frozenset({"schemaVersion"}),
+        stamped=frozenset({"schemaVersion", "traceparent"}),
     ),
     EnqueueRoute(
         id="notifications.enqueue",
@@ -1594,7 +1603,7 @@ ROUTES: Final[tuple[Route, ...]] = (
         query=None,
         response=EnqueueAccepted,
         queue="notifications",
-        stamped=frozenset(),
+        stamped=frozenset({"traceparent"}),
     ),
     EnqueueRoute(
         id="tableBuild.create",
@@ -1606,7 +1615,7 @@ ROUTES: Final[tuple[Route, ...]] = (
         query=None,
         response=EnqueueAccepted,
         queue="table-builder",
-        stamped=frozenset(),
+        stamped=frozenset({"traceparent"}),
     ),
     EnqueueRoute(
         id="tableBuild.refresh",
@@ -1618,7 +1627,7 @@ ROUTES: Final[tuple[Route, ...]] = (
         query=None,
         response=EnqueueAccepted,
         queue="table-builder",
-        stamped=frozenset({"mode"}),
+        stamped=frozenset({"mode", "traceparent"}),
     ),
     EnqueueRoute(
         id="tableShare.enqueue",
@@ -1630,7 +1639,7 @@ ROUTES: Final[tuple[Route, ...]] = (
         query=None,
         response=EnqueueAccepted,
         queue="table-share",
-        stamped=frozenset(),
+        stamped=frozenset({"traceparent"}),
     ),
     EnqueueRoute(
         id="dataQuality.enqueue",
@@ -1642,7 +1651,7 @@ ROUTES: Final[tuple[Route, ...]] = (
         query=None,
         response=EnqueueAccepted,
         queue="data-quality",
-        stamped=frozenset(),
+        stamped=frozenset({"traceparent"}),
     ),
     EnqueueRoute(
         id="fileSend.enqueue",
@@ -1654,7 +1663,7 @@ ROUTES: Final[tuple[Route, ...]] = (
         query=None,
         response=EnqueueAccepted,
         queue="file-send",
-        stamped=frozenset(),
+        stamped=frozenset({"traceparent"}),
     ),
     EnqueueRoute(
         id="archive.archive",
@@ -1666,7 +1675,7 @@ ROUTES: Final[tuple[Route, ...]] = (
         query=None,
         response=EnqueueAccepted,
         queue="archive",
-        stamped=frozenset({"mode"}),
+        stamped=frozenset({"mode", "traceparent"}),
     ),
     EnqueueRoute(
         id="archive.restore",
@@ -1678,7 +1687,7 @@ ROUTES: Final[tuple[Route, ...]] = (
         query=None,
         response=EnqueueAccepted,
         queue="archive",
-        stamped=frozenset({"mode"}),
+        stamped=frozenset({"mode", "traceparent"}),
     ),
     EnqueueRoute(
         id="fileOps.enqueue",
@@ -1690,7 +1699,7 @@ ROUTES: Final[tuple[Route, ...]] = (
         query=None,
         response=EnqueueAccepted,
         queue="file-ops",
-        stamped=frozenset(),
+        stamped=frozenset({"traceparent"}),
     ),
     EnqueueRoute(
         id="resultsConversion.enqueue",
@@ -1702,7 +1711,7 @@ ROUTES: Final[tuple[Route, ...]] = (
         query=None,
         response=EnqueueAccepted,
         queue="results-conversion",
-        stamped=frozenset(),
+        stamped=frozenset({"traceparent"}),
     ),
 )
 

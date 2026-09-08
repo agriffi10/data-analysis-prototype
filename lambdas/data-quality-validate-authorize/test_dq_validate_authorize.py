@@ -64,6 +64,8 @@ def test_valid_personal_request_binds_the_verified_actor():
     assert out["requestId"] == "11111111-2222-4333-8444-555555555555"
     assert out["location"] == "alice/sales"
     assert out["reportPrefix"] == "alice/_data-quality-reports/11111111-2222-4333-8444-555555555555/"
+    # The run's trace, which every later verb on this plane adopts.
+    assert out["traceparent"].startswith("00-")
 
 
 # ── personal authorization (FR-005) ──────────────────────────────────────────

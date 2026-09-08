@@ -59,6 +59,9 @@ def _expect_reason(event, reason):
 def test_valid_personal_source_passes():
     _setup()
     out = v.handler(_event(), None)
+    # Minted per invocation; popped so the rest stays an exact equality. table-share carries no
+    # requestId at all, so this is the ONLY value joining its verbs to their run.
+    assert out.pop("traceparent").startswith("00-")
     assert out == {
         "actor": "alice",
         "source": {"database": "alice", "table": "orders"},

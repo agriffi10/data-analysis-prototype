@@ -60,7 +60,7 @@ observability.init(service="file-ops")
 
 _ALLOWED_FIELDS = frozenset(
     {"requestId", "actor", "operation", "source", "destination", "onConflict", "submittedAt",
-     "identity"}
+     "identity", "traceparent"}
 )
 
 _COPY_MOVE_FIELDS = ("destination", "onConflict", "submittedAt")
@@ -465,6 +465,7 @@ def _validate_and_authorize(event) -> dict:
         raise
 
     validated = {
+        "traceparent": observability.run_traceparent(),
         "requestId": req.get("requestId"),
         "actor": {"username": actor},
         "operation": operation,

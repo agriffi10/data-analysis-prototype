@@ -81,6 +81,8 @@ def test_valid_personal_request_passes():
     assert out["location"] == "s3://dat-prod-user-space/alice/sales/2026/"
     assert out["space"]["prefix"] == "alice/sales/2026/"
     assert out["requestId"] == "r1"
+    # The run's trace, which every later verb on this plane adopts.
+    assert out["traceparent"].startswith("00-")
 
 
 def test_valid_shared_member_request_passes():

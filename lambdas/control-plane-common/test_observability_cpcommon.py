@@ -7,6 +7,7 @@ fail; where that is not achievable the test says so rather than asserting someth
 
 import ast
 import json
+import logging
 import pathlib
 
 import log_foundry as lf
@@ -198,6 +199,344 @@ def test_the_reset_clears_an_adopted_trace_context(sink):
     span = next(e for e in sink.events if e["message"] == "span.start")
     assert span["trace_id"] != "4bf92f3577b34da6a3ce929d0e0e4736"
     assert span.get("parent_span_id") is None
+
+
+# ── SPEC-225 FR-001: the four shapes a verb receives, and the one it must never read ────────
+
+#: The inbound trace every adoption test joins. Its flags are `-00` — UNSAMPLED — on purpose:
+#: the library's accessor discards version and flags, so an implementation that rebuilt the
+#: string from `(trace_id, parent_span_id)` would hand back `-01` and every byte-for-byte
+#: assertion below would fail. The value is a W3C specification example.
+_INBOUND = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00"
+_INBOUND_TRACE = "4bf92f3577b34da6a3ce929d0e0e4736"
+_INBOUND_PARENT = "00f067aa0ba902b7"
+
+#: One entry per shape `_shape_values` walks, as the event a verb actually receives.
+#: `test_the_shape_table_covers_every_shape_the_extractor_walks` is what stops a fifth shape
+#: being added to the module without one here — otherwise this table is a list of the shapes
+#: someone remembered, and the parametrisation below proves nothing about the rest.
+_SHAPES = {
+    "state payload": lambda value: {"requestId": "REQ", "traceparent": value},
+    "pipe envelope": lambda value: [
+        {"body": json.dumps({"requestId": "REQ", "traceparent": value})}
+    ],
+    "distributed-map batch": lambda value: {
+        "BatchInput": {"requestId": "REQ", "traceparent": value},
+        "Items": [{"relKey": "a.csv"}],
+    },
+    "inline-map child": lambda value: {
+        "recipient": {"kind": "user", "name": "bob"},
+        "request": {"requestId": "REQ", "traceparent": value},
+    },
+}
+
+
+def _span_start(sink):
+    """The one `span.start` event a single traced invocation emitted.
+
+    Args:
+      sink: The capturing sink.
+
+    Returns:
+      The event.
+
+    Raises:
+      StopIteration: If the invocation opened no span, which is itself the bug.
+    """
+    return next(e for e in sink.events if e["message"] == "span.start")
+
+
+@pytest.mark.parametrize("shape", sorted(_SHAPES), ids=sorted(_SHAPES))
+def test_a_traced_handler_joins_the_inbound_trace_on_every_shape(sink, shape):
+    """One run is one trace only if every entry point a verb has adopts the run's context.
+
+    Two of these four could not carry a request id at all before this change, so a test that
+    only covered the state payload and the pipe envelope would have passed on the day nine verbs
+    were unjoinable.
+
+    Args:
+      sink: The capturing sink.
+      shape: The shape name, keying `_SHAPES`.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    _run(_SHAPES[shape](_INBOUND))
+    observability.flush()
+
+    span = _span_start(sink)
+    assert span["trace_id"] == _INBOUND_TRACE, f"{shape} did not join the inbound trace"
+    assert span["parent_span_id"] == _INBOUND_PARENT, f"{shape} lost the inbound parent"
+
+
+def test_the_shape_table_covers_every_shape_the_extractor_walks():
+    """The table above is a claim about the module, so it is checked against the module.
+
+    `_shape_values` reads one shape per `yield` plus one per name in the nested-block tuple, so
+    a fifth shape cannot be added without moving one of those two counts. Without this, the
+    parametrisation is a list of the shapes whoever wrote it remembered.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    source = pathlib.Path(observability.__file__).read_text(encoding="utf-8")
+    fn = next(
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.FunctionDef) and node.name == "_shape_values"
+    )
+    yields = [n for n in ast.walk(fn) if isinstance(n, ast.Yield)]
+    nested = [
+        c.value
+        for loop in ast.walk(fn)
+        if isinstance(loop, ast.For) and isinstance(loop.iter, ast.Tuple)
+        for c in loop.iter.elts
+        if isinstance(c, ast.Constant)
+    ]
+
+    assert yields, "the extractor yields nothing, so the walk collapsed"
+    assert nested == ["BatchInput", "request"], (
+        f"the nested blocks the extractor reads are {nested}, which the shape table does not "
+        "describe"
+    )
+    # One yield sits inside the nested loop and stands for len(nested) shapes, not one.
+    assert len(yields) - 1 + len(nested) == len(_SHAPES), (
+        f"the extractor walks {len(yields) - 1 + len(nested)} shapes and the table names "
+        f"{len(_SHAPES)}"
+    )
+
+
+def test_an_api_gateway_body_can_set_neither_the_trace_nor_the_request_id(sink):
+    """The one shape the extractor must never read, and the reason the body branch is a list.
+
+    For an API Gateway payload-2.0 request, `body` IS the caller's own HTTP body. Both halves are
+    asserted because they fail for different reasons: the request id was reachable and merely
+    overwritten later by the gateway's value, so it was a latent hazard; nothing overwrites an
+    adopted trace, so widening the same walk without narrowing it would have made the second one
+    live. The request-id half fails against the extractor as it stood before this change.
+
+    Args:
+      sink: The capturing sink.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    poisoned = {
+        "version": "2.0",
+        "routeKey": "POST /v1/enqueue/archive",
+        "rawPath": "/v1/enqueue/archive",
+        "requestContext": {"requestId": "GATEWAY-ID", "http": {"method": "POST"}},
+        "body": json.dumps({"requestId": "CALLER-CHOSEN", "traceparent": _INBOUND}),
+        "isBase64Encoded": False,
+    }
+
+    _run(poisoned)
+    observability.flush()
+
+    span = _span_start(sink)
+    assert span["trace_id"] != _INBOUND_TRACE, (
+        "a caller put this service's API span into a trace of their choosing"
+    )
+    assert span.get("parent_span_id") is None
+    assert observability._extract_request_id(poisoned) is None, (
+        "a caller named this service's correlation key from their own HTTP body"
+    )
+
+
+def test_the_inline_map_shape_yields_the_request_id_it_used_to_lose():
+    """The three inline-Map children were the run's only unjoinable success-path verbs.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    child = {"recipient": {}, "request": {"requestId": "REQ-1"}}
+    assert observability._extract_request_id(child) == "REQ-1"
+
+
+def test_no_traceparent_mints_a_fresh_trace_and_says_nothing_about_it(sink, caplog):
+    """Absence is the ordinary case and must not write a line per invocation.
+
+    The API is the root of every run and carries no inbound traceparent by definition, and the
+    producer writes the field unconditionally, so `None` arrives on a real path too. A warning
+    here would be one CloudWatch line per HTTP request.
+
+    Args:
+      sink: The capturing sink.
+      caplog: pytest's log capture.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    with caplog.at_level(logging.WARNING, logger="cpcommon.observability"):
+        _run({"requestId": "REQ"})
+        _run({"requestId": "REQ", "traceparent": None})
+        observability.flush()
+
+    assert _span_start(sink)["trace_id"] != _INBOUND_TRACE
+    assert caplog.records == [], (
+        f"absence warned: {[r.getMessage() for r in caplog.records]}"
+    )
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    ["not-a-traceparent", "00-zzzz-00f067aa0ba902b7-01", 12345],
+    ids=["wrong-shape", "non-hex-trace-id", "not-a-string"],
+)
+def test_a_malformed_traceparent_mints_a_fresh_trace_and_does_warn(sink, caplog, malformed):
+    """Malformed is a producer bug, so it is worth exactly one line; absent is not.
+
+    The non-string case is why `_extract_traceparent` hands its value on unvalidated: dropping it
+    at the extractor would make a producer sending the wrong type indistinguishable from one
+    sending nothing. It is refused BEFORE `continue_trace` rather than by it — the library's
+    parser happens to tolerate any type, but its signature says `str | None`, and a guard resting
+    on undeclared tolerance is one release away from an exception inside a logging helper.
+
+    Args:
+      sink: The capturing sink.
+      caplog: pytest's log capture.
+      malformed: The unusable inbound value.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    with caplog.at_level(logging.WARNING, logger="cpcommon.observability"):
+        _run({"requestId": "REQ", "traceparent": malformed})
+        observability.flush()
+
+    assert _span_start(sink)["trace_id"] != _INBOUND_TRACE
+    assert any("traceparent" in r.getMessage() for r in caplog.records), (
+        f"{malformed!r} was dropped silently: {[r.getMessage() for r in caplog.records]}"
+    )
+
+
+def test_a_warm_container_does_not_inherit_the_previous_runs_trace(sink):
+    """The stickiness this spec was sequenced behind, asserted end to end rather than assumed.
+
+    On the pinned library an adoption is one-shot AND the reset clears it; both halves are
+    needed, and this fails if either goes. The module's own record is asserted beside the span
+    because they are two states that must agree — a span minting a fresh id while
+    `run_traceparent` still hands out the finished run's value is the same leak, one level up.
+
+    Args:
+      sink: The capturing sink.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    _run({"requestId": "REQ", "traceparent": _INBOUND})
+    _run({"requestId": "REQ"})
+    observability.flush()
+
+    second = [e for e in sink.events if e["message"] == "span.start"][1]
+    assert second["trace_id"] != _INBOUND_TRACE, "the warm container joined the finished run"
+    assert second.get("parent_span_id") is None
+    assert observability._ADOPTED.get() is None
+
+
+def test_run_traceparent_returns_the_adopted_value_byte_for_byte():
+    """A rebuild from the library's accessor loses the version and the sampling flags.
+
+    `get_adopted_context()` hands back `(trace_id, parent_span_id)` and nothing else, so an
+    implementation that reassembled a string would answer `-01` for this inbound `-00` — a
+    sampling decision silently reversed on the way through every verb in the run.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    captured = {}
+
+    @observability.traced("probe-verb")
+    def handler(evt, context=None):
+        """Captures what the verb would hand onward.
+
+        Args:
+          evt: The event.
+          context: Unused.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
+        captured["value"] = observability.run_traceparent()
+
+    handler({"traceparent": _INBOUND})
+
+    assert captured["value"] == _INBOUND
+
+
+def test_run_traceparent_falls_back_to_the_open_span_where_nothing_was_adopted():
+    """The API is the root of the run, so its own span IS the run's traceparent.
+
+    Without the fallback the producer would stamp `None` on every message and no run would have
+    a trace to join.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    captured = {}
+
+    @observability.traced("request")
+    def handler(evt, context=None):
+        """Captures the root's own traceparent.
+
+        Args:
+          evt: The event.
+          context: Unused.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
+        captured["value"] = observability.run_traceparent()
+
+    handler({})
+
+    assert captured["value"] and captured["value"].startswith("00-")
+    assert _INBOUND_TRACE not in captured["value"]
 
 
 def test_a_field_named_fields_is_dropped_and_its_siblings_still_land(sink, caplog):

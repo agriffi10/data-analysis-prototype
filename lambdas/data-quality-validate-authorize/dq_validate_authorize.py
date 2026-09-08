@@ -275,6 +275,7 @@ def _validate_and_authorize(event) -> dict:
         report_prefix=destination,
     )
     return {
+        "traceparent": observability.run_traceparent(),
         "requestId": request_id,
         "actor": actor,
         "space": {"kind": space["kind"], "bucket": space["bucket"], "prefix": f"{space_root}/"},

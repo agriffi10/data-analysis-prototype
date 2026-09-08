@@ -16,6 +16,7 @@ import pytest
 import router
 from apicommon import contract
 from apicommon import enqueue as enqueue_module
+from apicommon.envelope import ApiError
 from conftest import bearer
 
 _QUEUE_ENV = {
@@ -379,15 +380,28 @@ def test_every_enqueue_route_declares_the_two_fields_that_cannot_be_defaulted():
     assert {r.queue for r in contract.ENQUEUE_ROUTES} == {q.id for q in contract.QUEUES}
 
 
-def test_only_four_routes_stamp_a_field_and_the_values_match_what_they_declare():
-    """The stamped term is not an escape hatch: mode is the branch between archive and restore."""
-    declared = {r.id: r.stamped for r in contract.ENQUEUE_ROUTES if r.stamped}
+def test_every_route_stamps_the_traceparent_and_only_four_stamp_anything_else():
+    """Two kinds of stamped field, kept apart, because only one of them is a hazard.
 
-    assert declared == {
-        "sharedSpace.enqueue": frozenset({"schemaVersion"}),
-        "tableBuild.refresh": frozenset({"mode"}),
-        "archive.archive": frozenset({"mode"}),
-        "archive.restore": frozenset({"mode"}),
+    ``traceparent`` is on every enqueue route: a run begins at the API and the trace leaves with
+    the message. It chooses no behaviour, so it is not what the "not an escape hatch" rule is
+    about — ``mode`` is, and it stays pinned to exactly four routes, because it is the branch
+    between archiving and restoring and a caller-supplied one would be a caller-chosen branch.
+
+    Asserting the union as one literal would let a fifth route quietly gain ``mode`` as long as
+    the dict were updated to match, which is the drift this splits apart.
+    """
+    stamped = {r.id: set(r.stamped) for r in contract.ENQUEUE_ROUTES}
+
+    assert all("traceparent" in keys for keys in stamped.values()), (
+        "these routes send a message with no traceparent, so their run has no trace to join: "
+        f"{sorted(rid for rid, keys in stamped.items() if 'traceparent' not in keys)}"
+    )
+    assert {rid: keys - {"traceparent"} for rid, keys in stamped.items() if keys - {"traceparent"}} == {
+        "sharedSpace.enqueue": {"schemaVersion"},
+        "tableBuild.refresh": {"mode"},
+        "archive.archive": {"mode"},
+        "archive.restore": {"mode"},
     }
     for route in contract.ENQUEUE_ROUTES:
         values = enqueue_module._stamped_values(route)
@@ -430,6 +444,85 @@ def test_a_browser_supplied_request_id_is_stamped_but_never_becomes_the_correlat
     assert any(f.get("body_request_id") == body["requestId"] for f in fields)
     assert {f.get("request_id") for f in fields if "request_id" in f} == {"gateway-1"}
     assert body["requestId"] not in {f.get("request_id") for f in fields}
+
+
+@pytest.mark.parametrize("route", contract.ENQUEUE_ROUTES, ids=lambda r: r.id)
+def test_every_message_carries_the_api_spans_own_traceparent(route, sqs, captured_events):
+    """A run begins here, so every message has to leave with the trace its verbs will join.
+
+    Driven through the HANDLER rather than the router, because the router opens no span: a
+    router-driven assertion would read `None` and pass for a reason that has nothing to do with
+    the trace. The trace id is compared against the span the API actually emitted rather than
+    against a literal, so a producer stamping a well-formed traceparent belonging to nothing
+    fails here.
+    """
+    api_handler.handler(_event(route, _BODIES[route.id]), None)
+
+    assert len(sqs.sends) == 1, f"{route.id} sent {len(sqs.sends)} messages"
+    sent = json.loads(sqs.sends[0]["MessageBody"])["traceparent"]
+    span_trace_ids = {
+        e["trace_id"] for e in captured_events.events if e.get("message") == "span.start"
+    }
+
+    assert sent, f"{route.id} sent no traceparent, so its run has no trace to join"
+    assert span_trace_ids, "the handler opened no span, so this proves nothing"
+    assert sent.split("-")[1] in span_trace_ids, (
+        f"{route.id} stamped {sent!r}, which belongs to no span this request opened"
+    )
+
+
+def test_a_caller_cannot_choose_the_traceparent_at_either_door(sqs, captured_events):
+    """Both doors, because either alone passes for a reason unrelated to this change.
+
+    The SEND door passes today no matter what the extractor does, since the route contract
+    refuses an undeclared body key outright — so a send-level assertion alone would be green
+    against a completely broken extractor, and would stop holding the day a route declares a
+    free-form block. The EXTRACTOR door is the one that matters: nothing overwrites an adopted
+    trace, so a caller who reached it would own the trace id of every verb in the run.
+    """
+    route = next(r for r in contract.ENQUEUE_ROUTES if r.id == "fileSend.enqueue")
+    caller = "00-11111111111111111111111111111111-2222222222222222-01"
+
+    refused = _post(route, {**_BODIES[route.id], "traceparent": caller})
+    assert refused["statusCode"] == 400, (
+        "the route accepted an undeclared body key; the send-door assertion below is now the "
+        "only thing standing, so give it its own fixture"
+    )
+
+    api_handler.handler(_event(route, _BODIES[route.id]), None)
+    sent = json.loads(sqs.sends[0]["MessageBody"])["traceparent"]
+    assert sent != caller
+
+    poisoned = _event(route, {**_BODIES[route.id], "traceparent": caller})
+    api_handler.handler(poisoned, None)
+    starts = [e for e in captured_events.events if e.get("message") == "span.start"]
+    assert starts, "no span opened, so the extractor door was never tested"
+    assert all(e["trace_id"] != "11111111111111111111111111111111" for e in starts), (
+        "a caller's HTTP body set the trace id of this service's API span"
+    )
+
+
+def test_the_traceparent_fits_inside_the_cap_and_the_refusal_still_fires():
+    """The field is stamped after the size check's allowance is reserved, so it has to fit.
+
+    Both directions: a payload at the cap still sends WITH the traceparent on it, and one over
+    the cap is still refused. Asserting only the refusal would pass if the cap had been lowered
+    to the point of refusing ordinary requests.
+    """
+    at_cap = "x" * (enqueue_module.MAX_MESSAGE_BYTES - 64)
+    enqueue_module._refuse_if_oversized(json.dumps({"k": at_cap[:1000]}))
+
+    over = json.dumps({"k": "x" * enqueue_module.MAX_MESSAGE_BYTES})
+    with pytest.raises(ApiError) as refusal:
+        enqueue_module._refuse_if_oversized(over)
+    assert refusal.value.code == "PayloadTooLarge"
+
+    stamped = enqueue_module.MAX_IDENTITY_BLOCK_BYTES
+    traceparent_bytes = len('"traceparent":"00-' + "0" * 32 + "-" + "0" * 16 + '-01",')
+    assert traceparent_bytes < stamped, (
+        f"the traceparent needs {traceparent_bytes} bytes and the reserved allowance is "
+        f"{stamped}; the cap is measured on the stamped body, so this must fit inside it"
+    )
 
 
 def test_the_assurance_vocabulary_is_a_closed_set_of_exactly_one():

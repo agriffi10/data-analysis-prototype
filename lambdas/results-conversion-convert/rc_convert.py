@@ -578,6 +578,7 @@ def _convert(event) -> dict:
         )
         return {
             **carried,
+            "traceparent": observability.run_traceparent(),
             "outcome": "refused",
             "reason": refusal.reason,
             "rows": 0,
@@ -599,6 +600,7 @@ def _convert(event) -> dict:
     )
     return {
         **carried,
+        "traceparent": observability.run_traceparent(),
         "outcome": "converted",
         "reason": None,
         "rows": rows,

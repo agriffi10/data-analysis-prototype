@@ -178,4 +178,9 @@ def _describe(event) -> dict:
         column_count=len(described),
         results_bytes=size,
     )
-    return {**carried, "columns": described, "resultsBytes": size}
+    return {
+        **carried,
+        "traceparent": observability.run_traceparent(),
+        "columns": described,
+        "resultsBytes": size,
+    }

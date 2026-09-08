@@ -1,6 +1,7 @@
 """Structured-logging bootstrap and narrative for the control-plane verbs.
 
-Seven names — ``init``, ``flush``, ``traced``, ``step``, ``info``, ``warning``, ``error``::
+Nine names — ``init``, ``flush``, ``traced``, ``step``, ``stamp``, ``run_traceparent``, ``info``,
+``warning``, ``error``::
 
     from cpcommon import observability
 
@@ -29,8 +30,8 @@ distinct message per run and can do none of those things.
 metadata in, file contents out, tokens and emails always out. The emitters do not enforce it
 at runtime, deliberately: it turns on provenance, which no filter over a field name or value
 shape can see, and a filter that looked like enforcement would be worse than none because it
-would be trusted. Shape notes, the stack-trace exemption and the one-run-is-nine-traces
-caveat are in ``lambdas/info/shared-layer.md``.
+would be trusted. Shape notes, the stack-trace exemption and how a run becomes ONE trace are
+in ``lambdas/info/shared-layer.md``.
 
 Import-safety is the point of this module's shape. ``cpcommon`` is resolved by every
 control-plane verb, including three that set almost none of ``config``'s environment — and
@@ -54,18 +55,32 @@ Attributes:
     sentinel, not a release, and a test forbids a deployed record carrying it.
   _VERSION: The commit this function's code was built from, resolved once per container.
     Read publicly through ``build_version``.
+  _ADOPTED: The inbound traceparent this invocation joined, VERBATIM, read publicly through
+    ``run_traceparent``. It exists because the library's only accessor,
+    ``context.get_adopted_context()``, hands back ``(trace_id, parent_span_id)`` — version and
+    flags already discarded — so a string rebuilt from it is not the string that arrived, and an
+    inbound unsampled ``-00`` would be re-emitted as ``-01``. A ``ContextVar`` rather than a
+    module global for the reason the library's own state is one: it is then correct under threads
+    and asyncio for free. Set by ``_adopt_trace`` and cleared by ``_reset_context``, so its
+    lifetime is exactly one invocation.
 """
 
+import contextvars
 import functools
 import json
 import logging
 import os
+from collections.abc import Iterator
 
 import log_foundry as lf
 
 from cpcommon import clients
 
 logger = logging.getLogger(__name__)
+
+_ADOPTED: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "cpcommon_adopted_traceparent", default=None
+)
 
 PROHIBITED_FIELDS = {
     "echo": (
@@ -314,7 +329,12 @@ def traced(verb: str):
 
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
-            """Stamps this invocation's baggage, runs the span, and flushes on the way out.
+            """Stamps this invocation's baggage, joins the run's trace, runs the span, flushes.
+
+            The order is the contract. ``_reset_context`` clears baggage AND any adopted trace,
+            so everything below it belongs to this invocation alone; ``_adopt_trace`` comes last
+            because the adoption is consumed by the next root span opened here, and that span is
+            the one the line below opens. Adopting before the reset would clear the adoption.
 
             Args:
               *args: The handler's positional arguments; the first is the event.
@@ -326,9 +346,11 @@ def traced(verb: str):
             Raises:
               Exception: Whatever the handler raised; the flush still runs.
             """
+            event = args[0] if args else None
             _reset_context()
             _stamp_verb(verb)
-            _stamp_request_id(args[0] if args else None)
+            _stamp_request_id(event)
+            _adopt_trace(event)
             try:
                 return span(*args, **kwargs)
             finally:
@@ -505,10 +527,15 @@ def _reset_context() -> None:
     stay missing rather than be invented, and a leaked one is an invented one.
 
     ``reset_context`` clears an adopted trace context as well as baggage, which is more than
-    this function's old name advertised and is the reason it was renamed. Nothing in this repo
-    adopts one yet; the clear is correct in advance, because an adopted context that outlived
-    its invocation would put a warm container into a trace whose run had ended — the same
-    fabricated-correlation failure as a leaked request id, one level up.
+    this function's old name advertised and is the reason it was renamed. ``_adopt_trace`` is
+    the caller that made that load-bearing: an adopted context outliving its invocation would
+    put a warm container into a trace whose run had ended — the same fabricated-correlation
+    failure as a leaked request id, one level up.
+
+    The module's own record of the adopted traceparent is cleared in the same breath and
+    OUTSIDE the guard, because the two must not be able to disagree: a library clear that threw
+    while this one was skipped would leave ``run_traceparent`` handing out a finished run's
+    value to the next invocation, which is the failure this function exists to prevent.
 
     Args:
       None.
@@ -519,6 +546,7 @@ def _reset_context() -> None:
     Raises:
       None. Guarded so a library refactor degrades to a warning, never a failed verb.
     """
+    _ADOPTED.set(None)
     try:
         from log_foundry import context as lf_context
 
@@ -551,48 +579,182 @@ def _stamp_verb(verb: str) -> None:
     stamp(verb=verb)
 
 
-def _extract_request_id(event: object) -> str | None:
-    """Pulls the request id out of either event shape a control-plane verb can receive.
+def _shape_values(event: object, key: str) -> Iterator[object]:
+    """Yields one key's value from every event shape a control-plane verb can receive.
 
-    Two shapes, because a control plane has two kinds of entry point. The Step Functions state
-    payload is a plain dict carrying the id at the top level — every verb from inspect-source
-    onward. The EventBridge Pipe envelope is the raw SQS batch, a list whose single record's
-    body is a JSON string — every validate-authorize verb. Missing the second shape is what
-    made the verb that establishes the request the one verb that could not be joined to its own
-    run, found in live traffic on 2026-07-23: the synthetic empty-event probe could not
-    distinguish "absent" from "not extracted", so no test would have caught it.
+    Four shapes, because a control plane has four kinds of entry point. The Step Functions state
+    payload is a plain dict carrying the value at the top level — every verb from inspect-source
+    onward. The EventBridge Pipe envelope is the raw SQS batch, a LIST whose single record's body
+    is a JSON string — every validate-authorize verb. A Distributed Map hands its child
+    ``{"BatchInput": {...}, "Items": [...]}``, where the manifest lines leave no room for a
+    per-run value and the batch block is the only place one can travel. An inline Map nests the
+    parent state under ``request``, which is why the three inline-Map children could not be
+    joined to their own run at all.
+
+    **The body branch fires for a LIST and nothing else, and that is a security boundary rather
+    than a shape detail.** It used to fall back to treating a non-list event as the record, and
+    for an API Gateway payload-2.0 request ``body`` is the CALLER'S OWN HTTP body — so a caller
+    could name this service's correlation key, and, once a traceparent travels the same walk,
+    could put the API's span into a trace of their choosing. Nothing overwrites an adopted trace,
+    which is what makes the second one live rather than latent. Production always delivers the
+    array, and the API is the only verb in the fleet with a top-level ``body``.
 
     Deliberately does not call ``events.parse_sqs_request``, which raises ``TerminalError`` on
     a malformed envelope: a logging helper that can raise a domain terminal is a logging helper
     that can fail a verb.
 
     Args:
-      event: The handler's event, of either shape.
+      event: The handler's event, of any of the four shapes.
+      key: The field name to look for.
+
+    Yields:
+      Each shape's value for that key, in shape order, unvalidated and possibly None. A caller
+      decides what counts as usable, because the two callers disagree: an unusable request id is
+      dropped, while an unusable traceparent is handed on so the library can reject it and the
+      rejection can be warned.
+
+    Raises:
+      None. Never parses beyond what it needs.
+    """
+    if isinstance(event, list):
+        record = event[0] if event else None
+        if isinstance(record, dict):
+            body = record.get("body")
+            if isinstance(body, str):
+                try:
+                    parsed = json.loads(body)
+                except (TypeError, ValueError):
+                    parsed = None
+                if isinstance(parsed, dict):
+                    yield parsed.get(key)
+        return
+
+    if not isinstance(event, dict):
+        return
+
+    yield event.get(key)
+    for nested in ("BatchInput", "request"):
+        block = event.get(nested)
+        if isinstance(block, dict):
+            yield block.get(key)
+
+
+def _extract_request_id(event: object) -> str | None:
+    """Pulls the request id out of every event shape a control-plane verb can receive.
+
+    Args:
+      event: The handler's event.
 
     Returns:
       The request id, or None when there is none to read.
 
     Raises:
-      None. Never parses beyond what it needs.
+      None.
     """
-    if isinstance(event, dict):
-        direct = event.get("requestId")
-        if isinstance(direct, str) and direct:
-            return direct
-
-    record = event[0] if isinstance(event, list) and event else event
-    if isinstance(record, dict):
-        body = record.get("body")
-        if isinstance(body, str):
-            try:
-                parsed = json.loads(body)
-            except (TypeError, ValueError):
-                return None
-            if isinstance(parsed, dict):
-                nested = parsed.get("requestId")
-                if isinstance(nested, str) and nested:
-                    return nested
+    for value in _shape_values(event, "requestId"):
+        if isinstance(value, str) and value:
+            return value
     return None
+
+
+def _extract_traceparent(event: object) -> object | None:
+    """Pulls the run's traceparent out of every event shape a control-plane verb can receive.
+
+    Returns an unusable value rather than dropping it, so ``_adopt_trace`` can tell a producer
+    sending the WRONG TYPE from one sending nothing and warn about only the first. Dropping a
+    non-string here would make those two indistinguishable. An ABSENT traceparent is normal — the
+    API is the root of every run and has none by definition — and a null one is normal too,
+    because the producer writes the field unconditionally. Both read as None here and neither
+    warns; only something present and unusable does.
+
+    Args:
+      event: The handler's event.
+
+    Returns:
+      The first truthy value any shape carries, of whatever type it arrived as, or None.
+
+    Raises:
+      None.
+    """
+    for value in _shape_values(event, "traceparent"):
+        if value:
+            return value
+    return None
+
+
+def _adopt_trace(event: object) -> None:
+    """Joins this invocation's span to the run's trace, read from the handler's own event.
+
+    Runs AFTER ``_reset_context``, which is what makes one adoption cover one invocation:
+    ``reset_context`` clears an adopted context as well as baggage, so a warm container cannot
+    carry a finished run's trace into the next, unrelated one. Adoption applies to the next root
+    span opened here, which is the span ``traced`` is about to open.
+
+    Args:
+      event: The handler's event.
+
+    Returns:
+      None.
+
+    Raises:
+      None. Logging must never fail a verb.
+    """
+    try:
+        value = _extract_traceparent(event)
+        if value is None:
+            return
+        if not isinstance(value, str):
+            logger.warning(
+                "structured logging: the inbound traceparent is a %s rather than a string, so "
+                "this span opens a fresh trace",
+                type(value).__name__,
+            )
+            return
+        outcome = lf.continue_trace(value)
+        if outcome:
+            _ADOPTED.set(value)
+        elif outcome.reason == "rejected":
+            logger.warning(
+                "structured logging: the inbound traceparent was rejected, so this span opens "
+                "a fresh trace"
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "structured logging: could not adopt the inbound trace (%s: %s)",
+            type(exc).__name__,
+            exc,
+        )
+
+
+def run_traceparent() -> str | None:
+    """The traceparent identifying THIS RUN, for a verb that has to hand it onward.
+
+    The adopted value verbatim, or the current span's where nothing was adopted — which is the
+    API, the one place a run begins. Verbatim matters: the library's accessor discards the
+    version and the sampling flags, so a rebuilt string is not the one that arrived and an
+    inbound ``-00`` would be re-emitted as ``-01``.
+
+    Args:
+      None.
+
+    Returns:
+      The run's traceparent, or None when there is neither an adopted context nor an open span.
+
+    Raises:
+      None. Logging must never fail a verb.
+    """
+    adopted = _ADOPTED.get()
+    if adopted is not None:
+        return adopted
+    try:
+        return lf.current_traceparent()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "structured logging: could not read the current traceparent (%s: %s)",
+            type(exc).__name__,
+            exc,
+        )
+        return None
 
 
 def _stamp_request_id(event: object) -> None:
