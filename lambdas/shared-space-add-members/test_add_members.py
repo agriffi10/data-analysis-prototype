@@ -329,6 +329,15 @@ def test_the_add_emits_a_child_span_for_the_roster_fan_out_and_the_notifications
     TWO members, not one, and that is the fixture doing work. Both spans wrap a loop, so with a
     single member a span around the loop and a span around its body emit exactly one span each
     and the assertion cannot tell the correct instrumentation from the prohibited kind.
+
+    Args:
+      captured_events: The shared capturing sink.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
     """
     s3, _glue, _lf, cognito = install()
     cognito.users = {"bob": {}, "carol": {}}

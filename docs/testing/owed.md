@@ -420,11 +420,16 @@ rows 14 and 15, and the Data Explorer surfaces generally, were **not** reached.
 ### SPEC-226 FR-005 — the child-span budget has no ceiling and no rate to derive it from
 
 FR-005 asks for the volume this spec adds to be asserted against **a budget in events per
-service-day, derived from the day-object ceiling and the fleet's invocation rate**. The
-per-invocation half is measured and asserted — `lambdas/test_child_spans_per_plane.py` drives the
-worst-case verb on each of the seven planes and counts this spec's events through a capturing sink,
-holding them at a ratchet. The budget itself is owed, because **both** of its inputs are missing,
-and the spec's own third criterion says to record that rather than pick numbers that pass.
+service-day, derived from the day-object ceiling and the fleet's invocation rate**. Most of that
+ships: `lambdas/test_child_spans_per_plane.py` drives the worst-case verb on each of the seven
+planes, counts every span event through a capturing sink, holds the count at a ratchet, and derives
+an events-per-service-day figure from `log_sweep.LARGE_OBJECT_WARN_BYTES` — read from the sweep —
+divided by a measured event size.
+
+**What is owed is the figure's precision, not its existence.** The constant that budget rests on is
+a detector sized to fire early rather than the true ceiling, so the derived budget is conservative
+by an unmeasured factor; and there is no invocation rate to say whether the resulting headroom is
+comfortable. Both are recorded rather than guessed at.
 
 | Input | Why it cannot be established today | What would settle it |
 |---|---|---|

@@ -292,6 +292,15 @@ def test_the_catalog_read_is_a_child_span_of_the_verbs_own_span(captured_events)
 
     `glue-get-table` is shared with apply-refresh's pre-write read on purpose: it is the same
     call against the same catalog, and one name is what lets a query group across both verbs.
+
+    Args:
+      captured_events: The shared capturing sink.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
     """
     _install(_table())
 

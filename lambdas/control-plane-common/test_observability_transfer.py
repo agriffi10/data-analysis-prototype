@@ -39,7 +39,7 @@ _TRANSFER = pathlib.Path(__file__).resolve().parent / "cpcommon" / "transfer"
 #: functions sharing one span name, and the span name is the field an operator filters on.
 _INSTRUMENTED = [
     ("copy.py", "copy_batch", "copy-batch"),
-    ("manifest.py", "write_manifest", "write-manifest"),
+    ("manifest.py", "write_manifest", "write-transfer-manifest"),
     ("results.py", "read_failed_items", "read-failed-items"),
 ]
 
@@ -191,8 +191,14 @@ def _item(index):
 def _export(count):
     """A Map Run export accounting for ``count`` items with no failures.
 
+    ONE RESULT FILE PER ITEM rather than one file listing every item, and the shape is the point.
+    ``read_failed_items`` loops over the manifest's result files, so an export whose file count is
+    fixed makes the two-N test below unable to distinguish a span around the read from a span
+    inside its loop — the loop would run once either way, and the guard would pass on the
+    instrumentation it exists to forbid.
+
     Args:
-      count: How many items the export accounts for.
+      count: How many items the export accounts for, one per result file.
 
     Returns:
       The objects a ``_SlowFakeS3`` serves for one export read.
@@ -200,23 +206,26 @@ def _export(count):
     Raises:
       None.
     """
-    items = [_item(i) for i in range(count)]
-    return {
+    objects = {
         ("admin-bkt", "results/manifest.json"): {
             "MapRunArn": "arn:aws:states:us-east-1:1:mapRun/m/r",
-            "ResultFiles": {"SUCCEEDED": [{"Key": "results/SUCCEEDED_0.json"}]},
-        },
-        ("admin-bkt", "results/SUCCEEDED_0.json"): [
+            "ResultFiles": {
+                "SUCCEEDED": [{"Key": f"results/SUCCEEDED_{i}.json"} for i in range(count)]
+            },
+        }
+    }
+    for i in range(count):
+        objects[("admin-bkt", f"results/SUCCEEDED_{i}.json")] = [
             {
                 "ExecutionArn": "arn:aws:states:us-east-1:1:execution:m:child",
                 "Status": "SUCCEEDED",
-                "Input": json.dumps({"Items": items}),
+                "Input": json.dumps({"Items": [_item(i)]}),
                 "InputDetails": {"Included": True},
-                "Output": json.dumps({"copied": count, "failures": []}),
+                "Output": json.dumps({"copied": 1, "failures": []}),
                 "OutputDetails": {"Included": True},
             }
-        ],
-    }
+        ]
+    return objects
 
 
 def _drive(body, n=2):
@@ -306,14 +315,19 @@ def _read(n):
     )
 
 
-_OPERATIONS = {"copy-batch": _copy, "write-manifest": _write, "read-failed-items": _read}
+_OPERATIONS = {"copy-batch": _copy, "write-transfer-manifest": _write, "read-failed-items": _read}
 
 
-def _stepped_functions(path):
-    """Every function in one module carrying ``observability.step``, with the span it names.
+def _stepped_functions(path, scan):
+    """Every function in one module carrying a step, with the span it names.
+
+    Delegates to the shared scanner in ``conftest`` rather than matching the rendered decorator
+    text. The text matcher was blind to ``from .observability import step``, which is exactly how
+    a step could be added to one of the five forbidden functions with every guard here green.
 
     Args:
       path: The module file to scan.
+      scan: The shared scanner, from the ``step_scan`` fixture.
 
     Returns:
       A list of ``(function name, span name)`` pairs.
@@ -321,24 +335,7 @@ def _stepped_functions(path):
     Raises:
       None.
     """
-    found = []
-    for node in ast.walk(ast.parse(path.read_text())):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        for decorator in node.decorator_list:
-            rendered = ast.unparse(decorator)
-            if not rendered.startswith("observability.step"):
-                continue
-            span = next(
-                (
-                    a.value
-                    for a in getattr(decorator, "args", [])
-                    if isinstance(a, ast.Constant) and isinstance(a.value, str)
-                ),
-                None,
-            )
-            found.append((node.name, span))
-    return found
+    return scan(ast.parse(path.read_text()))
 
 
 def _scanned_modules():
@@ -379,7 +376,7 @@ def test_the_module_glob_collected():
     )
 
 
-def test_exactly_these_transfer_functions_carry_a_step():
+def test_exactly_these_transfer_functions_carry_a_step(step_scan):
     """The instrumented set, held as a sorted list so a shared span name cannot hide in a set.
 
     An EXTRA step fails this too, which is the half that matters: the reason only three of the
@@ -403,7 +400,7 @@ def test_exactly_these_transfer_functions_carry_a_step():
     found = sorted(
         (path.name, name, span)
         for path in _scanned_modules()
-        for name, span in _stepped_functions(path)
+        for name, span in _stepped_functions(path, step_scan)
     )
     assert found == sorted(_INSTRUMENTED), (
         f"the transfer modules carry {found}, not {sorted(_INSTRUMENTED)} — a step added or "
@@ -436,7 +433,7 @@ def test_no_scanned_transfer_module_imports_log_foundry():
     )
 
 
-def test_the_five_looping_functions_carry_no_step():
+def test_the_five_looping_functions_carry_no_step(step_scan):
     """The prohibition an earlier draft of this design got wrong, held by name.
 
     Each of these is invoked once per recipient, per member or per target by at least one caller,
@@ -465,7 +462,7 @@ def test_the_five_looping_functions_carry_no_step():
             and node.name == function
         ]
         seen.extend(f"{module}:{name}" for name in defined)
-        if any(name == function for name, _ in _stepped_functions(root / module)):
+        if any(name == function for name, _ in _stepped_functions(root / module, step_scan)):
             offenders.append(f"{module}:{function}")
 
     assert len(seen) == len(_MUST_NOT_STEP), (
@@ -479,7 +476,7 @@ def test_the_five_looping_functions_carry_no_step():
     )
 
 
-def test_no_instrumented_transfer_function_is_a_generator():
+def test_no_instrumented_transfer_function_is_a_generator(step_scan):
     """On this pin ``@trace`` refuses a generator AT DECORATION, which is a cold start that fails.
 
     WHAT THIS CAN AND CANNOT CATCH, because the difference decides whether it is worth having.
@@ -502,12 +499,11 @@ def test_no_instrumented_transfer_function_is_a_generator():
     generators = []
     for path in _scanned_modules():
         tree = ast.parse(path.read_text())
+        scan_result = step_scan(tree)
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
-            if not any(
-                ast.unparse(d).startswith("observability.step") for d in node.decorator_list
-            ):
+            if node.name not in {n for n, _ in scan_result}:
                 continue
             nested = {
                 id(inner)
@@ -698,7 +694,7 @@ class _S3Error(Exception):
 #: all three would have to be wrong for two of them.
 _FAILURES = {
     "copy-batch": ("Throttling", TransientError),
-    "write-manifest": ("AccessDenied", _S3Error),
+    "write-transfer-manifest": ("AccessDenied", _S3Error),
     "read-failed-items": ("AccessDenied", TerminalError),
 }
 
@@ -720,7 +716,7 @@ def _reach(span):
     """
     if span == "copy-batch":
         copy_mod.copy_batch([_item(0)], _FAILED, echo_fields=_ECHO)
-    elif span == "write-manifest":
+    elif span == "write-transfer-manifest":
         manifest_mod.write_manifest("admin-bkt", "transfer/manifest.jsonl", [_item(0)])
     else:
         results_mod.read_failed_items(
@@ -815,6 +811,13 @@ def test_the_span_count_does_not_move_with_the_item_count(span, captured_events)
     per item with ``parent_span_id`` null and its own trace id — so it is invisible to a guard
     that counts children, and shows up here as N extra roots.
 
+    TWO of the three parametrisations have a reachable plant and one does not, which is said here
+    rather than left to be assumed. ``copy-batch`` has its worker pool and ``read-failed-items``
+    loops over one result file per item, so a step in either place reddens this — both verified by
+    planting. ``write-manifest`` has no per-item function at all: its lines are built by one
+    ``join``, so there is nowhere for a per-item step to go and this case asserts a property that
+    cannot currently be violated.
+
     Args:
       span: The span name under test.
       captured_events: The shared capturing sink.
@@ -840,10 +843,6 @@ def test_the_span_count_does_not_move_with_the_item_count(span, captured_events)
 #: caller reaches them through a module alias of its own choosing.
 _ENTRYPOINTS = {"copy_batch", "write_manifest", "read_failed_items"}
 
-#: Call sites on ``main`` when this guard was written: four copy verbs, four collect verbs and
-#: five build-manifest verbs. A FLOOR rather than an equality — a new caller is ordinary and must
-#: not redden this, while a population that has collapsed to nothing must.
-_MINIMUM_CALL_SITES = 13
 
 
 def test_no_caller_reaches_a_transfer_operation_from_inside_a_loop():
@@ -852,8 +851,13 @@ def test_no_caller_reaches_a_transfer_operation_from_inside_a_loop():
     The driven test above proves N-independence for the engine itself. This is the other half:
     the engine being called once says nothing about a CALLER that calls it per recipient, which
     is exactly the mistake that had to be corrected in five other shared functions. So every call
-    site in the fleet is enumerated and checked for a loop above it, with a floor on the count so
-    a scan that stopped finding call sites cannot pass as a clean one.
+    site in the fleet is enumerated and checked for a loop above it.
+
+    The control is that EACH of the three entry points was found, not that the total cleared a
+    floor. A floor pinned at the measured population reddens when a legitimate caller is deleted,
+    and — worse — a total stays comfortably above it while one entry point stops matching
+    entirely, which is the failure that would make this guard silently stop covering a third of
+    its subject.
 
     Args:
       None.
@@ -873,7 +877,7 @@ def test_no_caller_reaches_a_transfer_operation_from_inside_a_loop():
         ast.DictComp,
         ast.GeneratorExp,
     )
-    sites, offenders = 0, []
+    sites, offenders, found_names = 0, [], set()
     for path in sorted(_LAMBDAS.rglob("*.py")):
         if "__pycache__" in str(path) or path.name.startswith("test_"):
             continue
@@ -883,6 +887,12 @@ def test_no_caller_reaches_a_transfer_operation_from_inside_a_loop():
             tree = ast.parse(path.read_text())
         except SyntaxError:
             continue
+        _ENTRYPOINT_ALIASES = {name: name for name in _ENTRYPOINTS}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    if alias.name in _ENTRYPOINTS:
+                        _ENTRYPOINT_ALIASES[alias.asname or alias.name] = alias.name
         inside = {
             id(inner)
             for node in ast.walk(tree)
@@ -893,16 +903,20 @@ def test_no_caller_reaches_a_transfer_operation_from_inside_a_loop():
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
-            if ast.unparse(node.func).split(".")[-1] not in _ENTRYPOINTS:
+            name = _ENTRYPOINT_ALIASES.get(ast.unparse(node.func).split(".")[-1])
+            if name is None:
                 continue
             sites += 1
+            found_names.add(name)
             if id(node) in inside:
                 offenders.append(f"{path.relative_to(_LAMBDAS)}:{node.lineno}")
 
-    assert sites >= _MINIMUM_CALL_SITES, (
-        f"the scan found {sites} call sites against a floor of {_MINIMUM_CALL_SITES}; an "
-        "absence assertion over a population that stopped collecting passes without checking "
-        "anything"
+    missing = _ENTRYPOINTS - found_names
+    assert not missing, (
+        f"the scan found no call site for {sorted(missing)} anywhere in the fleet ({sites} sites "
+        "for the rest). An absence assertion over a population that stopped collecting passes "
+        "without checking anything — and a count floor would not catch this, because the other "
+        "two entry points keep it satisfied."
     )
     assert not offenders, (
         f"{offenders} call a stepped transfer operation from inside a loop, which makes its "

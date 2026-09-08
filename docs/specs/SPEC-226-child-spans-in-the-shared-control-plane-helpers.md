@@ -38,7 +38,9 @@ steps.
 - The delivery-timing change that decorating a narrating helper causes, which is not obvious and
   broke thirteen existing tests when a reviewer added a step to `lock.py`. **Measured on this
   build: it breaks nothing.** With every step in this spec applied, removing the drain reddens
-  exactly one test — the control written for it — and 3254 others pass. The thirteen are history
+  exactly one test — the control written for it — and every other test in the suite passes. A
+  count is not written here on purpose: the suite grew inside this branch and a dated number reads
+  as current to whoever does not check it. The thirteen are history
   about `lock.py`, which this spec forbids stepping; in `add_members` the narrative tests assert on
   is emitted after both steps have closed, and `cache.py`'s `"roster fanned out"`, the one event now
   inside a span, is asserted by no test. The drain is a forward guard, not a repair.
@@ -65,7 +67,7 @@ steps.
 | Module | Function | Span | Bound | Reaches |
 |---|---|---|---|---|
 | `transfer.copy` | `copy_batch` | `copy-batch` | exactly once per invocation | archive, file-ops, file-send, table-share |
-| `transfer.manifest` | `write_manifest` | `write-manifest` | **at most** once per invocation | archive, file-ops, file-send, table-share |
+| `transfer.manifest` | `write_manifest` | `write-transfer-manifest` | **at most** once per invocation | archive, file-ops, file-send, table-share |
 | `transfer.results` | `read_failed_items` | `read-failed-items` | **at most** once per invocation | archive, file-ops, file-send, table-share |
 
 **Two of the three are "at most once", corrected during the build.** file-ops guards
@@ -78,6 +80,14 @@ The span name is the operation, kebab-cased, so a query groups across every plan
 name that is a bare verb (`load`, `acquire`) is **module-qualified**, because the span name is the
 field an operator filters on and `load` names nothing across a fleet where several modules could own
 one — that rule matters for FR-002's call sites rather than these three.
+
+**`write-manifest` became `write-transfer-manifest` during the build, and the reason generalises
+the rule.** The name this FR originally gave collides with `archive-write-manifest`, a whole verb
+whose root span is `write-manifest`, and with a pre-existing data-quality step of the same name —
+so `function = "write-manifest"` would have returned a Lambda's total duration, data-quality's
+manifest write and four planes' transfer-manifest writes together. Checking each new span against
+its OWN verb's root span, which is how three other names were corrected, cannot see this. A
+fleet-wide guard now sweeps every step name against every verb name.
 
 The literal table is asserted as a **sorted list, not a set**: set equality hides two functions
 sharing one span name.
@@ -113,10 +123,13 @@ are not, and each is named because the next author will reach for them too:
 
 | Function | Actual bound | Where |
 |---|---|---|
-| `notify.emit_notification` | per recipient | `add_members.py:163`, `delete_space.py:190` |
-| `registry.load` | per recipient / per name | `table_share_validate_authorize.py:156`, `file_send_validate_authorize.py:235` |
+| `notify.emit_notification` | per recipient | the notification loops in `add_members`, `remove_members` and `delete_space` |
+| `registry.load` | per recipient / per name | the recipient loop in table-share's and file-send's `validate-authorize` |
 | `cas.cas_mutate` | per member | `cache.write_roster_to_all`'s fan-out |
-| `lock.acquire`, `lock.release` | per target | `file_ops_acquire_lock.py:113` |
+| `lock.acquire`, `lock.release` | per target | the target loop in `file_ops_acquire_lock` |
+
+Cited by symbol rather than by line: three line numbers in an earlier draft of this table went
+stale inside the very commit that added them, because the edits moved the code they pointed at.
 
 **Not inside a per-item loop generally.** Every event is an SQS message and a line in an appended
 day object the sweep rewrites **in full**.
@@ -196,9 +209,9 @@ site in their own code — the loop, not its body.
    would silently instrument two other planes. The step goes on a bounded wrapper in
    `execute_ddl.py`, which is still the plane's own code and still outside FR-001's scanned
    modules, so the guard-ownership note below holds unchanged.
-2. **`apply-refresh` makes THREE Glue round trips, not four**: `_get_table` (`:293`), `_update`
-   (`:331`), `_post_condition` (`:367`). The fourth candidate, `_abandon_if_changed`, calls
-   `glue.update_time(live_table)` at `:245` — a pure dict read on a response already in hand.
+2. **`apply-refresh` makes THREE Glue round trips, not four**: `_get_table`, `_update` and
+   `_post_condition`. The fourth candidate, `_abandon_if_changed`, calls
+   `glue.update_time(live_table)` — a pure dict read on a response already in hand, not a call.
 3. **Three of the span names this FR originally gave collide with their own verb's root span.**
    `execute-ddl`, `infer-schema` and `load-table-definition` are already those verbs'
    `@observability.traced` names, and `function` carries the same value for parent and child — so

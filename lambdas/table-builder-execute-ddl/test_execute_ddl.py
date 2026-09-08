@@ -155,26 +155,21 @@ def test_notifies_actor_on_ddl_failure_without_leaking_athena_reason():
     assert "SYNTAX_ERROR" not in body["message"]
 
 
-if __name__ == "__main__":
-    tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
-    failed = 0
-    for fn in tests:
-        try:
-            fn()
-            print(f"PASS {fn.__name__}")
-        except Exception as exc:  # noqa: BLE001
-            failed += 1
-            print(f"FAIL {fn.__name__}: {exc}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    sys.exit(1 if failed else 0)
-
-
 def test_the_ddl_run_is_a_child_span_of_the_verbs_own_span(captured_events):
     """The Athena round trip is all of this verb's latency and the only part that can hang.
 
     The span is named for the operation and NOT `execute-ddl`, which is already this verb's root
     span: a child sharing its parent's name returns both to the one query an operator runs, with
     the durations counted twice. Parentage is asserted rather than presence alone.
+
+    Args:
+      captured_events: The shared capturing sink.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
     """
     _install(_FakeAthena(["QUEUED", "RUNNING", "SUCCEEDED"]))
 
@@ -188,3 +183,17 @@ def test_the_ddl_run_is_a_child_span_of_the_verbs_own_span(captured_events):
         f"execute-ddl emitted {len(children)} 'athena-run-ddl' child spans, expected exactly one"
     )
     assert children[0]["parent_span_id"] == root[0]["span_id"]
+
+
+if __name__ == "__main__":
+    tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
+    failed = 0
+    for fn in tests:
+        try:
+            fn()
+            print(f"PASS {fn.__name__}")
+        except Exception as exc:  # noqa: BLE001
+            failed += 1
+            print(f"FAIL {fn.__name__}: {exc}")
+    print(f"\n{len(tests) - failed}/{len(tests)} passed")
+    sys.exit(1 if failed else 0)

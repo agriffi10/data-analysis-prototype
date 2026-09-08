@@ -142,3 +142,48 @@ def test_an_operator_driven_removal_is_attributable_to_an_actor_and_an_origin(ca
         if "origin" in (event.get("fields") or {})
     }
     assert origins == {"operator"}, f"the span recorded {origins}"
+
+
+def test_the_remove_emits_a_child_span_for_the_fan_out_and_the_notifications(captured_events):
+    """This verb's two bounded call sites, both around a LOOP rather than inside one.
+
+    TWO members, not one, and that is the fixture doing work: both spans wrap a loop, so at one
+    member a span around the loop and a span around its body emit one span each and the
+    assertion cannot tell the correct instrumentation from the prohibited kind.
+
+    Args:
+      captured_events: The shared capturing sink.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    s3, _glue, _lf, cognito = install()
+    cognito.users = {
+        "bob": {"custom:shared_space_1": "sales"},
+        "carol": {"custom:shared_space_1": "sales"},
+    }
+    reg = _active_reg(members=["alice", "bob", "carol"])
+    _seed_reg(s3, reg)
+
+    r.handler(
+        {
+            "space": "sales",
+            "actor": "alice",
+            "requestId": "req-span",
+            "registry": reg,
+            "payload": {"members": ["bob", "carol"]},
+        },
+        None,
+    )
+
+    root = captured_events.spans("remove-members")
+    assert len(root) == 1, f"expected one remove-members root span, got {len(root)}"
+    for name in ("write-roster", "notify-members"):
+        children = captured_events.child_spans("remove-members", name=name)
+        assert len(children) == 1, (
+            f"remove-members emitted {len(children)} {name!r} child spans, expected exactly one"
+        )
+        assert children[0]["parent_span_id"] == root[0]["span_id"]

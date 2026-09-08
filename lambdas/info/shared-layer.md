@@ -211,9 +211,16 @@ where one goes is a volume decision rather than a taste one.
 - **Not on a generator function.** On the pinned version `@trace` raises `TypeError` **at
   decoration**, which for this fleet is a module-import failure — a cold start that never completes.
   `s3_listing`'s two listers are generators. A fleet-wide AST guard refuses one.
-- **Not with a name its own verb's root span already uses.** `function` carries the same field for
-  both, so the one query an operator runs returns the verb's total and the inner operation mixed,
-  with the durations counted twice. Name the operation, not the verb.
+- **Not with a name ANY verb in the fleet uses for its own span** — not merely its own verb's.
+  `function` carries both, so the query an operator runs returns a whole invocation's duration
+  mixed with an inner operation's. Checking each step against its own verb caught three names and
+  missed a fourth that collided with a DIFFERENT verb's, which is why
+  `test_no_step_name_collides_with_a_verbs_own_span_name` sweeps the fleet rather than trusting a
+  per-verb read. One collision predates the guard and is named in it as an item.
+
+Every one of these is held by a guard that resolves the NAME A DECORATOR IS BOUND TO rather than
+matching its rendered text. Measured: a `from cpcommon.observability import step` and a bare
+`@step(...)` put per-recipient instrumentation on `emit_notification` with every guard green.
 
 **Decorating a helper that already narrates changes WHEN its existing events are delivered.**
 log-foundry delivers an event emitted with no span open **synchronously**, and buffers one emitted

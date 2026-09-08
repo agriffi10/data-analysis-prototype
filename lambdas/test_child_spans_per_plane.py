@@ -267,13 +267,14 @@ def _drive_copy(module):
       module: The verb module.
 
     Returns:
-      None.
+      The module that was driven, so a case can prove it drove its own plane's.
 
     Raises:
       None.
     """
     clients._s3 = _CopyS3()
     module.handler({"Items": _copy_items()}, None)
+    return module
 
 
 def _drive_add_members():
@@ -392,27 +393,29 @@ def _drive(plane, tmp_path, monkeypatch):
       monkeypatch: Used by the conversion and the DDL run.
 
     Returns:
-      None.
+      The verb module that was driven.
 
     Raises:
       KeyError: For a plane this harness does not know how to drive.
     """
     if plane == "archive":
-        _drive_copy(archive_copy_objects)
-    elif plane == "file-ops":
-        _drive_copy(file_ops_copy_objects)
-    elif plane == "file-send":
-        _drive_copy(file_send_copy_objects)
-    elif plane == "table-share":
-        _drive_copy(table_share_copy_objects)
-    elif plane == "shared-space":
+        return _drive_copy(archive_copy_objects)
+    if plane == "file-ops":
+        return _drive_copy(file_ops_copy_objects)
+    if plane == "file-send":
+        return _drive_copy(file_send_copy_objects)
+    if plane == "table-share":
+        return _drive_copy(table_share_copy_objects)
+    if plane == "shared-space":
         _drive_add_members()
-    elif plane == "results-conversion":
+        return add_members
+    if plane == "results-conversion":
         _drive_convert(tmp_path, monkeypatch)
-    elif plane == "table-builder":
+        return rc_convert
+    if plane == "table-builder":
         _drive_execute_ddl(monkeypatch)
-    else:
-        raise KeyError(f"no driver for plane {plane!r}")
+        return execute_ddl
+    raise KeyError(f"no driver for plane {plane!r}")
 
 
 @pytest.mark.parametrize(
@@ -442,8 +445,15 @@ def test_each_flat_plane_emits_a_named_child_span_inside_its_verbs_span(
     Raises:
       None.
     """
-    _drive(plane, tmp_path, monkeypatch)
+    driven = _drive(plane, tmp_path, monkeypatch)
 
+    if span == "copy-batch":
+        assert plane.replace("-", "_") in driven.__name__, (
+            f"{plane}: the dispatch drove {driven.__name__!r}. The four transfer planes assert "
+            "the SAME verb and span names, so only the module picked tells their cases apart and "
+            "a copy-paste in the dispatch would leave all four green with three never exercised. "
+            "The other three planes need no such check — their verb and span names are unique."
+        )
     roots = captured_events.spans(verb)
     assert len(roots) == 1, (
         f"{plane}: driving {verb!r} produced {len(roots)} root spans, so the child assertion "
@@ -610,62 +620,70 @@ def _drive_apply_refresh(monkeypatch):
     )
 
 
-#: The WORST-CASE verb on each plane, and the events this spec adds to it. Two per step — a
-#: `span.start` and a `span.end` — so these are the step counts doubled, MEASURED by driving each
-#: verb and counting through the sink rather than by counting decorators.
+#: The WORST-CASE verb on each plane, and the TOTAL span events one invocation of it emits — the
+#: verb's own root span included. Two events per span, so these are (1 root + n steps) x 2.
 #:
-#: A RATCHET, not a budget, and the distinction is the point. FR-005 asks for a budget in events
-#: per service-day derived from the day-object ceiling and the fleet's invocation rate. Neither
-#: input can be established today — `log_sweep.LARGE_OBJECT_WARN_BYTES` is a detector sized to fire
-#: long before anything binds, not a ceiling, and this fleet has no production traffic to rate.
-#: Both are recorded in `docs/testing/owed.md` rather than met with numbers chosen to pass. What
-#: this table does hold is that the volume cannot grow without somebody editing it.
+#: **Counting every span event rather than this spec's own span NAMES is the whole point.** A
+#: by-name filter is blind in the only direction a volume guard matters: a step added later under a
+#: new name is invisible to it, and so is a step planted inside `copy_batch`'s worker pool, which
+#: emits ROOT spans with a null parent rather than children. Counting all of them catches an
+#: addition, a removal, and the pool mistake with one number.
 #:
-#: The values carry no headroom deliberately: a step added to any of these verbs SHOULD stop here
-#: and be argued for, since that is the whole decision this spec exists to make carefully. The
-#: headroom that matters is the fraction of a day object left for SPEC-227 and later, which is
-#: unquantifiable until the ceiling is.
-_ADDED_EVENTS = {
-    "archive": ("copy-objects", 2),
-    "file-ops": ("copy-objects", 2),
-    "file-send": ("copy-objects", 2),
-    "table-share": ("copy-objects", 2),
-    "shared-space": ("add-members", 4),
-    "results-conversion": ("convert", 6),
-    "table-builder": ("apply-refresh", 6),
+#: A RATCHET, not the budget FR-005 asks for. It carries no headroom deliberately: a step added to
+#: any of these verbs SHOULD stop here and be argued for, which is the decision this spec exists to
+#: make carefully.
+_SPAN_EVENTS_PER_INVOCATION = {
+    "archive": ("copy-objects", 4),
+    "file-ops": ("copy-objects", 4),
+    "file-send": ("copy-objects", 4),
+    "table-share": ("copy-objects", 4),
+    "shared-space": ("add-members", 6),
+    "results-conversion": ("convert", 8),
+    "table-builder": ("apply-refresh", 8),
 }
 
-#: The span names this spec introduced. Counting events by NAME rather than counting every span
-#: is what keeps the measurement about this spec: a plane's pre-existing root span and its
-#: narrative are not this spec's to budget.
-_SPEC_SPANS = frozenset(
-    {
-        "copy-batch",
-        "write-manifest",
-        "read-failed-items",
-        "write-roster",
-        "notify-members",
-        "download-results",
-        "write-conversion",
-        "upload-conversion",
-        "athena-run-ddl",
-        "infer-columns",
-        "glue-get-table",
-        "glue-update-table",
-        "glue-read-back-table",
-    }
+#: The band one serialized span event's size must stay inside, in bytes. The budget below divides
+#: the day-object ceiling by a MEASURED event size, so a serialization change that inflated an
+#: event would quietly shrink the budget while every count assertion stayed green. Measured at
+#: ~400 bytes on this pin; the band is wide because the point is to catch a change of KIND, not to
+#: pin a number that a field addition would redden.
+_EVENT_BYTES_BAND = (150, 2000)
+
+
+def _day_object_ceiling_bytes():
+    """The sweep's own size constant, READ from the sweep rather than copied beside it.
+
+    Copied, it would be a second home for a number whose only meaning is what the sweep does with
+    it, and the two would drift. Read, a change to the sweep reddens the budget below.
+
+    Args:
+      None.
+
+    Returns:
+      The byte size at which the sweep calls out a day object's read-modify-write cost.
+
+    Raises:
+      None.
+    """
+    sweep = str(_HERE / "log-sweep")
+    if sweep not in sys.path:
+        sys.path.append(sweep)
+    import log_sweep
+
+    return log_sweep.LARGE_OBJECT_WARN_BYTES
+
+
+@pytest.mark.parametrize(
+    "plane", sorted(_SPAN_EVENTS_PER_INVOCATION), ids=sorted(_SPAN_EVENTS_PER_INVOCATION)
 )
-
-
-@pytest.mark.parametrize("plane", sorted(_ADDED_EVENTS), ids=sorted(_ADDED_EVENTS))
-def test_the_events_this_spec_adds_to_each_planes_worst_case_verb(
+def test_the_span_events_each_planes_worst_case_verb_emits(
     plane, captured_events, tmp_path, monkeypatch
 ):
     """Measured by driving the verb and counting, never by counting decorators.
 
-    Counting decorators is what makes a volume claim wrong: it cannot see a step reached twice,
-    a step on a path the verb does not take, or a step inside a worker pool emitting one span
-    per item with no parent. Driving and counting sees all three.
+    Counting decorators is what makes a volume claim wrong: it cannot see a step reached twice, a
+    step on a path the verb does not take, or a step inside a worker pool emitting one span per
+    item with no parent. Driving and counting sees all three.
 
     Args:
       plane: The plane whose worst-case verb to measure.
@@ -679,24 +697,79 @@ def test_the_events_this_spec_adds_to_each_planes_worst_case_verb(
     Raises:
       None.
     """
-    verb, expected = _ADDED_EVENTS[plane]
+    verb, expected = _SPAN_EVENTS_PER_INVOCATION[plane]
     if plane == "table-builder":
         _drive_apply_refresh(monkeypatch)
     else:
         _drive(plane, tmp_path, monkeypatch)
 
-    added = [
+    spans = [
         event
         for event in captured_events.events
         if event["message"] in ("span.start", "span.end")
-        and event["function"] in _SPEC_SPANS
     ]
-    assert added, (
-        f"{plane}: driving {verb!r} emitted none of this spec's spans, so the count below is a "
+    assert spans, (
+        f"{plane}: driving {verb!r} emitted no span events at all, so the count below is a "
         "comparison against an empty collector rather than a measurement"
     )
-    assert len(added) == expected, (
-        f"{plane}: {verb!r} now emits {len(added)} of this spec's events, not {expected}. Every "
-        "one is an SQS message and a line in a day object the sweep rewrites in full, so a "
-        "change here is a volume decision — argue for it and move the number."
+    assert len(spans) == expected, (
+        f"{plane}: {verb!r} now emits {len(spans)} span events, not {expected}. Every one is an "
+        "SQS message and a line in a day object the sweep rewrites in full, so a change here is a "
+        "volume decision — argue for it and move the number."
+    )
+
+
+def test_the_events_per_service_day_budget_is_derived_from_the_sweeps_own_constant(
+    captured_events,
+):
+    """The budget FR-005 asks for, in the direction that IS derivable, with its limits stated.
+
+    The sweep writes one day object per service-day and rewrites it in full, so events per
+    service-day is the bound that matters. The ceiling used here is
+    `log_sweep.LARGE_OBJECT_WARN_BYTES`, read from the sweep rather than copied.
+
+    **That constant is a detector, not the true ceiling, and using it is deliberately
+    conservative.** The observability README states the sweep has 512 MB and that this constant
+    "warns long before that becomes binding", and the sibling constant's own guard asserts memory
+    is over four times it, because peak resident while appending is several multiples of the
+    object. So the real ceiling is larger and a budget derived from this one errs safe. What is
+    NOT derivable is the exact ceiling — the peak-resident multiple is nowhere measured — and the
+    fleet's invocation rate, which does not exist on a system with no production traffic. Both are
+    in `docs/testing/owed.md`; this asserts the half that stands without them.
+
+    Args:
+      captured_events: The shared capturing sink, used to measure a real event's size.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    _drive_copy(archive_copy_objects)
+    events = [e for e in captured_events.events if e["message"] == "span.start"]
+    assert events, "no event to measure, so the budget below would divide by a guess"
+
+    #: One NDJSON line as the sweep writes it: the event's JSON plus the newline it appends.
+    bytes_per_event = max(len(json.dumps(event)) + 1 for event in events)
+    low, high = _EVENT_BYTES_BAND
+    assert low <= bytes_per_event <= high, (
+        f"a span event serializes to {bytes_per_event} bytes, outside the {low}-{high} band the "
+        "budget below is derived against — re-derive the budget rather than widening the band"
+    )
+
+    ceiling = _day_object_ceiling_bytes()
+    budget = ceiling // bytes_per_event
+    worst = max(count for _verb, count in _SPAN_EVENTS_PER_INVOCATION.values())
+    sustainable = budget // worst
+
+    assert budget > 0 and sustainable > 0, (
+        f"the derivation collapsed: {ceiling} bytes / {bytes_per_event} bytes = {budget} events "
+        f"per service-day, {sustainable} invocations of the worst verb"
+    )
+    assert sustainable > 1000, (
+        f"at {ceiling // 1024 // 1024} MiB and {bytes_per_event} bytes an event, one service-day "
+        f"holds {budget} events — {sustainable} invocations of the worst-case verb from this "
+        "spec's spans alone. Below a thousand the spans, not the narrative, would be what sizes "
+        "the day object, and the ratchet above stops being the right instrument."
     )

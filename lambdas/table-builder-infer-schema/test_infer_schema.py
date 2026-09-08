@@ -192,24 +192,19 @@ _JSON_SERDE = "org.openx.data.jsonserde.JsonSerDe"
 _PARQUET_SERDE = "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe"
 
 
-if __name__ == "__main__":
-    tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
-    failed = 0
-    for fn in tests:
-        try:
-            fn()
-            print(f"PASS {fn.__name__}")
-        except Exception as exc:  # noqa: BLE001
-            failed += 1
-            print(f"FAIL {fn.__name__}: {exc}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    sys.exit(1 if failed else 0)
-
-
 def test_the_column_inference_is_a_child_span_of_the_verbs_own_span(captured_events):
     """The polars read is this verb's principal cost, and it is one call per invocation.
 
     Named `infer-columns` rather than `infer-schema`, which is already the root span's name.
+
+    Args:
+      captured_events: The shared capturing sink.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
     """
     path = os.path.join(_TMP, "span.parquet")
     pl.DataFrame({"order_id": pl.Series([1, 2], dtype=pl.Int64)}).write_parquet(path)
@@ -225,3 +220,17 @@ def test_the_column_inference_is_a_child_span_of_the_verbs_own_span(captured_eve
         f"infer-schema emitted {len(children)} 'infer-columns' child spans, expected exactly one"
     )
     assert children[0]["parent_span_id"] == root[0]["span_id"]
+
+
+if __name__ == "__main__":
+    tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
+    failed = 0
+    for fn in tests:
+        try:
+            fn()
+            print(f"PASS {fn.__name__}")
+        except Exception as exc:  # noqa: BLE001
+            failed += 1
+            print(f"FAIL {fn.__name__}: {exc}")
+    print(f"\n{len(tests) - failed}/{len(tests)} passed")
+    sys.exit(1 if failed else 0)

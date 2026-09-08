@@ -14,6 +14,7 @@ each test re-inserting them. Tests that also run directly (``python3
 test_x.py``) keep their own per-file ``sys.path.insert`` for that mode.
 """
 
+import ast
 import os
 import sys
 
@@ -192,9 +193,12 @@ class _CapturingSink:
     ``log-sweep/test_log_sweep.py`` — and each stays responsible for its own flushing.
 
     Attributes:
-      _events: Every event delivered to ``emit``, in delivery order. Private so that ``events``
-        can be the draining reader: ``emit`` appends here directly, which is what keeps a drain
-        triggered by a read from re-entering the flush that caused it.
+      _events: Every event delivered to ``emit``, in the order the worker delivered them — which
+        a read now influences, because a read drains. An event emitted inside a span lands where
+        the next read puts it rather than where it was emitted, so this list is a set to filter,
+        not a sequence to index. Nothing asserts global ordering over it today. Private so that
+        ``events`` can be the draining reader: ``emit`` appends here directly, which is what keeps
+        a drain triggered by a read from re-entering the flush that caused it.
     """
 
     def __init__(self):
@@ -367,6 +371,93 @@ class _CapturingSink:
             and e.get("parent_span_id") in parents
             and (name is None or e.get("function") == name)
         ]
+
+
+def observability_decorator_names(tree, attribute="step"):
+    """Every local name in one parsed module that resolves to ``observability.<attribute>``.
+
+    The spelling a decorator wears is the author's choice, and a guard that matches the rendered
+    text ``observability.step`` is blind to every other one. Measured: a
+    ``from .observability import step`` plus a bare ``@step("…")`` planted the exact per-recipient
+    instrumentation the control planes forbid, and the whole suite stayed green. No such spelling
+    exists in ``lambdas/`` today — which is why this resolves bindings rather than adding a second
+    literal to match, since the next spelling will not be one anybody predicted either.
+
+    Args:
+      tree: The parsed module.
+      attribute: The observability name being looked for — ``step`` or ``traced``.
+
+    Returns:
+      The set of dotted or bare names that decorate a function with it.
+
+    Raises:
+      None.
+    """
+    names = {f"observability.{attribute}"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.endswith("observability"):
+                    names.add(f"{alias.asname or alias.name.split('.')[-1]}.{attribute}")
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            for alias in node.names:
+                if alias.name == "observability":
+                    names.add(f"{alias.asname or 'observability'}.{attribute}")
+                elif alias.name == attribute and module.endswith("observability"):
+                    names.add(alias.asname or attribute)
+    return names
+
+
+def stepped_functions(tree, attribute="step"):
+    """Every function in one parsed module carrying a span decorator, with the name it declares.
+
+    Args:
+      tree: The parsed module.
+      attribute: ``step`` for a child span, ``traced`` for a verb's root span.
+
+    Returns:
+      A list of ``(function name, span name)`` pairs; the span name is None when the decorator
+      names none.
+
+    Raises:
+      None.
+    """
+    bound = observability_decorator_names(tree, attribute)
+    found = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for decorator in node.decorator_list:
+            call = decorator.func if isinstance(decorator, ast.Call) else decorator
+            if ast.unparse(call) not in bound:
+                continue
+            literals = [
+                a.value
+                for a in getattr(decorator, "args", [])
+                if isinstance(a, ast.Constant) and isinstance(a.value, str)
+            ]
+            found.append((node.name, literals[0] if literals else None))
+    return found
+
+
+@pytest.fixture
+def step_scan():
+    """Hands a test the shared step-decorator scanners.
+
+    A fixture rather than a helper each suite copies: the two guards that use it live in
+    different files, and the same matcher written twice is the one that is wrong in one copy.
+
+    Args:
+      None.
+
+    Returns:
+      The ``stepped_functions`` scanner, which takes a parsed module and optionally ``"traced"``.
+
+    Raises:
+      None.
+    """
+    return stepped_functions
 
 
 @pytest.fixture

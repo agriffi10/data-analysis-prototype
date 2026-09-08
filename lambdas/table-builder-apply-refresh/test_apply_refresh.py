@@ -331,6 +331,15 @@ def test_the_three_glue_round_trips_are_three_child_spans(captured_events):
     Three and not four: `_abandon_if_changed`, which sits between the read and the update, makes
     no round trip — it compares a stamp on the response already in hand. An arbitrary pick of one
     of the three would leave an operator unable to tell a slow read from a slow write.
+
+    Args:
+      captured_events: The shared capturing sink.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
     """
     _install()
 

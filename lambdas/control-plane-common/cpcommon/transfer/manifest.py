@@ -21,7 +21,7 @@ from .. import clients, errors, observability
 CONTENT_TYPE = "application/jsonl"
 
 
-@observability.step("write-manifest")
+@observability.step("write-transfer-manifest")
 def write_manifest(bucket: str, key: str, items: list) -> int:
     """Writes the transfer items as JSON Lines and returns how many were written.
 

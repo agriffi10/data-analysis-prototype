@@ -658,6 +658,16 @@ def test_a_personal_conversion_emits_all_three_child_spans(s3, captured_events):
     slow. A personal-space destination is the fixture deliberately: it touches none of the shared
     transfer engine, so these three spans are the only child spans this verb can have and the
     assertion cannot be satisfied by somebody else's instrumentation.
+
+    Args:
+      s3: The fake S3 client and scratch directory.
+      captured_events: The shared capturing sink.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
     """
     result = c.handler(_event("parquet"), None)
 
