@@ -110,8 +110,10 @@ as a runtime `AccessDenied`, not a plan error**.
   which pages at 1000 keys and costs 20 round trips at `SEND_MAX_OBJECTS`. Each plan entry carries
   the absolute source key, the relative key and the owning item name, so at worst-case 1024-byte keys
   20,000 objects serialise to ~48 MB with the in-memory list several times that again.
-  **`test_the_worst_case_copy_plan_fits_in_the_verbs_memory` reads this number** and computes the
-  plan against it, so raising `SEND_MAX_OBJECTS` without raising the memory fails the build.
+  **`test_the_worst_case_file_send_copy_plan_fits_in_the_verbs_memory` reads this number** and
+  computes the plan against it. The plan sits about four times inside, so neither a modest raise of
+  `SEND_MAX_OBJECTS` nor a halving of the memory is refused — re-derive the pair when moving
+  either.
 - **`check-target-absent`** does **one delimited listing** of the recipient's inbox, paginated — so
   its cost is bounded by **what this sender has previously sent to this recipient**, not by the size
   of the send. The obvious alternative, a probe per selected item, would have been 400 round trips
@@ -120,17 +122,22 @@ as a runtime `AccessDenied`, not a plan error**.
 - **`build-transfer-manifest` and `collect-transfer-results`** handle the same volume in opposite
   directions and are JSON work, so memory is the CPU dial as much as the headroom — a 2048 MB
   function gets ~4× the CPU of a 512 MB one.
-  **2048 MB is an asserted number at this stage, and saying so is the honest version.** It is
-  table-share's shipped sizing for the identical pair at a 20,000-item cap. This plane has no
-  transfer-item cap yet — the manifest is (recipients × objects), so today's caps permit
-  50 × 20,000 = 1M items, **which this memory does not hold**. `SEND_MAX_TRANSFER_ITEMS` carries a
-  test that reads this row and computes the cap against it. **Until then the bound is prose, which is
-  what the cap is for.**
+  It began as table-share's shipped sizing for the identical pair, asserted rather than computed,
+  because the manifest is (recipients × objects) and the source caps alone permit 50 × 20,000 =
+  1M items. `SEND_MAX_TRANSFER_ITEMS` is what actually bounds it, enforced in `inspect-source`,
+  and **`test_the_worst_case_manifest_fits_in_the_verbs_memory` reads this row back against that
+  cap** — so the bound is no longer prose. It has room: the guard does not fire until this drops
+  below about 768 MB, which makes it a floor under a mistake rather than a fence around a change.
 - **`copy-objects`** takes 900 s, and that is **not a preference**: it is `COPY_TIMEOUT_SECONDS`, the
   budget `cpcommon/transfer/config.py` divides by to size `MAX_ITEMS_PER_BATCH`.
-  **`test_the_copy_timeout_matches_this_planes_deployed_verb` reads this row back**, so lowering it
-  here fails the build rather than silently invalidating every makespan bound the engine reasons
-  with. No object bytes pass through the function, so the memory buys CPU for the pool's threads.
+  **`test_every_plane_running_the_engine_deploys_the_timeout_it_divides_by` reads this row
+  back**, so moving it fails the build rather than silently invalidating every makespan bound the
+  engine reasons with. That guard derives the planes that run the engine from the Terraform
+  itself rather than naming one: the guard it replaced read table-share's locals alone, and
+  **this** row was held by nothing. Archive and file-ops have since grown their own
+  plane-local checks, so what the derivation adds is the shape — a fifth plane deploying the
+  verb arrives loud instead of silent. No object bytes pass through the function, so the
+  memory buys CPU for the pool's threads.
 - **`notify-failure`** is 60 s rather than 15 s, because the EventBridge `TIMED_OUT` door does
   strictly more work than the ASL one: a cold-start JWKS fetch plus a JWT verify before the send.
 
@@ -153,8 +160,11 @@ the same constants suggest if you multiply them all together**. Under that rate 
 the guard Map, the serial verbs and the per-child overhead of 50,000 items in batches of 8 take the
 worst run to ~8,900 s.
 
-**`test_the_whole_run_fits_the_machines_ceiling` computes every term of that from these locals**, so
-a cap or a verb timeout raised without re-deriving it fails the build.
+**`test_the_whole_file_send_run_fits_the_machines_ceiling` sums every term of that run and
+reads the ceiling and the serial verb timeouts out of these locals** — the copy term comes
+from the Python caps instead. It carries enough headroom that DOUBLING every verb timeout
+still passes — the break-even is about two and a half times today's timeouts. Re-derive it when
+moving a cap or a timeout rather than expecting the build to refuse.
 
 It is **deliberately not longer**: the timeout is how fast a wedged send becomes a notification.
 
