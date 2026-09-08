@@ -16,13 +16,20 @@ Attributes:
 
 import json
 
-from .. import clients, errors
+from .. import clients, errors, observability
 
 CONTENT_TYPE = "application/jsonl"
 
 
+@observability.step("write-manifest")
 def write_manifest(bucket: str, key: str, items: list) -> int:
     """Writes the transfer items as JSON Lines and returns how many were written.
+
+    **Call bound: at most once per invocation**, in each of the five build-manifest verbs that
+    reach it. AT MOST rather than exactly: file-ops guards the call with ``if lines:``, and
+    file-send and table-share return early when there is nothing to send, so a verb can complete
+    without writing one. Never more than once, which is the property that makes a child span
+    here two events per invocation rather than two per item.
 
     Args:
       bucket: The bucket to write to.

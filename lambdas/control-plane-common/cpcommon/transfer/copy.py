@@ -49,7 +49,7 @@ Attributes:
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
-from .. import clients, errors
+from .. import clients, errors, observability
 from ..errors import TransientError
 
 logger = logging.getLogger(__name__)
@@ -238,6 +238,7 @@ def _copy_item(item: dict) -> None:
     )
 
 
+@observability.step("copy-batch")
 def copy_batch(
     items: list,
     failure_reason: str,
@@ -246,6 +247,15 @@ def copy_batch(
     concurrency: int = COPY_CONCURRENCY,
 ) -> dict:
     """Copies every item in a batch, isolating deterministic per-item failures.
+
+    **Call bound: exactly once per invocation**, in each of the four copy verbs that reach it —
+    archive, file-ops, file-send and table-share — with no branch above the call in any of them.
+    That bound is why a child span belongs here at all: the events are two per invocation rather
+    than two per object. **The step must not move inside the pool below.** log-foundry's span
+    stack and baggage are ``contextvars``, which do not cross into ``ThreadPoolExecutor``
+    workers: a step planted on ``copy_one`` over five items emitted five spans, every
+    ``parent_span_id`` null, six distinct trace ids and empty fields — unattributable events, not
+    merely more of them.
 
     Transient faults are collected across the whole batch and re-raised once every in-flight
     copy has settled, so a retry never races copies still running from the previous attempt.

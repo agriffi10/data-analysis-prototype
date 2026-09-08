@@ -26,7 +26,7 @@ Attributes:
 
 import json
 
-from .. import clients, errors
+from .. import clients, errors, observability
 from ..errors import TerminalError
 
 MANIFEST_BASENAME = "manifest.json"
@@ -205,6 +205,7 @@ def _from_input(
     return failures, len(items)
 
 
+@observability.step("read-failed-items")
 def read_failed_items(
     bucket: str,
     manifest_key: str,
@@ -214,6 +215,12 @@ def read_failed_items(
     echo_fields: tuple,
 ) -> dict:
     """Reads a Map Run's export and returns every failed item, attributed to its recipient.
+
+    **Call bound: at most once per invocation**, in each of the four collect verbs that reach it.
+    AT MOST rather than exactly: file-send, table-share and file-ops all return early when the
+    request transferred nothing, so a verb can complete without reading an export. Never more
+    than once — the loops below walk the export's result files INSIDE this one span rather than
+    opening one each, which is what keeps a deep export two events rather than two per file.
 
     **Every unrecognised shape raises**, and that direction is the whole design. A reader that
     skips what it does not understand reports a clean run over an export it never read, and the
