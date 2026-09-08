@@ -191,7 +191,16 @@ def test_a_worst_case_batch_stays_under_the_input_limit():
         "destKey": "k" * 1024,
         "size": 5 * GIB,
     }
-    batch = json.dumps({"Items": [worst] * transfer_config.MAX_ITEMS_PER_BATCH})
+    batch = json.dumps({
+        # SPEC-225 put the run's traceparent and the request id in the child's input
+        # alongside `Items`, so the payload this bound is computed against grew. Modelled
+        # rather than assumed negligible: a cap is computed against what it actually bounds.
+        "BatchInput": {
+            "traceparent": "00-" + "0" * 32 + "-" + "0" * 16 + "-01",
+            "requestId": "0" * 36,
+        },
+        "Items": [worst] * transfer_config.MAX_ITEMS_PER_BATCH,
+    })
     assert len(batch.encode()) < 256 * 1024 // 2, "a worst-case batch is not far below the limit"
 
 
@@ -204,6 +213,11 @@ def test_a_worst_case_batch_stays_under_the_limit_with_the_WIDEST_echoed_field()
     widest caller echoes. The file-operations plane echoes ``itemKey``, which is an S3 key and may
     be 1024 bytes, on every item. Recomputed here rather than assumed still-true, because the
     original bound's own docstring says raising the batch size without re-checking must fail.
+
+    Re-derived again for SPEC-225's `BatchInput`, on the same principle: the child's input went
+    from 26,403 to 26,546 bytes at `MAX_ITEMS_PER_BATCH`, which is 20.3% of the bar. The block is
+    per-BATCH rather than per-item, so it does not scale with the batch size — which is exactly
+    why the traceparent travels here and not on every manifest line.
     """
     worst = {
         "itemKey": "i" * 1024,
@@ -213,7 +227,16 @@ def test_a_worst_case_batch_stays_under_the_limit_with_the_WIDEST_echoed_field()
         "destKey": "k" * 1024,
         "size": 5 * GIB,
     }
-    batch = json.dumps({"Items": [worst] * transfer_config.MAX_ITEMS_PER_BATCH})
+    batch = json.dumps({
+        # SPEC-225 put the run's traceparent and the request id in the child's input
+        # alongside `Items`, so the payload this bound is computed against grew. Modelled
+        # rather than assumed negligible: a cap is computed against what it actually bounds.
+        "BatchInput": {
+            "traceparent": "00-" + "0" * 32 + "-" + "0" * 16 + "-01",
+            "requestId": "0" * 36,
+        },
+        "Items": [worst] * transfer_config.MAX_ITEMS_PER_BATCH,
+    })
     assert len(batch.encode()) < 256 * 1024 // 2, (
         "a worst-case batch carrying the widest echoed field is no longer far below the limit"
     )

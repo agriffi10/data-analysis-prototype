@@ -282,6 +282,23 @@ def test_the_whole_map_state_stays_under_the_payload_limit():
     where it was: `collect-transfer-results` CONSUMES `guardResults` rather than passing it on, and
     it carries the DECODED reason instead of the raw error. Both are modelled below, so undoing
     either fails here rather than in production.
+
+    **SPEC-225 put the run's traceparent on the state, so the headroom is RE-DERIVED here rather
+    than re-run.** Measured at this commit, against the `_STATE_PAYLOAD_LIMIT // 2` bar the three
+    peaks are held to:
+
+        guard, all refused      85,752 bytes   32.7% of the limit
+        guard, all accepted     30,402 bytes   11.6%
+        finish                  92,970 bytes   35.5%
+        guard + at-cap definition (the control below)  152,739 bytes   58.3%
+
+    The traceparent itself is 73 bytes with its key and comma, and contributes 0.03 of a
+    percentage point;
+    the distance from the ~29% this file used to quote is other growth since, which is the reason
+    the figure is re-derived rather than trusted. Re-derive it the same way — the numbers come
+    from the three `json.dumps` below and nowhere else. The bar leaves the state room to grow by
+    roughly 40% before it is reached, which is headroom on purpose: a budget pinned at the
+    measurement leaves the next legitimate addition nothing to spend.
     """
     sys.path.insert(0, os.path.join(_HERE, "..", "table-share-common"))
     from cpcommon import errors
@@ -299,6 +316,10 @@ def test_the_whole_map_state_stays_under_the_payload_limit():
         "destBucket": "b" * 63, "destPrefix": ("s" * 64) + "/shared_tables/" + ("n" * 64) + "/",
     }
     request = {
+        # SPEC-225: on the state from validate-authorize onward, and on every Map's BatchInput.
+        # 55 bytes as a value, 73 with its key and comma — small, but the model exists to be re-derived
+        # rather than assumed, and the measured headroom is restated below.
+        "traceparent": "00-" + "0" * 32 + "-" + "0" * 16 + "-01",
         "actor": "a" * 64,
         "source": {"database": "d" * 64, "table": "t" * 64},
         "tableName": "n" * 64,
@@ -377,7 +398,7 @@ def test_the_whole_map_state_stays_under_the_payload_limit():
     # definition the caps still allow back on the same state and it fails the SAME safety bar
     # the three peaks above just cleared — which is what makes those assertions a property of
     # the pointer rather than of the numbers happening to be small today. Measured: the guard
-    # peak goes from ~29% of the limit to ~55% with an at-cap definition inline. Not a breach
+    # peak goes from 32.7% of the limit to 58.3% with an at-cap definition inline. Not a breach
     # at 64 KiB, and that is the point in both directions — the old 32 KiB cap kept it under
     # the bar only by refusing a 100-column commented table, which is an ordinary thing to
     # share. Inline, the cap had to choose between the payload and the user.
@@ -426,6 +447,12 @@ def _containers(asl):
             processor = state.get("ItemProcessor") or state.get("Iterator")
             if processor:
                 yield from walk(f"{label}/{name}", processor)
+            # A Parallel branch is its own graph with its own StartAt, exactly as an
+            # ItemProcessor is. No machine has one today, which is precisely why this is here:
+            # every sweep built on this walk would be silently blind to the first one added, and
+            # `_states` beside it already descends Branches, so the two would disagree.
+            for index, branch in enumerate(state.get("Branches") or []):
+                yield from walk(f"{label}/{name}[{index}]", branch)
 
     yield from walk("", asl)
 
@@ -588,6 +615,450 @@ def test_a_failure_seed_supplies_every_key_the_failure_terminal_reads(path):
                 )
             frontier.append(state.get("Next"))
             frontier.extend(c.get("Next") for c in state.get("Catch", []) or [])
+
+
+# ── SPEC-225: one run, one trace — the success path ─────────────────────────────────────────
+
+#: Every state whose own block must name the run's traceparent, as (plane, qualified name).
+#: Pinned as MEMBERSHIP and not just a count, because a discriminator that widened in one place
+#: and narrowed in another would keep the count and change the population.
+_THREADING_STATES = frozenset({
+    ("archive", "Validated"),
+    ("archive", "NotifyArchived"),
+    ("archive", "NotifyRestoreStarted"),
+    ("archive", "NotifyRestored"),
+    ("file-send", "Validated"),
+    ("file-send", "ShapeSummary"),
+    ("results-conversion", "Validated"),
+    ("results-conversion", "Described"),
+    ("results-conversion", "Converted"),
+    ("table-share", "FinishRecipients/CreateTable"),
+})
+
+#: The planes whose state carries a request id where a Distributed Map can read it. table-share's
+#: validator returns none and no state downstream of it holds one, so `"requestId.$": "$.requestId"`
+#: in ITS BatchInput would be an uncatchable States.Runtime on every share.
+#:
+#: PINNED, not derived — and said plainly, because an earlier version of this comment claimed the
+#: second while doing the first. Deriving it would mean reading each validator's return, which is
+#: the very thing the guard below is checking the templates against; the two would then agree with
+#: each other and with nothing else. A plane that starts or stops carrying a request id has to
+#: change this line, which is the point.
+_PLANES_WITH_A_REQUEST_ID = frozenset({"archive", "file-ops", "file-send"})
+
+
+def _is_success_terminal(state, states, container_merges):
+    """Whether a state's own output leaves the machine, or leaves a Map branch.
+
+    Two shapes, and a walk that knows only one of them is wrong in a different direction each
+    time. `End: true` is how a Map branch ends — no `Succeed` state exists inside an
+    `ItemProcessor` anywhere in this fleet — while the top-level machines end by handing control
+    to a `Succeed`. A rule that asked instead whether a state can REACH a `Succeed` would call
+    `archive:NotifyArchived` terminal, which is one of the four Task blocks this sweep exists to
+    find.
+
+    Args:
+      state: The state.
+      states: Its container's states, since `Next` names siblings unqualified.
+
+    Returns:
+      True if nothing in this container reads what the state produced.
+
+    Raises:
+      None.
+    """
+    if state.get("End") is True:
+        # A Map branch's leaf is only safe to exclude because its output becomes one ELEMENT of
+        # the Map's result array, merged back under the Map's own ResultPath into a state that
+        # still carries the key. A Map with NO ResultPath replaces the state with that array, and
+        # then the leaf really is the last place the key could live. The precondition is checked
+        # rather than stated: it holds for all three inline Maps today and nothing made it hold.
+        return container_merges
+    following = state.get("Next")
+    return bool(following) and states.get(following, {}).get("Type") == "Succeed"
+
+
+def _reaches_a_success_terminal(start, states):
+    """Whether a state can finish successfully without leaving through a `Catch`.
+
+    `Catch` edges are deliberately NOT followed: every Task with a catcher can reach the failure
+    terminal, so following them selects almost the whole machine. What is being asked is whether
+    this state sits on a path that can succeed at all — a failure seed cannot, and those belong
+    to SPEC-227.
+
+    Args:
+      start: The state name to walk from.
+      states: Its container's states.
+
+    Returns:
+      True if some success terminal is reachable.
+
+    Raises:
+      None.
+    """
+    seen, frontier = set(), [start]
+    while frontier:
+        name = frontier.pop()
+        if name in seen or name not in states:
+            continue
+        seen.add(name)
+        state = states[name]
+        if state.get("Type") == "Succeed" or state.get("End") is True:
+            return True
+        for target in (state.get("Next"), state.get("Default")):
+            if target:
+                frontier.append(target)
+        for choice in state.get("Choices") or []:
+            if choice.get("Next"):
+                frontier.append(choice["Next"])
+    return False
+
+
+def _blocks_that_name_their_fields(asl):
+    """Yields (qualified name, the block) for every state that would DROP a new key.
+
+    Most threading is free: a Task passing `"Payload.$": "$"` with `"OutputPath": "$.Payload"`
+    carries a new key untouched. These are the states that do not, and finding them needs five
+    discriminators — each of which was established by building the sweep without it and reading
+    what came back:
+
+    1. A `Pass` carrying a `ResultPath` MERGES under that path and drops nothing. Without this,
+       five `StampExecution`-style states join the population as false positives.
+    2. A Task's `Parameters.Payload` block IS its Lambda's input, so a field-naming one drops a
+       key exactly as a `Pass` does. Four qualify.
+    3. Failure-path states are excluded — 29 of them, which SPEC-227 owns.
+    4. Inside a Map branch a success terminal is `End: true`, not a `Succeed` state, which is
+       what `_is_success_terminal` and `_reaches_a_success_terminal` both have to know.
+    5. A `Pass` that is ITSELF a success terminal is excluded, and for two different reasons
+       worth keeping apart. A Map branch's leaf becomes one ELEMENT of the Map's result array,
+       merged back under the Map's own `ResultPath` into a state that still carries the
+       traceparent — so nothing is lost by leaving it out. A `Pass` whose `Next` is a `Succeed`
+       produces the EXECUTION's output, which no state reads. Without this fifth rule the first
+       four select twenty-one states rather than ten. It is applied to `Pass` states only: a
+       Task's `Payload` is its Lambda's input, read wherever the Task sits.
+
+    Args:
+      asl: The parsed state machine.
+
+    Returns:
+      Nothing; yields one pair per state.
+
+    Raises:
+      None.
+    """
+    by_name = dict(_states(asl))
+    for label, _start, states in _containers(asl):
+        container = label.lstrip("/").split("/")[0] if label else None
+        # The top level always "merges" in the sense that matters: its terminals ARE the run's
+        # output. Inside a Map, it depends on that Map's own ResultPath.
+        merges = True if container is None else "ResultPath" in by_name.get(container, {})
+        for name, state in states.items():
+            qualified = f"{label}/{name}".lstrip("/")
+            if state.get("Type") == "Pass":
+                block = state.get("Parameters")
+                if "ResultPath" in state and state["ResultPath"] is not None:
+                    continue
+                if not isinstance(block, dict):
+                    continue
+                if _is_success_terminal(state, states, merges):
+                    continue
+            elif state.get("Type") == "Task":
+                block = (state.get("Parameters") or {}).get("Payload")
+                if not isinstance(block, dict):
+                    continue
+            else:
+                continue
+            if not _reaches_a_success_terminal(name, states):
+                continue
+            yield qualified, block
+
+
+def _threading_population():
+    """Every (plane, state) the sweep selects, across all eight templates.
+
+    Args:
+      None.
+
+    Returns:
+      A set of (plane, qualified name) pairs.
+
+    Raises:
+      None.
+    """
+    found = set()
+    for path in _TEMPLATES:
+        plane = os.path.basename(os.path.dirname(path))
+        for qualified, _block in _blocks_that_name_their_fields(_load(path)):
+            found.add((plane, qualified))
+    return found
+
+
+def test_the_sweep_selects_exactly_the_states_that_would_drop_the_traceparent():
+    """The population is DERIVED by parsing, then held to a pinned membership.
+
+    Both halves matter. Deriving it is what makes a ninth state joining the fleet a failure here
+    rather than a silently unthreaded verb; pinning the membership is what makes a discriminator
+    that quietly widened or narrowed fail, which a count alone would not — a rule that gained one
+    state and lost another keeps the count and changes the answer.
+    """
+    found = _threading_population()
+
+    assert found, "the sweep selected nothing at all, so every assertion over it is vacuous"
+    assert found == _THREADING_STATES, (
+        f"unexpected: {sorted(found - _THREADING_STATES)}; "
+        f"missing: {sorted(_THREADING_STATES - found)}"
+    )
+
+
+def test_the_sweep_would_notice_a_field_naming_state_it_does_not_know_about():
+    """The positive control for the discriminators, since the test above asserts an equality.
+
+    A sweep that returned the pinned set by accident — because its discriminators cancelled out —
+    reads identically to one that works. This plants a state of exactly the shape the sweep is
+    looking for and requires it to come back.
+    """
+    machine = {
+        "StartAt": "Validated",
+        "States": {
+            # Threaded THROUGH a later state, which is what makes it a state that can drop a key.
+            # An earlier version of this fixture pointed `Validated` straight at `Succeed` and the
+            # sweep correctly refused it — a bad fixture and a dead rule read the same on a red run.
+            "Validated": {"Type": "Pass", "Parameters": {"requestId.$": "$.requestId"}, "Next": "Work"},
+            "Work": {"Type": "Task", "Parameters": {"Payload.$": "$"}, "Next": "Terminal"},
+            "Merged": {"Type": "Pass", "Parameters": {"x.$": "$.x"}, "ResultPath": "$.m", "Next": "Work"},
+            "Terminal": {"Type": "Pass", "Parameters": {"y.$": "$.y"}, "Next": "Done"},
+            "Done": {"Type": "Succeed"},
+            "Seed": {"Type": "Pass", "Parameters": {"error.$": "$"}, "Next": "Failed"},
+            "Failed": {"Type": "Fail"},
+        },
+    }
+    selected = {name for name, _block in _blocks_that_name_their_fields(machine)}
+
+    assert "Validated" in selected, "the sweep cannot see a field-naming Pass at all"
+    assert "Merged" not in selected, "a Pass with a ResultPath merges and must not be selected"
+    assert "Terminal" not in selected, "a Pass handing straight to Succeed produces the output"
+    assert "Seed" not in selected, "a state that can only reach a Fail is SPEC-227's, not this sweep's"
+
+    # Discriminator 5 excludes a Map leaf because the Map MERGES its result back. Take the merge
+    # away and the leaf is the last place the key could live, so it must come back into the
+    # population — otherwise the rule's justification is a sentence nothing enforces.
+    def _with_map(result_path):
+        """One machine holding an inline Map whose leaf names its fields.
+
+        Args:
+          result_path: The Map's ResultPath, or None to omit it entirely.
+
+        Returns:
+          The machine.
+
+        Raises:
+          None.
+        """
+        mapping = {
+            "Type": "Map",
+            "ItemsPath": "$.items",
+            "ItemProcessor": {
+                "ProcessorConfig": {"Mode": "INLINE"},
+                "StartAt": "Leaf",
+                "States": {"Leaf": {"Type": "Pass", "Parameters": {"k.$": "$.k"}, "End": True}},
+            },
+            "Next": "Done",
+        }
+        if result_path is not None:
+            mapping["ResultPath"] = result_path
+        return {"StartAt": "Fan", "States": {"Fan": mapping, "Done": {"Type": "Succeed"}}}
+
+    merging = {n for n, _b in _blocks_that_name_their_fields(_with_map("$.out"))}
+    replacing = {n for n, _b in _blocks_that_name_their_fields(_with_map(None))}
+
+    assert "Fan/Leaf" not in merging, "a merged Map's leaf loses nothing and must stay excluded"
+    # No machine has a Parallel today, so the walk's blindness to one could only ship silently.
+    parallel = {
+        "StartAt": "Split",
+        "States": {
+            "Split": {
+                "Type": "Parallel",
+                "Branches": [{
+                    "StartAt": "Named",
+                    "States": {
+                        "Named": {"Type": "Pass", "Parameters": {"k.$": "$.k"}, "Next": "Work"},
+                        "Work": {"Type": "Task", "Parameters": {"Payload.$": "$"}, "End": True},
+                    },
+                }],
+                "ResultPath": "$.out",
+                "Next": "Done",
+            },
+            "Done": {"Type": "Succeed"},
+        },
+    }
+    assert "Split[0]/Named" in {n for n, _b in _blocks_that_name_their_fields(parallel)}, (
+        "the sweep cannot see inside a Parallel branch, so the first one added would carry "
+        "field-naming states nothing checks"
+    )
+
+    assert "Fan/Leaf" in replacing, (
+        "a Map with no ResultPath REPLACES the state with its result array, so its leaf is the "
+        "last place the key could live and the sweep has to demand it there"
+    )
+
+
+@pytest.mark.parametrize(
+    "plane,state", sorted(_THREADING_STATES), ids=lambda v: v if isinstance(v, str) else str(v)
+)
+def test_every_field_naming_success_state_names_the_traceparent(plane, state):
+    """Each one, named individually, so a red run says WHICH plane and WHICH state.
+
+    A single assertion over the whole set fails once and names the first offender, and the
+    remedy — adding the key back — is per state.
+    """
+    path = next(p for p in _TEMPLATES if os.path.basename(os.path.dirname(p)) == plane)
+    blocks = dict(_blocks_that_name_their_fields(_load(path)))
+
+    assert state in blocks, f"{plane}:{state} is no longer selected by the sweep"
+    assert "traceparent.$" in blocks[state], (
+        f"{plane}:{state} names its fields individually and does not name `traceparent`, so the "
+        "run's trace stops here and every verb after it opens its own"
+    )
+
+
+def test_every_distributed_map_carries_the_traceparent_to_its_children():
+    """A Distributed Map's child cannot see the parent state, so the key travels in `BatchInput`.
+
+    All six read a JSONL manifest through `ItemReader` and none has an `ItemSelector`, so the
+    child receives `{"Items": [...]}` and nothing else. Writing the traceparent into the manifest
+    instead would repeat it on every line of a dataset that can hold tens of thousands.
+
+    The count is DERIVED by parsing rather than written down, so a seventh Distributed Map fails
+    here on the day it is added rather than shipping unjoinable.
+    """
+    maps, batched = [], []
+    for path in _TEMPLATES:
+        plane = os.path.basename(os.path.dirname(path))
+        for name, state in _states(_load(path)):
+            if state.get("Type") != "Map" or "ItemBatcher" not in state:
+                continue
+            maps.append((plane, name))
+            if "traceparent.$" in (state["ItemBatcher"].get("BatchInput") or {}):
+                batched.append((plane, name))
+
+    assert maps, "no Distributed Map found, so this proves nothing"
+    assert sorted(batched) == sorted(maps), (
+        f"{sorted(set(maps) - set(batched))} hand their children no traceparent"
+    )
+
+
+def test_no_batch_input_reads_a_path_its_planes_state_does_not_supply():
+    """`BatchInput`'s paths resolve against the MAP STATE's input, so an absent one is fatal.
+
+    table-share's validator returns no `requestId` and no state downstream of it holds one, so
+    `"requestId.$": "$.requestId"` there is an uncatchable `States.Runtime` on every share — not
+    a missing field. The pair is per-plane, derived from what the plane's state actually carries.
+
+    Asserted in BOTH directions, because a rule that only forbade the absent key would be
+    satisfied by a fleet that dropped the request id everywhere.
+    """
+    for path in _TEMPLATES:
+        plane = os.path.basename(os.path.dirname(path))
+        for name, state in _states(_load(path)):
+            batch = (state.get("ItemBatcher") or {}).get("BatchInput")
+            if not batch:
+                continue
+            reads_request_id = "requestId.$" in batch
+            supplies = plane in _PLANES_WITH_A_REQUEST_ID
+            assert reads_request_id == supplies, (
+                f"{plane}:{name}'s BatchInput "
+                + ("reads `$.requestId`, which this plane's state never carries — an uncatchable "
+                   "States.Runtime on every run" if reads_request_id else
+                   "does not read `$.requestId`, which this plane does supply, so its Map "
+                   "children cannot be joined to their run by request id")
+            )
+
+
+def _traceparent_reads(asl):
+    """Yields (container label, qualified name, the reference path) for every traceparent read.
+
+    Args:
+      asl: The parsed state machine.
+
+    Returns:
+      Nothing; yields one triple per read, across `Parameters`, a Task's `Payload`, and a
+      Distributed Map's `ItemBatcher.BatchInput`.
+
+    Raises:
+      None.
+    """
+    for label, _start, states in _containers(asl):
+        for name, state in states.items():
+            parameters = state.get("Parameters") or {}
+            payload = parameters.get("Payload") if isinstance(parameters.get("Payload"), dict) else None
+            batch = (state.get("ItemBatcher") or {}).get("BatchInput")
+            for block in (parameters, payload, batch):
+                if block and "traceparent.$" in block:
+                    yield label, f"{label}/{name}".lstrip("/"), block["traceparent.$"]
+
+
+def test_every_traceparent_read_names_a_path_its_state_actually_supplies():
+    """Naming the key is not enough — the PATH has to resolve, and nothing else checks that.
+
+    A reference path to an ABSENT key is `States.Runtime`, which is neither retriable nor
+    catchable, so a mistyped path is not a missing log field: it kills the execution before
+    `NotifyFailure`. Measured, and this guard exists because of it: changing
+    `results-conversion:Converted` to read `$.nope` left every other test in this file AND the
+    end-to-end guard green, because the sweep asks whether the key is named and the driven runs
+    only cover file-send and archive.
+
+    Two forms are legitimate and they are checked differently rather than pattern-matched
+    together:
+
+    * At the top level, and in a Distributed Map's `BatchInput` — which resolves against the MAP
+      STATE's input, itself a top-level state — the state carries the key directly, so the path
+      is `$.traceparent` and nothing else.
+    * Inside an `ItemProcessor`, the child sees the item the Map's `ItemSelector` built, so a
+      nested path is only resolvable if the selector binds that block to the whole parent state.
+      That is checked against the selector rather than allowed by shape: `$.request.traceparent`
+      is correct exactly when the Map maps `"request.$": "$"`.
+    """
+    checked = 0
+    for path in _TEMPLATES:
+        plane = os.path.basename(os.path.dirname(path))
+        asl = _load(path)
+        states = dict(_states(asl))
+        for label, qualified, reference in _traceparent_reads(asl):
+            checked += 1
+            if not label:
+                assert reference == "$.traceparent", (
+                    f"{plane}:{qualified} reads {reference!r}; a top-level state carries the key "
+                    "directly, and an unresolvable path is an uncatchable States.Runtime"
+                )
+                continue
+
+            container = label.lstrip("/").split("/")[0]
+            selector = states[container].get("ItemSelector") or {}
+            bound_to_the_parent = {
+                key.removesuffix(".$") for key, value in selector.items() if value == "$"
+            }
+            assert bound_to_the_parent, (
+                f"{plane}:{qualified} sits in {container}, whose ItemSelector binds no block to "
+                "the parent state, so no nested path can resolve"
+            )
+            # `$.traceparent` is NOT automatically resolvable here: inside an ItemProcessor the
+            # state IS the item the selector built, so a top-level read resolves only if the
+            # selector puts the key there itself. An earlier version of this guard allowed it
+            # unconditionally, which would have passed the one edit that breaks every share.
+            selected = {key.removesuffix(".$") for key in selector}
+            allowed = {f"$.{block}.traceparent" for block in bound_to_the_parent}
+            if "traceparent" in selected:
+                allowed.add("$.traceparent")
+            assert reference in allowed, (
+                f"{plane}:{qualified} reads {reference!r}, which {container}'s ItemSelector does "
+                f"not supply — it builds {sorted(selected)} and binds {sorted(bound_to_the_parent)} "
+                f"to the parent state, so {sorted(allowed)} are the resolvable paths"
+            )
+
+    assert checked == 16, (
+        f"the sweep found {checked} traceparent reads and the fleet has 16 — ten states and six "
+        "Distributed Maps — so it is looking at the wrong thing"
+    )
 
 
 if __name__ == "__main__":

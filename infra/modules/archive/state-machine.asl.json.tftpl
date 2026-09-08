@@ -38,6 +38,7 @@
       "Type": "Pass",
       "Comment": "THE ASL/VERB CROSS-CHECK POINT. A Task hands its output on whole, so nothing in a Task-to-Task chain would notice validate-authorize renaming a field — while a Pass naming each key fails the build via test_state_machine_archive.py, which reads this block and the verb's real return value and requires them to agree. It emits exactly the five keys the verb returns, and it carries NO status literal: a placeholder marker that outlives its placeholder is how a field nothing reads survives into production.",
       "Parameters": {
+        "traceparent.$": "$.traceparent",
         "requestId.$": "$.requestId",
         "mode.$": "$.mode",
         "actor.$": "$.actor",
@@ -169,7 +170,11 @@
         }
       },
       "ItemBatcher": {
-        "MaxItemsPerBatch": ${transfer_max_items_per_batch}
+        "MaxItemsPerBatch": ${transfer_max_items_per_batch},
+        "BatchInput": {
+          "traceparent.$": "$.traceparent",
+          "requestId.$": "$.requestId"
+        }
       },
       "MaxConcurrency": ${transfer_map_max_concurrency},
       "ToleratedFailurePercentage": 100,
@@ -420,6 +425,7 @@
       "Parameters": {
         "FunctionName": "${notify_function_arn}",
         "Payload": {
+          "traceparent.$": "$.traceparent",
           "outcome": "archived",
           "requestId.$": "$.requestId",
           "actor.$": "$.actor.username",
@@ -680,7 +686,11 @@
         }
       },
       "ItemBatcher": {
-        "MaxItemsPerBatch": ${transfer_max_items_per_batch}
+        "MaxItemsPerBatch": ${transfer_max_items_per_batch},
+        "BatchInput": {
+          "traceparent.$": "$.traceparent",
+          "requestId.$": "$.requestId"
+        }
       },
       "MaxConcurrency": ${transfer_map_max_concurrency},
       "ToleratedFailurePercentage": 0,
@@ -742,6 +752,7 @@
       "Parameters": {
         "FunctionName": "${notify_function_arn}",
         "Payload": {
+          "traceparent.$": "$.traceparent",
           "outcome": "restore_started",
           "requestId.$": "$.requestId",
           "actor.$": "$.actor.username",
@@ -897,7 +908,11 @@
         }
       },
       "ItemBatcher": {
-        "MaxItemsPerBatch": ${transfer_max_items_per_batch}
+        "MaxItemsPerBatch": ${transfer_max_items_per_batch},
+        "BatchInput": {
+          "traceparent.$": "$.traceparent",
+          "requestId.$": "$.requestId"
+        }
       },
       "MaxConcurrency": ${transfer_map_max_concurrency},
       "ToleratedFailurePercentage": 100,
@@ -1090,6 +1105,7 @@
       "Parameters": {
         "FunctionName": "${notify_function_arn}",
         "Payload": {
+          "traceparent.$": "$.traceparent",
           "outcome": "restored",
           "requestId.$": "$.requestId",
           "actor.$": "$.actor.username",

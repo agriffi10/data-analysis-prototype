@@ -319,7 +319,11 @@
         }
       },
       "ItemBatcher": {
-        "MaxItemsPerBatch": ${transfer_max_items_per_batch}
+        "MaxItemsPerBatch": ${transfer_max_items_per_batch},
+        "BatchInput": {
+          "traceparent.$": "$.traceparent",
+          "requestId.$": "$.requestId"
+        }
       },
       "MaxConcurrency": ${transfer_map_max_concurrency},
       "ToleratedFailurePercentage": 100,

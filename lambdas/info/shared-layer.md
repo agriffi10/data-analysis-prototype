@@ -181,15 +181,24 @@ are *not* sensitive here — the username already is the S3 prefix, the principa
 Glue database name (SPEC-033), so it is the primary key of every operator-facing record
 already.
 
-**One run is nine traces, not one.** A data-quality run is nine Lambda invocations and
-`log-foundry`'s trace context is per-process, so `trace_id` never crosses a Lambda boundary
-and `parent_span_id` is always null at a handler's root span. Correlate on
-`fields.request_id` instead (SPEC-128 FR-002). The fix, when it is worth the cost, is
-`lf.continue_trace(traceparent)` — which became ONE-SHOT in the pinned version, and must not be
-used before it: earlier releases made an adoption sticky, so a warm container's next, unrelated
-invocation silently joined the previous run's trace — plus threading the
-traceparent through the Step Functions state payload on every state, exactly as `reportKey`
-is threaded today. Deliberately sequenced after the pipe is proven live.
+**One run is ONE trace on the success path, and this used to say nine.** The API mints a
+traceparent, `build_message` sends it, and `traced` adopts it before opening the span — so
+`trace_id` crosses a Lambda boundary and a verb's ROOT span has the API's span as its parent. A
+`step` child nests under its own verb's root, inside that same trace, so SPEC-226's child spans
+deepen the tree without changing this. Four event
+shapes carry it, because a verb can be entered four ways: the state payload, the EventBridge Pipe
+envelope, a Distributed Map's `ItemBatcher.BatchInput`, and an inline Map's `request` block.
+`fields.request_id` STAYS — it is the join key for anything outside the trace, and table-share
+still carries none at all.
+
+Two things that look like details and are not. Adoption must come AFTER the per-invocation reset,
+because `reset_context` clears an adopted context as well as baggage; done the other way round the
+reset erases the adoption. And `continue_trace` is ONE-SHOT only in the pinned version — earlier
+releases made it sticky, so a warm container's next, unrelated invocation silently joined the
+previous run's trace, which is worse than many honest traces.
+
+**The FAILURE path is not threaded yet** (SPEC-227), so a run that fails is still its success
+prefix in one trace and its failure terminal in another.
 
 **Where an `observability.step` may NOT go — four prohibitions, each mechanical.** A step is two
 events, and every event is an SQS message and a line in a day object the sweep rewrites in full, so

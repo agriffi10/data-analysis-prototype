@@ -49,8 +49,9 @@ def handler(event, context) -> dict:
     ``@traced`` is the only decorator, for the reason in the module docstring.
 
     Args:
-      event: The seeded summary — ``{outcome, requestId, actor, space, objectCount, totalBytes}``,
-        plus ``cleanup`` on the ``restored`` outcome alone.
+      event: The seeded summary — ``{traceparent, outcome, requestId, actor, space, objectCount,
+        totalBytes}``, plus ``cleanup`` on the ``restored`` outcome alone. ``traceparent`` is what
+        puts this notification in the run's trace; nothing here reads it, ``traced`` does.
       context: The Lambda context, unused.
 
     Returns:

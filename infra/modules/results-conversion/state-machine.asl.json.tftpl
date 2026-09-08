@@ -38,6 +38,7 @@
       "Type": "Pass",
       "Comment": "THE ASL/VERB CROSS-CHECK POINT. A Task hands its output on whole, so nothing in a Task-to-Task chain would notice validate-authorize renaming a field — while a Pass naming each key fails the build via the plane's own state-machine test, which reads this block and the verb's real return value and requires them to agree. It names exactly the keys the verb emits, and nothing else may be read downstream.",
       "Parameters": {
+        "traceparent.$": "$.traceparent",
         "requestId.$": "$.requestId",
         "username.$": "$.username",
         "format.$": "$.format",
@@ -90,6 +91,7 @@
         "onConflict.$": "$.onConflict",
         "queryExecutionId.$": "$.queryExecutionId",
         "resultsKey.$": "$.resultsKey",
+        "traceparent.$": "$.traceparent",
         "resultsBytes.$": "$.resultsBytes",
         "columns.$": "$.columns",
         "destination.$": "$.destination"
@@ -133,6 +135,7 @@
         "queryExecutionId.$": "$.queryExecutionId",
         "resultsKey.$": "$.resultsKey",
         "destination.$": "$.destination",
+        "traceparent.$": "$.traceparent",
         "outcome.$": "$.outcome",
         "reason.$": "$.reason",
         "rows.$": "$.rows",

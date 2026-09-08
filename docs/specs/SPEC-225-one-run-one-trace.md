@@ -214,22 +214,31 @@ children receive the parent state nested under `request`, which is FR-001's four
 #### Description:
 
 Most threading is free: a Task using `"Payload.$": "$"` with `"OutputPath": "$.Payload"` carries a
-new key untouched. **Ten** states do not, and the sweep that finds them needs four discriminators
-that a plain "names its fields" rule gets wrong — each established by building the sweep and reading
-what it returned:
+new key untouched. **Ten** states do not, and the sweep that finds them needs **five**
+discriminators that a plain "names its fields" rule gets wrong — each established by building the
+sweep and reading what it returned. (Four was this spec's own count and it is wrong: implemented
+literally, the first four select **21** states.)
 
 1. **A `Pass` with a `ResultPath` merges** under that path and drops nothing. Without this, five
    `StampExecution`-style states join the population as false positives.
 2. **A Task's `Parameters.Payload` block *is* its Lambda's input**, so a field-naming one drops a
    key exactly as a `Pass` does. Four qualify.
 3. **Failure-path states are excluded** — a state that cannot reach a success terminal except
-   through a `Catch` edge. Without this the sweep demands the key on 28 states SPEC-227 owns.
+   through a `Catch` edge. Without this the sweep demands the key on **29** states SPEC-227 owns
+   (28 was this spec's count; re-derived by parsing).
 4. **A Map branch's success terminal is `End: true`, not `Succeeded`.** No `Succeed` state exists
    inside a Map branch, so a literal walk-to-`Succeeded` excludes every inline-Map state.
 
+5. **A `Pass` that is ITSELF a success terminal is excluded**, for two reasons worth keeping
+   apart. A Map branch's leaf becomes one ELEMENT of the Map's result array, merged back under the
+   Map's own `ResultPath` into a state that still carries the traceparent, so nothing is lost. A
+   `Pass` whose `Next` is a `Succeed` produces the EXECUTION's output, which no state reads. It
+   applies to `Pass` states only: a Task's `Payload` is its Lambda's input, read wherever it sits.
+
 A walk-to-`Succeeded` rule **on its own is wrong in the other direction too**: `archive:NotifyArchived`
 and `NotifyRestored` reach `Succeeded` and would be classified terminal — excluding two of the four
-Task blocks this FR requires.
+Task blocks this FR requires. That is why the fifth discriminator asks whether a state IS a
+terminal, one hop, rather than whether it can reach one.
 
 The ten: archive `Validated`, `NotifyArchived`, `NotifyRestoreStarted`, `NotifyRestored`; file-send
 `Validated`, `ShapeSummary`; results-conversion `Validated`, `Described`, `Converted`; table-share
@@ -337,7 +346,7 @@ finally:
 
 - `enqueue.build_message`; the six `ItemBatcher.BatchInput` blocks; the ten states; the two
   intermediate verb returns; the six fixtures.
-- The parsing sweep with its four discriminators, pinned to a membership list.
+- The parsing sweep with its five discriminators, pinned to a membership list.
 
 ### Phase 3: The proof and the record
 
