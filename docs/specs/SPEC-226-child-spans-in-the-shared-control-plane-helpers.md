@@ -36,7 +36,12 @@ steps.
 - A stated, enforced rule for where a step may **not** go, with the mechanism behind each case —
   including the five shared functions that look eligible and are not.
 - The delivery-timing change that decorating a narrating helper causes, which is not obvious and
-  broke thirteen existing tests when a reviewer did it.
+  broke thirteen existing tests when a reviewer added a step to `lock.py`. **Measured on this
+  build: it breaks nothing.** With every step in this spec applied, removing the drain reddens
+  exactly one test — the control written for it — and 3254 others pass. The thirteen are history
+  about `lock.py`, which this spec forbids stepping; in `add_members` the narrative tests assert on
+  is emitted after both steps have closed, and `cache.py`'s `"roster fanned out"`, the one event now
+  inside a span, is asserted by no test. The drain is a forward guard, not a repair.
 - A guard that holds each of the seven planes to having child spans, reddenable per plane.
 
 ### Out of Scope
@@ -59,9 +64,15 @@ steps.
 
 | Module | Function | Span | Bound | Reaches |
 |---|---|---|---|---|
-| `transfer.copy` | `copy_batch` | `copy-batch` | once per invocation | archive, file-ops, file-send, table-share |
-| `transfer.manifest` | `write_manifest` | `write-manifest` | once per invocation | archive, file-ops, file-send, table-share |
-| `transfer.results` | `read_failed_items` | `read-failed-items` | once per invocation | archive, file-ops, file-send, table-share |
+| `transfer.copy` | `copy_batch` | `copy-batch` | exactly once per invocation | archive, file-ops, file-send, table-share |
+| `transfer.manifest` | `write_manifest` | `write-manifest` | **at most** once per invocation | archive, file-ops, file-send, table-share |
+| `transfer.results` | `read_failed_items` | `read-failed-items` | **at most** once per invocation | archive, file-ops, file-send, table-share |
+
+**Two of the three are "at most once", corrected during the build.** file-ops guards
+`write_manifest` with `if lines:` (`file_ops_build_transfer_manifest.py:204`), and three of the four
+collect verbs return early before `read_failed_items`. Only `copy_batch` is unconditional in every
+caller. A driven bound test asserting exactly one call per invocation fails on a fixture with
+nothing to transfer.
 
 The span name is the operation, kebab-cased, so a query groups across every plane that calls it. A
 name that is a bare verb (`load`, `acquire`) is **module-qualified**, because the span name is the
@@ -149,8 +160,12 @@ narrating module, so it is fixed once in the harness rather than per test.
       root spans rather than invisible. Mutation-tested by planting a step on `copy_one`.
 - [ ] A test asserts no function in the instrumented modules is both a generator and decorated.
 - [ ] `_CapturingSink` drains the worker on every read, so an absence assertion over it means
-      "nothing was emitted" rather than "nothing has been flushed yet". Mutation-tested by removing
-      the drain against a test that asserts an absence.
+      "nothing was emitted" rather than "nothing has been flushed yet". **The mutation control this
+      criterion originally named cannot exist** — removing a drain can only make an absence
+      assertion *more* likely to pass, so no absence alone detects it. The control is the PRESENCE
+      half in the same test: an event emitted inside a span is visible to a read with no explicit
+      flush. That is what dies when the drain is removed, and it is what makes the absence half mean
+      anything. Verified by planting.
 - [ ] The rule and the timing consequence are recorded in `lambdas/info/shared-layer.md`.
 
 ### FR-003: The bounded call site in each plane the shared layer cannot reach
@@ -167,12 +182,33 @@ site in their own code — the loop, not its body.
   `upload-conversion`. The body is download → write → upload with three comparable costs, so a
   single span covering ~90% of the root tells an operator nothing. An earlier draft said "its own
   principal operation", singular, which is not answerable for this verb.
-- **table-builder** — `execute-ddl` around `athena_run.run_ddl`; `infer-schema` around
-  `_infer_columns`; `load-table-definition` around `_get_table`. `apply-refresh` makes four Glue
-  round trips with no principal one, so it gets **four** named spans rather than an arbitrary pick.
+- **table-builder** — `athena-run-ddl` in execute-ddl; `infer-columns` around `_infer_columns`;
+  `glue-get-table` around `load-table-definition`'s `_get_table`. `apply-refresh` makes **three**
+  Glue round trips with no principal one, so it gets three named spans — `glue-get-table`,
+  `glue-update-table`, `glue-read-back-table` — rather than an arbitrary pick.
   `diff-schema` gets **none** — it performs no I/O, and Scope excludes it.
 
-Note that `execute-ddl`'s step lands on a helper in `table-builder-execute-ddl/athena_run.py`,
+**Three corrections made during the build, each measured against the code.**
+
+1. **`table-builder-execute-ddl/athena_run.py` does not exist.** It was deleted; `athena_run` is
+   now a bound runner INSTANCE (`execute_ddl.py:27`) and `run_ddl` is a method on
+   `cpcommon.athena`'s runner class, shared with data-quality and table-share — decorating it
+   would silently instrument two other planes. The step goes on a bounded wrapper in
+   `execute_ddl.py`, which is still the plane's own code and still outside FR-001's scanned
+   modules, so the guard-ownership note below holds unchanged.
+2. **`apply-refresh` makes THREE Glue round trips, not four**: `_get_table` (`:293`), `_update`
+   (`:331`), `_post_condition` (`:367`). The fourth candidate, `_abandon_if_changed`, calls
+   `glue.update_time(live_table)` at `:245` — a pure dict read on a response already in hand.
+3. **Three of the span names this FR originally gave collide with their own verb's root span.**
+   `execute-ddl`, `infer-schema` and `load-table-definition` are already those verbs'
+   `@observability.traced` names, and `function` carries the same value for parent and child — so
+   filtering on the span name returns the verb's total and the inner operation together, with the
+   durations counted twice. That is exactly what FR-001's naming rule exists to prevent, so they
+   are named for their operations instead. `glue-get-table` repeats across load-table-definition
+   and apply-refresh deliberately: same call, same catalog, and one name is what makes a query
+   group across the two verbs that make it.
+
+Note that `athena-run-ddl`'s step lands on a helper in `table-builder-execute-ddl/execute_ddl.py`,
 outside the modules FR-001's count test scans, so the guard for these is FR-004's, not FR-001's.
 
 #### Acceptance Criteria:
@@ -220,9 +256,33 @@ SPEC-227 and later specs will add.
       counting events through a capturing sink, not by counting decorators.
 - [ ] It is asserted against a budget expressed in **events per service-day**, derived from the
       day-object ceiling and the fleet's invocation rate, with the derivation recorded beside the
-      number and headroom stated with its reason.
+      number and headroom stated with its reason. — **NOT MET; owed.** Both inputs are missing.
 - [ ] If the day-object ceiling cannot be established from the sweep's own constants, that is
-      recorded as owed rather than met with a number chosen to pass.
+      recorded as owed rather than met with a number chosen to pass. — **This is what happened.**
+
+**Outcome, decided during the build.** The ceiling is not establishable and neither is the rate, so
+the third criterion is the one that fires:
+
+- `log_sweep.LARGE_OBJECT_WARN_BYTES` (64 MiB) reads like the ceiling and is **a detector sized to
+  fire early**. `infra/modules/observability/README.md` states the sweep's memory is 512 MB and that
+  this constant "warns long before that becomes binding"; the sibling constant's guard in
+  `test_feedback_writer.py` asserts `memory_bytes > LARGE_OBJECT_WARN_BYTES * 4` because peak
+  resident while appending is several multiples of the object. The real ceiling is 512 MB ÷ that
+  multiple, and the multiple is nowhere measured. Pressing the warn threshold into service as a
+  ceiling would understate it several-fold and put a wrong derivation into `docs/` where nothing
+  tests it.
+- The invocation rate does not exist: greenfield, no production users, no reserved concurrency, no
+  API throttle.
+
+What ships instead is the measurement (criterion 1, in full: seven planes' worst-case verbs driven
+and counted) plus a **ratchet** on those measured per-invocation counts, named a ratchet rather than
+a budget so nobody reads it as the fence criterion 2 asked for. The budget and both of its missing
+inputs are in `docs/testing/owed.md`.
+
+A **rate-free budget was considered and rejected**: expressing this spec's cost as a share of each
+plane's per-invocation event volume makes the rate cancel, but the denominator is a quantity this
+spec and every later one inflates, so the same three steps would score 37.5% today and 23% after an
+unrelated spec narrated more — a threshold that loosens as the thing it guards grows.
 
 ---
 

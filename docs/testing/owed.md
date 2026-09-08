@@ -417,6 +417,24 @@ rows 14 and 15, and the Data Explorer surfaces generally, were **not** reached.
 | ~~**Cold start**~~ **DISCHARGED 2026-08-30** — the first invocation after the deploy succeeded. | A layer imported and not attached deploys clean and fails at import; the first invocation after a deploy is the only place it shows. |
 
 
+### SPEC-226 FR-005 — the child-span budget has no ceiling and no rate to derive it from
+
+FR-005 asks for the volume this spec adds to be asserted against **a budget in events per
+service-day, derived from the day-object ceiling and the fleet's invocation rate**. The
+per-invocation half is measured and asserted — `lambdas/test_child_spans_per_plane.py` drives the
+worst-case verb on each of the seven planes and counts this spec's events through a capturing sink,
+holding them at a ratchet. The budget itself is owed, because **both** of its inputs are missing,
+and the spec's own third criterion says to record that rather than pick numbers that pass.
+
+| Input | Why it cannot be established today | What would settle it |
+|---|---|---|
+| **The day-object ceiling** | `log_sweep.LARGE_OBJECT_WARN_BYTES` (64 MiB) reads like the ceiling and is not one: it is a **detector deliberately sized to fire early**. `infra/modules/observability/README.md` says the sweep's memory is 512 MB and that this constant "warns long before that becomes binding", and the sibling constant's own guard in `test_feedback_writer.py` asserts `memory_bytes > LARGE_OBJECT_WARN_BYTES * 4` precisely because peak resident while appending is several multiples of the object. The real ceiling is 512 MB ÷ that multiple, and **the multiple is nowhere measured**. | Measure the sweep's peak resident against a day object of known size — the same measurement the feedback writer's guard assumes but does not take. |
+| **The fleet's invocation rate** | Greenfield: no production users, no reserved concurrency (`docker-lambda`'s `reserved_concurrency` defaults to `-1` and no module sets it), no API throttle. There is no rate to convert a per-invocation count into a per-service-day one. | Any period of real traffic, or a deliberate cap. |
+
+Until both exist, the events-per-service-day figure would be a number chosen to pass. What is
+guarded instead is that the per-invocation volume cannot grow without somebody editing the table
+and saying why.
+
 ### Not observable at all
 
 | Check | Why |
