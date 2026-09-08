@@ -168,7 +168,7 @@ DLQ lets one malformed request dead-letter someone else's work.
   called per recipient/member/target — five look eligible and are not; not inside `copy_batch`'s
   worker pool, where `contextvars` do not reach and spans arrive parentless in their own traces;
   and **never under a name any verb in the fleet uses for its own span**, since `function` carries
-  both — checking against its *own* verb is a different, weaker claim, and it missed one. A guard
+  both — checking against its *own* verb is a different, weaker claim. A guard
   over decorators resolves the name a decorator is **bound to**: matching rendered text was
   defeated by two ordinary import spellings. The fourth prohibition — **no generator** — is in the
   structured-logging bullet below, since it binds `@traced` too.
@@ -300,7 +300,7 @@ The fleet runs **`log-foundry==1.0.0`**, pinned exactly and core-only, for the r
 
 **A guard over decorators must resolve the name a decorator is BOUND to.** Matching the rendered text `observability.step` was defeated twice — by `from cpcommon.observability import step`, and then, after that was closed, by a plain `import cpcommon.observability`, which binds the **root package** so the usable spelling is the full dotted path. Both put per-item instrumentation on a forbidden function with the whole suite green. This generalises past spans: a guard that matches how a name is *written* is guarding a spelling, not a rule.
 
-**A threshold that reads like a fence may be a detector.** FR-005's budget rests on `log_sweep.LARGE_OBJECT_WARN_BYTES`, which is sized to fire *long before* anything binds. That makes it a conservative basis for a budget and **not** the day-object ceiling; the ceiling's real value needs the sweep's peak-resident multiple, which is unmeasured. Refusing to derive a budget at all was the first answer and the wrong one — erring safe is how a budget is stated. Detail, the rejected rate-free alternative, and the drain's delivery-timing consequence: `spec-delivery/SPEC-226`.
+**A threshold that reads like a fence may be a detector.** FR-005's budget rests on `log_sweep.LARGE_OBJECT_WARN_BYTES`, which is sized to fire *long before* anything binds. That makes it a conservative basis for a budget and **not** the day-object ceiling; the ceiling's real value needs the sweep's peak-resident multiple, which is unmeasured. Refusing to derive a budget at all was the first answer and the wrong one — erring safe is how a budget is stated. The drain that follows from it repairs nothing that pre-existed — removing it reddens only the tests written for the drain itself — so it is a forward guard rather than a fix. Detail, the rejected rate-free alternative, and the delivery-timing consequence: `spec-delivery/SPEC-226`.
 
 ## No ASL state decodes an error Cause (PR #252, control-plane-wide)
 

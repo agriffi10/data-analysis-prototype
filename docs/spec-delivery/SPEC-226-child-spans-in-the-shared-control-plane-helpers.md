@@ -4,13 +4,17 @@
 
 - Seven control planes that reported one flat duration per invocation now emit child spans, so
   "the verb took 8 s and failed" becomes "the copy took 40 ms, the upload took 7.9 s and raised".
-- **Three shared operations** carry a step, because they are the only functions in `cpcommon` a
-  caller reaches once per invocation: `transfer.copy.copy_batch` (`copy-batch`),
+- **Three shared operations** carry a step. They are not the only bounded functions in `cpcommon`
+  — `transfer.results.results_location` is bounded too and carries none — they are the bounded ones
+  whose cost is worth a span: each does the I/O that dominates its verb.
+  `transfer.copy.copy_batch` (`copy-batch`),
   `transfer.manifest.write_manifest` (`write-transfer-manifest`),
   `transfer.results.read_failed_items` (`read-failed-items`). They reach archive, file-ops,
   file-send and table-share.
-- **Three planes get their spans in their own code**, because everything durable they do runs
-  through a function their callers invoke per recipient, per member or per target. shared-space:
+- **Three planes get their spans in their own code**, because the shared layer offers them no
+  bounded function to step. For shared-space that is because everything durable it does runs
+  through a function its callers invoke per recipient or per member; results-conversion and
+  table-builder simply reach none of the shared transfer engine at all. shared-space:
   `write-roster` on `cache.write_roster_to_all`, `notify-members` around each notification loop.
   results-conversion: `download-results`, `write-conversion`, `upload-conversion`. table-builder:
   `athena-run-ddl`, `infer-columns`, `glue-get-table`, `glue-update-table`, `glue-read-back-table`.
@@ -47,9 +51,13 @@
 - **The notification loops were extracted per verb, not hoisted into a shared emitter.** The dedup
   ids are FIFO deduplication keys on notifications a user sees and the three verbs build them
   differently; `delete_space`'s failure-path notification is deliberately outside its helper.
-- **The drain repairs nothing that exists.** Measured: with every step applied, removing it reddens
-  exactly one test — the control written for it. The spec's "thirteen broken tests" are history
-  about `lock.py`, which this spec forbids stepping. It is a forward guard.
+- **The drain repairs nothing that pre-existed.** Measured with every step applied: removing it
+  reddens only the two tests written for the drain itself, and no test that existed before. The
+  spec's "thirteen broken tests" are history about `lock.py`, which this spec forbids stepping. It
+  is a forward guard — what it buys is that an absence over the shared sink means "nothing was
+  emitted". (An earlier draft of this bullet said "exactly one test", which was true when written
+  and went stale the moment the second drain test was added two commits later. The property is the
+  claim; the count is not.)
 
 ## What changed from earlier specs?
 

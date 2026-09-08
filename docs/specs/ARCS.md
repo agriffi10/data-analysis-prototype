@@ -45,7 +45,7 @@ always leaves an arc entry here holding the pair's build order, even when nothin
 - [Container-lambdas arc (SPEC-212 → 213 → 214)](#container-lambdas-arc-spec-212--213--214)
 - [System-settings prefix arc (SPEC-218 → 219 → 220)](#system-settings-prefix-arc-spec-218--219--220)
 - [Results-conversion arc (SPEC-221 → 222 → 223)](#results-conversion-arc-spec-221--222--223)
-- [Observability continuation arc (SPEC-224 → 225 → 227 → 226)](#observability-continuation-arc-spec-224--225--227--226)
+- [Observability continuation arc (SPEC-224, 225, 226, 227)](#observability-continuation-arc-spec-224-225-226-227)
 
 ---
 
@@ -2928,7 +2928,7 @@ narrative that duplicates the ledger is the copy nobody updates.
 
 ---
 
-## Observability continuation arc (SPEC-224 → 225 → 227 → 226)
+## Observability continuation arc (SPEC-224, 225, 226, 227)
 
 **Why it exists.** SPEC-127 → 137 built the pipe and instrumented the whole fleet: every Lambda in
 the repo calls `observability.init` and carries `@observability.traced`, held there by
@@ -2991,7 +2991,7 @@ stack are `contextvars` that do not cross into pool threads — measured at five
 null parent, six trace ids and empty fields. And decorating a helper that already narrates changes
 *when its existing events are delivered*, which broke thirteen tests when a reviewer added a
 step to `lock.py` — a module 226 forbids stepping. **Measured on the built change: it broke
-nothing.** Removing the drain 226 added reddens exactly one test, the control written for it.
+nothing.** Removing the drain 226 added reddens only the tests written for the drain itself.
 The drain is a forward guard, so an absence over the shared sink means "nothing was emitted";
 it is not a repair, and the thirteen are not 226's cost.
 
@@ -3000,8 +3000,9 @@ it is not a repair, and the thirteen are not 226's cost.
 not competing with the one-trace guards for the same capturing-sink fixtures.
 
 > **Superseded in the event: 226 shipped BEFORE 227**, on the pin alone, while 227 was unstarted —
-> so the heading above and the arc list entry keep the *planned* order as this arc's name, and the
-> built order is 224 → 225 (FR-001/FR-002) → 226, with the rest of 225 and all of 227 outstanding.
+> and the built order is 224 → 225 (FR-001/FR-002) → 226, with the rest of 225 and all of 227
+> outstanding. The heading and the arc-list entry no longer carry an arrow, because a name that
+> asserts a sequence is a claim a reader meets before any marker that corrects it.
 > **The contention has NOT been retired, only deferred.** 226 extended `_CapturingSink` with a drain
 > and a child-span reader; 225's landed half touched no part of that file, which is the only half
 > that can be checked. 225 FR-005 — a run proved to be one trace end to end — and 227's guards are

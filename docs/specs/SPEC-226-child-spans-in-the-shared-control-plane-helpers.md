@@ -38,9 +38,10 @@ steps.
 - The delivery-timing change that decorating a narrating helper causes, which is not obvious and
   broke thirteen existing tests when a reviewer added a step to `lock.py`. **Measured on this
   build: it breaks nothing.** With every step in this spec applied, removing the drain reddens
-  exactly one test — the control written for it — and every other test in the suite passes. A
-  count is not written here on purpose: the suite grew inside this branch and a dated number reads
-  as current to whoever does not check it. The thirteen are history
+  only the tests written for the drain itself, and no test that pre-existed. A pass count is not
+  written here on purpose: the suite grew inside this branch, and a dated number reads as current
+  to whoever does not check it — the count of reddening tests went stale exactly that way, from one
+  to two, when the second drain test landed. The thirteen are history
   about `lock.py`, which this spec forbids stepping; in `add_members` the narrative tests assert on
   is emitted after both steps have closed, and `cache.py`'s `"roster fanned out"`, the one event now
   inside a span, is asserted by no test. The drain is a forward guard, not a repair.
