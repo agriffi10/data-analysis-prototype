@@ -79,6 +79,10 @@ def build(root: pathlib.Path) -> None:
     """
     (root / "scripts").mkdir(parents=True)
     shutil.copy(REPO / "scripts" / "validate_docs.py", root / "scripts" / "validate_docs.py")
+    # The citation ratchet is EXACT — a count below it is an error too, because a fall means
+    # either a repair or a scan that stopped looking. The fixture tree has no stale citation, so
+    # its ratchet is zero; leaving the repository's own number here would fail every case.
+    _citation_ratchet(root, 0)
     for d in ("docs/testing", "docs/decisions", "docs/specs", "docs/spec-delivery",
               "apps/portal/info", "lambdas/info/planes", "infra/info", "infra/modules",
               ".github/workflows", "docs/process", ".claude/rules"):
@@ -109,6 +113,24 @@ def build(root: pathlib.Path) -> None:
         "name: CI\non: [push]\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: true\n")
     (root / ".github" / "workflows" / "README.md").write_text(
         "# Workflows\n\n| File | Trigger | Purpose |\n|---|---|---|\n| `ci.yml` | PR | the one workflow |\n")
+    # check_test_citations holds each of its three grammars to matching at least once, so the
+    # baseline carries one of each and a suite that resolves them. Without this every `_ok` case
+    # would fail on a control that is doing its job, and — worse — a corpus with no citations at
+    # all could not tell a working scan from one that matches nothing.
+    (root / "lambdas" / "cited").mkdir(parents=True, exist_ok=True)
+    (root / "lambdas" / "cited" / "test_cited.py").write_text(
+        "def test_the_cap_is_held():\n    assert True\n")
+    (root / "lambdas" / "cited" / "cited.py").write_text(
+        '"""Sized by the cap that ``test_the_cap_is_held`` reads back."""\n\nCAP = 1\n')
+    (root / "infra" / "modules" / "cited").mkdir(parents=True, exist_ok=True)
+    # Two citations, the BARE one second. The grammar tally records every match rather than the
+    # first per file, and a fixture whose files each carry one citation cannot tell those apart —
+    # so the only bare site in the tree deliberately sits behind a code span.
+    (root / "infra" / "modules" / "cited" / "locals.tf").write_text(
+        "locals {\n  # Sized against `test_the_cap_is_held`, which reads it back.\n"
+        "  # test_the_cap_is_held READS THIS NUMBER.\n  cap = 1\n}\n")
+    (root / "lambdas" / "info" / "planes" / "cited.md").write_text(
+        "# Cited plane\n\nThe sweep in test_cited.py forbids a second one.\n")
 
 
 def run(root: pathlib.Path) -> tuple[int, str]:
@@ -175,6 +197,31 @@ def _ratchet(root, value):
     if text.count("SPEC_OVERSIZE_MAX = 40\n") != 1:
         raise RuntimeError("the ratchet constant moved or changed value; update _ratchet() with it")
     script.write_text(text.replace("SPEC_OVERSIZE_MAX = 40\n", f"SPEC_OVERSIZE_MAX = {value}\n"))
+
+
+def _citation_ratchet(root, value):
+    """Rewrite ``TEST_CITATION_MAX`` in the fixture's COPY of the validator.
+
+    The same seam ``_ratchet`` uses and for the same reason. The value is matched rather than
+    written out, because this ratchet falls as the citation debt is paid and a hard-coded number
+    would send every case here red on a PR that only lowered it — but the NAME is still required
+    to appear exactly once, so a renamed constant fails here instead of leaving the cases to pass
+    against a ratchet that no longer exists.
+    """
+    import re
+
+    script = root / "scripts" / "validate_docs.py"
+    text = script.read_text()
+    found = re.findall(r"^TEST_CITATION_MAX = \d+$", text, re.MULTILINE)
+    if len(found) != 1:
+        raise RuntimeError("the citation ratchet moved or was renamed; update _citation_ratchet()")
+    script.write_text(text.replace(found[0], f"TEST_CITATION_MAX = {value}"))
+
+
+def _cite(root, value, rel, body):
+    """Plant one citation with the ratchet at zero, so a single stale name decides the exit code."""
+    _citation_ratchet(root, value)
+    _write(root, rel, body)
 
 
 CASES = [
@@ -619,6 +666,197 @@ CASES = [
     ("spec_with_fr_headings_is_countable_ok",
      lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 6)),
                 _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     0, ""),
+
+    # ---- check_test_citations -------------------------------------------------------------
+    # Each plant carries its OWN absent name, and every case asserts that name in the output.
+    # The ratchet message is identical whichever grammar found the citation, so asserting it
+    # alone would let any neighbouring grammar satisfy any of these cases.
+    ("citation_absent_in_a_code_span",
+     lambda r: _cite(r, 0, "lambdas/cited/spanned.py",
+                     '"""Held by ``test_absent_from_a_span``."""\n'),
+     1, "names test_absent_from_a_span"),
+    ("citation_absent_bare_in_a_comment",
+     lambda r: _cite(r, 0, "infra/modules/cited/bare.tf",
+                     "locals {\n  # test_absent_from_a_comment READS THIS NUMBER.\n  cap = 2\n}\n"),
+     1, "names test_absent_from_a_comment"),
+    ("citation_absent_as_a_filename",
+     lambda r: _cite(r, 0, "lambdas/cited/named.py",
+                     '"""The sweep in test_absent_module.py forbids it."""\n'),
+     1, "names test_absent_module"),
+    # An ASL template carries no comment marker anywhere in the tree, so bare matching there is
+    # unconditional. Without that, a citation inside a JSON "Comment" string is invisible.
+    ("citation_absent_in_a_state_machine_template",
+     lambda r: _cite(r, 0, "infra/modules/cited/machine.asl.json.tftpl",
+                     '{\n  "Comment": "The rollback arm cannot reach a deletion, which\n'
+                     ' test_absent_from_a_template asserts by walking the graph."\n}\n'),
+     1, "names test_absent_from_a_template"),
+    # Vitest files are deliberately NOT excluded: one in this repo cites a Python test.
+    ("citation_absent_in_a_vitest_file",
+     lambda r: _cite(r, 0, "apps/portal/src/Thing.test.tsx",
+                     "// Pinned by `test_absent_from_a_vitest_file`.\nexport const x = 1;\n"),
+     1, "names test_absent_from_a_vitest_file"),
+    # The name is split mid-identifier across a wrap. Asserting the FULL name is the point: without
+    # the rejoin the check reports a truncated stub, which resolves against nothing either — so the
+    # case would pass on the wrong finding if it asserted the failure loosely.
+    ("citation_wrapped_across_a_line_break",
+     lambda r: _cite(r, 0, "lambdas/cited/wrapped.py",
+                     '"""A cap, and ``test_absent_and_split_across\n    _two_lines`` reads it."""\n'),
+     1, "names test_absent_and_split_across_two_lines"),
+    # The positive control. Deleting the only bare citation leaves that grammar matching nothing,
+    # which must be reported as a broken scan rather than passing as a clean tree.
+    ("citation_grammar_gone_quiet",
+     lambda r: (r / "infra" / "modules" / "cited" / "locals.tf").unlink(),
+     1, "matched nothing in 1 of its 3 grammars (bare in a comment)"),
+    # The fall direction. A ceiling cannot see lost detection — narrowing the scanned set was
+    # measured to drop eight findings in silence — so a count BELOW the ratchet is an error that
+    # asks for the number to be moved deliberately.
+    ("citation_below_the_ratchet",
+     lambda r: _citation_ratchet(r, 1),
+     1, "below the ratchet of 1 — lower it to 0"),
+    ("citation_over_the_ratchet",
+     lambda r: _cite(r, 1, "lambdas/cited/two.py",
+                     '"""``test_absent_one`` and ``test_absent_two`` hold it."""\n'),
+     1, "2 citations name a test that does not exist (ratchet 1)"),
+    # ---- the retirement exemption, and the two ways it must NOT widen ----------------------
+    ("citation_retired_before_the_name_ok",
+     lambda r: _cite(r, 0, "lambdas/cited/before.py",
+                     '"""Retires the layer tables, the build script and test_absent_before.py."""\n'),
+     0, ""),
+    ("citation_retired_after_the_name_ok",
+     lambda r: _cite(r, 0, "lambdas/cited/after.py",
+                     '"""``test_absent_after`` was retired in the cutover."""\n'),
+     0, ""),
+    # The verb lands on the FOLLOWING line, 90 characters past the citation. A window that did not
+    # look forward across the line break would report this legitimate record as a finding.
+    ("citation_retired_on_the_next_line_ok",
+     lambda r: _cite(r, 0, D("decisions", "area-one.md"),
+                     AREA_ONE + "\n~~`test_absent_next_line` fails if a second one appears, so the "
+                     "exemption cannot\nquietly widen.~~ **Retired with the list**, and nothing "
+                     "replaced it.\n"),
+     0, ""),
+    # THE case that decides the vocabulary. A LIVE claim that happens to describe deletion must
+    # still fail; admitting `delete` or `remove` as retirement words would silence nine live
+    # citations in this repo, two of them findings this check exists to report.
+    ("citation_about_deletion_is_not_a_retirement",
+     lambda r: _cite(r, 0, "lambdas/cited/deleting.py",
+                     '"""``test_absent_but_about_deleting`` fails if a deleted object reappears,\n'
+                     'and nothing is removed until it passes."""\n'),
+     1, "names test_absent_but_about_deleting"),
+    # THE OTHER EDGE OF THE SAME EXEMPTION: its vocabulary. The window has a width and a word
+    # list, and a word list can be widened as silently as a number — seven near-misses were each
+    # admitted with both gates green before this case existed. Every name here is cited in a LIVE
+    # claim, so admitting any of these words drops the count below the ratchet and reddens. The
+    # ratchet is set to the number of them, which also pins the citation list as WARNINGS rather
+    # than errors: promoting them would make this case exit 1.
+    ("citation_near_miss_words_are_not_retirements",
+     lambda r: _cite(r, 7, "lambdas/cited/nearmiss.py",
+                     '"""``test_absent_but_superseded`` is superseded by nothing.\n'
+                     '``test_absent_but_dropped`` was dropped from the sweep.\n'
+                     '``test_absent_but_gone`` is gone from the table.\n'
+                     '``test_absent_but_obsolete`` is obsolete now.\n'
+                     '``test_absent_but_replaced`` was replaced by the join.\n'
+                     '``test_absent_but_withdrawn`` was withdrawn upstream.\n'
+                     '``test_absent_but_sunset`` is sunset in the next arc."""\n'),
+     0, "names test_absent_but_dropped"),
+    # The hint is the ONLY place the remedy appears while the count sits AT the ratchet, which is
+    # the whole of a paydown. Deleting it was silent before this case.
+    ("citation_hint_names_the_remedy",
+     lambda r: _cite(r, 1, "lambdas/cited/hinted.py",
+                     '"""Held by ``test_absent_and_hinted``."""\n'),
+     0, "the exemption is the word"),
+    # ---- what is deliberately not a citation ----------------------------------------------
+    ("citation_trailing_slash_is_a_directory_ok",
+     lambda r: _cite(r, 0, "lambdas/cited/dir.py", '"""A table over ``test_absent_folder/``."""\n'),
+     0, ""),
+    ("citation_inside_a_markdown_fence_ok",
+     lambda r: _cite(r, 0, D("testing", "arc-b-e2e.md"),
+                     "# Script\n\n```\n`test_absent_from_a_fence` is an example\n```\n"),
+     0, ""),
+    # Markdown's `#` opens a heading, not a comment, so the bare grammar does not apply there.
+    ("citation_bare_in_markdown_ok",
+     lambda r: _cite(r, 0, D("testing", "arc-b-e2e.md"),
+                     "# A folder called test_absent_bare_in_prose\n\nNot a citation.\n"),
+     0, ""),
+    # THE UPPER EDGE of the exemption window, which is the direction that loses findings: widening
+    # it to the whole file was measured to drop 17 of this repo's 46 findings in silence, and the
+    # tree pins only the LOW side. The verb is placed just past the constant, so the band this case
+    # leaves unguarded is a couple of characters rather than the hundred a round-number fixture
+    # leaves — a verb at ~215 let the window be more than doubled with the corpus green.
+    ("citation_retired_too_far_from_the_name",
+     lambda r: _cite(r, 0, "lambdas/cited/faraway.py",
+                     '"""Retired when the manifest verbs landed, and nothing replaced it\n'
+                     'because nothing now can replace it.\n'
+                     '``test_absent_far_from_the_verb`` still holds the cap at four."""\n'),
+     1, "names test_absent_far_from_the_verb"),
+    # The dedup key is (line, name), so one name cited on two lines is two findings. Collapsing the
+    # key to the name alone survives every other case here.
+    ("citation_absent_twice_in_one_file",
+     lambda r: _cite(r, 1, "lambdas/cited/twice.py",
+                     '"""``test_absent_on_two_lines`` sizes it.\n\n'
+                     'And ``test_absent_on_two_lines`` is read back here too."""\n'),
+     1, "2 citations name a test that does not exist (ratchet 1)"),
+    # The bare grammar in a `//` comment, in a .ts file. Both halves are otherwise untested: every
+    # bare citation in the tree today is .tf or .tftpl, and the one .tsx case writes its name in
+    # backticks, so `//` and the .ts suffix were both carried by other grammars.
+    ("citation_absent_bare_in_a_slash_comment",
+     lambda r: _cite(r, 0, "apps/portal/src/thing.ts",
+                     "// Sized by test_absent_from_a_slash_comment, which reads this number.\n"
+                     "export const CAP = 4;\n"),
+     1, "names test_absent_from_a_slash_comment"),
+    # Workflows and shell scripts joined the scanned set because a comment there makes the same
+    # promise. Both need their own case: the 12 citations they carry today all resolve, so
+    # dropping either suffix changes no count and goes unnoticed without a planted absence.
+    ("citation_absent_in_a_workflow",
+     lambda r: _cite(r, 0, "infra/modules/cited/probe.yml",
+                     "steps:\n  # test_absent_from_a_workflow pins this matrix.\n  - run: true\n"),
+     1, "names test_absent_from_a_workflow"),
+    ("citation_absent_in_a_shell_script",
+     lambda r: _cite(r, 0, "infra/modules/cited/probe.sh",
+                     "#!/bin/sh\n# Guarded by test_absent_from_a_shell_script.\nexit 0\n"),
+     1, "names test_absent_from_a_shell_script"),
+    # The same grammar in a Python comment, which is neither .tf nor .tftpl — the branch that
+    # admits it is `suffix != ".md"`, and narrowing that to .tf alone survives otherwise.
+    ("citation_absent_bare_in_a_python_comment",
+     lambda r: _cite(r, 0, "lambdas/cited/hashed.py",
+                     "# test_absent_from_a_python_comment READS THIS NUMBER.\nCAP = 4\n"),
+     1, "names test_absent_from_a_python_comment"),
+    # ---- the tier exclusions, and the one that is deliberately narrower than its tree -------
+    ("citation_in_a_spec_is_history_ok",
+     lambda r: [_write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n"),
+                _cite(r, 0, D("specs", "SPEC-001-thing.md"),
+                      _spec(1, 1).replace("Text.", "Pinned by `test_absent_from_a_spec`."))],
+     0, ""),
+    # ARCS.md is live narrative the completion ritual still edits, so the exclusion is per-spec
+    # rather than per-tree. Blanket-excluding the directory hid two false citations in this file.
+    ("citation_in_arcs_is_judged",
+     lambda r: _cite(r, 0, D("specs", "ARCS.md"),
+                     "# Arcs\n\nPinned by `test_absent_from_arcs`.\n"),
+     1, "names test_absent_from_arcs"),
+    ("citation_in_a_test_module_ok",
+     lambda r: _cite(r, 0, "lambdas/cited/test_other.py",
+                     '"""Delegated to ``test_absent_from_a_suite``."""\n\n'
+                     "def test_something():\n    assert True\n"),
+     0, ""),
+    # The population anchors `def` at the start of a line. Relaxing it to a search would let a
+    # COMMENTED-OUT definition, or one inside a string, resolve a citation — a guard that is only
+    # described somewhere is exactly what this check exists to refuse.
+    ("citation_resolved_by_a_commented_out_def",
+     lambda r: [_write(r, "lambdas/cited/ghost.py",
+                       "# def test_absent_but_commented_out():\n#     assert True\n"),
+                _cite(r, 0, "lambdas/cited/ghostref.py",
+                      '"""Held by ``test_absent_but_commented_out``."""\n')],
+     1, "names test_absent_but_commented_out"),
+    ("citation_resolved_by_a_module_stem_ok",
+     lambda r: _cite(r, 0, "lambdas/cited/stem.py", '"""The sweep in ``test_cited`` forbids it."""\n'),
+     0, ""),
+    # 290 names in the population carry a capital. A lowercase-only class truncates this one at
+    # `test_the_` and then reports that stub as unresolved.
+    ("citation_with_uppercase_resolves_ok",
+     lambda r: [_write(r, "lambdas/cited/test_upper.py",
+                       "def test_the_CAP_is_held():\n    assert True\n"),
+                _cite(r, 0, "lambdas/cited/upper.py",
+                      '"""Held by ``test_the_CAP_is_held``."""\n')],
      0, ""),
 ]
 
