@@ -11,293 +11,295 @@ A control-plane run is one user action carried out by many Lambda invocations �
 data-quality run, twenty-five Task states on the archive machine. Each opens its own root span, and
 `log-foundry`'s trace context is per-process, so each mints its own `trace_id` and every root span's
 `parent_span_id` is null. A run is therefore as many traces as it has verbs, joined only by a
-`request_id` field that SPEC-128 added for that reason. An operator asking "what happened to this
-request" gets a field filter over unrelated traces, and the shape of the run — which verb followed
-which, and where the time went — is not in the store at all.
+`request_id` field that SPEC-128 added for that reason.
 
-**And the join key is missing on nine verbs.** `_extract_request_id` reads a top-level `requestId`
-or an EventBridge Pipe's SQS body, and neither shape reaches a Map child: the six Distributed-Map
-copy verbs receive `{"Items": [...]}`, and the three inline-Map children receive the parent state
-nested under `request`. Verified during authoring. Those nine — including every copy verb, which is
-where a transfer's time goes — emit spans that cannot be joined to their run at all. That is not a
-new problem this spec introduces; it is a hole the same extractor change closes.
+**And the join key is missing on nine verbs**, for two different reasons that need different fixes.
+The three inline-Map children receive the parent state nested under `request`, which the extractor
+does not read — a shape fix reaches them. The six Distributed-Map copy verbs receive
+`{"Items": [...]}`, which contains **no request id at all**, so no extractor change can reach them;
+only putting the value into the Map's `BatchInput` does. Three of the nine sit on table-share, whose
+validator returns no `requestId` anywhere, so they stay unjoinable by request after this spec and
+that is recorded rather than quietly missed.
 
 This spec makes a run one trace on the **success path**: the traceparent is minted once at the API,
 threaded through the state payload as `requestId` is, and adopted by every verb before its span
-opens. `request_id` stays — it is the join key for anything outside the trace, and removing a
-working correlation key while installing a new one is how a store retained forever ends up with a
-window that has neither.
+opens. `request_id` stays — it is the join key for anything outside the trace.
 
-This was **deliberately deferred**, not overlooked — recorded as "correlation now, stitching later"
-(user decision, 2026-07-22), sequenced after the pipe was proven live. It is unblocked now for a
-specific reason: on `log-foundry` 0.6.0 `continue_trace` is **sticky**, and a sticky adoption in a
-warm Lambda container is worse than no adoption — measured, one call keeps every later root span in
-the inbound trace, so the container's next, unrelated invocation silently joins the previous run's
-trace and merges two users' work. SPEC-224's 1.0.0 makes it one-shot.
+This was **deliberately deferred**, not overlooked — "correlation now, stitching later" (user
+decision, 2026-07-22), sequenced after the pipe was proven live. It is unblocked now because on
+`log-foundry` 0.6.0 `continue_trace` is **sticky**: one call keeps every later root span in the
+inbound trace, so a warm container's next, unrelated invocation silently joins the previous run's
+trace. SPEC-224's 1.0.0 makes it one-shot. **The load-bearing part of that dependency is SPEC-224
+FR-002** — the reset must call `reset_context()`, which clears an adopted context; the current
+private `_baggage.set({})` does not, so on the old reset adoption survives into the next invocation
+and 0.6.0's stickiness is back by another route. Built against the old reset, this spec's ordering
+is not merely unproven, it is wrong.
 
 ## Scope
 
 ### In Scope
 
-- Trace adoption inside `cpcommon.observability`, over **all four** event shapes a verb can receive.
-- Closing the `request_id` hole on the nine Map-child verbs, in the same extractor.
+- Trace adoption inside `cpcommon.observability`, over the event shapes a verb actually receives.
+- **Closing the correlation hole at the API**: the extractor must never read a caller's HTTP body.
+- Closing the `request_id` hole on the inline-Map children, and on the Distributed-Map children
+  where the plane has an id to give.
 - Minting the run's traceparent at the API, where a run begins.
-- Threading it along the **success** path: the six Distributed Maps, the six field-naming `Pass`
-  states and the four field-naming Task `Parameters` blocks that feed a Lambda.
+- Threading it along the **success** path: the six Distributed Maps and the ten states that name
+  their fields individually.
 - A guard that a run is one trace, driven end to end rather than read off the source.
 
 ### Out of Scope
 
-- **The failure path.** SPEC-227. It is separated deliberately rather than for size: the guard that
-  would police it, `test_a_failure_seed_supplies_every_key_the_failure_terminal_reads`, identifies a
-  seed structurally and **cannot see eight of the fleet's seed states**. A reviewer planted this
-  spec's prescribed edit on archive and the whole suite stayed green while six archive failure paths
-  would hit an absent `$.traceparent` — a `States.Runtime` error that is neither retriable nor
-  catchable, killing the run *before* `NotifyFailure`, so a user whose archive failed would hear
-  nothing at all. Threading the failure path requires widening that guard first, and that is a spec,
-  not an FR.
-- **The ASL↔verb cross-check that five planes do not have.** SPEC-227.
-- **Removing `request_id`.** It stays, on both boundary events and narrative.
-- **Migrating existing records.** `logs/` is appended NDJSON retained forever; rewriting a day
-  object to backfill a `trace_id` would risk a day of logs to tidy a field boundary — the call
-  SPEC-130 already made about the `function: "handler"` rename.
-- **Stitching the singleton and queue-consumer Lambdas** — the log sweep, the DLQ drain,
-  `notifications-writer`, `feedback-writer`, `user-directory-build`, the Cognito triggers. They are
-  not part of a state-machine run. `notifications-writer` is excluded on **cost and sequencing, not
-  mechanism**: FR-002 builds queue-body threading, so the mechanism would exist — but a notification
-  is written after a run completes, its queue is fed by seven planes, and each producer would need
-  the same change. It is a spec of its own if it is wanted.
+- **The failure path.** SPEC-227, and separated for a measured reason: the guard that would police
+  it identifies a seed structurally and **cannot see eight of the fleet's seed states**. A reviewer
+  planted this spec's prescribed edit on archive and the whole suite stayed green while six archive
+  failure paths would hit an absent `$.traceparent` — a `States.Runtime` that is neither retriable
+  nor catchable, killing the run *before* `NotifyFailure`, so a user whose archive failed would hear
+  nothing. A literal reading of FR-004's sweep pulls those 28 failure-path states into scope; FR-004
+  excludes them explicitly for that reason.
+- **Giving table-share a `requestId`.** Its validator returns none and no downstream state carries
+  one. Adding one is a contract change to a plane this spec is otherwise only threading through.
+- **Removing `request_id`**, and **migrating existing records**.
+- **Stitching the singleton and queue-consumer Lambdas.** `notifications-writer` is excluded on cost
+  and sequencing, not mechanism: FR-002 builds queue-body threading, but a notification is written
+  after a run and its queue is fed by seven planes.
 - **Child spans.** SPEC-226.
 
 ---
 
 ## Functional Requirements
 
-### FR-001: `observability` adopts an inbound trace over every event shape a verb receives
+### FR-001: The extractor reads the shapes a verb receives, and never a caller's body
 
 #### Description:
 
-`cpcommon.observability` gains adoption and a reader, keeping its one-door rule.
+**The shape list is a security boundary, not a convenience.** `_extract_request_id` today tries a
+top-level `requestId`, then falls back to `record = event` for a non-list event and parses
+`record["body"]`. For an API Gateway payload-2.0 request that `body` is **the caller's HTTP body**,
+so a caller can put `{"requestId": "…"}` in it and have it stamped as the API span's correlation key.
+Verified by execution against `main`.
 
-**There are four event shapes, not two.** `_extract_request_id` handles two; the other two are why
-nine verbs have no `request_id` today. All four are enumerated here because the spec's own failure
-mode is a verb silently dropping out of the trace:
+On `main` this is **latent rather than live**: `_stamp_correlation` runs at the top of dispatch,
+before both early returns, and overwrites it with the gateway's id — and because SPEC-015 backfills
+the boundary events from the baggage live at close, every stored record carries the gateway's value.
+Also verified. It is a hazard, not a leak, and this spec must not turn it into one — which a
+four-shape traceparent extractor would, because **nothing overwrites an adopted trace**. A reviewer
+building this spec as first drafted demonstrated a caller setting the API span's `trace_id` and
+`run_traceparent()` returning the caller's value, ready to be stamped into the outbound message.
 
-| Shape | Where the value sits | Which verbs receive it |
+So the body branch is narrowed to a **list** — the EventBridge Pipe envelope and nothing else.
+Production always delivers the array, and the API is the only verb in the fleet with a top-level
+`body`. That single narrowing closes the traceparent vector and the latent `request_id` hazard
+together, and it is why this FR leads the spec.
+
+| Shape | Where the value sits | Which verbs |
 |---|---|---|
 | State payload | top-level `traceparent` | every Task-invoked verb |
-| Pipe envelope | `[{"body": "<json string>"}]` | the eight `validate-authorize` verbs |
+| Pipe envelope — **a list only** | `[{"body": "<json string>"}]` | the eight `validate-authorize` verbs |
 | Distributed-Map batch | `BatchInput.traceparent` beside `Items` | the six copy/retrieve verbs (FR-003) |
-| Inline-Map child | `request.traceparent` | file-send `check-target-absent`, table-share `check-target-absent` and `create-table` |
+| Inline-Map child | `request.traceparent` | file-send and table-share `check-target-absent`, table-share `create-table` |
 
-`_extract_request_id` is widened to the same four shapes in the same change — it is the same walk
-over the same event, and leaving it on two while the traceparent reads four would mean a verb that
-joins the trace and still cannot be filtered by request.
+`_extract_request_id` is widened to the same shapes in the same change — same walk, same event.
 
-**The reader is `run_traceparent()`, and it is not "the current span's".** A verb that adopted an
-inbound trace returns **the value it adopted**, unchanged, so the run threads one traceparent and
-every verb parents to the API span that minted it. Only where nothing was adopted — the API, which
-*is* the root — does it fall back to the current span's. The distinction is not cosmetic and was
-measured: inside an adopted span, `lf.current_traceparent()` returns the same trace id with **a
-different span id**, so a validator returning that would re-parent the rest of the run onto itself.
-Both shapes give one `trace_id`, which is exactly why this must be decided here rather than left for
-a guard to discover.
+**`run_traceparent()` needs its own state.** The library's only accessor,
+`context.get_adopted_context()`, returns `(trace_id, parent_span_id)` — version and flags are
+already discarded, so a string rebuilt from it is not the string that arrived, and an inbound
+unsampled `-00` would be re-emitted as `-01`. It is also absent from `lf.__all__`. So adoption
+records the traceparent verbatim in a module `ContextVar`, set by `_adopt_trace` and cleared by the
+reset, and `run_traceparent()` returns that; the current span's only when nothing was adopted, which
+is the API.
 
-Order inside `traced`'s wrapper is load-bearing: the reset clears an adopted context as well as
-baggage (SPEC-224 FR-002, asserted there behaviourally), so adoption must come **after** it and
-**before** the span opens, since `continue_trace` applies to the next root span and to none already
-open.
-
-Adoption never fails a verb. Missing, malformed, or a `ContinueResult` reporting `ok=False` all mean
-"mint a fresh trace and carry on", warned and never raised. Measured on 1.0.0: `''`,
-`'not-a-traceparent'` and `'00-zzz-yyy-01'` all return `ok=False, reason='rejected'`; `None` returns
-`reason='nothing-supplied'`.
+**A missing traceparent is normal and is not warned.** The API is the root and has none by
+definition, so warning on absence would write a `logger.warning` to CloudWatch on every HTTP
+request. Malformed and rejected are warned; absent is not.
 
 #### Acceptance Criteria:
 
 - [ ] A `@traced` handler invoked with a traceparent emits a root span whose `trace_id` is the
-      inbound one and whose `parent_span_id` is the inbound span id — asserted **once per shape**,
-      for all four shapes in the table, parametrised over that table so a fifth shape added later
-      cannot be missed.
-- [ ] `_extract_request_id` returns the request id for all four shapes; a test asserts it for the
-      two that return `None` today, and that test fails against the current extractor.
-- [ ] A handler invoked with no traceparent, and one invoked with each of the three malformed forms
-      above, emit a freshly minted `trace_id`, do not raise, and log a warning.
-- [ ] **A second invocation on the same warm container, with no traceparent, mints a fresh
-      `trace_id` and does not join the first invocation's trace.** Asserted directly — this is the
-      property 0.6.0 did not have.
-- [ ] `run_traceparent()` returns the **adopted** value byte-for-byte when one was adopted, and the
-      current span's only when none was. A test asserts the byte-for-byte case, which is what
-      distinguishes the threaded design from the re-parenting one.
-- [ ] No **non-test** module outside `cpcommon.observability` imports `log_foundry`. The two test
-      harnesses do, by SPEC-224 FR-003's design.
+      inbound one and `parent_span_id` the inbound span id — asserted once per shape, parametrised
+      over the table so a fifth shape cannot be added unnoticed.
+- [ ] **An API Gateway payload-2.0 event whose caller-supplied `body` carries a `traceparent` and a
+      `requestId` yields neither.** Both halves asserted. This test fails against the current
+      extractor for `requestId`, which is what makes it a fix rather than a restatement.
+- [ ] `_extract_request_id` returns the id for the inline-Map shape, which it does not today.
+- [ ] A handler with **no** traceparent mints a fresh `trace_id`, does not raise, and logs **no**
+      warning. The three malformed forms mint a fresh one and **do** warn.
+- [ ] A second invocation on the same warm container, with no traceparent, mints a fresh `trace_id`.
+- [ ] `run_traceparent()` returns the adopted value **byte-for-byte**, asserted with an inbound
+      traceparent whose flags are `-00`, so a rebuild-from-parts implementation fails.
 
 ### FR-002: The run's traceparent is minted where the run begins
 
 #### Description:
 
-A run begins at the API: the browser calls a route, the router opens a span, and `enqueue` sends the
-request onto its plane's queue. `enqueue.build_message` adds the API span's traceparent to the
-message body alongside the fields it already stamps, making the API's own span the root of the run's
-trace.
+`enqueue.build_message` adds the API span's traceparent to the message body, making the API's own
+span the root of the run's trace. It is written **unconditionally**, `None` included: a conditional
+write would hand a caller's value straight through whenever no span is open, which is the failure
+FR-001 exists to close.
 
-The traceparent is a **stamped** value, not a caller-supplied one: a body field a caller could set
-would let a client join or poison another run's trace, and the body is untrusted input. It is
-written from `run_traceparent()` on the server, and `build_message` spreads `**dict(payload)` first,
-so a stamped value already overwrites a caller's — the criterion below pins that rather than
-assuming it.
+The threat model FR-001 handles is the inbound half. This FR is the outbound half: `build_message`
+spreads `**dict(payload)` first, so a stamped value overwrites a caller's key of the same name.
 
 #### Acceptance Criteria:
 
 - [ ] Every message `enqueue` sends carries a `traceparent` whose trace id matches the API span's.
-- [ ] A caller-supplied `traceparent` in the request body does not survive into the sent message,
-      asserted by sending one.
-- [ ] The added field is inside the message-size cap — asserted by a test that builds a
-      maximum-size payload and shows the refusal fires, not by re-stating that the guard measures
-      after stamping, which is already true and needs no work.
+- [ ] A caller-supplied `traceparent` in the request body does not survive into the sent message.
+      Assert it at **both** doors — the extractor (FR-001) and the stamp — because the route
+      contract refuses an undeclared body key today, so a send-level assertion alone would pass for
+      a reason that has nothing to do with this spec and would stop holding the day a route declares
+      a free-form block.
+- [ ] The added field is inside the message-size cap, asserted by building a maximum-size payload
+      and showing the refusal still fires.
 
 ### FR-003: The six Distributed Maps carry the traceparent to their children
 
 #### Description:
 
-**Six**, not four: archive alone has three — `TransferObjects`, `RetrieveObjects` and
-`CopyBackObjects` — beside one each on file-ops, file-send and table-share. Counted during authoring
-by parsing all eight templates and reading `ItemProcessor.ProcessorConfig.Mode`. The two on
-archive's restore arm are the largest data movement in the repo, and they are exactly the ones a
-"four Maps" claim would leave outside the trace.
+**Six**, not four: archive alone has three — `TransferObjects`, `RetrieveObjects`,
+`CopyBackObjects` — beside one each on file-ops, file-send and table-share. Counted by parsing all
+eight templates. The two on archive's restore arm are the largest data movement in the repo.
 
-None of the six has an `ItemSelector`; all six read a JSONL manifest through `ItemReader`, so the
-parent state is invisible to a child. All six already declare an `ItemBatcher`, and **no template in
-the repo uses `BatchInput`** — that is the mechanism: a payload template evaluated against the Map
-state's input and delivered once per **batch**. Writing the traceparent into the manifest instead
-would repeat it on every line of a dataset that can hold tens of thousands, which is the wrong unit.
+None has an `ItemSelector`; all six read a JSONL manifest through `ItemReader`, so the parent state
+is invisible to a child. All six already declare an `ItemBatcher`, and **no template uses
+`BatchInput`** — a payload template evaluated against the Map state's input and delivered once per
+**batch**. Writing the traceparent into the manifest instead would repeat it on every line of a
+dataset that can hold tens of thousands.
 
-**This mechanism must be proved by execution, not by citation.** AWS documents `BatchInput`'s shape
-and that its `.$` paths resolve against the Map state's input, but every documented example uses an
-inline array through `ItemsPath`; no page shows `ItemReader` and `BatchInput` together, and all six
-Maps here use `ItemReader`. Nothing contradicts it and the field-application order implies it, but
-the whole Map half of this spec rests on it, so it is settled with a `TestState` call or a one-off
-execution against a two-line JSONL fixture before the ASL edits are written.
+**`BatchInput` carries `requestId` only where the plane has one.** table-share's validator returns
+no `requestId` and no downstream state holds one, so `"requestId.$": "$.requestId"` there is an
+uncatchable `States.Runtime` on every share. The key is per-plane, derived from what the plane's
+state actually carries — not a fixed pair.
+
+**The mechanism is proved by execution, not citation.** AWS documents `BatchInput`'s shape and that
+its `.$` paths resolve against the Map state's input, but every documented example uses an inline
+array through `ItemsPath`; no page pairs `ItemReader` with `BatchInput`, and all six Maps here use
+`ItemReader`. `aws stepfunctions test-state` cannot test a Map's child in isolation, so this needs a
+real execution.
 
 The three **inline** Maps need no ASL change — they already carry `"request.$": "$"` — but their
-children receive the parent state **nested under `request`**, which is the fourth shape FR-001
-handles. "No ASL change" is not "no change".
+children receive the parent state nested under `request`, which is FR-001's fourth shape.
 
 #### Acceptance Criteria:
 
-- [ ] A `TestState` call or a recorded one-off execution shows `BatchInput` reaching a child of an
-      `ItemReader`-fed Distributed Map, with `Items` unchanged beside it. Recorded on the PR; the
-      ASL edits are not written before it passes.
-- [ ] All **six** Distributed Maps carry `ItemBatcher.BatchInput` delivering the traceparent — the
-      count derived by parsing the templates in the test, never written as a literal, so a Map added
-      later is included automatically.
+- [ ] A recorded one-off execution shows `BatchInput` reaching a child of an `ItemReader`-fed
+      Distributed Map with `Items` unchanged beside it: deploy one machine with the block, drive it
+      with a two-line JSONL manifest, and read the child's input from the Map Run export or the
+      child's `ExecutionStarted` history event. Recorded on the PR. **This is the one criterion that
+      cannot be discharged locally**, and the ASL edits are written before it only at the risk of
+      rewriting them.
+- [ ] All **six** Distributed Maps carry `ItemBatcher.BatchInput` with the traceparent, the count
+      derived by parsing the templates in the test rather than written as a literal.
+- [ ] `BatchInput` carries `requestId` on every plane whose state has one, and on table-share
+      carries the traceparent alone. A test asserts no `BatchInput` reads a path its plane's state
+      does not supply.
 - [ ] A copy verb driven with a `{"BatchInput": {...}, "Items": [...]}` event joins the inbound
-      trace and carries the request id, asserted by driving the verb.
-- [ ] `test_the_whole_map_state_stays_under_the_payload_limit`'s hand-built state model includes the
-      new key, so it keeps bounding the state that actually exists.
-- [ ] `tofu -chdir=infra validate` passes, and the rendered plan differs only in the state machine
-      definitions.
+      trace, and carries the request id on the planes that supply one.
+- [ ] `test_the_whole_map_state_stays_under_the_payload_limit`'s model includes the new key **and
+      its headroom is re-derived**, not just re-run — it modelled a ~95%-of-limit peak historically.
 
 ### FR-004: Every success-path state that names fields individually names the traceparent
 
 #### Description:
 
 Most threading is free: a Task using `"Payload.$": "$"` with `"OutputPath": "$.Payload"` carries a
-new key with no edit. Two classes of state break that, and the second is easy to miss because it is
-a Task rather than a `Pass`.
+new key untouched. **Ten** states do not, and the sweep that finds them needs four discriminators
+that a plain "names its fields" rule gets wrong — each established by building the sweep and reading
+what it returned:
 
-**Six field-naming `Pass` states on a path that feeds a Lambda** — archive `Validated`; file-send
-`Validated` and `ShapeSummary`; results-conversion `Validated`, `Described` and `Converted`.
-`ShapeSummary` is the one a survey misses: its five keys become the entire input to file-send's
-`NotifyOutcomes`. The `Pass` states that are genuinely terminal — archive's `ArchiveComplete` and
-`RestoreComplete`, table-share's `ShapeSummary` — go to `Succeeded` and are correctly excluded.
+1. **A `Pass` with a `ResultPath` merges** under that path and drops nothing. Without this, five
+   `StampExecution`-style states join the population as false positives.
+2. **A Task's `Parameters.Payload` block *is* its Lambda's input**, so a field-naming one drops a
+   key exactly as a `Pass` does. Four qualify.
+3. **Failure-path states are excluded** — a state that cannot reach a success terminal except
+   through a `Catch` edge. Without this the sweep demands the key on 28 states SPEC-227 owns.
+4. **A Map branch's success terminal is `End: true`, not `Succeeded`.** No `Succeed` state exists
+   inside a Map branch, so a literal walk-to-`Succeeded` excludes every inline-Map state.
 
-**Four Task states that name their `Payload` fields individually** — archive's `NotifyArchived`,
-`NotifyRestoreStarted` and `NotifyRestored`, and table-share's `FinishRecipients/CreateTable`. A
-field-naming Task `Parameters` block drops a key exactly as a `Pass` does; the notify verbs are
-`@traced` and would otherwise sit outside the run's trace.
+A walk-to-`Succeeded` rule **on its own is wrong in the other direction too**: `archive:NotifyArchived`
+and `NotifyRestored` reach `Succeeded` and would be classified terminal — excluding two of the four
+Task blocks this FR requires.
 
-Five planes — data-quality, file-ops, shared-spaces, table-builder, table-share — have no
-field-naming state on the success threading path and need only their validator changed. Note that
-eight shared-spaces verb Tasks carry neither `OutputPath` nor `ResultPath`, so the raw invoke
-envelope replaces the state; harmless today because each goes straight to `Succeeded`, and named
-here so the survey sentence is true rather than nearly true.
+The ten: archive `Validated`, `NotifyArchived`, `NotifyRestoreStarted`, `NotifyRestored`; file-send
+`Validated`, `ShapeSummary`; results-conversion `Validated`, `Described`, `Converted`; table-share
+`FinishRecipients/CreateTable`. **table-share therefore does have a field-naming state** — an
+earlier draft listed it among the planes needing only a validator change, and that was wrong.
+`FinishRecipients/CreateTable` already passes `"request.$": "$.request"`, so its child already
+receives the value through FR-001's fourth shape; naming the key there is a second copy, kept for
+uniformity of the sweep rather than because the child would otherwise miss it.
+
+**Two intermediate verbs must return it too.** results-conversion's `Described` and `Converted` are
+cross-checked against `describe-results`' and `convert`'s real returns, so naming the key in ASL
+alone reddens those tests. Each reads it from `run_traceparent()` rather than from a required
+carried field, so a missing traceparent is never a `TerminalError` on a logging value.
+
+**Six exact-equality fixtures change.** Five validators' returns and one describe-results return are
+asserted with `==` against a literal dict; a minted traceparent is non-deterministic, so each pops
+it and asserts it separately.
 
 #### Acceptance Criteria:
 
 - [ ] Every plane's `validate-authorize` returns `traceparent`, including shared-spaces', whose
-      return is the one validator in the fleet with a conditionally-shaped key set.
-- [ ] The six field-naming `Pass` states and the four field-naming Task `Parameters` blocks name it.
-- [ ] A sweep over **all eight** templates asserts that every state naming fields individually on a
-      path that reaches a Lambda names `traceparent`. It derives that population by parsing, carries
-      a positive control that it found states at all, and is mutation-tested by removing the key
-      from one state — the failure must name the plane and the state.
-- [ ] The sweep classifies terminal states as terminal by walking to `Succeeded`, not by a hard-coded
-      exclusion list, so a state that stops being terminal is caught.
+      return is the one conditionally-shaped key set in the fleet.
+- [ ] The ten states above name it, and `describe-results` and `convert` return it.
+- [ ] A sweep over all eight templates derives that population by parsing, applying the four
+      discriminators, and returns **exactly** those ten. A test pins the count and the membership,
+      so a discriminator that silently widens or narrows the population fails.
+- [ ] It carries a positive control that it found states at all, and is mutation-tested per state —
+      removing the key from any one must fail and name the plane and the state.
+- [ ] The six exact-equality fixtures are updated and still assert the rest of the return.
 
 ### FR-005: A run is one trace, proved end to end
 
 #### Description:
 
-The claim this spec exists to make is a property of a whole run, and every per-verb test can pass
-while the run is still many traces — a verb that adopts correctly still mints its own if the state
-payload never delivered one. The guard drives a run's verbs in sequence, feeding each the previous
-one's output the way the state machine does, and asserts one `trace_id` across every span.
+Every per-verb test can pass while the run is still many traces. The guard drives a run's verbs in
+sequence, feeding each the previous one's output the way the state machine does.
 
-**The plane it drives is named, not chosen at build time.** A guard run against data-quality,
-shared-spaces or table-builder would exercise no Map hop, no field-naming state and no inline-Map
-nesting — every mechanism this spec adds — and pass. It runs against **file-send**, which has a
-Distributed Map, an inline Map, two field-naming `Pass` states and a notify verb, and against
-**archive**, which has three Distributed Maps and three field-naming Task states.
+**The planes are named, not chosen at build time.** A guard against data-quality, shared-spaces or
+table-builder exercises no Map hop, no field-naming state and no inline-Map nesting, and passes. It
+runs against **file-send** — a Distributed Map, an inline Map, two field-naming `Pass` states and a
+notify verb — and **archive**, with three Distributed Maps and three field-naming Task states.
 
 #### Acceptance Criteria:
 
-- [ ] For file-send and archive end to end, and for the API-to-first-verb hop, every span emitted
-      across the run carries one `trace_id`.
-- [ ] The guard asserts a non-zero span count and more than one contributing verb before asserting
-      the shared trace id, so an empty collector cannot satisfy it.
-- [ ] The guard is mutation-tested three ways — dropping `traceparent` from the state payload,
-      dropping it from a Map's `BatchInput`, and dropping the adoption from `traced` — and the
-      failure message distinguishes the three.
-- [ ] `request_id` is present on **every** span emitted by both runs, including the Map children
-      and the inline-Map children, which is false of the fleet today.
+- [ ] For file-send and archive end to end, and for the API-to-first-verb hop, every span carries
+      one `trace_id`.
+- [ ] The guard asserts a non-zero span count and more than one contributing verb first.
+- [ ] Mutation-tested three ways — dropping `traceparent` from the state payload, from a Map's
+      `BatchInput`, and dropping the adoption from `traced` — with the failure distinguishing them.
+      A plant that only breaks JSON parsing does not count: three Map plants initially reddened for
+      that reason during authoring, never reaching the guard.
+- [ ] `request_id` is present on every span of both runs **except** table-share's three Map-child
+      verbs, which have no id to carry; that exception is asserted explicitly so it cannot widen
+      silently.
 
 ---
 
 ## Data Model
 
 ```ts
-// The control-plane state payload, after validate-authorize
 type StatePayload = {
-  requestId: string;
-  traceparent: string;   // W3C: "00-<32 hex trace id>-<16 hex span id>-<2 hex flags>"
-  // …the plane's own fields, unchanged
+  requestId: string;        // absent on table-share, which has never carried one
+  traceparent: string;      // "00-<32 hex>-<16 hex>-<2 hex flags>"
 };
 
-// A Distributed-Map child's event, after ItemBatcher.BatchInput
 type MapChildEvent = {
-  BatchInput: { traceparent: string; requestId: string };
-  Items: TransferItem[];      // unchanged
+  BatchInput: { traceparent: string; requestId?: string };   // requestId only where the plane has one
+  Items: TransferItem[];                                     // unchanged
 };
 ```
 
 ## Interface Contract
 
 ```python
-# cpcommon/observability.py — the additions
-
 def run_traceparent() -> str | None:
-    """The traceparent identifying THIS RUN.
-
-    The value adopted from the inbound event when there was one — returned unchanged, so the
-    run threads one traceparent and every verb parents to the span that minted it. The current
-    span's only where nothing was adopted, which is the API, which is the root.
-    """
+    """The traceparent identifying THIS RUN — the adopted value verbatim, or the current
+    span's where nothing was adopted (the API, which is the root)."""
 
 # inside `traced`'s wrapper, in this order:
 _reset_context()          # clears baggage AND any adopted context (SPEC-224 FR-002)
 _stamp_verb(verb)
-_stamp_request_id(event)  # widened to four shapes
+_stamp_request_id(event)
 _adopt_trace(event)       # continue_trace(...) — applies to the next root span
 try:
     return span(*args, **kwargs)
@@ -307,25 +309,23 @@ finally:
 
 ## Implementation Phases
 
-### Phase 1: Prove the Map mechanism, then build the extractor
+### Phase 1: The extractor, narrowed
 
-- Settle `ItemBatcher.BatchInput` against an `ItemReader` dataset by `TestState` or a one-off
-  execution. Nothing else in this spec starts until it holds.
-- `_extract_traceparent` and the widened `_extract_request_id` over all four shapes; `_adopt_trace`;
-  `run_traceparent()`; the wrapper ordering.
-- FR-001's per-shape tests, each mutation-tested.
+- Narrow the body branch to a list; `_extract_traceparent`; `_adopt_trace`; the adopted-traceparent
+  `ContextVar` and `run_traceparent()`; the wrapper ordering.
+- FR-001's per-shape tests and the API-Gateway-poison test, each mutation-tested.
 
 ### Phase 2: The producer, the Maps and the field-naming states
 
-- `enqueue.build_message` stamps the traceparent; the caller-cannot-set test.
-- Every validator returns it; the six `ItemBatcher.BatchInput` blocks; the six `Pass` states and the
-  four Task `Parameters` blocks.
-- The parsing sweep with its positive control and per-state mutation test.
+- `enqueue.build_message`; the six `ItemBatcher.BatchInput` blocks; the ten states; the two
+  intermediate verb returns; the six fixtures.
+- The parsing sweep with its four discriminators, pinned to a membership list.
 
 ### Phase 3: The proof and the record
 
-- FR-005's file-send and archive one-trace guards, mutation-tested three ways.
-- Replace the "one run is nine traces" claim at its live sites — `lambdas/info/shared-layer.md:184`,
-  `docs/decisions/control-planes.md:235` (the **entry**, not the Fences, which say nothing about
-  trace counts) and `docs/specs/ARCS.md`. Completed specs and delivery docs stay as history.
-- Full local gates green by exit code, including `tofu validate` and `validate_docs.py`.
+- FR-005's file-send and archive guards, mutation-tested three ways.
+- Replace "one run is nine traces" at `lambdas/info/shared-layer.md:184`,
+  `docs/decisions/control-planes.md:235` (the **entry**; the Fences say nothing about trace counts)
+  and `docs/specs/ARCS.md`.
+- Full local gates green by exit code, including `tofu validate`, `tofu fmt -recursive -check` and
+  `validate_docs.py`.
