@@ -7,6 +7,7 @@ globals.
 """
 
 import types
+import urllib.parse
 
 from cpcommon import clients
 from cpcommon import config as cpconfig
@@ -58,6 +59,14 @@ class FakeClientError(Exception):
         """
         super().__init__(code)
         self.response = {"Error": {"Code": code}}
+
+
+class FakeParamValidation(Exception):
+    """Stands in for botocore's ``ParamValidationError``.
+
+    Raised before a request leaves the process, so it is not a service error and carries no code —
+    which is why it fails a whole call rather than one item of a batch.
+    """
 
 
 class FakeNoSuchKey(Exception):
@@ -118,6 +127,18 @@ class FakeS3:
         requirement somewhere a snapshot of the store cannot show it: a copy confirmed before a
         delete and a delete that ran first leave identical stores and lose the file in one case.
       undeletable: Keys the batch delete reports as failed instead of deleting.
+      storage_class: Per key, the storage class S3 would report. Absent means ``STANDARD``.
+      content_type: Per key, the content type. Carried by a copy at ``MetadataDirective=COPY``.
+      metadata: Per key, the user metadata. Carried by the same directive.
+      tags: Per key, the tag set. Carried by ``TaggingDirective=COPY``.
+      last_modified: Per key, the modification stamp a listing and a HEAD both report.
+      sizes: Per key, an override for the reported size, so a test can plant an object larger
+        than the multipart threshold without holding gigabytes of bytes in memory.
+      uploads: In-flight multipart uploads, keyed by upload id.
+      delete_identifiers: Every identifier a batch delete was handed, in order, so a test can
+        assert the per-object ETag a conditional delete is supposed to send.
+      copy_parameters: The keyword arguments of the most recent copy, so the directives a caller
+        passed are assertable rather than inferred from the result.
       page_size: Keys per listing page. Deliberately tiny so ordinary fixtures paginate and the
         continuation branches in the teardown helpers execute in every test that tears a space
         down, not only in the purpose-built multi-page ones.
@@ -141,6 +162,15 @@ class FakeS3:
         self.operations = []
         self.undeletable = set()
         self.page_size = 2
+        self.storage_class = {}
+        self.content_type = {}
+        self.metadata = {}
+        self.tags = {}
+        self.last_modified = {}
+        self.sizes = {}
+        self.uploads = {}
+        self.delete_identifiers = []
+        self.copy_parameters = {}
         self._seq = 0
         self.exceptions = types.SimpleNamespace(
             NoSuchKey=FakeNoSuchKey, ClientError=FakeClientError
@@ -209,7 +239,7 @@ class FakeS3:
         self.etags[(Bucket, Key)] = self._next_etag()
         return {}
 
-    def list_objects_v2(self, Bucket, Prefix, ContinuationToken=None):
+    def list_objects_v2(self, Bucket, Prefix, ContinuationToken=None, Delimiter=None, MaxKeys=None):
         """Lists a prefix one page at a time.
 
         The token is the last key of the page returned — a start-after marker over lexicographic
@@ -231,17 +261,107 @@ class FakeS3:
         keys = sorted(k for (b, k) in self.store if b == Bucket and k.startswith(Prefix))
         if ContinuationToken is not None:
             keys = [k for k in keys if k > ContinuationToken]
-        page, truncated = keys[: self.page_size], len(keys) > self.page_size
+        if Delimiter:
+            common = sorted(
+                {
+                    Prefix + k[len(Prefix) :].split(Delimiter, 1)[0] + Delimiter
+                    for k in keys
+                    if Delimiter in k[len(Prefix) :]
+                }
+            )
+            flat = [k for k in keys if Delimiter not in k[len(Prefix) :]]
+            return {
+                "CommonPrefixes": [{"Prefix": p} for p in common],
+                "Contents": [self._listed(Bucket, k) for k in flat],
+                "IsTruncated": False,
+            }
+        limit = self.page_size if MaxKeys is None else min(self.page_size, MaxKeys)
+        page, truncated = keys[:limit], len(keys) > limit
         # `Size` rides along because S3 always sends it and a caller may refuse an object on it
         # WITHOUT fetching it. A fake omitting it lets such a guard be written against a default
         # that real S3 never supplies, so the guard would be tested against a fiction.
         response = {
-            "Contents": [{"Key": k, "Size": len(self.store[(Bucket, k)])} for k in page],
+            "Contents": [self._listed(Bucket, k) for k in page],
             "IsTruncated": truncated,
         }
         if truncated:
             response["NextContinuationToken"] = page[-1]
         return response
+
+    def _listed(self, Bucket, Key):
+        """Renders one object the way a listing and a HEAD both describe it.
+
+        ``ETag``, ``Size``, ``StorageClass`` and ``LastModified`` ride along because S3 always
+        sends them, and a caller may decide something about an object WITHOUT fetching it — a
+        copy that must preserve the storage class reads it here, and a guard that refuses an
+        oversize object never fetches at all. A fake omitting them lets such code be written
+        against defaults real S3 never supplies.
+
+        Args:
+          Bucket: The bucket.
+          Key: The object key.
+
+        Returns:
+          The object's listing entry.
+
+        Raises:
+          None.
+        """
+        if (Bucket, Key) not in self.etags:
+            self.etags[(Bucket, Key)] = self._next_etag()
+        return {
+            "Key": Key,
+            "ETag": self.etags[(Bucket, Key)],
+            "Size": self.sizes.get((Bucket, Key), len(self.store[(Bucket, Key)])),
+            "StorageClass": self.storage_class.get((Bucket, Key), "STANDARD"),
+            "LastModified": self.last_modified.get((Bucket, Key), "1970-01-01T00:00:00+00:00"),
+        }
+
+    def head_object(self, Bucket, Key):
+        """Reads one object's metadata without its bytes.
+
+        Args:
+          Bucket: The bucket.
+          Key: The object key.
+
+        Returns:
+          The metadata S3 reports — ``ETag``, ``ContentLength``, ``ContentType``, ``Metadata`` and
+          the storage class, but NOT ``Key`` or ``Size``, neither of which a real HEAD returns.
+
+        Raises:
+          FakeClientError: Code ``404`` when the object is absent, which is what S3 raises here.
+            It is deliberately NOT ``NoSuchKey`` — that is the ``GetObject`` shape, and a caller
+            catching it would silently re-raise on every absent object. A fake raising whatever
+            its caller catches agrees with the caller and with nothing else.
+        """
+        if (Bucket, Key) not in self.store:
+            raise FakeClientError("404")
+        listed = self._listed(Bucket, Key)
+        return {
+            "ETag": listed["ETag"],
+            "ContentLength": listed["Size"],
+            "StorageClass": listed["StorageClass"],
+            "LastModified": listed["LastModified"],
+            "ContentType": self.content_type.get((Bucket, Key), "binary/octet-stream"),
+            "Metadata": dict(self.metadata.get((Bucket, Key), {})),
+        }
+
+    def get_object_tagging(self, Bucket, Key):
+        """Reads one object's tag set.
+
+        Args:
+          Bucket: The bucket.
+          Key: The object key.
+
+        Returns:
+          The tag set, empty when the object carries none.
+
+        Raises:
+          FakeClientError: Code ``404`` when the object is absent, as S3 answers.
+        """
+        if (Bucket, Key) not in self.store:
+            raise FakeClientError("404")
+        return {"TagSet": list(self.tags.get((Bucket, Key), []))}
 
     def delete_objects(self, Bucket, Delete):
         """Deletes a batch of objects, reporting the undeletable ones as per-key errors.
@@ -264,6 +384,7 @@ class FakeS3:
         """
         errors = []
         for obj in Delete.get("Objects", []):
+            self.delete_identifiers.append(dict(obj))
             key = obj["Key"]
             if key in self.undeletable:
                 errors.append({"Key": key, "Code": "AccessDenied", "Message": "denied"})
@@ -284,10 +405,17 @@ class FakeS3:
           Bucket: The destination bucket.
           Key: The destination key.
           CopySource: The source, as the mapping boto3 accepts.
-          **kw: Other parameters, accepted and ignored.
+          **kw: ``StorageClass`` and the two directives, which decide what the copy carries. S3
+            preserves NOTHING by default here: a copy that omits ``StorageClass`` lands in
+            ``STANDARD`` whatever the source was, and naming ``ContentType`` would force
+            ``MetadataDirective=REPLACE`` and drop the user metadata. Modelling that is the point —
+            a fake that copied everything unconditionally would pass a caller that preserves none
+            of it. The parameters are also kept on ``copy_parameters`` so a test can assert them.
 
         Returns:
-          An empty response.
+          The ``CopyObjectResult`` carrying the destination's new ETag. It is never equal to a
+          multipart source's ``…-N`` ETag, which is why a caller records this value rather than
+          comparing the two sides.
 
         Raises:
           FakeNoSuchKey: When the source is absent.
@@ -295,10 +423,109 @@ class FakeS3:
         source = (CopySource["Bucket"], CopySource["Key"])
         if source not in self.store:
             raise FakeNoSuchKey()
-        self.store[(Bucket, Key)] = self.store[source]
-        self.etags[(Bucket, Key)] = self._next_etag()
+        destination = (Bucket, Key)
+        self.store[destination] = self.store[source]
+        self.etags[destination] = self._next_etag()
+        if source in self.sizes:
+            self.sizes[destination] = self.sizes[source]
+        self.storage_class[destination] = kw.get("StorageClass", "STANDARD")
+        if kw.get("MetadataDirective", "COPY") == "COPY":
+            self.content_type[destination] = self.content_type.get(
+                source, "binary/octet-stream"
+            )
+            self.metadata[destination] = dict(self.metadata.get(source, {}))
+        if kw.get("TaggingDirective", "COPY") == "COPY":
+            self.tags[destination] = list(self.tags.get(source, []))
+        self.copy_parameters = dict(kw)
         self.operations.append(("copy", CopySource["Key"], Key))
-        return {}
+        return {"CopyObjectResult": {"ETag": self.etags[destination]}}
+
+    def create_multipart_upload(self, Bucket, Key, **kw):
+        """Opens a multipart upload, which is how an object above 5 GiB is copied.
+
+        Args:
+          Bucket: The destination bucket.
+          Key: The destination key.
+          **kw: ``StorageClass`` and anything else, recorded on the upload.
+
+        Returns:
+          The upload id later calls carry.
+
+        Raises:
+          None.
+        """
+        self._seq += 1
+        upload_id = f"upload-{self._seq}"
+        self.uploads[upload_id] = {"Bucket": Bucket, "Key": Key, "parts": [], "kw": dict(kw)}
+        return {"UploadId": upload_id}
+
+    def upload_part_copy(self, Bucket, Key, UploadId, PartNumber, CopySource, CopySourceRange):
+        """Copies one ranged part of a source into an open multipart upload.
+
+        Args:
+          Bucket: The destination bucket.
+          Key: The destination key.
+          UploadId: The open upload.
+          PartNumber: Which part this is, one-based.
+          CopySource: The source, as the mapping boto3 accepts.
+          CopySourceRange: The byte range, ``bytes=start-end``.
+
+        Returns:
+          The part's ETag, under ``CopyPartResult`` as S3 nests it.
+
+        Raises:
+          FakeNoSuchKey: When the source is absent.
+        """
+        source = (CopySource["Bucket"], CopySource["Key"])
+        if source not in self.store:
+            raise FakeNoSuchKey()
+        self._seq += 1
+        etag = f'"part-{self._seq}"'
+        self.uploads[UploadId]["parts"].append(
+            {"PartNumber": PartNumber, "ETag": etag, "Range": CopySourceRange}
+        )
+        return {"CopyPartResult": {"ETag": etag}}
+
+    def complete_multipart_upload(self, Bucket, Key, UploadId, MultipartUpload):
+        """Finishes a multipart upload, materialising the destination.
+
+        The completed ETag carries the ``-N`` suffix real S3 gives a multipart object, because that
+        suffix is exactly why a caller must record the copy's own ETag rather than compare the two
+        sides: a single ``CopyObject`` of the same bytes would never produce it.
+
+        The destination's content type, user metadata and tags come from whatever
+        ``create_multipart_upload`` was given and from NOWHERE else — ``UploadPartCopy`` moves bytes
+        only, and there is no ``MetadataDirective`` on this path. Modelling that is the point: a
+        caller that forgets them ships an object stripped of all three, and a fake that quietly
+        inherited them from the source would pass it.
+
+        Args:
+          Bucket: The destination bucket.
+          Key: The destination key.
+          UploadId: The upload being completed.
+          MultipartUpload: The parts, as the caller assembled them.
+
+        Returns:
+          The destination's ETag.
+
+        Raises:
+          None.
+        """
+        upload = self.uploads.pop(UploadId)
+        self.store[(Bucket, Key)] = b""
+        parts = len(MultipartUpload.get("Parts", []))
+        self._seq += 1
+        self.etags[(Bucket, Key)] = f'"multipart-{self._seq}-{parts}"'
+        opened = upload["kw"]
+        self.storage_class[(Bucket, Key)] = opened.get("StorageClass", "STANDARD")
+        self.content_type[(Bucket, Key)] = opened.get("ContentType", "binary/octet-stream")
+        self.metadata[(Bucket, Key)] = dict(opened.get("Metadata", {}))
+        self.tags[(Bucket, Key)] = [
+            {"Key": k, "Value": v}
+            for k, v in urllib.parse.parse_qsl(opened.get("Tagging", ""))
+        ]
+        self.operations.append(("complete", UploadId, Key))
+        return {"ETag": self.etags[(Bucket, Key)]}
 
     def delete_object(self, Bucket, Key):
         """Deletes one object.
@@ -317,6 +544,22 @@ class FakeS3:
         self.etags.pop((Bucket, Key), None)
         self.operations.append(("delete", Key, None))
         return {}
+
+
+#: The members ``GetTable`` returns that ``TableInput`` will not accept. Named here so a caller
+#: rebuilding a table definition meets them, because Glue always sends them and rejecting them is
+#: what makes an allowlist the only correct shape.
+_GLUE_READ_ONLY_MEMBERS = {
+    "CreateTime": "2026-01-01T00:00:00+00:00",
+    "UpdateTime": "2026-01-01T00:00:00+00:00",
+    "CreatedBy": "arn:aws:sts::1:assumed-role/x/y",
+    "IsRegisteredWithLakeFormation": False,
+    "CatalogId": "1",
+    "VersionId": "1",
+    "Status": {"State": "SUCCEEDED"},
+    "IsMultiDialectView": False,
+    "DatabaseName": "",
+}
 
 
 class FakeGlue:
@@ -346,6 +589,9 @@ class FakeGlue:
         self.created = []
         self.databases = set()
         self.tables = {}
+        self.definitions = {}
+        self.archived = {}
+        self.update_calls = []
         self.undroppable = set()
         self.page_size = 2
         self.exceptions = types.SimpleNamespace(
@@ -409,10 +655,84 @@ class FakeGlue:
         tables = self.tables.get(DatabaseName, [])
         start = int(NextToken or 0)
         page = tables[start : start + self.page_size]
-        response = {"TableList": [{"Name": t} for t in page]}
+        response = {
+            "TableList": [
+                {"Name": t, **self.definitions.get((DatabaseName, t), {})} for t in page
+            ]
+        }
         if start + self.page_size < len(tables):
             response["NextToken"] = str(start + self.page_size)
         return response
+
+    def get_table(self, DatabaseName, Name):
+        """Reads one table's definition.
+
+        Args:
+          DatabaseName: The database.
+          Name: The table.
+
+        Returns:
+          The table, wrapped under ``Table`` as Glue nests it — the seeded definition PLUS the
+          read-only members Glue always populates. Those are the point: ``GetTable`` returns 24
+          members and ``TableInput`` accepts 14, so a caller that rebuilds an update by removing
+          the fields it happens to know about ships one Glue rejects. A fake returning only what a
+          test seeded lets that caller pass, which is the same shape as a fake raising the
+          exception its caller catches.
+
+        Raises:
+          FakeEntityNotFound: When the database or the table is absent.
+        """
+        if Name not in self.tables.get(DatabaseName, []):
+            raise FakeEntityNotFound()
+        return {
+            "Table": {
+                "Name": Name,
+                **_GLUE_READ_ONLY_MEMBERS,
+                "DatabaseName": DatabaseName,
+                **self.definitions.get((DatabaseName, Name), {}),
+            }
+        }
+
+    def update_table(self, DatabaseName, TableInput, SkipArchive=True):
+        """Replaces one table's definition, recording whether a version was retained.
+
+        ``SkipArchive`` is recorded rather than ignored because the retained version IS the
+        rollback for a re-pointed ``LOCATION``: a caller that skipped the archive would leave
+        nothing to read the previous location back from, and no other observable distinguishes
+        the two.
+
+        Args:
+          DatabaseName: The database.
+          TableInput: The new definition.
+          SkipArchive: Whether Glue should skip retaining the previous version.
+
+        Returns:
+          An empty response.
+
+        Raises:
+          FakeParamValidation: When the input carries a member ``TableInput`` does not accept.
+            Real botocore refuses these before the request leaves the process, and modelling that
+            is the point: a caller that rebuilds a definition by REMOVING the read-only fields it
+            knows about ships one Glue rejects, and a fake that accepted anything would pass it.
+          FakeEntityNotFound: When the database or the table is absent.
+        """
+        name = TableInput["Name"]
+        rejected = sorted(set(TableInput) & set(_GLUE_READ_ONLY_MEMBERS))
+        if rejected:
+            raise FakeParamValidation(
+                f"Unknown parameter in TableInput: {', '.join(rejected)}"
+            )
+        if name not in self.tables.get(DatabaseName, []):
+            raise FakeEntityNotFound()
+        if not SkipArchive:
+            self.archived.setdefault(f"{DatabaseName}.{name}", []).append(
+                dict(self.definitions.get((DatabaseName, name), {}))
+            )
+        self.definitions[(DatabaseName, name)] = dict(TableInput)
+        self.update_calls.append(
+            {"DatabaseName": DatabaseName, "Name": name, "SkipArchive": SkipArchive}
+        )
+        return {}
 
     def batch_delete_table(self, DatabaseName, TablesToDelete):
         """Drops a batch of tables, reporting the undroppable ones as per-table errors.

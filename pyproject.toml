@@ -169,6 +169,11 @@ files = [
     # Joins on the same precedent, entering at zero. It decides whether a green is real, so
     # a wrong Optional or a widened dict here reports a pass nobody checked.
     "scripts/watch_ci.py",
+    # The one-shot that moves the app-managed folders. It joins the ratchet WITH the change that
+    # creates it, entering at zero, on the precedent above. Its failure mode is the reason: it
+    # deletes production objects against a persisted record, so a wrong Optional or a widened dict
+    # here is a deletion decided on a value the type checker could not see.
+    "scripts/migrate_system_settings.py",
     # The Terraform reader every infrastructure suite asserts through. It joins the ratchet with
     # the change that extends it, on the precedent above and for its reason: its failure mode is
     # a scanner that returns a SMALLER slice, which leaves every assertion over it green while

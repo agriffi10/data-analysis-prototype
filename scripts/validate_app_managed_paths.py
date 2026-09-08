@@ -111,6 +111,11 @@ OWNER_IDENTIFIERS = (
 )
 
 _PY_EXCLUDED_PREFIXES = ("test_", "conftest.", "fakes.")
+_PY_TREES = ("lambdas", "scripts")
+_PY_SELF_EXCLUDED = (
+    "scripts/validate_app_managed_paths.py",
+    "scripts/validate_app_managed_paths_test.py",
+)
 _PATH_SHAPED = "|".join(re.escape(name) for name in sorted(PATH_SHAPED))
 _SEGMENT = re.compile(rf"(?:^|/)({_PATH_SHAPED})/")
 _TS_LITERAL = re.compile(rf"""(['"`])/?({_PATH_SHAPED})/?\1""")
@@ -151,11 +156,17 @@ def _finding(rel: str, line: int, folder: str, verb: str, rule: str) -> str:
     return f"{rel}:{line}: {folder} {verb} outside its owner ({rule})"
 
 
-def _python_modules() -> list[pathlib.Path]:
-    """Every shipped Python module under ``lambdas/``, owners included, tests excluded.
+def _python_modules(tree: str = "lambdas") -> list[pathlib.Path]:
+    """Every shipped Python module under one tree, owners included, tests excluded.
+
+    ``scripts/`` is swept as well as ``lambdas/`` because the migration runner builds app-managed
+    paths and must import the names rather than spell them. The sweep's own module and its corpus
+    are excluded BY PATH rather than by the filename prefixes: those match with ``startswith`` and
+    cannot reach a ``_test.py`` suffix, and both files spell every folder name as the rule they
+    enforce.
 
     Args:
-      None.
+      tree: The directory under the repository root to enumerate.
 
     Returns:
       The sorted module paths.
@@ -165,8 +176,10 @@ def _python_modules() -> list[pathlib.Path]:
     """
     return sorted(
         path
-        for path in (ROOT / "lambdas").rglob("*.py")
-        if not path.name.startswith(_PY_EXCLUDED_PREFIXES) and "__pycache__" not in path.parts
+        for path in (ROOT / tree).rglob("*.py")
+        if not path.name.startswith(_PY_EXCLUDED_PREFIXES)
+        and "__pycache__" not in path.parts
+        and path.relative_to(ROOT).as_posix() not in _PY_SELF_EXCLUDED
     )
 
 
@@ -445,11 +458,23 @@ def main() -> int:
         if not (ROOT / owner).is_file():
             print(f"hard error: owner file {owner} is missing — the sweep cannot tell a declaration from its owner")
             return 2
-    py_modules = [p for p in _python_modules() if p.relative_to(ROOT).as_posix() not in PY_OWNERS]
+    per_tree = {
+        tree: [
+            p
+            for p in _python_modules(tree)
+            if p.relative_to(ROOT).as_posix() not in PY_OWNERS
+        ]
+        for tree in _PY_TREES
+    }
     ts_modules = [p for p in _ts_modules() if p.relative_to(ROOT).as_posix() != TS_OWNER]
-    if not py_modules or not ts_modules:
-        print(f"hard error: nothing to sweep ({len(py_modules)} Python modules, {len(ts_modules)} TypeScript modules besides the owners)")
+    empty = [tree for tree, found in per_tree.items() if not found]
+    if not ts_modules:
+        empty.append("apps/portal/src")
+    if empty:
+        counts = ", ".join(f"{tree}: {len(per_tree.get(tree, ts_modules))}" for tree in empty)
+        print(f"hard error: nothing to sweep in {', '.join(empty)} ({counts} modules besides the owners)")
         return 2
+    py_modules = [path for tree in _PY_TREES for path in per_tree[tree]]
     findings: list[str] = []
     for path in py_modules:
         findings += _sweep_python_module(path)

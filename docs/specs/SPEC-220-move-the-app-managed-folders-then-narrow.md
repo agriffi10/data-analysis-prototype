@@ -435,7 +435,11 @@ class Record(TypedDict):        # persisted at s3://{admin bucket}/migration/sys
                                 # written every 500 keys; run_id is GITHUB_RUN_ID, printed to the step summary
     run_id: str
     started: str
-    keys: dict[str, Recorded]   # per source key
+    keys: dict[str, Recorded]   # per source object, keyed "{bucket}|{key}" — a space name is unique
+                                #   WITHIN a bucket and not across the two, so a user `alice` and a
+                                #   shared space `alice` can each hold the same key; keyed by the
+                                #   key alone they collapse, and the run then reports a deletion it
+                                #   did not make and omits one it did
     tables: dict[str, str]      # "database.table" -> the LOCATION it was re-pointed FROM
     conflicts: list[str]
     oversize: list[str]
