@@ -974,6 +974,57 @@ def test_the_capturing_fixture_collects_through_the_shared_harness(captured_even
     assert captured_events.spans("probe-verb"), "no span named probe-verb"
 
 
+def test_a_read_of_the_shared_sink_drains_so_an_absence_means_nothing_was_emitted(
+    captured_events,
+):
+    """The property every absence assertion written over `captured_events` rests on.
+
+    An event emitted with no span open is delivered synchronously; one emitted INSIDE a span is
+    buffered until the worker flushes. So a helper that narrates and then gains a step stops
+    delivering before the assertion that reads it, and an undrained read answers "nothing has
+    been flushed yet" — green for exactly the same assertions as "nothing was emitted", with no
+    way to tell the two apart.
+
+    THE TWO HALVES ARE ONE TEST DELIBERATELY, and the spec's own acceptance criterion asks for
+    something that cannot exist. It says to mutation-test the drain "against a test that asserts
+    an absence"; removing a drain can only make an absence assertion MORE likely to pass, so no
+    absence alone can detect it. The presence half is the half that dies when the drain is
+    removed, and it is what makes the absence half mean anything.
+
+    Args:
+      captured_events: The shared capturing sink.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+
+    @observability.step("probe-step")
+    def narrating_step():
+        """Narrates from inside a span, so its event is buffered rather than delivered.
+
+        Args:
+          None.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
+        observability.info("emitted inside a span")
+
+    narrating_step()
+
+    assert captured_events.messages("emitted inside a span"), (
+        "the read did not drain the worker, so every absence assertion over this sink means "
+        "'nothing has been flushed yet' rather than 'nothing was emitted'"
+    )
+    assert captured_events.messages("never emitted at all") == []
+
+
 def test_every_event_carries_the_build_stamp_and_the_verb(sink):
     """The two fields a record is useless without, asserted where they are cheapest to lose.
 

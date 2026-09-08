@@ -177,29 +177,195 @@ for _name, _value in _REQUIRED_ENV.items():
 
 
 class _CapturingSink:
-    """Collects emitted events so a verb test can assert on what it narrated."""
+    """Collects emitted events so a verb test can assert on what it narrated.
+
+    Every read DRAINS log-foundry's worker first, and that is a property the readers exist for
+    rather than a convenience. An event emitted with no span open is delivered synchronously;
+    one emitted INSIDE a span is buffered until the worker flushes. So the moment a narrating
+    helper gains an ``observability.step``, its existing events stop arriving before the
+    assertion that reads them — and an absence over an undrained sink means "nothing has been
+    flushed yet", which is green for exactly the same assertions as "nothing was emitted" and
+    cannot be told apart from it.
+
+    The drain reaches the sinks this fixture hands out and no others. Two suites configure
+    collectors of their own — ``control-plane-common/test_observability_cpcommon.py`` and
+    ``log-sweep/test_log_sweep.py`` — and each stays responsible for its own flushing.
+
+    Attributes:
+      _events: Every event delivered to ``emit``, in delivery order. Private so that ``events``
+        can be the draining reader: ``emit`` appends here directly, which is what keeps a drain
+        triggered by a read from re-entering the flush that caused it.
+    """
 
     def __init__(self):
-        self.events = []
+        """Starts with no events.
+
+        Args:
+          None.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
+        self._events = []
 
     def emit(self, batch):
-        self.events.extend(batch)
+        """Keeps one delivered batch.
+
+        Appends to the private list rather than through ``events``: a read drains, and a drain
+        delivers, so going through the property here would re-enter the flush it triggered.
+
+        Args:
+          batch: The events log-foundry is delivering.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
+        self._events.extend(batch)
 
     def close(self):
-        pass
+        """Releases nothing.
+
+        Args:
+          None.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
+
+    def _drain(self):
+        """Flushes log-foundry's worker, but only while this sink is the live one.
+
+        The guard is not defensive tidiness. ``flush`` delivers to whatever sink the library is
+        configured with, not to the one being read — so draining from a RETIRED collector, which
+        every teardown creates, would push its pending events into somebody else's collector as
+        a side effect of reading this one.
+
+        ``observability.flush`` rather than ``log_foundry.flush`` because it swallows. A read is
+        expected to answer, and a caller reaching this through ``getattr(sink, "events", None)``
+        would otherwise see a library fault as an absent attribute — a wrong verdict rather than
+        a failure.
+
+        Args:
+          None.
+
+        Returns:
+          None.
+
+        Raises:
+          None. A library that cannot report its configuration leaves the collected events as
+          they stand rather than failing the read.
+        """
+        import log_foundry as lf
+        from cpcommon import observability
+
+        try:
+            live = lf.get_config().sink
+        except Exception:  # noqa: BLE001
+            return
+        if live is self:
+            observability.flush()
+
+    @property
+    def events(self):
+        """Every event delivered so far, with the worker drained first.
+
+        Args:
+          None.
+
+        Returns:
+          The collected events, in delivery order.
+
+        Raises:
+          None.
+        """
+        self._drain()
+        return self._events
 
     def messages(self, message):
+        """Every event carrying one literal message.
+
+        Args:
+          message: The literal message to match.
+
+        Returns:
+          The matching events.
+
+        Raises:
+          None.
+        """
         return [e for e in self.events if e["message"] == message]
 
     def levels(self):
-        """Everything that is not a span boundary — the narrative proper."""
+        """Everything that is not a span boundary — the narrative proper.
+
+        Args:
+          None.
+
+        Returns:
+          The non-boundary events.
+
+        Raises:
+          None.
+        """
         return [e for e in self.events if e["message"] not in ("span.start", "span.end")]
 
     def spans(self, function):
+        """Every span opened under one function name, root or child.
+
+        Args:
+          function: The span's ``function`` field.
+
+        Returns:
+          The matching ``span.start`` events.
+
+        Raises:
+          None.
+        """
         return [
             e
             for e in self.events
             if e["message"] == "span.start" and e["function"] == function
+        ]
+
+    def child_spans(self, parent_function, name=None):
+        """The child spans opened inside one named span.
+
+        Read from ONE snapshot of the events rather than from two: a parent set and a child set
+        taken either side of a delivery would pair spans from different moments, and the
+        mismatch would present as a child that is missing rather than as a race.
+
+        Args:
+          parent_function: The parent span's ``function`` — a verb's root span name.
+          name: Restrict to child spans of this name, or None for every child.
+
+        Returns:
+          The ``span.start`` events whose ``parent_span_id`` is a span id of
+          ``parent_function``.
+
+        Raises:
+          None.
+        """
+        collected = list(self.events)
+        parents = {
+            e["span_id"]
+            for e in collected
+            if e["message"] == "span.start" and e.get("function") == parent_function
+        }
+        return [
+            e
+            for e in collected
+            if e["message"] == "span.start"
+            and e.get("parent_span_id") in parents
+            and (name is None or e.get("function") == name)
         ]
 
 
