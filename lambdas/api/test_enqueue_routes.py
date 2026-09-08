@@ -10,6 +10,7 @@ successful send looks identical to one issued before it from the caller's side.
 
 import json
 import pathlib
+from types import SimpleNamespace
 
 import handler as api_handler
 import pytest
@@ -18,6 +19,7 @@ from apicommon import contract
 from apicommon import enqueue as enqueue_module
 from apicommon.envelope import ApiError
 from conftest import bearer
+from cpcommon.auth import Principal
 
 _QUEUE_ENV = {
     queue.env_var: f"https://sqs.test/1/{queue.id}.fifo" for queue in contract.QUEUES
@@ -500,6 +502,32 @@ def test_a_caller_cannot_choose_the_traceparent_at_either_door(sqs, captured_eve
     assert all(e["trace_id"] != "11111111111111111111111111111111" for e in starts), (
         "a caller's HTTP body set the trace id of this service's API span"
     )
+
+
+def test_the_stamp_beats_a_payload_key_of_the_same_name():
+    """`build_message` is asserted DIRECTLY, because nothing else in this file can reach it.
+
+    Every route-driven test goes through the contract, which refuses an undeclared body key, so
+    a caller cannot put `traceparent` in a payload today and every route-driven assertion about
+    the stamp winning passes without exercising the ordering at all. Measured: reversing the two
+    spreads in `build_message` — which hands a caller's key straight through — left this file and
+    the envelope sweep entirely green before this test existed.
+
+    The ordering is what FR-002 calls the outbound half of the boundary, and it has to hold on
+    its own merits: the day a route declares a free-form block, the contract stops standing in
+    front of it.
+    """
+    route = next(r for r in contract.ENQUEUE_ROUTES if r.id == "fileSend.enqueue")
+    ctx = SimpleNamespace(principal=Principal(username="alice", claims={}))
+    caller = "00-11111111111111111111111111111111-2222222222222222-01"
+
+    message = enqueue_module.build_message(route, ctx, {"traceparent": caller, "keep": "me"})
+
+    assert message["traceparent"] != caller, (
+        "a caller-supplied traceparent survived into the sent message; the payload is spread "
+        "BEFORE the stamped values for exactly this reason"
+    )
+    assert message["keep"] == "me", "the payload stopped being carried at all"
 
 
 def test_the_traceparent_fits_inside_the_cap_and_the_refusal_still_fires():
