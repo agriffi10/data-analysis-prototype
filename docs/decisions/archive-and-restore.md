@@ -372,7 +372,7 @@ which builds and serialises it, and by delete-source, which loads it back. `ARCH
 **3 TiB** is sized by the machine's own `TimeoutSeconds` at a **makespan** rate
 (`MAP_MAX_CONCURRENCY × CONSERVATIVE_STREAM_BYTES_PER_SECOND` = 500 MB/s), never the aggregate the
 same constants suggest multiplied together; the test adds the copy, the per-child overhead of
-20,000 items in batches of 8, and the seven serial verbs (~8,100s against 10,800s). Unlike
+20,000 items in batches of 8, and the seven serial verbs (~8,100s against 43,200s). Unlike
 file-send there is no product cap beside it: an archive has one destination, so the source cap IS
 the transfer cap.
 
@@ -731,8 +731,9 @@ leave out: how many objects came back, that the archive is intact and still rest
 same id, and that **requesting it again will report the files that DID land**. Without that last
 sentence the obvious next action produces a `destination_occupied` refusal that reads like a new bug
 on top of the old one. It is also the one body on this plane that describes a partial outcome, so
-`test_no_body_promises_a_partial_outcome` gained a named exemption set rather than a skipped
-assertion — a second body drifting into partial wording has to be argued for.
+`test_no_body_promises_a_partial_outcome_except_the_one_that_is` gained a named exemption
+set rather than a skipped assertion — a second body drifting into partial wording has to be
+argued for.
 
 **The vault sweep's failure does NOT fail the run, where the source deletion's does.** Same
 algorithm, opposite consequence: a half-deleted source means a user told their archive completed
