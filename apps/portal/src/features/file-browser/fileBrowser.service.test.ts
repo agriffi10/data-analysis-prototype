@@ -16,6 +16,7 @@ import {
   __resetPrefixMarkerCache
 } from './fileBrowser.service';
 import {maxUploadBytes, S3_SINGLE_PUT_MAX_BYTES} from './uploadLimits';
+import {MOVING_FOLDERS, SYSTEM_SETTINGS_FOLDER} from '../../lib/appManagedPaths';
 import {mockApi, apiFailure} from '../../test/apiMock';
 import {toUserText} from '../../lib/errorMessages';
 
@@ -1160,5 +1161,49 @@ describe('the passthrough codes this surface owns are minted CLIENT-SIDE (FR-010
     for (const code of ['Collision', 'ProtectedObject', 'InvalidName', 'TooLarge']) {
       expect(toUserText({code, message: 'the service’s own sentence.'})).toBe('the service’s own sentence.');
     }
+  });
+});
+
+describe('validateFolderName reserves the app-managed folder', () => {
+  it('refuses the name the app manages', () => {
+    // Moved here from the group row's own suite when that row was deleted. The reason changed
+    // with it: the name used to be spent on a disclosure row that stood in for a prefix which did
+    // not exist, and it is now a real folder holding the results, receipts and shared tables the
+    // app writes. The refusal outlives the row because the collision it prevents is the same one
+    // — two rows of that name at a space root, and a user hunting archive ids opening the wrong.
+    expect(validateFolderName(SYSTEM_SETTINGS_FOLDER)).toMatch(/folder the app manages/);
+  });
+
+  it('leaves ordinary names, and near-misses, alone', () => {
+    // Exact match only: a differently-cased or suffixed name is a distinct row and reads as one.
+    expect(validateFolderName('reports')).toBeNull();
+    expect(validateFolderName('System_Settings')).toBeNull();
+    expect(validateFolderName('system_settings_old')).toBeNull();
+  });
+});
+
+describe('validateFolderName refuses the app’s own folders inside system_settings', () => {
+  // `system_settings/` is writable — no IAM Deny names it — so without this a user can create
+  // `system_settings/archive/` themselves, and every rule then treats it as the app's: read-only
+  // inside, undeletable, unrenamable, unarchivable, permanently, at the path the restore dialog
+  // sends people to for their archive ids.
+  it.each(MOVING_FOLDERS)('refuses “%s” when the parent is the app’s folder', (folder) => {
+    expect(validateFolderName(folder, 'alice/system_settings/')).toMatch(/the app manages inside/);
+  });
+
+  it('leaves those same names alone anywhere else, which is the settled decision', () => {
+    // Reserving them generally was considered and rejected: they are ordinary user paths once the
+    // migration retires them, and refusing at every depth would take `alice/projects/archive/`
+    // with it. This guard is scoped to the ONE parent where the collision is real.
+    for (const folder of MOVING_FOLDERS) {
+      expect(validateFolderName(folder)).toBeNull();
+      expect(validateFolderName(folder, 'alice/')).toBeNull();
+      expect(validateFolderName(folder, 'alice/projects/')).toBeNull();
+    }
+  });
+
+  it('still refuses the app’s folder itself at every depth, parent or no parent', () => {
+    expect(validateFolderName(SYSTEM_SETTINGS_FOLDER)).toMatch(/folder the app manages/);
+    expect(validateFolderName(SYSTEM_SETTINGS_FOLDER, 'alice/projects/')).toMatch(/folder the app manages/);
   });
 });

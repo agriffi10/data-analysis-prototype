@@ -72,13 +72,28 @@ function listing(prefix: string) {
       ],
       folders: [
         {type: 'folder', prefix: 'alice/reports/', name: 'reports'},
+        // Both homes, which is the root as it actually stands between the write switch and the
+        // migration's finish run: the depth-one folders still hold every object written before
+        // the switch, and every rule keeps refusing at both because they read the plural builder.
         {type: 'folder', prefix: 'alice/archive/', name: 'archive'},
-        {type: 'folder', prefix: 'alice/athenaresults/', name: 'athenaresults'}
+        {type: 'folder', prefix: 'alice/athenaresults/', name: 'athenaresults'},
+        {type: 'folder', prefix: 'alice/system_settings/', name: 'system_settings'}
+      ]
+    },
+    'alice/system_settings/': {
+      files: [],
+      folders: [
+        {type: 'folder', prefix: 'alice/system_settings/archive/', name: 'archive'},
+        {type: 'folder', prefix: 'alice/system_settings/athenaresults/', name: 'athenaresults'}
       ]
     },
     'alice/archive/': {
       files: [],
       folders: [{type: 'folder', prefix: `alice/archive/${ARCHIVE_ID}/`, name: ARCHIVE_ID}]
+    },
+    'alice/system_settings/archive/': {
+      files: [],
+      folders: [{type: 'folder', prefix: `alice/system_settings/archive/${ARCHIVE_ID}/`, name: ARCHIVE_ID}]
     },
     'alice/athenaresults/': {
       files: [
@@ -91,18 +106,31 @@ function listing(prefix: string) {
         }
       ],
       folders: []
+    },
+    'alice/system_settings/athenaresults/': {
+      files: [
+        {
+          type: 'file',
+          key: 'alice/system_settings/athenaresults/q1.csv',
+          name: 'q1.csv',
+          size: 10,
+          lastModified: new Date('2026-01-01')
+        }
+      ],
+      folders: []
     }
   };
   return {success: true, data: {...(rows[prefix] ?? {files: [], folders: []}), nextToken: undefined}};
 }
 
 /**
- * Open the `system_settings` group row. `athenaresults/` and `archive/` are inside it, so
- * every path that reaches one of them starts here — which is also what these tests are
- * asserting stays reachable now that the row collapses them by default.
+ * Open the real `system_settings` folder. It used to be a disclosure row that expanded in place;
+ * it is now an ordinary folder that opens into its own listing, which is the whole point of the
+ * change — the row was standing in for a prefix that did not exist, and now it does. Every path
+ * that reaches `archive/` or `athenaresults/` at their new home starts here.
  */
-async function expandSystemFolders(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(await screen.findByRole('button', {name: /^system_settings:/}));
+async function openSystemSettings(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole('button', {name: 'Open folder system_settings'}));
 }
 
 function renderBrowser(props: Partial<Parameters<typeof FileBrowser>[0]> = {}) {
@@ -221,7 +249,7 @@ describe('the archive journey', () => {
     const api = programmedApi();
     renderBrowser();
 
-    await expandSystemFolders(user);
+    await openSystemSettings(user);
     await user.click(await screen.findByRole('checkbox', {name: 'Select folder athenaresults'}));
     const archive = screen.getByRole('button', {name: 'Archive selected items'});
 
@@ -241,7 +269,7 @@ describe('the archive journey', () => {
     const api = programmedApi();
     renderBrowser();
 
-    await expandSystemFolders(user);
+    await openSystemSettings(user);
     await user.click(await screen.findByRole('button', {name: 'Open folder athenaresults'}));
     await user.click(await screen.findByRole('button', {name: 'Details for q1.csv'}));
     const archive = await screen.findByRole('button', {name: 'Archive this item'});
@@ -305,7 +333,7 @@ describe('the restore journey', () => {
 describe('the archive folder is read-only in the browser', () => {
   async function browseIntoArchive(user: ReturnType<typeof userEvent.setup>) {
     renderBrowser();
-    await expandSystemFolders(user);
+    await openSystemSettings(user);
     await user.click(await screen.findByRole('button', {name: 'Open folder archive'}));
     return screen.findByText(ARCHIVE_ID);
   }

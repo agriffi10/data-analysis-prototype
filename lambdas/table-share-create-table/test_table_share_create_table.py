@@ -115,7 +115,7 @@ def test_renders_and_runs_the_clone_ddl_against_the_recipient_db():
     call = fake.calls[0]
     assert call["database"] == "bob"
     assert call["workgroup"] == "test-workgroup"
-    assert call["output_location"] == "s3://user-bkt/bob/athenaresults/alice/"
+    assert call["output_location"] == "s3://user-bkt/bob/system_settings/athenaresults/alice/"
 
     query = call["query"]
     assert query.startswith("CREATE EXTERNAL TABLE IF NOT EXISTS `bob`.`orders_copy` (")

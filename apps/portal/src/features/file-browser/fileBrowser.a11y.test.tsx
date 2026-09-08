@@ -4,7 +4,6 @@ import {expectNoA11yViolations, expectContainerHasNoA11yViolations, COMPONENT_AX
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {CollisionPrompt} from './CollisionPrompt';
 import {DestinationPicker} from './DestinationPicker';
-import {SystemFolderGroupRow} from './SystemFolderGroupRow';
 import {UploadList} from './UploadList';
 import {useUploadQueue} from './uploadQueueContext';
 import type {UploadQueueContextValue} from './uploadQueueContext';
@@ -127,33 +126,5 @@ describe('DestinationPicker accessibility', () => {
 
     await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
     cleanup();
-  });
-});
-
-describe('SystemFolderGroupRow accessibility', () => {
-  /**
-   * Both states are INPUTS here, not outcomes: the row is controlled, so `expanded` is a prop
-   * and driving a click would assert the same tree by a longer route. The `<ul>` wrapper is
-   * required rather than decorative — the row is an `<li>`, and axe's list rules judge it by
-   * the parent it is placed in, which is the listing in production.
-   */
-  it.each([
-    ['grid', 'collapsed', false],
-    ['grid', 'expanded', true],
-    ['mobile', 'collapsed', false],
-    ['mobile', 'expanded', true]
-  ] as const)('%s variant, %s, has no violations', async (variant, _label, expanded) => {
-    await expectNoA11yViolations(
-      <ul>
-        <SystemFolderGroupRow
-          count={3}
-          expanded={expanded}
-          onToggle={noop}
-          selectable
-          variant={variant}
-        />
-      </ul>,
-      COMPONENT_AXE_OPTIONS
-    );
   });
 });

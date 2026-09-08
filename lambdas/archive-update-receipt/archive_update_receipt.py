@@ -1,6 +1,6 @@
 """update-receipt — the archive's receipt, rewritten to say what the restore did.
 
-The receipt at ``{spaceRoot}archive/{archiveId}/receipt.txt`` is the only
+The receipt at ``{spaceRoot}system_settings/archive/{archiveId}/receipt.txt`` is the only
 artifact of an archive the user can see, and it carries two fields that have been placeholders
  wrote it. This verb fills them in. **It rewrites; it never deletes and never
 re-renders the whole document** — the archive lines record the archive RUN, and its start time

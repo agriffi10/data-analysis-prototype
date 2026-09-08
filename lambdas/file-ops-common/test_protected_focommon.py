@@ -24,12 +24,32 @@ def test_a_paste_into_either_home_of_a_locked_folder_is_refused_alike(home):
     """``_is_under_root_folder``, the picker mirror — the folder itself and anything under it.
 
     **The DETAIL is asserted, not just the reason.** ``system_settings`` is itself in this list, so
-    a rule that learned only the depth-one home still refuses ``alice/system_settings/shared_tables/``
+    a rule that learned only the depth-one home still refuses ``alice/system_settings/athenaresults/``
     — as the settings prefix, with the same reason code. Measured: reverting the rule to the
     singular builder leaves a reason-only assertion green, which is the shape of a test that
     covers nothing.
+
+    The subject is ``athenaresults`` because it is one of the two folders that MOVE, so it genuinely
+    has both homes to be refused at. ``shared_tables`` stays at the space root — the tables in it
+    were sent to this space and are the user's to edit — so it has one home, asserted below.
     """
-    refusal = destination_refusal("alice/", home.format("shared_tables"), "personal")
+    refusal = destination_refusal("alice/", home.format("athenaresults"), "personal")
+
+    assert refusal is not None
+    assert refusal.reason == "destination_folder_locked"
+    assert refusal.detail.startswith("athenaresults/")
+
+
+def test_shared_tables_is_refused_as_a_paste_target_at_its_one_home():
+    """It does not move, and it is still not a paste target.
+
+    Those are separate facts and it is worth keeping both visible. The folder stays at the space
+    root because a shared table is data another space sent this one, and the user may edit it; it
+    is refused as a PASTE destination for a different reason entirely — the share pipeline owns the
+    layout, and a table's files acquiring neighbours is how a later projection read starts returning
+    rows nobody wrote.
+    """
+    refusal = destination_refusal("alice/", "alice/shared_tables/", "personal")
 
     assert refusal is not None
     assert refusal.reason == "destination_folder_locked"

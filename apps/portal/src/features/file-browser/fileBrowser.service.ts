@@ -1,5 +1,5 @@
 import {apiRequest} from '../../lib/apiClient';
-import {SYSTEM_FOLDER_GROUP_NAME} from './systemFolders';
+import {MOVING_FOLDERS, SYSTEM_SETTINGS_FOLDER} from '../../lib/appManagedPaths';
 import {spaceFor} from '../../lib/objectSpace';
 import {fromApiFailure, ok} from '../../lib/serviceResult';
 import type {FileListPage} from '../../types/s3.types';
@@ -434,18 +434,40 @@ export function validateLeafName(name: string, label: string): string | null {
 /**
  * Validates a new folder name before any request. Returns an error message, or null if valid.
  *
- * Refuses `system_settings` on top of the leaf rules, because the listing spends that name on
- * the group row that gathers the app-managed folders. A real folder wearing it puts two rows
- * of the same name at a space root — one openable, one a disclosure — and the path that pays
- * is archive discovery: a user hunting for the id a restore needs opens the empty one they
- * made and concludes the receipts are gone. Refused at every depth rather than only at the
- * root, so the name means one thing wherever it is read.
+ * Refuses `system_settings` on top of the leaf rules, because that folder is the app's: it holds
+ * the results, receipts and shared tables the app writes on the user's behalf, and it carries
+ * protections a user's own folder does not. A second folder wearing the name puts two rows of it
+ * at a space root, and the path that pays is archive discovery — a user hunting for the id a
+ * restore needs opens the empty one they made and concludes the receipts are gone. Refused at
+ * every depth rather than only at the root, so the name means one thing wherever it is read.
+ *
+ * **Given the parent it would be created in, it also refuses the app's own folder names INSIDE
+ * `system_settings/`.** That prefix is writable — no IAM Deny names it — so without this a user
+ * can mint `system_settings/archive/` themselves, and the rules then treat it exactly as the app's:
+ * read-only inside, undeletable, unrenamable, unarchivable. Permanently, at the very path the
+ * restore dialog sends people to for their archive ids.
+ *
+ * **It covers the dialogs and nothing else, and that is worth stating plainly rather than
+ * discovering.** Uploads, pastes and plane-side moves create folders without ever calling this, so
+ * the same collision is still reachable by those routes. This is a courtesy on the path a user
+ * actually takes, not a boundary — read as a boundary it would be worse than absent, because
+ * someone downstream would stop looking for the real one.
+ *
+ * @param name - The proposed leaf name.
+ * @param parentPrefix - The prefix the folder would be created in, when the caller knows it.
+ *   Omitted, only the name rules apply.
  */
-export function validateFolderName(name: string): string | null {
+export function validateFolderName(name: string, parentPrefix?: string): string | null {
   const leaf = validateLeafName(name, 'Folder name');
   if (leaf !== null) return leaf;
-  if (name === SYSTEM_FOLDER_GROUP_NAME)
-    return `“${SYSTEM_FOLDER_GROUP_NAME}” is a name the file list uses. Pick another.`;
+  if (name === SYSTEM_SETTINGS_FOLDER)
+    return `“${SYSTEM_SETTINGS_FOLDER}” is a folder the app manages. Pick another name.`;
+  if (
+    parentPrefix !== undefined &&
+    parentPrefix.replace(/\/$/, '').split('/').pop() === SYSTEM_SETTINGS_FOLDER &&
+    (MOVING_FOLDERS as readonly string[]).includes(name)
+  )
+    return `“${name}” is a folder the app manages inside ${SYSTEM_SETTINGS_FOLDER}. Pick another name.`;
   return null;
 }
 

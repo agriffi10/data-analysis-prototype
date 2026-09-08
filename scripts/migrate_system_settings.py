@@ -2,7 +2,13 @@
 
 This is the step between two merges. The first merge switches where new writes go; this
 module copies what is already there and, after every live check has passed, deletes the sources; the
-second merge then removes the old home's fences. It is a runner script rather than a fleet function
+second merge then removes the old home's fences.
+
+**It moves OBJECTS and nothing else.** ``shared_tables/`` does not move — the tables in it were sent
+to this space and are the user's to edit, which is the opposite of what the app-managed folder
+means — so no Glue ``LOCATION`` points anywhere this migration changes, and there is no catalog
+work, no Lake Formation probe and no ``UpdateTable``. That is the whole reason this module talks to
+S3 alone. It is a runner script rather than a fleet function
 because the deploy role already holds ``s3:*`` on both space buckets, is a Lake Formation data-lake
 admin, and is named in the user-space bucket-policy allowlist — a new function would need a role the
 allowlist does not name, and its first ``CopyObject`` would be ``AccessDenied`` behind a green apply.
@@ -38,13 +44,6 @@ Attributes:
   DELETE_BATCH: The most keys one ``DeleteObjects`` may carry, per the S3 API.
   VERIFY_SAMPLE: How many recorded keys per bucket ``verify`` reads back by default.
   SKIPPED_ROOTS: The user-space bucket's non-space prefixes. Neither holds a space.
-  TABLE_INPUT_FIELDS: The fields a Glue table update accepts. An ALLOWLIST, not a denylist of what
-    a read adds, and the difference is not cosmetic: a read returns 24 members and the input
-    accepts 14, so a denylist has to name 10 and goes stale the next time AWS adds a field. A
-    field the input rejects fails the whole call — and it fails it after the objects have been
-    copied and before the record is written, which is the worst moment in the run to raise. The
-    refresh verb reached the same conclusion and carries the same list; a test pins both against
-    botocore's own service model.
 """
 
 from __future__ import annotations
@@ -83,25 +82,6 @@ DELETE_BATCH = 1000
 VERIFY_SAMPLE = 20
 SKIPPED_ROOTS = ("_config/", "_directory/")
 
-TABLE_INPUT_FIELDS = frozenset(
-    {
-        "Name",
-        "Description",
-        "Owner",
-        "LastAccessTime",
-        "LastAnalyzedTime",
-        "Retention",
-        "StorageDescriptor",
-        "PartitionKeys",
-        "ViewOriginalText",
-        "ViewExpandedText",
-        "TableType",
-        "Parameters",
-        "TargetTable",
-        "ViewDefinition",
-    }
-)
-
 
 class Recorded(TypedDict):
     """One source key's record, written by ``copy`` and read by every later mode.
@@ -129,8 +109,6 @@ class Record(TypedDict):
         pass it to every later mode.
       started: When ``copy`` first wrote this record, ISO-8601.
       keys: Per source key, what was copied.
-      tables: ``"database.table"`` to the ``LOCATION`` it was re-pointed FROM, so a rollback has
-        somewhere to read the previous value.
       conflicts: Source keys whose destination exists and does not match the record.
       oversize: Keys copied in parts rather than in one call.
       oversize_done: Which of those finished, informational.
@@ -141,7 +119,6 @@ class Record(TypedDict):
     run_id: str
     started: str
     keys: dict[str, Recorded]
-    tables: dict[str, str]
     conflicts: list[str]
     oversize: list[str]
     oversize_done: list[str]
@@ -302,32 +279,6 @@ def destination_of(key: str, space_root: str) -> str:
     return new_prefix(space_root, folder) + key[len(old_prefix(space_root, folder)) :]
 
 
-def migrated_location(location: str, space_root: str) -> str:
-    """Maps a Glue ``LOCATION`` under the old shared-tables prefix to its new one.
-
-    Args:
-      location: The table's current ``LOCATION``, an ``s3://`` URI.
-      space_root: The space root whose tables are being re-pointed.
-
-    Returns:
-      The re-pointed ``LOCATION``.
-
-    Raises:
-      Refusal: ``location_not_migrated`` when the location is not under the old shared-tables
-        prefix for this space — including one already at the new home, which needs no re-point.
-        The test is a PREFIX match on the path, not a substring match on the URI: the two disagree
-        whenever the folder name appears deeper in the key, and where they disagree the slice below
-        produces a plausible-looking destination that is simply wrong.
-    """
-    folder = MOVING_FOLDERS[2]
-    marker = old_prefix(space_root, folder)
-    scheme, _, rest = location.partition("://")
-    bucket, _, path = rest.partition("/")
-    if scheme != "s3" or not path.startswith(marker):
-        raise Refusal("location_not_migrated", location)
-    return f"s3://{bucket}/{new_prefix(space_root, folder)}{path[len(marker) :]}"
-
-
 def supports_conditional_delete(s3: Any) -> bool:
     """Reports whether this runtime can send a per-object ETag on ``DeleteObjects``.
 
@@ -429,7 +380,6 @@ def empty_record(run_id: str) -> Record:
         run_id=run_id,
         started=datetime.datetime.now(tz=datetime.UTC).isoformat(),
         keys={},
-        tables={},
         conflicts=[],
         oversize=[],
         oversize_done=[],
@@ -808,121 +758,6 @@ def copy_in_parts(
     return cast("str", completed["ETag"])
 
 
-def glue_database(space_root: str) -> str:
-    """Names the Glue database a space maps to.
-
-    A space maps to exactly one database and the name IS the space's own name, which is the same
-    identity the S3 prefix and the principal tag use.
-
-    Args:
-      space_root: The space root, trailing slash.
-
-    Returns:
-      The database name.
-
-    Raises:
-      None.
-    """
-    return space_root.rstrip("/")
-
-
-def tables_to_repoint(glue: Any, space_root: str) -> list[tuple[str, str, str]]:
-    """Finds every table in a space whose data has moved.
-
-    Args:
-      glue: The Glue client.
-      space_root: The space root.
-
-    Returns:
-      One ``(table name, current location, new location)`` per table needing a re-point. A table
-      whose location is already at the new home, or outside the shared-tables prefix entirely, is
-      not returned — ``migrated_location`` refuses it and that refusal is how it is filtered.
-      A space with no catalog database has no tables and returns empty.
-
-    Raises:
-      None. ``EntityNotFoundException`` is caught because a space may legitimately have no
-      database; every other error, ``AccessDeniedException`` included, propagates, since a
-      permission fault answers the same shape as an empty catalog and must not be read as one.
-    """
-    database = glue_database(space_root)
-    found: list[tuple[str, str, str]] = []
-    token: str | None = None
-    while True:
-        kwargs: dict[str, Any] = {"DatabaseName": database}
-        if token is not None:
-            kwargs["NextToken"] = token
-        try:
-            page = cast("dict[str, Any]", glue.get_tables(**kwargs))
-        except glue.exceptions.EntityNotFoundException:
-            return found
-        for table in page.get("TableList", []):
-            location = cast(
-                "str", table.get("StorageDescriptor", {}).get("Location", "")
-            )
-            try:
-                moved = migrated_location(location, space_root)
-            except Refusal:
-                continue
-            found.append((cast("str", table["Name"]), location, moved))
-        token = cast("str | None", page.get("NextToken"))
-        if token is None:
-            break
-    return found
-
-
-def repoint_table(glue: Any, space_root: str, name: str, location: str) -> None:
-    """Re-points one table's ``LOCATION``, keeping the previous version.
-
-    ``SkipArchive=False`` is the refresh verb's choice and it is the rollback: the retained version
-    is where the previous definition can be read back from.
-
-    The definition is rebuilt by allowlist, because ``GetTable`` returns ten members ``TableInput``
-    will not accept — ``Status``, ``IsMultiDialectView`` and ``FederatedTable`` among them — and
-    passing one back raises ``ParamValidationError`` for the whole update.
-
-    Args:
-      glue: The Glue client.
-      space_root: The space the table belongs to.
-      name: The table's name.
-      location: The location to point it at.
-
-    Returns:
-      None.
-
-    Raises:
-      None.
-    """
-    database = glue_database(space_root)
-    current = cast("dict[str, Any]", glue.get_table(DatabaseName=database, Name=name))["Table"]
-    definition = {key: value for key, value in current.items() if key in TABLE_INPUT_FIELDS}
-    definition["StorageDescriptor"] = {
-        **cast("dict[str, Any]", definition.get("StorageDescriptor", {})),
-        "Location": location,
-    }
-    glue.update_table(DatabaseName=database, TableInput=definition, SkipArchive=False)
-
-
-def read_back_location(glue: Any, space_root: str, name: str) -> str:
-    """Reads one table's ``LOCATION`` back from the catalog.
-
-    The first re-point of a run is read back before the rest run, because an IAM simulate cannot
-    see Lake Formation: the deploy role is a data-lake admin, so this call IS the LF probe.
-
-    Args:
-      glue: The Glue client.
-      space_root: The space the table belongs to.
-      name: The table's name.
-
-    Returns:
-      The location the catalog now reports.
-
-    Raises:
-      None.
-    """
-    table = cast("dict[str, Any]", glue.get_table(DatabaseName=glue_database(space_root), Name=name))
-    return cast("str", table["Table"]["StorageDescriptor"]["Location"])
-
-
 def buckets_and_spaces(s3: Any, config: dict[str, str]) -> list[tuple[str, str]]:
     """Enumerates every ``(bucket, space root)`` the migration covers.
 
@@ -967,8 +802,6 @@ def mode_report(clients: dict[str, Any], config: dict[str, str], run_id: str | N
             logger.info(
                 "%s %s%s: %d keys, %d bytes", bucket, root, folder, len(listed), total
             )
-        for name, location, moved in tables_to_repoint(clients["glue"], root):
-            logger.info("%s table %s: %s -> %s", root, name, location, moved)
     if run_id is not None:
         record = load_record(s3, config["admin_bucket"], run_id)
         if record is None:
@@ -983,7 +816,7 @@ def mode_copy(clients: dict[str, Any], config: dict[str, str], run_id: str) -> i
     """Copies every source to its new home and re-points every moved table.
 
     Idempotent against its own record: a second run with the same id copies zero keys and
-    re-points zero tables, because every destination already matches its recorded ``copied_etag``.
+    copies nothing, because every destination already matches its recorded ``copied_etag``.
 
     Args:
       clients: The AWS clients.
@@ -1004,7 +837,6 @@ def mode_copy(clients: dict[str, Any], config: dict[str, str], run_id: str) -> i
     admin = config["admin_bucket"]
     record = load_record(s3, admin, run_id) or empty_record(run_id)
     since_save = 0
-    probed = False
     for bucket, root in buckets_and_spaces(s3, config):
         for folder in MOVING_FOLDERS:
             for listed in objects_under(s3, bucket, old_prefix(root, folder)):
@@ -1048,24 +880,11 @@ def mode_copy(clients: dict[str, Any], config: dict[str, str], run_id: str) -> i
                     since_save = 0
         save_record(s3, admin, record)
         since_save = 0
-        for name, location, moved in tables_to_repoint(clients["glue"], root):
-            repoint_table(clients["glue"], root, name, moved)
-            if not probed:
-                seen = read_back_location(clients["glue"], root, name)
-                if seen != moved:
-                    save_record(s3, admin, record)
-                    raise Refusal(
-                        "location_readback_failed",
-                        f"{glue_database(root)}.{name} still reports {seen}",
-                    )
-                probed = True
-            record["tables"][f"{glue_database(root)}.{name}"] = location
     save_record(s3, admin, record)
     logger.info(
-        "run %s: %d keys recorded, %d tables re-pointed, %d conflicts",
+        "run %s: %d keys recorded, %d conflicts",
         run_id,
         len(record["keys"]),
-        len(record["tables"]),
         len(record["conflicts"]),
     )
     return 1 if record["conflicts"] else 0
@@ -1341,7 +1160,8 @@ def mode_finish(clients: dict[str, Any], config: dict[str, str], run_id: str) ->
     Both sides are re-HEADed first: a source whose ETag no longer matches the record has been
     rewritten since the copy, and a destination that no longer matches ``copied_etag`` has been
     overwritten. Either lands the key under ``refused`` and it is not deleted. A source already
-    gone lands under ``absent``, which is ordinary for ``shared_tables/`` and for a re-run.
+    gone lands under ``absent``, which is ordinary for a re-run and for an object a user deleted
+    between the copy and the finish.
 
     **A key an operator resolved as ``keep-destination`` skips the destination comparison**, which
     is the whole content of that resolution: they looked, and said the destination is the newer
@@ -1477,7 +1297,7 @@ def make_clients() -> dict[str, Any]:
       None.
 
     Returns:
-      The ``s3``, ``glue``, ``sfn`` and ``athena`` clients.
+      The ``s3``, ``sfn`` and ``athena`` clients.
 
     Raises:
       None.
@@ -1486,7 +1306,6 @@ def make_clients() -> dict[str, Any]:
 
     return {
         "s3": boto3.client("s3"),
-        "glue": boto3.client("glue"),
         "sfn": boto3.client("stepfunctions"),
         "athena": boto3.client("athena"),
     }

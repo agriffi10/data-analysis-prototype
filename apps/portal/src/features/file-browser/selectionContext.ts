@@ -23,10 +23,15 @@ export type SelectionContextValue = {
   /**
    * Drop these ids from the selection, leaving the rest.
    *
-   * Exists because a row can leave the listing without the prefix changing — collapsing the
-   * `system_settings` group is the case — and the provider's navigate-clear does not fire for
-   * that. An item the user cannot see must not stay selected: the toolbar acts on the
-   * selection, never on what is rendered.
+   * Exists because a row can leave the listing without the prefix changing, and the provider's
+   * navigate-clear does not fire for that. An item the user cannot see must not stay selected:
+   * the toolbar acts on the selection, never on what is rendered.
+   *
+   * It has NO caller today. The case it was written for was a disclosure row collapsing over the
+   * app-managed folders, and that row is gone — those folders are a real prefix the user navigates
+   * into, which the navigate-clear does cover. Kept rather than deleted because the situation
+   * recurs the moment a listing filters instead of navigating, and because the reducer arm and the
+   * provider binding are three lines between them.
    */
   deselect: (ids: readonly string[]) => void;
   clear: () => void;

@@ -5,7 +5,8 @@ an explanation. They live here too because a disabled button is not a permission
 this API would otherwise perform reaches S3 whether or not a browser would have sent it.
 
 **The two buckets deny different things, and this module mirrors each rather than averaging
-them.** The user-space bucket's Deny is root-anchored — `{root}archive/` and below. The
+them.** The user-space bucket's Deny is root-anchored — `{root}archive/` and, since the folders
+moved, `{root}system_settings/archive/`, each and below. The
 shared-space bucket's wildcard segment matches `/` too, so *any* `archive` folder below the space
 root is covered. Averaging them either leaves a hole on one bucket or refuses work the other
 permits, and both failures are invisible until someone hits them.
@@ -105,10 +106,12 @@ def is_write_locked(space: ResolvedSpace, key: str) -> bool:
     Mirrors ``isWriteLockedPrefix`` in the browser, including its asymmetry — see the module
     docstring for why the two buckets differ.
 
-    The comparison is against ``{root}archive/`` **with its slash**, which is what the rendered Deny
-    says. Matching the slashless form too would refuse a *file* literally named ``archive`` at a
-    space root, which IAM permits and the browser's predicate allows — a bare 403 for an upload
-    that would have worked.
+    The comparison is against every home the receipt folder occupies — ``{root}archive/`` and
+    ``{root}system_settings/archive/`` — **each with its slash**, which is what the rendered Deny
+    says. Both are named because objects live at both until the migration finishes, and the builder
+    is what supplies them rather than a literal here. Matching the slashless form would refuse a
+    *file* literally named ``archive`` at a space root, which IAM permits and the browser's
+    predicate allows — a bare 403 for an upload that would have worked.
 
     **The shared bucket's segment scan drops the final segment of a file key for that same
     reason**, and it did not until a test read the Deny instead of describing it: the anchored arm

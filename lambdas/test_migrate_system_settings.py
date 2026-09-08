@@ -242,11 +242,17 @@ def test_a_key_outside_the_three_folders_is_refused_by_name():
     assert caught.value.code == "outside_migration_scope"
 
 
-def test_a_location_outside_the_old_shared_tables_prefix_is_refused_by_name():
-    """A table whose data never lived under the old prefix is refused, not silently re-pointed.
+def test_copy_refuses_while_the_switch_has_not_landed(monkeypatch):
+    """Before the write switch merges, a copy would race the fleet's own writes — so it refuses.
+
+    This is the guard that turns "merge the migration two merges early" from a data-loss window
+    into a refusal. It used to need no fixture, because the checkout itself still wrote to depth
+    one; now that the switch has landed, the pre-switch builder is what has to be simulated. The
+    guard is what the assertion is about either way — and it is now the ONLY thing standing between
+    a dispatch and a copy that races live writes, since the tree no longer provides that state.
 
     Args:
-      None.
+      monkeypatch: Used to restore the pre-switch builder.
 
     Returns:
       None.
@@ -254,49 +260,7 @@ def test_a_location_outside_the_old_shared_tables_prefix_is_refused_by_name():
     Raises:
       AssertionError: When the refusal is missing or carries another code.
     """
-    with pytest.raises(migrate.Refusal) as caught:
-        migrate.migrated_location("s3://dat-prod-user-space/alice/projects/t/", "alice/")
-    assert caught.value.code == "location_not_migrated"
-
-
-def test_a_location_already_at_the_new_home_is_refused_rather_than_moved_twice():
-    """A re-run must not build ``system_settings/system_settings/``.
-
-    The refusal is also the filter ``tables_to_repoint`` uses, so a table already re-pointed is
-    simply not returned — which is what makes a second ``copy`` re-point zero tables.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When the refusal is missing or carries another code.
-    """
-    with pytest.raises(migrate.Refusal) as caught:
-        migrate.migrated_location(
-            "s3://dat-prod-user-space/alice/system_settings/shared_tables/t/", "alice/"
-        )
-    assert caught.value.code == "location_not_migrated"
-
-
-def test_copy_refuses_while_the_switch_has_not_landed():
-    """Before FR-001 merges, a copy would race the fleet's own writes — so it refuses.
-
-    This is the guard that turns "merge PR 2 two merges early" from a data-loss window into a
-    refusal. It runs WITHOUT the ``switched`` fixture on purpose: the builder in this checkout
-    still answers depth one, which is precisely the condition being asserted.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When the refusal is missing or carries another code.
-    """
+    monkeypatch.setattr(migrate, "app_managed_prefix", lambda root, folder: f"{root}{folder}/")
     with pytest.raises(migrate.Refusal) as caught:
         migrate.mode_copy(clients(), CONFIG, "run-1")
     assert caught.value.code == "switch_not_landed"
@@ -699,118 +663,6 @@ class _ModelWithEtag:
             return _ModelWithEtag._Shape
 
     service_model = _Service()
-
-
-def seed_table(glue, database="alice", name="sales", location=None):
-    """Puts one table in the catalog with a StorageDescriptor pointing somewhere.
-
-    Args:
-      glue: The Glue fake.
-      database: The database, which is the space's own name.
-      name: The table name.
-      location: The table's location, defaulting to the OLD shared-tables prefix.
-
-    Returns:
-      The location seeded.
-
-    Raises:
-      None.
-    """
-    where = location or f"s3://{USER_BUCKET}/{database}/shared_tables/{name}/"
-    glue.databases.add(database)
-    glue.tables.setdefault(database, []).append(name)
-    glue.definitions[(database, name)] = {
-        "Name": name,
-        "StorageDescriptor": {"Location": where, "Columns": [{"Name": "id"}]},
-    }
-    return where
-
-
-def test_a_moved_table_is_repointed_and_the_previous_version_is_retained(switched):
-    """``SkipArchive=False`` is the rollback: the retained version is where the old location lives.
-
-    Args:
-      switched: The post-FR-001 builder.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When the location did not move or no version was retained.
-    """
-    s3 = FakeS3()
-    glue = FakeGlue()
-    seed_space(s3, folder="shared_tables", keys=("sales/part.parquet",))
-    previous = seed_table(glue)
-
-    migrate.mode_copy(clients(s3=s3, glue=glue), CONFIG, "run-1")
-
-    assert glue.update_calls[0]["SkipArchive"] is False
-    moved = glue.get_table(DatabaseName="alice", Name="sales")["Table"]
-    assert moved["StorageDescriptor"]["Location"] == (
-        f"s3://{USER_BUCKET}/alice/system_settings/shared_tables/sales/"
-    )
-    assert glue.archived["alice.sales"][0]["StorageDescriptor"]["Location"] == previous
-    record = migrate.load_record(s3, ADMIN_BUCKET, "run-1")
-    assert record is not None
-    assert record["tables"]["alice.sales"] == previous
-
-
-def test_a_second_copy_repoints_no_table(switched):
-    """A table already at the new home is filtered by ``location_not_migrated``, not re-pointed.
-
-    Args:
-      switched: The post-FR-001 builder.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When the second run touched the catalog.
-    """
-    s3 = FakeS3()
-    glue = FakeGlue()
-    seed_space(s3, folder="shared_tables", keys=("sales/part.parquet",))
-    seed_table(glue)
-    bundle = clients(s3=s3, glue=glue)
-    migrate.mode_copy(bundle, CONFIG, "run-1")
-    calls = len(glue.update_calls)
-
-    migrate.mode_copy(bundle, CONFIG, "run-1")
-
-    assert len(glue.update_calls) == calls
-
-
-def test_a_readback_that_disagrees_stops_the_run_before_the_rest_are_repointed(switched, monkeypatch):
-    """The first re-point is read back because an IAM simulate cannot see Lake Formation.
-
-    The deploy role is an LF data-lake admin, so this call IS the probe: a silent LF refusal would
-    otherwise leave every table pointing at data the migration then deleted.
-
-    Args:
-      switched: The post-FR-001 builder.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When the run continued past a disagreeing read-back.
-    """
-    s3 = FakeS3()
-    glue = FakeGlue()
-    seed_space(s3, folder="shared_tables", keys=("a/p.parquet", "b/p.parquet"))
-    seed_table(glue, name="a")
-    seed_table(glue, name="b")
-    monkeypatch.setattr(migrate, "read_back_location", lambda *a: "s3://elsewhere/wrong/")
-
-    with pytest.raises(migrate.Refusal) as caught:
-        migrate.mode_copy(clients(s3=s3, glue=glue), CONFIG, "run-1")
-
-    assert caught.value.code == "location_readback_failed"
-    assert len(glue.update_calls) == 1, (
-        "the probe must stop the run after the FIRST re-point; re-pointing every table and then "
-        "reading one back would leave the rest pointing at data finish is about to delete"
-    )
 
 
 def test_resolve_keeping_the_source_recopies_and_records_the_new_etag(switched):
@@ -1272,76 +1124,6 @@ def test_verify_covers_every_storage_class_present(switched):
     assert "destination" in joined
 
 
-def test_the_table_input_allowlist_matches_botocores_own_model():
-    """The allowlist is pinned against the service model, not against a reviewer's memory.
-
-    A denylist here is the tempting shape and the wrong one: ``GetTable`` returns 24 members and
-    ``TableInput`` accepts 14, so a denylist has to name 10 and goes stale the next time AWS adds a
-    field. A rejected field raises ``ParamValidationError`` for the whole update — after the objects
-    are copied and before the record is saved, which is the worst moment in the run to raise.
-
-    The unconditional half is a floor that holds with no AWS libraries present; the model check is
-    the real assertion and is skipped loudly rather than silently when botocore is absent.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When the allowlist drifts from what Glue accepts.
-    """
-    assert len(migrate.TABLE_INPUT_FIELDS) == 14
-    assert "Status" not in migrate.TABLE_INPUT_FIELDS
-    assert "DatabaseName" not in migrate.TABLE_INPUT_FIELDS
-
-    boto3 = pytest.importorskip("boto3", reason="botocore absent; the model pin cannot run here")
-    model = boto3.client("glue", region_name="us-east-1").meta.service_model
-    assert set(migrate.TABLE_INPUT_FIELDS) == set(model.shape_for("TableInput").members)
-
-
-def test_a_repointed_definition_carries_no_field_the_input_rejects(switched):
-    """The end-to-end check: what ``repoint_table`` actually sends is what Glue accepts.
-
-    The fake accepts any ``TableInput``, so a shape assertion against the fake alone would pass on
-    a payload the real service refuses. This asserts the payload against the allowlist that is
-    itself pinned to the service model.
-
-    Args:
-      switched: The post-switch builder.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When a read-only member survived into the update.
-    """
-    s3 = FakeS3()
-    glue = FakeGlue()
-    seed_space(s3, folder="shared_tables", keys=("sales/part.parquet",))
-    seed_table(glue)
-    glue.definitions[("alice", "sales")].update(
-        {
-            "DatabaseName": "alice",
-            "CreateTime": "2026-01-01",
-            "Status": {"State": "SUCCEEDED"},
-            "IsMultiDialectView": False,
-            "FederatedTable": {"Identifier": "x"},
-            "VersionId": "3",
-        }
-    )
-
-    migrate.mode_copy(clients(s3=s3, glue=glue), CONFIG, "run-1")
-
-    sent = glue.definitions[("alice", "sales")]
-    rejected = set(sent) - set(migrate.TABLE_INPUT_FIELDS)
-    assert rejected == set(), f"TableInput would reject: {sorted(rejected)}"
-    assert sent["StorageDescriptor"]["Location"] == (
-        f"s3://{USER_BUCKET}/alice/system_settings/shared_tables/sales/"
-    )
-
-
 def test_two_spaces_of_the_same_name_in_different_buckets_do_not_collapse(switched):
     """A user ``alice`` and a shared space ``alice`` can both exist, and both hold the same key.
 
@@ -1428,39 +1210,6 @@ def test_a_record_missing_a_register_is_refused_by_name(switched):
 
     assert caught.value.code == "record_incomplete"
     assert "conflicts" in str(caught.value)
-
-
-@pytest.mark.parametrize(
-    ("location", "space_root"),
-    [
-        ("s3://buck/bob/shared_tables/alice/shared_tables/t/", "alice/"),
-        ("s3://buck/xyz/a/shared_tables/t/", "a/"),
-        ("s3://buck//alice/shared_tables/t1/", "alice/"),
-    ],
-    ids=["marker appears deeper", "one-character space name", "double slash after the bucket"],
-)
-def test_a_location_whose_marker_is_not_at_the_start_is_refused(location, space_root):
-    """The guard is a PREFIX test on the path, never a substring test on the URI.
-
-    A substring test accepts each of these and the slice below it then produces a plausible-looking
-    destination that is simply wrong — ``.../system_settings/shared_tables/ice/shared_tables/t/``
-    for the first. That is the highest-severity class in this module: nothing refuses, the copy
-    lands somewhere nobody looks, and ``finish`` deletes the source afterwards. The two tests
-    disagree only on inputs like these, which is why they are the fixture.
-
-    Args:
-      location: A location whose old-prefix marker is present but not at the start of the path.
-      space_root: The space the table belongs to.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When the malformed location was accepted.
-    """
-    with pytest.raises(migrate.Refusal) as caught:
-        migrate.migrated_location(location, space_root)
-    assert caught.value.code == "location_not_migrated"
 
 
 def test_verify_handles_a_bucket_holding_more_than_one_space(switched):
@@ -1622,9 +1371,9 @@ def realistic_account(s3, glue):
     s3.tags[(USER_BUCKET, big)] = [{"Key": "class", "Value": "restricted"}]
 
     for space in ("team/", "finance/"):
+        seed_space(s3, bucket=SHARED_BUCKET, space=space, folder="athenaresults", keys=("q.csv",))
         seed_space(s3, bucket=SHARED_BUCKET, space=space, folder="shared_tables", keys=("t/p.parquet",))
         s3.store[(SHARED_BUCKET, f"{space}notes/keep.txt")] = b"an ordinary shared file"
-    seed_table(glue, database="finance", name="t", location=f"s3://{SHARED_BUCKET}/finance/shared_tables/t/")
 
     s3.store[(USER_BUCKET, "_config/settings.json")] = b"{}"
     s3.store[(USER_BUCKET, "_directory/users.json")] = b"[]"
@@ -1634,6 +1383,10 @@ def realistic_account(s3, glue):
         (USER_BUCKET, "_config/settings.json"),
         (USER_BUCKET, "_directory/users.json"),
         (SHARED_BUCKET, "team/notes/keep.txt"),
+        # shared_tables/ stays exactly where it is. It is in this list rather than merely absent
+        # from the moved set, because "the migration did not touch it" is the claim.
+        (SHARED_BUCKET, "team/shared_tables/t/p.parquet"),
+        (SHARED_BUCKET, "finance/shared_tables/t/p.parquet"),
     ]
 
 
@@ -1658,6 +1411,7 @@ def test_the_whole_sequence_against_the_topology_production_actually_has(switche
     glue = FakeGlue()
     untouched = realistic_account(s3, glue)
     bundle = clients(s3=s3, glue=glue)
+    before = dict(s3.store)
 
     assert migrate.mode_report(bundle, CONFIG, None) == 0
     assert migrate.mode_copy(bundle, CONFIG, "run-1") == 0
@@ -1674,6 +1428,14 @@ def test_the_whole_sequence_against_the_topology_production_actually_has(switche
     for bucket, key in untouched:
         assert (bucket, key) in s3.store, f"{key} is not the migration's business"
 
+    for bucket, root in ((SHARED_BUCKET, "team/"), (SHARED_BUCKET, "finance/")):
+        assert (bucket, f"{root}system_settings/shared_tables/t/p.parquet") not in s3.store, (
+            "shared_tables was copied into the app's folder; it does not move"
+        )
+        assert before[(bucket, f"{root}shared_tables/t/p.parquet")] == s3.store[
+            (bucket, f"{root}shared_tables/t/p.parquet")
+        ]
+
     moved = "bob/system_settings/athenaresults/huge.csv"
     head = s3.head_object(Bucket=USER_BUCKET, Key=moved)
     assert head["StorageClass"] == "GLACIER_IR"
@@ -1681,27 +1443,5 @@ def test_the_whole_sequence_against_the_topology_production_actually_has(switche
     assert s3.get_object_tagging(Bucket=USER_BUCKET, Key=moved)["TagSet"] == [
         {"Key": "class", "Value": "restricted"}
     ]
-    assert glue.get_table(DatabaseName="finance", Name="t")["Table"]["StorageDescriptor"][
-        "Location"
-    ] == f"s3://{SHARED_BUCKET}/finance/system_settings/shared_tables/t/"
+    assert glue.update_calls == [], "the migration moves objects only; it touches no catalog"
 
-
-def test_the_allowlist_agrees_with_the_fleets_own_copy():
-    """Two copies of one fact drift, so the second copy is pinned to the first rather than trusted.
-
-    The refresh verb carries the same list and nothing pinned the two together; this module's copy
-    is pinned to botocore's service model, so tying them makes the fleet's copy detectable too.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When the two copies have drifted.
-    """
-    sys.path.insert(0, str(LAMBDAS / "table-builder-apply-refresh"))
-    import apply_refresh
-
-    assert migrate.TABLE_INPUT_FIELDS == apply_refresh._TABLE_INPUT_FIELDS

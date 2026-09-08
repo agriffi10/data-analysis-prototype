@@ -6,9 +6,8 @@ import {
   PICKER_LOCKED_FOLDERS,
   undeletableRootFolderRefusal
 } from './protectedFolders';
-import {partitionSystemFolders, SYSTEM_FOLDER_GROUP_NAME} from './systemFolders';
 import {isWriteLockedPrefix, writeLockRefusal} from './writeLockedPrefix';
-import type {S3FolderItem} from '../../types/s3.types';
+import {appManagedPrefixes} from '../../lib/appManagedPaths';
 
 /**
  * Every browser rule that anchors at a space root, asserted at BOTH homes of a moving folder.
@@ -62,8 +61,18 @@ describe('a folder that is not moving gains no phantom home', () => {
   });
 
   it('locks both homes of a moving folder out of the picker, and the prefix itself', () => {
-    expect(isRootFolderNamed('alice/system_settings/shared_tables/', 'alice/', PICKER_LOCKED_FOLDERS)).toBe(true);
+    // athenaresults is the subject because it is one of the two folders that MOVE, so it has both
+    // homes to lock. shared_tables stays at the space root and is locked there — a separate fact,
+    // asserted below, and for a different reason: the share pipeline owns that folder's layout.
+    expect(isRootFolderNamed('alice/athenaresults/', 'alice/', PICKER_LOCKED_FOLDERS)).toBe(true);
+    expect(isRootFolderNamed('alice/system_settings/athenaresults/', 'alice/', PICKER_LOCKED_FOLDERS)).toBe(true);
     expect(isRootFolderNamed('alice/system_settings/', 'alice/', PICKER_LOCKED_FOLDERS)).toBe(true);
+  });
+
+  it('locks shared_tables at its one home, which is the space root', () => {
+    expect(isRootFolderNamed('alice/shared_tables/', 'alice/', PICKER_LOCKED_FOLDERS)).toBe(true);
+    // And it is NOT inside the app's folder, so nothing there needs locking on its behalf.
+    expect(appManagedPrefixes('alice/', 'shared_tables')).toEqual(['alice/shared_tables/']);
   });
 });
 
@@ -95,31 +104,5 @@ describe('archiveRefusal names the folder the selection is actually in', () => {
 
     expect(refusal).toContain('archive');
     expect(refusal).not.toContain('athenaresults');
-  });
-});
-
-describe('the group row keeps standing in for the folder until the folder is real', () => {
-  const folder = (prefix: string): S3FolderItem => ({type: 'folder', prefix, name: prefix});
-
-  it('groups the three at a space root, and the row is named for the prefix they move into', () => {
-    const {ordinary, grouped} = partitionSystemFolders(
-      [folder('alice/athenaresults/'), folder('alice/reports/'), folder('alice/archive/')],
-      'alice/'
-    );
-
-    expect(grouped.map((f) => f.prefix)).toEqual(['alice/athenaresults/', 'alice/archive/']);
-    expect(ordinary.map((f) => f.prefix)).toEqual(['alice/reports/']);
-    expect(SYSTEM_FOLDER_GROUP_NAME).toBe('system_settings');
-  });
-
-  it('groups a moving folder’s SECOND home too, which is inherited rather than chosen', () => {
-    // `partitionSystemFolders` shares `isRootFolderNamed` with the four rules above, so widening
-    // that predicate widened this. Unobservable until the prefix is real — nothing writes there —
-    // but pinned here rather than left to be discovered, because the module's own docstring says
-    // the grouped list comes back empty below the space root, and this is the one prefix where it
-    // no longer does.
-    const {grouped} = partitionSystemFolders([folder('alice/system_settings/archive/')], 'alice/');
-
-    expect(grouped.map((f) => f.prefix)).toEqual(['alice/system_settings/archive/']);
   });
 });

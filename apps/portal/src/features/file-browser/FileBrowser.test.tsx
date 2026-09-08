@@ -302,6 +302,38 @@ describe('FileBrowser — write controls', () => {
       expect(mock.createFolder).toHaveBeenCalledWith(expect.objectContaining({name: 'photos', prefix: 'alice/'}))
     );
   });
+
+  it('refuses the app’s own folder names inside system_settings, and issues no request', async () => {
+    // `system_settings/` is writable, so without this the user mints a folder that every rule
+    // then treats as the app's — read-only inside, undeletable, unrenamable, unarchivable, and
+    // permanent — at the exact path the restore dialog sends them to for their archive ids.
+    // Asserted on the CALL, not on the message: a dialog that shows an error and submits anyway
+    // looks identical until the request lands.
+    const {user} = renderBrowser({prefix: 'alice/system_settings/'});
+    await user.click(await screen.findByRole('button', {name: 'New folder'}));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByRole('textbox'), 'archive');
+    await user.click(within(dialog).getByRole('button', {name: /create/i}));
+
+    expect(within(dialog).getByText(/the app manages inside/i)).toBeInTheDocument();
+    expect(mock.createFolder).not.toHaveBeenCalled();
+  });
+
+  it('still creates an ordinary folder inside system_settings, which is not locked', async () => {
+    // The positive control. Nothing denies writes under that prefix, so a guard that refused
+    // everything there would be inventing a restriction IAM does not have.
+    const {user} = renderBrowser({prefix: 'alice/system_settings/'});
+    await user.click(await screen.findByRole('button', {name: 'New folder'}));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByRole('textbox'), 'notes');
+    await user.click(within(dialog).getByRole('button', {name: /create/i}));
+
+    await waitFor(() =>
+      expect(mock.createFolder).toHaveBeenCalledWith(
+        expect.objectContaining({name: 'notes', prefix: 'alice/system_settings/'})
+      )
+    );
+  });
 });
 
 describe('FileBrowser — selection + delete', () => {
@@ -392,10 +424,6 @@ describe('FileBrowser — selection + delete', () => {
         ok(page({files: [], folders: [folder('saved_queries'), folder('athenaresults')], isTruncated: false}))
       );
       const {user} = renderBrowser();
-      // `athenaresults/` is inside the collapsed `system_settings` row now, and the refusal
-      // being asserted is about the EXPANDED listing — where selection behaves exactly as it
-      // did before the row existed.
-      await user.click(await screen.findByRole('button', {name: /^system_settings:/}));
       await user.click(await screen.findByRole('checkbox', {name: 'Select folder saved_queries'}));
       await user.click(screen.getByRole('checkbox', {name: 'Select folder athenaresults'}));
 
@@ -916,136 +944,5 @@ describe('FileBrowser — send to… (SPEC-167)', () => {
     expect(alert).not.toHaveTextContent(/arn:aws/);
     expect(within(dialog).getByRole('button', {name: 'Remove user bob'})).toBeInTheDocument();
     expect(screen.getByRole('checkbox', {name: 'Select report.csv'})).toBeChecked();
-  });
-});
-
-describe('FileBrowser — the system_settings group', () => {
-  // A root holding all three app-managed folders plus one of the user's own, so the
-  // partition has something on both sides of it.
-  function listingWithSystemFolders() {
-    mock.listFiles.mockResolvedValue(
-      ok(
-        page({
-          files: [file('report.csv')],
-          folders: [folder('archive'), folder('athenaresults'), folder('docs'), folder('shared_tables')],
-          isTruncated: false
-        })
-      )
-    );
-  }
-
-  it('collapses the app-managed folders behind one row and leaves the user’s own alone', async () => {
-    listingWithSystemFolders();
-    renderBrowser();
-
-    const group = await screen.findByRole('button', {name: /^system_settings:/});
-    expect(group).toHaveAttribute('aria-expanded', 'false');
-    expect(group).toHaveAccessibleName(/3 folders the app manages for you/);
-    expect(screen.getByRole('button', {name: 'Open folder docs'})).toBeInTheDocument();
-    for (const name of ['archive', 'athenaresults', 'shared_tables']) {
-      expect(screen.queryByRole('button', {name: `Open folder ${name}`})).not.toBeInTheDocument();
-    }
-  });
-
-  it('reveals ordinary, openable folder rows when opened', async () => {
-    listingWithSystemFolders();
-    const {user} = renderBrowser();
-
-    await user.click(await screen.findByRole('button', {name: /^system_settings:/}));
-
-    // The archive id lives in a folder name under here, and the restore dialog sends users to
-    // this path to read one — so opening it has to actually navigate, not merely render a row.
-    await user.click(screen.getByRole('button', {name: 'Open folder archive'}));
-    await waitFor(() =>
-      expect(mock.listFiles).toHaveBeenLastCalledWith('my-bucket', 'alice/archive/', undefined, expect.any(AbortSignal))
-    );
-    expect(screen.getByText('archive', {selector: '[aria-current="page"]'})).toBeInTheDocument();
-  });
-
-  it('renders no group row where there is nothing to group', async () => {
-    // The row's existence IS `systemFolders.length > 0` and nothing else — no flag to disagree
-    // with it. Relaxing that condition puts an empty `0 folders` row in every subfolder, which
-    // is the mutation this asserts against.
-    mock.listFiles.mockResolvedValue(ok(page({files: [file('report.csv')], folders: [folder('docs')]})));
-    const {user} = renderBrowser();
-
-    await screen.findByRole('button', {name: 'Open folder docs'});
-    expect(screen.queryByRole('button', {name: /^system_settings:/})).not.toBeInTheDocument();
-
-    // And below the space root, where the listing's folders are never root-anchored.
-    await user.click(screen.getByRole('button', {name: 'Open folder docs'}));
-    await waitFor(() =>
-      expect(mock.listFiles).toHaveBeenLastCalledWith('my-bucket', 'alice/docs/', undefined, expect.any(AbortSignal))
-    );
-    expect(screen.queryByRole('button', {name: /^system_settings:/})).not.toBeInTheDocument();
-  });
-
-  it('groups on the mobile card list too, which is a separate renderer', async () => {
-    // `FileListMobile` mirrors `FileListTable` by hand — deleting its whole group branch left
-    // the suite green, because every other test in this file runs at desktop width.
-    window.innerWidth = 500;
-    listingWithSystemFolders();
-    const {user} = renderBrowser();
-
-    const group = await screen.findByRole('button', {name: /^system_settings:/});
-    expect(group).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByRole('button', {name: 'Open folder archive'})).not.toBeInTheDocument();
-
-    await user.click(group);
-
-    expect(screen.getByRole('button', {name: 'Open folder archive'})).toBeInTheDocument();
-    expect(screen.getByRole('checkbox', {name: 'Select folder archive'})).toBeInTheDocument();
-  });
-
-  it('disables select-all when every row is inside the closed group', async () => {
-    // The toolbar still mounts — the space HAS content — but nothing selectable is rendered,
-    // so the control would call selectAll([]) and sit there looking broken.
-    mock.listFiles.mockResolvedValue(
-      ok(page({files: [], folders: [folder('archive'), folder('athenaresults')], isTruncated: false}))
-    );
-    const {user} = renderBrowser();
-
-    expect(await screen.findByRole('checkbox', {name: 'Select all'})).toBeDisabled();
-
-    await user.click(screen.getByRole('button', {name: /^system_settings:/}));
-
-    expect(screen.getByRole('checkbox', {name: 'Select all'})).toBeEnabled();
-  });
-
-  it('drops the hidden rows from the selection when the group closes', async () => {
-    // Excluding them from select-all is not enough: every destructive action reads the
-    // SELECTION, not the listing, and nothing clears it on a collapse (the provider clears on
-    // a prefix change, and closing a row is not one). Left in, `shared_tables/` — the one
-    // member with no IAM Deny behind it — is a recursive folder delete against a row the user
-    // can no longer see.
-    listingWithSystemFolders();
-    const {user} = renderBrowser();
-
-    await user.click(await screen.findByRole('button', {name: /^system_settings:/}));
-    await user.click(await screen.findByRole('checkbox', {name: 'Select folder shared_tables'}));
-    expect(screen.getByText('1 selected')).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', {name: /^system_settings:/}));
-
-    expect(screen.queryByText(/\d+ selected/)).not.toBeInTheDocument();
-    expect(screen.getByRole('checkbox', {name: 'Select all'})).not.toBeChecked();
-    expect(screen.getByRole('button', {name: 'Delete selected items'})).toBeDisabled();
-  });
-
-  it('keeps select-all off the collapsed rows, and takes them once the group is open', async () => {
-    listingWithSystemFolders();
-    const {user} = renderBrowser();
-    const selectAll = await screen.findByRole('checkbox', {name: 'Select all'});
-
-    await user.click(selectAll);
-
-    // docs/ + report.csv only. Sweeping in rows the user cannot see is how "select all →
-    // Delete" would offer to destroy three folders whose delete IAM refuses.
-    expect(screen.getByText('2 selected')).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', {name: /^system_settings:/}));
-    await user.click(screen.getByRole('checkbox', {name: 'Select all'}));
-
-    expect(screen.getByText('5 selected')).toBeInTheDocument();
   });
 });

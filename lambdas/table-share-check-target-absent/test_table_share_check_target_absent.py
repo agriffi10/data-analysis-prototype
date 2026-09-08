@@ -91,7 +91,13 @@ def test_user_recipient_resolves_to_user_space_destination():
     assert out["recipient"]["destBucket"] == config.USER_SPACE_BUCKET
     assert out["recipient"]["destPrefix"] == "bob/shared_tables/orders_copy/"
     # The emptiness probe hit exactly that destination.
-    assert fake.calls == [{"Bucket": config.USER_SPACE_BUCKET, "Prefix": "bob/shared_tables/orders_copy/", "MaxKeys": 1}]
+    assert fake.calls == [
+        {
+            "Bucket": config.USER_SPACE_BUCKET,
+            "Prefix": "bob/shared_tables/orders_copy/",
+            "MaxKeys": 1,
+        }
+    ]
     # The request context threads through for copy-objects.
     assert out["request"]["tableName"] == "orders_copy"
 

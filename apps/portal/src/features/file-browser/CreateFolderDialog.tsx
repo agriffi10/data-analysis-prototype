@@ -6,6 +6,8 @@ import {Input} from '../../components/Input';
 type Props = {
   onCreate: (name: string) => void;
   onCancel: () => void;
+  /** The prefix the folder lands in, so the app's own folder names can be refused inside it. */
+  parentPrefix?: string;
 };
 
 /**
@@ -16,17 +18,17 @@ type Props = {
  * @example
  * <CreateFolderDialog onCreate={(name) => createFolder(name)} onCancel={close} />
  */
-export function CreateFolderDialog({onCreate, onCancel}: Props) {
+export function CreateFolderDialog({onCreate, onCancel, parentPrefix}: Props) {
   const [name, setName] = useState('');
   const [touched, setTouched] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const validationError = validateFolderName(name);
+  const validationError = validateFolderName(name, parentPrefix);
   const showError = touched && validationError !== null;
 
   function submit() {
     setTouched(true);
-    if (validateFolderName(name) === null) onCreate(name);
+    if (validateFolderName(name, parentPrefix) === null) onCreate(name);
   }
 
   return (

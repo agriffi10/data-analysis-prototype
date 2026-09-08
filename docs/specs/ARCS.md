@@ -2763,8 +2763,9 @@ one is the defect; a real prefix removes the row rather than restyling it.
 
 **What moves: the three the row already shows** — `athenaresults/`, `archive/`, `shared_tables/`.
 Settled by the user against four alternatives after review, and the reasoning is worth keeping:
-`saved_queries/` is deliberately **user-owned** (`systemFolders.ts`: *"the user names, moves and
-deletes what is in them"*), so burying it contradicts the original "only folders users cannot edit"
+`saved_queries/` is deliberately **user-owned** (said by the grouping module, since deleted with
+the row it served: *"the user names, moves and deletes what is in them"*), so burying it
+contradicts the original "only folders users cannot edit"
 framing; `user_settings/` and `_data-quality-reports/` are hidden from the browser entirely, so
 making them children of a **visible** folder either exposes what was never shown or creates a folder
 whose contents you cannot see. Only this set makes the S3 move and the visible result match
@@ -2782,9 +2783,9 @@ Shared-space Denies are written `${shared_space_bucket_arn}/*/athenaresults/*`, 
 The personal ones are anchored at `${aws:PrincipalTag/username}/` and stop matching entirely. **The
 unprotected window is personal-space-only**, which makes 219 cheap on the shared side and
 load-bearing on the personal one. Two of the three moving folders carry a portal-role Deny at all
-(`athenaresults/`, `archive/`); `shared_tables/` carries none anywhere, and `systemFolders.ts`
-already says so — for that one a missed declaration is an ordinary bug, not a silent loss of
-protection.
+(`athenaresults/`, `archive/`); `shared_tables/` carries none anywhere, which the grouping module
+said before it was deleted — for that one a missed declaration is an ordinary bug, not a silent
+loss of protection.
 
 **The order, and what each retires.**
 

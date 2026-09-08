@@ -42,7 +42,8 @@ def _execution(location=None, state="SUCCEEDED", statement="DML"):
         "Status": {"State": state},
         "StatementType": statement,
         "ResultConfiguration": {
-            "OutputLocation": location or f"s3://{config.USER_SPACE_BUCKET}/alice/athenaresults/{EXECUTION_ID}.csv"
+            "OutputLocation": location
+            or f"s3://{config.USER_SPACE_BUCKET}/alice/system_settings/athenaresults/{EXECUTION_ID}.csv"
         },
     }
 
@@ -101,7 +102,7 @@ def test_a_personal_request_is_validated_into_exactly_the_contracted_keys():
         "format": "parquet",
         "onConflict": "refuse",
         "queryExecutionId": EXECUTION_ID,
-        "resultsKey": f"alice/athenaresults/{EXECUTION_ID}.csv",
+        "resultsKey": f"alice/system_settings/athenaresults/{EXECUTION_ID}.csv",
         "destination": {
             "bucket": config.USER_SPACE_BUCKET,
             "key": "alice/out/q1.parquet",
@@ -267,7 +268,7 @@ def test_an_output_location_carrying_a_dot_segment_is_refused():
     """A startswith on the prefix passes a location that then escapes it. Nothing writes one
     today; this is the only place an S3-supplied path becomes a key the converter will read."""
     escaping = _execution(
-        location=f"s3://{config.USER_SPACE_BUCKET}/alice/athenaresults/../../bob/secret.csv"
+        location=f"s3://{config.USER_SPACE_BUCKET}/alice/system_settings/athenaresults/../../bob/secret.csv"
     )
     err, _sent, _athena = _refused(_body(), execution=escaping)
     assert err.reason == "execution_not_found"
@@ -275,9 +276,9 @@ def test_an_output_location_carrying_a_dot_segment_is_refused():
 
 def test_an_id_athena_does_not_know_and_another_users_execution_share_one_code():
     unknown = _refused(_body(), execution=None, error=_client_error("InvalidRequestException"))[0]
-    elsewhere = _refused(_body(), execution=_execution(location=f"s3://{config.USER_SPACE_BUCKET}/bob/athenaresults/{EXECUTION_ID}.csv"))[0]
+    elsewhere = _refused(_body(), execution=_execution(location=f"s3://{config.USER_SPACE_BUCKET}/bob/system_settings/athenaresults/{EXECUTION_ID}.csv"))[0]
     assert unknown.reason == elsewhere.reason == "execution_not_found"
-    prefix_cousin = _refused(_body(), execution=_execution(location=f"s3://{config.USER_SPACE_BUCKET}/alice2/athenaresults/x.csv"))[0]
+    prefix_cousin = _refused(_body(), execution=_execution(location=f"s3://{config.USER_SPACE_BUCKET}/alice2/system_settings/athenaresults/x.csv"))[0]
     assert prefix_cousin.reason == "execution_not_found"
 
 

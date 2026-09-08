@@ -12,11 +12,23 @@ def test_the_three_moving_folders_resolve_to_todays_names():
     ) == ("athenaresults", "archive", "shared_tables")
 
 
-def test_the_builders_anchor_directly_under_the_root_they_are_handed():
-    """Depth one, today: the move is a change to these outputs and to nothing else."""
+def test_a_moving_folder_anchors_under_system_settings_and_nothing_else_does():
+    """Where a WRITE goes, after the switch — and the two facts that did not move with it.
+
+    ``user_settings`` is the guard on the branch: the singular takes a folder name from a domain
+    list as well as from this module's constants, and a caller loops it over eight names of which
+    five stay where they are. Unconditional, this row would read
+    ``alice/system_settings/user_settings/`` — a prefix nothing is stored under, and one whose
+    refusal would keep working by accident because the caller's second leg matches the bare name at
+    any depth.
+
+    ``vault_archive_prefix`` is fact 2 of ``archive``: a different bucket, and it does not move.
+    """
     assert app_managed.app_managed_prefix("alice/", "user_settings") == "alice/user_settings/"
-    assert app_managed.athena_results_prefix("finance/") == "finance/athenaresults/"
-    assert app_managed.receipt_folder_prefix("alice/") == "alice/archive/"
+    assert app_managed.athena_results_prefix("finance/") == "finance/system_settings/athenaresults/"
+    assert app_managed.receipt_folder_prefix("alice/") == "alice/system_settings/archive/"
+    # shared_tables does NOT move: those tables were sent to the space and are the user's to
+    # edit, so filing them under the app's folder would say the opposite of what is true.
     assert app_managed.shared_tables_prefix("finance/") == "finance/shared_tables/"
     assert app_managed.vault_archive_prefix("personal", "alice/", "abc") == "personal/alice/archive/abc/"
 
@@ -29,7 +41,11 @@ def test_the_plural_builder_gives_a_moving_folder_two_homes_and_everything_else_
     )
     assert app_managed.app_managed_prefixes("alice/", "user_settings") == ("alice/user_settings/",)
     assert app_managed.app_managed_prefixes("alice/", "system_settings") == ("alice/system_settings/",)
-    assert app_managed.MOVING_FOLDERS == ("athenaresults", "archive", "shared_tables")
+    # Two, not three. SPACE_FOLDERS still holds all three app-managed folders; this asks which of
+    # them MOVE, and shared_tables does not — which is why the two are separate tuples rather than
+    # one aliased to the other, and the difference is now observable rather than coincidental.
+    assert app_managed.MOVING_FOLDERS == ("athenaresults", "archive")
+    assert app_managed.SPACE_FOLDERS == ("athenaresults", "archive", "shared_tables")
     # Two separate declarations on purpose — one asks which folders the app manages in a space
     # bucket, the other which of them relocate — but a folder cannot relocate under a space's own
     # prefix without living in one, and nothing else states that direction.
@@ -66,22 +82,30 @@ def test_the_plural_builder_does_not_CALL_the_singular_one(monkeypatch):
     assert app_managed.app_managed_prefixes("alice/", "user_settings") == ("alice/user_settings/",)
 
 
-def test_the_plural_builders_first_element_is_the_singular_TODAY():
-    """The one assertion tying the two together, and SPEC-220 FR-001 DELETES it.
+def test_the_plural_still_answers_the_old_home_the_singular_has_left():
+    """The two now legitimately differ, and the old home is where the data still IS.
 
-    The plural spells both homes as literals precisely so the singular can move without dragging
-    them; this pins that they agree while the write still goes to depth one. When the singular
-    moves, this is the test that is expected to fail, and deleting it is the right response —
-    not re-pointing it, which would restore the coupling the literals exist to avoid.
+    This replaces the equality assertion that pinned them together while the write was still at
+    depth one. Re-pointing that one to the new value would have been the wrong repair — it would
+    restore exactly the coupling the plural's literals exist to avoid. What matters after the
+    switch is the opposite property: the plural's FIRST element is still the depth-one path, so
+    every rule built on it keeps refusing where the objects have not moved from yet.
     """
     for root in ("", "alice/", "finance/"):
-        for folder in ("athenaresults", "archive", "shared_tables", "user_settings", "system_settings"):
-            assert app_managed.app_managed_prefixes(root, folder)[0] == app_managed.app_managed_prefix(root, folder)
+        for folder in ("athenaresults", "archive"):
+            homes = app_managed.app_managed_prefixes(root, folder)
+            assert homes[0] == f"{root}{folder}/"
+            assert homes[1] == app_managed.app_managed_prefix(root, folder)
+            assert homes[0] != homes[1]
+        for stays in ("shared_tables", "user_settings", "system_settings"):
+            assert app_managed.app_managed_prefixes(root, stays) == (
+                app_managed.app_managed_prefix(root, stays),
+            )
 
 
 def test_the_builders_normalize_nothing():
     """A caller's bytes come back unchanged, so a digest over the result cannot move."""
-    assert app_managed.app_managed_prefix("", "archive") == "archive/"
+    assert app_managed.app_managed_prefix("", "archive") == "system_settings/archive/"
     assert app_managed.vault_archive_prefix("personal", "", "x") == "personal/archive/x/"
     assert app_managed.vault_archive_prefix("personal", "alice//", "x") == "personal/alice//archive/x/"
 
