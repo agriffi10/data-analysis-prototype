@@ -38,6 +38,7 @@
       "Type": "Pass",
       "Comment": "THE ASL/VERB CROSS-CHECK POINT, and that is now its whole job (source resolution took its terminal role away and deliberately kept the state). A Task hands its output on whole, so nothing in a Task-to-Task chain would notice validate-authorize renaming a field — while a Pass naming each key fails the build via test_state_machine_file_send.py, which reads this block and the verb's real return value and requires them to agree. It emits exactly the four keys the verb returns; the front door's 'status' literal is gone, because a placeholder marker outliving its placeholder is how a field nothing reads survives into production.",
       "Parameters": {
+        "traceparent.$": "$.traceparent",
         "requestId.$": "$.requestId",
         "actor.$": "$.actor",
         "source.$": "$.source",
@@ -208,7 +209,11 @@
         }
       },
       "ItemBatcher": {
-        "MaxItemsPerBatch": ${transfer_max_items_per_batch}
+        "MaxItemsPerBatch": ${transfer_max_items_per_batch},
+        "BatchInput": {
+          "traceparent.$": "$.traceparent",
+          "requestId.$": "$.requestId"
+        }
       },
       "MaxConcurrency": ${transfer_map_max_concurrency},
       "ToleratedFailurePercentage": 100,
@@ -299,6 +304,7 @@
       "Type": "Pass",
       "Comment": "The whole-request success terminal, and the shape the notifications read: who sent what, how much of it, and one entry per recipient — never a list of failed keys, which is the unbounded term that breaches the 256 KB limit. It is ALSO the ASL/verb cross-check for collect-transfer-results, the same job Validated does for the validator: a Task hands its output on whole, so nothing in a Task-to-Task chain would notice a renamed field, while a Pass naming each key fails the build via test_state_machine_file_send.py. Everything the run no longer needs — the plan key, the transfer block, the source's item list — is dropped here rather than carried into the execution output.",
       "Parameters": {
+        "traceparent.$": "$.traceparent",
         "requestId.$": "$.requestId",
         "sender.$": "$.actor.username",
         "itemNames.$": "$.itemNames",

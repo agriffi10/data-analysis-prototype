@@ -553,9 +553,9 @@ attaches to every control-plane verb.
 **SPEC-128 is the pilot**, and data-quality is the right one: the **longest** plane (nine verbs, so cross-verb correlation
 actually pays), the **newest** (least understood under real load), and **entirely operator-facing** — a mistake costs log
 quality, not access. Its honest limitation is recorded rather than discovered: `log-foundry`'s trace context is per-process, so
-one run is **nine traces**, joined on a `request_id` field. True stitching needs an upstream `lf.continue_trace()` plus two more
-values threaded through the state payload, and is deliberately sequenced *after* the pipe is proven live (user decision,
-2026-07-22: correlation now, stitching later).
+one run was **nine traces**, joined on a `request_id` field — deliberately, and sequenced *after* the pipe was proven live
+(user decision, 2026-07-22: correlation now, stitching later). **SPEC-225 closed that on the success path**; the failure path is
+SPEC-227.
 
 **Two user decisions run against the recommendation and are settled, not open.** `logs/` gets **no lifecycle rule** — nothing is
 ever lost, at the cost of unbounded growth with no ceiling; the invariant that keeps it safe is that every existing rule on the
@@ -2955,8 +2955,8 @@ threaded through the state payload as `requestId` already is, and adopted by eve
 threading is free, because a Task using `Payload.$=$` with `OutputPath=$.Payload` carries a new key
 untouched; the work is at six field-naming `Pass` states, four field-naming Task `Parameters`
 blocks, and the **six** Distributed Maps — archive has three — which reach their children through
-`ItemBatcher.BatchInput`, a mechanism no template here uses, rather than through an `ItemSelector`,
-which none of them has. It also closes two holes nobody had noticed, by different means. Nine
+`ItemBatcher.BatchInput`, a mechanism no template used before this arc, rather than through an
+`ItemSelector`, which none of them has. It also closes two holes nobody had noticed, by different means. Nine
 Map-child verbs, every copy verb among them, have **no `request_id`** today — the three inline-Map
 children because the extractor does not read their shape, the six Distributed-Map children because
 their event contains no id at all, so only the `BatchInput` change reaches those. And the extractor's
