@@ -204,3 +204,24 @@ if __name__ == "__main__":
             print(f"FAIL {fn.__name__}: {exc}")
     print(f"\n{len(tests) - failed}/{len(tests)} passed")
     sys.exit(1 if failed else 0)
+
+
+def test_the_column_inference_is_a_child_span_of_the_verbs_own_span(captured_events):
+    """The polars read is this verb's principal cost, and it is one call per invocation.
+
+    Named `infer-columns` rather than `infer-schema`, which is already the root span's name.
+    """
+    path = os.path.join(_TMP, "span.parquet")
+    pl.DataFrame({"order_id": pl.Series([1, 2], dtype=pl.Int64)}).write_parquet(path)
+    _use_fixture(path)
+
+    out = i.handler(_event("parquet"), None)
+
+    assert out["columns"], "the span is asserted on a SUCCESSFUL run"
+    root = captured_events.spans("infer-schema")
+    assert len(root) == 1, f"expected one infer-schema root span, got {len(root)}"
+    children = captured_events.child_spans("infer-schema", name="infer-columns")
+    assert len(children) == 1, (
+        f"infer-schema emitted {len(children)} 'infer-columns' child spans, expected exactly one"
+    )
+    assert children[0]["parent_span_id"] == root[0]["span_id"]

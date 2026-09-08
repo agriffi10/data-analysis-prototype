@@ -32,6 +32,42 @@ logger.setLevel(logging.INFO)
 observability.init(service="table-builder")
 
 
+@observability.step("athena-run-ddl")
+def _run_create_ddl(query: str, database: str, output_location: str) -> None:
+    """Runs the CREATE statement through Athena and polls it to a terminal state.
+
+    A wrapper purely so the Athena round trip — which is all of this verb's latency and the only
+    part that can hang — gets a child span of its own. The runner it calls is a bound INSTANCE
+    shared with data-quality and table-share, so the step goes here rather than on the runner:
+    decorating that method would silently instrument two other planes.
+
+    **Call bound: exactly once per invocation**, unconditionally, from this verb alone.
+
+    The span is NOT named ``execute-ddl``. That is already this verb's root span, and a child
+    sharing its parent's name means the one query an operator runs — filter on the span name —
+    returns the verb's total and the Athena call mixed together, with the durations double
+    counted. The name is the operation instead.
+
+    Args:
+      query: The rendered CREATE statement.
+      database: The target database.
+      output_location: Where Athena writes the statement's output.
+
+    Returns:
+      None.
+
+    Raises:
+      TerminalError: ``ddl_execution_failed`` or ``ddl_timeout``, from the bound runner.
+      TransientError: On a throttling or 5xx Athena error.
+    """
+    athena_run.run_ddl(
+        query=query,
+        database=database,
+        workgroup=config.ATHENA_WORKGROUP,
+        output_location=output_location,
+    )
+
+
 @observability.traced("execute-ddl")
 @notify.notifies_on_failure("execute")
 def handler(event: dict, context) -> dict:
@@ -73,12 +109,7 @@ def handler(event: dict, context) -> dict:
         workgroup=config.ATHENA_WORKGROUP,
         actor=actor,
     )
-    athena_run.run_ddl(
-        query=event["ddl"],
-        database=database,
-        workgroup=config.ATHENA_WORKGROUP,
-        output_location=results_location(space, actor),
-    )
+    _run_create_ddl(event["ddl"], database, results_location(space, actor))
 
     logger.info("created table %s.%s for %s", database, event["tableName"], actor)
     out = dict(event)

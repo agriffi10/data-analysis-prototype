@@ -62,6 +62,44 @@ def _revoke(members, space):
         cache.remove_entry(member, space)
 
 
+@observability.step("notify-members")
+def _notify_members(members, space, actor, request_id):
+    """Tells everyone the space is gone, under one span.
+
+    **Call bound: at most once per invocation.** The span goes around the WHOLE loop rather than
+    around ``emit_notification``, which runs once per recipient and is one of the five shared
+    functions that must never carry a step.
+
+    Covers the SUCCESS fan-out only. The failure path emits its own single notification to the
+    owner and is deliberately outside this helper: it is one send rather than a loop, it says
+    something different, and folding it in here would put it under a span named for a fan-out
+    that did not happen.
+
+    ``dict.fromkeys`` rather than a set, and it stays here rather than moving to a shared
+    emitter: it dedupes recipients while preserving order, and the message depends on whether
+    the recipient is the actor.
+
+    Args:
+      members: The space's members at deletion, possibly with repeats.
+      space: The space's name, for the message.
+      actor: Who deleted it — they are told they did it, everyone else that it happened.
+      request_id: The run's request id, which prefixes each dedup id.
+
+    Returns:
+      None.
+
+    Raises:
+      None. ``emit_notification`` catches and logs its own failures.
+    """
+    for recipient in dict.fromkeys(members):
+        message = (
+            f'You deleted the shared workspace "{space}".'
+            if recipient == actor
+            else f'The shared workspace "{space}" was deleted.'
+        )
+        emit_notification(recipient, message, dedup_id=f"{request_id}:delete:{recipient}")
+
+
 def delete_space(space, actor, request_id, registry):
     """Ends everyone's access to a space, destroying it only if it was never usable.
 
@@ -181,13 +219,7 @@ def delete_space(space, actor, request_id, registry):
             )
         raise
     _revoke([actor] if actor not in members else [], space)
-    for recipient in dict.fromkeys(members):
-        message = (
-            f'You deleted the shared workspace "{space}".'
-            if recipient == actor
-            else f'The shared workspace "{space}" was deleted.'
-        )
-        emit_notification(recipient, message, dedup_id=f"{request_id}:delete:{recipient}")
+    _notify_members(members, space, actor, request_id)
     logger.info("delete %s by %s: %d members revoked", space, actor, len(members))
     observability.info(
         "space deleted",

@@ -311,3 +311,45 @@ def test_an_operator_add_of_an_unknown_user_still_names_them_TO_THE_OWNER():
     messages = [message for who, message in _sent(sqs) if who == "alice"]
     assert any("nosuchuser" in m and "no such user" in m for m in messages), messages
     assert any("bob" in m and "workspace limit" in m for m in messages), messages
+
+
+def test_the_add_emits_a_child_span_for_the_roster_fan_out_and_the_notifications(
+    captured_events,
+):
+    """The two bounded call sites this plane has, both around a LOOP rather than inside one.
+
+    The shared layer buys shared-space nothing: every durable operation it performs runs through
+    a function its callers invoke per member or per recipient. So its spans go around the whole
+    fan-out and the whole notification loop, in its own code.
+
+    Parentage is asserted rather than presence alone: a span with a null parent is what a step
+    placed where context does not reach emits, and it reads as instrumented while being
+    unattributable.
+
+    TWO members, not one, and that is the fixture doing work. Both spans wrap a loop, so with a
+    single member a span around the loop and a span around its body emit exactly one span each
+    and the assertion cannot tell the correct instrumentation from the prohibited kind.
+    """
+    s3, _glue, _lf, cognito = install()
+    cognito.users = {"bob": {}, "carol": {}}
+    reg_doc = _active_reg(members=["alice"])
+    _seed_reg(s3, reg_doc)
+
+    a.handler(
+        {
+            "space": "sales",
+            "requestId": "r1",
+            "registry": reg_doc,
+            "payload": {"members": ["bob", "carol"]},
+        },
+        None,
+    )
+
+    root = captured_events.spans("add-members")
+    assert len(root) == 1, f"expected one add-members root span, got {len(root)}"
+    for name in ("write-roster", "notify-members"):
+        children = captured_events.child_spans("add-members", name=name)
+        assert len(children) == 1, (
+            f"add-members emitted {len(children)} {name!r} child spans, expected exactly one"
+        )
+        assert children[0]["parent_span_id"] == root[0]["span_id"]

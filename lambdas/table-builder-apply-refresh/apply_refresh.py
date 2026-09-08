@@ -269,8 +269,14 @@ def _abandon_if_changed(
     )
 
 
+@observability.step("glue-get-table")
 def _get_table(database: str, table: str) -> dict:
     """Reads the live definition immediately before it is written.
+
+    **Call bound: exactly once per invocation** — one call in ``_apply``. This verb makes THREE
+    Glue round trips with no principal one, so it gets three named spans rather than an
+    arbitrary pick: this read, the update, and the read-back. (``_abandon_if_changed`` between
+    the first two makes none — it compares a stamp on the response already in hand.)
 
     A missing table is matched on the botocore code rather than the client's modelled exception
     class, so the check does not depend on a fake exposing its exception namespace.
@@ -301,8 +307,11 @@ def _get_table(database: str, table: str) -> dict:
         raise
 
 
+@observability.step("glue-update-table")
 def _update(database: str, table_input: dict) -> None:
     """Replaces the table definition in place.
+
+    **Call bound: exactly once per invocation** — one call in ``_apply``.
 
     Archiving is requested explicitly rather than left to the default. The default already
     archives, and the retained version is the manual rollback path for a refresh that landed but
@@ -339,8 +348,14 @@ def _update(database: str, table_input: dict) -> None:
         raise TerminalError("update_failed", f"{database}.{name}: {err}") from err
 
 
+@observability.step("glue-read-back-table")
 def _post_condition(database: str, table: str, expected: set) -> int:
     """Reads the table back and confirms the new definition landed.
+
+    **Call bound: exactly once per invocation** — one call in ``_apply``. Named for the read-back
+    rather than ``glue-get-table``, though the API call is the same one: the two answer different
+    questions, and an operator looking at why a refresh was slow needs to know which of the two
+    reads it was.
 
     Checked rather than assumed, because this plane's canonical failure was a verb that
     completed while the catalog did not agree. An accepted update proves the call was accepted,

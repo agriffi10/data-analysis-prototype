@@ -346,10 +346,17 @@ def write_member_entry(
     upsert_entry(member, entry)
 
 
+@observability.step("write-roster")
 def write_roster_to_all(
     members: list[str], name: str, owner: str, acknowledged: list[str], created_at: str | None = None
 ) -> None:
     """Fans the current roster out to the owner and every member's cache.
+
+    **Call bound: at most once per invocation**, in each of the five verbs that reach it — add,
+    remove, leave, transfer-ownership and acknowledge-membership — two of which reach it inside
+    a conditional. The span goes around the WHOLE fan-out rather than around each member's
+    write: the shared layer offers this plane no bounded function to step, so the loop is the
+    call site and its body is what must stay uninstrumented.
 
     Called by add, remove and leave after the registry write, which is the consistency point, so
     each remaining member's cache reflects the same roster the owner sees. Per-member writes are

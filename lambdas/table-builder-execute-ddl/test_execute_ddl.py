@@ -169,3 +169,22 @@ if __name__ == "__main__":
     sys.exit(1 if failed else 0)
 
 
+def test_the_ddl_run_is_a_child_span_of_the_verbs_own_span(captured_events):
+    """The Athena round trip is all of this verb's latency and the only part that can hang.
+
+    The span is named for the operation and NOT `execute-ddl`, which is already this verb's root
+    span: a child sharing its parent's name returns both to the one query an operator runs, with
+    the durations counted twice. Parentage is asserted rather than presence alone.
+    """
+    _install(_FakeAthena(["QUEUED", "RUNNING", "SUCCEEDED"]))
+
+    out = e.handler(_event(), None)
+
+    assert out["status"] == "created", "the span is asserted on a SUCCESSFUL run"
+    root = captured_events.spans("execute-ddl")
+    assert len(root) == 1, f"expected one execute-ddl root span, got {len(root)}"
+    children = captured_events.child_spans("execute-ddl", name="athena-run-ddl")
+    assert len(children) == 1, (
+        f"execute-ddl emitted {len(children)} 'athena-run-ddl' child spans, expected exactly one"
+    )
+    assert children[0]["parent_span_id"] == root[0]["span_id"]
