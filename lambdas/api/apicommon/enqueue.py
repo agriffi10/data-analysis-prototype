@@ -1,4 +1,4 @@
-"""The one path the TEN ENQUEUE ROUTES take to ``SendMessage``. No credential passes through it.
+"""The one path the ELEVEN ENQUEUE ROUTES take to ``SendMessage``. No credential passes through it.
 
 Every enqueue route hands its validated payload here. This module stamps what the caller may not —
 the identity block and the route's own literals — derives the FIFO keys, checks the result against
@@ -17,7 +17,7 @@ execution inputs for nobody is the exposure this whole change exists to close. T
 kept it un-renderable, the field on the request context and the sweep counting its one reader all
 went with it: there is nothing left to contain.
 
-A handler still builds no message body, which is what keeps the router's premise true at ten
+A handler still builds no message body, which is what keeps the router's premise true at eleven
 routes rather than one.
 
 Attributes:
