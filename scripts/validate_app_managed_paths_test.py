@@ -41,6 +41,7 @@ TS_OWNER_BODY = (
     "export function appManagedPrefix(r: string, f: string): string { return `${r}${f}/`; }\n"
 )
 PY_BENIGN = ("lambdas/benign/benign.py", "X = 1\n")
+SCRIPTS_BENIGN = ("scripts/benign_runner.py", "X = 1\n")
 TS_BENIGN = ("apps/portal/src/features/benign/benign.ts", "export const x = 1;\n")
 
 
@@ -60,7 +61,7 @@ def build(root: pathlib.Path, files: dict[str, str], *, owners: bool = True) -> 
     """
     (root / "scripts").mkdir(parents=True)
     shutil.copy(SWEEP, root / "scripts" / SWEEP.name)
-    baseline = dict([PY_BENIGN, TS_BENIGN])
+    baseline = dict([PY_BENIGN, SCRIPTS_BENIGN, TS_BENIGN])
     if owners:
         baseline.update({PY_OWNER: PY_OWNER_BODY, PY_FACT3_OWNER: PY_FACT3_BODY, TS_OWNER: TS_OWNER_BODY})
     for rel, body in {**baseline, **files}.items():
@@ -89,6 +90,18 @@ def run(root: pathlib.Path) -> tuple[int, str]:
 
 CASES: list[tuple[str, dict[str, str], int, list[str]]] = [
     # name, planted files, expected exit, substrings the output must carry (empty = silence)
+    (
+        "py_literal_in_the_scripts_tree_fails",
+        {"scripts/runner.py": 'FOLDERS = ("athenaresults",)\n'},
+        1,
+        ["scripts/runner.py:1", "athenaresults", "declared outside"],
+    ),
+    (
+        "py_construction_in_the_scripts_tree_fails",
+        {"scripts/runner.py": 'def f(root):\n    return f"{root}archive/"\n'},
+        1,
+        ["scripts/runner.py:2", "archive", "constructed outside"],
+    ),
     (
         "py_bare_literal_fails",
         {"lambdas/x/verb.py": 'FOLDERS = ("athenaresults",)\n'},
@@ -416,6 +429,16 @@ def main() -> int:
         print(f"FAIL empty_tree_is_a_hard_error — exit {code}: {out.strip()[:200]}")
     else:
         print("ok   empty_tree_is_a_hard_error")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        build(root, {})
+        (root / SCRIPTS_BENIGN[0]).unlink()
+        code, out = run(root)
+    if code != 2 or "nothing to sweep in scripts" not in out:
+        failures.append("an_empty_scripts_tree_is_a_hard_error_naming_it")
+        print(f"FAIL an_empty_scripts_tree_is_a_hard_error_naming_it — exit {code}: {out.strip()[:200]}")
+    else:
+        print("ok   an_empty_scripts_tree_is_a_hard_error_naming_it")
 
     # The sibling set is DERIVED from MANAGED_NAMES rather than written out a second time, which
     # removes one copy of a list that used to exist twice — and removes with it the thing that

@@ -1,0 +1,148 @@
+# ── One-shot: move the three app-managed folders under a real system_settings/ prefix ────────
+#
+# Manual only, and it runs BETWEEN two merges. The first merge switches where new writes go; this
+# copies what is already there and, once every live check has passed, deletes the sources; the
+# second merge then removes the old home's fences. `finish` is the point of no return for the
+# objects — nothing here can put a deleted source back.
+#
+# It is a workflow of its own rather than an input on an existing one for `backfill-ever-active`'s
+# reason: bolting a mode onto a deploy workflow would mean every routine redeploy could also run a
+# destructive migration, which is the one ordering this exercise exists to control.
+#
+# Unlike that precedent it runs a SCRIPT from the checkout rather than invoking a deployed Lambda,
+# so it needs a checkout, a Python and boto3 — none of which the precedent supplies, and none of
+# which any other job in this repo installs.
+#
+# Run it from `main`. The step below refuses any other ref, which turns what would otherwise be an
+# opaque STS error (the deploy role's trust policy admits `refs/heads/main` and pull requests and
+# nothing else) into a message that says what is wrong.
+#
+# The module refuses `copy`, `resolve` and `finish` while the checkout still writes to the old
+# home, so dispatching this before the switch merges is refused rather than destructive.
+
+name: Migrate system_settings
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'report · copy · resolve · verify · finish (deletes sources) · prove-empty'
+        required: true
+        default: report
+        type: choice
+        options: [report, copy, resolve, verify, finish, prove-empty]
+      run_id:
+        description: 'The run id whose record to read. Blank on the first copy; required afterwards.'
+        required: false
+        type: string
+      key:
+        description: 'resolve only — the source key, or the record id "bucket|key" (the only way to name the shared-space side of a name collision)'
+        required: false
+        type: string
+      keep:
+        description: 'resolve only — which side wins'
+        required: false
+        default: source
+        type: choice
+        options: [source, destination]
+
+# Two runs copying or deleting at once would interleave their records, and the second would read
+# the first's half-written state as the truth about what has been copied.
+concurrency:
+  group: migrate-system-settings
+  cancel-in-progress: false
+
+env:
+  PROJECT_NAME: ${{ vars.TF_VAR_project_name || 'dat' }}
+  ENVIRONMENT: ${{ vars.TF_VAR_environment || 'prod' }}
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    # A copy over a large space, and a finish that re-HEADs both sides of every recorded key, are
+    # both long. The default six hours is the ceiling rather than an expectation; the record is
+    # written every 500 keys so a run cut off here leaves one a re-run extends.
+    timeout-minutes: 360
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Refuse any ref but main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::this migration runs only from main; ${{ github.ref }} would fail at the assume with an opaque STS error."
+          exit 1
+
+      - name: Refuse a resolve with no key
+        if: inputs.mode == 'resolve' && inputs.key == ''
+        run: |
+          echo "::error::resolve needs the source key to settle. The module refuses this too; failing here saves the round trip."
+          exit 1
+
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      # The Lambda runtime provides boto3, so nothing else in this repo installs it and there is no
+      # pinned version to inherit. It is pinned rather than floating because the module's
+      # conditional-delete probe reads the botocore service model to decide whether it may send a
+      # per-object ETag: a floating install could take a different delete path on the `finish` run
+      # from the one the `copy` run measured. Measured on botocore 1.35.99, where
+      # `ObjectIdentifier` already carries `ETag`, so this pin selects the conditional path; the
+      # module works either way, and the head re-verify is the guard it actually relies on.
+      # botocore is pinned BESIDE boto3 rather than left to it: boto3 1.35.49 requires only
+      # `botocore>=1.35.49,<1.36.0`, which admits every release up to 1.35.99, so pinning boto3
+      # alone would leave the version this reasoning is about free to float.
+      - name: Install boto3
+        run: python3 -m pip install --no-cache-dir 'boto3==1.35.49' 'botocore==1.35.99'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          retry-max-attempts: 3
+
+      - name: Run the migration
+        env:
+          # Derived from the two repository variables, with an explicit override honoured where the
+          # IaC allows one — a bucket renamed because its global name was taken would otherwise
+          # make this address a bucket that does not exist.
+          USER_SPACE_BUCKET: ${{ vars.TF_VAR_user_space_bucket_name || format('{0}-{1}-user-space', vars.TF_VAR_project_name || 'dat', vars.TF_VAR_environment || 'prod') }}
+          SHARED_SPACE_BUCKET: ${{ vars.TF_VAR_shared_space_bucket_name || format('{0}-{1}-shared-space', vars.TF_VAR_project_name || 'dat', vars.TF_VAR_environment || 'prod') }}
+          ADMIN_BUCKET: ${{ vars.TF_VAR_athena_admin_bucket_name || format('{0}-{1}-athena-admin', vars.TF_VAR_project_name || 'dat', vars.TF_VAR_environment || 'prod') }}
+          ATHENA_WORKGROUP: ${{ vars.TF_VAR_workgroup_name || format('{0}-{1}-portal-wg', vars.TF_VAR_project_name || 'dat', vars.TF_VAR_environment || 'prod') }}
+          MODE: ${{ inputs.mode }}
+          RUN_ID: ${{ inputs.run_id }}
+          KEY: ${{ inputs.key }}
+          KEEP: ${{ inputs.keep }}
+        run: |
+          set -euo pipefail
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          export ARCHIVE_STATE_MACHINE_ARN="arn:aws:states:${AWS_REGION}:${ACCOUNT}:stateMachine:${PROJECT_NAME}-${ENVIRONMENT}-archive-orchestrator"
+          export TABLE_SHARE_STATE_MACHINE_ARN="arn:aws:states:${AWS_REGION}:${ACCOUNT}:stateMachine:${PROJECT_NAME}-${ENVIRONMENT}-table-share-orchestrator"
+          python3 scripts/migrate_system_settings.py "$MODE" \
+            --run-id "$RUN_ID" \
+            --key "$KEY" \
+            --keep "$KEEP"
+
+      - name: Say what to do next
+        if: always()
+        run: |
+          {
+            echo ''
+            echo "Mode \`${{ inputs.mode }}\` finished with status \`${{ job.status }}\`."
+            echo ''
+            echo 'Carry the run id above into every later mode — `copy` given an existing id EXTENDS its record rather than opening a new one, which is what makes an interrupted run resumable.'
+            echo ''
+            echo 'The order is fixed: `report` · `copy` · `resolve` each conflict to zero · `verify` · the live checks · `finish` · `prove-empty`.'
+            echo ''
+            echo '**`finish` is the point of no return for the objects.** It deletes every source whose copy re-verifies, and nothing here can put one back. Run it only once every FR-004 row is discharged.'
+            echo ''
+            echo '`prove-empty` is only meaningful BEFORE the narrowing merge: afterwards the plural builder has one element, the old home is unaddressable, and the module refuses rather than answering about the new one.'
+            echo ''
+            echo 'If this run failed within seconds of the apply that granted its permissions, expect one `AccessDenied` and re-dispatch — IAM is eventually consistent and two of the three grant documents are modified managed policies.'
+          } >> "$GITHUB_STEP_SUMMARY"
