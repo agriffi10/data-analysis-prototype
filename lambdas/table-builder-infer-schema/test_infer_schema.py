@@ -16,6 +16,7 @@ but only under an environment that provides both.
 """
 
 import datetime as dt
+import inspect
 import os
 import sys
 import tempfile
@@ -192,8 +193,52 @@ _JSON_SERDE = "org.openx.data.jsonserde.JsonSerDe"
 _PARQUET_SERDE = "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe"
 
 
+def test_the_column_inference_is_a_child_span_of_the_verbs_own_span(captured_events):
+    """The polars read is this verb's principal cost, and it is one call per invocation.
+
+    Named `infer-columns` rather than `infer-schema`, which is already the root span's name.
+
+    Args:
+      captured_events: The shared capturing sink.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    path = os.path.join(_TMP, "span.parquet")
+    pl.DataFrame({"order_id": pl.Series([1, 2], dtype=pl.Int64)}).write_parquet(path)
+    _use_fixture(path)
+
+    out = i.handler(_event("parquet"), None)
+
+    assert out["columns"], "the span is asserted on a SUCCESSFUL run"
+    root = captured_events.spans("infer-schema")
+    assert len(root) == 1, f"expected one infer-schema root span, got {len(root)}"
+    children = captured_events.child_spans("infer-schema", name="infer-columns")
+    assert len(children) == 1, (
+        f"infer-schema emitted {len(children)} 'infer-columns' child spans, expected exactly one"
+    )
+    assert children[0]["parent_span_id"] == root[0]["span_id"]
+
+
 if __name__ == "__main__":
-    tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
+    # This runner injects no fixtures, so a test that takes one is skipped rather than called
+    # with the wrong arity. Without the skip, adding the first fixture-taking test to this file
+    # turns the documented direct-run mode red for a reason that is about the runner.
+    tests = [
+        fn
+        for name, fn in sorted(globals().items())
+        if name.startswith("test_") and not inspect.signature(fn).parameters
+    ]
+    skipped = [
+        name
+        for name, fn in sorted(globals().items())
+        if name.startswith("test_") and inspect.signature(fn).parameters
+    ]
+    for name in skipped:
+        print(f"SKIP {name} (needs a pytest fixture; run this file under pytest for it)")
     failed = 0
     for fn in tests:
         try:

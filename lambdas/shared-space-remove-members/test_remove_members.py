@@ -142,3 +142,51 @@ def test_an_operator_driven_removal_is_attributable_to_an_actor_and_an_origin(ca
         if "origin" in (event.get("fields") or {})
     }
     assert origins == {"operator"}, f"the span recorded {origins}"
+
+
+def test_the_remove_emits_a_child_span_for_the_fan_out_and_the_notifications(captured_events):
+    """This verb's two bounded call sites, both around a LOOP rather than inside one.
+
+    THE FIXTURE HAS TO MAKE BOTH LOOPS RUN, and the two loops are driven by different sets. The
+    notification loop iterates the members REMOVED, so removing two covers it. The roster fan-out
+    iterates the members who REMAIN, skipping the owner — so a fixture that removes everyone but
+    the owner runs it zero times, and a per-member plant would emit zero spans and be caught for
+    the wrong reason, then pass silently the day one member survived. Five members, two removed,
+    leaves two non-owners for the fan-out to write.
+
+    Args:
+      captured_events: The shared capturing sink.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    s3, _glue, _lf, cognito = install()
+    cognito.users = {
+        name: {"custom:shared_space_1": "sales"}
+        for name in ("bob", "carol", "dave", "erin")
+    }
+    reg = _active_reg(members=["alice", "bob", "carol", "dave", "erin"])
+    _seed_reg(s3, reg)
+
+    r.handler(
+        {
+            "space": "sales",
+            "actor": "alice",
+            "requestId": "req-span",
+            "registry": reg,
+            "payload": {"members": ["bob", "carol"]},
+        },
+        None,
+    )
+
+    root = captured_events.spans("remove-members")
+    assert len(root) == 1, f"expected one remove-members root span, got {len(root)}"
+    for name in ("write-roster", "notify-members"):
+        children = captured_events.child_spans("remove-members", name=name)
+        assert len(children) == 1, (
+            f"remove-members emitted {len(children)} {name!r} child spans, expected exactly one"
+        )
+        assert children[0]["parent_span_id"] == root[0]["span_id"]

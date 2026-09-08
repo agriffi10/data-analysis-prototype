@@ -14,6 +14,7 @@ each test re-inserting them. Tests that also run directly (``python3
 test_x.py``) keep their own per-file ``sys.path.insert`` for that mode.
 """
 
+import ast
 import os
 import sys
 
@@ -177,30 +178,296 @@ for _name, _value in _REQUIRED_ENV.items():
 
 
 class _CapturingSink:
-    """Collects emitted events so a verb test can assert on what it narrated."""
+    """Collects emitted events so a verb test can assert on what it narrated.
+
+    Every read DRAINS log-foundry's worker first, and that is a property the readers exist for
+    rather than a convenience. An event emitted with no span open is delivered synchronously;
+    one emitted INSIDE a span is buffered until the worker flushes. So the moment a narrating
+    helper gains an ``observability.step``, its existing events stop arriving before the
+    assertion that reads them — and an absence over an undrained sink means "nothing has been
+    flushed yet", which is green for exactly the same assertions as "nothing was emitted" and
+    cannot be told apart from it.
+
+    The drain reaches the sinks this fixture hands out and no others. Two suites configure
+    collectors of their own — ``control-plane-common/test_observability_cpcommon.py`` and
+    ``log-sweep/test_log_sweep.py`` — and each stays responsible for its own flushing.
+
+    Attributes:
+      _events: Every event delivered to ``emit``, in the order the worker delivered them — which
+        a read now influences, because a read drains. An event emitted inside a span lands where
+        the next read puts it rather than where it was emitted, so this list is a set to filter,
+        not a sequence to index. Nothing asserts global ordering over it today. Private so that
+        ``events`` can be the draining reader: ``emit`` appends here directly, which is what keeps
+        a drain triggered by a read from re-entering the flush that caused it.
+    """
 
     def __init__(self):
-        self.events = []
+        """Starts with no events.
+
+        Args:
+          None.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
+        self._events = []
 
     def emit(self, batch):
-        self.events.extend(batch)
+        """Keeps one delivered batch.
+
+        Appends to the private list rather than through ``events``: a read drains, and a drain
+        delivers, so going through the property here would re-enter the flush it triggered.
+
+        Args:
+          batch: The events log-foundry is delivering.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
+        self._events.extend(batch)
 
     def close(self):
-        pass
+        """Releases nothing.
+
+        Args:
+          None.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
+
+    def _drain(self):
+        """Flushes log-foundry's worker, but only while this sink is the live one.
+
+        The guard is not defensive tidiness. ``flush`` delivers to whatever sink the library is
+        configured with, not to the one being read — so draining from a RETIRED collector, which
+        every teardown creates, would push its pending events into somebody else's collector as
+        a side effect of reading this one.
+
+        ``observability.flush`` rather than ``log_foundry.flush`` because it swallows. A read is
+        expected to answer, and a caller reaching this through ``getattr(sink, "events", None)``
+        would otherwise see a library fault as an absent attribute — a wrong verdict rather than
+        a failure.
+
+        Args:
+          None.
+
+        Returns:
+          None.
+
+        Raises:
+          None. A library that cannot report its configuration leaves the collected events as
+          they stand rather than failing the read.
+        """
+        import log_foundry as lf
+        from cpcommon import observability
+
+        try:
+            live = lf.get_config().sink
+        except Exception:  # noqa: BLE001
+            return
+        if live is self:
+            observability.flush()
+
+    @property
+    def events(self):
+        """Every event delivered so far, with the worker drained first.
+
+        Args:
+          None.
+
+        Returns:
+          The collected events, in delivery order.
+
+        Raises:
+          None.
+        """
+        self._drain()
+        return self._events
 
     def messages(self, message):
+        """Every event carrying one literal message.
+
+        Args:
+          message: The literal message to match.
+
+        Returns:
+          The matching events.
+
+        Raises:
+          None.
+        """
         return [e for e in self.events if e["message"] == message]
 
     def levels(self):
-        """Everything that is not a span boundary — the narrative proper."""
+        """Everything that is not a span boundary — the narrative proper.
+
+        Args:
+          None.
+
+        Returns:
+          The non-boundary events.
+
+        Raises:
+          None.
+        """
         return [e for e in self.events if e["message"] not in ("span.start", "span.end")]
 
     def spans(self, function):
+        """Every span opened under one function name, root or child.
+
+        Args:
+          function: The span's ``function`` field.
+
+        Returns:
+          The matching ``span.start`` events.
+
+        Raises:
+          None.
+        """
         return [
             e
             for e in self.events
             if e["message"] == "span.start" and e["function"] == function
         ]
+
+    def child_spans(self, parent_function, name=None):
+        """The child spans opened inside one named span.
+
+        Read from ONE snapshot of the events rather than from two: a parent set and a child set
+        taken either side of a delivery would pair spans from different moments, and the
+        mismatch would present as a child that is missing rather than as a race.
+
+        Args:
+          parent_function: The parent span's ``function`` — a verb's root span name.
+          name: Restrict to child spans of this name, or None for every child.
+
+        Returns:
+          The ``span.start`` events whose ``parent_span_id`` is a span id of
+          ``parent_function``.
+
+        Raises:
+          None.
+        """
+        collected = list(self.events)
+        parents = {
+            e["span_id"]
+            for e in collected
+            if e["message"] == "span.start" and e.get("function") == parent_function
+        }
+        return [
+            e
+            for e in collected
+            if e["message"] == "span.start"
+            and e.get("parent_span_id") in parents
+            and (name is None or e.get("function") == name)
+        ]
+
+
+def observability_decorator_names(tree, attribute="step"):
+    """Every local name in one parsed module that resolves to ``observability.<attribute>``.
+
+    The spelling a decorator wears is the author's choice, and a guard that matches the rendered
+    text ``observability.step`` is blind to every other one. Measured: a
+    ``from .observability import step`` plus a bare ``@step("…")`` planted the exact per-recipient
+    instrumentation the control planes forbid, and the whole suite stayed green. No such spelling
+    exists in ``lambdas/`` today — which is why this resolves bindings rather than adding a second
+    literal to match, since the next spelling will not be one anybody predicted either.
+
+    Args:
+      tree: The parsed module.
+      attribute: The observability name being looked for — ``step`` or ``traced``.
+
+    Returns:
+      The set of dotted or bare names that decorate a function with it.
+
+    Raises:
+      None.
+    """
+    names = {f"observability.{attribute}"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.endswith("observability"):
+                    # `import a.b.observability` binds `a`, so the only spelling that works at a
+                    # call site is the FULL dotted path — taking the last segment registered a
+                    # name no decorator can wear, and three forbidden functions took a step with
+                    # the whole suite green. `as` binds the alias alone, which is the other case.
+                    names.add(f"{alias.asname or alias.name}.{attribute}")
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            for alias in node.names:
+                if alias.name == "observability":
+                    names.add(f"{alias.asname or 'observability'}.{attribute}")
+                elif alias.name == attribute and module.endswith("observability"):
+                    names.add(alias.asname or attribute)
+    return names
+
+
+def stepped_functions(tree, attribute="step"):
+    """Every function in one parsed module carrying a span decorator, with the name it declares.
+
+    Args:
+      tree: The parsed module.
+      attribute: ``step`` for a child span, ``traced`` for a verb's root span.
+
+    Returns:
+      A list of ``(function name, span name)`` pairs; the span name is None when the decorator
+      names none. A name passed by KEYWORD counts: read from positional arguments alone it came
+      back None, and the collision sweep skips a None.
+
+    Raises:
+      None.
+    """
+    bound = observability_decorator_names(tree, attribute)
+    found = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for decorator in node.decorator_list:
+            call = decorator.func if isinstance(decorator, ast.Call) else decorator
+            if ast.unparse(call) not in bound:
+                continue
+            arguments = list(getattr(decorator, "args", [])) + [
+                keyword.value
+                for keyword in getattr(decorator, "keywords", [])
+                if keyword.arg == "name"
+            ]
+            literals = [
+                a.value
+                for a in arguments
+                if isinstance(a, ast.Constant) and isinstance(a.value, str)
+            ]
+            found.append((node.name, literals[0] if literals else None))
+    return found
+
+
+@pytest.fixture
+def step_scan():
+    """Hands a test the shared step-decorator scanners.
+
+    A fixture rather than a helper each suite copies: the two guards that use it live in
+    different files, and the same matcher written twice is the one that is wrong in one copy.
+
+    Args:
+      None.
+
+    Returns:
+      The ``stepped_functions`` scanner, which takes a parsed module and optionally ``"traced"``.
+
+    Raises:
+      None.
+    """
+    return stepped_functions
 
 
 @pytest.fixture

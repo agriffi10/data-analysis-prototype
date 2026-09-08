@@ -6,6 +6,7 @@ path is deterministic with no real sleeping. Runnable under pytest OR directly:
 ``python3 test_execute_ddl.py``.
 """
 
+import inspect
 import os
 import sys
 
@@ -155,8 +156,52 @@ def test_notifies_actor_on_ddl_failure_without_leaking_athena_reason():
     assert "SYNTAX_ERROR" not in body["message"]
 
 
+def test_the_ddl_run_is_a_child_span_of_the_verbs_own_span(captured_events):
+    """The Athena round trip is all of this verb's latency and the only part that can hang.
+
+    The span is named for the operation and NOT `execute-ddl`, which is already this verb's root
+    span: a child sharing its parent's name returns both to the one query an operator runs, with
+    the durations counted twice. Parentage is asserted rather than presence alone.
+
+    Args:
+      captured_events: The shared capturing sink.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    _install(_FakeAthena(["QUEUED", "RUNNING", "SUCCEEDED"]))
+
+    out = e.handler(_event(), None)
+
+    assert out["status"] == "created", "the span is asserted on a SUCCESSFUL run"
+    root = captured_events.spans("execute-ddl")
+    assert len(root) == 1, f"expected one execute-ddl root span, got {len(root)}"
+    children = captured_events.child_spans("execute-ddl", name="athena-run-ddl")
+    assert len(children) == 1, (
+        f"execute-ddl emitted {len(children)} 'athena-run-ddl' child spans, expected exactly one"
+    )
+    assert children[0]["parent_span_id"] == root[0]["span_id"]
+
+
 if __name__ == "__main__":
-    tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
+    # This runner injects no fixtures, so a test that takes one is skipped rather than called
+    # with the wrong arity. Without the skip, adding the first fixture-taking test to this file
+    # turns the documented direct-run mode red for a reason that is about the runner.
+    tests = [
+        fn
+        for name, fn in sorted(globals().items())
+        if name.startswith("test_") and not inspect.signature(fn).parameters
+    ]
+    skipped = [
+        name
+        for name, fn in sorted(globals().items())
+        if name.startswith("test_") and inspect.signature(fn).parameters
+    ]
+    for name in skipped:
+        print(f"SKIP {name} (needs a pytest fixture; run this file under pytest for it)")
     failed = 0
     for fn in tests:
         try:
@@ -167,5 +212,3 @@ if __name__ == "__main__":
             print(f"FAIL {fn.__name__}: {exc}")
     print(f"\n{len(tests) - failed}/{len(tests)} passed")
     sys.exit(1 if failed else 0)
-
-

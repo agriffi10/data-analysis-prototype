@@ -974,6 +974,57 @@ def test_the_capturing_fixture_collects_through_the_shared_harness(captured_even
     assert captured_events.spans("probe-verb"), "no span named probe-verb"
 
 
+def test_a_read_of_the_shared_sink_drains_so_an_absence_means_nothing_was_emitted(
+    captured_events,
+):
+    """The property every absence assertion written over `captured_events` rests on.
+
+    An event emitted with no span open is delivered synchronously; one emitted INSIDE a span is
+    buffered until the worker flushes. So a helper that narrates and then gains a step stops
+    delivering before the assertion that reads it, and an undrained read answers "nothing has
+    been flushed yet" — green for exactly the same assertions as "nothing was emitted", with no
+    way to tell the two apart.
+
+    THE TWO HALVES ARE ONE TEST DELIBERATELY, and the spec's own acceptance criterion asks for
+    something that cannot exist. It says to mutation-test the drain "against a test that asserts
+    an absence"; removing a drain can only make an absence assertion MORE likely to pass, so no
+    absence alone can detect it. The presence half is the half that dies when the drain is
+    removed, and it is what makes the absence half mean anything.
+
+    Args:
+      captured_events: The shared capturing sink.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+
+    @observability.step("probe-step")
+    def narrating_step():
+        """Narrates from inside a span, so its event is buffered rather than delivered.
+
+        Args:
+          None.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
+        observability.info("emitted inside a span")
+
+    narrating_step()
+
+    assert captured_events.messages("emitted inside a span"), (
+        "the read did not drain the worker, so every absence assertion over this sink means "
+        "'nothing has been flushed yet' rather than 'nothing was emitted'"
+    )
+    assert captured_events.messages("never emitted at all") == []
+
+
 def test_every_event_carries_the_build_stamp_and_the_verb(sink):
     """The two fields a record is useless without, asserted where they are cheapest to lose.
 
@@ -1032,3 +1083,177 @@ def test_the_pins_comment_still_states_every_fact_it_is_the_sole_home_of():
         f"the pin's comment no longer states: {missing}. Each is stated in no other live file, so "
         "a rewrite that drops one deletes it from the repo."
     )
+
+
+def _span_names(scan):
+    """Every `observability.traced` and `observability.step` name in the fleet, with its site.
+
+    Args:
+      scan: The shared span-decorator scanner, which resolves the name a decorator is bound to
+        rather than matching its rendered text — the difference a planted
+        `from .observability import step` exposed.
+
+    Returns:
+      A `(traced, stepped)` pair of `{name: [site, …]}` mappings.
+
+    Raises:
+      None.
+    """
+    traced, stepped = {}, {}
+    for path in sorted(_LAMBDAS.rglob("*.py")):
+        # Test files are excluded because the guard is about the names an OPERATOR queries. A
+        # probe span in a suite never reaches the store, so a collision with one is a false
+        # positive on a real verb's name.
+        if "__pycache__" in str(path) or path.name.startswith(("test_", "conftest.")):
+            continue
+        try:
+            tree = ast.parse(path.read_text())
+        except SyntaxError:
+            continue
+        for attribute, target in (("traced", traced), ("step", stepped)):
+            for _function, name in scan(tree, attribute):
+                if name is None:
+                    continue
+                target.setdefault(name, []).append(str(path.relative_to(_LAMBDAS)))
+    return traced, stepped
+
+
+#: The one collision that predates this guard, named as an ITEM rather than excused as a class.
+#: `data-quality-inspect-source`'s step is called `write-manifest`, which is also the whole verb
+#: `archive-write-manifest`. Both are outside the scope of the change that added this guard —
+#: data-quality already had its steps and archive's verb name is years old — so the collision is
+#: recorded here rather than fixed in passing. Anything else colliding is a defect.
+_KNOWN_NAME_COLLISIONS = {"write-manifest"}
+
+
+def test_no_step_name_collides_with_a_verbs_own_span_name(step_scan):
+    """`function` carries both, so a name used for both returns a verb total and an inner step.
+
+    An operator filtering on the span name is the whole reason a span HAS a name, and a collision
+    silently merges a Lambda's total duration with an internal operation's — the two are not
+    comparable and nothing in the record says they are different kinds of thing.
+
+    Found by sweeping the fleet rather than by reading one verb: three names were corrected during
+    SPEC-226 by checking each verb against its own root span, and a fourth collided with a
+    DIFFERENT verb's, which that check could not see. This is the sweep, kept.
+
+    Args:
+      step_scan: The shared span-decorator scanner.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    traced, stepped = _span_names(step_scan)
+    # 58 verb names and 34 step names on this branch. The floors sit well under both so an
+    # ordinary deletion does not redden them, and well over zero so a scan that stopped reading
+    # the fleet does — the failure this is here to catch is a matcher that resolves nothing, not
+    # a plane being retired.
+    assert len(traced) > 40 and len(stepped) > 20, (
+        f"the scan found {len(traced)} verb names and {len(stepped)} step names, so it is not "
+        "reading the fleet and an empty result would pass this guard vacuously"
+    )
+
+    collisions = {
+        name: {"verb": traced[name], "step": stepped[name]}
+        for name in set(traced) & set(stepped)
+        if name not in _KNOWN_NAME_COLLISIONS
+    }
+    assert not collisions, (
+        f"these span names are used for both a whole verb and an internal step: {collisions}. "
+        "Name the operation, not the verb."
+    )
+
+
+def test_the_known_collision_still_exists_and_is_the_only_one_excused(step_scan):
+    """An exemption for something already fixed is a hole nobody is watching.
+
+    Args:
+      step_scan: The shared span-decorator scanner.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    traced, stepped = _span_names(step_scan)
+    stale = {name for name in _KNOWN_NAME_COLLISIONS if name not in (set(traced) & set(stepped))}
+    assert not stale, (
+        f"{stale} is excused as a pre-existing collision and is no longer one — delete the "
+        "entry so the guard covers that name again"
+    )
+
+
+def test_reading_a_retired_collector_does_not_flush_into_the_live_one():
+    """The `is self` gate on the drain, driven rather than asserted about in a docstring.
+
+    `flush` delivers to whatever sink the library is CONFIGURED with, not to the one being read.
+    So a read of a retired collector — one a later `configure` swapped out, which every teardown
+    creates — would push whatever is currently buffered into somebody else's collector, as a side
+    effect of reading this one. A test that then asserted "nothing has arrived yet" would be
+    measuring another test's read.
+
+    Both sinks are the shared `_CapturingSink`, loaded the way `conftest` is elsewhere in this
+    file, because the gate is that class's and a local stand-in would not have it.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "root_conftest_drain_probe", _LAMBDAS / "conftest.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    retired = module._CapturingSink()
+    lf.configure(service="test", version="0", env="test", sink=retired)
+    live = module._CapturingSink()
+    lf.configure(service="test", version="0", env="test", sink=live)
+
+    @observability.step("buffered-step")
+    def emit_inside_a_span():
+        """Narrates from inside a span, so the event is buffered rather than delivered.
+
+        Args:
+          None.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
+        observability.info("buffered until a flush")
+
+    emit_inside_a_span()
+
+    #: The LIVE sink's backing list, read without going through the draining property, because
+    #: reading `live.events` would flush by itself and erase the difference being measured. This
+    #: is the only observation that separates the two behaviours: `retired.events` is empty either
+    #: way, since an ungated flush still delivers to whoever is configured, not to the reader.
+    assert live._events == [], "the event was delivered before anything asked for it"
+
+    read_from_the_retired_collector = retired.events
+
+    assert live._events == [], (
+        "reading the RETIRED collector flushed the live one's buffered events into it — a read "
+        "must not have a side effect on another collector"
+    )
+    assert read_from_the_retired_collector == [], (
+        "the retired collector received something it never emitted"
+    )
+
+    assert live.events, "the live collector never received the event, so the check above is moot"
+
+    lf.configure(service="test", version="0", env="test", sink=module._CapturingSink())

@@ -287,3 +287,30 @@ if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
 
 
+def test_the_catalog_read_is_a_child_span_of_the_verbs_own_span(captured_events):
+    """One Glue round trip per invocation, named for the operation rather than for the verb.
+
+    `glue-get-table` is shared with apply-refresh's pre-write read on purpose: it is the same
+    call against the same catalog, and one name is what lets a query group across both verbs.
+
+    Args:
+      captured_events: The shared capturing sink.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    _install(_table())
+
+    out = m.handler(_event(), None)
+
+    assert out["existingColumns"], "the span is asserted on a SUCCESSFUL run"
+    root = captured_events.spans("load-table-definition")
+    assert len(root) == 1, f"expected one load-table-definition root span, got {len(root)}"
+    children = captured_events.child_spans("load-table-definition", name="glue-get-table")
+    assert len(children) == 1, (
+        f"load-table-definition emitted {len(children)} 'glue-get-table' child spans, expected one"
+    )
+    assert children[0]["parent_span_id"] == root[0]["span_id"]

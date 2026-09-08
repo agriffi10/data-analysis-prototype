@@ -27,6 +27,35 @@ logger.setLevel(logging.INFO)
 observability.init(service="shared-space")
 
 
+@observability.step("notify-members")
+def _notify_members(removed, space, request_id):
+    """Tells every removed member, under one span.
+
+    **Call bound: at most once per invocation.** The span goes around the WHOLE loop rather than
+    around ``emit_notification``, which runs once per recipient and is one of the five shared
+    functions that must never carry a step. The message and the dedup id stay here rather than
+    moving to a shared emitter: the dedup id is a FIFO deduplication key on a notification a
+    user sees, and each verb's is built differently.
+
+    Args:
+      removed: The members the registry write actually removed.
+      space: The space's name, for the message.
+      request_id: The run's request id, which prefixes each dedup id.
+
+    Returns:
+      None.
+
+    Raises:
+      None. ``emit_notification`` catches and logs its own failures.
+    """
+    for member in removed:
+        emit_notification(
+            member,
+            f'You\'ve been removed from the shared workspace "{space}".',
+            dedup_id=f"{request_id}:remove-member:{member}",
+        )
+
+
 def remove_members(space, members, request_id, registry):
     """Removes members from a space and reports which were actually removed.
 
@@ -77,12 +106,7 @@ def remove_members(space, members, request_id, registry):
         committed.get("acknowledged", []),
         committed.get("createdAt"),
     )
-    for member in removed:
-        emit_notification(
-            member,
-            f'You\'ve been removed from the shared workspace "{space}".',
-            dedup_id=f"{request_id}:remove-member:{member}",
-        )
+    _notify_members(removed, space, request_id)
     logger.info("remove_members %s: removed %s", space, removed)
     observability.info(
         "members removed",

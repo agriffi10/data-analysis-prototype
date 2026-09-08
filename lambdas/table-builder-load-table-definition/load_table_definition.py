@@ -52,8 +52,17 @@ _SHAPE_REASONS = {
 _DECLARED_TYPES = {"integer": "integer", "date": "date", "enum": "string"}
 
 
+@observability.step("glue-get-table")
 def _get_table(database: str, table: str) -> dict:
     """Reads the live table from the Glue catalog.
+
+    **Call bound: exactly once per invocation** — one call in ``_load``, which ``handler`` calls
+    once.
+
+    The span shares its name with apply-refresh's pre-write read DELIBERATELY: it is the same
+    operation against the same catalog, and the name is what makes a query group across the two
+    verbs that perform it. It is not named ``load-table-definition``, which is this verb's own
+    root span.
 
     Args:
       database: The target database.

@@ -323,3 +323,34 @@ def test_ACCEPTED_a_mixed_case_live_table_is_silently_re_cased_on_refresh():
         "the fold is no longer being applied on write"
     )
     assert written[0]["Comment"] == "the shop's own id", "the carried comment was lost"
+
+
+def test_the_three_glue_round_trips_are_three_child_spans(captured_events):
+    """THREE spans, because this verb makes three Glue calls with no principal one among them.
+
+    Three and not four: `_abandon_if_changed`, which sits between the read and the update, makes
+    no round trip — it compares a stamp on the response already in hand. An arbitrary pick of one
+    of the three would leave an operator unable to tell a slow read from a slow write.
+
+    Args:
+      captured_events: The shared capturing sink.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    _install()
+
+    out = m.handler(_event(), None)
+
+    assert out["status"] == "refreshed", "the spans are asserted on a SUCCESSFUL run"
+    root = captured_events.spans("apply-refresh")
+    assert len(root) == 1, f"expected one apply-refresh root span, got {len(root)}"
+    for name in ("glue-get-table", "glue-update-table", "glue-read-back-table"):
+        children = captured_events.child_spans("apply-refresh", name=name)
+        assert len(children) == 1, (
+            f"apply-refresh emitted {len(children)} {name!r} child spans, expected exactly one"
+        )
+        assert children[0]["parent_span_id"] == root[0]["span_id"]

@@ -487,3 +487,37 @@ def test_the_requester_loses_their_own_card_even_when_the_roster_is_empty():
 
     alice_cache = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])
     assert alice_cache["connections"] == [], "the requester kept a card for a space that is gone"
+
+
+def test_the_delete_emits_one_notify_members_span_around_the_whole_fan_out(captured_events):
+    """The success fan-out, spanned once for a space with two members rather than once each.
+
+    The failure path's single notification is deliberately OUTSIDE this helper — it says
+    something different and is not a fan-out — so this asserts the success path only.
+
+    Args:
+      captured_events: The shared capturing sink.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    s3, glue, _lf, cognito = install()
+    _seed_full_space(s3, glue, cognito)
+    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
+
+    out = d.handler(
+        {"space": "sales", "actor": "alice", "requestId": "req-span", "registry": reg}, None
+    )
+
+    assert out["status"] == "ok", "the span is asserted on a SUCCESSFUL run"
+    root = captured_events.spans("delete")
+    assert len(root) == 1, f"expected one delete root span, got {len(root)}"
+    children = captured_events.child_spans("delete", name="notify-members")
+    assert len(children) == 1, (
+        f"delete emitted {len(children)} 'notify-members' child spans over a two-member space, "
+        "expected exactly one around the whole loop"
+    )
+    assert children[0]["parent_span_id"] == root[0]["span_id"]

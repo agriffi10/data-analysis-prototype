@@ -75,6 +75,31 @@ def _release_slots(space, added):
             logger.exception("failed to release the slot for %s on %s", member, space)
 
 
+@observability.step("notify-members")
+def _notify_members(pending, request_id):
+    """Emits every notification this run collected, under one span.
+
+    **Call bound: at most once per invocation.** The span goes around the WHOLE loop rather than
+    around ``emit_notification``, which is called once per recipient and is one of the five
+    shared functions that must never carry a step of its own. The loop is extracted rather than
+    the send hoisted into a shared helper: the dedup id is this verb's own construction, and
+    those ids are FIFO deduplication keys on notifications a user sees.
+
+    Args:
+      pending: ``(recipient, message, tag)`` triples collected during the member loop.
+      request_id: The run's request id, which prefixes each dedup id.
+
+    Returns:
+      None.
+
+    Raises:
+      None. ``emit_notification`` catches and logs its own failures, so a missed notification
+      cannot fail the membership change that has already committed.
+    """
+    for recipient, message, tag in pending:
+        emit_notification(recipient, message, dedup_id=f"{request_id}:{tag}")
+
+
 def add_members(space, members, request_id, registry):
     """Adds members to a space and reports which were added, unknown, or at their limit.
 
@@ -160,8 +185,7 @@ def add_members(space, members, request_id, registry):
         committed.get("acknowledged", []),
         committed.get("createdAt"),
     )
-    for recipient, message, tag in pending_notifications:
-        emit_notification(recipient, message, dedup_id=f"{request_id}:{tag}")
+    _notify_members(pending_notifications, request_id)
     logger.info("add_members %s: %s", space, summary)
     observability.info(
         "members added",

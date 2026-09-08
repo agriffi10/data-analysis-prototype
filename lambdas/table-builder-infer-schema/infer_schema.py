@@ -129,8 +129,16 @@ def _detect_date_type(series):
     return None
 
 
+@observability.step("infer-columns")
 def _infer_columns(source, fmt):
     """Reads the ordered data columns for one sample object.
+
+    **Call bound: exactly once per invocation** — the two calls in ``_infer`` are the arms of one
+    if/else, so exactly one of them runs.
+
+    The span is NOT named ``infer-schema``: that is already this verb's root span, and a child
+    sharing its parent's name returns both to the one query an operator would run, with the
+    durations double counted. It is named for the operation it performs.
 
     Parquet goes through the schema reader rather than a lazy scan: over a file object the
     lazy scan reads the whole object in one call, while the schema reader seeks to the footer.

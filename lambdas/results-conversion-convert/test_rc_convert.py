@@ -648,3 +648,35 @@ def test_the_upload_path_raises_no_transient_error(s3):
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_a_personal_conversion_emits_all_three_child_spans(s3, captured_events):
+    """THREE spans, not one, and on a run that reaches no shared helper at all.
+
+    The body is download then write then upload, with three comparable costs, so a single span
+    covering almost the whole root would tell an operator nothing about which of the three was
+    slow. A personal-space destination is the fixture deliberately: it touches none of the shared
+    transfer engine, so these three spans are the only child spans this verb can have and the
+    assertion cannot be satisfied by somebody else's instrumentation.
+
+    Args:
+      s3: The fake S3 client and scratch directory.
+      captured_events: The shared capturing sink.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    result = c.handler(_event("parquet"), None)
+
+    assert result["outcome"] == "converted", "the spans are asserted on a SUCCESSFUL run"
+    root = captured_events.spans("convert")
+    assert len(root) == 1, f"expected one convert root span, got {len(root)}"
+    for name in ("download-results", "write-conversion", "upload-conversion"):
+        children = captured_events.child_spans("convert", name=name)
+        assert len(children) == 1, (
+            f"convert emitted {len(children)} {name!r} child spans, expected exactly one"
+        )
+        assert children[0]["parent_span_id"] == root[0]["span_id"]

@@ -110,5 +110,35 @@ def test_a_removal_without_the_opt_in_is_refused_and_names_the_columns():
 # ── Shape + observability ────────────────────────────────────────────────────
 
 
+def test_diff_schema_emits_no_child_span_at_all(captured_events):
+    """The one verb in this plane that deliberately gets none, asserted so it stays that way.
+
+    Its body performs no I/O — it imports no client and compares two column lists — so a child
+    span here would time a dict comparison and cost two events per invocation to say so. A later
+    author reaching for "every verb should have one" gets this test instead.
+
+    The root span is asserted present in the same breath: without it, an empty child list would
+    also be what a verb that never ran produces, and the assertion would hold for the wrong
+    reason.
+
+    Args:
+      captured_events: The shared capturing sink.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    out = m.handler(_event(_cols(("a", "string")), _cols(("a", "string"), ("b", "bigint"))), None)
+
+    assert out["diff"]["added"], "the assertion is made on a run that actually did the work"
+    assert captured_events.spans("diff-schema"), "no root span, so the absence below proves nothing"
+    assert captured_events.child_spans("diff-schema") == [], (
+        "diff-schema emitted a child span; its body does no I/O, so a span here times a "
+        "comparison over column dicts and pays two events to report it"
+    )
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

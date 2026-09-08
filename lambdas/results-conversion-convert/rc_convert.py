@@ -148,8 +148,14 @@ def _scratch() -> pathlib.Path:
     return directory
 
 
+@observability.step("download-results")
 def _download(bucket: str, key: str, target: pathlib.Path, fmt: str, described_bytes: int) -> None:
     """Streams the result object onto the scratch disk, re-checking its size as it is read.
+
+    **Call bound: at most once per invocation** — one call in ``_convert``, which ``handler``
+    calls once. This verb gets THREE spans rather than one because its body is download, write,
+    upload with three comparable costs: a single span covering almost the whole root would tell
+    an operator nothing about which of the three was slow.
 
     The size is re-read here and not trusted from describe-results: a result that grew between
     the two states would otherwise be read past the cap the budget was derived from. It is a
@@ -390,8 +396,12 @@ def _loses_precision(materialised: pl.DataFrame) -> bool:
     return False
 
 
+@observability.step("upload-conversion")
 def _upload(destination: dict, source: pathlib.Path, fmt: str, on_conflict: str) -> int:
     """Uploads the written file, refusing a name taken since the browser last looked.
+
+    **Call bound: at most once per invocation** — one call in ``_convert``, reached only once the
+    write has succeeded.
 
     ``If-None-Match: "*"`` is what makes the refusal race-free without a lock, and it goes on
     the ``CompleteMultipartUpload`` when the file is too large for one ``PutObject`` — the
@@ -610,8 +620,13 @@ def _convert(event) -> dict:
     }
 
 
+@observability.step("write-conversion")
 def _write(fmt: str, frame: pl.LazyFrame, schema: dict, target: pathlib.Path) -> tuple[int, bool]:
     """Dispatches to the writer for one format.
+
+    **Call bound: at most once per invocation** — one call in ``_convert``. The span goes on the
+    dispatcher rather than on each of the three writers, so one name covers every format and a
+    query groups across them.
 
     Args:
       fmt: The output format, already checked against the closed vocabulary by the validator.

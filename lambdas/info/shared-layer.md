@@ -191,6 +191,62 @@ invocation silently joined the previous run's trace — plus threading the
 traceparent through the Step Functions state payload on every state, exactly as `reportKey`
 is threaded today. Deliberately sequenced after the pipe is proven live.
 
+**Where an `observability.step` may NOT go — four prohibitions, each mechanical.** A step is two
+events, and every event is an SQS message and a line in a day object the sweep rewrites in full, so
+where one goes is a volume decision rather than a taste one.
+
+- **Not on a shared function its callers invoke in a LOOP.** Five look like the cheap win and are
+  not: `notify.emit_notification` (per recipient), `registry.load` (per recipient), `cas.cas_mutate`
+  (per member), `lock.acquire` and `lock.release` (per target). An earlier design claimed the shared
+  layer bought child spans for seven planes at once on exactly this mistake. Only three shared
+  functions are genuinely once-per-invocation — `transfer.copy.copy_batch`,
+  `transfer.manifest.write_manifest`, `transfer.results.read_failed_items` — and a guard holds that
+  set exactly, by name, in both directions.
+- **Not inside `copy_batch`'s worker pool**, and the reason is mechanical rather than volume.
+  log-foundry's span stack and baggage are `contextvars`, which do not cross into
+  `ThreadPoolExecutor` workers. Measured with a step planted on `copy_one` over five items: five
+  spans, **every `parent_span_id` null, six distinct trace ids, and empty `fields`** — no `verb`, no
+  `request_id`. The events are unattributable, not merely numerous, and a guard counting *child*
+  spans cannot see them. Count every span, roots included.
+- **Not on a generator function.** On the pinned version `@trace` raises `TypeError` **at
+  decoration**, which for this fleet is a module-import failure — a cold start that never completes.
+  `s3_listing`'s two listers are generators. A fleet-wide AST guard refuses one.
+- **Not with a name ANY verb in the fleet uses for its own span** — not merely its own verb's.
+  `function` carries both, so the query an operator runs returns a whole invocation's duration
+  mixed with an inner operation's. Checking each step against its own verb caught three names and
+  missed a fourth that collided with a DIFFERENT verb's, which is why
+  `test_no_step_name_collides_with_a_verbs_own_span_name` sweeps the fleet rather than trusting a
+  per-verb read. One collision predates the guard and is named in it as an item.
+
+Every one of these is held by a guard that resolves the NAME A DECORATOR IS BOUND TO rather than
+matching its rendered text. Measured twice, because the first fix was incomplete: a
+`from cpcommon.observability import step` with a bare `@step(...)` put per-recipient
+instrumentation on `emit_notification` with every guard green, and after that was closed a plain
+`import cpcommon.observability` did it again — that form binds the ROOT package, so the usable
+spelling is the full dotted path and resolving the last segment registered a name no decorator can
+wear. What the scanner covers is every `import`/`from … import` binding of `observability` or of
+`step` itself, with the span name read from a keyword as well as a positional argument. What it
+does NOT cover, deliberately, is a module-level rebinding, a decorator built by a factory, or a
+step applied as a plain function — each is a deliberate act rather than an ordinary spelling, and a
+star import is refused by ruff before this guard sees it.
+
+**Decorating a helper that already narrates changes WHEN its existing events are delivered.**
+log-foundry delivers an event emitted with no span open **synchronously**, and buffers one emitted
+**inside** a span until the worker flushes:
+
+```
+after a call with no span open : ['no span open']
+after a call inside a span     : ['no span open']
+after flush()                  : ['no span open', 'span.start', 'span open', 'span.end']
+```
+
+So a narrating helper that gains a step stops delivering that event before the assertion that reads
+it, and an absence over an undrained collector means "nothing has been flushed yet" — green for
+exactly the same assertions as "nothing was emitted". `lambdas/conftest.py`'s `_CapturingSink`
+drains on every read so that an absence over it means the second thing. **That covers the fixture
+and nothing else**: `control-plane-common/test_observability_cpcommon.py` and
+`log-sweep/test_log_sweep.py` configure collectors of their own and each flushes for itself.
+
 ## `cpcommon/errors.py` — why `failure_reason` exists in Python
 
 No ASL state may decode an error `Cause`, and trying anyway killed executions outright.
