@@ -1,9 +1,9 @@
 # Spec: Child Spans for the Seven Flat Planes
 
 **ID:** SPEC-226
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-09-08
-**Depends On:** SPEC-130 (Completed), SPEC-224
+**Depends On:** SPEC-130 (Completed), SPEC-224 (Completed)
 
 ## Overview
 

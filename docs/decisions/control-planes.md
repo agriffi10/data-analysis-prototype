@@ -18,6 +18,7 @@ entry you need, not the file.**
 - [The field rule — what may be logged (SPEC-130)](#the-field-rule--what-may-be-logged-spec-130)
 - [Per-plane instrumentation rules (SPEC-132→137)](#per-plane-instrumentation-rules-spec-132137)
 - [The log-foundry pin, and what a library upgrade owes the code written around it (SPEC-224)](#the-log-foundry-pin-and-what-a-library-upgrade-owes-the-code-written-around-it-spec-224)
+- [Where a child span may go, and the four places it may not (SPEC-226)](#where-a-child-span-may-go-and-the-four-places-it-may-not-spec-226)
 - [No ASL state decodes an error Cause (PR #252, control-plane-wide)](#no-asl-state-decodes-an-error-cause-pr-252-control-plane-wide)
 - [Notifications (SPEC-058→061)](#notifications-spec-058061)
 - [Every plane notifies on a pre-verb failure, and `failure_reason` is the only decoder (SPEC-152)](#every-plane-notifies-on-a-pre-verb-failure-and-failure_reason-is-the-only-decoder-spec-152)
@@ -163,6 +164,13 @@ DLQ lets one malformed request dead-letter someone else's work.
 - **A notification's optional `link` is gated by `isSafeInAppPath`**, and a route that renders one
   must not become an existence oracle: the data-quality report view takes its space **from the route,
   never derived**, and an unreachable space renders denied while issuing **no S3 request at all**.
+- **A `@step` goes only where a caller reaches it ONCE per invocation.** Not on a shared function
+  called per recipient/member/target — five look eligible and are not; not inside `copy_batch`'s
+  worker pool, where `contextvars` do not reach and spans arrive parentless in their own traces;
+  and **never under a name any verb in the fleet uses for its own span**, since `function` carries
+  both — checking against its *own* verb is a different, weaker claim, and it missed one. A guard
+  over decorators resolves the name a decorator is **bound to**: matching rendered text was
+  defeated by two ordinary import spellings.
 - **Structured logging** goes through `cpcommon.observability` only — and "only" includes the
   library's **private names**, which no module outside it and the two named test harnesses may
   reach: one such reach survived as a silent no-op after the name behind it was deleted upstream.
@@ -280,6 +288,20 @@ The fleet runs **`log-foundry==1.0.0`**, pinned exactly and core-only, for the r
 **Three standing rules this settled.** No module outside `cpcommon/observability.py` and the two named test harnesses reaches an underscore-prefixed `log_foundry` name — held by a guard that resolves **import aliases**, because `import log_foundry as lf; lf._lifecycle` is the spelling this repo actually uses and renders with neither the package name nor a recognisable prefix in it. No `@traced`/`@step` function may be a **generator**: the library refuses one at decoration, which for this fleet is a cold start that never completes. And the "no way to turn stack capture off" claim three register entries lean on is **asserted by a test against the installed version**, so a release that adds an opt-out reddens rather than silently outliving the decision — the claim itself is unchanged and still true.
 
 **A version-anchored claim rots differently from a wrong one, and the two need different repairs.** Of five claims corrected here, **two** were true of the previous pin and false of this one, **one was never true** (the one-door absolute above), and **two are still true and were merely dated to a superseded version** — including the stack-capture claim, which is unchanged and now asserted by a test. Only the first kind is a falsification; and the two dispositions that predate this pin are now stated **version-free**, since naming their release would leave a superseded version in the one block a sweep exists to clear. Full reasoning and the measurements: `spec-delivery/SPEC-224`.
+
+## Where a child span may go, and the four places it may not (SPEC-226)
+
+`step(name)` has existed since SPEC-130; seven planes had none of it. What this settled is not that they now do — it is **where a step may go**, because a step is two events and every event is an SQS message and a line in a day object the sweep rewrites in full, so the placement is a volume decision rather than a taste one.
+
+**The premise a reviewer destroyed, kept here because the next author will reach for it too.** The first design claimed the shared `cpcommon` layer bought child spans for all seven planes at once. Built, that was false: **five of the eight shared functions it named are called inside loops** — `notify.emit_notification` per recipient, `registry.load` per recipient, `cas.cas_mutate` per member, `lock.acquire`/`release` per target. What survives shared is the **transfer trio** (`copy_batch`, `write_transfer_manifest`'s writer, `read_failed_items`), reaching four planes; shared-space, results-conversion and table-builder get theirs at the bounded call site in their own code — **the loop, never its body**. Two of the trio are bounded at **most** once, not once: file-ops guards the manifest write with `if lines:` and three collect verbs return early, so a test asserting exactly one call fails on an empty transfer.
+
+**Four prohibitions, each mechanical rather than stylistic.** Not on a shared function a caller invokes in a loop (above). Not inside `copy_batch`'s worker pool — log-foundry's span stack and baggage are `contextvars` and do not cross into `ThreadPoolExecutor` workers, so a step on `copy_one` over five items emitted **five spans, every `parent_span_id` null, six distinct trace ids, empty `fields`**: unattributable, and invisible to a guard counting *children*, which is why the volume guard counts every span including roots. Not on a generator (the library refuses one at decoration — a cold start that never completes). And **not with a name any verb in the fleet uses for its own span**, because `function` carries both and the one query an operator runs would return an invocation's total mixed with an inner operation's.
+
+**That last one generalised only after it was got wrong.** Three names were corrected by checking each new span against *its own* verb's root span — and a fourth, `write-manifest`, collided with a **different** verb's, which that check cannot see. A per-verb read is not a fleet-wide claim; the guard sweeps every step name against every verb name, and the one collision that predates it is named as an **item**, with a companion test that fails if the exemption goes stale.
+
+**A guard over decorators must resolve the name a decorator is BOUND to.** Matching the rendered text `observability.step` was defeated twice: once by `from cpcommon.observability import step` with a bare `@step(...)`, and then — after that was closed — by a plain `import cpcommon.observability`, which binds the **root package**, so the usable spelling is the full dotted path and resolving the last segment registered a name no decorator can wear. Both put per-item instrumentation on a forbidden function with the whole suite green. Deliberately *not* covered: a module-level rebinding, a decorator built by a factory, a step applied as a plain function.
+
+**Decorating a helper that already narrates changes when its existing events are delivered** — an event emitted with no span open is delivered synchronously, one inside a span is buffered until flush — so `conftest.py`'s `_CapturingSink` drains on every read, and an absence over it now means "nothing was emitted" rather than "nothing has been flushed yet". It repairs nothing that existed: removing the drain reddens exactly one test, the control written for it. Detail and the rejected rate-free budget: `spec-delivery/SPEC-226`.
 
 ## No ASL state decodes an error Cause (PR #252, control-plane-wide)
 

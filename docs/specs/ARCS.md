@@ -2995,6 +2995,12 @@ null parent, six trace ids and empty fields. And decorating a helper that alread
 227 needs 225's mechanism; 226 needs 224 only for the pin, and is last so its new child spans are
 not competing with the one-trace guards for the same capturing-sink fixtures.
 
+> **Superseded in the event: 226 shipped BEFORE 227**, on the pin alone, while 227 was unstarted.
+> The contention this ordering guarded against did not arise — 226 extended `_CapturingSink` with a
+> drain and a child-span reader, and 225 landed in between without touching that file. 227 still
+> needs 225's mechanism, so the rest of the order stands. Entry: `decisions/control-planes.md`
+> (*Where a child span may go*).
+
 **Three defects in `main` were found while authoring.** Two are fixed inside the arc: the archive
 machine's `Validated` and `ArchiveComplete` comments cite a cross-check test that does not exist,
 and the failure-seed guard cannot see eight of the states it exists to police — both 227. The third
