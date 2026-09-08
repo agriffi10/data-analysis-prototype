@@ -432,6 +432,17 @@ CASES = [
                        _spec(1, 2).replace("## Scope\n\nWhat.\n\n", "").replace("## Implementation Phases\n", "## Phases\n")),
                 _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
      1, "missing required section '## Implementation Phases'"),
+    # One case per required section, so dropping any ONE name from SPEC_REQUIRED_SECTIONS reddens
+    # something: with only Scope and Phases ever removed, Overview and Functional Requirements
+    # could vanish from the tuple with the corpus green — measured by a reviewer's plant.
+    ("spec_missing_overview",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("## Overview\n\nWhy.\n\n", "")),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     1, "missing required section '## Overview'"),
+    ("spec_missing_functional_requirements",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("## Functional Requirements\n", "## Requirements\n")),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     1, "missing required section '## Functional Requirements'"),
     ("spec_second_of_two_specs_fails",
      lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2)),
                 _write(r, D("specs", "SPEC-002-thing.md"), _spec(2, 2).replace("## Scope\n\nWhat.\n\n", "")),
@@ -467,6 +478,13 @@ CASES = [
      0, ""),
     ("spec_banned_heading_inside_a_comment_ok",
      lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n<!--\n## Open Questions\n-->\n<!-- #### Checkpoint -->\n"),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     0, ""),
+    # A comment opened mid-line swallows the lines after it until it closes: the banned heading
+    # inside is not a heading. A reader that only enters comment state on a line STARTING with
+    # `<!--` passes every other comment case here.
+    ("spec_banned_heading_after_a_midline_comment_opener_ok",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\nNote <!-- draft\n## Open Questions\n-->\n"),
                 _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
      0, ""),
     ("spec_required_section_inside_a_fence_does_not_count",
