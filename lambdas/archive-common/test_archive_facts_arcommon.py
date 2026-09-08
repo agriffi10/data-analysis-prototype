@@ -13,12 +13,17 @@ from cpcommon import app_managed
 def test_ACCEPTED_the_three_archive_facts_are_spelled_the_same_today():
     """A tripwire, not a requirement: pins today's coincidence so the move has to look at it.
 
-    ``RECEIPT_FOLDER`` (the user's receipt folder, space bucket) is the one that moves under
+    ``RECEIPT_FOLDER`` (the user's receipt folder, space bucket) is the one that moved under
     ``system_settings/``. ``VAULT_ARCHIVE_SEGMENT`` (the Glacier vault key segment, hashed into
     FIFO group ids) and ``plan.PREFIX`` (admin-bucket scratch, pinned against an IAM grant and a
-    lifecycle rule) do not. When the receipt folder moves, REVISIT this decision — the three will
-    legitimately differ, and this assertion should be rewritten to say which two still agree — but
-    do not delete the test.
+    lifecycle rule) did not.
+
+    **REVISITED at the move, and the assertion stands unchanged.** It was expected to have to say
+    which two still agree, and the answer is all three: this pins the folder NAMES, and the receipt
+    folder kept its name — what changed is its parent. The three facts are still spelled the same
+    and still mean three different things, which is exactly the coincidence worth pinning, so the
+    tripwire is as valuable after the move as before it. The assertion that DID have to change is
+    the one comparing the two path BUILDERS, which is a different test in a different layer.
     """
     assert app_managed.RECEIPT_FOLDER == app_managed.VAULT_ARCHIVE_SEGMENT == plan.PREFIX == "archive"
 

@@ -1,6 +1,8 @@
 """The receipt: the one artifact of an archive the user can actually see.
 
-A plain UTF-8 text file in the user's own space at ``{root}archive/{uuid}/receipt.txt``,
+A plain UTF-8 text file in the user's own space at
+``{root}system_settings/archive/{uuid}/receipt.txt`` — receipts written before the folders moved
+are still at ``{root}archive/{uuid}/`` until the migration has copied them —
 deliberately not rendered in the browser — the project has no in-browser preview and this does
 not introduce one. The user downloads it and reads it, and the UUID in it is their route to a
 restore.

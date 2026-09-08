@@ -2,7 +2,7 @@
  * The folders the app manages inside a space, and the two functions that turn a folder name into
  * the prefix or prefixes it occupies.
  *
- * Three folders are about to move under a real `system_settings/` prefix. Nearly every rule about
+ * Three folders have moved under a real `system_settings/` prefix. Nearly every rule about
  * them is anchored at depth one — `${rootPrefix}${name}/` — so a move to depth two would leave each
  * hand-written comparison silently not matching. This module exists so that the move is an edit
  * here rather than a hunt: the names are declared here and nowhere else, and every anchored
@@ -14,10 +14,11 @@
  * location a folder may occupy — two while both homes of a moving folder are admitted, one for
  * anything else. So the move edits both, not one.
  *
- * Today the SINGULAR builder is the depth-one form and resolves every folder to exactly the string
- * it always has, which is what keeps a write where it was. The plural answers with that string plus
- * the second home, for a moving folder only. A sweep in CI refuses a new declaration or
- * construction outside this file.
+ * The SINGULAR builder now resolves a moving folder under `system_settings/`, which is where new
+ * writes go; the PLURAL still answers both homes, because the objects written before the switch are
+ * still at the old one and every rule has to keep refusing there until they have moved. The two
+ * differ on purpose, and they stop differing at the narrowing. A sweep in CI refuses a new
+ * declaration or construction outside this file.
  */
 
 /** Athena writes every query's result set here. Visible, browsable, never a write destination. */
@@ -30,7 +31,12 @@ export const ATHENA_RESULTS_FOLDER = 'athenaresults';
  */
 export const ARCHIVE_FOLDER = 'archive';
 
-/** Where the table-share pipeline copies tables in. Visible; never a write destination. */
+/**
+ * Where the table-share pipeline copies tables in. Visible, and stays at the space root: these
+ * tables were sent to this space and are the user's to edit. Still never a PASTE destination — the
+ * pipeline owns the layout, and a table's files acquiring neighbours is how a later projection
+ * read starts returning rows nobody wrote.
+ */
 export const SHARED_TABLES_FOLDER = 'shared_tables';
 
 /**
@@ -44,21 +50,30 @@ export const SYSTEM_SETTINGS_FOLDER = 'system_settings';
 /**
  * The folders that gain a second home while both are admitted.
  *
- * Its own declaration rather than a reuse of the three constants as a group, for the same reason
- * the fleet's is: this asks which folders MOVE, and a folder added later that stays where it is
- * must not inherit a phantom second home.
+ * Its own declaration rather than a reuse of the constants as a group, for the same reason the
+ * fleet's is: this asks which folders MOVE. `SHARED_TABLES_FOLDER` is deliberately absent — a
+ * shared table is data another space sent this one, and the user may edit it, so filing it under
+ * the folder the app manages would say the opposite of what is true. It stays at the space root.
  */
-export const MOVING_FOLDERS = [ATHENA_RESULTS_FOLDER, ARCHIVE_FOLDER, SHARED_TABLES_FOLDER] as const;
+export const MOVING_FOLDERS = [ATHENA_RESULTS_FOLDER, ARCHIVE_FOLDER] as const;
 
 /**
  * The prefix an app-managed folder occupies in a space.
  *
+ * Branches on `MOVING_FOLDERS` exactly as the plural does. Here that is parity rather than
+ * necessity — this tree has no production caller, since the browser writes no app-managed path —
+ * but the fleet's twin genuinely needs it, because a folder name reaches it from a domain list
+ * whose members mostly do not move. Keeping the two builders one design is what stops a caller
+ * arriving later against the wrong one, and the `user_settings` row in the tests holds it.
+ *
  * @param rootPrefix - The space root, trailing slash (a username or a shared space's name).
  * @param folder - The folder's name, as declared above or in the protected-folder lists.
- * @returns The folder's prefix, trailing slash.
+ * @returns The folder's prefix, trailing slash — under `system_settings/` for a folder that moves.
  */
 export function appManagedPrefix(rootPrefix: string, folder: string): string {
-  return `${rootPrefix}${folder}/`;
+  return (MOVING_FOLDERS as readonly string[]).includes(folder)
+    ? `${rootPrefix}${SYSTEM_SETTINGS_FOLDER}/${folder}/`
+    : `${rootPrefix}${folder}/`;
 }
 
 /**

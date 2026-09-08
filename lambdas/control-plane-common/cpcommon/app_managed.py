@@ -1,6 +1,6 @@
 """The folders the app manages inside a space, and the builders for the prefixes each occupies.
 
-Three of these folders are about to move under a real ``system_settings/`` prefix. Nearly every
+Three of these folders have moved under a real ``system_settings/`` prefix. Nearly every
 rule about them across the fleet is anchored at depth one — ``f"{root}{name}/"`` — so a move to
 depth two would leave each hand-written comparison silently not matching, which is the failure
 ``fscommon.authz`` already names in its own docstring. This module is the fix's precondition: the
@@ -32,7 +32,9 @@ Attributes:
     an archive id from. Visible on purpose and read-only by IAM. MOVES. Its two siblings are
     ``VAULT_ARCHIVE_SEGMENT`` here and ``arcommon.plan.PREFIX``.
   SHARED_TABLES_FOLDER: Where the table-share pipeline copies tables in, inside the space's own
-    bucket. Becomes a shared table's Glue ``LOCATION``. MOVES.
+    bucket. Becomes a shared table's Glue ``LOCATION``. Does NOT move: the tables in it were sent
+    to this space and are the user's to edit, which is the opposite of what the app-managed folder
+    means. Its contents carry no Deny on either bucket, deliberately.
   SPACE_FOLDERS: The three folders above as one tuple — every app-managed folder that lives
     inside a SPACE's own bucket. The enumerator a plane refusing app-managed destinations
     reads, so its refused set is a superset of what this module declares by construction
@@ -40,11 +42,13 @@ Attributes:
   SYSTEM_SETTINGS_FOLDER: The prefix the three moving folders are moving INTO. It is not itself
     app-managed content — nothing is written directly under it — but it is reserved on every
     plane and in the browser, so a user can neither paste into it, delete it, nor archive it.
-  MOVING_FOLDERS: The folders that gain a second home while both are admitted, declared as its
-    own tuple rather than aliased to ``SPACE_FOLDERS`` even though the two hold the same three
-    names today. They answer different questions — ``SPACE_FOLDERS`` is every app-managed folder
-    in a space's own bucket, this is which of them MOVE — and an alias would silently hand a
-    second home to a future space folder that stays where it is.
+  MOVING_FOLDERS: The folders that gain a second home while both are admitted. Declared as its
+    own tuple rather than aliased to ``SPACE_FOLDERS``, and the two now differ: ``SPACE_FOLDERS``
+    is every app-managed folder in a space's own bucket, this is which of them MOVE.
+    ``SHARED_TABLES_FOLDER`` is in the first and NOT the second — a shared table is data someone
+    sent this space, and the user may edit it, so filing it under the folder the app manages would
+    say the opposite of what is true. It stays at the space root. An alias would have hidden that
+    distinction behind an equality that held only by coincidence.
   VAULT_ARCHIVE_SEGMENT: **Fact 2 of ``archive``.** The segment after the space in every key of
     the ARCHIVE (Glacier vault) bucket — ``{kind}/{name}/archive/{id}/``. It is the same word as
     the receipt folder by design, so a user reading ``archive/{uuid}/`` in their own space sees the
@@ -64,7 +68,7 @@ SYSTEM_SETTINGS_FOLDER = "system_settings"
 
 SPACE_FOLDERS = (ATHENA_RESULTS_FOLDER, RECEIPT_FOLDER, SHARED_TABLES_FOLDER)
 
-MOVING_FOLDERS = (ATHENA_RESULTS_FOLDER, RECEIPT_FOLDER, SHARED_TABLES_FOLDER)
+MOVING_FOLDERS = (ATHENA_RESULTS_FOLDER, RECEIPT_FOLDER)
 
 
 def app_managed_prefix(root: str, folder: str) -> str:
@@ -76,16 +80,28 @@ def app_managed_prefix(root: str, folder: str) -> str:
     this function would drop the old home's protection the moment the write moves, which is the
     failure the pair exists to prevent.
 
+    **It branches on ``MOVING_FOLDERS`` exactly as the plural does, and that is not optional.** The
+    folder argument comes from a domain list as well as from this module's constants, and
+    ``rccommon.paths`` calls this for every member of its protected-destinations tuple — five of
+    whose eight members do not move. Unconditional, that call would build
+    ``{root}system_settings/user_settings/``, a prefix nothing is stored under. It would not fail
+    loudly either: the same predicate's second leg matches the bare folder name at any depth, so the
+    refusal would keep working by accident while its prefix arm quietly stopped matching. The
+    ``user_settings`` rows in this module's tests are what hold the branch in place.
+
     Args:
       root: The space root, with its trailing slash, exactly as the caller holds it.
       folder: The folder's name — one of this module's constants, or a member of a domain list.
 
     Returns:
+      ``f"{root}{SYSTEM_SETTINGS_FOLDER}/{folder}/"`` for a folder that moves, else
       ``f"{root}{folder}/"``.
 
     Raises:
       None.
     """
+    if folder in MOVING_FOLDERS:
+        return f"{root}{SYSTEM_SETTINGS_FOLDER}/{folder}/"
     return f"{root}{folder}/"
 
 

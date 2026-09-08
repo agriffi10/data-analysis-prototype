@@ -69,7 +69,7 @@ def test_the_route_declares_no_body_cap_of_its_own():
 def test_the_apis_output_location_is_the_shared_user_results_prefix(monkeypatch):
     monkeypatch.setenv("USER_SPACE_BUCKET", "dat-prod-user-space")
     assert athena.output_location("alice") == results.user_results_prefix("dat-prod-user-space", "alice")
-    assert athena.output_location("alice") == "s3://dat-prod-user-space/alice/athenaresults/"
+    assert athena.output_location("alice") == "s3://dat-prod-user-space/alice/system_settings/athenaresults/"
 
 
 def test_the_generated_typescript_carries_the_closed_format_vocabulary():

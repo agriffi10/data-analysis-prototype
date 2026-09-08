@@ -132,9 +132,13 @@ def archive_root(kind: str, name: str, request_id) -> str:
 def receipt_root(name: str, request_id) -> str:
     """Builds the prefix the receipt occupies in the SPACE's own bucket.
 
-    ``{name}/archive/{uuid}/`` — the space's own root, then the archive folder. It carries no
-    kind segment and needs none: personal and shared spaces are different buckets, so the two
-    cannot collide here. That asymmetry with ``archive_root`` is the whole point of both.
+    ``{name}/system_settings/archive/{uuid}/`` — the space's own root, then the folder the app
+    manages, then the archive folder. It carries no kind segment and needs none: personal and
+    shared spaces are different buckets, so the two cannot collide here. That asymmetry with
+    ``archive_root``, which addresses the vault and DOES carry a kind, is the whole point of both.
+
+    Receipts written before the folders moved are still at ``{name}/archive/{uuid}/`` until the
+    one-shot migration has copied them and deleted the sources.
 
     Args:
       name: The space's name, which is also its root prefix.

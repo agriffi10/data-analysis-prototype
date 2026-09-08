@@ -246,8 +246,8 @@ class TestStart:
         router.route("POST", "/v1/queries", bearer("bob_smith"), "rq", {"sql": "SELECT 1"})
 
         assert [call[1]["ResultConfiguration"]["OutputLocation"] for call in stub.calls] == [
-            "s3://dat-prod-user-space/alice/athenaresults/",
-            "s3://dat-prod-user-space/bob_smith/athenaresults/",
+            "s3://dat-prod-user-space/alice/system_settings/athenaresults/",
+            "s3://dat-prod-user-space/bob_smith/system_settings/athenaresults/",
         ]
 
     def test_the_workgroup_comes_from_the_environment(self, athena) -> None:

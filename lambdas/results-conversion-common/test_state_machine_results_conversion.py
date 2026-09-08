@@ -41,7 +41,7 @@ class _Athena:
             "Status": {"State": "SUCCEEDED"},
             "StatementType": "DML",
             "ResultConfiguration": {
-                "OutputLocation": f"s3://{config.USER_SPACE_BUCKET}/alice/athenaresults/{_EXECUTION_ID}.csv"
+                "OutputLocation": f"s3://{config.USER_SPACE_BUCKET}/alice/system_settings/athenaresults/{_EXECUTION_ID}.csv"
             },
         }
 

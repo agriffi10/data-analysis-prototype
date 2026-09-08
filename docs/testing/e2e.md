@@ -298,10 +298,11 @@ curl -sSI "$APP_URL" | grep -io "connect-src[^;]*"
 
 | Folder | Rule |
 |---|---|
-| `athenaresults/` | Reached by opening `system_settings`; undeletable; not a paste target; **Archive** disabled with a reason naming it. |
-| `saved_queries/` | At the space root, NOT in the group; ordinary inside (upload, subfolders, delete a file); the **folder itself** refuses Delete and Rename. |
-| `archive/` | Reached by opening `system_settings`; read-only throughout — see §4.11. |
-| `system_settings` | Collapsed on arrival, holding exactly `athenaresults/`, `archive/` and `shared_tables/`. Assert the **root** listing: those three absent until it is opened, and **select-all** while it is shut selects neither them nor a count including them. It is a row, not a prefix — no navigation, no checkbox of its own. |
+| `system_settings/athenaresults/` | Reached by **opening** `system_settings/`; undeletable; not a paste target; **Archive** disabled with a reason naming it. |
+| `saved_queries/` | At the space root, outside `system_settings/`; ordinary inside (upload, subfolders, delete a file); the **folder itself** refuses Delete and Rename. |
+| `system_settings/archive/` | Reached by **opening** `system_settings/`; read-only throughout — see §4.11. |
+| `system_settings/` | An ORDINARY folder row, sorted among the user's own, with no disclosure control and no caption. Opening it lists exactly `athenaresults/` and `archive/` — **not** `shared_tables/`, which stays at the space root because those tables were sent to the space and are the user's to edit. Selecting it disables Delete, Move and Archive, each with its own reason; the destination picker does not offer it; **New folder** refuses the name `system_settings` with a reason naming the app. |
+| **TRANSITIONAL — retire after the migration's `finish` run** | Between the write switch and `finish`, the root ALSO shows `athenaresults/` and `archive/` at depth one, because that is where every object written before the switch still is. (`shared_tables/` is at the root permanently and is not part of this — it never moves.) Assert that each still refuses every write and delete exactly as its new-home twin does — the rules read the plural builder, which answers both homes until the narrowing. New writes land only at the new home, so the depth-one folders should stop growing; that is the observable that says the switch took. |
 
 **The control is not optional.** Select `marker_control/` beside each one: both controls enabled,
 and its confirm **does** open. Without it a generic failure reads as the guard working.
@@ -585,7 +586,7 @@ it is CLI-only — see `owed.md`.
 | **Remove** a member | Their slot is cleared and their cache entry dropped; the space leaves their rail. The objects under it are **not** deleted. |
 | Create a space whose name is already taken | Refused by name. The registry record **is** the name lock. |
 | Read the roster | Every member sees a read-only roster, and **the reader's own row is never `Pending`**. No page ever asserts `Active` and `Pending` about one member at once. |
-| Query the space's database | Results route to the space's own `athenaresults/`, not yours. |
+| Query the space's database | Results route to the space's own `system_settings/athenaresults/`, not yours. |
 | Leave a space, then reload with its `?space=` still in the URL | Falls back, with **zero S3 requests naming the space** — no existence oracle. |
 | **[approval gate]** Delete a space (type-to-confirm) | Gone from the rail, the Connections page and the Files browser, for the owner too. Its objects and its Glue database **survive** — a delete now removes people, not things. The dialog must not claim otherwise: no "can't be undone", no "permanently deletes". |
 | **[approval gate]** Re-create a space with the just-deleted name | **Refused** by name. The record is never released, so the name is spent forever — the opposite of what this row asserted before, and the reason the create dialog now warns before the name is chosen. |
@@ -643,13 +644,15 @@ Confirm. Expect:
 - A toast saying the archive **started** — never that it finished.
 - Within minutes: `Archived N files (X MB). They have been removed from your space. Archive id:
   {uuid} - you'll need it to restore them.`
-- **The notification is a link.** Follow it → you land in `archive/{uuid}/`, **not** at the space
-  root. A link that drops its prefix looks identical from the inbox.
-- The folder is gone from the listing; `archive/{uuid}/receipt.txt` downloads and reads correctly.
+- **The notification is a link.** Follow it → you land in `system_settings/archive/{uuid}/`,
+  **not** at the space root. A link that drops its prefix looks identical from the inbox.
+- The folder is gone from the listing; `system_settings/archive/{uuid}/receipt.txt` downloads and
+  reads correctly.
 
 **Record the archive id.** Everything downstream needs it.
 
-Then, while you are here — `archive/` and `archive/{uuid}/` are read-only and say so, at **both**
+Then, while you are here — `system_settings/archive/` and `system_settings/archive/{uuid}/` are
+read-only and say so, at **both**
 widths (the mobile action bar mounts its own controls, so a CSS-hidden twin would pass a
 desktop-only check):
 
@@ -658,9 +661,14 @@ desktop-only check):
 - Selecting the receipt: **Move** and **Delete** likewise unavailable with a reason.
 - **Archive** is **gone**, not disabled. An archive of an archive is not a thing.
 - **Details** and **Download** work normally — that is the point of the folder being visible.
-- At the space root: open `system_settings` first — `archive/` is inside it, not in the root
-  listing. There it refuses Delete and Rename by name, and it is absent from the destination
-  picker when you Move or Copy something else.
+- At the space root: open the `system_settings` folder first — the archive receipts written since
+  the switch are inside it. There `archive/` refuses Delete and Rename by name, and it is absent
+  from the destination picker when you Move or Copy something else.
+- **Until the migration's `finish` run, a depth-one `archive/` is ALSO at the root**, holding every
+  receipt written before the switch. It refuses exactly the same things, through the same rules. An
+  id from before the switch is found there, not inside `system_settings/` — which the Help and the
+  restore dialog do not say, because they name only the new path. Retire this bullet with the
+  transitional row in §4.5.
 
 Also archive a **single file from its Details panel** — the only route to archiving something you
 have not ticked, and a different component from the toolbar's.
@@ -674,7 +682,8 @@ and the submit control is **never merely disabled**. Then paste the real id → 
 
 **Within a minute, before you walk away:**
 
-- Download `archive/{id}/receipt.txt`. **`Restore requested` already carries a timestamp** and
+- Download `system_settings/archive/{id}/receipt.txt`. **`Restore requested` already carries a
+  timestamp** and
   `Restored to` still reads `-`. That marker is written **before the bill**; if it is absent now it
   never runs before the money is spent.
 - A `restore_started` notification arrives — the app's only "started" notification, emitted where
@@ -688,7 +697,7 @@ Then leave it. Check back at roughly **1 h, 3 h and 5 h** — Phase C fills the 
 |---|---|
 | A terminal notification: `Restored N files (X MB) to your space, back where they came from. The archive has been cleaned up.` | Its **link works** and lands in the space with the files back. |
 | Every file is back at its original path, **including any empty folder** the archive carried | The listing. |
-| `archive/{id}/` **still holds its receipt** | The folder survives the restore by design — the receipt is rewritten, never deleted, and it is the only durable record of the archive. A folder that vanished here is a defect. |
+| `system_settings/archive/{id}/` **still holds its receipt** | The folder survives the restore by design — the receipt is rewritten, never deleted, and it is the only durable record of the archive. A folder that vanished here is a defect. |
 | The **vault** prefix for that id is gone | **Not observable from the browser** — the sweep is of `dat-prod-archive`, which no human principal can read. `owed.md` carries the CLI check; an **`archive swept`** event in `logs/service=archive/` is what you can see. **Not `cleanup`** — this row said that until 2026-08-31, and a reader grepping for it finds nothing and concludes the sweep never ran. |
 | The receipt's ARCHIVE lines are **byte-identical to before** the restore, with `Restored to` now filled | A blanked `Requested` line is how you would know the rewrite broke. |
 | The loop actually **looped** | `logs/service=archive/` carries multiple `retrieval polled` events **hours apart**, `poll_count` climbing. |

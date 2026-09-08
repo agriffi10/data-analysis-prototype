@@ -7,10 +7,18 @@
 
 ## Overview
 
-With both homes fenced (SPEC-219), the three app-managed folders can actually move. After this
-spec a space's root holds the user's own folders and one real `system_settings/` folder; inside it
-sit `athenaresults/`, `archive/` and `shared_tables/`, exactly what the disclosure row has been
-standing in for since #641 — and that row is deleted, because the thing it imitated now exists. The
+With both homes fenced (SPEC-219), the app-managed folders can actually move. After this spec a
+space's root holds the user's own folders, `shared_tables/`, and one real `system_settings/` folder;
+inside it sit `athenaresults/` and `archive/` — and the disclosure row is deleted, because the thing
+it imitated now exists.
+
+**`shared_tables/` does NOT move, and that is a correction made during the build.** The earlier
+drafts moved all three. The tables in that folder were sent to this space by another one and the
+user may edit them, so filing them under the folder the app manages says the opposite of what is
+true — and it is the one of the three that carries no Deny anywhere, deliberately. It stays at the
+space root. The consequence runs through the whole spec: **two folders move, not three**, no Glue
+`LOCATION` points at anything the migration touches, and the migration is therefore an S3-only
+operation with no catalog work, no Lake Formation probe and no `UpdateTable`. The
 move is **two merges with a migration between them**, the shape SPEC-202 settled for a cutover:
 first the writes switch, while both homes stay fully protected; then a CI-run migration copies the
 existing objects across and, once every live check passes, deletes the sources; then the old-path
@@ -23,22 +31,34 @@ the second merge for the fences.
 ### In Scope
 
 - The write switch: `app_managed_prefix` / `appManagedPrefix` resolve to
-  `{root}system_settings/{folder}/`, and everything built on the **singular** follows — Athena output
-  locations, new shared tables' `LOCATION`, receipt folders, results folders. The plural builders and
-  every rule on them are untouched, so both homes stay protected.
+  `{root}system_settings/{folder}/` **for a member of `MOVING_FOLDERS`**, and everything built on the
+  **singular** follows — Athena output locations, receipt folders, results folders. A new shared
+  table's `destPrefix` and `LOCATION` are unaffected, because `shared_tables/` is not a member. The
+  plural builders and every rule on them are untouched, so both homes stay protected.
 - The deploy role's three missing grants, in their own PR before the migration runs.
 - A one-shot migration, a module run by a `workflow_dispatch` workflow under the deploy role, with a
   persisted copy record, preconditions on in-flight work, and a `resolve` mode for conflicts. It
-  copies every existing object under the three folders to its new home, re-points every shared
-  table's Glue `LOCATION`, and deletes a source only against the record.
+  copies every existing object under the **two** moving folders to its new home and deletes a source
+  only against the record. **It touches no catalog**: nothing it moves is a table's `LOCATION`.
 - The browser: the group row deleted, `system_settings/` an ordinary-looking folder row with the
-  protections SPEC-219 gave it, the three folders inside with their rules at depth two.
+  protections SPEC-219 gave it, the two moving folders inside with their rules at depth two, and
+  `shared_tables/` left at the space root with the rules it already had.
 - Live checks between the switch and `finish`, against the four traps the arc names.
 - The narrowing: old-anchor IAM statements and elements out, the plural builders shrunk to their one
   remaining element, the old prefixes proved empty, the Checkov accept list re-measured.
 
 ### Out of Scope
 
+- **Moving `shared_tables/`.** It stays at the space root. A shared table is data another space
+  sent this one and the user may edit it — it is the only one of the three app-managed folders with
+  no Deny on either bucket, deliberately — so filing it under the folder the app manages would
+  advertise a restriction that does not exist and imply the tables are not the user's. Consequences,
+  all of them followed through: `MOVING_FOLDERS` holds two names and `SPACE_FOLDERS` still holds
+  three, which is why they were separate tuples; a new shared table's `destPrefix` and `LOCATION`
+  are unchanged; the migration re-points no catalog at all; and the `system_settings/shared_tables/`
+  IAM anchors SPEC-219 added now guard a prefix nothing will ever write to. Those anchors and the
+  `glue:UpdateTable` grant come out with the narrowing (FR-005) rather than in their own PR, since
+  that merge already edits the templates.
 - **The Glacier vault's layout.** `VAULT_ARCHIVE_SEGMENT` and every key in the archive bucket stay
   where they are; the FIFO golden vectors pass untouched. Only the user's receipt folder moves.
 - **The admin bucket's `archive/*` scratch prefix** (`arcommon.plan.PREFIX`) and its lifecycle rule.
@@ -47,9 +67,19 @@ the second merge for the fences.
 - **Renaming the three folders**, or changing what a user may do inside them. `athenaresults/` stays
   visible, browsable and undeletable; `archive/` stays read-only; `shared_tables/` stays a folder
   the share pipeline fills.
-- **Reserving the three retired names.** After the narrowing `alice/athenaresults/` is an ordinary
-  user path, at the root as at any depth — `validateFolderName` keeps refusing `system_settings`
-  and nothing else. An earlier draft reserved the three names too; it was dropped because the
+- **Reserving the three retired names AT THE ROOT, or at any depth generally.** After the narrowing
+  `alice/athenaresults/` is an ordinary user path — `validateFolderName` refuses `system_settings`
+  everywhere, and the three folder names **only directly inside `system_settings/`**.
+  That one exception was added during the build, on the user's decision, because the switch makes
+  the prefix navigable AND writable — no IAM Deny names it — so a user could create
+  `system_settings/archive/` themselves and every rule would then treat it as the app's: read-only
+  inside, undeletable, unrenamable, unarchivable, permanently, at the exact path the restore dialog
+  sends them to for their archive ids. **It covers the dialogs and nothing else**: uploads, pastes
+  and plane-side moves create folders without calling the validator, so the collision stays
+  reachable by those routes. That partiality is the reason the general version was rejected and it
+  is recorded here rather than left for a reader to infer, because a courtesy read as a boundary is
+  worse than no courtesy — the next author stops looking for the real one. Closing it properly is a
+  root-aware, all-paths guard at the API or plane layer, and a spec of its own. An earlier draft reserved the three names too; it was dropped because the
   validator runs at every depth (it would have refused `alice/projects/archive/`, which SPEC-219 and
   FR-005 call ordinary) and because uploads, plane moves and pastes create folders without it, so it
   could not deliver what it promised. **This is a product-visible decision; the arc entry in
@@ -80,8 +110,9 @@ the second merge for the fences.
 
 `app_managed_prefix(root, folder)` returns `f"{root}{SYSTEM_SETTINGS_FOLDER}/{folder}/"` **for a
 member of `MOVING_FOLDERS`, and `f"{root}{folder}/"` for anything else**, and `appManagedPrefix` its
-twin. The branch mirrors the plural's, and it is not optional: the singular takes a folder name from
-a domain list as well as from this module's constants, and `rccommon.paths` calls it for every member
+twin, where `MOVING_FOLDERS` is `athenaresults` and `archive` — `shared_tables` is not a member and
+does not move. The branch mirrors the plural's, and it is not optional: the singular takes a folder
+name from a domain list as well as from this module's constants, and `rccommon.paths` calls it for every member
 of `PROTECTED_DESTINATIONS` — five of whose eight members (`user_settings`, `_data-quality-reports`,
 `_directory`, `_config` and `system_settings` itself) do not move. Unconditional, that call builds
 `{root}system_settings/user_settings/`, a prefix nothing is stored under, and the refusal degrades in
@@ -93,8 +124,11 @@ browser's singular builder has no production caller (`rccommon.paths` is the onl
 side), so it branches to keep the two trees one design and to be correct for the first caller that
 arrives, not to fix a live path. Because SPEC-218 routed every construction through them, the Athena
 output location (`cpcommon.results`, `api/routes/athena.py`), a new shared table's `destPrefix` and
-`LOCATION` (`table_share_check_target_absent`, `table_share_create_table`) and the receipt folder
-(`arcommon.paths.receipt_root`) all move with one edit per tree. **Nothing that SPEC-219 routed
+and the receipt folder
+(`arcommon.paths.receipt_root`) all move with one edit per tree. A new shared table's `destPrefix`
+and `LOCATION` (`table_share_check_target_absent`, `table_share_create_table`) go through the same
+builder and are therefore **unchanged**, which is the branch doing its job on a real caller rather
+than only on `user_settings`. **Nothing that SPEC-219 routed
 through the plural is touched**: the excluders, the refusals and `_IGNORED_SUBTREES` read both homes
 from literals, and re-pointing any of them to the singular here would drop protection of the old
 home before `finish`. SPEC-219's today-equality assertions that the plural's first element equals
@@ -117,7 +151,7 @@ docstring records the revisit.
       no rule module.
 - [ ] `results_location("b", "alice", "bob") == "s3://b/alice/system_settings/athenaresults/bob/"`;
       the API's Athena start route submits that output location for the verified claim; the
-      table-share destination is `{name}/system_settings/shared_tables/{table}/`; a receipt root is
+      the table-share destination is **unchanged** at `{name}/shared_tables/{table}/`; a receipt root is
       `{name}/system_settings/archive/{uuid}/` — each asserted where SPEC-218 asserted the old value.
 - [ ] `vault_archive_prefix` is untouched and `lambdas/api/test_fifo_derivations.py`'s golden
       vectors pass unchanged — the check that fact 2 did not move.
@@ -134,9 +168,7 @@ docstring records the revisit.
 **The grants first, in their own PR.** The deploy role holds `s3:*` on both space buckets and the
 admin bucket, which covers every S3 call below (listing, `HeadObject`, `CopyObject` with the tagging
 reads and writes `TaggingDirective=COPY` needs, `DeleteObjects`, the record). It lacks
-`glue:UpdateTable` (its `GlueCatalogManage` statement already grants `GetTable`/`GetTables` on
-`table/*/*`, and `UpdateTable` joins at that scope — databases are per space, so "two databases" is
-the wrong scope), `states:ListExecutions` on the archive and table-share state machines, and
+`states:ListExecutions` on the archive and table-share state machines, and
 `athena:ListQueryExecutions` / `athena:BatchGetQueryExecution` on the one workgroup. Each is measured
 with `simulate-custom-policy` and landed before Phase 3, on the register's rule. IAM simulate cannot
 see Lake Formation; the deploy role is a data-lake admin, so the first `update_table` **is** the LF
@@ -154,8 +186,9 @@ path (they spell `"archive"` as the rule they enforce, and its filename-prefix e
 cover them). It enumerates every space by listing each bucket root with `Delimiter="/"`, skipping
 the user-space bucket's `_config/` and `_directory/` (they hold no space). Because IAM no longer
 bounds it, the module **itself** refuses, as `outside_migration_scope`, to read, copy or delete any
-key not under `{space}/{folder}/` for the three folders, and, as `location_not_migrated`, to touch
-any `LOCATION` not under an old `shared_tables/` path; a test plants each and asserts the code.
+key not under `{space}/{folder}/` for the two moving folders; a test plants it and asserts the code.
+There is no catalog refusal because there is no catalog work: `shared_tables/` does not move, so no
+table's `LOCATION` points at anything this module touches.
 **Both are correctness guards on this script, and neither is an authorization boundary.** They bind
 `scripts/migrate_system_settings.py` and nothing else, and they deny nobody who reaches the deploy
 role by another path. The sentence above says IAM no longer bounds the module, which is true and is
@@ -177,7 +210,7 @@ never reproduces.
 
 **Six modes.**
 - `report [run_id]` — prints, per bucket and space, the keys and bytes under each old prefix, the
-  tables whose `LOCATION` would change, and — reading the record when given one — `conflicts`,
+  and — reading the record when given one — `conflicts`,
   `oversize`, `absent` and `refused`. Writes nothing.
 - `copy run_id?` — refuses to start while any **precondition** fails, naming the execution: an
   archive-plane or table-share execution `RUNNING` (`ListExecutions` on each machine), or an Athena
@@ -206,15 +239,14 @@ never reproduces.
 - `finish run_id` — refuses without a record or while `conflicts` is non-empty. Re-`HeadObject`s both
   sides of every recorded key; refuses (lists under `refused`, continues, exits non-zero at the end) a
   key whose source no longer matches its record or whose destination no longer matches `copied_etag`;
-  lists under `absent` a source a user has since deleted (only `shared_tables/` allows that; the
-  object survives at the new home); deletes the rest with the recorded source `ETag` on the
+  lists under `absent` a source a user has since deleted (the object survives at the new home); deletes the rest with the recorded source `ETag` on the
   `ObjectIdentifier`, in batches of at most 1000, reading the per-item `Errors` array. A per-item
   `PreconditionFailed` / `ConditionalRequestConflict` for a key whose HEAD just verified is recorded
   under `refused`, never retried blind — `focommon.delete` records that conditional delete is
   unverified live on these buckets, so **the head re-verify is the proven guard** and the identifier
   ETag is belt; this run does not discharge that owed row, which needs a planted mismatch. `finish`
   is re-runnable with the same `run_id`: an already-deleted source lands under `absent`.
-- `prove-empty` — FR-005's fail-closed loop over every space and the three folders, from the same
+- `prove-empty` — FR-005's fail-closed loop over every space and the two moving folders, from the same
   identity; the vehicle for the proved-empty row.
 
 **Keys that arrive at an old prefix between `copy` and `finish`** — a user upload into
@@ -225,17 +257,15 @@ run: `copy run_id` again (extends the record), `resolve` the re-share keeping th
 
 #### Acceptance Criteria:
 
-- [ ] The grants PR: `glue:UpdateTable` on `table/*/*` beside the existing `GetTable`,
-      `states:ListExecutions` on the two machines, `athena:ListQueryExecutions` and
+- [ ] The grants PR: `states:ListExecutions` on the two machines, `athena:ListQueryExecutions` and
       `athena:BatchGetQueryExecution` on the workgroup — each measured `allowed` with
       `simulate-custom-policy` and `implicitDeny` on a neighbour, applied green before Phase 3, with
       the Checkov plan scan re-read.
-- [ ] The module refuses a key outside the three prefixes as `outside_migration_scope` and a
-      `LOCATION` outside an old `shared_tables/` path as `location_not_migrated`; a test plants each
-      and asserts the code. The fakes in `lambdas/shared-space-common/fakes.py` are extended —
+- [ ] The module refuses a key outside the two moving prefixes as `outside_migration_scope`; a test
+      plants it and asserts the code. The fakes in `lambdas/shared-space-common/fakes.py` are extended —
       `head_object`, `Delimiter`/`CommonPrefixes` on `list_objects_v2`, a `CopyObjectResult.ETag` and
       metadata/tagging/storage-class carry on `copy_object`, `upload_part_copy`, `ETag` on a delete
-      identifier, `get_table`/`update_table` on the Glue fake — from the S3 contract rather than from
+      identifier — from the S3 contract rather than from
       the module, and the module's tests live under `lambdas/` as
       `lambdas/test_migrate_system_settings.py`, importing the script through the same shim.
 - [ ] `report` with no record lists keys, bytes and tables per bucket and space and writes nothing;
@@ -256,8 +286,8 @@ run: `copy run_id` again (extends the record), `resolve` the re-share keeping th
       most 1000 and reads the per-item `Errors` array; a test plants a source rewritten after the
       copy and asserts it lands in `refused`, not deleted; a second `finish run_id` lists the deleted
       sources under `absent` and deletes nothing.
-- [ ] Every Glue table under an old `shared_tables/` location is re-pointed with
-      `update_table(..., SkipArchive=False)`; the module joins `mypy`'s file list entering at zero (a
+- [ ] The module issues **no** `update_table` at all, asserted on the Glue fake, because nothing it
+      moves is a table's location; it joins `mypy`'s file list entering at zero (a
       local gate — CI runs no mypy), carries no inline comments and a docstring per function.
 - [ ] The order is fixed and recorded in the delivery doc with the `copy` and `finish` run ids:
       grants PR applied; FR-001 merged and `Deploy Lambdas` green on the merge sha
@@ -276,12 +306,13 @@ and `FileBrowser.tsx` alike, with `systemFolders.ts`, `SystemFolderGroupRow.tsx`
 group `describe` in `fileBrowser.a11y.test.tsx` and the seven group tests in `FileBrowser.test.tsx`;
 the four comment references in `protectedFolders.ts` are rewritten. `system_settings/` is listed as
 a folder row like any other, sorted among the user's folders, with the refusals SPEC-219 gave it;
-opening it lists the three folders, each with the rules it had at the root now at depth two.
+opening it lists the two moving folders, each with the rules it had at the root now at depth two;
+`shared_tables/` stays at the space root with the rules it already had.
 `validateFolderName` keeps refusing `system_settings` at every depth as it does today, importing
 `SYSTEM_SETTINGS_FOLDER` from `lib/appManagedPaths`, with its docstring and message rewritten to say
 the folder is the app's rather than that the list uses the name, and its reservation test moved from
 the deleted `systemFolders.test.ts` into `fileBrowser.service`'s tests. **Between merge one and
-`finish`** the root also shows the three old folders as ordinary-looking rows, still refusing every
+`finish`** the root also shows the two old folders as ordinary-looking rows, still refusing every
 write and delete through the plural rules — the e2e rows for that window say so.
 
 #### Acceptance Criteria:
@@ -294,13 +325,20 @@ write and delete through the plural rules — the e2e rows for that window say s
       reason naming the app.
 - [ ] Inside `system_settings/`, `athenaresults/` is undeletable with the results reason, `archive/`
       is read-only throughout (upload, new folder, rename, move, delete removed with the write-lock
-      reason), and `shared_tables/` is not a paste target — the same rows the e2e guide has for them
+      reason) — the same rows the e2e guide has for them
       at the root today, re-keyed to the new location in `docs/testing/e2e.md`, whose
       `system_settings` row-behaviour row is deleted; and a row for the transitional root (both homes
       listed, both refusing) is added and marked as retired after `finish`.
-- [ ] `git diff` of `helpContent.ts` and `RestoreArchiveDialog.tsx` is empty in the switch PR, read
-      at review: the archive entry's "under `system_settings` → `archive`" and the file-browser entry's
-      "gathered under `system_settings`" are now literally true.
+- [ ] The two phrases this criterion is about need no edit, read at review: the archive entry's
+      "under `system_settings` → `archive`" and the file-browser entry's "gathered under
+      `system_settings`" are now literally true, and `RestoreArchiveDialog.tsx` is untouched.
+      **`helpContent.ts` takes one edit the criterion did not anticipate**: the same sentence also
+      said the folder sits "below your own folders", which was true of a row that always rendered
+      last and is false of an ordinary row that sorts — `system_settings` lands above a folder named
+      `taxes`. Help documents only what is shipped, so the clause is corrected rather than left.
+      A pre-switch archive id is at the depth-one `archive/` until `finish`, which neither surface
+      says; that window is carried by the transitional row in `docs/testing/e2e.md` rather than by
+      wording that would have to be removed again afterwards.
 
 ### FR-004: Live checks between the switch and `finish`, while every step is still reversible
 
@@ -314,10 +352,11 @@ identities differ, and the rows say which.
 
 #### Acceptance Criteria:
 
-- [ ] **Glue `LOCATION`.** A shared table whose data moved returns the `count(*)` the operator ran
-      in the browser before `copy` — as a **member of each space holding a shared table**, which for
-      a space the operator is not in needs a second identity; a table shared AFTER the switch has a `LOCATION` under
-      `system_settings/shared_tables/` and returns rows.
+- [ ] **Glue `LOCATION` — nothing to check, and that is the point.** `shared_tables/` does not
+      move, so no table's location changes and the pre-`copy` `count(*)` is not needed. What IS
+      asserted is the absence: a shared table's `LOCATION` still reads `{space}/shared_tables/…`
+      after `finish`, and the migration's run summary reports zero catalog writes. Recorded as a row
+      so a later reader does not assume the check was skipped rather than made unnecessary.
 - [ ] **Archive ids.** One archive made after the switch leaves its receipt under
       `system_settings/archive/{uuid}/`; a restore by that id, submitted twice in quick succession,
       produces **two executions** (the browser mints a request id per submission, so the FIFO
@@ -380,26 +419,31 @@ which is a hard error (SPEC-202).
       `alice/archive/x` now expect the key to be treated as an **ordinary** user path;
       `_IGNORED_SUBTREES` is asserted as the two-tuple `("system_settings/athenaresults/", "user_settings/")`;
       the data-quality first-segment refusal for `athenaresults` is asserted as the named exception.
-- [ ] **The three grants come back out**, in this merge — all four actions: `glue:UpdateTable`,
-      `athena:ListQueryExecutions`, `athena:BatchGetQueryExecution` and both `states:ListExecutions`.
-      They were granted for a one-shot that has now run, and the ARN was never the axis that could be
-      narrowed — a Glue database name is a username with no project prefix and the set is created per
-      user, LF-Tags are invisible to IAM, and the obvious narrower principal (the table-share
-      execution role) carries the identical `table/*/*` scope. Lifetime is the axis that is available,
-      and it is free here: this merge already edits IAM templates and re-measures the accept list, and
-      the removal cannot deadlock, because a refresh reads policies with `iam:GetPolicyVersion`, which
-      the role holds independently. The precedent is the layer grants that "outlived the resources by
-      exactly one apply … and came off immediately after" (`infra/modules/base/README.md`). It matters
-      because Lake Formation adds no restraint here — the deploy role is a data-lake admin holding
-      `lakeformation:GrantPermissions` on `*`, so it can self-grant `ALTER` on any table — which makes
-      the IAM action list the only fence over re-pointing a `LOCATION`, and a re-pointed `LOCATION`
-      makes the portal serve the wrong space's data through credential vending, silently.
+- [ ] **The grants come back out**, in this merge — `athena:ListQueryExecutions`,
+      `athena:BatchGetQueryExecution` and both `states:ListExecutions`. They were granted for a
+      one-shot that has now run, and lifetime is the axis available: this merge already edits IAM
+      templates and re-measures the accept list, and the removal cannot deadlock, because a refresh
+      reads policies with `iam:GetPolicyVersion`, which the role holds independently. The precedent
+      is the layer grants that "outlived the resources by exactly one apply … and came off
+      immediately after" (`infra/modules/base/README.md`).
+- [ ] **`glue:UpdateTable` comes out too, and it was never used.** It was granted to re-point shared
+      tables; `shared_tables/` then turned out not to move, so nothing ever called it. Removing it
+      matters more than the others, not less: Lake Formation adds no restraint here — the deploy role
+      is a data-lake admin holding `lakeformation:GrantPermissions` on `*`, so it can self-grant
+      `ALTER` on any table — which made the IAM action list the only fence over re-pointing any
+      table's `LOCATION`, and a re-pointed `LOCATION` makes the portal serve another space's data
+      through credential vending, silently. A capability granted for work that no longer exists is
+      the easiest kind to leave behind.
+- [ ] **The `system_settings/shared_tables/` anchors come out of the templates**, in the same merge.
+      SPEC-219 added them additively for a move that is no longer happening, so they guard a prefix
+      nothing will ever write to; the population test's expected pairs drop them, and
+      `shared_tables/` keeps exactly the depth-one anchors it always had.
 - [ ] `checkov` on the deploy plan: zero unaccepted findings and zero stale acceptances; the accept
       list's diff, if any, is in the PR with a one-line disposition per line.
 - [ ] Proved empty by the workflow's `prove-empty` mode under the deploy role, recorded in
       `docs/testing/owed.md` with the run id and the date: for every prefix a `Delimiter="/"` listing
       of each bucket root returns (skipping `_config/` and `_directory/`), `list_objects_v2` with
-      `Prefix={space}/{folder}/, MaxKeys=1` for the three folders returns no `Contents`. The loop
+      `Prefix={space}/{folder}/, MaxKeys=1` for the two moving folders returns no `Contents`. The loop
       fails closed on any error — an empty result from a failed call is not an empty prefix — and a
       space that still holds a key blocks the merge; the remedy is another `copy` / `finish` round
       with the same run id (FR-002).
@@ -440,7 +484,7 @@ class Record(TypedDict):        # persisted at s3://{admin bucket}/migration/sys
                                 #   shared space `alice` can each hold the same key; keyed by the
                                 #   key alone they collapse, and the run then reports a deletion it
                                 #   did not make and omits one it did
-    tables: dict[str, str]      # "database.table" -> the LOCATION it was re-pointed FROM
+    # No `tables` register: the migration writes no catalog, because shared_tables does not move
     conflicts: list[str]
     oversize: list[str]
     oversize_done: list[str]    # copied in parts; informational
@@ -456,7 +500,7 @@ infra/modules/base/policies/github-actions-deploy*.json.tftpl   # UpdateTable/Ge
 .github/workflows/migrate-system-settings.yml     # workflow_dispatch: report | copy | resolve | verify |
                                                   #   finish | prove-empty; main-only step; timeout 360;
                                                   #   run_id / key / keep inputs; names from PROJECT_NAME/ENVIRONMENT
-scripts/migrate_system_settings.py                # the module; refuses anything outside the three prefixes
+scripts/migrate_system_settings.py                # the module; refuses anything outside the two prefixes
 lambdas/test_migrate_system_settings.py           # against the extended fakes; plants a rewritten source
 lambdas/shared-space-common/fakes.py              # the extensions named in FR-002
 scripts/validate_app_managed_paths.py             # its Python tree gains scripts/, itself and its corpus excluded
@@ -473,23 +517,26 @@ docs/testing/e2e.md · docs/testing/owed.md        # re-keyed rows; the transiti
 ### Phase 1: The grants (own PR) and the migration script
 
 - The three deploy-role grants, measured and applied first. Then the module, the fake extensions and
-  the tests: the plan, the two refusals, the three preconditions, the persisted record, the
+  the tests: the plan, the scope refusal, the three preconditions, the persisted record, the
   conditional delete, the rewritten-source plant, the `resolve` modes; the workflow with its
   main-only step; the sweep's tree widened.
 
 ### Phase 2: The switch (merge one)
 
-- The two singular builders flipped; the SPEC-218 value tests rewritten; SPEC-219's today-equality
-  assertions deleted and the archive-facts tripwire's docstring revisited; the browser row and its
-  state deleted from all three renderers and both test files; the reservation test moved; Help read
-  unchanged; the e2e rows re-keyed and the transitional row added. One PR.
+- The two singular builders flipped, branching on `MOVING_FOLDERS`; `shared_tables` taken out of
+  that tuple and the migration's catalog work deleted with it; the SPEC-218 value tests rewritten;
+  SPEC-219's today-equality assertions replaced and the archive-facts tripwire's docstring revisited;
+  the browser row and its state deleted from all three renderers and both test files; the
+  reservation test moved and extended to the app's folders inside `system_settings/`; Help corrected
+  where the row's positioning made it false; the e2e rows re-keyed and the transitional row added.
+  One PR.
 
 ### Phase 3: `report`, `copy`, the live checks, `finish`
 
-- Run from `main` after `Deploy Lambdas` is green on the switch sha; the pre-`copy` `count(*)`s;
-  wait out any in-flight execution the preconditions name; `copy`; `resolve` any conflict and re-run
-  `report run_id` to zero; `verify`; discharge every other FR-004 row; then `finish`, and record
-  both run ids.
+- Run from `main` after `Deploy Lambdas` is green on the switch sha; wait out any in-flight
+  execution the preconditions name; `copy`; `resolve` any conflict and re-run `report run_id` to
+  zero; `verify`; discharge every FR-004 row; then `finish`, and record both run ids. No pre-`copy`
+  `count(*)` is needed — no table's `LOCATION` moves.
 
 ### Phase 4: The narrowing (merge two)
 

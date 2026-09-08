@@ -1,7 +1,6 @@
 import {Badge} from '../../components/Badge';
 import {FileRowIcon, FolderRowIcon} from '../../components/icons';
 import {ParentFolderRow} from './ParentFolderRow';
-import {SystemFolderGroupRow} from './SystemFolderGroupRow';
 import {formatSize, formatDate} from './fileBrowser.format';
 import {fileExtension} from './fileBrowser.paths';
 import type {SelectableItem} from './selectionContext';
@@ -17,14 +16,6 @@ import {SECTION_CAPTION} from '../../components/fieldStyles';
 export type FileListProps = {
   folders: S3FolderItem[];
   files: S3FileItem[];
-  /**
-   * The app-managed root folders the `system_settings` row collapses. Empty below a space
-   * root and whenever the space has none of them, and the group row is omitted then — the
-   * emptiness is the condition, so no separate flag can disagree with it.
-   */
-  systemFolders: S3FolderItem[];
-  systemExpanded: boolean;
-  onToggleSystem: () => void;
   /** Rows carry a checkbox — the authenticated, writable flow only. */
   selectable: boolean;
   /** At the space root the `..` row is omitted. */
@@ -202,9 +193,6 @@ function FileRow({
 export function FileListTable({
   folders,
   files,
-  systemFolders,
-  systemExpanded,
-  onToggleSystem,
   selectable,
   atRoot,
   onNavigateUp,
@@ -259,26 +247,6 @@ export function FileListTable({
             onToggleSelect={() => onToggleSelect({type: 'folder', prefix: folder.prefix})}
           />
         ))}
-        {systemFolders.length > 0 && (
-          <SystemFolderGroupRow
-            count={systemFolders.length}
-            expanded={systemExpanded}
-            onToggle={onToggleSystem}
-            selectable={selectable}
-          />
-        )}
-        {systemExpanded &&
-          systemFolders.map((folder) => (
-            <FolderRow
-              key={folder.prefix}
-              folder={folder}
-              onClick={() => onOpenFolder(folder)}
-              onDetails={onFolderDetails}
-              selectable={selectable}
-              isSelected={isSelected(folder.prefix)}
-              onToggleSelect={() => onToggleSelect({type: 'folder', prefix: folder.prefix})}
-            />
-          ))}
         {files.map((file) => (
           <FileRow
             key={file.key}

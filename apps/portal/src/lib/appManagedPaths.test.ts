@@ -21,9 +21,12 @@ describe('appManagedPaths', () => {
     ]);
   });
 
-  it('anchors a folder directly under the space root, in either bucket', () => {
-    expect(appManagedPrefix('alice/', ARCHIVE_FOLDER)).toBe('alice/archive/');
-    expect(appManagedPrefix('finance/', ATHENA_RESULTS_FOLDER)).toBe('finance/athenaresults/');
+  it('anchors a MOVING folder under system_settings, and leaves every other name alone', () => {
+    expect(appManagedPrefix('alice/', ARCHIVE_FOLDER)).toBe('alice/system_settings/archive/');
+    expect(appManagedPrefix('finance/', ATHENA_RESULTS_FOLDER)).toBe('finance/system_settings/athenaresults/');
+    // The guard on the branch. The fleet's twin takes this argument from a domain list whose
+    // members mostly do not move, so unconditional it would build a prefix nothing is stored
+    // under — and the caller's second leg would keep the refusal working by accident.
     expect(appManagedPrefix('finance/', 'user_settings')).toBe('finance/user_settings/');
   });
 });
@@ -35,7 +38,10 @@ describe('appManagedPrefixes', () => {
     expect(appManagedPrefixes('alice/', ARCHIVE_FOLDER)).toEqual(['alice/archive/', 'alice/system_settings/archive/']);
     expect(appManagedPrefixes('alice/', 'user_settings')).toEqual(['alice/user_settings/']);
     expect(appManagedPrefixes('alice/', SYSTEM_SETTINGS_FOLDER)).toEqual(['alice/system_settings/']);
-    expect(MOVING_FOLDERS).toEqual([ATHENA_RESULTS_FOLDER, ARCHIVE_FOLDER, SHARED_TABLES_FOLDER]);
+    // shared_tables does NOT move — those tables were sent to the space and are the user's to
+    // edit — so it has one home, like any folder whose location the app does not manage.
+    expect(appManagedPrefixes('alice/', SHARED_TABLES_FOLDER)).toEqual(['alice/shared_tables/']);
+    expect(MOVING_FOLDERS).toEqual([ATHENA_RESULTS_FOLDER, ARCHIVE_FOLDER]);
   });
 
   it('normalizes nothing, exactly as the singular does not', () => {
@@ -61,14 +67,22 @@ describe('appManagedPrefixes', () => {
     expect(body![1]).toContain('system_settings/');
   });
 
-  it('agrees with the singular on its first element TODAY — SPEC-220 FR-001 deletes this', () => {
-    // The plural spells both homes as literals precisely so the singular can move without
-    // dragging them. This pins that they agree while the write still goes to depth one; when the
-    // singular moves, this is the assertion expected to fail, and deleting it is the right
-    // response rather than re-pointing it, which would restore the coupling the literals avoid.
+  it('still answers the OLD home the singular has left', () => {
+    // This replaces the equality assertion that held the two together while the write was still
+    // at depth one. Re-pointing that one would have restored exactly the coupling the literals
+    // exist to avoid; what matters now is the opposite property. The first element is still the
+    // depth-one path, which is where the objects written before the switch actually are, so every
+    // rule built on the plural keeps refusing there until the migration has moved them.
     for (const root of ['', 'alice/', 'finance/']) {
-      for (const folder of [ATHENA_RESULTS_FOLDER, ARCHIVE_FOLDER, SHARED_TABLES_FOLDER, 'user_settings']) {
-        expect(appManagedPrefixes(root, folder)[0]).toBe(appManagedPrefix(root, folder));
+      for (const folder of [ATHENA_RESULTS_FOLDER, ARCHIVE_FOLDER]) {
+        const homes = appManagedPrefixes(root, folder);
+        expect(homes[0]).toBe(`${root}${folder}/`);
+        expect(homes[1]).toBe(appManagedPrefix(root, folder));
+        expect(homes[0]).not.toBe(homes[1]);
+      }
+      // shared_tables never moved, so it never gained a second home to answer for.
+      for (const stays of ['user_settings', SHARED_TABLES_FOLDER]) {
+        expect(appManagedPrefixes(root, stays)).toEqual([appManagedPrefix(root, stays)]);
       }
     }
   });
