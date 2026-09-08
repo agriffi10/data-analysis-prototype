@@ -2989,15 +2989,23 @@ had a builder ship five per-item steps. Its prohibitions are mechanical rather t
 step inside `copy_batch`'s worker pool emits no child span at all, because baggage and the span
 stack are `contextvars` that do not cross into pool threads — measured at five spans, all with a
 null parent, six trace ids and empty fields. And decorating a helper that already narrates changes
-*when its existing events are delivered*, which broke thirteen tests when a reviewer did it.
+*when its existing events are delivered*, which broke thirteen tests when a reviewer added a
+step to `lock.py` — a module 226 forbids stepping. **Measured on the built change: it broke
+nothing.** Removing the drain 226 added reddens exactly one test, the control written for it.
+The drain is a forward guard, so an absence over the shared sink means "nothing was emitted";
+it is not a repair, and the thirteen are not 226's cost.
 
 **Build order 224 → 225 → 227 → 226.** 225 needs 224's one-shot adoption and its `reset_context()`;
 227 needs 225's mechanism; 226 needs 224 only for the pin, and is last so its new child spans are
 not competing with the one-trace guards for the same capturing-sink fixtures.
 
-> **Superseded in the event: 226 shipped BEFORE 227**, on the pin alone, while 227 was unstarted.
-> The contention this ordering guarded against did not arise — 226 extended `_CapturingSink` with a
-> drain and a child-span reader, and 225 landed in between without touching that file. 227 still
+> **Superseded in the event: 226 shipped BEFORE 227**, on the pin alone, while 227 was unstarted —
+> so the heading above and the arc list entry keep the *planned* order as this arc's name, and the
+> built order is 224 → 225 (FR-001/FR-002) → 226, with the rest of 225 and all of 227 outstanding.
+> **The contention has NOT been retired, only deferred.** 226 extended `_CapturingSink` with a drain
+> and a child-span reader; 225's landed half touched no part of that file, which is the only half
+> that can be checked. 225 FR-005 — a run proved to be one trace end to end — and 227's guards are
+> still ahead of it, and they now build on the rewritten fixture rather than beside it. 227 still
 > needs 225's mechanism, so the rest of the order stands. Entry: `decisions/control-planes.md`
 > (*Where a child span may go*).
 

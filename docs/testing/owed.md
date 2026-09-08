@@ -417,16 +417,6 @@ rows 14 and 15, and the Data Explorer surfaces generally, were **not** reached.
 | ~~**Cold start**~~ **DISCHARGED 2026-08-30** — the first invocation after the deploy succeeded. | A layer imported and not attached deploys clean and fails at import; the first invocation after a deploy is the only place it shows. |
 
 
-### SPEC-226 — the child spans have never been seen in the real log store
-
-Every assertion about them is made against a capturing sink in-process: the span exists, is parented
-to its verb's root span, and its duration covers the work. What no test can show is that a child span
-survives the SQS sink, the sweep's read-modify-write and the day object's NDJSON, and arrives under
-`logs/service=<plane>/` with `parent_span_id` intact. The verbs are asynchronous and admin-only, so
-this needs an admin credential and one real run per plane rather than a browser session — driving
-any of the seven planes from the portal and then reading the day object back would settle it for
-that plane.
-
 ### SPEC-226 FR-005 — the child-span budget has no ceiling and no rate to derive it from
 
 FR-005 asks for the volume this spec adds to be asserted against **a budget in events per

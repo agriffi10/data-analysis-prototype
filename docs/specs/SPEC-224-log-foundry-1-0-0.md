@@ -304,9 +304,16 @@ fails. Executed against both versions during authoring.
 No function currently decorated with `@observability.traced` or `@observability.step` is a
 generator — 112 decorated functions checked by AST walk during authoring, zero hits — so the bump
 is safe as it stands. It is pinned anyway, because the cost of getting it wrong later is a whole
-plane failing to start, and because SPEC-226 instruments `cpcommon.s3_listing`, whose two listers
-**are** generators. A guard here means that spec meets a build failure on its own branch rather
-than a cold start in production.
+plane failing to start, and because SPEC-226 was expected to instrument `cpcommon.s3_listing`,
+whose two listers **are** generators. A guard here means that spec meets a build failure on its own
+branch rather than a cold start in production.
+
+> **Superseded by SPEC-226 as built (2026-09-08):** it instruments `s3_listing` NOWHERE, and names
+> those two listers as the case under its own "not on a generator function" prohibition. The guard
+> this paragraph justifies is unaffected and still earns its place — the fleet is held to it, and
+> the reason it exists is that the refusal is a cold start rather than a bad span. What changed is
+> only the consumer this sentence predicted. Entry: `decisions/control-planes.md` (*Where a child
+> span may go*).
 
 **`fields` became a reserved parameter name on the emitters.** The signature went from
 `info(message, *, echo=False, **fields)` to `info(message, *, echo=False, fields=None, **kv)`.

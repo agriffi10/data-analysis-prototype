@@ -69,4 +69,5 @@ app-managed paths and its corpus, the API contract, and the portal's build / `ch
 Every guard was mutation-tested; the seven per-plane cases redden one plane at a time. The four
 transfer planes are planted by moving the verb off the instrumented path rather than by removing the
 shared step, which would redden all four and prove nothing per plane. What is **not** verified is
-that the spans reach the real log store — see [`owed.md`](../testing/owed.md).
+that a span reaches the real log store with its parent intact — that is a browser-drivable check,
+in [`e2e.md`](../testing/e2e.md) beside the archive rows that already read the same store.

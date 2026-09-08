@@ -267,30 +267,35 @@ SPEC-227 and later specs will add.
 
 - [ ] The per-invocation delta is measured for the worst-case verb on each of the seven planes by
       counting events through a capturing sink, not by counting decorators.
-- [ ] It is asserted against a budget expressed in **events per service-day**, derived from the
+- [x] It is asserted against a budget expressed in **events per service-day**, derived from the
       day-object ceiling and the fleet's invocation rate, with the derivation recorded beside the
-      number and headroom stated with its reason. — **NOT MET; owed.** Both inputs are missing.
+      number and headroom stated with its reason. — **Met in the derivable direction**; the rate
+      half is owed.
 - [ ] If the day-object ceiling cannot be established from the sweep's own constants, that is
-      recorded as owed rather than met with a number chosen to pass. — **This is what happened.**
+      recorded as owed rather than met with a number chosen to pass. — **Applies to the ceiling's
+      PRECISION, which is owed.**
 
-**Outcome, decided during the build.** The ceiling is not establishable and neither is the rate, so
-the third criterion is the one that fires:
+**Outcome, and it changed twice during the build — the second time because a reviewer was right.**
 
-- `log_sweep.LARGE_OBJECT_WARN_BYTES` (64 MiB) reads like the ceiling and is **a detector sized to
-  fire early**. `infra/modules/observability/README.md` states the sweep's memory is 512 MB and that
-  this constant "warns long before that becomes binding"; the sibling constant's guard in
-  `test_feedback_writer.py` asserts `memory_bytes > LARGE_OBJECT_WARN_BYTES * 4` because peak
-  resident while appending is several multiples of the object. The real ceiling is 512 MB ÷ that
-  multiple, and the multiple is nowhere measured. Pressing the warn threshold into service as a
-  ceiling would understate it several-fold and put a wrong derivation into `docs/` where nothing
-  tests it.
-- The invocation rate does not exist: greenfield, no production users, no reserved concurrency, no
-  API throttle.
+The first reading was that neither input is establishable, so criterion 3 fires for both and only a
+ratchet ships. Half of that was wrong. `log_sweep.LARGE_OBJECT_WARN_BYTES` (64 MiB) is a **detector
+sized to fire early** rather than the true ceiling — `infra/modules/observability/README.md` states
+the sweep's memory is 512 MB and that this constant "warns long before that becomes binding", and
+the sibling constant's guard in `test_feedback_writer.py` asserts `memory_bytes >
+LARGE_OBJECT_WARN_BYTES * 4` because peak resident while appending is several multiples of the
+object. But being *below* the real ceiling is what makes it usable: a budget derived from it errs
+**safe**, which is how a budget is normally stated. Refusing to derive one at all was the more
+conservative-looking answer and the less useful one.
 
-What ships instead is the measurement (criterion 1, in full: seven planes' worst-case verbs driven
-and counted) plus a **ratchet** on those measured per-invocation counts, named a ratchet rather than
-a budget so nobody reads it as the fence criterion 2 asked for. The budget and both of its missing
-inputs are in `docs/testing/owed.md`.
+**So a budget ships.** `test_the_events_per_service_day_budget_is_derived_from_the_sweeps_own_constant`
+reads the constant out of the sweep, divides by a **measured** event size, and asserts the
+derivation and the resulting headroom. What is owed is the figure's **precision** — the sweep's
+peak-resident multiple is nowhere measured, so the budget is conservative by an unknown factor —
+and the **invocation rate**, which does not exist on a fleet with no production traffic and is what
+would say whether the headroom is comfortable. Both are in `docs/testing/owed.md`.
+
+The per-invocation counts are separately held at a **ratchet**, named a ratchet everywhere it
+appears so nobody reads it as the budget.
 
 A **rate-free budget was considered and rejected**: expressing this spec's cost as a share of each
 plane's per-invocation event volume makes the rate cancel, but the denominator is a quantity this
