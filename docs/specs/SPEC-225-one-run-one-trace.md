@@ -1,7 +1,7 @@
 # Spec: One Run, One Trace — the Mechanism and the Success Path
 
 **ID:** SPEC-225
-**Status:** Draft
+**Status:** In Progress
 **Last Updated:** 2026-09-08
 **Depends On:** SPEC-128 (Completed), SPEC-130 (Completed), SPEC-224
 
@@ -140,6 +140,18 @@ FR-001 exists to close.
 The threat model FR-001 handles is the inbound half. This FR is the outbound half: `build_message`
 spreads `**dict(payload)` first, so a stamped value overwrites a caller's key of the same name.
 
+**Adding the field is not one line, and this was found by execution during the build rather than
+by either review.** Four planes REFUSE an unknown top-level body field — archive (per mode, plus
+`arcommon/restore.ALLOWED_FIELDS`), file-send, file-ops and results-conversion — and
+`test_plane_envelope_agreement.py` holds each of the five constants to **set equality** against
+what the API may send, which is the route's declared fields, `identity`, and `route.stamped`.
+Stamping without widening them answers every archive request with `malformed_event`. So
+`traceparent` is declared on all **eleven** enqueue routes' `stamped` term and returned by
+`_stamped_values`, which keeps that guard's `set(_stamped_values(route)) == set(route.stamped)`
+exact rather than weakened; the guard pinning "only four routes stamp a field" splits in two, so
+`mode` — the one that chooses behaviour — stays pinned to four while the traceparent is required
+on all eleven.
+
 #### Acceptance Criteria:
 
 - [ ] Every message `enqueue` sends carries a `traceparent` whose trace id matches the API span's.
@@ -232,9 +244,15 @@ cross-checked against `describe-results`' and `convert`'s real returns, so namin
 alone reddens those tests. Each reads it from `run_traceparent()` rather than from a required
 carried field, so a missing traceparent is never a `TerminalError` on a logging value.
 
-**Six exact-equality fixtures change.** Five validators' returns and one describe-results return are
-asserted with `==` against a literal dict; a minted traceparent is non-deterministic, so each pops
-it and asserts it separately.
+**Five exact-equality fixtures change, not six** — measured by running the suite against the
+change rather than counted by reading. **Four** validators' returns and one describe-results return
+are asserted with `==` against a literal dict (file-send, results-conversion, shared-space and
+table-share; archive, data-quality, file-ops and table-builder assert field by field and are
+unaffected). A minted traceparent is non-deterministic, so each pops it and asserts it separately.
+**Three further tests move that the count did not anticipate**: results-conversion's three ASL↔verb
+cross-checks are set-equality, and set equality forbids the only deploy order that is safe — the
+verb has to return the key in a release where no state reads it. They compare domain keys and
+assert the run key on the verb side directly.
 
 #### Acceptance Criteria:
 

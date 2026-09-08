@@ -392,6 +392,7 @@ def _validate_and_authorize(event) -> dict:
 
     bucket = space.get("bucket")
     validated = {
+        "traceparent": observability.run_traceparent(),
         "mode": mode,
         "allowRemovals": allow_removals,
         "actor": actor,

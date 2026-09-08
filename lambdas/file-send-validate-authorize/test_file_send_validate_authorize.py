@@ -91,6 +91,9 @@ def test_a_valid_personal_send_is_validated():
 
     out = v.handler(_event(), None)
 
+    # Minted per invocation, so it cannot sit in an equality against a literal. Popped and
+    # asserted for its shape, leaving the rest of the return pinned exactly as before.
+    assert out.pop("traceparent").startswith("00-")
     assert out == {
         "requestId": "req-1",
         "actor": {"username": "alice"},

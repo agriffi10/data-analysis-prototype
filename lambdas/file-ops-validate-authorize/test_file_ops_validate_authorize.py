@@ -107,6 +107,8 @@ def test_a_valid_copy_is_accepted_and_resolves_both_sides():
     assert result["source"]["root"] == "alice/"
     assert result["destination"]["prefix"] == "alice/out/"
     assert result["outcomes"] == []
+    # The run's trace, which every later verb on this plane adopts.
+    assert result["traceparent"].startswith("00-")
 
 
 def test_the_copy_move_fields_are_NORMALISED_TO_NULL_for_a_delete():

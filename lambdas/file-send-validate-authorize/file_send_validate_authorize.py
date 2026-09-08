@@ -49,7 +49,9 @@ logger.setLevel(logging.INFO)
 
 observability.init(service="file-send")
 
-_ALLOWED_FIELDS = frozenset({"requestId", "actor", "source", "recipients", "identity"})
+_ALLOWED_FIELDS = frozenset(
+    {"requestId", "actor", "source", "recipients", "identity", "traceparent"}
+)
 
 _ITEM_KINDS = frozenset({"file", "folder"})
 
@@ -305,6 +307,7 @@ def _validate_and_authorize(event) -> dict:
         raise
 
     validated = {
+        "traceparent": observability.run_traceparent(),
         "requestId": req.get("requestId"),
         "actor": {"username": actor},
         "source": source,

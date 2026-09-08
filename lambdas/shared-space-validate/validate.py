@@ -232,6 +232,7 @@ def handler(event, context):
                 _record_intent(action, actor, space, req.get("requestId"))
 
     validated = {
+        "traceparent": observability.run_traceparent(),
         "action": action,
         "actor": actor,
         "space": space,

@@ -63,7 +63,9 @@ def test_the_route_declares_no_body_cap_of_its_own():
     assert numbers == [], f"routes/enqueue.py carries numeric constants: {numbers}"
     handler = router.HANDLERS["resultsConversion.enqueue"]
     assert handler.__name__ == "resultsConversion_enqueue"
-    assert _ROUTE.queue == "results-conversion" and _ROUTE.stamped == frozenset() and _ROUTE.plane == "api"
+    # `traceparent` is stamped on every enqueue route and chooses no behaviour; what this
+    # assertion is about is that this route stamps nothing that does.
+    assert _ROUTE.queue == "results-conversion" and _ROUTE.stamped == frozenset({"traceparent"}) and _ROUTE.plane == "api"
 
 
 def test_the_apis_output_location_is_the_shared_user_results_prefix(monkeypatch):

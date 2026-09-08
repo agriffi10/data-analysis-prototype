@@ -1,4 +1,4 @@
-"""The one path the TEN ENQUEUE ROUTES take to ``SendMessage``. No credential passes through it.
+"""The one path the ELEVEN ENQUEUE ROUTES take to ``SendMessage``. No credential passes through it.
 
 Every enqueue route hands its validated payload here. This module stamps what the caller may not —
 the identity block and the route's own literals — derives the FIFO keys, checks the result against
@@ -17,7 +17,7 @@ execution inputs for nobody is the exposure this whole change exists to close. T
 kept it un-renderable, the field on the request context and the sweep counting its one reader all
 went with it: there is nothing left to contain.
 
-A handler still builds no message body, which is what keeps the router's premise true at ten
+A handler still builds no message body, which is what keeps the router's premise true at eleven
 routes rather than one.
 
 Attributes:
@@ -73,9 +73,22 @@ def _clipped(request_id) -> str | None:
 def _stamped_values(route: EnqueueRoute) -> dict[str, Any]:
     """The top-level fields the sender writes and the caller may not.
 
-    Each is a value that chooses behaviour rather than describing a request, which is why none of
-    them is a caller input: ``mode`` is the difference between archiving and restoring, and
+    ``mode`` and ``schemaVersion`` choose behaviour rather than describe a request, which is why
+    neither is a caller input: ``mode`` is the difference between archiving and restoring, and
     handing it to a body would hand the caller that branch.
+
+    ``traceparent`` is the other kind and is on every route. A run begins here — the API span is
+    the root of a trace the run's nine or twenty-five invocations all join — so the value has to
+    leave with the message, threaded through the state payload exactly as ``requestId`` is.
+
+    **It is written unconditionally, ``None`` included.** A conditional write would hand a
+    caller's value straight through on any request where no span is open, which is the whole
+    failure the extractor's narrowing exists to close: the caller's key would then be the one
+    every verb in the run adopted. ``build_message`` spreads the payload FIRST, so whatever this
+    returns overwrites a caller's key of the same name; that ordering is the outbound half of the
+    same boundary. The route contract also refuses an undeclared body key today, so a caller
+    cannot get one this far — but a route that later declares a free-form block would end that,
+    and this would still hold.
 
     It takes no request. It used to, for shared-space's advisory top-level ``actor`` — which
     duplicated ``identity.actor``, which nothing read, and which is gone: a second place a
@@ -96,7 +109,7 @@ def _stamped_values(route: EnqueueRoute) -> dict[str, Any]:
         "archive.archive": {"mode": "archive"},
         "archive.restore": {"mode": "restore"},
     }
-    return values.get(route.id, {})
+    return {"traceparent": observability.run_traceparent(), **values.get(route.id, {})}
 
 
 def build_message(

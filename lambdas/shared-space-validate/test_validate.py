@@ -68,6 +68,8 @@ def _seed_reg(s3, name="sales", owner="alice", members=("alice", "bob")):
 def test_validate_create_emits_context_with_the_blocks_actor():
     install()
     ctx = v.handler(_event("create", "sales", actor="alice"), None)
+    # Minted per invocation; popped so the rest stays an exact equality.
+    assert ctx.pop("traceparent").startswith("00-")
     assert ctx == {
         "action": "create",
         "actor": "alice",

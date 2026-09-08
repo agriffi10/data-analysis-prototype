@@ -231,6 +231,7 @@ def _validate_and_authorize(event) -> dict:
         raise
 
     validated = {
+        "traceparent": observability.run_traceparent(),
         "actor": actor,
         "source": source,
         "tableName": table_name,

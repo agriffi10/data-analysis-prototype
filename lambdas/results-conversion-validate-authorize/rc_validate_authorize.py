@@ -50,6 +50,7 @@ _ALLOWED_FIELDS = frozenset(
         "onConflict",
         "submittedAt",
         "identity",
+        "traceparent",
     }
 )
 _UUID_RE = re.compile(
@@ -280,6 +281,7 @@ def _validate_and_authorize(event) -> dict:
         notify.emit_failure(notified, err, "validate")
         raise
     validated = {
+        "traceparent": observability.run_traceparent(),
         "requestId": req["requestId"],
         "username": username,
         "format": req["format"],

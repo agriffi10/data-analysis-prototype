@@ -96,6 +96,8 @@ def test_a_personal_request_is_validated_into_exactly_the_contracted_keys():
     sent, athena = _setup()
     validated = v.handler(_event(), None)
     assert sent == []
+    # Minted per invocation; popped so the rest stays an exact equality.
+    assert validated.pop("traceparent").startswith("00-")
     assert validated == {
         "requestId": "req-1",
         "username": "alice",

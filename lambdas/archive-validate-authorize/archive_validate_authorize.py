@@ -63,7 +63,9 @@ logger.setLevel(logging.INFO)
 observability.init(service="archive")
 
 _ALLOWED_FIELDS = {
-    "archive": frozenset({"requestId", "mode", "actor", "source", "identity"}),
+    "archive": frozenset(
+        {"requestId", "mode", "actor", "source", "identity", "traceparent"}
+    ),
     "restore": restore.ALLOWED_FIELDS,
 }
 
@@ -330,6 +332,7 @@ def _validate_and_authorize(event) -> dict:
         raise
 
     validated = {
+        "traceparent": observability.run_traceparent(),
         "requestId": request_id,
         "mode": "archive",
         "actor": {"username": actor},

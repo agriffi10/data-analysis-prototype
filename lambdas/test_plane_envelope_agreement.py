@@ -496,3 +496,95 @@ def test_the_shared_space_verb_is_exempt_by_NAME_and_here_is_why():
     assert read - _OPERATOR_ONLY_FIELDS <= declared, (
         "shared-space reads something the API refuses at the door that is not the operator field"
     )
+
+
+#: Every plane's first verb, the one an EventBridge Pipe delivers to. Derived by GLOB rather than
+#: listed, so a ninth plane joins this sweep the day it is written; the count is pinned beside it
+#: because a glob that stops matching is a population that shrinks silently and every assertion
+#: over it still passes.
+#: The `test_` filter is applied in Python rather than folded into the pattern: a character
+#: class excluding `t` also excludes `table_share_validate_authorize.py`, which is a
+#: population that silently shrinks by one — caught here only because the count is pinned.
+_VALIDATOR_GLOB = "*validate*/*.py"
+
+
+def _validator_modules():
+    """Every validate-authorize module in the fleet, by glob.
+
+    Args:
+      None.
+
+    Returns:
+      A sorted list of paths.
+
+    Raises:
+      None.
+    """
+    return sorted(p for p in _ROOT.glob(_VALIDATOR_GLOB) if not p.name.startswith("test_"))
+
+
+def _mints_the_traceparent(tree) -> bool:
+    """Whether a module builds a dict whose `traceparent` is a call to `run_traceparent()`.
+
+    The VALUE is what this looks at, and the first version of this guard looked only at the key
+    name. Two mutants walked straight through that: a module keeping a dead
+    `{"traceparent": "never returned"}` literal while the real return dropped the key, and — much
+    worse — one hard-coding a constant traceparent, which is the fabricated-correlation failure
+    `observability._reset_context` exists to prevent, stamping every run of a plane into one
+    trace. Both were planted and both passed. Asking for the CALL rejects both, because neither
+    mutant can produce one.
+
+    Args:
+      tree: The parsed module.
+
+    Returns:
+      True if some dict in the module maps `traceparent` to a `run_traceparent()` call.
+
+    Raises:
+      None.
+    """
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict):
+            continue
+        for key, value in zip(node.keys, node.values, strict=True):
+            if not (isinstance(key, ast.Constant) and key.value == "traceparent"):
+                continue
+            if (
+                isinstance(value, ast.Call)
+                and isinstance(value.func, ast.Attribute)
+                and value.func.attr == "run_traceparent"
+            ):
+                return True
+    return False
+
+
+def test_every_plane_hands_its_run_a_trace_to_join():
+    """A run is one trace only if the verb that starts it puts the traceparent on the state.
+
+    The FIRST verb is the one that matters: everything downstream carries the key by threading,
+    so a plane whose validator drops it loses the whole run, and the loss is invisible — the run
+    still succeeds, it just lands in eight traces instead of one.
+
+    A source read rather than eight driven handlers: driving them needs eight bespoke request
+    fixtures and eight fake installations that do not exist in this tree, and the point here is
+    the POPULATION — that no plane is missing — rather than the value, which each plane's own
+    suite asserts against its driven handler.
+    """
+    modules = _validator_modules()
+    planes = {p.parent.name for p in modules}
+
+    assert len(planes) == 8, (
+        f"the glob found {len(planes)} planes ({sorted(planes)}); the fleet has eight, so this "
+        "sweep is either missing one or has picked up something that is not a validator"
+    )
+
+    missing = []
+    for module in modules:
+        if not _mints_the_traceparent(ast.parse(module.read_text(encoding="utf-8"))):
+            missing.append(module.parent.name)
+
+    assert not missing, (
+        f"{sorted(missing)} build no dict whose `traceparent` is `observability."
+        "run_traceparent()`, so every verb downstream of them opens its own trace and the run "
+        "cannot be followed end to end"
+    )

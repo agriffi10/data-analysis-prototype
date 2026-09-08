@@ -125,6 +125,8 @@ def test_a_valid_archive_request_resolves_its_source_and_its_destination():
     assert out["source"]["bucket"] == "user-bkt"
     assert out["source"]["root"] == "alice/"
     assert out["source"]["items"] == [{"kind": "file", "key": "alice/reports/q1.csv"}]
+    # The run's trace, which every later verb on this plane adopts.
+    assert out["traceparent"].startswith("00-")
 
 
 # ── Containment: the two rules, each with its own case (FR-005) ──────────────
@@ -183,6 +185,14 @@ def test_the_block_decides_the_actor_on_both_modes_and_the_flat_field_does_not()
     assert archived["mode"] == "archive"
     assert restored["mode"] == "restore"
     assert archived["actor"] == {"username": "alice"}
+    # Both arms, because they build their return in DIFFERENT modules: the archive arm here and
+    # the restore arm in `arcommon/restore.py`. Nothing else reaches the second — the fleet sweep
+    # globs `*validate*/` and the archive module satisfies it on the archive arm alone — so
+    # deleting the restore arm's traceparent left the whole archive suite green. FR-004 makes
+    # `Validated`, `NotifyRestoreStarted` and `NotifyRestored` read `$.traceparent`, so a restore
+    # missing it is the uncatchable States.Runtime this arc exists to prevent.
+    assert archived["traceparent"].startswith("00-")
+    assert restored["traceparent"].startswith("00-")
 
 
 def test_both_modes_refuse_a_message_with_no_identity_block():

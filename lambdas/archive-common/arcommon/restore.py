@@ -28,7 +28,7 @@ Attributes:
 import json
 import logging
 
-from cpcommon import clients, errors, events, s3_listing
+from cpcommon import clients, errors, events, observability, s3_listing
 from cpcommon.errors import TerminalError
 
 from . import manifest as _manifest
@@ -41,7 +41,9 @@ from .config import archive_bucket
 
 logger = logging.getLogger()
 
-ALLOWED_FIELDS = frozenset({"requestId", "mode", "actor", "space", "archiveId", "identity"})
+ALLOWED_FIELDS = frozenset(
+    {"requestId", "mode", "actor", "space", "archiveId", "identity", "traceparent"}
+)
 
 
 def validate(req: dict, request_id: str, actor: str) -> dict:
@@ -92,6 +94,7 @@ def validate(req: dict, request_id: str, actor: str) -> dict:
     archive_root = paths.archive_root(space["kind"], space["name"], archive_id)
 
     return {
+        "traceparent": observability.run_traceparent(),
         "requestId": request_id,
         "mode": "restore",
         "actor": {"username": actor},
