@@ -183,7 +183,9 @@ already.
 
 **One run is ONE trace on the success path, and this used to say nine.** The API mints a
 traceparent, `build_message` sends it, and `traced` adopts it before opening the span — so
-`trace_id` crosses a Lambda boundary and a verb's `parent_span_id` is the API's span. Four event
+`trace_id` crosses a Lambda boundary and a verb's ROOT span has the API's span as its parent. A
+`step` child nests under its own verb's root, inside that same trace, so SPEC-226's child spans
+deepen the tree without changing this. Four event
 shapes carry it, because a verb can be entered four ways: the state payload, the EventBridge Pipe
 envelope, a Distributed Map's `ItemBatcher.BatchInput`, and an inline Map's `request` block.
 `fields.request_id` STAYS — it is the join key for anything outside the trace, and table-share
