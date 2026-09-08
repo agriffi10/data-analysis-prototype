@@ -185,7 +185,9 @@ already.
 `log-foundry`'s trace context is per-process, so `trace_id` never crosses a Lambda boundary
 and `parent_span_id` is always null at a handler's root span. Correlate on
 `fields.request_id` instead (SPEC-128 FR-002). The fix, when it is worth the cost, is
-`lf.continue_trace(traceparent)` — shipped as of log-foundry 0.3.0 — plus threading the
+`lf.continue_trace(traceparent)` — which became ONE-SHOT in the pinned version, and must not be
+used before it: earlier releases made an adoption sticky, so a warm container's next, unrelated
+invocation silently joined the previous run's trace — plus threading the
 traceparent through the Step Functions state payload on every state, exactly as `reportKey`
 is threaded today. Deliberately sequenced after the pipe is proven live.
 

@@ -45,6 +45,7 @@ always leaves an arc entry here holding the pair's build order, even when nothin
 - [Container-lambdas arc (SPEC-212 → 213 → 214)](#container-lambdas-arc-spec-212--213--214)
 - [System-settings prefix arc (SPEC-218 → 219 → 220)](#system-settings-prefix-arc-spec-218--219--220)
 - [Results-conversion arc (SPEC-221 → 222 → 223)](#results-conversion-arc-spec-221--222--223)
+- [Observability continuation arc (SPEC-224 → 225 → 227 → 226)](#observability-continuation-arc-spec-224--225--227--226)
 
 ---
 
@@ -2919,3 +2920,82 @@ for.
 request, because there was no surface; now they need a sitting. `docs/testing/owed.md` is the single
 home for which of them are outstanding — this paragraph deliberately names no status, since a
 narrative that duplicates the ledger is the copy nobody updates.
+
+---
+
+## Observability continuation arc (SPEC-224 → 225 → 227 → 226)
+
+**Why it exists.** SPEC-127 → 137 built the pipe and instrumented the whole fleet: every Lambda in
+the repo calls `observability.init` and carries `@observability.traced`, held there by
+`test_instrumentation_coverage.py`'s repo-wide gate. What that arc left is not a gap in coverage but
+two gaps in **depth**, both recorded at the time as deliberate deferrals — and a library four minor
+versions behind.
+
+**224 is the enabler and ships first.** `log-foundry` 1.0.0 is a reliability release, and the pin
+has to move before any of the others is safe. Three of its changes land on code this repo wrote
+*around* 0.6.0's limitations. `configure(sink=…)` now swaps properly, which makes two test
+harnesses' hand-written worker retirement obsolete — and, because `log_foundry.decorator._worker` no
+longer exists, silently inert behind a `getattr` default; the same fixture's `_config` save/restore
+is worse, because 1.0.0 keeps a `_live_config` beside it and the teardown now leaves the library
+reporting one sink while delivering to another. `@trace` refuses a generator function at decoration,
+which for this fleet is a cold start that never completes — no decorated function is a generator
+today, and 226 wanted to instrument two. And `continue_trace` becomes **one-shot**, which is the
+whole reason 225 can be built: on 0.6.0 adoption is sticky, so a warm container's next invocation
+silently joins the previous run's trace, which is worse than many honest traces.
+
+**225 closes the deferral this arc's own docs named**, on the success path. "One run is nine traces,
+joined on `fields.request_id`" was a user decision on 2026-07-22 — correlation now, stitching later,
+sequenced after the pipe was proven live. It is proven live. The traceparent is minted at the API,
+threaded through the state payload as `requestId` already is, and adopted by every verb. Most
+threading is free, because a Task using `Payload.$=$` with `OutputPath=$.Payload` carries a new key
+untouched; the work is at six field-naming `Pass` states, four field-naming Task `Parameters`
+blocks, and the **six** Distributed Maps — archive has three — which reach their children through
+`ItemBatcher.BatchInput`, a mechanism no template here uses, rather than through an `ItemSelector`,
+which none of them has. It also closes two holes nobody had noticed, by different means. Nine
+Map-child verbs, every copy verb among them, have **no `request_id`** today — the three inline-Map
+children because the extractor does not read their shape, the six Distributed-Map children because
+their event contains no id at all, so only the `BatchInput` change reaches those. And the extractor's
+fallback parses a bare dict's `body`, which for an API Gateway request is **the caller's HTTP body**:
+a caller can name the API span's correlation key. That is latent rather than live on `main` — the
+router overwrites it with the gateway's id before any record is stored, verified by execution — but
+nothing overwrites an adopted *trace*, so a four-shape extractor would have turned it into a real
+trace-poisoning vector at the front door. Found by a reviewer who built the spec and demonstrated it.
+Narrowing the body branch to the SQS list closes both.
+
+**227 takes the failure path, and it is separate for a measured reason.** The obvious edit — add the
+key to each plane's `RecordFailure` and its seeds — was planted by a reviewer on archive and the
+whole suite stayed green, while six archive failure paths would have hit an absent `$.traceparent`
+in a `Pass`: a `States.Runtime` error that is neither retriable nor catchable, killing the execution
+*before* `NotifyFailure`, so a user whose archive failed would hear nothing. The guard that should
+have caught it identifies a seed structurally and cannot see eight of the fleet's seed states. So
+the guard is widened before anything is threaded through it. 227 also writes the ASL↔verb
+cross-check that **five of the eight planes do not have** — and that the archive machine claims in
+its own comments that it does, citing a test that was never written.
+
+**226 gives the seven flat planes child spans, and it is the spec whose premise a reviewer
+destroyed.** Its first draft claimed the shared `cpcommon` layer bought all seven at once. Built,
+that turned out false: **five of its eight named shared functions are called inside loops** —
+`emit_notification` per recipient, `registry.load` per recipient, `cas_mutate` per member,
+`lock.acquire`/`release` per target — so stepping them is exactly the per-item instrumentation the
+spec forbids. What survives shared is the transfer trio, reaching four planes; shared-space,
+results-conversion and table-builder get their spans at the bounded call site in their own code.
+Smaller shared win, larger per-plane one, and the draft that promised the cheap version would have
+had a builder ship five per-item steps. Its prohibitions are mechanical rather than stylistic: a
+step inside `copy_batch`'s worker pool emits no child span at all, because baggage and the span
+stack are `contextvars` that do not cross into pool threads — measured at five spans, all with a
+null parent, six trace ids and empty fields. And decorating a helper that already narrates changes
+*when its existing events are delivered*, which broke thirteen tests when a reviewer did it.
+
+**Build order 224 → 225 → 227 → 226.** 225 needs 224's one-shot adoption and its `reset_context()`;
+227 needs 225's mechanism; 226 needs 224 only for the pin, and is last so its new child spans are
+not competing with the one-trace guards for the same capturing-sink fixtures.
+
+**Three defects in `main` were found while authoring.** Two are fixed inside the arc: the archive
+machine's `Validated` and `ArchiveComplete` comments cite a cross-check test that does not exist,
+and the failure-seed guard cannot see eight of the states it exists to police — both 227. The third
+turned out to belong elsewhere. A sweep for the first found the class — **23 citations in live
+source and 21 in current-tier docs name tests that do not exist** — and then found its cause:
+`a41bda69` (#540) deleted 53 test files and left every citation to them standing, so this is one
+sweep's collateral damage rather than scattered rot, and the guards are largely recoverable from
+`a41bda69^`. A separate arc pays that down and **owns the citation gate**, because the gate is what
+verifies its own paydown; 227 keeps only the two archive comments, which are its own subject.

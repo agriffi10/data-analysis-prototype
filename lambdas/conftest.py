@@ -59,9 +59,9 @@ import pytest
 # run. `test_conftest_restores_flat_shared_modules.py` is the control that says it collects.
 #
 # `log_foundry` is deliberately absent: it is a vendored library, not one of this repo's
-# layers, and its process-wide worker/config already has purpose-built save-and-restore in
-# the `captured_events` fixture below. Two mechanisms restoring the same globals in an order
-# nobody chose is how a quiet teardown bug starts.
+# layers, and the `captured_events` fixture below re-points it through the library's own
+# public `configure()` rather than by restoring globals. Two mechanisms restoring the same
+# globals in an order nobody chose is how a quiet teardown bug starts.
 # `apicommon` is not a layer — it ships inside the API function's own package — but it is a
 # shared module set that tests patch, which is the only property this fixture cares about.
 # Left out, a test that patches apicommon.config leaks into the next one, which is the exact
@@ -211,27 +211,41 @@ def captured_events():
     it, and four more control planes need it — nine copies of a sink
     harness is how three of them end up subtly different.
 
-    Retiring the worker is the part that is easy to miss: log-foundry builds it lazily from
-    whatever sink was configured at the first flush and caches it for the process, so
-    reconfiguring alone would send every event to the sink a previous test installed.
+    `configure()` is the whole mechanism, and that is a change: it used to be insufficient.
+    log-foundry built its worker lazily from whichever sink was configured at the first flush
+    and cached it for the process, so reconfiguring alone left delivery pointed at the sink a
+    previous test had installed — measured. The library now drains, closes the old sink and
+    re-points delivery, so the hand-written worker retirement this fixture used to do is gone.
+    It could not have stayed in any case: the private name it reached for no longer exists,
+    and it had degraded to a silent no-op behind a `getattr` default.
+
+    Nothing here saves and restores `config._config` either. That reach is worse than
+    redundant now: the library keeps a live sink beside the stored config, so assigning the
+    old config back leaves it REPORTING one sink while DELIVERING to another. The teardown
+    swap below is what actually re-points delivery. One consequence is stated rather than
+    discovered: with no restore, the service/version/env this fixture stamps stay configured
+    for the rest of the session. Nothing asserts the stamped service today and no `init()` call
+    site passes `defaults`, so it is a standing condition rather than a defect — but a test
+    that starts asserting on them must configure its own.
+
+    Args:
+      None.
+
+    Yields:
+      The capturing sink for one test.
+
+    Raises:
+      None.
     """
     import log_foundry as lf
-    from log_foundry import config as lf_config
-    from log_foundry import decorator as lf_decorator
 
     def _swap(sink):
-        worker = getattr(lf_decorator, "_worker", None)
-        if worker is not None:
-            worker.shutdown()
-            lf_decorator._worker = None
         lf.configure(service="test", version="0", env="test", sink=sink)
 
-    saved = lf_config._config
     sink = _CapturingSink()
     _swap(sink)
     yield sink
     _swap(_CapturingSink())  # quiet, and never the previous test's collector
-    lf_config._config = saved
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -239,13 +253,27 @@ def _drain_log_foundry_before_capture_closes():
     """Retire log-foundry's worker while pytest's captured streams are still open.
 
     `cpcommon.observability.init()` runs at module import in every instrumented handler
-    and log-foundry registers its terminal `shutdown()` via `atexit`. At
-    interpreter exit pytest has already closed the stream StdoutSink holds, so that atexit
-    call raises `ValueError: I/O operation on closed file` and prints a traceback AFTER a
-    green run — noise that would happily hide a real teardown error.
+    and log-foundry registers its terminal `shutdown()` via `atexit`. At interpreter exit
+    pytest has already closed the stream StdoutSink holds, so that atexit call fails.
 
-    Draining here gets there first. `shutdown()` is once-only by design,
-    so the later atexit call becomes a no-op rather than a second drain.
+    WHAT IT FAILS WITH CHANGED WITH THE PIN, and the fixture is kept for a smaller reason than
+    the one it used to give. On the version this was written against, the failure printed a
+    full traceback after a green run — noise that would happily hide a real teardown error.
+    The pinned version absorbs it into a single line naming the exception type, which hides
+    nothing. Draining here still gets there first and keeps the run silent; it is now tidiness
+    rather than a guard against a masked failure.
+
+    `shutdown()` is once-only by design, so the later atexit call becomes a no-op rather than
+    a second drain.
+
+    Args:
+      None.
+
+    Yields:
+      None. Everything happens after the session.
+
+    Raises:
+      None.
     """
     yield
     try:

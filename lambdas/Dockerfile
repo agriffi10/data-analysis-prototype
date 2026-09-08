@@ -55,7 +55,7 @@ COPY lambdas/results-conversion-convert/requirements.txt /tmp/requirements/resul
 
 # EVERY REQUIREMENT MUST CARRY A VERSION CONSTRAINT, and the build refuses one that does not.
 # Not "must be pinned exactly": PyJWT[crypto]>=2.8,<3 is a deliberate range while log-foundry
-# ==0.6.0 is exact, and demanding exactness here would be a dependency-policy change smuggled into
+# ==1.0.0 is exact, and demanding exactness here would be a dependency-policy change smuggled into
 # a packaging one. The check runs in Python because this image has no `find` and no `xargs` — the
 # obvious shell version of it exits 127.
 #

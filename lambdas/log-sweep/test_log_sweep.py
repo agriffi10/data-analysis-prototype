@@ -182,18 +182,23 @@ class NullSink:
 
 
 def _install_sink(sink):
-    """Swap the process sink AND retire the worker built from the previous one.
+    """Swap the process sink.
 
-    The worker is created lazily from whatever sink was configured at the first flush and then
-    cached for the process, so reconfiguring alone would leave every later event going to the
-    sink this test replaced.
+    `configure()` is sufficient on its own: the library drains, closes the previous sink and
+    re-points delivery. It was not always — a worker built lazily at the first flush used to
+    be cached for the process, so this function also retired it by hand. That retirement is
+    gone, and could not have stayed: the private name it reached for no longer exists, so it
+    had become a silent no-op.
+
+    Args:
+      sink: The sink to deliver into for the rest of this test.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
     """
-    from log_foundry import decorator as lf_decorator
-
-    worker = getattr(lf_decorator, "_worker", None)
-    if worker is not None:
-        worker.shutdown()
-        lf_decorator._worker = None
     lf.configure(service="observability", version="0", env="test", sink=sink)
 
 
