@@ -2972,14 +2972,19 @@ the guard is widened before anything is threaded through it. 227 also writes the
 cross-check that **five of the eight planes do not have** — and that the archive machine claims in
 its own comments that it does, citing a test that was never written.
 
-**226 gives the seven flat planes child spans.** Most of it comes from the shared `cpcommon`
-modules all seven route durable work through, which buys the depth without touching seventy-odd
-verbs. But the shared layer alone leaves `results-conversion-convert` — the Excel writer, where the
-time actually goes — with zero child spans on a successful personal-space conversion, and five of
-table-builder's eleven verbs in the same position, so those are instrumented directly. Its
-prohibitions are mechanical rather than stylistic: a step inside `copy_batch`'s worker pool does not
-emit a child span at all, because baggage and the span stack are `contextvars` that do not cross
-into pool threads — it emits N unattributable root spans that a child-span count cannot see.
+**226 gives the seven flat planes child spans, and it is the spec whose premise a reviewer
+destroyed.** Its first draft claimed the shared `cpcommon` layer bought all seven at once. Built,
+that turned out false: **five of its eight named shared functions are called inside loops** —
+`emit_notification` per recipient, `registry.load` per recipient, `cas_mutate` per member,
+`lock.acquire`/`release` per target — so stepping them is exactly the per-item instrumentation the
+spec forbids. What survives shared is the transfer trio, reaching four planes; shared-space,
+results-conversion and table-builder get their spans at the bounded call site in their own code.
+Smaller shared win, larger per-plane one, and the draft that promised the cheap version would have
+had a builder ship five per-item steps. Its prohibitions are mechanical rather than stylistic: a
+step inside `copy_batch`'s worker pool emits no child span at all, because baggage and the span
+stack are `contextvars` that do not cross into pool threads — measured at five spans, all with a
+null parent, six trace ids and empty fields. And decorating a helper that already narrates changes
+*when its existing events are delivered*, which broke thirteen tests when a reviewer did it.
 
 **Build order 224 → 225 → 227 → 226.** 225 needs 224's one-shot adoption and its `reset_context()`;
 227 needs 225's mechanism; 226 needs 224 only for the pin, and is last so its new child spans are

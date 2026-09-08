@@ -51,8 +51,9 @@ cross-check at all**, and the archive machine says in its own comments that it d
   code") deleted **53 test files** — `lambdas/archive-common/test_config_arcommon.py` among them,
   which held six of `arcommon/config.py`'s seven cited guards and *is* the seventh — and left every
   citation standing. It is one sweep's
-  collateral damage, not scattered rot, and the guards are largely **recoverable**: ten cited names
-  spot-checked at `a41bda69^` were all present.
+  collateral damage, not scattered rot, and every cited guard is **recoverable** from `a41bda69^` — all 21, confirmed
+  by the arc that owns the paydown after it recovered and ran the deleted files against the current
+  tree.
 
   A separate arc is paying this down, and the **citation gate belongs to that arc, not this one** —
   the gate is what verifies its own paydown is complete, and building it there lets each paydown PR
@@ -81,14 +82,39 @@ The eight it cannot see: archive's `RollbackReturnedSeed`, `NothingToArchiveSeed
 `RestoreIncompleteReturnedSeed`, `RestoreTimedOutSeed`, `NothingToRestoreSeed` and
 `UnknownModeSeed`; file-ops' `GiveUpFailureSeed`; results-conversion's `ConvertRefusedSeed`.
 
-Recognition moves from the shape of a state's `error` field to its **position in the graph**: any
-state whose forward walk reaches a failure terminal is a seed, whatever it looks like. That is the
-property the guard is named for, and it cannot go stale as a plane adds a seed of a new shape.
+Recognition gains a second test based on a state's **position in the graph**, and the exact
+predicate matters — three plausible readings were built and two are wrong:
+
+- *"can reach a failure terminal"* is **unsatisfiable**: every Task with a `Catch` can, so it
+  selects almost everything. Measured at **349 violations** across the eight templates.
+- The predicate that works is *"**every** reachable terminal is a `Fail`"*, with a terminal
+  identified structurally as a `Fail` state rather than by a name like `*NotifyFailure*` — a name
+  test is what this FR is moving away from.
+- A selected state must also have **no `ResultPath`**. A merging `Pass` does not replace the state,
+  so "the seed supplies everything downstream reads" is false for it; without this discriminator
+  four states are selected and produce **seven findings that are not defects**.
+
+**The graph test is added to the structural one, not substituted for it.** Measured: the graph half
+alone **loses three seeds** — `file-send/GuardRecipients/RecipientFaulted`,
+`table-share/GuardRecipients/RecipientRefused`, `table-share/FinishRecipients/RecipientFailed` —
+because they live in `ItemProcessor` containers that hold no `Fail` state at all, a branch failure
+propagating to the parent Map's `Catch`, which is not a walkable state. Obeying "recognition moves
+to the graph" literally trades eight gained seeds for three lost ones.
+
+**A latent bug in the existing guard has to be fixed for any of this to mean anything.** It
+flattens nested states to qualified keys (`GuardRecipients/RecipientFaulted`) while `Next` names
+siblings unqualified, so **every nested walk dead-ends on its first hop and asserts nothing today**.
+The walk runs per container.
 
 #### Acceptance Criteria:
 
 - [ ] The guard recognises all eight states above, plus the three it already recognises on archive,
-      derived by walking each template's graph rather than from a list in the test.
+      **and the three nested ones the graph half alone would lose**, by taking the union of the two
+      recognitions rather than replacing one with the other.
+- [ ] The nested walk runs per container and is asserted to traverse more than one hop, so the
+      dead-ending bug cannot return unnoticed.
+- [ ] Violations are collected and asserted once, so a red run names every seed missing the key
+      rather than the first.
 - [ ] The guard carries a positive control asserting it found seeds on every plane that has one, so
       a recognition change that quietly matches nothing cannot pass.
 - [ ] **Mutation-tested with the plant that exposed this**: add a key to archive's `RecordFailure`
@@ -141,10 +167,25 @@ one overlaps it is how coverage is lost quietly.
 
 #### Acceptance Criteria:
 
-- [ ] One sweep covers all eight planes, deriving the plane list by globbing the templates so a
-      ninth is included automatically, with a positive control that it found a state on each.
+- [ ] The sweep covers every plane that **has** a Task-to-replacing-`Pass` pair, deriving the list
+      by globbing rather than naming planes. **shared-spaces and table-share have none** —
+      `Validate → Route` is a Choice and `ValidateAuthorize → InspectSource` is Task-to-Task — so the
+      sweep must report them as "nothing to check" explicitly rather than passing silently over two
+      planes, which is how a population claim rots.
+- [ ] Set equality is asserted only where it is meaningful. `file-ops/ReleaseLockOnFailure` has
+      `ResultPath: null` (the result is discarded, so the next `Pass` reads the incoming state) and
+      `table-builder/ReleaseRefreshLock` nests its return under `$.released`; equality against the
+      verb's return is meaningless for both, and they are excluded by rule with the rule asserted.
+- [ ] The "producing verb" is derived from the graph, not assumed to be the validator: file-ops' and
+      table-builder's field-naming states are produced by *release-lock*, data-quality's by
+      *drop-temp-tables*.
 - [ ] It asserts set equality between each field-naming state's reads and its producing verb's real
-      return value, driving the verb rather than reading its source.
+      return value, driving the verb rather than reading its source. **Driving all eight validators
+      to a success return needs eight bespoke request fixtures and eight fake installations that do
+      not exist** — `shared-space-common/fakes.py` is the only shared one in the tree and is
+      plane-specific; driven with a generic envelope every validator refuses with a domain terminal
+      before touching AWS. Building those fixtures is part of this FR, and if a plane's cannot be
+      built its exclusion is recorded rather than left as a silently skipped case.
 - [ ] Mutation-tested per plane in both directions: renaming a key in a verb's return must fail, and
       removing a key from a state's `Parameters` must fail, each naming the plane and the key.
 - [ ] shared-spaces' conditionally-shaped validator return is handled explicitly — its optional keys
