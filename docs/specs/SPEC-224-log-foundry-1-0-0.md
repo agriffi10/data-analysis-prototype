@@ -199,8 +199,8 @@ collector satisfies every absence assertion written over it.
 
 #### Description:
 
-Three claims in this repo were true of 0.6.0 and are not true of 1.0.0, and one is true of both but
-is written version-anchored to 0.6.0. Each is stated at more than one site, and a fix at one site
+Four claims in this repo are wrong today. Two were true of 0.6.0 and are not true of 1.0.0; one is
+true of both versions but is written version-anchored to 0.6.0; and one was never true. Each is stated at more than one site, and a fix at one site
 leaves the others reading as settled fact.
 
 1. **`_emit`'s orphan-path rationale.** Its docstring says swallowing matters most on the orphan
@@ -226,7 +226,17 @@ leaves the others reading as settled fact.
    future fix must not leave a reader to discover that the version it names would have made the fix
    wrong.
 
-3. **"`log-foundry` 0.6.0 exposes no way to turn stack capture off."** Re-verified against 1.0.0's
+3. **`observability.py`'s own one-door claim.** Its module docstring says *"Nothing outside this
+   module imports `log_foundry`, so the field rule has one door rather than thirty-four."* Two test
+   modules do — `lambdas/conftest.py` and `lambdas/log-sweep/test_log_sweep.py` — and FR-003 keeps
+   both importing it, deliberately, because a harness that swaps the process sink has to call
+   `configure`. The rule the sentence is defending is about **verbs**, not tests, so the fix is to
+   scope the sentence rather than to change any code. It is in this spec because it is the same
+   class as the claims above, in the file this spec already rewrites, and because a false absence
+   claim in the one module every control-plane verb resolves is the worst place in the fleet to
+   leave one.
+
+4. **"`log-foundry` 0.6.0 exposes no way to turn stack capture off."** Re-verified against 1.0.0's
    `Config` during authoring and **still true**, so the decision stands; the version it names does
    not. Each site already says "if a later `log-foundry` offers an opt-out, this is revisited",
    which is an instruction that goes stale silently unless the version moves with the check.
@@ -246,7 +256,7 @@ and delivery docs under `docs/specs/` and `docs/spec-delivery/` are history and 
 
 #### Acceptance Criteria:
 
-- [ ] Each of the three claims is corrected at every live site listed above.
+- [ ] Each of the four claims is corrected at every live site listed above.
 - [ ] `_emit`'s corrected docstring names the in-`_emit` `TypeError` as the reason the guard stays,
       and does not attribute it to `KeyboardInterrupt`/`SystemExit`.
 - [ ] A repo-wide search for a `log-foundry` version below 1.0.0, excluding `docs/specs/` and
@@ -370,6 +380,6 @@ rewrite must not present it as though it were.
 
 ### Phase 3: The claims
 
-- Correct the three claims at the eight enumerated live sites.
+- Correct the four claims at the enumerated live sites, plus the module's one-door sentence.
 - Add the `max_stack_bytes`-is-the-only-control test, so the claim maintains itself.
 - `validate_docs.py` green; formatter, both linters, both suites, mypy and `npm run build` green.
