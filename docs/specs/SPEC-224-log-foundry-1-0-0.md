@@ -86,10 +86,17 @@ constraint check demands *a* constraint rather than an exact pin. That example m
       `log-foundry` constraint.
 - [ ] The comment states why the pin is exact and why it is the core package, and names no version
       floor below 1.0.0.
-- [ ] The rewritten comment still states the 32 KB tail-preserving `error.stack` clip, the
-      `SQSSink`-alone disposition against `MultiSink`, and the no-non-JSON-sink disposition against
-      the datetime change. Checked by diffing the removed lines against those three claims, not by
-      reading the new text.
+- [ ] The rewritten comment still states **five** live facts the block is the sole home of: the
+      32 KB tail-preserving `error.stack` clip; the `SQSSink`-alone disposition against `MultiSink`;
+      the no-non-JSON-sink disposition against the datetime change; that a `stamp`/`info` outside a
+      span **emits synchronously on the caller's thread** (whose only other statement in the repo is
+      the `_emit` docstring sentence FR-004 replaces, so after this PR it would exist nowhere); and
+      that an event is safe by construction, every value coerced and size-bounded once at assembly.
+      The last two read as version floors and are not — they are why a call site may put an
+      arbitrary object in a field.
+- [ ] The check is a diff of the removed lines against those five claims, made to **fail first**:
+      run it against a rewrite that drops one and confirm it objects. A checklist read against the
+      new text passes by construction.
 - [ ] `lambdas/Dockerfile`'s constraint-check comment names `==1.0.0`.
 - [ ] `pytest lambdas/` is green by exit code against 1.0.0 on Python 3.12 — the fleet's runtime,
       not the ambient interpreter — and `mypy` is green, which is not implied by it:
@@ -214,10 +221,17 @@ leaves the others reading as settled fact.
    `KeyboardInterrupt`/`SystemExit` propagate, which would be wrong twice over, since `except
    Exception` does not catch them either. It stays because a failure raised *inside `_emit` itself*
    never reaches the library's absorb at all: `_emit` splats the caller's fields into
-   `level_fn(message, echo=False, **fields)`, so a field colliding with a reserved keyword raises
+   `level_fn(message, echo=False, **fields)`, so a caller-supplied `echo` that survived the drop
+   would collide with the keyword `_emit` passes and raise
    `TypeError: log_foundry.api.info() got multiple values for keyword argument 'echo'` at the call
-   boundary. Measured on **both** versions. That is the live failure the guard catches, and it is
-   the one FR-005 widens.
+   boundary.
+
+   **Which drop raises was measured, and it is not the one this spec adds.** Removing the existing
+   `echo` drop raises that `TypeError`; removing the `fields` drop raises **nothing at all** — the
+   call returns and the event lands silently reinterpreted. Both on 0.6.0 and 1.0.0. So the two
+   drops do different jobs and the docstring must not conflate them: `echo`'s prevents an exception
+   reaching business logic, `fields`' prevents a silent misfiling. FR-005's criterion is written
+   against the second, which is why it asserts an effect rather than the absence of a raise.
 
 2. **The stitching note in `lambdas/info/shared-layer.md`** says `lf.continue_trace(traceparent)`
    is "shipped as of log-foundry 0.3.0". It was, and on 0.6.0 it is **sticky** — measured: one call
@@ -318,10 +332,15 @@ such a test passes with the guard deleted and proves nothing about this code.
       fields — mirroring the existing `echo` handling.
 - [ ] A test asserts the drop **and** that the surviving fields still land, so a guard that dropped
       everything would fail.
-- [ ] A test asserts that `observability.info("m", fields=…, echo=…)` — the collision that raises
-      `TypeError` inside `_emit` on both versions — does not propagate and the caller continues.
-      Mutation-tested by removing the drop: the test must fail, which is what makes it a test of
-      this repo's guard rather than of the library's.
+- [ ] A test asserts the **effect** of the `fields` drop, not the absence of a raise: given
+      `observability.info("m", fields={"a": 1}, sibling="kept")`, the emitted event carries
+      `sibling` and **not** `a`, and a warning naming the message was logged. Removing the drop must
+      fail it. "The call returned" is true under every mutation — `_emit` swallows unconditionally —
+      so a criterion phrased that way cannot fail and must not be written.
+- [ ] A separate test covers the `echo` collision, which is a different failure: with the `echo`
+      drop removed, `_emit` catches a `TypeError` and the verb continues. This one asserts the guard
+      that already exists rather than the one this spec adds, and it is what stops a future tidy-up
+      from merging the two drops into one.
 - [ ] The existing `test_ACCEPTED_the_span_error_stack_may_carry_file_contents` tripwire still
       passes against 1.0.0.
 
