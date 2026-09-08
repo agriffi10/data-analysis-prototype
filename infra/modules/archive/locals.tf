@@ -35,8 +35,10 @@ locals {
     # One registry read at most — network-bound and small.
     "validate-authorize" = { handler = "archive_validate_authorize.handler", timeout = 15, memory = 256 }
     # Sized by holding the whole copy plan in memory, NOT by the listing.
-    # test_the_worst_case_copy_plan_fits_in_the_verbs_memory READS THIS NUMBER, so raising
-    # ARCHIVE_MAX_OBJECTS without raising it fails the build. README.md.
+    # test_the_worst_case_archive_copy_plan_fits_in_the_verbs_memory READS THIS NUMBER and sizes
+    # the worst-case plan against it, so LOWERING it fails the build. It does not bound a raise of
+    # ARCHIVE_MAX_OBJECTS — the plan sits 5x inside this figure — and what refuses one is the
+    # restore arm's timeout guards, from about 24,000 objects up. README.md.
     "inspect-source" = { handler = "archive_inspect_source.handler", timeout = 120, memory = 1024 }
     # The two verbs either side of the Map, handling the same volume in opposite directions.
     # Memory is the CPU dial as much as the headroom, and BOTH ROWS ARE READ BACK by

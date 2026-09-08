@@ -135,9 +135,12 @@ two restores **of one archive** serialize while restores of different archives i
 proceed in parallel. Without it **a double-submitted restore can pass the destination guard twice
 before either copy lands** — the guard is a read, and two of them see the same empty destinations.
 
-> ⚠ **Nothing enforces the restore's group id yet.** The producer is the browser, and nothing
-> server-side could enforce a rule about a message nothing in it sends. `docs/testing/owed.md` §2.2
-> types it so the live check exercises it.
+> The restore's group id is derived server-side, by the API, since the queue moved behind it,
+> so the property the browser used to be trusted with is held where it is now computed.
+> `test_archive_restore_keys_on_the_archive_root_and_carries_no_bucket` pins that the id does
+> not move when the space bucket changes, and `test_every_captured_vector_replays_byte_for_byte`
+> replays two captured `archive.restore` vectors byte for byte, which is what holds the id
+> itself — no bucket appears in either.
 
 `content_based_deduplication` is **off**: the producer sends an explicit
 `MessageDeduplicationId = requestId`, **and that id is also the archive's permanent identity**, which
@@ -164,9 +167,11 @@ above the tier's own 5, because giving up early makes the user pay for a second 
 the poll's own work, the copy-back at the same makespan rate, both Maps' per-child overhead and the
 serial verbs — ~35,500 s in total.
 
-**`test_the_whole_run_fits_the_machines_ceiling` and `test_the_whole_restore_fits_the_machines_ceiling`
-compute every term from these locals**, so a cap or a verb timeout raised without re-deriving it fails
-the build.
+**`test_the_whole_archive_run_fits_the_machines_ceiling` and
+`test_the_whole_restore_fits_the_machines_ceiling` sum every term of their arm, and read the
+ceiling and the serial verb timeouts out of these locals** — the copy term comes from the Python
+caps instead. Both carry several times' headroom, so RE-DERIVE them when raising a cap rather
+than expecting the build to refuse: no verb-timeout raise Lambda would accept reaches either.
 
 **It is one field on one machine, so the archive arm's backstop rises with it** — a wedged archive is
 now reported after twelve hours rather than three. That is the accepted cost of the two arms sharing a
@@ -183,7 +188,9 @@ red for exactly that ordering.
 ## Verb sizing, and the numbers a test reads back
 
 - **`inspect-source`** and **`inspect-archive`** are sized by holding the whole plan in memory, not by
-  the listing. `test_the_worst_case_copy_plan_fits_in_the_verbs_memory` **reads these numbers**.
+  the listing. `test_the_worst_case_archive_copy_plan_fits_in_the_verbs_memory` reads
+  `inspect-source` (and `delete-source`); `inspect-archive` is read back by
+  `test_the_restore_plan_fits_in_the_lookup_verbs_memory`.
 - **`build-transfer-manifest` / `collect-transfer-results`** (and their restore twins) handle the same
   volume in opposite directions; memory is the CPU dial as much as the headroom. Both rows are read
   back by `test_the_worst_case_manifest_fits_in_the_verbs_either_side_of_the_map` — **a test that

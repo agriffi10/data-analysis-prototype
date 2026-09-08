@@ -314,7 +314,7 @@ class Citations(typing.NamedTuple):
 
     sites: list[tuple[int, str, bool]]
     grammars: list[str]
-TEST_CITATION_MAX = 45
+TEST_CITATION_MAX = 24
 
 
 class DocsError(Exception):
