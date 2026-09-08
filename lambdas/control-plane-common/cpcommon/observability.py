@@ -42,12 +42,12 @@ reach ``config`` for nothing. So ``LOGS_QUEUE_URL`` is read with ``os.environ.ge
 ``NOTIFICATIONS_QUEUE_URL`` as an explicitly optional variable.
 
 Attributes:
-  PROHIBITED_FIELDS: Field names a call site may not use, because each collides with a
-    parameter ``_emit`` passes to the library. ``echo`` collides with the keyword this module
-    always sets, so an un-dropped one raises ``TypeError`` into business logic; ``fields`` is
-    the library's own escape hatch, so an un-dropped one is silently REINTERPRETED — the event
-    lands carrying the mapping's contents instead of a field called ``fields``. The two are
-    dropped for different reasons and warn differently.
+  PROHIBITED_FIELDS: Field names a call site may not use, mapped to the reason each is
+    refused — ``_emit`` reads this mapping, so adding a name here is sufficient to prohibit it.
+    They are refused for DIFFERENT reasons: ``echo`` collides with the keyword this module
+    always passes to the library, so an un-dropped one raises ``TypeError``; ``fields`` is the
+    library's own parameter, so an un-dropped one raises nothing and is silently REINTERPRETED,
+    the event landing with the mapping's contents in place of a field of that name.
   LOGS_QUEUE_URL: Optional and never required, for the cold-start reason above. Unset means
     stdout, not a crash.
   UNSTAMPED_VERSION: What ``version`` reads when no build stamp can be found at all. It is a
@@ -67,7 +67,16 @@ from cpcommon import clients
 
 logger = logging.getLogger(__name__)
 
-PROHIBITED_FIELDS = ("echo", "fields")
+PROHIBITED_FIELDS = {
+    "echo": (
+        "the narrative goes to the logs queue, never the console — and left in place this one "
+        "collides with the keyword `_emit` always passes, raising TypeError"
+    ),
+    "fields": (
+        "`fields` is the library's own parameter: a mapping passed under that name is unpacked "
+        "over the event instead of landing as a field, so nothing raises and the field vanishes"
+    ),
+}
 
 LOGS_QUEUE_URL = os.environ.get("LOGS_QUEUE_URL", "")
 
@@ -469,21 +478,15 @@ def _emit(level_fn, message: str, fields: dict[str, object]) -> None:
       None. Logging must never be the reason a verb fails.
     """
     try:
-        if "echo" in fields:
-            del fields["echo"]
-            logger.warning(
-                "structured logging: `echo` is prohibited and was dropped from %r — the "
-                "narrative goes to the logs queue, never the console",
-                message,
-            )
-        if "fields" in fields:
-            del fields["fields"]
-            logger.warning(
-                "structured logging: `fields` is reserved by the library and was dropped from "
-                "%r — a mapping passed under that name is unpacked over the event instead of "
-                "landing as a field, so use a different name",
-                message,
-            )
+        for name, reason in PROHIBITED_FIELDS.items():
+            if name in fields:
+                del fields[name]
+                logger.warning(
+                    "structured logging: `%s` is prohibited and was dropped from %r — %s",
+                    name,
+                    message,
+                    reason,
+                )
         level_fn(message, echo=False, **fields)
     except Exception as exc:  # noqa: BLE001
         logger.warning(

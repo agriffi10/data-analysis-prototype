@@ -38,7 +38,8 @@ PyJWT[crypto]>=2.8,<3
 # Requires-Dist is behind an extra, re-confirmed on this pin.
 #
 # WHAT THE VERSION BUYS, as opposed to what it fixed on the way here. The floors that justified
-# 0.2.0 → 0.6.0 are gone, because a 1.0.0 pin clears all of them; what is kept below is the set of
+# Every floor that justified an earlier pin is gone, because this one clears all of them; what is
+# kept below is the set of
 # facts that are TRUE OF THE RUNNING LIBRARY and are recorded in no other live file. Deleting one
 # of these deletes it from the repo.
 #
@@ -51,16 +52,20 @@ PyJWT[crypto]>=2.8,<3
 # 3. An event is safe by construction — every value is coerced and size-bounded once at assembly,
 #    so a field whose JSON cannot serialize no longer raises. That is what lets a call site put an
 #    arbitrary object in a field.
-# 4. A `stamp`/`info` OUTSIDE a span emits SYNCHRONOUSLY on the caller's thread, where one inside a
+# 4. `span.end` carries `duration_ms` and `status`, and baggage is backfilled onto BOTH boundary
+#    events at close. That pair is why stamping a correlation key as baggage is worth doing: a
+#    filter on `fields.request_id` returns the span's narration AND the span.end carrying the
+#    duration and outcome — the record actually worth finding — rather than the narration alone.
+# 5. A `stamp`/`info` OUTSIDE a span emits SYNCHRONOUSLY on the caller's thread, where one inside a
 #    span is buffered until the worker flushes. This is why the orphan path is the one that used to
 #    raise into the verb, and it is why decorating a helper that already narrates changes when its
 #    existing events are delivered.
-# 5. `MultiSink` re-raising when every child fails does not reach this repo: the sink here is
+# 6. `MultiSink` re-raising when every child fails does not reach this repo: the sink here is
 #    SQSSink ALONE (SPEC-127, asserted).
-# 6. The non-JSON sinks' datetime storage does not reach it either — mongo/postgres/sqlite/
+# 7. The non-JSON sinks' datetime storage does not reach it either — mongo/postgres/sqlite/
 #    clickhouse are none of them used.
 #
-# 5 and 6 are stated without a version deliberately. They were introduced before this pin, so
+# 6 and 7 are stated without a version deliberately. They were introduced before this pin, so
 # naming their release would leave a superseded version string in the one block a sweep exists to
 # clear; and attributing them to this pin would be false. The disposition holds for every version.
 log-foundry==1.0.0

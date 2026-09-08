@@ -189,6 +189,15 @@ def _install_sink(sink):
     be cached for the process, so this function also retired it by hand. That retirement is
     gone, and could not have stayed: the private name it reached for no longer exists, so it
     had become a silent no-op.
+
+    Args:
+      sink: The sink to deliver into for the rest of this test.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
     """
     lf.configure(service="observability", version="0", env="test", sink=sink)
 

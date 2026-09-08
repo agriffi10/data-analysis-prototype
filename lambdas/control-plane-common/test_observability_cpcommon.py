@@ -246,15 +246,17 @@ def test_a_field_named_echo_is_dropped_before_it_can_raise(sink):
     assert "echo" not in landed
 
 
-def test_a_broken_sink_never_reaches_the_verb():
-    """Logging must not be the reason a verb fails, on the orphan path or in a span.
+def test_an_emitter_that_raises_does_not_reach_the_verb(sink, monkeypatch):
+    """`_emit`'s guard, covered directly rather than through a raising sink.
 
-    The library absorbs a sink failure itself now, so this asserts the invariant end to end
-    rather than this module's guard specifically — the `echo` test above is what covers the
-    failure `_emit` still catches.
+    A raising SINK proves nothing about this module: the library absorbs that on both paths
+    before `_emit` is entered, so such a test passes with the guard deleted. What the guard is
+    for is a failure raised by the library call itself — a reserved-name collision today, and
+    whatever the next release makes raise. That is forced here by making the call raise.
 
     Args:
-      None.
+      sink: The capturing sink.
+      monkeypatch: Used to make the library's level function raise.
 
     Returns:
       None.
@@ -262,12 +264,57 @@ def test_a_broken_sink_never_reaches_the_verb():
     Raises:
       None.
     """
-    lf.configure(service="test", version="0", env="test", sink=_BrokenSink())
-    try:
-        observability.info("orphan against a broken sink")
-        _run({"requestId": "REQ-2"})
-    finally:
-        lf.configure(service="test", version="0", env="test", sink=_Sink())
+
+    def explode(message, **kwargs):
+        """Stands in for a library call that raises.
+
+        Args:
+          message: Ignored.
+          **kwargs: Ignored.
+
+        Returns:
+          Never returns.
+
+        Raises:
+          TypeError: Always.
+        """
+        raise TypeError("got multiple values for keyword argument 'echo'")
+
+    monkeypatch.setattr(lf, "info", explode)
+    observability.info("narrative", sibling="kept")
+
+    monkeypatch.undo()
+    observability.info("after the failure", sibling="kept")
+    observability.flush()
+
+    assert sink.fields_of("narrative") == [], "the exploding call somehow emitted"
+    assert sink.fields_of("after the failure"), "the verb did not survive to emit again"
+
+
+def test_adding_a_name_to_prohibited_fields_is_sufficient_to_prohibit_it(sink, monkeypatch):
+    """`PROHIBITED_FIELDS` drives the drop, rather than reading as though it does.
+
+    Written because the first version of this change defined the constant and hard-coded both
+    names beside it: emptying it changed nothing and extending it dropped nothing, which is the
+    same "reads load-bearing, is not" defect this spec exists to delete.
+
+    Args:
+      sink: The capturing sink.
+      monkeypatch: Used to add a third prohibited name.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    monkeypatch.setitem(observability.PROHIBITED_FIELDS, "secret", "a planted reason")
+    observability.info("narrative", secret="leaked", sibling="kept")
+    observability.flush()
+
+    landed = sink.fields_of("narrative")[0]
+    assert landed.get("sibling") == "kept"
+    assert "secret" not in landed, "the constant does not drive the drop"
 
 
 def _decorated_functions():
@@ -339,6 +386,37 @@ def test_no_traced_or_stepped_function_is_a_generator():
     assert not generators, f"these would fail at import on this pin: {generators}"
 
 
+def _log_foundry_aliases(tree):
+    """Every local name in one module that is bound to log-foundry or one of its submodules.
+
+    The alias matters because the name a reach wears is the author's choice: this repo writes
+    `import log_foundry as lf`, so `lf._lifecycle` renders with neither `log_foundry` nor a
+    recognisable prefix in it. Matching on the rendered text misses exactly the spelling the
+    repo actually uses.
+
+    Args:
+      tree: The parsed module.
+
+    Returns:
+      A set of local names bound to log-foundry.
+
+    Raises:
+      None.
+    """
+    aliases = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split(".")[0] == "log_foundry":
+                    aliases.add(alias.asname or alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == (
+            "log_foundry"
+        ):
+            for alias in node.names:
+                aliases.add(alias.asname or alias.name)
+    return aliases
+
+
 def test_no_module_reaches_into_log_foundrys_privates():
     """The reach that broke silently once, kept closed in both spellings it can wear.
 
@@ -355,10 +433,15 @@ def test_no_module_reaches_into_log_foundrys_privates():
     Raises:
       None.
     """
-    allowed = {"observability.py", "conftest.py", "test_log_sweep.py"}
+    allowed = {
+        "control-plane-common/cpcommon/observability.py",
+        "conftest.py",
+        "log-sweep/test_log_sweep.py",
+    }
     offenders = []
     for path in sorted(_LAMBDAS.rglob("*.py")):
-        if "__pycache__" in str(path) or path.name in allowed:
+        relative = str(path.relative_to(_LAMBDAS))
+        if "__pycache__" in str(path) or relative in allowed:
             continue
         source = path.read_text()
         if "log_foundry" not in source:
@@ -367,14 +450,13 @@ def test_no_module_reaches_into_log_foundrys_privates():
             tree = ast.parse(source)
         except SyntaxError:
             continue
+        bound = _log_foundry_aliases(tree)
         for node in ast.walk(tree):
             rendered = ast.unparse(node)
-            if (
-                isinstance(node, ast.Attribute)
-                and node.attr.startswith("_")
-                and ("log_foundry" in rendered or "lf_" in rendered)
-            ):
-                offenders.append(f"{path.name}:{node.lineno} {rendered}")
+            if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
+                root = rendered.split(".", 1)[0]
+                if root in bound:
+                    offenders.append(f"{relative}:{node.lineno} {rendered}")
             if isinstance(node, ast.Call) and ast.unparse(node.func) == "getattr":
                 literals = [
                     a.value
@@ -382,7 +464,7 @@ def test_no_module_reaches_into_log_foundrys_privates():
                     if isinstance(a, ast.Constant) and isinstance(a.value, str)
                 ]
                 if any(name.startswith("_") for name in literals):
-                    offenders.append(f"{path.name}:{node.lineno} {ast.unparse(node)}")
+                    offenders.append(f"{relative}:{node.lineno} {ast.unparse(node)}")
     assert not offenders, f"private log-foundry reaches outside the sanctioned files: {offenders}"
 
 
@@ -493,17 +575,19 @@ def test_the_shared_fixtures_teardown_leaves_reporting_and_delivery_agreeing():
     for _ in generator:
         break
 
-    observability.info("after the teardown")
+    _run({"requestId": "AFTER-TEARDOWN"})
     observability.flush()
 
     reported = lf.get_config().sink
     received = [s for s in (before_the_fixture,) if s.events]
     assert reported is not None, "the library reports no sink at all after the teardown"
     assert not received, (
-        "the teardown left delivery pointed at the sink configured BEFORE the fixture ran"
+        "the teardown left SPAN-path delivery pointed at the sink configured before the fixture "
+        "ran — the orphan path agrees with the report even when this is broken, so it is the "
+        "span path that has to be probed"
     )
     assert getattr(reported, "events", None) is not None and any(
-        e.get("message") == "after the teardown" for e in reported.events
+        e.get("message") == "span.end" for e in reported.events
     ), "the library reports a sink that did not receive the event it delivered"
 
 

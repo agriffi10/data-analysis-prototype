@@ -222,7 +222,20 @@ def captured_events():
     Nothing here saves and restores `config._config` either. That reach is worse than
     redundant now: the library keeps a live sink beside the stored config, so assigning the
     old config back leaves it REPORTING one sink while DELIVERING to another. The teardown
-    swap below is what actually re-points delivery.
+    swap below is what actually re-points delivery. One consequence is stated rather than
+    discovered: with no restore, the service/version/env this fixture stamps stay configured
+    for the rest of the session. Nothing asserts the stamped service today and no `init()` call
+    site passes `defaults`, so it is a standing condition rather than a defect — but a test
+    that starts asserting on them must configure its own.
+
+    Args:
+      None.
+
+    Yields:
+      The capturing sink for one test.
+
+    Raises:
+      None.
     """
     import log_foundry as lf
 
@@ -240,13 +253,27 @@ def _drain_log_foundry_before_capture_closes():
     """Retire log-foundry's worker while pytest's captured streams are still open.
 
     `cpcommon.observability.init()` runs at module import in every instrumented handler
-    and log-foundry registers its terminal `shutdown()` via `atexit`. At
-    interpreter exit pytest has already closed the stream StdoutSink holds, so that atexit
-    call raises `ValueError: I/O operation on closed file` and prints a traceback AFTER a
-    green run — noise that would happily hide a real teardown error.
+    and log-foundry registers its terminal `shutdown()` via `atexit`. At interpreter exit
+    pytest has already closed the stream StdoutSink holds, so that atexit call fails.
 
-    Draining here gets there first. `shutdown()` is once-only by design,
-    so the later atexit call becomes a no-op rather than a second drain.
+    WHAT IT FAILS WITH CHANGED WITH THE PIN, and the fixture is kept for a smaller reason than
+    the one it used to give. On the version this was written against, the failure printed a
+    full traceback after a green run — noise that would happily hide a real teardown error.
+    The pinned version absorbs it into a single line naming the exception type, which hides
+    nothing. Draining here still gets there first and keeps the run silent; it is now tidiness
+    rather than a guard against a masked failure.
+
+    `shutdown()` is once-only by design, so the later atexit call becomes a no-op rather than
+    a second drain.
+
+    Args:
+      None.
+
+    Yields:
+      None. Everything happens after the session.
+
+    Raises:
+      None.
     """
     yield
     try:
