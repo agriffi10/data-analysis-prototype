@@ -54,6 +54,9 @@ Attributes:
   REBASED: The sentinel for a commit built on top of a MOVED trunk, which only the ``rebased``
     base state produces. Rendered empty in every other state, so a case that uses it elsewhere
     fails loudly rather than pushing nothing.
+  MOVED: The peer's commit the origin's trunk moved to, in the states that move it; ``MOVED7`` is
+    its first seven characters, which the stale refusal prints so the reader knows which commit
+    to look for. Both render empty elsewhere.
 """
 
 import itertools
@@ -70,6 +73,8 @@ ZERO = "0" * 40
 BASE = "{BASE}"
 WORK = "{WORK}"
 REBASED = "{REBASED}"
+MOVED = "{MOVED}"
+MOVED7 = "{MOVED7}"
 
 _peer_commits = itertools.count(1)
 
@@ -125,8 +130,9 @@ class Case(NamedTuple):
         whose holder file is present but empty.
       queue: ``False`` moves the whole queue directory away before the push.
       remote: ``origin`` pushes to the configured origin, ``origin-respelled`` to the same
-        repository with a trailing slash, ``gone`` to a path that does not exist, and anything
-        else to a foreign remote.
+        repository with a trailing slash, ``origin-nosuffix`` to it through a path without the
+        ``.git`` suffix, ``gone`` to a path that does not exist, and anything else to a foreign
+        remote.
       trunk: What to write to ``main-branch``; ``None`` removes it. Anything but ``main`` proves the
         hook READ it, since ``main`` is also the hook's own fallback and a case using it cannot
         tell the two apart.
@@ -197,6 +203,12 @@ CASES: tuple[Case, ...] = (
          push("refs/heads/spec-9/queue", "refs/heads/spec-9/queue"), 1,
          (LOCK, "spec-9/queue"),
          holder=("MINE", "spec-9/qu")),
+    # ...and the other direction: a substring test passes either way round, and one case can only
+    # see one of them.
+    Case("refused_when_the_pushed_branch_is_a_prefix_of_the_holder",
+         push("refs/heads/spec-9/x", "refs/heads/spec-9/x"), 1,
+         (LOCK, "spec-9/x"),
+         holder=("MINE", "spec-9/xyz")),
     # Keys on the REMOTE ref, which is the one that decides what appears on the remote. The local
     # side being the trunk is irrelevant, and a check written against it would pass this wrongly.
     Case("refused_when_the_trunk_is_pushed_onto_a_topic_branch",
@@ -271,6 +283,12 @@ CASES: tuple[Case, ...] = (
     Case("refused_when_origin_is_spelled_with_a_trailing_slash",
          push("refs/heads/spec-9/x", "refs/heads/spec-9/x"), 1, (LOCK, "spec-9/x"),
          remote="origin-respelled"),
+    # The other spelling the hook normalises. Losing this half is fail-OPEN — a session whose
+    # origin is `…/repo.git` pushing to `…/repo` walks around the queue — and it was found by a
+    # reviewer's plant that both corpora passed.
+    Case("refused_when_origin_is_spelled_without_its_dot_git",
+         push("refs/heads/spec-9/x", "refs/heads/spec-9/x"), 1, (LOCK, "spec-9/x"),
+         remote="origin-nosuffix"),
     # A checkout whose origin cannot be read is enforced rather than exempted. The hook's comment
     # claims this; nothing asserted it, and the two directions look identical from outside.
     Case("refused_when_the_origin_cannot_be_read_at_all",
@@ -305,7 +323,7 @@ CASES: tuple[Case, ...] = (
     # stale. The unfetched wording must not appear, because the remedy differs.
     Case("refused_when_the_base_is_behind_the_remote_trunk",
          push("refs/heads/spec-9/x", "refs/heads/spec-9/x"), 1,
-         (STALE, "spec-9/x"), (UNFETCHED, LOCK),
+         (STALE, "spec-9/x", f"is at {MOVED7}"), (UNFETCHED, LOCK),
          holder=("MINE", "spec-9/x"), base="stale"),
     # The trunk moved and the checkout never fetched it, so `merge-base` cannot answer and the
     # object test is what refuses. Same verdict, different check, and the message says which.
@@ -488,7 +506,8 @@ PLANTS: tuple[Plant, ...] = (
           'if [ "$branch" != "$holder_branch" ]; then', 'if [ -z "$holder_branch" ]; then',
           ("refused_when_the_lock_is_held_on_another_branch",
            "refused_names_only_the_ref_that_lacks_the_lock",
-           "refused_when_the_holder_branch_is_a_prefix_of_the_pushed_one")),
+           "refused_when_the_holder_branch_is_a_prefix_of_the_pushed_one",
+           "refused_when_the_pushed_branch_is_a_prefix_of_the_holder")),
     Plant("the_nothing_to_refuse_exit",
           '|| [ "$badpat" -eq 1 ] || exit 0', '|| [ "$badpat" -eq 1 ] || :',
           SILENCE_AFTER_THE_LOOP),
@@ -517,7 +536,16 @@ PLANTS: tuple[Plant, ...] = (
     Plant("the_origin_spelling_is_normalised",
           "norm_url() { printf '%s' \"$1\" | sed -e 's#/*$##' -e 's#\\.git$##' -e 's#/*$##'; }",
           "norm_url() { printf '%s' \"$1\"; }",
-          ("refused_when_origin_is_spelled_with_a_trailing_slash",)),
+          ("refused_when_origin_is_spelled_with_a_trailing_slash",
+           "refused_when_origin_is_spelled_without_its_dot_git")),
+    # The `.git` half on its own: the plant above removes both halves, and a fixture that only
+    # ever re-spells origin with a slash cannot see this one go.
+    Plant("the_dot_git_suffix_is_normalised",
+          "-e 's#\\.git$##'", "-e 's#\\.git-never$##'",
+          ("refused_when_origin_is_spelled_without_its_dot_git",)),
+    Plant("the_stale_message_names_the_sha",
+          "${main_sha:0:7}", "${main_sha:0:0}",
+          ("refused_when_the_base_is_behind_the_remote_trunk",)),
     # A deletion's local ref is the literal `(delete)`, so a hook reading the local side skips
     # every deletion line: the three deletion refusals go silent under this plant as well.
     Plant("the_ref_test_reads_the_remote_ref",
@@ -614,6 +642,8 @@ class Fixture(NamedTuple):
       elsewhere: A URL that is a valid remote but is not origin.
       frozen: A bare repository whose trunk stays at ``base`` forever, for the pushurl split.
       gone: A path no repository exists at.
+      origin_nosuffix: The origin reached through a path without its ``.git`` suffix — a symlink
+        to the same bare repository.
       base: The first commit, which the origin's trunk starts at.
       work: The second commit, a child of ``base`` — what an ordinary push carries.
     """
@@ -624,11 +654,12 @@ class Fixture(NamedTuple):
     elsewhere: str
     frozen: str
     gone: str
+    origin_nosuffix: str
     base: str
     work: str
 
 
-def build(root: pathlib.Path) -> Fixture:
+def build(root: pathlib.Path, object_format: str | None = None) -> Fixture:
     """Install a real queue into a throwaway checkout that has a real origin to be behind.
 
     ``install.sh`` is run rather than imitated, so the wrapper under test is the one a real
@@ -639,6 +670,8 @@ def build(root: pathlib.Path) -> Fixture:
 
     Args:
       root: An empty directory to build in.
+      object_format: ``sha256`` to build every repository with 64-character object ids; the
+        default is git's own.
 
     Returns:
       The paths, URLs and commits the cases need.
@@ -648,13 +681,15 @@ def build(root: pathlib.Path) -> Fixture:
     """
     repo, queue = root / "repo", root / "queue"
     origin, elsewhere, frozen = root / "origin.git", root / "elsewhere.git", root / "frozen.git"
+    fmt = [f"--object-format={object_format}"] if object_format else []
     repo.mkdir(parents=True)
-    subprocess.run(["git", "init", "-q", str(repo)], check=True,  # noqa: S603, S607
+    subprocess.run(["git", "init", "-q", *fmt, str(repo)], check=True,  # noqa: S603, S607
                    capture_output=True, text=True)
     git(repo, "symbolic-ref", "HEAD", "refs/heads/main")
     for bare in (origin, elsewhere, frozen):
-        subprocess.run(["git", "init", "-q", "--bare", str(bare)],  # noqa: S603, S607
+        subprocess.run(["git", "init", "-q", "--bare", *fmt, str(bare)],  # noqa: S603, S607
                        check=True, capture_output=True, text=True)
+    os.symlink("origin.git", root / "origin")
     git(repo, "remote", "add", "origin", str(origin))
 
     (repo / "f").write_text("base\n")
@@ -678,7 +713,7 @@ def build(root: pathlib.Path) -> Fixture:
     if done.returncode != 0:
         raise RuntimeError(f"install.sh exited {done.returncode}: {done.stdout}{done.stderr}")
     return Fixture(repo, queue, str(origin), str(elsewhere), str(frozen), str(root / "gone.git"),
-                   base, work)
+                   str(root / "origin"), base, work)
 
 
 def peer_commit(fixture: Fixture, parent: str) -> str:
@@ -750,11 +785,12 @@ def apply_state(fixture: Fixture, case: Case) -> dict[str, str]:
         git(origin, "update-ref", "-d", ref)
     git(fixture.repo, "update-ref", "refs/heads/main", fixture.work)
     trunk = f"refs/heads/{case.trunk or 'main'}"
-    shas = {BASE: fixture.base, WORK: fixture.work, REBASED: ""}
+    shas = {BASE: fixture.base, WORK: fixture.work, REBASED: "", MOVED: "", MOVED7: ""}
     if case.base == "current":
         git(origin, "update-ref", trunk, fixture.base)
     elif case.base in ("stale", "unfetched", "rebased"):
         moved = peer_commit(fixture, fixture.base)
+        shas[MOVED], shas[MOVED7] = moved, moved[:7]
         git(origin, "update-ref", trunk, moved)
         if case.base != "unfetched":
             git(fixture.repo, "fetch", "-q", "origin")
@@ -804,7 +840,7 @@ def render(stdin: str, shas: dict[str, str]) -> str:
     return stdin
 
 
-def run(fixture: Fixture, case: Case) -> tuple[int, str]:
+def run(fixture: Fixture, case: Case) -> tuple[int, str, dict[str, str]]:
     """Execute the installed wrapper exactly as git would.
 
     Args:
@@ -812,17 +848,20 @@ def run(fixture: Fixture, case: Case) -> tuple[int, str]:
       case: The case supplying argv, stdin and environment.
 
     Returns:
-      The exit status and everything the hook wrote to stderr.
+      The exit status, everything the hook wrote to stderr, and the sentinel map the case's
+      expectations are rendered with.
 
     Raises:
       None.
     """
     shas = apply_state(fixture, case)
-    # `origin-respelled` is the same repository with a trailing slash, which git accepts and a
-    # session plausibly types. It must still be enforced, so this is a spelling of origin rather
-    # than a foreign remote. `gone` is a path with no repository behind it.
+    # `origin-respelled` is the same repository with a trailing slash, and `origin-nosuffix` is
+    # the same repository without its `.git` — both spellings git accepts and a session plausibly
+    # types. Each must still be enforced, so these are spellings of origin rather than foreign
+    # remotes. `gone` is a path with no repository behind it.
     urls = {"origin": fixture.origin,
             "origin-respelled": fixture.origin + "/",
+            "origin-nosuffix": fixture.origin_nosuffix,
             "elsewhere": fixture.elsewhere,
             "gone": fixture.gone}
     url = urls.get(case.remote, fixture.elsewhere)
@@ -830,16 +869,17 @@ def run(fixture: Fixture, case: Case) -> tuple[int, str]:
         [str(fixture.repo / ".git" / "hooks" / "pre-push"), case.remote, url],
         cwd=str(fixture.repo), input=render(case.stdin, shas), capture_output=True, text=True,
         env={**os.environ, **case.env})
-    return done.returncode, done.stderr
+    return done.returncode, done.stderr, shas
 
 
-def judge(case: Case, rc: int, err: str) -> str | None:
+def judge(case: Case, rc: int, err: str, shas: dict[str, str]) -> str | None:
     """Say why a case did not behave as declared.
 
     Args:
       case: The case that ran.
       rc: The exit status it produced.
       err: What it wrote to stderr.
+      shas: The sentinel map the run used, so an expectation can name a commit.
 
     Returns:
       One sentence, or ``None`` when the case behaved.
@@ -851,7 +891,7 @@ def judge(case: Case, rc: int, err: str) -> str | None:
         return f"exit {rc}, wanted {case.want_rc}"
     if case.name.endswith("_ok"):
         return f"expected silence, got {err.strip()[:120]!r}" if err.strip() else None
-    missing = [text for text in case.must_say if text not in err]
+    missing = [text for text in case.must_say if render(text, shas) not in err]
     if missing:
         return f"stderr lacked {missing!r}"
     wrong = [text for text in case.must_not_say if text in err]
@@ -889,8 +929,7 @@ def sweep(root: pathlib.Path, plant: Plant) -> list[str]:
 
     problems = []
     for case in CASES:
-        rc, err = run(fixture, case)
-        noticed = judge(case, rc, err) is not None
+        noticed = judge(case, *run(fixture, case)) is not None
         if case.name in plant.breaks and not noticed:
             problems.append(f"{plant.name}: {case.name} still passed — that fixture is vacuous")
         elif case.name not in plant.breaks and noticed:
@@ -1179,10 +1218,56 @@ def upgrade(root: pathlib.Path) -> list[str]:
         problems.append(f"upgrade: re-installing over the previous generation's wrapper exited "
                         f"{done.returncode} — an operator is told nothing enforces the queue while "
                         f"it does: {done.stderr.strip()[:200]}")
-    rc, err = run(fixture, CASES[0])
+    rc, err, _ = run(fixture, CASES[0])
     if rc != 1 or "PUSH REFUSED" not in err:
         problems.append(f"upgrade: after re-installing, a push holding no lock exited {rc} — the "
                         f"upgrade left the hook not enforcing")
+    return problems
+
+
+def hash_width(root: pathlib.Path) -> list[str]:
+    """Prove the deletion tests key on git's ``(delete)`` literal, not on the zero object's width.
+
+    The hook says it uses the literal because the all-zero object is 40 or 64 characters depending
+    on the repository's hash algorithm, and every fixture above is sha1 — so a hook that keyed on
+    forty zeros would pass the whole corpus and misjudge a sha256 repository. Found by a
+    reviewer's plant that both corpora passed.
+
+    Args:
+      root: An empty directory to build a sha256 fixture in.
+
+    Returns:
+      One message per deletion the hook judged wrongly, empty when both were right.
+
+    Raises:
+      None.
+    """
+    try:
+        fixture = build(root, object_format="sha256")
+    except subprocess.CalledProcessError as failed:
+        return [(f"hash_width: this git cannot build a sha256 repository, so the width claim was "
+                 f"not measured: {failed.stderr.strip()[:120]}")]
+    zero = "0" * 64
+
+    def hook(stdin: str) -> tuple[int, str]:
+        done = subprocess.run(  # noqa: S603
+            [str(fixture.repo / ".git" / "hooks" / "pre-push"), "origin", fixture.origin],
+            cwd=str(fixture.repo), input=stdin, capture_output=True, text=True)
+        return done.returncode, done.stderr
+
+    problems = []
+    rc, err = hook(f"(delete) {zero} refs/heads/main {fixture.work}\n")
+    if rc != 1 or DROPS not in err:
+        problems.append(f"hash_width: deleting the trunk of a sha256 repository exited {rc} with "
+                        f"{err.strip()[:120]!r} — the deletion test is reading the zero object's "
+                        f"width, not git's literal")
+    lock = fixture.queue / "lock"
+    lock.mkdir()
+    (lock / "holder").write_text("spec MINE\nbranch spec-9/x\nsince 2026-01-01T00:00:00Z\n")
+    rc, err = hook(f"(delete) {zero} refs/heads/spec-9/x {fixture.work}\n")
+    if rc != 0 or err.strip():
+        problems.append(f"hash_width: the holder's own deletion in a sha256 repository exited {rc} "
+                        f"with {err.strip()[:120]!r} — measured as stale against a 64-zero object")
     return problems
 
 
@@ -1209,7 +1294,7 @@ def main() -> int:
         # failing beside every refusal case is a broken hook, the control failing while the
         # silence cases still pass is broken plumbing.
         control = CASES[0]
-        rc, err = run(fixture, control)
+        rc, err, _ = run(fixture, control)
         if rc != 1 or "PUSH REFUSED" not in err:
             failed.append("harness_control")
             print(f"FAIL  harness_control: {control.name} produced exit {rc} and "
@@ -1247,6 +1332,13 @@ def main() -> int:
             print(f"FAIL  {problem}")
         if not trip:
             print("ok    round_trip")
+
+        width = hash_width(pathlib.Path(tmp) / "sha256")
+        failed.extend(width)
+        for problem in width:
+            print(f"FAIL  {problem}")
+        if not width:
+            print("ok    sha256_deletion_keys_on_the_literal")
 
         for i, plant in enumerate(PLANTS):
             problems = sweep(pathlib.Path(tmp) / f"plant{i}", plant)
