@@ -45,7 +45,7 @@ always leaves an arc entry here holding the pair's build order, even when nothin
 - [Container-lambdas arc (SPEC-212 → 213 → 214)](#container-lambdas-arc-spec-212--213--214)
 - [System-settings prefix arc (SPEC-218 → 219 → 220)](#system-settings-prefix-arc-spec-218--219--220)
 - [Results-conversion arc (SPEC-221 → 222 → 223)](#results-conversion-arc-spec-221--222--223)
-- [Observability continuation arc (SPEC-224 → 225 → 226)](#observability-continuation-arc-spec-224--225--226)
+- [Observability continuation arc (SPEC-224 → 225 → 227 → 226)](#observability-continuation-arc-spec-224--225--227--226)
 
 ---
 
@@ -2923,47 +2923,66 @@ narrative that duplicates the ledger is the copy nobody updates.
 
 ---
 
-## Observability continuation arc (SPEC-224 → 225 → 226)
+## Observability continuation arc (SPEC-224 → 225 → 227 → 226)
 
 **Why it exists.** SPEC-127 → 137 built the pipe and instrumented the whole fleet: every Lambda in
 the repo calls `observability.init` and carries `@observability.traced`, held there by
 `test_instrumentation_coverage.py`'s repo-wide gate. What that arc left is not a gap in coverage but
-two gaps in **depth**, both recorded at the time as deliberate deferrals rather than discovered
-later — and a library four minor versions behind.
+two gaps in **depth**, both recorded at the time as deliberate deferrals — and a library four minor
+versions behind.
 
 **224 is the enabler and ships first.** `log-foundry` 1.0.0 is a reliability release, and the pin
-has to move before either of the others is safe. Two of its changes land on code this repo wrote
-*around* 0.6.0's limitations: `configure(sink=…)` now swaps properly, which makes two test harnesses'
-hand-written worker retirement obsolete — and, because `log_foundry.decorator._worker` no longer
-exists, silently inert behind a `getattr` default. It also makes `continue_trace` **one-shot**, which
-is the whole reason 225 can be built: on 0.6.0 adoption is sticky, so a warm container's next
-invocation silently joins the previous run's trace, which is worse than nine honest traces.
+has to move before any of the others is safe. Three of its changes land on code this repo wrote
+*around* 0.6.0's limitations. `configure(sink=…)` now swaps properly, which makes two test
+harnesses' hand-written worker retirement obsolete — and, because `log_foundry.decorator._worker` no
+longer exists, silently inert behind a `getattr` default; the same fixture's `_config` save/restore
+is worse, because 1.0.0 keeps a `_live_config` beside it and the teardown now leaves the library
+reporting one sink while delivering to another. `@trace` refuses a generator function at decoration,
+which for this fleet is a cold start that never completes — no decorated function is a generator
+today, and 226 wanted to instrument two. And `continue_trace` becomes **one-shot**, which is the
+whole reason 225 can be built: on 0.6.0 adoption is sticky, so a warm container's next invocation
+silently joins the previous run's trace, which is worse than many honest traces.
 
-**225 closes the deferral this arc's own docs named.** "One run is **nine traces**, joined on
-`fields.request_id`" was a user decision on 2026-07-22 — correlation now, stitching later, sequenced
-after the pipe was proven live. It is proven live. The traceparent is minted at the API, threaded
-through the state payload as `requestId` already is, and adopted by every verb. Most of the
-threading is free, because every Task uses `Payload.$=$` with `OutputPath=$.Payload`; the work is at
-five field-naming `Pass` states, the failure seeds, and the four Distributed Maps — which reach their
-children through `ItemBatcher.BatchInput`, a mechanism no template in the repo uses today, rather
-than through an `ItemSelector`, which none of them has. `request_id` stays: records written before
-the cutover have nine trace ids per run and nothing migrates them.
+**225 closes the deferral this arc's own docs named**, on the success path. "One run is nine traces,
+joined on `fields.request_id`" was a user decision on 2026-07-22 — correlation now, stitching later,
+sequenced after the pipe was proven live. It is proven live. The traceparent is minted at the API,
+threaded through the state payload as `requestId` already is, and adopted by every verb. Most
+threading is free, because a Task using `Payload.$=$` with `OutputPath=$.Payload` carries a new key
+untouched; the work is at six field-naming `Pass` states, four field-naming Task `Parameters`
+blocks, and the **six** Distributed Maps — archive has three — which reach their children through
+`ItemBatcher.BatchInput`, a mechanism no template here uses, rather than through an `ItemSelector`,
+which none of them has. It also closes a hole nobody had noticed: the nine Map-child verbs, every
+copy verb among them, have **no `request_id` at all** today, because the extractor reads two event
+shapes and they receive the other two.
 
-**226 gives the seven flat planes child spans, from the shared layer rather than verb by verb.**
-`observability.step` has existed since SPEC-130 and is used by data-quality, the log sweep, the API,
-the DLQ drain and user-directory-build. Archive, file-ops, file-send, results-conversion,
-shared-space, table-builder and table-share have none. All seven reach their durable work through the
-same `cpcommon` modules, so instrumenting those once buys per-operation duration for all of them in
-one blast radius — and avoids the move that looks obvious and is wrong, a step inside a per-item
-loop, which costs one SQS message and one line of a rewritten day object *per object*.
+**227 takes the failure path, and it is separate for a measured reason.** The obvious edit — add the
+key to each plane's `RecordFailure` and its seeds — was planted by a reviewer on archive and the
+whole suite stayed green, while six archive failure paths would have hit an absent `$.traceparent`
+in a `Pass`: a `States.Runtime` error that is neither retriable nor catchable, killing the execution
+*before* `NotifyFailure`, so a user whose archive failed would hear nothing. The guard that should
+have caught it identifies a seed structurally and cannot see eight of the fleet's seed states. So
+the guard is widened before anything is threaded through it. 227 also writes the ASL↔verb
+cross-check that **five of the eight planes do not have** — and that the archive machine claims in
+its own comments that it does, citing a test that was never written.
 
-**Build order 224 → 225 → 226.** 225 depends on 224 for one-shot adoption and for
-`reset_context()`; 226 depends on 224 only for the pin. 226 could be built beside 225 but is
-sequenced after it so that the one-trace guard is not competing with new child spans for the same
-capturing-sink fixtures.
+**226 gives the seven flat planes child spans.** Most of it comes from the shared `cpcommon`
+modules all seven route durable work through, which buys the depth without touching seventy-odd
+verbs. But the shared layer alone leaves `results-conversion-convert` — the Excel writer, where the
+time actually goes — with zero child spans on a successful personal-space conversion, and five of
+table-builder's eleven verbs in the same position, so those are instrumented directly. Its
+prohibitions are mechanical rather than stylistic: a step inside `copy_batch`'s worker pool does not
+emit a child span at all, because baggage and the span stack are `contextvars` that do not cross
+into pool threads — it emits N unattributable root spans that a child-span count cannot see.
 
-**One defect was found while authoring 225 and is fixed in it.** The archive machine's `Validated`
-and `ArchiveComplete` comments both claim `test_state_machine_archive.py` holds the ASL's field list
-to the verb's real return value. No such test exists — five of the eight planes have no ASL↔verb
-cross-check at all, and archive is one of them. 225 answers it with a sweep over all eight templates
-rather than five hand-written per-plane tests.
+**Build order 224 → 225 → 227 → 226.** 225 needs 224's one-shot adoption and its `reset_context()`;
+227 needs 225's mechanism; 226 needs 224 only for the pin, and is last so its new child spans are
+not competing with the one-trace guards for the same capturing-sink fixtures.
+
+**Three defects in `main` were found while authoring and are fixed inside the arc.** The archive
+machine's `Validated` and `ArchiveComplete` comments cite a cross-check test that does not exist
+(227). The failure-seed guard cannot see eight of the states it exists to police (227). And a sweep
+for the first of those found the class: **23 citations in live source and 21 in current-tier docs
+name tests that were never written**, including three in `arcommon/config.py` that claim to compute
+cap chains against `locals.tf` and "fail the build". 227 fixes the archive comments and adds a gate
+with a ratchet; the rest are paid down deliberately rather than in this arc, because they are memory
+and timeout budgets and not observability.

@@ -1,4 +1,4 @@
-# Spec: Child Spans in the Shared Control-Plane Helpers
+# Spec: Child Spans for the Seven Flat Planes
 
 **ID:** SPEC-226
 **Status:** Draft
@@ -7,57 +7,54 @@
 
 ## Overview
 
-`cpcommon.observability.step(name)` opens a child span around one named internal step, turning
-"the verb took 8 seconds and failed" into "the listing took 40 ms, the column probe took 7.9 s and
+`cpcommon.observability.step(name)` opens a child span around one named internal step, turning "the
+verb took 8 seconds and failed" into "the listing took 40 ms, the column probe took 7.9 s and
 raised". It has been available since SPEC-130 and is used by data-quality, the log sweep, the API,
 the DLQ drain and user-directory-build. **Seven planes have none of it** — archive, file-ops,
-file-send, results-conversion, shared-space, table-builder and table-share each emit a flat
-sequence of `info` events inside one span, so an operator can see that a verb was slow and not
-which part of it was.
+file-send, results-conversion, shared-space, table-builder and table-share each emit a flat sequence
+of `info` events inside one span, so an operator can see that a verb was slow and not which part of
+it was.
 
-The cheap way to close that is not seventy-four hand-placed decorators. Every one of those seven
-planes reaches its durable work through the same shared modules — `cpcommon.transfer` for the copy
-and its manifest, `cpcommon.lock` for the refresh locks, `cpcommon.cas` for the compare-and-swap
-writes, `cpcommon.registry` and `cpcommon.s3_listing` for the reads, `cpcommon.notify` for the
-sends. Instrumenting those once gives all seven planes per-operation duration, in one blast radius,
-against one set of tests.
+Most of that is bought from the shared layer: all seven route their durable work through the same
+`cpcommon` modules, so instrumenting those once covers them without touching seventy-odd verbs. But
+**the shared layer alone does not finish the job**, and where it falls short is where the time
+actually goes: `results-conversion-convert` — the Excel writer, the verb this arc would most want
+timed — reaches a shared helper only on the failure path, so on a successful personal-space
+conversion it would gain **zero** child spans. Five of table-builder's eleven verbs are in the same
+position. Those are named and instrumented here rather than left for a reader to discover.
 
 ## Scope
 
 ### In Scope
 
-- Child spans on the shared `cpcommon` operations every control plane routes its durable work
-  through, so all seven flat planes gain per-operation timing without a per-verb sweep.
-- A stated, enforced rule for **where a step may go**, since the cost of a step is an SQS message
-  and a line in a day object the sweep rewrites in full.
-- A guard that holds the seven planes to having child spans at all, so this cannot silently regress
-  to flat the way `notifications-writer` shipped without `@traced`.
+- Child spans on the shared `cpcommon` operations the seven planes route durable work through,
+  enumerated as a literal table rather than described.
+- Child spans on the named verbs the shared layer does not reach on a **successful** run.
+- A stated, enforced rule for where a step may **not** go, with the mechanism behind each case.
+- A measured budget for the events this spec adds.
+- A guard that holds each of the seven planes to having child spans, redденable per plane.
 
 ### Out of Scope
 
-- **Per-verb steps inside a plane's own module.** A verb whose interesting work is its own, not a
-  shared helper's, keeps its flat narrative here. That residue is a follow-up spec, and it is
-  deliberately sequenced second: the shared layer is where the duration actually is, and doing it
-  first tells the follow-up which verbs still need anything.
-- **Any step inside a per-item loop.** Named here because it is the obvious next move and it is
-  wrong — see FR-002.
-- **New `info`/`warning`/`error` events.** This spec adds spans, not narrative. A step that also
-  needs an event is a call-site decision the follow-up makes.
+- **Steps inside `copy_batch`'s worker pool.** Forbidden by FR-002 for a mechanical reason, not a
+  stylistic one.
+- **New `info`/`warning`/`error` events.** This spec adds spans, not narrative.
 - **data-quality, the log sweep, the API, the DLQ drain, user-directory-build.** They already have
-  steps. They will inherit whatever the shared helpers gain, which is fine and is not a change to
-  their own instrumentation.
+  steps and will inherit whatever the shared helpers gain.
+- **Retro-fitting steps to every remaining verb.** The seven planes are covered where their durable
+  work is; a verb whose body is a dict rearrangement gets nothing, and should.
 
 ---
 
 ## Functional Requirements
 
-### FR-001: The shared durable operations carry child spans
+### FR-001: The instrumentation points are a literal table
 
 #### Description:
 
-Each shared `cpcommon` operation that performs durable or remote work gains a `@observability.step`
-at **operation granularity** — one span per call the verb makes, not per object the call touches.
-The modules in scope, and which of the seven planes each reaches:
+The shared modules each of the seven planes reaches, derived by import search during authoring —
+attribute-style imports counted, since `from cpcommon import notify` followed by `notify.send(...)`
+is invisible to a submodule-path scan:
 
 | Module | Reaches |
 |---|---|
@@ -66,115 +63,199 @@ The modules in scope, and which of the seven planes each reaches:
 | `cpcommon.cas` | shared-space |
 | `cpcommon.registry` | archive, file-ops, file-send, results-conversion, table-builder, table-share |
 | `cpcommon.s3_listing` | archive, file-ops, file-send, table-builder, table-share |
-| `cpcommon.notify` | archive, file-ops, file-send, results-conversion, shared-space, table-builder, table-share |
+| `cpcommon.notify` | all seven |
 
-Derived by import search during authoring, not from memory. Every one of the seven flat planes is
-reached by at least two of these modules, so none of them ends this spec still flat. The depth is
-**not** even, and the uneven one is named rather than discovered: **results-conversion** reaches
-only `registry` and `notify`, because the work that actually takes time in it — the Excel writer in
-`results-conversion-convert` — is its own code, not a shared helper. It gains real spans here and
-is still the first candidate for the follow-up.
+**A module list is not an instrumentation list**, and a criterion phrased over "every operation in
+the modules above" is satisfied by any subset and stays satisfied after a deletion. The spec
+therefore fixes the *decision*, and the test holds a literal `(module, function, span name)` table
+asserted **by count**, the way `Plane.verb_count` is a literal in
+`test_instrumentation_coverage.py` "so a short enumeration fails rather than passing vacuously".
 
-The span name is the operation, not the module — `copy-batch`, `acquire-lock`, `list-prefix` — so a
-query groups across every plane that calls it.
+The contested candidates are resolved here rather than at build time, because each is a case FR-002
+would otherwise forbid while FR-001 mandated it:
 
-`step` is a thin alias for `lf.trace` and is **non-swallowing** by design: it records the failure
-and re-raises the original exception unchanged. That property is load-bearing here, because
-`@traced` sits outermost above `@notifies_on_failure`, and a step that swallowed would cost the
-user their failure notification. Nothing in this spec may put a `try` between a raise and its
-notification.
+| Candidate | Decision | Why |
+|---|---|---|
+| `transfer.copy.copy_batch` | **step** | Once per invocation; the batch is the unit. |
+| `transfer.copy.copy_one` | no | Per item, and inside the worker pool — FR-002. |
+| `transfer.manifest.write_manifest` | **step** | Once per invocation. |
+| `transfer.results.read_failed_items` | **step** | Once per invocation. |
+| `transfer.results._read_json` | no | Once per result file; grows with the Map Run's children. |
+| `lock.acquire`, `lock.release` | **step** | Once each. |
+| `cas.cas_mutate` | **step** | Once per mutation, bounded by its own retry cap. |
+| `registry.load` | **step** | Once per invocation. |
+| `s3_listing.list_data_records`, `list_data_objects` | no | Generators — FR-002. |
+| `s3_listing.object_size` | no | Per file entry — FR-002. |
+| `notify.emit_notification` | **step** | Once per invocation. |
 
-#### Acceptance Criteria:
-
-- [ ] Every shared operation named above carries exactly one `@observability.step`, named for the
-      operation.
-- [ ] A test drives one call through each instrumented module against a capturing sink and asserts a
-      child span exists with that name, with a non-null `parent_span_id` naming the handler's span.
-- [ ] A test asserts an exception raised inside an instrumented helper propagates **unchanged** —
-      same type, same message, same `__cause__` — so the plane's terminal and notification paths are
-      untouched.
-- [ ] The existing suites for every plane in the table are green by exit code.
-
-### FR-002: A step may not sit inside a per-item loop
-
-#### Description:
-
-Every event is an SQS message and a line in an appended day object the sweep rewrites **in full**.
-A step inside a per-object loop therefore does not cost one event, it costs one event per object,
-and an archive can hold tens of thousands. The plane code already states this rule at the call
-sites that obey it — archive's `copy-objects` records "per BATCH, never per object" — but the rule
-lives only in prose and only where somebody remembered to write it.
-
-This FR makes it checkable: a `@observability.step` may decorate a function that is called a
-bounded number of times per invocation, and may not decorate one called once per item.
+`list_data_objects` is `list_data_records` narrowed, so instrumenting both would nest two spans
+measuring one listing even if they were not generators. The listing is timed at the bounded,
+non-generator function that **consumes** it, which is where the library's own refusal message points.
 
 #### Acceptance Criteria:
 
-- [ ] Every `@observability.step` added by this spec decorates a function called a bounded number of
-      times per handler invocation, and the bound is stated in that function's docstring.
-- [ ] A test drives a transfer of N objects through the instrumented copy path and asserts the
-      number of child spans emitted is **independent of N** — run with two different N and compare.
-      An assertion on a fixed count would pass a per-object step whose count happened to match.
-- [ ] The rule is recorded in `lambdas/info/shared-layer.md` beside the `observability` entry, in
-      the section that already carries the field rule's working detail.
+- [ ] A test holds the literal table above and asserts, for each row, that the named function
+      carries a `@observability.step` with the named span name — and that the number of decorated
+      functions in those modules equals the table's length, so an extra one is caught too.
+- [ ] Driving one call through each instrumented function against a capturing sink emits a child
+      span of that name whose `parent_span_id` is the handler's root span **and** whose
+      `duration_ms` covers the work — asserted by making the instrumented call take a measurable
+      time, so a span that closed before the body ran would fail.
+- [ ] An exception raised inside an instrumented helper propagates unchanged — same type, message
+      and `__cause__` — **and** the child span of that name is emitted with `status: "error"`. Both
+      halves: the propagation assertion alone passes identically on an undecorated function.
+- [ ] Every plane's suite is green by exit code. A scoped per-plane run needs `--no-cov`, since
+      `addopts` carries `--cov-fail-under=85` and a partial run exits 1 regardless of results.
 
-### FR-003: The seven planes cannot silently go flat again
+### FR-002: Where a step may not go, and the mechanism in each case
 
 #### Description:
 
-`test_instrumentation_coverage.py` already holds every Lambda in the repo to calling
-`observability.init` and carrying `@observability.traced`, because a function outside every plane
-descriptor is exactly how `notifications-writer` shipped with `init` and no `@traced` and nothing
-failed. Child spans need the same treatment for the same reason: a refactor that moves a plane off
-a shared helper takes its child spans with it, silently, and the result is a plane that reads as
+Three prohibitions, each with a failure mode that a reviewer reading the diff would not see.
+
+**Not inside a per-item loop.** Every event is an SQS message and a line in an appended day object
+the sweep rewrites **in full**, so a step per object costs one of each per object, and an archive
+can hold tens of thousands.
+
+**Not inside `copy_batch`'s worker pool** — and the reason is mechanical rather than volume.
+log-foundry's span stack and baggage are `contextvars`, which do not cross into
+`ThreadPoolExecutor` workers: a step planted on `copy_one` does not emit a *child* span at all, it
+emits N **root** spans with `parent_span_id: None` in a separate trace. So the damage is not only
+volume, it is that the events are unattributable — and a guard counting child spans cannot see it.
+
+**Not on a generator function.** `s3_listing`'s two listers are generators. On `log-foundry` 0.6.0
+`@trace` accepts one and traces the *call*: the span opens and closes before the body runs,
+reporting `status: "ok"` and a duration of microseconds for a listing that has not happened and may
+still raise. On 1.0.0 — which SPEC-224 brings — it is a `TypeError` **at decoration**, so for this
+fleet it is a module-import failure and a cold start that never completes. Both measured during
+authoring. The 1.0.0 behaviour is the safer one and is why this is a build-time failure rather than
+a production one, but the rule is stated because the fix is not "decorate it anyway".
+
+#### Acceptance Criteria:
+
+- [ ] Every function in FR-001's table has its per-invocation call bound stated in its docstring.
+- [ ] A test drives a transfer of N objects at two different N and asserts the emitted span count is
+      identical — and counts **every** span emitted, not only those with a non-null
+      `parent_span_id`, so a step planted inside the worker pool is visible as N extra root spans
+      rather than invisible.
+- [ ] That test is mutation-tested by planting a step on `copy_one`, which must fail it.
+- [ ] A test asserts no function in the instrumented modules is both a generator and decorated,
+      by AST — the same guard SPEC-224 FR-005 establishes for the fleet, applied to these modules.
+- [ ] The rule is recorded in `lambdas/info/shared-layer.md` beside the `observability` entry.
+
+### FR-003: The verbs the shared layer does not reach on a successful run
+
+#### Description:
+
+The shared layer gives every one of the seven planes child spans, but two planes get them only on
+paths a successful run does not take, and this spec's promise is not met by that.
+
+**`results-conversion-convert`** reaches `registry.load` only when the destination is a shared space
+— it sits in the `else` of the personal-space branch — and `emit_notification` only from the failure
+emitters and the separate notify verb. On a successful personal-space conversion it gains nothing.
+It is also the verb the Overview names as where the time goes: the Excel writer.
+
+**Five of table-builder's eleven verbs** — `apply-refresh`, `execute-ddl`, `infer-schema`,
+`diff-schema`, `load-table-definition` — reach `cpcommon.notify` only through
+`@notifies_on_failure`, so they gain nothing on a green run.
+
+Each gets a step on its own principal operation, at the same one-per-invocation granularity FR-001
+uses, added to the same literal table.
+
+#### Acceptance Criteria:
+
+- [ ] `results-conversion-convert` emits at least one child span on a **successful personal-space**
+      conversion, asserted by driving that path.
+- [ ] Each of the five table-builder verbs emits at least one child span on a **successful** run,
+      asserted by driving each.
+- [ ] Their rows are in FR-001's literal table and counted by the same assertion.
+
+### FR-004: Each of the seven planes is held to having child spans, and can be reddened alone
+
+#### Description:
+
+A guard is needed for the reason `test_instrumentation_coverage.py` exists: a refactor that moves a
+plane off a shared helper takes its child spans with it, silently, leaving a plane that reads as
 instrumented and reports one flat span.
 
-The guard asserts at the **plane** level, not the verb level — a verb with no durable work of its
-own legitimately has no child span — by exercising each plane's instrumented path and asserting a
-child span arrives.
+**The obvious guard cannot be mutation-tested.** "At least one of this plane's verbs emits a child
+span" is satisfied for every plane by two or more independent modules, so removing any single step
+reddens the guard for no plane at all — strike `registry.load`'s and results-conversion still passes
+through `notify`. A guard whose mutation cannot be performed is a guard nobody can trust.
+
+So the guard asserts per plane against a **named verb and a named span**, drawn from FR-001's table,
+on a path the plane actually takes on a successful run. Removing one step then reddens exactly one
+plane, and the message names it.
+
+It is a runtime guard, unlike `test_instrumentation_coverage.py`, which is pure AST. Every plane
+already drives handlers in its own suite and `captured_events` is fleet-wide, so the drivers exist;
+what they lack is a parent-span helper on `_CapturingSink`, which this FR adds.
 
 #### Acceptance Criteria:
 
-- [ ] A test asserts, for each of the seven planes, that at least one of its verbs emits a child
-      span through the shared helpers, driven end to end against a capturing sink rather than by
-      reading source.
-- [ ] The guard is mutation-tested: removing one plane's step reddens it, and the failure message
-      names the plane.
+- [ ] For each of the seven planes, a test drives one named verb and asserts a named child span with
+      a non-null `parent_span_id` matching that verb's root span.
+- [ ] Mutation-tested per plane: removing that plane's step reddens exactly that plane's case, and
+      the message names the plane, the verb and the span.
 - [ ] The guard carries a positive control that the collector collected — an empty event list must
       not satisfy it.
+- [ ] `_CapturingSink` gains a helper for child spans by parent, used by every case rather than
+      re-implemented per plane.
+
+### FR-005: The event volume this spec adds is measured, not assumed
+
+#### Description:
+
+The area's Fences require that every cap is computed by a test against the budget that sized it, and
+this spec's whole prohibition rests on the cost of an event without ever stating what it is adding.
+Each step is two events — a `span.start` and a `span.end` — so the delta is twice the number of
+steps a verb's path actually executes, and the sweep rewrites the day object in full.
+
+#### Acceptance Criteria:
+
+- [ ] A test computes the per-invocation event delta for the worst-case verb on each of the seven
+      planes and asserts it against a stated budget, with the budget's derivation recorded beside it.
+- [ ] The budget carries deliberate headroom, and the amount and reason are stated — a budget pinned
+      exactly at the measurement leaves the next legitimate step nothing to spend.
+- [ ] The delta is measured by counting emitted events through a capturing sink, not by counting
+      decorators.
 
 ---
 
 ## Interface Contract
 
-No new public surface. `cpcommon.observability.step` is used exactly as it is today:
+No new public surface. `cpcommon.observability.step` is used exactly as today:
 
 ```python
 from cpcommon import observability
 
 @observability.step("copy-batch")
-def copy_batch(items, reason, echo_fields=()): ...
+def copy_batch(items, failure_reason, *, echo_fields, concurrency=COPY_CONCURRENCY): ...
 ```
 
-The emitted child span is a normal log-foundry span: its `function` is the step name, its
-`parent_span_id` is the handler's root span, and it carries the handler's baggage (`verb`,
-`request_id`) because baggage reaches nested spans — which is the whole reason `verb` was moved from
-a span default to baggage in SPEC-130.
+The signature is reproduced as it actually is: `echo_fields` is **keyword-only with no default**,
+which is a settled decision — "a default hands a new caller either table-share's vocabulary or an
+empty set, and both are wrong without a review" — and this spec does not change it.
+
+An emitted child span carries the handler's baggage (`verb`, `request_id`) **on the calling
+thread**. Baggage is a `ContextVar` and does not reach `copy_batch`'s worker threads, which is
+FR-002's second prohibition stated once more where an implementer would otherwise assume the
+opposite.
 
 ## Implementation Phases
 
-### Phase 1: The transfer and lock paths
+### Phase 1: The table and the prohibitions
 
-- Steps on `cpcommon.transfer` (copy, manifest, results) and `cpcommon.lock`.
-- The FR-001 propagation test and the FR-002 count-independent-of-N test.
+- The steps in FR-001's table on the shared modules; docstring bounds; the AST generator guard.
+- The literal-table test and the two-N span-count test, each mutation-tested.
 
-### Phase 2: The read, write and notify paths
+### Phase 2: The verbs the shared layer misses
 
-- Steps on `cpcommon.cas`, `cpcommon.registry`, `cpcommon.s3_listing`, `cpcommon.notify`.
-- Docstring bounds for every decorated function.
+- Steps on `results-conversion-convert` and the five table-builder verbs; their table rows.
+- The driven success-path assertions for each.
 
-### Phase 3: The guard and the record
+### Phase 3: The guard and the budget
 
-- The seven-plane child-span guard, with its positive control; mutation-test it per plane.
-- The per-item rule into `lambdas/info/shared-layer.md`.
+- `_CapturingSink`'s parent-span helper; the per-plane guard, mutation-tested plane by plane.
+- FR-005's measured delta and its budget; the rule into `lambdas/info/shared-layer.md`.
 - Full local gates green by exit code.
