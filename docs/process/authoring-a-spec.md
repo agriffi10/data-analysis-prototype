@@ -43,8 +43,15 @@ spec *buildable*:
   bake per-phase checkpoints into the spec.
 - **No Open Questions.** Resolve every decision while authoring — a spec doesn't move to Draft-ready
   with unanswered questions. Issues that only surface during the build are handled in-session (`session-rhythm.md`),
-  not parked in the spec.
+  not parked in the spec. `validate_docs.py` refuses an `Open Questions` or `Checkpoint` heading in a
+  live spec, and that check is easy to pass while failing: **an Open Question can wear a declarative
+  sentence.** SPEC-205 shipped *"either the exception moves to a shared location or `save_members`
+  returns a refusal the caller raises. The spec states which"* — and then did not. A sentence that
+  **promises a decision** is an Open Question with a declarative shape; so is an acceptance criterion
+  demanding a **computed** bound while supplying none of its inputs. Both were caught by an
+  implementer who had to pick, and neither by a reader.
 - **Then the reviewer gate** (`session-rhythm.md`, *The reviewer contract*). A freshly-authored spec goes to a
   fresh-context reviewer before it is Draft-ready, and its findings are fixed or answered.
   The commonest thing this catches is not a wrong requirement — it is an acceptance criterion that
-  cannot fail, and an Out of Scope bullet that an FR quietly needs.
+  cannot fail, an Out of Scope bullet that an FR quietly needs, or two FRs that cannot both hold
+  (`docs/reviewer-contract.md`, *Adjudicating two FRs that cannot both hold*).

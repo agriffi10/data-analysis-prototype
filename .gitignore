@@ -25,6 +25,7 @@ dist-ssr
 .env
 .claude/*
 !.claude/rules/
+!.claude/settings.json
 .obsidian
 
 # Python (Lambda sources under lambdas/)

@@ -87,6 +87,25 @@ Attributes:
     and splitting one LOWERS this number in the same PR. A genuinely indivisible spec may still sit
     above eight, but it is paid for out of this ratchet rather than waved through, which is what
     makes the trade visible.
+  SPEC_REQUIRED_SECTIONS: The four top-level sections every live spec carries, matched
+    case-insensitively on the heading's first words. They are the template's skeleton, and a spec
+    missing one is a spec whose reader cannot find the scope or the phases without reading it whole.
+  SPEC_BANNED_HEADINGS: Heading text, at any level, that a spec may not carry. An Open Question is
+    resolved while authoring (``docs/process/authoring-a-spec.md``) and a Checkpoint is the
+    per-phase approval the session rhythm retired; either parked in the spec is a decision deferred
+    to whoever builds it.
+  SPEC_PLACEHOLDERS: The template's unfilled markers, reported as a WARNING wherever they appear.
+    ``YYYY-MM-DD`` is deliberately not in this tuple: three specs describe a date format in prose,
+    so that marker is looked for on the ``**Last Updated:**`` header line and nowhere else.
+  SPEC_SHAPE_EXEMPT: The statuses ``check_spec_shape`` does not judge. The Completed specs written
+    from an earlier template carry its retired ``#### Checkpoint`` and ``## Open Questions``
+    headings — sixty closed specs would fail at the commit that introduced the check, and a reader
+    can re-measure that by emptying this set — and a Cancelled spec is reduced to a tombstone with
+    no sections to require (``docs/process/spec-lifecycle.md``). The exemption keys on the Status header alone and
+    fails CLOSED: a spec with no readable status, or any status outside this set — Draft, In
+    Progress, Superseded, a misspelling — is judged in full.
+  WARNING: The prefix a check puts on a finding that is reported but does not fail the run. The
+    exit code is decided by the findings without it.
   STATUS_WORDS: Words that must not appear in an ``ARCS.md`` arc heading. Status lives in
     ``INDEX.md``, which is the only place it can be kept true.
   SOURCE_TREES: Where source lives, per language, for the citation check.
@@ -201,6 +220,11 @@ def decision_areas() -> list[str]:
     return [area for area, _ in decision_table()]
 
 
+SPEC_REQUIRED_SECTIONS = ("## Overview", "## Scope", "## Functional Requirements", "## Implementation Phases")
+SPEC_BANNED_HEADINGS = ("Open Questions", "Checkpoint")
+SPEC_PLACEHOLDERS = ("[Feature Name]", "[Requirement Name]", "SPEC-XXX")
+SPEC_SHAPE_EXEMPT = frozenset({"completed", "cancelled"})
+WARNING = "warning: "
 STATUS_WORDS = ("shipped", "complete", "active", "draft", "in progress", "filed", "scoped")
 SOURCE_TREES = (("apps/portal/src", (".ts", ".tsx")), ("lambdas", (".py",)), ("infra", (".tf", ".tftpl")))
 CITATION_RE = re.compile(r"SPEC-\d{3}|(?<![\w#])#\d{3,4}(?![\w])|\b(?:FR|AC)-?\d+\b")
@@ -708,6 +732,66 @@ def check_arcs() -> list[str]:
     return errors
 
 
+def spec_status(text: str) -> str | None:
+    """A spec's Status header, lower-cased and stripped, or ``None`` when it has none.
+
+    One reader for the three checks that key on it, so they cannot disagree about what counts as
+    a status line.
+
+    Args:
+      text: The spec's full text.
+
+    Returns:
+      The status as written, normalised; ``None`` if no header parses.
+
+    Raises:
+      None.
+    """
+    found = re.search(r"^\**Status:?\**[:\s]*\**\s*([A-Za-z ]+)", text, re.MULTILINE)
+    return found.group(1).strip().lower() if found else None
+
+
+def _prose_lines(text: str) -> list[tuple[int, str]]:
+    """A spec's lines outside fenced blocks and HTML comments, each with its 1-based number.
+
+    A comment closes before a fence opens, so a fence marker quoted inside a comment cannot
+    swallow the rest of the file. A one-line ``<!-- ... -->`` is stripped rather than skipped, so a heading with
+    a trailing note still counts. Both exclusions are load-bearing for every check that reads
+    headings: a spec quoting a heading in an example, or commenting one out while splitting, would
+    otherwise be judged on text it does not carry.
+
+    Args:
+      text: The spec's full text.
+
+    Returns:
+      ``(line number, line)`` pairs, in order, with inline comments removed.
+
+    Raises:
+      None.
+    """
+    fence = re.compile(r"^\s*(?:```|~~~)")
+    inline_comment = re.compile(r"<!--[^>]*-->")
+    kept: list[tuple[int, str]] = []
+    in_fence = in_comment = False
+    for number, raw in enumerate(text.splitlines(), 1):
+        if in_comment:
+            in_comment = "-->" not in raw
+            continue
+        if in_fence:
+            if fence.match(raw):
+                in_fence = False
+            continue
+        if fence.match(raw):
+            in_fence = True
+            continue
+        line = inline_comment.sub("", raw)
+        if "<!--" in line:
+            in_comment = True
+            continue
+        kept.append((number, line))
+    return kept
+
+
 def check_spec_status() -> list[str]:
     """Require each spec's own header to agree with its ``INDEX.md`` row, and Completed to deliver.
 
@@ -730,14 +814,14 @@ def check_spec_status() -> list[str]:
     errors = []
     for path in sorted(specs.glob("SPEC-*.md")):
         number = path.name[5:8]
-        header = re.search(r"^\**Status:?\**[:\s]*\**\s*([A-Za-z ]+)", path.read_text(), re.MULTILINE)
+        stated = spec_status(path.read_text())
         if number not in rows:
             errors.append(f"{path.name} has no row in INDEX.md")
             continue
-        if header is None:
+        if stated is None:
             errors.append(f"{path.name} has no Status header")
             continue
-        stated, indexed = header.group(1).strip().lower(), rows[number].strip().lower()
+        indexed = rows[number].strip().lower()
         if not indexed.startswith(stated) and not stated.startswith(indexed):
             errors.append(f"{path.name}: header says '{stated}', INDEX.md says '{indexed}'")
         if stated == "completed" and not list(delivery.glob(f"SPEC-{number}-*.md")):
@@ -754,9 +838,9 @@ def check_spec_size() -> list[str]:
     ones above the line are a tail rather than the norm — which is why this is a ratchet on the
     COUNT and not a failure per spec.
 
-    FRs are counted as distinct ``### FR-NNN`` headings outside fenced blocks and HTML comments.
-    Both exclusions are load-bearing: a spec that quotes FR headings in an example, or comments
-    some out while splitting, would otherwise be told to split on requirements it does not have.
+    FRs are counted as distinct ``### FR-NNN`` headings outside fenced blocks and HTML comments
+    (``_prose_lines``): a spec that quotes FR headings in an example, or comments some out while
+    splitting, would otherwise be told to split on requirements it does not have.
 
     Args:
       None.
@@ -767,35 +851,15 @@ def check_spec_size() -> list[str]:
     Raises:
       None.
     """
-    fence = re.compile(r"^\s*(?:```|~~~)")
-    inline_comment = re.compile(r"<!--[^>]*-->")
     heading = re.compile(r"^### (FR-\d+)")
     oversize: list[tuple[str, int]] = []
     unparsed: list[str] = []
     for path in sorted((ROOT / "docs" / "specs").glob("SPEC-*.md")):
         text = path.read_text()
-        status = re.search(r"^\**Status:?\**[:\s]*\**\s*([A-Za-z ]+)", text, re.MULTILINE)
-        if status and status.group(1).strip().lower() == "cancelled":
+        if spec_status(text) == "cancelled":
             continue
-        ids, in_fence, in_comment = set(), False, False
-        for raw in text.splitlines():
-            # A comment closes before a fence opens, so a ``` quoted inside a comment
-            # cannot swallow the rest of the file. A one-line <!-- ... --> is stripped
-            # rather than skipped, so a heading with a trailing note still counts.
-            if in_comment:
-                in_comment = "-->" not in raw
-                continue
-            if in_fence:
-                if fence.match(raw):
-                    in_fence = False
-                continue
-            if fence.match(raw):
-                in_fence = True
-                continue
-            line = inline_comment.sub("", raw)
-            if "<!--" in line:
-                in_comment = True
-                continue
+        ids = set()
+        for _, line in _prose_lines(text):
             found = heading.match(line)
             if found:
                 ids.add(found.group(1))
@@ -828,6 +892,81 @@ def check_spec_size() -> list[str]:
             "that is the argued exception, not the reflex."
         )
     ]
+
+
+def check_spec_shape() -> list[str]:
+    """Require a live spec to carry the template's four sections and no parked question.
+
+    The template's shape is what makes a spec buildable by a session that was not there when it
+    was written (``docs/process/authoring-a-spec.md``): an Overview, a Scope, the Functional
+    Requirements and the Implementation Phases, each a top-level ``## `` heading matched on its
+    first words case-insensitively — ``## Scope`` but not ``### Scope`` and not ``## Scoped``. A
+    heading at any level naming an Open Question or a Checkpoint FAILS: the first is a decision the
+    author deferred to the builder, the second the per-phase approval the session rhythm retired,
+    and both are resolved in authoring or in session rather than parked in the file. Two findings
+    are WARNINGS, reported and not failed, as the template's own linter treats them: an unfilled
+    placeholder — ``[Feature Name]``, ``[Requirement Name]``, ``SPEC-XXX``, and ``YYYY-MM-DD`` on
+    the ``**Last Updated:**`` line only, because three specs describe a date format in prose — and
+    ``### FR-`` headings with no ``Acceptance Criteria`` anywhere.
+
+    The check reads the spec outside fenced blocks and HTML comments (``_prose_lines``), so a
+    heading quoted in an example or commented out is not a heading.
+
+    WHO IS EXEMPT, and why it fails closed. The Completed specs written from an earlier template
+    carry ``#### Checkpoint`` and ``## Open Questions`` headings, and a Cancelled spec is a
+    tombstone with nothing to require. Rewriting sixty closed files to satisfy a rule that governs
+    specs still being built would be churn with no reader, so ``SPEC_SHAPE_EXEMPT`` skips them —
+    keyed on the Status header alone. Everything else is judged in full: no status,
+    Draft, In Progress, Superseded, or a status nobody can parse. An exemption that widened to
+    "anything that does not say Draft" would let the next unlabelled spec through, which is the
+    silent direction.
+
+    Args:
+      None.
+
+    Returns:
+      One message per missing section and per banned heading, and one ``WARNING``-prefixed message
+      per spec for placeholders and for FRs with no acceptance criteria; empty when every live
+      spec has the shape.
+
+    Raises:
+      None.
+    """
+    banned = re.compile(
+        r"^#{1,6}\s.*(?:" + "|".join(re.escape(h) for h in SPEC_BANNED_HEADINGS) + ")",
+        re.IGNORECASE,
+    )
+    fr_heading = re.compile(r"^### FR-")
+    findings = []
+    for path in sorted((ROOT / "docs" / "specs").glob("SPEC-*.md")):
+        text = path.read_text()
+        if spec_status(text) in SPEC_SHAPE_EXEMPT:
+            continue
+        lines = _prose_lines(text)
+        for section in SPEC_REQUIRED_SECTIONS:
+            present = re.compile(r"^" + re.escape(section) + r"(\s|$)", re.IGNORECASE)
+            if not any(present.match(line) for _, line in lines):
+                findings.append(f"{path.name}: missing required section '{section}'")
+        for number, line in lines:
+            if banned.match(line):
+                findings.append(
+                    f"{path.name} line {number}: banned heading '{line.strip()}' — an Open Question "
+                    "or a Checkpoint is resolved while authoring or in session, never parked in the "
+                    "spec (docs/process/authoring-a-spec.md)"
+                )
+        placeholders = [
+            marker for marker in SPEC_PLACEHOLDERS if any(marker in line for _, line in lines)
+        ]
+        if any(line.startswith("**Last Updated") and "YYYY-MM-DD" in line for _, line in lines):
+            placeholders.append("YYYY-MM-DD")
+        if placeholders:
+            findings.append(
+                f"{WARNING}{path.name}: unfilled template placeholder(s): {', '.join(placeholders)}"
+            )
+        has_frs = any(fr_heading.match(line) for _, line in lines)
+        if has_frs and not any("acceptance criteria" in line.lower() for _, line in lines):
+            findings.append(f"{WARNING}{path.name}: has FR-* requirements but no 'Acceptance Criteria'")
+    return findings
 
 
 def check_delivery_size() -> list[str]:
@@ -1279,12 +1418,12 @@ def main() -> int:
       None.
 
     Returns:
-      ``0`` when the layout holds, ``1`` when any check failed.
+      ``0`` when the layout holds, warnings or not; ``1`` when any check failed.
 
     Raises:
       None.
     """
-    errors: list[str] = []
+    findings: list[str] = []
     for check in (
         check_testing_layout,
         check_fixture_scripts,
@@ -1296,6 +1435,7 @@ def main() -> int:
         check_process_router,
         check_arcs,
         check_spec_status,
+        check_spec_shape,
         check_spec_size,
         check_delivery_size,
         check_source_citations,
@@ -1305,7 +1445,15 @@ def main() -> int:
         check_doc_paths_everywhere,
         check_always_loaded_pointers,
     ):
-        errors.extend(check())
+        findings.extend(check())
+    # A warning is reported in full and decides nothing: the exit code is the errors' alone.
+    warnings = [f[len(WARNING):] for f in findings if f.startswith(WARNING)]
+    errors = [f for f in findings if not f.startswith(WARNING)]
+    if warnings:
+        print(f"Documentation layout: {len(warnings)} warning(s)\n", file=sys.stderr)
+        for warning in warnings:
+            print(f"  - {warning}", file=sys.stderr)
+        print(file=sys.stderr)
     if errors:
         print(f"Documentation layout: {len(errors)} problem(s)\n", file=sys.stderr)
         for error in errors:

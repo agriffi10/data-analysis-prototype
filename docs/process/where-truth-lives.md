@@ -37,7 +37,7 @@ tree, and holds no rules of its own.
 | `docs/decisions/INDEX.md` → one area file | the *entry* for your area | settled decisions in full and the "do NOT build" fences, **one file per area, matching the rows of CLAUDE.md's Key Decisions table** |
 | `docs/spec-delivery/SPEC-XXX-*.md` | when a dependency points to one | what a past spec shipped |
 | `docs/testing/e2e.md` + `owed.md` + `sessions.md` | when running live checks | how to validate the deployed app, what is still owed, and what has actually been run |
-| `docs/reviewer-contract.md` | when you are about to spend a reviewer | how many reviewers and where they run, briefing one, rotating the frame, and when to stop — the method behind `session-rhythm.md`'s gate |
+| `docs/reviewer-contract.md` | when you are about to spend a reviewer, and when a build hits two FRs that cannot both hold | how many reviewers and where they run, briefing one, rotating the frame, adjudicating two FRs that cannot both hold, and when to stop — the method behind `session-rhythm.md`'s gate |
 | `docs/templates/` | when authoring a spec or closing one | the spec and completion templates `authoring-a-spec.md` and `completion-ritual.md` start from |
 | `docs/security-baseline.md` | before touching a scanner or a suppression | every shipped scanner finding and its written disposition |
 | `docs/transition_plan.md` | before auth, provisioning or LF work | the client-environment transition |

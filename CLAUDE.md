@@ -139,7 +139,9 @@ too, before the first push — as few PRs as the dependencies allow.
 completion**, summarizing a phase in passing but never ending the turn on it (a summary that ends
 the turn *is* a request for approval). Specs carry no Open Questions: decide **reversible/technical**
 issues in-session and update the spec if scope changes; **stop and escalate product-changing or
-ambiguous** ones with options and a recommendation, never silently decide.
+ambiguous** ones — never silently decide, and never as options written out in prose that end the
+turn: ask with the **question tool**, the options as selections and the recommended one first, and
+continue on the answer.
 
 **Review and spec size: `@docs/process/session-rhythm.md` and `@docs/process/authoring-a-spec.md`.**
 Three artifacts — a **spec**, a **plan** and a **diff** — each reviewed in a **fresh context**, the
@@ -149,22 +151,21 @@ session rhythm carries the exit rules this paragraph compresses, and the authori
 ceiling and the `SPEC_OVERSIZE_MAX` ratchet. The method — how many reviewers, briefing one, rotating
 the frame — is `@docs/reviewer-contract.md`, pulled when you are about to spend one.
 
-**PRs & main:** formatter, both linters, both suites, mypy **and `npm run build`** green locally
-before pushing — **CI runs none**, so that run is the only gate; `tsc -b` and mypy are local
-(`@docs/process/ci-and-deploy-traps.md`). **When several sessions share this repo** — they
-routinely do — the remote is serialised by a PR queue: one PR open at a time, taken in the order
-agents asked, `main` green before the next, and you get in line only once your gates and reviews are
-green. The scripts are `scripts/pr-queue/`; a queue is **inert until `install.sh` runs**, which
-configures it to enforce **every branch except `main`**. **A queue is already installed and running
-here, at a path derived from this checkout's directory name.** `install.sh` derives its own path
-from the origin slug — which is `data-analysis-prototype`, not `s3-upload-portal` — so running it
-bare stands up a SECOND, empty queue neither side can see. Re-install only while the queue is idle,
-with `PR_QUEUE_DIR` pointed at the queue in use **and the pattern passed** — an existing one is
-kept, not updated. Protocol: `scripts/pr-queue/PROTOCOL.md`; brief each session from
-`@docs/templates/multi-agent-briefing.md`. Watch every PR to completion and merge as soon as CI is
-green — never open-and-abandon. `main` is always watched: if it fails, fix it with a new PR before
-anything else. **Watch with `scripts/watch_ci.py`, never a hand-rolled loop** — it keys on one sha
-and its exit condition is tested, which two hand-written watches were not.
+**PRs & main:** building a spec **authorizes the whole landing** — the push of the reviewed branch,
+the PR, the watch and the merge on green are the build's last steps, not decisions to confirm.
+Formatter, both linters, both suites, mypy **and `npm run build`** green locally before pushing —
+**CI runs none**, so that run is the only gate, and **that list is a floor, not the set**: also run
+whatever `ci.yml` runs on the branch (`@docs/process/ci-and-deploy-traps.md`). **When several
+sessions share this repo** — they routinely do — the remote is serialised by a PR queue: one PR open
+at a time, in the order agents asked, `main` green before the next, and you get in line only once
+your gates and reviews are green; its hook also refuses a push whose commits do not contain the
+remote's current `main`. **A queue is already installed here, at a path derived from this checkout's
+directory name, and a bare `install.sh` stands up a SECOND, empty one** — the live path rule and the
+re-install recipe are `@docs/process/several-agents.md`; protocol `scripts/pr-queue/PROTOCOL.md`;
+brief each session from `@docs/templates/multi-agent-briefing.md`. Watch every PR to completion and
+merge as soon as CI is green — never open-and-abandon. `main` is always watched: if it fails, fix it
+with a new PR before anything else. **Watch with `scripts/watch_ci.py`, never a hand-rolled loop** —
+it keys on one sha and its exit condition is tested, which two hand-written watches were not.
 
 **Infra rule:** any spec that provisions new infra expands the deploy role's IAM (`.tftpl` under
 `infra/modules/base/policies/`) as in-scope work, and it lands in **its own PR before** the
