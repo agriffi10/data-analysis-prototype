@@ -45,6 +45,7 @@ always leaves an arc entry here holding the pair's build order, even when nothin
 - [Container-lambdas arc (SPEC-212 → 213 → 214)](#container-lambdas-arc-spec-212--213--214)
 - [System-settings prefix arc (SPEC-218 → 219 → 220)](#system-settings-prefix-arc-spec-218--219--220)
 - [Results-conversion arc (SPEC-221 → 222 → 223)](#results-conversion-arc-spec-221--222--223)
+- [Observability continuation arc (SPEC-224 → 225 → 226)](#observability-continuation-arc-spec-224--225--226)
 
 ---
 
@@ -2919,3 +2920,50 @@ for.
 request, because there was no surface; now they need a sitting. `docs/testing/owed.md` is the single
 home for which of them are outstanding — this paragraph deliberately names no status, since a
 narrative that duplicates the ledger is the copy nobody updates.
+
+---
+
+## Observability continuation arc (SPEC-224 → 225 → 226)
+
+**Why it exists.** SPEC-127 → 137 built the pipe and instrumented the whole fleet: every Lambda in
+the repo calls `observability.init` and carries `@observability.traced`, held there by
+`test_instrumentation_coverage.py`'s repo-wide gate. What that arc left is not a gap in coverage but
+two gaps in **depth**, both recorded at the time as deliberate deferrals rather than discovered
+later — and a library four minor versions behind.
+
+**224 is the enabler and ships first.** `log-foundry` 1.0.0 is a reliability release, and the pin
+has to move before either of the others is safe. Two of its changes land on code this repo wrote
+*around* 0.6.0's limitations: `configure(sink=…)` now swaps properly, which makes two test harnesses'
+hand-written worker retirement obsolete — and, because `log_foundry.decorator._worker` no longer
+exists, silently inert behind a `getattr` default. It also makes `continue_trace` **one-shot**, which
+is the whole reason 225 can be built: on 0.6.0 adoption is sticky, so a warm container's next
+invocation silently joins the previous run's trace, which is worse than nine honest traces.
+
+**225 closes the deferral this arc's own docs named.** "One run is **nine traces**, joined on
+`fields.request_id`" was a user decision on 2026-07-22 — correlation now, stitching later, sequenced
+after the pipe was proven live. It is proven live. The traceparent is minted at the API, threaded
+through the state payload as `requestId` already is, and adopted by every verb. Most of the
+threading is free, because every Task uses `Payload.$=$` with `OutputPath=$.Payload`; the work is at
+five field-naming `Pass` states, the failure seeds, and the four Distributed Maps — which reach their
+children through `ItemBatcher.BatchInput`, a mechanism no template in the repo uses today, rather
+than through an `ItemSelector`, which none of them has. `request_id` stays: records written before
+the cutover have nine trace ids per run and nothing migrates them.
+
+**226 gives the seven flat planes child spans, from the shared layer rather than verb by verb.**
+`observability.step` has existed since SPEC-130 and is used by data-quality, the log sweep, the API,
+the DLQ drain and user-directory-build. Archive, file-ops, file-send, results-conversion,
+shared-space, table-builder and table-share have none. All seven reach their durable work through the
+same `cpcommon` modules, so instrumenting those once buys per-operation duration for all of them in
+one blast radius — and avoids the move that looks obvious and is wrong, a step inside a per-item
+loop, which costs one SQS message and one line of a rewritten day object *per object*.
+
+**Build order 224 → 225 → 226.** 225 depends on 224 for one-shot adoption and for
+`reset_context()`; 226 depends on 224 only for the pin. 226 could be built beside 225 but is
+sequenced after it so that the one-trace guard is not competing with new child spans for the same
+capturing-sink fixtures.
+
+**One defect was found while authoring 225 and is fixed in it.** The archive machine's `Validated`
+and `ArchiveComplete` comments both claim `test_state_machine_archive.py` holds the ASL's field list
+to the verb's real return value. No such test exists — five of the eight planes have no ASL↔verb
+cross-check at all, and archive is one of them. 225 answers it with a sweep over all eight templates
+rather than five hand-written per-plane tests.
