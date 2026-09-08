@@ -70,12 +70,15 @@ why the pin is exact, why it is the core package rather than `[aws]`, and what 1
 *for*; the superseded floors go, rather than becoming a fifth paragraph.
 
 **A rewrite can lose a fact as easily as an append can bury one, and this block is the only live
-home of three.** It carries the sole current statement that `error.stack`'s ceiling is a 32 KB
-tail-preserving clip — which is what makes the SPEC-110 tripwire's premise checkable — and the
-only record of the two dispositions that keep this repo out of 1.0.0's `MultiSink` re-raise change
-and its non-JSON datetime change (the sink here is `SQSSink` alone; no mongo/postgres/sqlite/
-clickhouse sink is used). Those three survive the rewrite. The version *floors* go; the
-*dispositions* do not.
+home of six.** Each was checked against the whole live tier during authoring, and the count has
+already been wrong twice — three in one draft, five in the next — which is why it is enumerated in
+the criterion rather than described here.
+
+The `MultiSink` and datetime dispositions are **0.6.0** changes, not 1.0.0's; an earlier draft
+attributed them to 1.0.0 and was wrong. They are written **version-free**, because naming 0.6.0
+would leave a sub-1.0.0 version in the very block FR-004's sweep exists to clear, and naming 1.0.0
+would be false. The disposition — this repo uses `SQSSink` alone and no non-JSON sink — is what
+matters and is true of every version.
 
 `lambdas/Dockerfile` names `log-foundry ==0.6.0` in the comment explaining why the image's
 constraint check demands *a* constraint rather than an exact pin. That example moves with the pin.
@@ -86,14 +89,16 @@ constraint check demands *a* constraint rather than an exact pin. That example m
       `log-foundry` constraint.
 - [ ] The comment states why the pin is exact and why it is the core package, and names no version
       floor below 1.0.0.
-- [ ] The rewritten comment still states **five** live facts the block is the sole home of: the
-      32 KB tail-preserving `error.stack` clip; the `SQSSink`-alone disposition against `MultiSink`;
-      the no-non-JSON-sink disposition against the datetime change; that a `stamp`/`info` outside a
-      span **emits synchronously on the caller's thread** (whose only other statement in the repo is
-      the `_emit` docstring sentence FR-004 replaces, so after this PR it would exist nowhere); and
-      that an event is safe by construction, every value coerced and size-bounded once at assembly.
-      The last two read as version floors and are not — they are why a call site may put an
-      arbitrary object in a field.
+- [ ] The rewritten comment still states **six** live facts the block is the sole home of:
+      (1) the 32 KB tail-preserving `error.stack` clip; (2) the `SQSSink`-alone disposition against
+      `MultiSink`; (3) the no-non-JSON-sink disposition against the datetime change; (4) that a
+      `stamp`/`info` outside a span **emits synchronously on the caller's thread** — whose only
+      other statement is the `_emit` docstring sentence FR-004 replaces, so after this PR it would
+      exist nowhere; (5) that an event is safe by construction, every value coerced and
+      size-bounded once at assembly; and (6) that `error.message`/`error.module` exist, **so
+      filtering an error stops meaning substring-matching the free-text `stack` blob** — `error.module`
+      appears exactly once in the live tier, and this fact is the counterpart to the `error.stack`
+      exemption three register entries lean on. (4), (5) and (6) read as version floors and are not.
 - [ ] The check is a diff of the removed lines against those five claims, made to **fail first**:
       run it against a rewrite that drops one and confirm it objects. A checklist read against the
       new text passes by construction.
