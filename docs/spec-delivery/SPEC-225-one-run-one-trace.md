@@ -8,7 +8,7 @@ A control-plane run's success path is now **one distributed trace** instead of o
   shapes a verb can be entered by — the state payload, the EventBridge Pipe envelope, a
   Distributed Map's `ItemBatcher.BatchInput`, and an inline Map's `request` block — and
   `_adopt_trace` runs after `_reset_context` and before the span opens. New public name:
-  `run_traceparent()`, the module's ninth.
+  `run_traceparent()`, one of the module's nine documented logging names.
 - **The producer.** `traceparent` is declared on all eleven enqueue routes' `stamped` term and
   written by `_stamped_values`, so `build_message` sends it on every message.
 - **Every plane's `validate-authorize` returns it**, including archive's separate restore return
@@ -58,7 +58,10 @@ A control-plane run's success path is now **one distributed trace** instead of o
 
 Local, green by exit code: `pytest lambdas/`, ruff, mypy, the six CI validators, contract
 regeneration, `tofu validate` / `fmt -recursive -check`, and the portal's build, lint, format and
-suite. Test names collected from the runner on both refs — nothing removed.
+suite. Test names collected from the runner on both refs: one name changed —
+`test_only_four_routes_stamp_a_field_and_the_values_match_what_they_declare` became
+`test_every_route_stamps_the_traceparent_and_only_four_stamp_anything_else`, which asserts
+strictly more — and nothing was removed.
 
 **24 mutations planted and run, all caught**, each re-planted from a reviewer's own reproduction.
 Two frames on each PR's diff found five guards that could not fail, including a fleet sweep
@@ -68,8 +71,17 @@ Distributed-Map shape flat.
 The payload-limit headroom was **re-derived**, not re-run: 32.7% and 35.5% of the 256 KiB limit
 against a 50% bar, control at 58.3%. The child-input cap likewise: 26,403 → 26,546 bytes.
 
-**Owed:** FR-003 AC-1 — a real execution showing `BatchInput` reaches an `ItemReader`-fed Map's
-child. Deferred by decision; the row and its recipe are in [`owed.md`](../testing/owed.md).
-Partly discharged — all eight definitions return `OK` from `validate-state-machine-definition`,
-and `ItemBatcher.BatchInputTypo` is refused as *"not supported"*, so the field is real and a red
-first apply is ruled out. Runtime delivery is what remains.
+**Owed, two rows** in [`owed.md`](../testing/owed.md), and the first discharges the second.
+**A real run's records carrying one `trace_id`** is the feature's own end-to-end proof: the
+offline guard drives the verbs in one process with the ASL's own blocks, but not Step Functions
+evaluating them, a Pipe, or a warm container serving a second run. **FR-003 AC-1** — a real
+execution showing `BatchInput` reaches an `ItemReader`-fed Map's child — falls out of that same
+reading, because archive's three Distributed Maps carry the block. Both need the CLI: the records
+are in the logs bucket and nothing in the browser shows a trace id. The recipes are inline rather
+than in `docs/testing/fixtures/`, because that directory is a two-script ratchet named by PLANE
+and this check spans two.
+
+FR-003 AC-1 is **partly discharged**: all eight definitions return `OK` from
+`validate-state-machine-definition`, and `ItemBatcher.BatchInputTypo` is refused as *"not
+supported"*, so the field is real and a red first apply is ruled out. Runtime delivery is what
+remains.

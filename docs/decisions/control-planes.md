@@ -349,10 +349,12 @@ Rejected: threading it through `ItemSelector` (none of the six has one, and addi
 whole parent state into every item); writing it into the manifest (repeats per line); and reading
 it from the traceparent header (the planes are entered by SQS, not HTTP).
 
-**What is owed**: a real execution proving `BatchInput` reaches an `ItemReader`-fed Map's child —
-AWS documents the pairing nowhere, and `test-state` refuses a Map's child outright. Partly
-discharged: the service's own definition validator accepts all eight templates and refuses a
-`BatchInputTypo` as unsupported, so the field is real and a red first apply is ruled out.
+**What is owed**: a real run's records carrying one `trace_id`, and — falling out of the same
+reading, since archive's Maps carry the block — an execution proving `BatchInput` reaches an
+`ItemReader`-fed Map's child. AWS documents that pairing nowhere and `test-state` refuses a Map's
+child outright. Partly discharged: the service's own definition validator accepts all eight
+templates and refuses a `BatchInputTypo` as unsupported, so the field is real and a red first
+apply is ruled out.
 Detail: `spec-delivery/SPEC-225`.
 
 ## No ASL state decodes an error Cause (PR #252, control-plane-wide)

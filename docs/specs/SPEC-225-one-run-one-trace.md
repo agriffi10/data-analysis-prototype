@@ -55,7 +55,7 @@ is not merely unproven, it is wrong.
   planted this spec's prescribed edit on archive and the whole suite stayed green while six archive
   failure paths would hit an absent `$.traceparent` — a `States.Runtime` that is neither retriable
   nor catchable, killing the run *before* `NotifyFailure`, so a user whose archive failed would hear
-  nothing. A literal reading of FR-004's sweep pulls those 28 failure-path states into scope; FR-004
+  nothing. A literal reading of FR-004's sweep pulls those 29 failure-path states into scope; FR-004
   excludes them explicitly for that reason.
 - **Giving table-share a `requestId`.** Its validator returns none and no downstream state carries
   one. Adding one is a contract change to a plane this spec is otherwise only threading through.
@@ -219,8 +219,9 @@ discriminators that a plain "names its fields" rule gets wrong — each establis
 sweep and reading what it returned. (Four was this spec's own count and it is wrong: implemented
 literally, the first four select **21** states.)
 
-1. **A `Pass` with a `ResultPath` merges** under that path and drops nothing. Without this, five
-   `StampExecution`-style states join the population as false positives.
+1. **A `Pass` with a `ResultPath` merges** under that path and drops nothing. Without this,
+   **seven** `StampExecution`-style states join the population as false positives — measured by
+   disabling the rule, not counted by eye.
 2. **A Task's `Parameters.Payload` block *is* its Lambda's input**, so a field-naming one drops a
    key exactly as a `Pass` does. Four qualify.
 3. **Failure-path states are excluded** — a state that cannot reach a success terminal except
@@ -268,12 +269,12 @@ assert the run key on the verb side directly.
 - [ ] Every plane's `validate-authorize` returns `traceparent`, including shared-spaces', whose
       return is the one conditionally-shaped key set in the fleet.
 - [ ] The ten states above name it, and `describe-results` and `convert` return it.
-- [ ] A sweep over all eight templates derives that population by parsing, applying the four
+- [ ] A sweep over all eight templates derives that population by parsing, applying the five
       discriminators, and returns **exactly** those ten. A test pins the count and the membership,
       so a discriminator that silently widens or narrows the population fails.
 - [ ] It carries a positive control that it found states at all, and is mutation-tested per state —
       removing the key from any one must fail and name the plane and the state.
-- [ ] The six exact-equality fixtures are updated and still assert the rest of the return.
+- [ ] The five exact-equality fixtures are updated and still assert the rest of the return.
 
 ### FR-005: A run is one trace, proved end to end
 

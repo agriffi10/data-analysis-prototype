@@ -40,7 +40,8 @@ because EventBridge drops an input this plane's own cap allows to approach 200 K
 
 ## The request envelope
 
-`{requestId, identity: {actor, delegated_by, assurance}, source: {space, items}, recipients[]}`,
+`{requestId, traceparent, identity: {actor, delegated_by, assurance}, source: {space, items},
+recipients[]}`,
 plus a **legacy top-level `actor`** still carrying the raw ID token until the API stops sending
 one. Unknown top-level fields are **rejected, not ignored**.
 
