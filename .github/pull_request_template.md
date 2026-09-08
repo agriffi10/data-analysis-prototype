@@ -21,7 +21,7 @@
 ## Checklist
 
 - [ ] CI passes (build, contract, docs, flags) — merging once green **and** every Owed item above is settled
-- [ ] Lint, both suites and mypy run and green **locally** — CI no longer runs any of them (`docs/process/ci-and-deploy-traps.md`)
+- [ ] Lint, both suites and mypy run and green **locally** — CI no longer runs any of them (`docs/process/ci-and-deploy-traps.md`); that list is a floor, not the set — also run whatever `ci.yml` runs
 - [ ] No secrets or credentials committed
 - [ ] `apps/portal/.env.example` updated if new `VITE_*` vars were added
 - [ ] If IaC changed: `tofu plan` output reviewed in PR comments

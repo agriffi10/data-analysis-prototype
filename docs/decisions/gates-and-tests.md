@@ -500,8 +500,9 @@ that introduced the check. Rewriting them to satisfy a rule that governs specs s
 would be churn with no reader, so the check skips a spec whose Status header reads Completed or
 Cancelled and judges everything else in full: no status, Draft, In Progress, Superseded, a
 misspelling. The hole is shaped like the item it excuses (the fence above): two named statuses, not
-"anything not being built", and the corpus plants both the exemption vanishing and the exemption
-widening. `YYYY-MM-DD` is looked for on the `**Last Updated:**` line only — three specs describe a
+"anything not being built", and the corpus carries a case for each direction — an exempt spec left
+alone, a Superseded and a status-less one judged — so both the exemption vanishing and the
+exemption widening redden it. `YYYY-MM-DD` is looked for on the `**Last Updated:**` line only — three specs describe a
 date format in prose.
 
 **What the corpora prove, and the one they caught.** `pre_push_test.py` now builds a real bare
