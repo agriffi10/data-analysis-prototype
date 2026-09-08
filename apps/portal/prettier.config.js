@@ -10,7 +10,6 @@ export default {
   bracketSameLine: true,
   arrowParens: 'always',
   printWidth: 120,
-  endOfLine: 'auto',
   objectWrap: 'preserve',
   proseWrap: 'never',
   endOfLine: 'lf',

@@ -21,8 +21,12 @@ export default defineConfig({
     pool: 'threads',
     coverage: {
       provider: 'v8',
-      // `all` defaults to true in Vitest 4 with `include` set, so every source
-      // file is reported — not just the ones a test happens to import.
+      // Pins the measured population to this app's TypeScript sources, which is what makes the
+      // thresholds below mean anything: they are a fraction OF this list. Do not read it as what
+      // puts untested files in the denominator — measured with and without it, the same rows and
+      // the same percentages come back either way, and only the reported paths shift as the
+      // common-prefix root climbs out of `src/`. It is the scope that is load-bearing here, not
+      // the population.
       include: ['src/**/*.{ts,tsx}'],
       exclude: [
         'src/**/*.test.{ts,tsx}',

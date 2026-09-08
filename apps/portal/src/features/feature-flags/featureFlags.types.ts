@@ -16,13 +16,7 @@
  * three options and changes what nobody may do.
  */
 export type FeatureFlagKey =
-  | 'files'
-  | 'query'
-  | 'sharedWorkspaces'
-  | 'dataQuality'
-  | 'dataExplorer'
-  | 'asyncFileOperations'
-  | 'resultsConversion';
+  'files' | 'query' | 'sharedWorkspaces' | 'dataQuality' | 'dataExplorer' | 'asyncFileOperations' | 'resultsConversion';
 
 /** Every flag, always. No consumer ever handles `undefined`. */
 export type FeatureFlags = Record<FeatureFlagKey, boolean>;

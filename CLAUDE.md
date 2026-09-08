@@ -44,6 +44,7 @@ production users yet.
 | Layer | Tech |
 |---|---|
 | Frontend | React 19 + Vite, TypeScript (strict), TailwindCSS; `focus-trap-react` (focus trapping for Modal/Drawer) |
+| TypeScript | **Two copies on purpose: `npm ls typescript` reporting 6.x is not a bug.** `tsc -b` runs 7.x from `apps/portal/node_modules`; typescript-eslint pins `<6.1.0` (TS 7 ships no API before 7.1) so npm hoists 6.x to the root for it. `npm ci` reproduces it; `npm install` only if `typescript` goes LAST — named beside `typescript-eslint` it fails ERESOLVE, and `--force`/`--legacy-peer-deps` "fixes" that by breaking lint. Check versions with `npx tsc --version` **from `apps/portal/`** |
 | AWS | `aws-amplify` v6 for Cognito, and nothing else. **No `@aws-sdk/*` package may be added** — an ESLint `no-restricted-imports` clause forbids the import (tests included) and a test over `package.json` forbids the dependency; objects, bytes, the catalog and the queues go through the API |
 | Editor | `@monaco-editor/react` + `monaco-editor` (self-hosted workers; lazy-loaded on the Query route only, SPEC-035) |
 | Routing / state | `react-router` v8 (**not** `react-router-dom` — that package is gone in v8; import everything from `react-router`); TanStack Query (server state) + Context/`useReducer` (UI state); no Redux |
