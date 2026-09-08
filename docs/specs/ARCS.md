@@ -2978,11 +2978,12 @@ into pool threads — it emits N unattributable root spans that a child-span cou
 227 needs 225's mechanism; 226 needs 224 only for the pin, and is last so its new child spans are
 not competing with the one-trace guards for the same capturing-sink fixtures.
 
-**Three defects in `main` were found while authoring and are fixed inside the arc.** The archive
-machine's `Validated` and `ArchiveComplete` comments cite a cross-check test that does not exist
-(227). The failure-seed guard cannot see eight of the states it exists to police (227). And a sweep
-for the first of those found the class: **23 citations in live source and 21 in current-tier docs
-name tests that were never written**, including three in `arcommon/config.py` that claim to compute
-cap chains against `locals.tf` and "fail the build". 227 fixes the archive comments and adds a gate
-with a ratchet; the rest are paid down deliberately rather than in this arc, because they are memory
-and timeout budgets and not observability.
+**Three defects in `main` were found while authoring.** Two are fixed inside the arc: the archive
+machine's `Validated` and `ArchiveComplete` comments cite a cross-check test that does not exist,
+and the failure-seed guard cannot see eight of the states it exists to police — both 227. The third
+turned out to belong elsewhere. A sweep for the first found the class — **23 citations in live
+source and 21 in current-tier docs name tests that do not exist** — and then found its cause:
+`a41bda69` (#540) deleted 53 test files and left every citation to them standing, so this is one
+sweep's collateral damage rather than scattered rot, and the guards are largely recoverable from
+`a41bda69^`. A separate arc pays that down and **owns the citation gate**, because the gate is what
+verifies its own paydown; 227 keeps only the two archive comments, which are its own subject.

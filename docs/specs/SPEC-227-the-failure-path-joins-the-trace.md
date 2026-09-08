@@ -39,18 +39,26 @@ cross-check at all**, and the archive machine says in its own comments that it d
 - Threading the traceparent along the failure path, including the seeds that carry literals.
 - One cross-check, over all eight planes, holding a field-naming state and its verb's real return
   value to agreement — in **both** directions.
-- Correcting the archive comments that claim a cross-check that does not exist, and a gate so no
-  comment in this repo can name a test that does not exist.
+- Correcting the two archive comments that claim a cross-check that does not exist.
 
 ### Out of Scope
 
-- **Writing the missing cap-and-timeout guards.** The gate in FR-004 finds seventeen citations in
-  live source naming tests that were never written — `arcommon/config.py` alone claims three that
-  compute cap chains against `infra/modules/archive/locals.tf` and "fail the build", and none
-  exists. Those are memory and timeout budgets, not observability, and establishing whether each
-  guard is missing or merely renamed is investigative work with its own risk. The gate lands with a
-  **ratchet** at the measured level, exactly as `SPEC_OVERSIZE_MAX` does: a new false citation fails
-  CI, the existing ones do not, and whoever pays one down lowers the constant in the same PR.
+- **The false test citations, and the gate that would police them — both.** A sweep during
+  authoring found **23 citations in live source** and **21 in current-tier docs** naming tests that
+  do not exist; `arcommon/config.py` alone carries seven, and every one of them points into a
+  single file. They have **one root cause**, verified
+  here rather than inferred: `a41bda69` (#540, "Cut the test suites to how a caller drives the
+  code") deleted **53 test files** — `lambdas/archive-common/test_config_arcommon.py` among them,
+  which held six of `arcommon/config.py`'s seven cited guards and *is* the seventh — and left every
+  citation standing. It is one sweep's
+  collateral damage, not scattered rot, and the guards are largely **recoverable**: ten cited names
+  spot-checked at `a41bda69^` were all present.
+
+  A separate arc is paying this down, and the **citation gate belongs to that arc, not this one** —
+  the gate is what verifies its own paydown is complete, and building it there lets each paydown PR
+  lower the ratchet. Its glob will need to reach beyond `.py`/`.tf`/`.tftpl`:
+  `apps/portal/src/features/table-share/TableShareDialog.tsx` cites a Python test name that #540
+  also deleted.
 - **The success path.** SPEC-225.
 - **`docs/specs/` and `docs/spec-delivery/`.** They are history and legitimately cite tests that
   were later deleted — `test_deploy_matrix.py`, retired by SPEC-214, accounts for much of it. The
@@ -142,44 +150,12 @@ one overlaps it is how coverage is lost quietly.
 - [ ] shared-spaces' conditionally-shaped validator return is handled explicitly — its optional keys
       are declared, not silently absorbed by a subset comparison.
 - [ ] The three existing per-plane cross-checks are still present and green.
+- [ ] **Both archive comments state what actually holds them**, naming this sweep. They currently
+      cite `test_state_machine_archive.py` as reading the `Validated` and `ArchiveComplete` blocks
+      against the verb's real return value; that file holds seven tests and none of them does. The
+      correction belongs to this FR because the sweep is the thing that finally makes the claim
+      true — for all eight planes rather than the one the comment spoke for.
 
-### FR-004: No comment in this repo names a test that does not exist
-
-#### Description:
-
-The archive machine's `Validated` and `ArchiveComplete` comments both say a `Pass` naming each key
-"fails the build via `test_state_machine_archive.py`, which reads this block and the verb's real
-return value and requires them to agree." That file holds seven tests, all graph-walk and
-commit-gate checks, and no test in the repo reads any of those blocks. SPEC-225 was drafted leaning
-on that claim, which is what a false comment costs: it is what a session reads *instead* of checking.
-
-It is not one comment. A sweep during authoring, over tracked files with wrapped citations rejoined,
-found **23 citations in live source** naming tests that do not exist and **21 in current-tier docs**
-— across `arcommon/config.py`, `fscommon/config.py`, `tscommon/config.py`,
-`infra/modules/archive/locals.tf`, `infra/modules/file-send/locals.tf`, both module READMEs, four
-`decisions/` files and two plane pages. `arcommon/config.py` claims three tests that compute cap
-chains against `locals.tf` and "fail the build"; none exists, and the one real guard of that shape —
-`test_the_copy_timeout_constant_matches_the_deployed_verb` — is hard-coded to table-share.
-
-The archive comments are corrected here because this spec's own subject is the cross-check they
-claim. The rest are held by a **gate**, not fixed here: a recurring class is closed structurally, and
-a count ratchet at the measured level lets the existing ones be paid down deliberately.
-
-#### Acceptance Criteria:
-
-- [ ] Both archive comments state what actually holds them, naming FR-003's sweep.
-- [ ] `scripts/validate_docs.py` gains a check that every `test_*` name cited in a tracked source
-      file or current-tier doc resolves to a test that exists, excluding `docs/specs/` and
-      `docs/spec-delivery/` by tier, with wrapped citations rejoined before matching.
-- [ ] The check carries a **fixture corpus**, not a run against this repo's own docs: one case per
-      construct — a resolving citation, a non-existent one, a wrapped one, a citation inside an
-      excluded tier — each asserting the specific failure text, and cases asserting silence.
-      Running the gate over the repo proves the repo passes, not that the gate works.
-- [ ] The ratchet constant is set to the measured count with its derivation recorded beside it, and
-      a new false citation fails CI.
-- [ ] The gate is mutation-tested: each of its checks is broken once and must redden.
-
----
 
 ## Implementation Phases
 
@@ -192,8 +168,8 @@ a count ratchet at the measured level lets the existing ones be paid down delibe
 - The traceparent into every seed and `RecordFailure`; `$$.Execution.Input` for the pre-identity
   seeds; driven failure runs on archive and file-ops.
 
-### Phase 3: The cross-check and the citation gate
+### Phase 3: The cross-check
 
 - The eight-plane set-equality sweep, mutation-tested per plane in both directions.
-- The archive comments; the `validate_docs.py` citation check with its fixture corpus and ratchet.
+- The two archive comments, corrected to name it.
 - Full local gates green by exit code.
