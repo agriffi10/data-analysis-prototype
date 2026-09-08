@@ -158,14 +158,14 @@ Formatter, both linters, both suites, mypy **and `npm run build`** green locally
 whatever `ci.yml` runs on the branch (`@docs/process/ci-and-deploy-traps.md`). **When several
 sessions share this repo** — they routinely do — the remote is serialised by a PR queue: one PR open
 at a time, in the order agents asked, `main` green before the next, and you get in line only once
-your gates and reviews are green; its hook also refuses a push whose commits do not contain the
-remote's current `main`. **A queue is already installed here, at a path derived from this checkout's
-directory name, and a bare `install.sh` stands up a SECOND, empty one** — the live path rule and the
-re-install recipe are `@docs/process/several-agents.md`; protocol `scripts/pr-queue/PROTOCOL.md`;
-brief each session from `@docs/templates/multi-agent-briefing.md`. Watch every PR to completion and
-merge as soon as CI is green — never open-and-abandon. `main` is always watched: if it fails, fix it
-with a new PR before anything else. **Watch with `scripts/watch_ci.py`, never a hand-rolled loop** —
-it keys on one sha and its exit condition is tested, which two hand-written watches were not.
+your gates and reviews are green; its hook also refuses a stale base. **A queue is already
+installed here, at a path derived from this checkout's directory name, and a bare `install.sh`
+stands up a SECOND, empty one** — the live path rule and the re-install recipe are
+`@docs/process/several-agents.md`; protocol `scripts/pr-queue/PROTOCOL.md`; brief each session from
+`@docs/templates/multi-agent-briefing.md`. Watch every PR to completion and merge as soon as CI is
+green — never open-and-abandon. `main` is always watched: if it fails, fix it with a new PR before
+anything else. **Watch with `scripts/watch_ci.py`, never a hand-rolled loop** — it keys on one sha
+and its exit condition is tested, which two hand-written watches were not.
 
 **Infra rule:** any spec that provisions new infra expands the deploy role's IAM (`.tftpl` under
 `infra/modules/base/policies/`) as in-scope work, and it lands in **its own PR before** the
