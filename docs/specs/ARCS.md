@@ -577,7 +577,8 @@ calls that reach CloudWatch and never reach the store those same functions feed.
 
 **130 is the foundation and ships alone, changing no call site**, because `cpcommon` attaches to every control-plane verb and
 a layer change plus nine call-site changes is not one blast radius. It adds the sanctioned emitters (`info`/`warning`/`error`,
-never-raise, so nobody imports `log_foundry` directly and bypasses the discipline the module is built around) and `step()` for
+never-raise, so no verb imports `log_foundry` directly and bypasses the discipline the module is built around
+— two test harnesses do, and SPEC-224 scoped the claim to verbs after finding the absolute was never true) and `step()` for
 child spans. It also fixes two identity defects that instrumenting on top of would have multiplied: every root span in the
 fleet reports `function: "handler"` — `traced` never passed a `name`, and every Lambda entry point in this repo is named
 `handler` — and `verb` was a span *default*, so the first child span would carry `request_id` but not the verb that produced
@@ -615,7 +616,7 @@ the only one of the four that touches infra (`LOGS_QUEUE_URL` plus `sqs:SendMess
 data-quality's `EmitStructuredLogEvents`). Its point is not traces: **consuming a DLQ message destroys the evidence**, and
 SPEC-126 FR-004 knowingly traded each DLQ's 14-day retention for a log group's 14-day retention. Writing the redacted,
 size-capped body as an event upgrades that record to permanent. Two traps shape it. `request_id` must be a **field, never
-baggage** — the drain handles up to 400 requests per invocation while `_reset_baggage` runs once, so per-message baggage would
+baggage** — the drain handles up to 400 requests per invocation while the per-invocation reset runs once, so per-message baggage would
 leak one request's id onto the next, which is exactly the fabricated correlation key SPEC-128 FR-002 forbids. And per-message
 events are **correct here and prohibited in the sweep**, which only looks inconsistent: the sweep emits into the queue it
 drains, so an event per message gives that queue an undrainable floor; the drain emits to the logs queue and drains the

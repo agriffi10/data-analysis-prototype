@@ -12,7 +12,11 @@
   — lost their hand-written worker retirement, and `conftest.py` lost a `_config` save/restore.
 - New suite `lambdas/control-plane-common/test_observability_cpcommon.py`. The module had none, and
   neither the `echo` drop nor the per-invocation reset was tested at all.
-- Five claims the upgrade falsified were corrected across six live files.
+- Five claims were corrected across six live files, and they are **three different kinds**: two the
+  upgrade falsified, one that was **never true** (the one-door rule, stated absolutely), and two
+  still true but dated to a superseded version. Only the first kind is a falsification. Conflating
+  them is what let the never-true one survive in the register until a reviewer found it
+  contradicting this spec's own new entry, thirty-four lines below it.
 
 ### Deliberate deviations
 
@@ -22,10 +26,13 @@
   `max_stack_bytes`, whose validator still rejects a value below 1. The 2026-07-23 acceptance and
   SPEC-195's boundary scrub both stand. The claim is now asserted by a test rather than re-dated by
   hand, so a release that adds an opt-out reddens instead of silently outliving the decision.
-- **The requirements comment was rewritten, not appended to**, and the check on that rewrite is
-  *derived* rather than a count. The count of facts the block is the sole home of was wrong three
-  times running — three, then five, then six, and seven after the diff review — which is the
-  signature of a missing mechanism, not three oversights.
+- **The requirements comment was rewritten, not appended to**, and the check on that rewrite is a
+  test rather than a count. The count of facts the block is the sole home of was wrong four
+  times running — three, then five, then six, then seven — which is the
+  signature of a missing mechanism, not three oversights. A test now asserts each fact against
+  the file, anchored to an identifier rather than to wording, because the first attempt at a
+  "derived" check was an authoring-time procedure that nothing in the repo ran — and the count
+  went wrong a fourth time, spec against block, with nothing to catch it.
 
 ## What changed from earlier specs?
 
@@ -58,12 +65,14 @@ Deferred to CI and settled on the green run: that the image builds and its insta
 the pin — there is no Docker daemon on the authoring machine. Discharged with the build log's
 `Successfully installed … log-foundry-1.0.0`.
 
-Five review passes: one on the spec, two on the plan, two on the diff. Every finding was fixed and
+Seven review passes: one on the spec, two on the plan, two on the diff, two on the close. Every finding was fixed and
 verified by re-planting the reviewer's own reproducing mutation. Two are worth recording because
 they were invisible to a green suite: `_emit`'s guard was covered by **nothing** — deleting the
 whole `try` left the fleet suite green — and `PROHIBITED_FIELDS` was **inert**, hard-coded beside
 while three docstrings named it as the mechanism, which is the same "reads load-bearing, is not"
-defect this spec deletes elsewhere.
+defect this spec deletes elsewhere. The close's own reviews then found a third of the same shape:
+the private-name guard examined exactly one file — its own — with nothing asserting it had reached
+the tree.
 
 A mutation battery also reported full coverage against a **red closing baseline**, because
 `git checkout` cannot restore an untracked file and one plant stayed stuck. Bracketing on both

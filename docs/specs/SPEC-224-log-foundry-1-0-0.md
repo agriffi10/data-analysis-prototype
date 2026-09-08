@@ -70,7 +70,7 @@ why the pin is exact, why it is the core package rather than `[aws]`, and what 1
 *for*; the superseded floors go, rather than becoming a fifth paragraph.
 
 **A rewrite can lose a fact as easily as an append can bury one, and this block is the only live
-home of six.** Each was checked against the whole live tier during authoring, and the count has
+home of seven.** Each was checked against the whole live tier during authoring, and the count has
 already been wrong twice — three in one draft, five in the next — which is why it is enumerated in
 the criterion rather than described here.
 
@@ -89,7 +89,7 @@ constraint check demands *a* constraint rather than an exact pin. That example m
       `log-foundry` constraint.
 - [ ] The comment states why the pin is exact and why it is the core package, and names no version
       floor below 1.0.0.
-- [ ] The rewritten comment still states **six** live facts the block is the sole home of:
+- [ ] The rewritten comment still states **seven** live facts the block is the sole home of:
       (1) the 32 KB tail-preserving `error.stack` clip; (2) the `SQSSink`-alone disposition against
       `MultiSink`; (3) the no-non-JSON-sink disposition against the datetime change; (4) that a
       `stamp`/`info` outside a span **emits synchronously on the caller's thread** — whose only
@@ -98,8 +98,8 @@ constraint check demands *a* constraint rather than an exact pin. That example m
       size-bounded once at assembly; and (6) that `error.message`/`error.module` exist, **so
       filtering an error stops meaning substring-matching the free-text `stack` blob** — `error.module`
       appears exactly once in the live tier, and this fact is the counterpart to the `error.stack`
-      exemption three register entries lean on. (4), (5) and (6) read as version floors and are not.
-- [ ] The check is a diff of the removed lines against those five claims, made to **fail first**:
+      exemption three register entries lean on. (4) through (7) read as version floors and are not. A test asserts every one of them against the file, anchored to identifiers rather than wording, because the count went wrong four times while it was prose.
+- [ ] The check is a diff of the removed lines against those seven claims, made to **fail first**:
       run it against a rewrite that drops one and confirm it objects. A checklist read against the
       new text passes by construction.
 - [ ] `lambdas/Dockerfile`'s constraint-check comment names `==1.0.0`.
