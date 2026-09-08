@@ -1,7 +1,7 @@
 # Spec: One Run, One Trace — the Mechanism and the Success Path
 
 **ID:** SPEC-225
-**Status:** In Progress
+**Status:** Completed
 **Last Updated:** 2026-09-08
 **Depends On:** SPEC-128 (Completed), SPEC-130 (Completed), SPEC-224
 

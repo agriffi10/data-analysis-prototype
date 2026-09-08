@@ -19,6 +19,7 @@ entry you need, not the file.**
 - [Per-plane instrumentation rules (SPEC-132→137)](#per-plane-instrumentation-rules-spec-132137)
 - [The log-foundry pin, and what a library upgrade owes the code written around it (SPEC-224)](#the-log-foundry-pin-and-what-a-library-upgrade-owes-the-code-written-around-it-spec-224)
 - [Where a child span may go, and the four places it may not (SPEC-226)](#where-a-child-span-may-go-and-the-four-places-it-may-not-spec-226)
+- [A run is ONE trace on the success path, and the extractor is a security boundary (SPEC-225)](#a-run-is-one-trace-on-the-success-path-and-the-extractor-is-a-security-boundary-spec-225)
 - [No ASL state decodes an error Cause (PR #252, control-plane-wide)](#no-asl-state-decodes-an-error-cause-pr-252-control-plane-wide)
 - [Notifications (SPEC-058→061)](#notifications-spec-058061)
 - [Every plane notifies on a pre-verb failure, and `failure_reason` is the only decoder (SPEC-152)](#every-plane-notifies-on-a-pre-verb-failure-and-failure_reason-is-the-only-decoder-spec-152)
@@ -185,6 +186,14 @@ DLQ lets one malformed request dead-letter someone else's work.
   be one, since both quote a user's own cell values back; `sql_bytes` and `state` instead. The API
   **prevents rather than redacts**: there is no scrubber, a handler is never given a credential, and
   an AST sweep is what holds it.
+- **A run is ONE trace on the success path**, adopted from FOUR event shapes — the state payload,
+  the Pipe envelope, a Distributed Map's `ItemBatcher.BatchInput` and an inline Map's `request`.
+  **The shape list is a security boundary**: the body branch fires for a LIST only, because a bare
+  dict's `body` is an API Gateway caller's own, and nothing overwrites an adopted trace. Adoption
+  comes **after** the per-invocation reset, which clears it; `run_traceparent()` returns the value
+  **verbatim**, since rebuilding it re-emits an inbound `-00` as `-01`. A Map's `BatchInput` pair is
+  **per-plane** — table-share's state has no `requestId`, so demanding one is `States.Runtime` on
+  every share. The **failure path is not threaded** (SPEC-227).
 
 ## Everything unbounded on the state travels by pointer — including the definition (SPEC-161, extending SPEC-090/160)
 
@@ -301,6 +310,50 @@ The fleet runs **`log-foundry==1.0.0`**, pinned exactly and core-only, for the r
 **A guard over decorators must resolve the name a decorator is BOUND to.** Matching the rendered text `observability.step` was defeated twice — by `from cpcommon.observability import step`, and then, after that was closed, by a plain `import cpcommon.observability`, which binds the **root package** so the usable spelling is the full dotted path. Both put per-item instrumentation on a forbidden function with the whole suite green. This generalises past spans: a guard that matches how a name is *written* is guarding a spelling, not a rule.
 
 **A threshold that reads like a fence may be a detector.** FR-005's budget rests on `log_sweep.LARGE_OBJECT_WARN_BYTES`, which is sized to fire *long before* anything binds. That makes it a conservative basis for a budget and **not** the day-object ceiling; the ceiling's real value needs the sweep's peak-resident multiple, which is unmeasured. Refusing to derive a budget at all was the first answer and the wrong one — erring safe is how a budget is stated. The drain that follows from it repairs nothing that pre-existed — removing it reddens only the tests written for the drain itself — so it is a forward guard rather than a fix. Detail, the rejected rate-free alternative, and the delivery-timing consequence: `spec-delivery/SPEC-226`.
+
+## A run is ONE trace on the success path, and the extractor is a security boundary (SPEC-225)
+
+The traceparent is minted at the **API** — the one place a run begins — written into the message
+by `enqueue.build_message`, and adopted by `traced` before the span opens, so a verb's root span
+parents to the API's. `request_id` **stays**: it is the join key for anything outside the trace,
+and table-share carries none at all.
+
+**Four event shapes, because a verb has four entry points**: the state payload, the EventBridge
+Pipe envelope, a Distributed Map's `ItemBatcher.BatchInput`, and an inline Map's `request` block.
+The last two carried no correlation value of any kind before this, which is why nine Map-child
+verbs could not be joined to their own run.
+
+**The shape list is a security boundary, not a convenience.** `_extract_request_id` used to fall
+back to parsing a bare dict's `body`, and for an API Gateway payload-2.0 request that `body` is
+**the caller's own HTTP body** — so a caller could name this service's correlation key. Latent for
+the request id, because the router overwrites it with the gateway's; **not** latent once a
+traceparent travels the same walk, since nothing overwrites an adopted trace. The body branch is
+narrowed to a **list**, which closes both.
+
+Three mechanisms that each look like a detail:
+
+- **Adoption comes AFTER the per-invocation reset.** `reset_context` clears an adopted context as
+  well as baggage (SPEC-224), so adopting first means the reset erases it. The ordering is the
+  whole reason this spec was sequenced behind that one.
+- **`run_traceparent()` keeps the adopted value VERBATIM**, in a `ContextVar` of this module's own.
+  The library's accessor returns `(trace_id, parent_span_id)` with version and flags discarded, so
+  a rebuilt string re-emits an inbound unsampled `-00` as `-01` — a sampling decision silently
+  reversed on the way through every verb.
+- **A Distributed Map's child cannot see the parent state**, and all six read a JSONL manifest
+  through `ItemReader` with no `ItemSelector`. `ItemBatcher.BatchInput` is the only place a
+  per-run value can travel; the manifest would repeat it on every line of a dataset holding tens
+  of thousands. The pair is **per-plane** — table-share's state has no `requestId`, and an
+  unconditional one there is an uncatchable `States.Runtime` on every share.
+
+Rejected: threading it through `ItemSelector` (none of the six has one, and adding one copies the
+whole parent state into every item); writing it into the manifest (repeats per line); and reading
+it from the traceparent header (the planes are entered by SQS, not HTTP).
+
+**What is owed**: a real execution proving `BatchInput` reaches an `ItemReader`-fed Map's child —
+AWS documents the pairing nowhere, and `test-state` refuses a Map's child outright. Partly
+discharged: the service's own definition validator accepts all eight templates and refuses a
+`BatchInputTypo` as unsupported, so the field is real and a red first apply is ruled out.
+Detail: `spec-delivery/SPEC-225`.
 
 ## No ASL state decodes an error Cause (PR #252, control-plane-wide)
 
