@@ -91,10 +91,11 @@ def _reads(parameters: dict) -> set[str]:
 #: `States.Runtime` that kills the execution before `NotifyFailure`. Held to equality here, these
 #: guards would forbid that safe order.
 #:
-#: Neither side is left unguarded. The ASL side is `test_state_machines_cpcommon.py`'s
-#: success-path sweep, which pins the exact set of states naming the key and is mutation-tested
-#: per state; the verb side is asserted directly in each test below. What is carved out is only
-#: the pairing, for keys no domain state consumes.
+#: The verb side is asserted directly in each test below, so nothing here is unguarded TODAY —
+#: and today no ASL template names `traceparent` at all, so there is no ASL side to guard yet.
+#: When the threading lands, the ASL side becomes the success-path sweep in
+#: `test_state_machines_cpcommon.py`, which pins the exact set of states naming the key. What is
+#: carved out is only the PAIRING of the two, for keys no domain state consumes.
 _RUN_KEYS = frozenset({"traceparent"})
 
 

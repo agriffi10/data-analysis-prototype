@@ -19,6 +19,7 @@ from apicommon import contract
 from apicommon import enqueue as enqueue_module
 from apicommon.envelope import ApiError
 from conftest import bearer
+from cpcommon import observability
 from cpcommon.auth import Principal
 
 _QUEUE_ENV = {
@@ -530,27 +531,85 @@ def test_the_stamp_beats_a_payload_key_of_the_same_name():
     assert message["keep"] == "me", "the payload stopped being carried at all"
 
 
-def test_the_traceparent_fits_inside_the_cap_and_the_refusal_still_fires():
-    """The field is stamped after the size check's allowance is reserved, so it has to fit.
+def test_a_message_at_the_cap_still_carries_the_traceparent_and_one_byte_over_is_refused():
+    """FR-002 AC-3, driven at the boundary rather than near it.
 
-    Both directions: a payload at the cap still sends WITH the traceparent on it, and one over
-    the cap is still refused. Asserting only the refusal would pass if the cap had been lowered
-    to the point of refusing ordinary requests.
+    The first version of this test built `"x" * (MAX_MESSAGE_BYTES - 64)` and then sliced it to
+    1000 characters, so the probe was ~1 KB and SHRANK with the cap it was derived from — it
+    could never fire. Planting the cap at 5000, at 1005, and removing the identity reserve
+    entirely all left it green.
+
+    This one derives the padding from the REAL stamped body, so the probe lands exactly on the
+    cap whatever the cap is, and asserts three things that move together: the at-cap body still
+    carries a real traceparent, it is accepted, and one byte more is refused.
     """
-    at_cap = "x" * (enqueue_module.MAX_MESSAGE_BYTES - 64)
-    enqueue_module._refuse_if_oversized(json.dumps({"k": at_cap[:1000]}))
+    route = next(r for r in contract.ENQUEUE_ROUTES if r.id == "fileSend.enqueue")
+    ctx = SimpleNamespace(principal=Principal(username="alice", claims={}))
+    built = {}
 
-    over = json.dumps({"k": "x" * enqueue_module.MAX_MESSAGE_BYTES})
+    @observability.traced("request")
+    def _build(pad):
+        """Builds one message inside a span, so a real traceparent is stamped rather than null.
+
+        Args:
+          pad: How many padding bytes the caller's payload carries.
+
+        Returns:
+          The serialized message body.
+
+        Raises:
+          None.
+        """
+        return json.dumps(
+            enqueue_module.build_message(route, ctx, {"pad": "x" * pad}),
+            separators=(",", ":"),
+        )
+
+    empty = _build(0)
+    pad = enqueue_module.MAX_MESSAGE_BYTES - len(empty.encode("utf-8"))
+    at_cap = _build(pad)
+    built["at_cap"] = at_cap
+
+    assert len(at_cap.encode("utf-8")) == enqueue_module.MAX_MESSAGE_BYTES, (
+        "the probe did not land on the cap, so neither assertion below is at the boundary"
+    )
+    stamped = json.loads(at_cap)["traceparent"]
+    assert stamped and stamped.startswith("00-"), (
+        f"the at-cap message carries {stamped!r} rather than this request's traceparent, so the "
+        "field being inside the cap has not been shown"
+    )
+
+    enqueue_module._refuse_if_oversized(at_cap)
+
     with pytest.raises(ApiError) as refusal:
-        enqueue_module._refuse_if_oversized(over)
+        enqueue_module._refuse_if_oversized(_build(pad + 1))
     assert refusal.value.code == "PayloadTooLarge"
 
-    stamped = enqueue_module.MAX_IDENTITY_BLOCK_BYTES
-    traceparent_bytes = len('"traceparent":"00-' + "0" * 32 + "-" + "0" * 16 + '-01",')
-    assert traceparent_bytes < stamped, (
-        f"the traceparent needs {traceparent_bytes} bytes and the reserved allowance is "
-        f"{stamped}; the cap is measured on the stamped body, so this must fit inside it"
+
+def test_the_refusal_measures_the_stamped_body_and_not_the_callers_payload(sqs):
+    """`MAX_MESSAGE_BYTES`' docstring says the cap is measured on the ALREADY-STAMPED body.
+
+    Nothing asserted it. A payload UNDER the cap on its own but over it once the identity block
+    and the stamped fields are added would then be accepted here and rejected by SQS — the
+    failure arriving as a dead letter minutes later rather than as an answer now. The traceparent
+    makes the gap between the two measurements wider, so the claim is worth a guard.
+
+    Measured: moving the check onto `dict(payload)` leaves every other test in this file green.
+    """
+    route = next(r for r in contract.ENQUEUE_ROUTES if r.id == "fileSend.enqueue")
+    ctx = SimpleNamespace(principal=Principal(username="alice", claims={}))
+
+    payload = {"pad": "x" * (enqueue_module.MAX_MESSAGE_BYTES - 32)}
+    assert len(json.dumps(payload, separators=(",", ":")).encode("utf-8")) < enqueue_module.MAX_MESSAGE_BYTES, (
+        "the probe payload is already over the cap on its own, so it cannot tell the two "
+        "measurements apart"
     )
+
+    with pytest.raises(ApiError) as refusal:
+        enqueue_module.enqueue(ctx, route, payload)
+
+    assert refusal.value.code == "PayloadTooLarge"
+    assert sqs.sends == [], "the send happened before the refusal"
 
 
 def test_the_assurance_vocabulary_is_a_closed_set_of_exactly_one():

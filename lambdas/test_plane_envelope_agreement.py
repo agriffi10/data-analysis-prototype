@@ -523,6 +523,41 @@ def _validator_modules():
     return sorted(p for p in _ROOT.glob(_VALIDATOR_GLOB) if not p.name.startswith("test_"))
 
 
+def _mints_the_traceparent(tree) -> bool:
+    """Whether a module builds a dict whose `traceparent` is a call to `run_traceparent()`.
+
+    The VALUE is what this looks at, and the first version of this guard looked only at the key
+    name. Two mutants walked straight through that: a module keeping a dead
+    `{"traceparent": "never returned"}` literal while the real return dropped the key, and — much
+    worse — one hard-coding a constant traceparent, which is the fabricated-correlation failure
+    `observability._reset_context` exists to prevent, stamping every run of a plane into one
+    trace. Both were planted and both passed. Asking for the CALL rejects both, because neither
+    mutant can produce one.
+
+    Args:
+      tree: The parsed module.
+
+    Returns:
+      True if some dict in the module maps `traceparent` to a `run_traceparent()` call.
+
+    Raises:
+      None.
+    """
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict):
+            continue
+        for key, value in zip(node.keys, node.values, strict=True):
+            if not (isinstance(key, ast.Constant) and key.value == "traceparent"):
+                continue
+            if (
+                isinstance(value, ast.Call)
+                and isinstance(value.func, ast.Attribute)
+                and value.func.attr == "run_traceparent"
+            ):
+                return True
+    return False
+
+
 def test_every_plane_hands_its_run_a_trace_to_join():
     """A run is one trace only if the verb that starts it puts the traceparent on the state.
 
@@ -545,16 +580,11 @@ def test_every_plane_hands_its_run_a_trace_to_join():
 
     missing = []
     for module in modules:
-        returned = set()
-        for node in ast.walk(ast.parse(module.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.Dict):
-                returned |= {
-                    k.value for k in node.keys if isinstance(k, ast.Constant) and isinstance(k.value, str)
-                }
-        if "traceparent" not in returned:
+        if not _mints_the_traceparent(ast.parse(module.read_text(encoding="utf-8"))):
             missing.append(module.parent.name)
 
     assert not missing, (
-        f"{sorted(missing)} build no dict carrying `traceparent`, so every verb downstream of "
-        "them opens its own trace and the run cannot be followed end to end"
+        f"{sorted(missing)} build no dict whose `traceparent` is `observability."
+        "run_traceparent()`, so every verb downstream of them opens its own trace and the run "
+        "cannot be followed end to end"
     )

@@ -338,6 +338,11 @@ def test_an_unmappable_column_type_is_refused_naming_the_column(s3):
     assert result["reason"] == "unsupported_column_type"
     assert result["tokens"] == {"column": "shape"}
     assert s3.written == [], "nothing is written when a column cannot be typed"
+    # This verb REPLACES the state, and it has two returns. The converted arm is held by
+    # `test_converted_reads_exactly_the_keys_the_convert_verb_returns`; nothing held this one,
+    # so removing the key here left the plane green. `Converted` reads `$.traceparent` once
+    # FR-004 lands, and this is the arm where the user has already been answered.
+    assert result["traceparent"].startswith("00-")
 
 
 def test_a_value_that_does_not_parse_refuses_without_quoting_the_cell(s3):
