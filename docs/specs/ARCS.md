@@ -3000,14 +3000,14 @@ it is not a repair, and the thirteen are not 226's cost.
 not competing with the one-trace guards for the same capturing-sink fixtures.
 
 > **Superseded in the event: 226 shipped BEFORE 227**, on the pin alone, while 227 was unstarted —
-> and the built order is 224 → 225 (FR-001/FR-002) → 226, with the rest of 225 and all of 227
-> outstanding. The heading and the arc-list entry no longer carry an arrow, because a name that
-> asserts a sequence is a claim a reader meets before any marker that corrects it.
-> **The contention has NOT been retired, only deferred.** 226 extended `_CapturingSink` with a drain
-> and a child-span reader; 225's landed half touched no part of that file, which is the only half
-> that can be checked. 225 FR-005 — a run proved to be one trace end to end — and 227's guards are
-> still ahead of it, and they now build on the rewritten fixture rather than beside it. 227 still
-> needs 225's mechanism, so the rest of the order stands. Entry: `decisions/control-planes.md`
+> the built order is 224 → 225 (FR-001/FR-002) → 226 → 225 (FR-003→FR-005), with 227 outstanding.
+> The heading and the arc-list entry no longer carry an arrow, because a name that asserts a
+> sequence is a claim a reader meets before any marker that corrects it.
+> **The predicted fixture contention did not occur.** This paragraph forecast it while only 225's
+> first half had landed; 225 FR-005 then shipped as `test_one_run_one_trace.py`, which defines its
+> own sink and fixture and touches `conftest.py`'s `_CapturingSink` not at all. 226's drain and
+> child-span reader stand unaffected. What remains true is the dependency: 227 needs 225's
+> mechanism, so the rest of the order stands. Entry: `decisions/control-planes.md`
 > (*Where a child span may go*).
 
 **Three defects in `main` were found while authoring.** Two are fixed inside the arc: the archive

@@ -723,7 +723,8 @@ def _blocks_that_name_their_fields(asl):
     what came back:
 
     1. A `Pass` carrying a `ResultPath` MERGES under that path and drops nothing. Without this,
-       five `StampExecution`-style states join the population as false positives.
+       SEVEN `StampExecution`-style states join the population as false positives — measured by
+       disabling the rule, which takes the population from ten to seventeen.
     2. A Task's `Parameters.Payload` block IS its Lambda's input, so a field-naming one drops a
        key exactly as a `Pass` does. Four qualify.
     3. Failure-path states are excluded — 29 of them, which SPEC-227 owns.

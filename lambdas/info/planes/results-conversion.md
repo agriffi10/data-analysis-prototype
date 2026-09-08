@@ -27,8 +27,9 @@ request off the EVENT and holds no `states:DescribeExecution`.
 
 ## The request envelope
 
-`{requestId, queryExecutionId, format, destination: {space, prefix, filename}, onConflict,
-submittedAt, identity}`. Unknown top-level fields are rejected. **`destination.prefix` is RELATIVE
+`{requestId, traceparent, queryExecutionId, format, destination: {space, prefix, filename},
+onConflict, submittedAt, identity}`. Unknown top-level fields are rejected — which is why the
+sender adding `traceparent` had to widen this plane's allowed set in the same change. **`destination.prefix` is RELATIVE
 to the space root** — `paths.destination_key` builds `{root}{prefix}{filename}` — and a caller
 sending an absolute in-space prefix instead writes `alice/alice/…` that nothing here refuses, since
 `assert_inside_root` only proves containment and a doubled root is contained. Empty or
