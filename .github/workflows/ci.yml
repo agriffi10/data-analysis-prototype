@@ -340,7 +340,7 @@ jobs:
       - name: Validate the documentation layout
         run: python3 scripts/validate_docs.py
 
-      # The corpus proves those fifteen checks still FIRE. Running the validator against this
+      # The corpus proves the validator's checks still FIRE. Running the validator against this
       # repo's own docs proves the docs pass and nothing about whether any check works, and a
       # gate whose checks have gone quiet looks exactly like a healthy repo. Ordered after the
       # validator deliberately: if both fail, the real breakage is the more useful message.
@@ -351,7 +351,10 @@ jobs:
       # remote, and it is deployed OUTSIDE the repo -- so nothing else here executes it. Every
       # way it fails is silent: a pattern that stops matching, a check that stops firing, a
       # fail-open that swallows a refusal. It shipped enforcing five spec prefixes, those specs
-      # closed, and it then allowed every push while still looking installed.
+      # closed, and it then allowed every push while still looking installed. It refuses two
+      # things -- a push without the lock, and a push whose commits do not contain the remote's
+      # current main -- and the second reads the remote, so the fixture is a real checkout with
+      # a real bare origin whose trunk each case moves.
       #
       # This runs the real `install.sh` into a throwaway checkout and drives the wrapper it
       # writes, in both directions, then breaks each of the hook's checks in turn -- every plant
@@ -359,6 +362,16 @@ jobs:
       # thing: CI is GNU grep, sed and awk, and the hook only ever runs on a developer's machine.
       - name: Prove the PR queue's pre-push hook still refuses
         run: python3 scripts/pr-queue/pre_push_test.py
+
+      # The same hook, driven through REAL `git push` invocations rather than a fabricated stdin
+      # -- the hook's contract is git's stdin format and the installer's wrapper, and a corpus
+      # that hand-feeds both keeps passing after either breaks. Its sweep plants each check too.
+      # Then the installer's own corpus: the pattern states, the held-lock and foreign-hook
+      # refusals, and the trunk asked of the remote. Both build throwaway repos under $TMPDIR.
+      - name: Prove the hook refuses real pushes, and the installer its misconfigurations
+        run: |
+          sh scripts/pr-queue-test.sh
+          sh scripts/pr-queue/install-test.sh
 
       # A malformed feature-flag document must never reach a bucket, and the failure it
       # produces is silent — the browser falls back to all-on, which is indistinguishable

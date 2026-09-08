@@ -7,8 +7,9 @@ so a session loads the part every session needs and pulls the rest at the moment
 **Read this file and `session-rhythm.md` at the start of every session, before any other doc** —
 `CLAUDE.md`'s Session Workflow says the same.
 
-Goal: each feature is **specified before it's built**, built in **reviewable phases**, landed as a
-**single PR on green CI**, and recorded in **lean, layered docs** so the next session starts cheap.
+Goal: each feature is **specified before it's built**, built in **reviewable phases** off a
+**reviewed plan**, landed as **as few PRs on green CI as the dependencies allow**, and recorded in
+**lean, layered docs** so the next session starts cheap.
 
 ## Loaded every session
 
@@ -31,6 +32,7 @@ The always-loaded set is stated here, and `validate_docs.py` reads it from this 
 | [`completion-ritual.md`](completion-ritual.md) | the close-out pass, and the anti-regrowth rules for docs | when a spec closes, or a doc changes shape |
 | [`ci-and-deploy-traps.md`](ci-and-deploy-traps.md) | what only bites in CI or on deploy | before touching CI, a workflow or a deploy |
 | [`ground-rules.md`](ground-rules.md) | the project facts that shape the process | when orienting in a part of the system you have not touched, beside `architecture.md` |
+| [`several-agents.md`](several-agents.md) | the PR queue: the four commands, where the LIVE queue is and why a bare install builds a second one, what the hook refuses | before getting in line, and before any re-install |
 
 ## Path-scoped rules are a backstop, not the instruction
 

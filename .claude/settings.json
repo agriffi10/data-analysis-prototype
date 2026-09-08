@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run lint -w apps/portal)",
+      "Bash(npm run format:check -w apps/portal)",
+      "Bash(npm run test -w apps/portal)",
+      "Bash(npm run test:coverage -w apps/portal)",
+      "Bash(npm run build -w apps/portal)",
+      "Bash(npm run check:bundle -w apps/portal)",
+      "Bash(npm ci)",
+      "Bash(ruff check lambdas/ scripts/ .github/scripts/)",
+      "Bash(mypy)",
+      "Bash(pytest lambdas/)",
+      "Bash(pytest lambdas/ *)",
+      "Bash(python3 scripts/generate_api_contract.py)",
+      "Bash(python3 scripts/validate_docs.py)",
+      "Bash(python3 scripts/validate_docs_test.py)",
+      "Bash(python3 scripts/validate_feature_flags.py)",
+      "Bash(python3 scripts/validate_app_managed_paths.py)",
+      "Bash(python3 scripts/validate_app_managed_paths_test.py)",
+      "Bash(python3 scripts/pr-queue/pre_push_test.py)",
+      "Bash(sh scripts/pr-queue-test.sh)",
+      "Bash(sh scripts/pr-queue-test.sh *)",
+      "Bash(sh scripts/pr-queue/install-test.sh)",
+      "Bash(python3 scripts/watch_ci.py *)",
+      "Bash(git fetch *)",
+      "Bash(git worktree *)",
+      "Bash(git rebase *)",
+      "Bash(git push *)",
+      "Bash(gh pr create *)",
+      "Bash(gh pr view *)",
+      "Bash(gh pr checks *)",
+      "Bash(gh pr merge *)",
+      "Bash(gh run list *)",
+      "Bash(gh run view *)"
+    ]
+  }
+}

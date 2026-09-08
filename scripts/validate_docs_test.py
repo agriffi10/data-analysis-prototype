@@ -1,8 +1,8 @@
 """The fixture corpus for ``validate_docs.py``.
 
-Why this exists. ``validate_docs.py`` runs fifteen checks on every pull request, and until this
-file it had no test of any kind. Running it against this repo's own documents proves those
-documents pass; it proves nothing about whether any of the fifteen still fires. A gate whose
+Why this exists. ``validate_docs.py`` runs every check in its ``main()`` on every pull request,
+and until this file it had no test of any kind. Running it against this repo's own documents
+proves those documents pass; it proves nothing about whether any check still fires. A gate whose
 checks have gone quiet is indistinguishable from a healthy repo — the green run looks the same
 either way — and this is the gate the whole doc discipline rests on.
 
@@ -18,7 +18,8 @@ Each case asserts the specific FAILURE TEXT, not just the exit code. A check tha
 wrong reason gets "fixed" by changing the wrong thing, and several of the checks here return the
 same exit code for very different problems. Cases whose name ends ``_ok`` assert SILENCE: a
 corpus of only-failures cannot see a false positive, and a check that fires on everything passes
-a failures-only corpus perfectly.
+a failures-only corpus perfectly. A case that expects exit 0 AND a text is a WARNING case: the
+validator reported something and failed nothing, and both halves of that are asserted.
 
 Usage: ``python3 scripts/validate_docs_test.py`` — takes no arguments, imports nothing outside
 the standard library, and exits non-zero if any case does not behave as declared.
@@ -48,7 +49,8 @@ ROUTER = (
     "## The method, one file per part\n\n| File | Holds | Pull it |\n|---|---|---|\n"
     "| [`session-rhythm.md`](session-rhythm.md) | rhythm | every session |\n"
     "| [`authoring-a-spec.md`](authoring-a-spec.md) | authoring | when writing |\n"
-    "| [`completion-ritual.md`](completion-ritual.md) | closing | when closing |\n")
+    "| [`completion-ritual.md`](completion-ritual.md) | closing | when closing |\n"
+    "| [`spec-lifecycle.md`](spec-lifecycle.md) | statuses | when status changes |\n")
 AREA_ONE = (
     "# Area one\n\n## Contents\n\n- [Fences](#fences)\n- [Alpha](#alpha)\n\n"
     "## Fences\n\n- **Alpha** — fence.\n\n## Alpha\n\nR.\n")
@@ -86,7 +88,7 @@ def build(root: pathlib.Path) -> None:
     (root / "CLAUDE.md").write_text(CLAUDE)
     (root / "docs" / "process" / "INDEX.md").write_text(ROUTER)
     (root / "docs" / "process" / "session-rhythm.md").write_text("# Rhythm\n")
-    for name in ("authoring-a-spec.md", "completion-ritual.md"):  # named in validate_docs.py's docstrings
+    for name in ("authoring-a-spec.md", "completion-ritual.md", "spec-lifecycle.md"):  # named in validate_docs.py's docstrings
         (root / "docs" / "process" / name).write_text("# On demand\n")
     (root / ".claude" / "rules" / "area-one.md").write_text(RULE.format(glob="lambdas/**", label="Area one", area="area-one"))
     (root / ".claude" / "rules" / "identity-and-access.md").write_text(
@@ -151,9 +153,28 @@ def _write(root, rel, text):
     p.write_text(text)
 
 
-def _spec(n, frs):
-    body = "\n".join(f"### FR-{i:03d} A requirement\n\nText.\n" for i in range(1, frs + 1))
-    return f"# SPEC-{n:03d}: Thing\n\nStatus: Draft\n\n## Functional Requirements\n\n{body}"
+def _spec(n, frs, status="Draft"):
+    """A spec in the template's shape: the four required sections, each FR with acceptance criteria."""
+    body = "\n".join(f"### FR-{i:03d} A requirement\n\nText.\n\n#### Acceptance Criteria:\n\n- [ ] a\n"
+                     for i in range(1, frs + 1))
+    return (f"# SPEC-{n:03d}: Thing\n\nStatus: {status}\n\n## Overview\n\nWhy.\n\n## Scope\n\nWhat.\n\n"
+            f"## Functional Requirements\n\n{body}\n## Implementation Phases\n\n### Phase 1\n\n- do\n")
+
+
+def _ratchet(root, value):
+    """Rewrite ``SPEC_OVERSIZE_MAX`` in the fixture's COPY of the validator.
+
+    The ratchet cannot trip against a fixture small enough to read otherwise, and an environment
+    override is the wrong seam: a budget a caller can redirect is a budget CI can be told to
+    ignore. The copy is the fixture's own, so the live constant is untouched, and the substitution
+    is counted so a renamed constant fails here rather than leaving the case to pass on the old
+    value.
+    """
+    script = root / "scripts" / "validate_docs.py"
+    text = script.read_text()
+    if text.count("SPEC_OVERSIZE_MAX = 40\n") != 1:
+        raise RuntimeError("the ratchet constant moved or changed value; update _ratchet() with it")
+    script.write_text(text.replace("SPEC_OVERSIZE_MAX = 40\n", f"SPEC_OVERSIZE_MAX = {value}\n"))
 
 
 CASES = [
@@ -350,6 +371,212 @@ CASES = [
      lambda r: _write(r, D("decisions", "area-one.md"), "# Area one\n\n## Contents\n\n- [Fences](#fences)\n- [Alpha](#alpha)\n\n## Alpha\n\nR.\n"),
      1, "has no ## Fences entry"),
 
+    # ---- the cases an inventory of this corpus found missing -----------------------------------
+    # The ratchet actually tripping, and holding at the line. The constant is rewritten in the
+    # fixture's copy: 41 over-size specs would otherwise be needed to reach the live value.
+    ("spec_size_ratchet_trips_on_a_new_oversize_spec",
+     lambda r: [_ratchet(r, 0),
+                _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 9)),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     1, "specs carry more than 8 FRs (ratchet 0)"),
+    ("spec_size_ratchet_holds_at_the_line_ok",
+     lambda r: [_ratchet(r, 1),
+                _write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 9)),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     0, ""),
+    ("spec_without_a_status_header",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 3).replace("Status: Draft\n\n", "")),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     1, "SPEC-001-thing.md has no Status header"),
+    ("spec_without_an_index_row",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 3)),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 002 | Draft |\n")],
+     1, "SPEC-001-thing.md has no row in INDEX.md"),
+    ("register_area_held_by_two_files",
+     lambda r: _write(r, D("decisions", "area-one-copy.md"), AREA_ONE),
+     1, "'Area one' is already held by"),
+    ("register_entry_at_a_second_heading_level",
+     lambda r: _write(r, D("decisions", "area-one.md"), AREA_ONE + "\n### Alpha, in detail\n\nR.\n"),
+     1, "is a second heading level"),
+    ("register_contents_anchor_to_no_entry",
+     lambda r: _write(r, D("decisions", "area-one.md"), AREA_ONE.replace("- [Alpha](#alpha)\n", "- [Alpha](#alpha)\n- [Gone](#gone)\n")),
+     1, "links to #gone, which is no entry in this file"),
+    ("testing_two_arc_scripts_in_flight",
+     lambda r: [_write(r, D("testing", "arc-b-e2e.md"), "# b\n"),
+                _write(r, D("testing", "arc-c-e2e.md"), "# c\n")],
+     1, "holds 2 arc scripts"),
+    ("fixture_script_named_after_a_spec",
+     lambda r: _write(r, D("testing", "fixtures", "spec-221-conversion.sh"), "#!/bin/sh\n"),
+     1, "spec-221-conversion.sh is named after a SPEC"),
+
+    # ---- check_spec_shape -----------------------------------------------------------------
+    # Every case indexes its spec: the status check runs beside the shape check, and a spec with
+    # no INDEX row would fail for that reason and pass the shape assertion vacuously.
+    ("spec_missing_a_required_section",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("## Scope\n\nWhat.\n\n", "")),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     1, "SPEC-001-thing.md: missing required section '## Scope'"),
+    ("spec_section_only_at_a_deeper_level",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("## Scope\n", "### Scope\n")),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     1, "missing required section '## Scope'"),
+    ("spec_section_name_is_only_a_prefix",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("## Scope\n", "## Scoped\n")),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     1, "missing required section '## Scope'"),
+    # Several sections missing at once, and several specs at once: a check that stops after the
+    # first missing section, or returns after the first file, passes every single-section,
+    # single-spec case above.
+    ("spec_missing_two_sections_names_each",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"),
+                       _spec(1, 2).replace("## Scope\n\nWhat.\n\n", "").replace("## Implementation Phases\n", "## Phases\n")),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     1, "missing required section '## Implementation Phases'"),
+    # One case per required section, so dropping any ONE name from SPEC_REQUIRED_SECTIONS reddens
+    # something: with only Scope and Phases ever removed, Overview and Functional Requirements
+    # could vanish from the tuple with the corpus green — measured by a reviewer's plant.
+    ("spec_missing_overview",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("## Overview\n\nWhy.\n\n", "")),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     1, "missing required section '## Overview'"),
+    ("spec_missing_functional_requirements",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("## Functional Requirements\n", "## Requirements\n")),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     1, "missing required section '## Functional Requirements'"),
+    ("spec_second_of_two_specs_fails",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2)),
+                _write(r, D("specs", "SPEC-002-thing.md"), _spec(2, 2).replace("## Scope\n\nWhat.\n\n", "")),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n| 002 | Draft |\n")],
+     1, "SPEC-002-thing.md: missing required section '## Scope'"),
+    ("spec_two_warnings_on_one_spec",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"),
+                       _spec(1, 2).replace("#### Acceptance Criteria:\n\n- [ ] a\n", "") + "\nSee SPEC-XXX.\n"),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     0, "2 warning(s)"),
+    ("spec_sections_in_any_case_ok",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"),
+                       _spec(1, 2).replace("## Overview", "## overview").replace("## Scope", "## SCOPE")
+                       .replace("## Functional Requirements", "## Functional requirements")
+                       .replace("## Implementation Phases", "## implementation phases")),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     0, ""),
+    ("spec_banned_heading_at_any_level",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n#### Checkpoint: pause here\n\nno\n"),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     1, "banned heading '#### Checkpoint: pause here'"),
+    ("spec_banned_heading_names_its_line",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), "# S\n\nStatus: Draft\n\n## Open Questions\n\n" + _spec(1, 2).split("\n", 4)[4]),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     1, "SPEC-001-thing.md line 5: banned heading"),
+    ("spec_banned_heading_in_any_case",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n## open questions\n\nnone\n"),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     1, "banned heading '## open questions'"),
+    ("spec_banned_heading_inside_a_fence_ok",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n```\n## Open Questions\n#### Checkpoint\n```\n"),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     0, ""),
+    ("spec_banned_heading_inside_a_comment_ok",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n<!--\n## Open Questions\n-->\n<!-- #### Checkpoint -->\n"),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     0, ""),
+    # A comment opened mid-line swallows the lines after it until it closes: the banned heading
+    # inside is not a heading. A reader that only enters comment state on a line STARTING with
+    # `<!--` passes every other comment case here.
+    ("spec_banned_heading_after_a_midline_comment_opener_ok",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\nNote <!-- draft\n## Open Questions\n-->\n"),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     0, ""),
+    ("spec_banned_heading_inside_a_tilde_fence_ok",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n~~~\n## Open Questions\n#### Checkpoint\n~~~\n"),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     0, ""),
+    ("spec_banned_heading_deep_inside_a_comment_ok",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n<!--\ndraft note\n## Open Questions\n-->\n"),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     0, ""),
+    ("spec_fence_never_closed_ok",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n```\n## Open Questions\n"),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     0, ""),
+    # The banned word anywhere in the heading, not only at its start — the template's semantics.
+    ("spec_banned_word_inside_a_heading",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n### Phase 2 checkpoint\n\nno\n"),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     1, "banned heading '### Phase 2 checkpoint'"),
+    ("spec_required_section_inside_a_fence_does_not_count",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"),
+                       _spec(1, 2).replace("## Scope\n\nWhat.\n\n", "```\n## Scope\n```\n\n")),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     1, "missing required section '## Scope'"),
+    # The exemption. A Completed spec from the earlier template, with both retired headings, is
+    # left alone; so is a Cancelled tombstone with none of the required sections.
+    ("spec_completed_before_the_rule_is_exempt_ok",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"),
+                       _spec(1, 2, "Completed") + "\n#### Checkpoint: old\n\n## Open Questions\n\nnone\n"),
+                _write(r, D("spec-delivery", "SPEC-001-thing.md"), "# Completed Spec — SPEC-001\n"),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Completed |\n")],
+     0, ""),
+    ("spec_cancelled_tombstone_is_exempt_ok",
+     lambda r: [_write(r, D("specs", "SPEC-003-thing.md"),
+                       "# SPEC-003: Thing\n\n**Status:** Cancelled\n\n## Why\n\nMoved.\n\n## Where the work went\n\nElsewhere.\n"),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 003 | Cancelled |\n")],
+     0, ""),
+    # ...and it fails CLOSED: a status outside the exempt set, and no status at all, are judged.
+    ("spec_superseded_is_not_exempt",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2, "Superseded") + "\n## Open Questions\n\nnone\n"),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Superseded |\n")],
+     1, "banned heading '## Open Questions'"),
+    ("spec_in_progress_is_not_exempt",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2, "In Progress") + "\n## Open Questions\n\nnone\n"),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | In Progress |\n")],
+     1, "banned heading '## Open Questions'"),
+    ("spec_without_a_status_is_judged",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"),
+                       _spec(1, 2).replace("Status: Draft\n\n", "").replace("## Scope\n\nWhat.\n\n", "")),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     1, "missing required section '## Scope'"),
+    # The warnings: reported, exit 0. One case per placeholder, so dropping one from the tuple
+    # is a red case rather than a quieter corpus.
+    ("spec_placeholder_feature_name_warns",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("SPEC-001: Thing", "SPEC-001: [Feature Name]")),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     0, "SPEC-001-thing.md: unfilled template placeholder(s): [Feature Name]"),
+    ("spec_placeholder_requirement_name_warns",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("FR-001 A requirement", "FR-001: [Requirement Name]")),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     0, "unfilled template placeholder(s): [Requirement Name]"),
+    ("spec_placeholder_spec_xxx_warns",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\nSee SPEC-XXX.\n"),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     0, "unfilled template placeholder(s): SPEC-XXX"),
+    ("spec_placeholder_last_updated_warns",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("Status: Draft\n", "Status: Draft\n**Last Updated:** YYYY-MM-DD\n")),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     0, "unfilled template placeholder(s): YYYY-MM-DD"),
+    ("spec_date_format_described_in_prose_ok",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\nKeys are `logs/dt=YYYY-MM-DD/`.\n"),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     0, ""),
+    ("spec_placeholder_inside_a_fence_ok",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2) + "\n```\nSee SPEC-XXX.\n```\n"),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     0, ""),
+    ("spec_frs_without_acceptance_criteria_warn",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("#### Acceptance Criteria:\n\n- [ ] a\n", "")),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     0, "SPEC-001-thing.md: has FR-* requirements but no 'Acceptance Criteria'"),
+    ("spec_acceptance_criteria_in_any_case_ok",
+     lambda r: [_write(r, D("specs", "SPEC-001-thing.md"), _spec(1, 2).replace("Acceptance Criteria", "acceptance criteria")),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 001 | Draft |\n")],
+     0, ""),
+    # The live template, unfilled: its structure passes and its placeholders warn. Exit 0 is the
+    # structural claim — a missing section would fail — and the text is the placeholder one.
+    ("spec_template_unfilled_passes_its_shape_and_warns",
+     lambda r: [_write(r, D("specs", "SPEC-000-template.md"), (REPO / "docs" / "templates" / "spec-template.md").read_text()),
+                _write(r, D("specs", "INDEX.md"), "# Index\n\n| 000 | Draft |\n")],
+     0, "SPEC-000-template.md: unfilled template placeholder(s): [Feature Name], [Requirement Name], SPEC-XXX, YYYY-MM-DD"),
+
     ("baseline_ok", lambda r: None, 0, ""),
 
     # Six checks had no `_ok` case, so an "always fires" mutant in each survived the whole
@@ -452,8 +679,11 @@ def main() -> int:
         if rc != want_exit:
             why = f"exit {rc}, wanted {want_exit}"
         elif name.endswith("_ok"):
-            if "problem(s)" in out:
-                why = "expected silence, got a problem"
+            # A warning breaks silence too: it exits 0, so without this line a warning fired on
+            # legitimate content passes every `_ok` case — measured, when the unanchored date
+            # placeholder plant reddened nothing.
+            if "problem(s)" in out or "warning(s)" in out:
+                why = "expected silence, got a problem or a warning"
         elif want_text and want_text not in out:
             why = f"output lacked {want_text!r}"
         if why:

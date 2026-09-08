@@ -18,6 +18,7 @@ entry you need, not the file.**
 - [An axe rule that cannot measure is disabled, and what replaces it (2026-09-01)](#an-axe-rule-that-cannot-measure-is-disabled-and-what-replaces-it-2026-09-01)
 - [A change-detection gate answers three ways, and one of them is not an answer (2026-09-04)](#a-change-detection-gate-answers-three-ways-and-one-of-them-is-not-an-answer-2026-09-04)
 - [A parity fixture becomes a floor once the cutover it guarded is closed (2026-09-05)](#a-parity-fixture-becomes-a-floor-once-the-cutover-it-guarded-is-closed-2026-09-05)
+- [The hook refuses a stale base, and the doc gate a spec without the template's shape (2026-09-08)](#the-hook-refuses-a-stale-base-and-the-doc-gate-a-spec-without-the-templates-shape-2026-09-08)
 
 ## Fences
 
@@ -57,6 +58,11 @@ entry you need, not the file.**
   in test volume, and is bought back by testing internals. Never lower one for a regression, and
   never read a floor as evidence a guard exists: four mutations of production code once passed the
   whole suite with coverage unchanged. **Mutate the guard instead.**
+- **A rule that prose asks every session to remember is a rule nothing enforces.** The queue told
+  sessions to rebase after the wait for as long as it existed, and the hook checked only the lock;
+  it now refuses a push whose commits do not contain the remote's trunk. When a document says
+  "always X before pushing", ask what refuses the push without X — and if the answer is a
+  paragraph, write the check.
 - **A script a test EXECUTES must keep its scratch files private.** A workflow step naming a fixed
   path under `/tmp` is one file per *job* on a runner, and one file per *machine* under the suite —
   which runs those scripts verbatim, on a checkout several sessions work at once. Two runs truncate
@@ -473,3 +479,36 @@ after it, and none could be observed until something grew. The second lesson is 
 patching instead of reading: two rounds went into keeping a comparison whose promise had already
 been kept, and the question that ended it — *what did this leg actually promise, and is that
 still a thing that can be true?* — was available at the start.
+
+## The hook refuses a stale base, and the doc gate a spec without the template's shape (2026-09-08)
+
+**What changed.** `scripts/pr-queue/` is the spec-driven template's copy, taken whole: the template
+had absorbed this repo's hardening — the origin-scoped exemption, the tag and trunk exemptions, the
+fail-closed pattern — and added a FRESHNESS refusal. A push whose commits do not contain the
+remote's current `main` is refused with the remedy, because the queue *guarantees* a wait during
+which peers merge, and the rebase had lived in prose alone. One policy moved with it: a deletion is
+exempt from freshness (there is no commit to measure) but NOT from the lock, since a non-holder
+deleting the branch under review closes the PR the lock protects; a deletion of the trunk is refused
+outright, as the limit case of a trunk pushed backwards. `validate_docs.py` gained
+`check_spec_shape` — the template's four sections, no `Open Questions` or `Checkpoint` heading, and
+two WARNINGS the validator now has a channel for: unfilled placeholders, and FRs without acceptance
+criteria.
+
+**The exemption, and why it fails closed.** The Completed specs written from the earlier template
+carry the retired headings, and a Cancelled spec is a tombstone — sixty closed files at the commit
+that introduced the check. Rewriting them to satisfy a rule that governs specs still being built
+would be churn with no reader, so the check skips a spec whose Status header reads Completed or
+Cancelled and judges everything else in full: no status, Draft, In Progress, Superseded, a
+misspelling. The hole is shaped like the item it excuses (the fence above): two named statuses, not
+"anything not being built", and the corpus carries a case for each direction — an exempt spec left
+alone, a Superseded and a status-less one judged — so both the exemption vanishing and the
+exemption widening redden it. `YYYY-MM-DD` is looked for on the `**Last Updated:**` line only — three specs describe a
+date format in prose.
+
+**What the corpora prove, and the one they caught.** `pre_push_test.py` now builds a real bare
+origin whose trunk each case moves — stale, unfetched, rebased, absent, misnamed, decoyed, split
+between fetch and push url — and plants each check; the template's `pr-queue-test.sh` drives the
+same hook through real `git push` invocations, and `install-test.sh` the installer. All three run
+in CI. Planting the unanchored-date mutation reddened nothing, because an `_ok` case looked only for
+"problem(s)" and a warning prints "warning(s)": the harness now reads either as broken silence.
+
