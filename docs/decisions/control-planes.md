@@ -17,6 +17,7 @@ entry you need, not the file.**
 - [Structured-logging narrative primitives & the one-door rule (SPEC-130/131)](#structured-logging-narrative-primitives--the-one-door-rule-spec-130131)
 - [The field rule — what may be logged (SPEC-130)](#the-field-rule--what-may-be-logged-spec-130)
 - [Per-plane instrumentation rules (SPEC-132→137)](#per-plane-instrumentation-rules-spec-132137)
+- [The log-foundry pin, and what a library upgrade owes the code written around it (SPEC-224)](#the-log-foundry-pin-and-what-a-library-upgrade-owes-the-code-written-around-it-spec-224)
 - [No ASL state decodes an error Cause (PR #252, control-plane-wide)](#no-asl-state-decodes-an-error-cause-pr-252-control-plane-wide)
 - [Notifications (SPEC-058→061)](#notifications-spec-058061)
 - [Every plane notifies on a pre-verb failure, and `failure_reason` is the only decoder (SPEC-152)](#every-plane-notifies-on-a-pre-verb-failure-and-failure_reason-is-the-only-decoder-spec-152)
@@ -162,7 +163,11 @@ DLQ lets one malformed request dead-letter someone else's work.
 - **A notification's optional `link` is gated by `isSafeInAppPath`**, and a route that renders one
   must not become an existence oracle: the data-quality report view takes its space **from the route,
   never derived**, and an unreachable space renders denied while issuing **no S3 request at all**.
-- **Structured logging** goes through `cpcommon.observability` only; the logs queue is FIFO, swept on
+- **Structured logging** goes through `cpcommon.observability` only — and "only" includes the
+  library's **private names**, which no module outside it and the two named test harnesses may
+  reach: one such reach survived as a silent no-op after the name behind it was deleted upstream.
+  **No `@traced`/`@step` function may be a generator** — the library refuses one at decoration, so it
+  is a cold start that never completes rather than a bad span. The logs queue is FIFO, swept on
   a schedule, appended under ETag CAS, retained forever. `@traced` outermost — **except the API**, where one decorator sits
   outside it to turn an unpredicted fault into a declared code: a catch INSIDE the span ends every
   failed request successfully and the fault is recorded nowhere. Messages are literals.
@@ -263,6 +268,18 @@ Two identity defects fixed at the same time, because instrumenting on top of the
 **SPEC-134** promoted the per-plane coverage guard to a **fleet-wide harness** in `control-plane-common`: registering a plane is one `Plane()` descriptor (its glob, service name, expected verb count as a LITERAL so a short enumeration fails rather than passing vacuously, and its decorator expectation), and a verb module is found by **defining a top-level `handler`** rather than by any filename convention. It also settled that **the decorator rule is per-plane and DECLARED**: shared-space verbs notify from inside the handler, so `@traced` is asserted to be their ONLY decorator — adding `notifies_on_failure` there later fails until someone establishes the ordering. And **per-item events are permitted where the bound is STRUCTURAL**: the roster fan-out emits per member because membership is capped at ten Cognito slots, which is the same rule as SPEC-131/133, not an exception to it.
 
 **SPEC-135→137 finished the fleet.** 135 logs Athena's `StateChangeReason` **verbatim** alongside the stable token — that raw text is what would have named the missing `CREATE_TABLE` grant, and a token cannot carry a diagnosis — and moved the DDL poll's transition-only narrative into **`cpcommon.athena`**, since the loop is shared. 137's email decision lives in the field-rule entry above; 137 also verified empirically that **`cpcommon.observability` imports and emits with ZERO env vars** (`cpcommon/__init__.py` has no imports, `clients` lazy-imports boto3), which is what makes the layer safe to attach to functions that lack the six `config._require` variables — one `from cpcommon import config` added to `__init__.py` would arm PR #196's bomb for them. Detail: `spec-delivery/SPEC-132`, `spec-delivery/SPEC-133`.
+
+## The log-foundry pin, and what a library upgrade owes the code written around it (SPEC-224)
+
+The fleet runs **`log-foundry==1.0.0`**, pinned exactly and core-only, for the reasons the pin's own comment gives. What this entry records is not the bump but its **shape**, because two of the three changes that reached this repo were things the codebase had built *around* the old version, and both were invisible to a green suite.
+
+**A capability the library gains retires the workaround, and the workaround does not retire itself.** `configure(sink=…)` now drains, closes and re-points delivery; before, it leaked to the sink it replaced, which is why two harnesses retired the worker by hand. That reach could not merely be left alone: the private name behind it no longer exists, so it had degraded to a **silent no-op behind a `getattr` default** — reading as load-bearing while doing nothing. A second reach was worse than redundant: the library now holds a live sink beside the stored config, so `conftest.py`'s `_config` restore left it **reporting one sink while delivering to another**, on the span path only (the orphan path agrees even when it is broken, so an orphan-path probe passes vacuously).
+
+**A prohibited-name list must be READ by the thing that prohibits.** `_emit` refuses `echo` and `fields`, and they are refused for **different reasons**: an un-dropped `echo` collides with the keyword `_emit` always passes and raises `TypeError` into business logic, while an un-dropped `fields` is the library's own parameter and raises **nothing** — the mapping is unpacked over the event and the author's field silently vanishes. The first version of this change defined `PROHIBITED_FIELDS` and hard-coded both names beside it, so emptying it changed nothing and extending it dropped nothing. The constant is now read, and a test plants a third name.
+
+**Three standing rules this settled.** No module outside `cpcommon/observability.py` and the two named test harnesses reaches an underscore-prefixed `log_foundry` name — held by a guard that resolves **import aliases**, because `import log_foundry as lf; lf._lifecycle` is the spelling this repo actually uses and renders with neither the package name nor a recognisable prefix in it. No `@traced`/`@step` function may be a **generator**: the library refuses one at decoration, which for this fleet is a cold start that never completes. And the "no way to turn stack capture off" claim three register entries lean on is **asserted by a test against the installed version**, so a release that adds an opt-out reddens rather than silently outliving the decision — the claim itself is unchanged and still true.
+
+**A version-anchored claim rots differently from a wrong one.** Four claims here were true of 0.6.0 and false of 1.0.0; a fifth was true of both but dated to a version, and the two dispositions that predate this pin are now stated **version-free**, since naming their release would leave a superseded version in the one block a sweep exists to clear. Full reasoning and the measurements: `spec-delivery/SPEC-224`.
 
 ## No ASL state decodes an error Cause (PR #252, control-plane-wide)
 

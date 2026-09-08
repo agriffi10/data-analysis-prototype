@@ -229,7 +229,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 221 — Results Conversion: the Plane, the Request Contract & validate-authorize | Completed |
 | 222 — Results Conversion: the Converter, the Three Writers & the Notification | Completed |
 | 223 — Results Conversion: "Save as" in the Browser, the Flag & Help | Completed |
-| 224 — Log Foundry 1.0.0 | Draft |
+| 224 — Log Foundry 1.0.0 | Completed |
 | 225 — One Run, One Trace: the Mechanism and the Success Path | Draft |
 | 226 — Child Spans for the Seven Flat Planes | Draft |
 | 227 — The Failure Path Joins the Trace, and the Cross-Check Nobody Wrote | Draft |
