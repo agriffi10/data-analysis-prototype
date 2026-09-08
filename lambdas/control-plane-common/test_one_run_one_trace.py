@@ -22,7 +22,9 @@ Their spans are not in the counts below, and that is stated rather than implied:
 is that the value survives the four SHAPES, which is where it was being lost.
 
 Attributes:
-  _TEMPLATES: The eight deployed ASL templates, by plane.
+  _IDENTITY: The identity block the API stamps, as every plane's validator reads it.
+  _UUID: One request id, shared by the archive fixtures so a run is followable across them.
+  _LAMBDAS: The lambdas tree, for reaching a verb's directory by name.
 """
 
 import json
@@ -141,6 +143,9 @@ def sink(monkeypatch):
     """
     collector = _Sink()
     lf.configure(service="test", version="0", env="test", sink=collector)
+    # Per-INVOCATION in production, so nothing clears it between tests; without this a driver
+    # inherits the previous test's adopted trace and its assertions stop meaning what they say.
+    observability._reset_context()
     monkeypatch.setattr(archive_validate_authorize.authz.reg, "load", lambda name: None)
     for module in (archive_validate_authorize, archive_notify, file_send_notify):
         monkeypatch.setattr(
@@ -305,11 +310,50 @@ def _api_message():
     return built["message"]
 
 
-def _drive_file_send(sink):
+def _minted_traceparent():
+    """One traceparent minted inside a root span, the way the API mints a run's.
+
+    `run_traceparent()` called with no span open returns None — or, on a warm process, whatever
+    the PREVIOUS invocation adopted, because `_ADOPTED` is a ContextVar cleared per invocation
+    rather than per test. Reading it that way made archive's driver assert something different
+    depending on which order pytest selected the tests in, and pass either way.
+
+    Args:
+      None.
+
+    Returns:
+      A W3C traceparent belonging to a span that really opened.
+
+    Raises:
+      None.
+    """
+    minted = {}
+
+    @observability.traced("request")
+    def _root(_event, context=None):
+        """Reads the root span's own traceparent.
+
+        Args:
+          _event: Unused.
+          context: Unused.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
+        minted["value"] = observability.run_traceparent()
+
+    _root({})
+    return minted["value"]
+
+
+def _drive_file_send():
     """Drives a file-send run through the four event shapes, hop by hop.
 
     Args:
-      sink: The capturing sink.
+      None. The `sink` fixture installs the capturing sink; this only drives verbs.
 
     Returns:
       The number of verbs driven.
@@ -324,7 +368,7 @@ def _drive_file_send(sink):
 
     batch = _state("file-send", "TransferObjects")["ItemBatcher"]["BatchInput"]
     file_send_copy_objects.handler(
-        {**_apply(batch, after_validated), "Items": []}, None
+        {"BatchInput": _apply(batch, after_validated), "Items": []}, None
     )
 
     summary = _apply(
@@ -335,11 +379,11 @@ def _drive_file_send(sink):
     return 4
 
 
-def _drive_archive(sink):
+def _drive_archive():
     """Drives an archive run through the state payload, a Map batch and a Task payload.
 
     Args:
-      sink: The capturing sink.
+      None. The `sink` fixture installs the capturing sink; this only drives verbs.
 
     Returns:
       The number of verbs driven.
@@ -347,7 +391,7 @@ def _drive_archive(sink):
     Raises:
       None.
     """
-    root = observability.run_traceparent()
+    root = _minted_traceparent()
     body = {
         "requestId": _UUID,
         "mode": "archive",
@@ -359,11 +403,14 @@ def _drive_archive(sink):
         "identity": _IDENTITY,
         "traceparent": root,
     }
+    assert root and root.startswith("00-"), "archive was driven with no run to join"
     validated = archive_validate_authorize.handler([{"body": json.dumps(body)}], None)
     after_validated = _apply(_state("archive", "Validated")["Parameters"], validated)
 
     batch = _state("archive", "TransferObjects")["ItemBatcher"]["BatchInput"]
-    archive_copy_objects.handler({**_apply(batch, after_validated), "Items": []}, None)
+    archive_copy_objects.handler(
+        {"BatchInput": _apply(batch, after_validated), "Items": []}, None
+    )
 
     payload = _state("archive", "NotifyArchived")["Parameters"]["Payload"]
     archive_notify.handler(
@@ -373,11 +420,11 @@ def _drive_archive(sink):
 
 
 @pytest.mark.parametrize(
-    "plane,drive,expected_verbs",
-    [("file-send", _drive_file_send, 4), ("archive", _drive_archive, 3)],
+    "plane,drive",
+    [("file-send", _drive_file_send), ("archive", _drive_archive)],
     ids=["file-send", "archive"],
 )
-def test_a_run_is_one_trace_end_to_end(sink, plane, drive, expected_verbs):
+def test_a_run_is_one_trace_end_to_end(sink, plane, drive):
     """The headline guard: every span a run emits carries ONE trace id.
 
     The two preconditions are asserted FIRST and deliberately. An assertion that every span in a
@@ -386,7 +433,7 @@ def test_a_run_is_one_trace_end_to_end(sink, plane, drive, expected_verbs):
     guard. The count and the distinct-verb count are what make the third assertion mean
     something.
     """
-    driven = drive(sink)
+    driven = drive()
     observability.flush()
 
     spans = sink.spans()
@@ -419,7 +466,7 @@ def test_every_span_of_a_driven_run_carries_the_request_id(sink):
     reaches it — an exception whose population is empty is dead code that can neither widen nor
     narrow.
     """
-    _drive_file_send(sink)
+    _drive_file_send()
     observability.flush()
 
     # The API's own span is excluded, and for a reason rather than to make this pass: its
@@ -439,6 +486,53 @@ def test_every_span_of_a_driven_run_carries_the_request_id(sink):
     assert not without, f"{without} emitted a span with no request id"
 
 
+@pytest.mark.parametrize(
+    "plane,module,dropped",
+    [
+        ("file-send", "file-send-collect-transfer-results", ("guardResults", "source")),
+        ("table-share", "table-share-collect-transfer-results", ("guardResults",)),
+    ],
+    ids=["file-send", "table-share"],
+)
+def test_the_two_verbs_that_filter_their_echo_keep_the_runs_trace(plane, module, dropped):
+    """Every threaded read downstream of these two rests on an echo nothing pinned.
+
+    Most verbs return `{**event, ...}` and cannot drop a key they were not told about. These two
+    return `{**{k: v for k, v in event.items() if k not in (...)}, ...}` — an explicit exclusion
+    set, and a key added to it disappears from every state after them. Measured before this test
+    existed: adding `"traceparent"` to file-send's set left the ENTIRE `pytest lambdas/` run
+    green while `ShapeSummary` downstream would read `$.traceparent` off a state that no longer
+    had one, which is an uncatchable `States.Runtime`.
+
+    Read out of the source rather than driven, and the reason is worth stating: driving them
+    needs a Map Run export in S3 and a plan reader, and what is being asserted is a property of
+    the EXCLUSION SET, which is a literal. The set is read from the module and checked against
+    what the plane is allowed to drop.
+    """
+    source = (_LAMBDAS / module).glob("*.py")
+    text = "".join(
+        f.read_text(encoding="utf-8") for f in source if not f.name.startswith("test_")
+    )
+
+    assert "event.items()" in text, (
+        f"{module} no longer filters its echo, so this guard is watching the wrong mechanism"
+    )
+    excluded = {
+        name
+        for name in ("traceparent", "requestId", *dropped)
+        if f'"{name}"' in text.split("event.items()")[1].split("}")[0]
+    }
+
+    assert "traceparent" not in excluded, (
+        f"{plane}'s collector drops the traceparent from its echo, so every state after it reads "
+        "`$.traceparent` off a state that does not have one"
+    )
+    assert excluded == set(dropped), (
+        f"{plane}'s collector now drops {sorted(excluded)}; it is allowed to drop "
+        f"{sorted(dropped)}, and anything else is a key some later state may still read"
+    )
+
+
 def test_table_shares_map_children_are_the_one_exception_and_it_cannot_widen():
     """The exception is a property of table-share's contract, so it is read off the contract.
 
@@ -448,9 +542,9 @@ def test_table_shares_map_children_are_the_one_exception_and_it_cannot_widen():
     exception would quietly become the rule.
     """
     validator = _LAMBDAS / "table-share-validate-authorize" / "table_share_validate_authorize.py"
-    source = validator.read_text(encoding="utf-8")
 
     assert validator.exists(), "table-share's validator moved, so this reads nothing"
+    source = validator.read_text(encoding="utf-8")
     assert '"requestId"' not in source, (
         "table-share's validator now returns a requestId, so the exception below is stale and "
         "its Map children should carry one"

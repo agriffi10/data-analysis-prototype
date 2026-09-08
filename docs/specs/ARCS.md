@@ -2957,9 +2957,9 @@ untouched; the work is at six field-naming `Pass` states, four field-naming Task
 blocks, and the **six** Distributed Maps — archive has three — which reach their children through
 `ItemBatcher.BatchInput`, a mechanism no template used before this arc, rather than through an
 `ItemSelector`, which none of them has. It also closes two holes nobody had noticed, by different means. Nine
-Map-child verbs, every copy verb among them, have **no `request_id`** today — the three inline-Map
-children because the extractor does not read their shape, the six Distributed-Map children because
-their event contains no id at all, so only the `BatchInput` change reaches those. And the extractor's
+Map-child verbs, every copy verb among them, had **no `request_id`** before this arc — the three
+inline-Map children because the extractor did not read their shape, the six Distributed-Map children
+because their event contained no id at all, so only the `BatchInput` change could reach those. And the extractor's
 fallback parses a bare dict's `body`, which for an API Gateway request is **the caller's HTTP body**:
 a caller can name the API span's correlation key. That is latent rather than live on `main` — the
 router overwrites it with the gateway's id before any record is stored, verified by execution — but

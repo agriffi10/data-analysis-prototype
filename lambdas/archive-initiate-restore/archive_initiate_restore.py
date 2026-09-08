@@ -43,7 +43,11 @@ def handler(event, context) -> dict:
     log sweep rewrites in full.
 
     Args:
-      event: The batch, ``{"Items": [<transfer item>, …]}`` as the Map's ItemBatcher builds it.
+      event: The batch, ``{"BatchInput": {traceparent, requestId}, "Items": [<transfer item>, …]}``
+          as the Map's ItemBatcher builds it. The ``BatchInput`` block is how the run's
+          trace reaches a child that cannot see the parent state, and
+          ``observability._shape_values`` reads it — so the key is load-bearing, not
+          decoration.
         Only the source fields are read here; the destinations are the copy-back's business,
         hours later.
       context: The Lambda context, unused.

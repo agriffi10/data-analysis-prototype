@@ -292,7 +292,8 @@ def test_the_whole_map_state_stays_under_the_payload_limit():
         finish                  92,970 bytes   35.5%
         guard + at-cap definition (the control below)  152,739 bytes   58.3%
 
-    The traceparent itself is ~75 bytes with its key and contributes 0.03 of a percentage point;
+    The traceparent itself is 73 bytes with its key and comma, and contributes 0.03 of a
+    percentage point;
     the distance from the ~29% this file used to quote is other growth since, which is the reason
     the figure is re-derived rather than trusted. Re-derive it the same way — the numbers come
     from the three `json.dumps` below and nowhere else. The bar leaves the state room to grow by
@@ -316,7 +317,7 @@ def test_the_whole_map_state_stays_under_the_payload_limit():
     }
     request = {
         # SPEC-225: on the state from validate-authorize onward, and on every Map's BatchInput.
-        # 55 bytes as a value, ~70 with the key — small, but the model exists to be re-derived
+        # 55 bytes as a value, 73 with its key and comma — small, but the model exists to be re-derived
         # rather than assumed, and the measured headroom is restated below.
         "traceparent": "00-" + "0" * 32 + "-" + "0" * 16 + "-01",
         "actor": "a" * 64,
@@ -446,6 +447,12 @@ def _containers(asl):
             processor = state.get("ItemProcessor") or state.get("Iterator")
             if processor:
                 yield from walk(f"{label}/{name}", processor)
+            # A Parallel branch is its own graph with its own StartAt, exactly as an
+            # ItemProcessor is. No machine has one today, which is precisely why this is here:
+            # every sweep built on this walk would be silently blind to the first one added, and
+            # `_states` beside it already descends Branches, so the two would disagree.
+            for index, branch in enumerate(state.get("Branches") or []):
+                yield from walk(f"{label}/{name}[{index}]", branch)
 
     yield from walk("", asl)
 
@@ -630,12 +637,17 @@ _THREADING_STATES = frozenset({
 
 #: The planes whose state carries a request id where a Distributed Map can read it. table-share's
 #: validator returns none and no state downstream of it holds one, so `"requestId.$": "$.requestId"`
-#: in ITS BatchInput would be an uncatchable States.Runtime on every share. The key is per-plane,
-#: derived from what the plane's state actually carries — never a fixed pair.
+#: in ITS BatchInput would be an uncatchable States.Runtime on every share.
+#:
+#: PINNED, not derived — and said plainly, because an earlier version of this comment claimed the
+#: second while doing the first. Deriving it would mean reading each validator's return, which is
+#: the very thing the guard below is checking the templates against; the two would then agree with
+#: each other and with nothing else. A plane that starts or stops carrying a request id has to
+#: change this line, which is the point.
 _PLANES_WITH_A_REQUEST_ID = frozenset({"archive", "file-ops", "file-send"})
 
 
-def _is_success_terminal(state, states):
+def _is_success_terminal(state, states, container_merges):
     """Whether a state's own output leaves the machine, or leaves a Map branch.
 
     Two shapes, and a walk that knows only one of them is wrong in a different direction each
@@ -656,7 +668,12 @@ def _is_success_terminal(state, states):
       None.
     """
     if state.get("End") is True:
-        return True
+        # A Map branch's leaf is only safe to exclude because its output becomes one ELEMENT of
+        # the Map's result array, merged back under the Map's own ResultPath into a state that
+        # still carries the key. A Map with NO ResultPath replaces the state with that array, and
+        # then the leaf really is the last place the key could live. The precondition is checked
+        # rather than stated: it holds for all three inline Maps today and nothing made it hold.
+        return container_merges
     following = state.get("Next")
     return bool(following) and states.get(following, {}).get("Type") == "Succeed"
 
@@ -729,14 +746,21 @@ def _blocks_that_name_their_fields(asl):
     Raises:
       None.
     """
+    by_name = dict(_states(asl))
     for label, _start, states in _containers(asl):
+        container = label.lstrip("/").split("/")[0] if label else None
+        # The top level always "merges" in the sense that matters: its terminals ARE the run's
+        # output. Inside a Map, it depends on that Map's own ResultPath.
+        merges = True if container is None else "ResultPath" in by_name.get(container, {})
         for name, state in states.items():
             qualified = f"{label}/{name}".lstrip("/")
             if state.get("Type") == "Pass":
                 block = state.get("Parameters")
-                if not isinstance(block, dict) or state.get("ResultPath") is not None:
+                if "ResultPath" in state and state["ResultPath"] is not None:
                     continue
-                if _is_success_terminal(state, states):
+                if not isinstance(block, dict):
+                    continue
+                if _is_success_terminal(state, states, merges):
                     continue
             elif state.get("Type") == "Task":
                 block = (state.get("Parameters") or {}).get("Payload")
@@ -815,6 +839,68 @@ def test_the_sweep_would_notice_a_field_naming_state_it_does_not_know_about():
     assert "Terminal" not in selected, "a Pass handing straight to Succeed produces the output"
     assert "Seed" not in selected, "a state that can only reach a Fail is SPEC-227's, not this sweep's"
 
+    # Discriminator 5 excludes a Map leaf because the Map MERGES its result back. Take the merge
+    # away and the leaf is the last place the key could live, so it must come back into the
+    # population — otherwise the rule's justification is a sentence nothing enforces.
+    def _with_map(result_path):
+        """One machine holding an inline Map whose leaf names its fields.
+
+        Args:
+          result_path: The Map's ResultPath, or None to omit it entirely.
+
+        Returns:
+          The machine.
+
+        Raises:
+          None.
+        """
+        mapping = {
+            "Type": "Map",
+            "ItemsPath": "$.items",
+            "ItemProcessor": {
+                "ProcessorConfig": {"Mode": "INLINE"},
+                "StartAt": "Leaf",
+                "States": {"Leaf": {"Type": "Pass", "Parameters": {"k.$": "$.k"}, "End": True}},
+            },
+            "Next": "Done",
+        }
+        if result_path is not None:
+            mapping["ResultPath"] = result_path
+        return {"StartAt": "Fan", "States": {"Fan": mapping, "Done": {"Type": "Succeed"}}}
+
+    merging = {n for n, _b in _blocks_that_name_their_fields(_with_map("$.out"))}
+    replacing = {n for n, _b in _blocks_that_name_their_fields(_with_map(None))}
+
+    assert "Fan/Leaf" not in merging, "a merged Map's leaf loses nothing and must stay excluded"
+    # No machine has a Parallel today, so the walk's blindness to one could only ship silently.
+    parallel = {
+        "StartAt": "Split",
+        "States": {
+            "Split": {
+                "Type": "Parallel",
+                "Branches": [{
+                    "StartAt": "Named",
+                    "States": {
+                        "Named": {"Type": "Pass", "Parameters": {"k.$": "$.k"}, "Next": "Work"},
+                        "Work": {"Type": "Task", "Parameters": {"Payload.$": "$"}, "End": True},
+                    },
+                }],
+                "ResultPath": "$.out",
+                "Next": "Done",
+            },
+            "Done": {"Type": "Succeed"},
+        },
+    }
+    assert "Split[0]/Named" in {n for n, _b in _blocks_that_name_their_fields(parallel)}, (
+        "the sweep cannot see inside a Parallel branch, so the first one added would carry "
+        "field-naming states nothing checks"
+    )
+
+    assert "Fan/Leaf" in replacing, (
+        "a Map with no ResultPath REPLACES the state with its result array, so its leaf is the "
+        "last place the key could live and the sweep has to demand it there"
+    )
+
 
 @pytest.mark.parametrize(
     "plane,state", sorted(_THREADING_STATES), ids=lambda v: v if isinstance(v, str) else str(v)
@@ -886,6 +972,93 @@ def test_no_batch_input_reads_a_path_its_planes_state_does_not_supply():
                    "does not read `$.requestId`, which this plane does supply, so its Map "
                    "children cannot be joined to their run by request id")
             )
+
+
+def _traceparent_reads(asl):
+    """Yields (container label, qualified name, the reference path) for every traceparent read.
+
+    Args:
+      asl: The parsed state machine.
+
+    Returns:
+      Nothing; yields one triple per read, across `Parameters`, a Task's `Payload`, and a
+      Distributed Map's `ItemBatcher.BatchInput`.
+
+    Raises:
+      None.
+    """
+    for label, _start, states in _containers(asl):
+        for name, state in states.items():
+            parameters = state.get("Parameters") or {}
+            payload = parameters.get("Payload") if isinstance(parameters.get("Payload"), dict) else None
+            batch = (state.get("ItemBatcher") or {}).get("BatchInput")
+            for block in (parameters, payload, batch):
+                if block and "traceparent.$" in block:
+                    yield label, f"{label}/{name}".lstrip("/"), block["traceparent.$"]
+
+
+def test_every_traceparent_read_names_a_path_its_state_actually_supplies():
+    """Naming the key is not enough — the PATH has to resolve, and nothing else checks that.
+
+    A reference path to an ABSENT key is `States.Runtime`, which is neither retriable nor
+    catchable, so a mistyped path is not a missing log field: it kills the execution before
+    `NotifyFailure`. Measured, and this guard exists because of it: changing
+    `results-conversion:Converted` to read `$.nope` left every other test in this file AND the
+    end-to-end guard green, because the sweep asks whether the key is named and the driven runs
+    only cover file-send and archive.
+
+    Two forms are legitimate and they are checked differently rather than pattern-matched
+    together:
+
+    * At the top level, and in a Distributed Map's `BatchInput` — which resolves against the MAP
+      STATE's input, itself a top-level state — the state carries the key directly, so the path
+      is `$.traceparent` and nothing else.
+    * Inside an `ItemProcessor`, the child sees the item the Map's `ItemSelector` built, so a
+      nested path is only resolvable if the selector binds that block to the whole parent state.
+      That is checked against the selector rather than allowed by shape: `$.request.traceparent`
+      is correct exactly when the Map maps `"request.$": "$"`.
+    """
+    checked = 0
+    for path in _TEMPLATES:
+        plane = os.path.basename(os.path.dirname(path))
+        asl = _load(path)
+        states = dict(_states(asl))
+        for label, qualified, reference in _traceparent_reads(asl):
+            checked += 1
+            if not label:
+                assert reference == "$.traceparent", (
+                    f"{plane}:{qualified} reads {reference!r}; a top-level state carries the key "
+                    "directly, and an unresolvable path is an uncatchable States.Runtime"
+                )
+                continue
+
+            container = label.lstrip("/").split("/")[0]
+            selector = states[container].get("ItemSelector") or {}
+            bound_to_the_parent = {
+                key.removesuffix(".$") for key, value in selector.items() if value == "$"
+            }
+            assert bound_to_the_parent, (
+                f"{plane}:{qualified} sits in {container}, whose ItemSelector binds no block to "
+                "the parent state, so no nested path can resolve"
+            )
+            # `$.traceparent` is NOT automatically resolvable here: inside an ItemProcessor the
+            # state IS the item the selector built, so a top-level read resolves only if the
+            # selector puts the key there itself. An earlier version of this guard allowed it
+            # unconditionally, which would have passed the one edit that breaks every share.
+            selected = {key.removesuffix(".$") for key in selector}
+            allowed = {f"$.{block}.traceparent" for block in bound_to_the_parent}
+            if "traceparent" in selected:
+                allowed.add("$.traceparent")
+            assert reference in allowed, (
+                f"{plane}:{qualified} reads {reference!r}, which {container}'s ItemSelector does "
+                f"not supply — it builds {sorted(selected)} and binds {sorted(bound_to_the_parent)} "
+                f"to the parent state, so {sorted(allowed)} are the resolvable paths"
+            )
+
+    assert checked == 16, (
+        f"the sweep found {checked} traceparent reads and the fleet has 16 — ten states and six "
+        "Distributed Maps — so it is looking at the wrong thing"
+    )
 
 
 if __name__ == "__main__":
