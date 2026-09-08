@@ -8,8 +8,8 @@
  *
  * THE FAILURE THIS EXISTS FOR. npm builds a lifecycle script's PATH by prepending
  * `node_modules/.bin` from EVERY ancestor directory, nearest first. So if the workspace's own
- * `.bin/tsc` is missing — an interrupted install, a hand-deleted directory, an `npm dedupe` that
- * collapses the "duplicate" — `tsc -b` silently runs the ROOT's 6.x and the build typechecks
+ * `.bin/tsc` is missing — an interrupted install, or a hand-deleted directory; `npm dedupe` was
+ * measured NOT to do it, both copies survive — `tsc -b` silently runs the ROOT's 6.x and the build typechecks
  * against the wrong compiler, exiting 0. Nothing else notices: `check-local-install.mjs` finds a
  * `tsc` in the root `.bin` and passes, the bundle builds, and the suite is green. A 7-only type
  * error then reaches `main` behind a green PR.
@@ -48,17 +48,27 @@ function nearestBinOnPath(from) {
 }
 
 /**
- * Version of the package that owns `file`, found by walking up to the nearest package.json.
+ * Identify the package that owns `file` by walking up to the nearest package.json.
+ *
+ * Returns the NAME as well as the version, and the caller checks it. Without that this walk is a
+ * fail-open: `realpathSync` on a `.bin` entry that is a regular file — a shell shim rather than a
+ * symlink, which is what npm writes on Windows and what pnpm writes everywhere — returns the file
+ * itself, so the walk climbs out of `.bin/` and reads the CONSUMER's manifest instead. Measured:
+ * with such a shim in place the guard reported the workspace's own `"version"`, and passed outright
+ * once that field was edited to a 7. Whether the gate held then depended on a field in
+ * `apps/portal/package.json` that nobody thinks of as load-bearing.
  *
  * @param {string} file Absolute path to a file inside an installed package.
- * @returns {string | undefined} The `version` field, or undefined if no manifest is found.
+ * @returns {{name: string, version: string} | undefined} The owning manifest's `name` and
+ *   `version`, or undefined if no manifest is found before the filesystem root.
  */
-function owningVersion(file) {
+function owningPackage(file) {
   let dir = dirname(file);
   for (;;) {
     const manifest = join(dir, 'package.json');
     if (existsSync(manifest)) {
-      return JSON.parse(readFileSync(manifest, 'utf8')).version;
+      const {name, version} = JSON.parse(readFileSync(manifest, 'utf8'));
+      return {name, version};
     }
     const up = dirname(dir);
     if (up === dir) return undefined;
@@ -70,7 +80,10 @@ function owningVersion(file) {
  * Compare the `tsc` a build in `workspace` would execute against the one it declares.
  *
  * Fails closed: every branch that cannot answer the question refuses rather than passing, because
- * a guard that cannot see the compiler is indistinguishable from one that saw the right one.
+ * a guard that cannot see the compiler is indistinguishable from one that saw the right one. Each
+ * of those refusals is pinned by name in `check-compiler-major_test.mjs` — mutation-tested, since
+ * several of them would otherwise still refuse via an uncaught throw and so could be deleted
+ * without any test noticing.
  *
  * @param {string} workspace Absolute path to the workspace directory holding the package.json.
  * @returns {{ok: boolean, reason: string}} `ok` false with a one-line `reason` naming what was
@@ -93,15 +106,21 @@ export function checkCompilerMajor(workspace) {
 
   // The shim npm writes is a symlink into the package on this platform; realpath is what turns it
   // back into the copy it belongs to, and so into the version that will actually run.
-  const found = owningVersion(realpathSync(bin));
-  if (found === undefined) {
+  const owner = owningPackage(realpathSync(bin));
+  if (owner === undefined) {
     return {ok: false, reason: `${bin} resolves to no installed package, so its version cannot be read`};
   }
-
-  if (major(found) !== major(declared)) {
+  if (owner.name !== 'typescript') {
     return {
       ok: false,
-      reason: `${workspace} declares typescript ${declared} but ${bin} is ${found}`,
+      reason: `${bin} resolves into ${owner.name ?? 'a package with no name'}, not typescript, so the compiler version cannot be read from it`,
+    };
+  }
+
+  if (major(owner.version) !== major(declared)) {
+    return {
+      ok: false,
+      reason: `${workspace} declares typescript ${declared} but ${bin} is ${owner.version}`,
     };
   }
   return {ok: true, reason: ''};
