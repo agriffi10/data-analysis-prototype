@@ -22,23 +22,34 @@ locals {
   # The twelve verb Lambdas, keyed by the function SUFFIX, which is also the
   # lambdas/file-ops-<suffix>/ directory and the deploy-lambdas.yml matrix name.
   #
-  # ⚠ THREE OF THEM HOLD THE PARSED PLAN, so their memory rows are INPUTS TO
+  # ⚠ FIVE OF THEM HOLD THE PARSED PLAN, so their memory rows are INPUTS TO
   # FILE_OPS_MAX_OBJECTS rather than free choices — test_config_focommon takes the MINIMUM over
   # every plan-holding verb and reads these numbers back out of this file. ADDING A SIXTH
   # PLAN-HOLDER WITHOUT ADDING IT TO THAT SET would have the cap certify memory it never
-  # checked. Several timeouts here are likewise terms in the lock budget and the machine's
-  # ceiling, and a test recomputes each. README.md.
+  # checked, which is why that guard DERIVES the set from the verb sources and asserts it EQUAL
+  # to the one the budget measures: a sixth fails the build rather than the invocation.
+  # Every timeout here is read back by a test, but not all as the same kind of term: most are
+  # added into the machine's ceiling, acquire-lock's feeds the LOCK GIVE-UP BOUND instead, and
+  # copy-objects' is charged through the copy MAKESPAN rather than beside it — adding it there
+  # too would bill the same seconds twice. ⚠ ADDING A THIRTEENTH VERB fails that test until the
+  # row is charged to one budget or the other, because the ceiling's terms are not one per row
+  # and so cannot derive themselves. README.md.
   #
   # Module names are plane-qualified so two planes' identically-named verbs cannot collide on
   # sys.modules under one `pytest lambdas/` process.
   file_ops_functions = {
-    # THE TIMEOUT IS AN INPUT TO THE LOCK BUDGET: the give-up bound is computed from this
-    # verb's worst-case state cost, and a test recomputes it.
+    # THE TIMEOUT IS A TERM IN THE MACHINE'S CEILING, which a test recomputes. It is NOT an
+    # input to the lock give-up bound — that is acquire-lock's row, and the two being equal is
+    # what would have kept the confusion invisible.
     "validate-authorize" = { handler = "file_ops_validate_authorize.handler", timeout = 15, memory = 256 }
-    # One conditional PutObject plus a read.
+    # One conditional PutObject plus a read. ⚠ THIS TIMEOUT IS THE INPUT TO THE LOCK GIVE-UP
+    # BOUND: a waiter's per-attempt cost is the Wait plus this Task's worst case under the retry
+    # block, and the bound has to stay under the machine's ceiling. A test reads it back.
     "acquire-lock" = { handler = "file_ops_acquire_lock.handler", timeout = 15, memory = 256 }
-    # Reached on EVERY terminal path the graph can walk, so it must not be the reason a
-    # completed request reports failure.
+    # Reached on every terminal path that TOOK THE LOCK, so it must not be the reason a
+    # completed request reports failure. A validate failure refuses before the lock and releases
+    # nothing, so at most one release runs — which is why its timeout is charged ONCE as a term
+    # in the machine's ceiling rather than once per release state.
     "release-lock" = { handler = "file_ops_release_lock.handler", timeout = 15, memory = 256 }
     # THE MEMORY AND THE TIMEOUT ARE BOTH INPUTS TO A CAP: FILE_OPS_MAX_OBJECTS is the MINIMUM
     # of the plan this memory holds and the sweep the guard can do, and a test READS BOTH
@@ -47,7 +58,7 @@ locals {
     # Same memory as the expansion, because it loads the same plan back. The two rows move
     # together.
     "check-destinations" = { handler = "file_ops_check_destinations.handler", timeout = 600, memory = 1024 }
-    # THE WORST OF THE THREE PLAN-HOLDERS: it holds the parsed plan AND the joined manifest
+    # THE WORST OF THE FIVE PLAN-HOLDERS: it holds the parsed plan AND the joined manifest
     # body at once, because the transfer engine joins the whole payload before the PUT. Both
     # terms are charged in the cap's own test rather than assumed to fit.
     "build-transfer-manifest" = { handler = "file_ops_build_transfer_manifest.handler", timeout = 300, memory = 1024 }
@@ -118,7 +129,10 @@ locals {
   #
   # IT DOES NOT ON ITS OWN REACH NotifyFailure — the EventBridge TIMED_OUT rule does.
   #
-  # test_config_focommon computes the JOINT budget and asserts it fits here. THE CAP MOVED, NOT
+  # test_config_focommon computes the JOINT budget against focommon.config's mirror of THIS
+  # number, and holds the two equal in a second test — so the budget does fit what is deployed
+  # here, but by two assertions rather than one, and deleting either breaks the chain. It also
+  # reads this number directly for the stale-lock threshold. THE CAP MOVED, NOT
   # THE CEILING: raising the ceiling would raise STALE_LOCK_SECONDS with it (that threshold
   # must exceed the ceiling or a running execution's lock gets stolen), and a longer stale
   # window on a SHARED space blocks everyone else. So the byte cap came down. README.md.

@@ -145,7 +145,9 @@ Attributes:
   MARKER_BASENAME: The undeletable marker both bucket policies deny by name at any depth.
   PICKER_LOCKED_FOLDERS: Never a destination. Root-anchored in whichever bucket.
   UNDELETABLE_ROOT_FOLDERS: Never a delete or move SOURCE, at a space root.
-  LOCK_PREFIX: Key prefix for this plane's lock objects, under the admin bucket.
+  LOCK_PREFIX: Key prefix for this plane's lock objects, under the admin bucket. Mirrored in the
+    module's ``locals.tf``, which is what the IAM grant is rendered from; a test holds the two
+    equal, because a lock written outside the grant fails as an AccessDenied at runtime.
   LOCK_WAIT_SECONDS: The ASL ``Wait`` between re-acquire attempts. Mirrored in the module's
     ``locals.tf`` because ASL cannot import Python; a test holds the two equal.
   LOCK_MAX_ATTEMPTS: How many times a waiter re-acquires before giving up. **Python only.** The
@@ -154,7 +156,10 @@ Attributes:
   MACHINE_TIMEOUT_SECONDS: The file-ops state machine's ``TimeoutSeconds``, mirrored here because
     a steal threshold is only meaningful against a bounded execution. **No longer provisional**:
     the transfer and the deletion exist, so ``test_config_focommon`` computes the joint budget
-    against it rather than borrowing a number from a neighbouring plane. It did not move —
+    against it rather than borrowing a number from a neighbouring plane. That budget reads eleven
+    verb timeouts out of Terraform and then measures them against THIS constant, so a test holds
+    it equal to the rendered ``state_machine_timeout_seconds`` — without which every ceiling
+    assertion in this module could certify a ceiling that is not deployed. It did not move —
     ``FILE_OPS_MAX_TOTAL_BYTES`` did, for the reason recorded there.
   STALE_LOCK_SECONDS: Age past which a held lock is stolen — the machine ceiling plus a margin
     for the delay between an execution's last state and its timeout being observed. Strictly
