@@ -636,6 +636,7 @@
     "GiveUpFailureSeed": {
       "Type": "Pass",
       "Parameters": {
+        "traceparent.$": "$.traceparent",
         "requestId.$": "$.requestId",
         "actor.$": "$.actor",
         "raw.$": "$$.Execution.Input",
@@ -660,6 +661,7 @@
     "RequestFailureSeed": {
       "Type": "Pass",
       "Parameters": {
+        "traceparent.$": "$.traceparent",
         "requestId.$": "$.requestId",
         "actor.$": "$.actor",
         "raw.$": "$$.Execution.Input",
@@ -671,6 +673,7 @@
     "ValidateFailureSeed": {
       "Type": "Pass",
       "Parameters": {
+        "traceparent": null,
         "requestId": null,
         "actor": null,
         "raw.$": "$$.Execution.Input",
@@ -682,6 +685,7 @@
     "RecordFailure": {
       "Type": "Pass",
       "Parameters": {
+        "traceparent.$": "$.traceparent",
         "requestId.$": "$.requestId",
         "actor.$": "$.actor",
         "raw.$": "$.raw",

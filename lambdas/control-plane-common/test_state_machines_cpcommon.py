@@ -1613,6 +1613,118 @@ def test_no_batch_input_reads_a_path_its_planes_state_does_not_supply():
             )
 
 
+#: The run-level failure-path states that must name the traceparent, as (plane, state).
+#: Split by whether the state can READ it off the state or must supply a literal, because the two
+#: are different edits and a state moving between them is exactly what this pins.
+#:
+#: Nested seeds are absent BY RULE, not by oversight: the three of them are `End: true` inside an
+#: `ItemProcessor` and cannot reach `RecordFailure` at all — their output becomes one element of
+#: their Map's result array. `_failure_path_threading` asserts that rule rather than restating it.
+_PRE_IDENTITY_SEEDS = frozenset(
+    (plane, "ValidateFailureSeed") for plane in _EXPECTED_ARCS
+)
+
+
+def _failure_path_threading():
+    """Every run-level failure-path state, split into the ones that read and the ones that cannot.
+
+    The discriminator is DERIVED, not listed: a seed whose ``Parameters["error.$"]`` is ``"$"`` had
+    the error REPLACE the whole state, so nothing from before the failure survives and there is no
+    ``$.traceparent`` to read. Every other seed stands on a validated state — each already reads
+    ``$.requestId`` or ``$.actor`` today and would be raising ``States.Runtime`` if it did not.
+
+    Args:
+      None.
+
+    Returns:
+      A (readers, literals) pair of (plane, state) sets.
+
+    Raises:
+      None.
+    """
+    readers, literals = set(), set()
+    for path in _TEMPLATES:
+        plane = os.path.basename(os.path.dirname(path))
+        for label, name, state, _states in _failure_seeds(_load(path)):
+            if label:
+                continue
+            block = state.get("Parameters") or {}
+            (literals if block.get("error.$") == "$" else readers).add((plane, name))
+    return readers, literals
+
+
+def test_the_pre_identity_seeds_are_the_ones_the_error_replaced():
+    """The split is derived; this pins it, and pins that nested seeds are excluded BY RULE.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the split moves, or a nested seed joins the population.
+    """
+    readers, literals = _failure_path_threading()
+
+    assert literals == _PRE_IDENTITY_SEEDS, (
+        f"unexpected: {sorted(literals - _PRE_IDENTITY_SEEDS)}; "
+        f"missing: {sorted(_PRE_IDENTITY_SEEDS - literals)}"
+    )
+    assert len(readers) == 21, f"the failure path has {len(readers)} readers, not 21"
+    assert not {name for _plane, name in readers | literals if "/" in name}, (
+        "a NESTED seed joined the run-level failure path; the three of them are `End: true` "
+        "inside an ItemProcessor and cannot reach RecordFailure, so they carry no traceparent"
+    )
+    assert len(_failure_seed_population()) == len(readers) + len(literals) + 3, (
+        "the run-level population plus the three nested seeds no longer accounts for every seed"
+    )
+
+
+@pytest.mark.parametrize(
+    "plane,state",
+    sorted(_failure_path_threading()[0] | _failure_path_threading()[1]),
+    ids=lambda v: v,
+)
+def test_every_failure_path_state_names_the_traceparent(plane, state):
+    """Each one named individually, so a red run says WHICH plane and WHICH state.
+
+    A failed run's terminal and its notification sit in the run's trace only if every state on the
+    way names the key: `RecordFailure` is a `Pass` naming its fields, so a seed that does not
+    supply the traceparent drops it, and `notify-failure` — a separate invocation, reached through
+    `"Payload.$": "$"` — then opens a fresh trace on exactly the run an operator went looking for.
+
+    Args:
+      plane: The plane's name.
+      state: The state's name.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the state does not name the traceparent, or names it the wrong way.
+    """
+    path = next(p for p in _TEMPLATES if os.path.basename(os.path.dirname(p)) == plane)
+    block = dict(_states(_load(path)))[state].get("Parameters") or {}
+    _readers, literals = _failure_path_threading()
+
+    if (plane, state) in literals:
+        assert "traceparent" in block and block["traceparent"] is None, (
+            f"{plane}:{state} is the PRE-IDENTITY seed — the error replaced the state, so there "
+            "is no `$.traceparent` to read and it must supply a literal null. Omitting the key "
+            "instead makes RecordFailure's read an uncatchable States.Runtime"
+        )
+        assert "traceparent.$" not in block, (
+            f"{plane}:{state} reads `$.traceparent` off a state the error REPLACED — the read "
+            "cannot resolve and it kills the execution before NotifyFailure"
+        )
+    else:
+        assert block.get("traceparent.$") == "$.traceparent", (
+            f"{plane}:{state} does not read the run's traceparent, so the failed run's "
+            "notification opens a trace of its own"
+        )
+
+
 def _traceparent_reads(asl):
     """Yields (container label, qualified name, the reference path) for every traceparent read.
 
@@ -1694,9 +1806,12 @@ def test_every_traceparent_read_names_a_path_its_state_actually_supplies():
                 f"to the parent state, so {sorted(allowed)} are the resolvable paths"
             )
 
-    assert checked == 16, (
-        f"the sweep found {checked} traceparent reads and the fleet has 16 — ten states and six "
-        "Distributed Maps — so it is looking at the wrong thing"
+    assert checked == 37, (
+        f"the sweep found {checked} traceparent reads and the fleet has 37 — ten success states "
+        "(`_THREADING_STATES`), six Distributed Maps (derived by the guard above), and twenty-one "
+        "on the failure path (`_failure_path_threading`, which pins that number) — so it is "
+        "looking at the wrong thing. The eight pre-identity seeds are NOT reads: they supply a "
+        "literal null, which is why the total is not 45"
     )
 
 

@@ -425,6 +425,7 @@
       "Type": "Pass",
       "Comment": "A validate-authorize failure occurs before the request identity exists (its input was the raw SQS array), so its Catch replaced the state with the error object. Seed null identity fields + carry the error under $.error so the shared RecordFailure path is uniform for every whole-request failure.",
       "Parameters": {
+        "traceparent": null,
         "actor": null,
         "source": { "database": null, "table": null },
         "tableName": null,
@@ -436,6 +437,7 @@
       "Type": "Pass",
       "Comment": "The single recorded-failure state every whole-request Catch reaches (identity is null for a pre-identity validate failure). Shapes the structured outcome { actor, source, tableName, status:'failed', error } the notification producer reads, then fails the execution. It carries the RAW $.error {Error, Cause}, not a decoded reason: the ParseError Pass state that used to produce one ran States.StringToJson, which raises an UNCATCHABLE States.Runtime whenever Cause is absent or is not JSON (States.Timeout, States.DataLimitExceeded, Lambda.Unknown — verified live), killing the execution before it could record anything. Decode with cpcommon.errors.failure_reason, never in ASL. Per-RECIPIENT failures never come here — they end their Map item via RecipientRefused/RecipientFailed and siblings continue.",
       "Parameters": {
+        "traceparent.$": "$.traceparent",
         "actor.$": "$.actor",
         "source.$": "$.source",
         "tableName.$": "$.tableName",

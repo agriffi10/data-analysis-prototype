@@ -47,16 +47,23 @@ for _dir in (
     "file-send-validate-authorize",
     "file-send-copy-objects",
     "file-send-notify",
+    "file-ops-common",
+    "file-ops-validate-authorize",
+    "file-ops-notify-failure",
+    "archive-notify-failure",
     "api",
 ):
     sys.path.insert(0, str(_LAMBDAS / _dir))
 
+import ar_notify_failure
 import archive_copy_objects
 import archive_notify
 import archive_validate_authorize
+import file_ops_validate_authorize
 import file_send_copy_objects
 import file_send_notify
 import file_send_validate_authorize
+import fo_notify_failure
 import test_state_machines_cpcommon as machines
 from cpcommon import observability
 from token_shapes import JWT_SHAPED
@@ -152,6 +159,11 @@ def sink(monkeypatch):
             module.notify, "emit_notification", lambda *a, **kw: None, raising=False
         )
     monkeypatch.setattr(file_send_validate_authorize.reg, "load", lambda name: None)
+    monkeypatch.setattr(file_ops_validate_authorize.authz.reg, "load", lambda name: None)
+    for module in (file_ops_validate_authorize, fo_notify_failure, ar_notify_failure):
+        monkeypatch.setattr(
+            module.notify, "emit_notification", lambda *a, **kw: None, raising=False
+        )
     monkeypatch.setattr(
         file_send_validate_authorize.cognito, "user_exists", lambda name: True
     )
@@ -212,6 +224,14 @@ def _resolve(path, state):
     """
     if path == "$":
         return state
+    if path.startswith("$$"):
+        assert path == "$$.Execution.Input", (
+            f"{path} reads the CONTEXT OBJECT, and this interpreter models only "
+            "`$$.Execution.Input`. Left unmodelled it resolves to None SILENTLY — the path "
+            "begins with `$` so the loud check below never fires — and the drive then proves "
+            "nothing about the field it fabricated"
+        )
+        return state.get("__execution_input__")
     value = state
     for segment in path.removeprefix("$.").split("."):
         if not isinstance(value, dict):
@@ -486,6 +506,133 @@ def test_every_span_of_a_driven_run_carries_the_request_id(sink):
     assert not without, f"{without} emitted a span with no request id"
 
 
+def _drive_a_failure(plane, validate, envelope, seed_state, notify_failure):
+    """Drives one plane from its validator to `notify-failure`, the way a REAL failure travels.
+
+    The shape matters more than the count. A `Catch` hands its target the failing Task's INPUT
+    with the error merged in — never the Task's result — so the seed is evaluated against the
+    validated state, and `RecordFailure`'s own `Parameters` are then evaluated against the seed's
+    output. Both templates are read from the deployed ASL rather than written here, so a state
+    that stops naming the traceparent breaks this drive instead of quietly passing it.
+
+    Args:
+      plane: The plane's directory name under infra/modules.
+      validate: The plane's validate-authorize handler.
+      envelope: The Pipe's forwarded SQS batch, which is what `$$.Execution.Input` holds.
+      seed_state: The seed to route through, e.g. "RequestFailureSeed".
+      notify_failure: The plane's notify-failure handler.
+
+    Returns:
+      The number of spans the drive should have produced.
+
+    Raises:
+      None.
+    """
+    validated = validate(envelope, None)
+    caught = {**validated, "error": {"Error": "some_reason", "Cause": None},
+              "__execution_input__": envelope}
+
+    seeded = _apply(_state(plane, seed_state)["Parameters"], caught)
+    seeded["__execution_input__"] = envelope
+    recorded = _apply(_state(plane, "RecordFailure")["Parameters"], seeded)
+
+    assert recorded.get("traceparent"), (
+        f"{plane}: RecordFailure produced no traceparent, so notify-failure cannot join the run — "
+        f"the seed {seed_state} built {sorted(seeded)}"
+    )
+    assert recorded.get("raw") == envelope, (
+        f"{plane}: the seed's `$$.Execution.Input` read did not resolve to the Pipe envelope. "
+        "That path begins with `$`, so an interpreter that does not model the context object "
+        "returns None SILENTLY rather than refusing — and notify-failure falls back to `raw` for "
+        "the actor, so the drive would be exercising a shape no real run produces"
+    )
+    notify_failure(recorded, None)
+    return 2
+
+
+@pytest.mark.parametrize(
+    "plane,drive",
+    [
+        (
+            "archive",
+            lambda: _drive_a_failure(
+                "archive",
+                archive_validate_authorize.handler,
+                [{"messageId": "m-1", "body": json.dumps({
+                    "requestId": _UUID, "mode": "archive", "actor": JWT_SHAPED,
+                    "source": {"space": {"kind": "personal", "name": "alice"},
+                               "items": [{"kind": "file", "key": "alice/q1.csv"}]},
+                    "identity": _IDENTITY,
+                })}],
+                "RequestFailureSeed",
+                ar_notify_failure.handler,
+            ),
+        ),
+        (
+            "file-ops",
+            lambda: _drive_a_failure(
+                "file-ops",
+                file_ops_validate_authorize.handler,
+                [{"messageId": "m-1", "body": json.dumps({
+                    "requestId": "req-1", "operation": "copy",
+                    "source": {"space": {"kind": "personal", "name": "alice"},
+                               "items": [{"kind": "file", "key": "alice/q1.csv"}]},
+                    "destination": {"space": {"kind": "personal", "name": "alice"},
+                                    "prefix": "alice/out/"},
+                    "onConflict": "refuse", "submittedAt": "2026-09-05T12:00:00+00:00",
+                    "identity": _IDENTITY,
+                })}],
+                "RequestFailureSeed",
+                fo_notify_failure.handler,
+            ),
+        ),
+    ],
+    ids=["archive", "file-ops"],
+)
+def test_a_failed_run_is_one_trace_including_its_notification(plane, drive, sink):
+    """The half of the trace an operator actually goes looking for.
+
+    SPEC-225 put the SUCCESS path into one trace and stopped there. A failed run's
+    `notify-failure` is a SEPARATE invocation, reached through `"Payload.$": "$"` from
+    `RecordFailure` — so unless every state between the failure and the notification names the
+    traceparent, the one span an operator opens after an incident belongs to a trace of its own.
+
+    Driven rather than read: the guards in `test_state_machines_cpcommon.py` ask whether the key
+    is NAMED, and a key named with a path that does not resolve is exactly as fatal as one that is
+    absent. Only running the templates against a real validated state can tell the two apart.
+
+    Args:
+      plane: The plane's name.
+      drive: The driver.
+      sink: The capturing sink.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the failure path opens a trace of its own.
+    """
+    expected = drive()
+    observability.flush()
+
+    spans = sink.spans()
+    verbs = {event.get("fields", {}).get("verb") for event in spans}
+    traces = {event["trace_id"] for event in spans}
+
+    assert len(spans) >= expected, (
+        f"{plane} produced {len(spans)} spans for {expected} driven verbs, so the drive stopped "
+        "short and the trace assertion below would pass vacuously"
+    )
+    assert "notify-failure" in verbs, (
+        f"{plane} never reached notify-failure ({sorted(verbs)}), which is the span this test "
+        "exists for"
+    )
+    assert len(traces) == 1, (
+        f"{plane}'s failure path opens {len(traces)} traces: {sorted(verbs)} — the run cannot be "
+        "followed from the failure to the notification the user was sent"
+    )
+
+
 @pytest.mark.parametrize(
     "plane,module,dropped",
     [
@@ -530,6 +677,52 @@ def test_the_two_verbs_that_filter_their_echo_keep_the_runs_trace(plane, module,
     assert excluded == set(dropped), (
         f"{plane}'s collector now drops {sorted(excluded)}; it is allowed to drop "
         f"{sorted(dropped)}, and anything else is a key some later state may still read"
+    )
+
+
+def test_the_verbs_that_filter_their_echo_are_exactly_the_two_that_are_pinned():
+    """The population above is a hard-coded pair; this is what makes it a claim about the FLEET.
+
+    Every other verb returns ``{**event, …}`` and cannot drop a key it was never told about. These
+    two return an explicit exclusion set, and a key added to one disappears from every state after
+    it. The test above pins what those two are allowed to drop — but its parametrisation is a
+    LIST, so a THIRD verb adopting the same idiom would drop the run's traceparent silently and
+    nothing would object.
+
+    Deriving the population is the whole point: it costs one glob, and it converts "we know of two"
+    into "there are two". Measured when this was written: exactly two files outside a test use
+    ``event.items()``.
+
+    The wider invariant this belongs to is stated rather than guarded, and the boundary is worth
+    being explicit about: what actually keeps the traceparent alive across a plane is that every
+    replacing Task returns ``{**event, …}``. Guarding THAT would need each of eighty-odd verbs
+    classified from source, which misreads a handler that delegates its return (archive's
+    initiate-restore builds its dict in ``arcommon.restore``) and would need a standing exemption
+    list — and an exemption list that rots is worse than the gap it covers. The driven failure runs
+    cover it empirically instead, on the two planes an operator is most likely to be reading.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a third verb starts filtering its echo.
+    """
+    filtering = {
+        path.parent.name
+        for path in sorted(_LAMBDAS.glob("*/*.py"))
+        if not path.name.startswith("test_")
+        and "event.items()" in path.read_text(encoding="utf-8")
+    }
+
+    assert filtering == {
+        "file-send-collect-transfer-results",
+        "table-share-collect-transfer-results",
+    }, (
+        f"{sorted(filtering)} filter their echo; the two above are pinned with the keys they are "
+        "allowed to drop, and any other one drops the run's traceparent with nothing to catch it"
     )
 
 

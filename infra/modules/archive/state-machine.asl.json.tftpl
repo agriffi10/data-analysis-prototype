@@ -311,6 +311,7 @@
       "Type": "Pass",
       "Comment": "The rollback verb ALWAYS raises, so this is unreachable today — and it is here because the alternative is a trap rather than a tidy edge. Pointing Rollback's Next straight at RequestFailureSeed would read as correct while that seed reads $.error, which a RETURNING verb does not leave on the state (OutputPath is $.Payload): the Pass would raise an uncatchable States.Runtime on the failure path itself, on a run that had already decided not to delete anything. Seeding the reason here makes a returning rollback fail the way it meant to. The error name is a registered reason code, never `TerminalError`, which notify-failure treats as evidence a verb's decorator already spoke.",
       "Parameters": {
+        "traceparent.$": "$.traceparent",
         "requestId.$": "$.requestId",
         "mode.$": "$.mode",
         "actor.$": "$.actor",
@@ -478,6 +479,7 @@
       "Type": "Pass",
       "Comment": "The Choice's default arm. A receipt claiming zero files archived is worse than a refusal, and an empty archive prefix is indistinguishable at restore time from one whose objects have vanished — so an archive of nothing FAILS. The seeded error name is a registered reason code and never `TerminalError`, which notify-failure treats as positive evidence that a verb's decorator already spoke (the recorded DiffMissingSeed rule).",
       "Parameters": {
+        "traceparent.$": "$.traceparent",
         "requestId.$": "$.requestId",
         "mode.$": "$.mode",
         "actor.$": "$.actor",
@@ -493,6 +495,7 @@
       "Type": "Pass",
       "Comment": "The failure seed for every state after the request identity exists — seven of them. It differs from ValidateFailureSeed in the one way that matters: the request IS on the state here, so the actor comes from $.actor, the verified username the validator already produced, rather than being recovered from a token. $.raw still comes from the CONTEXT OBJECT: notify-failure falls back to it when the actor is empty, and RecordFailure reads it unconditionally, so a Pass that did not supply it would raise an uncatchable States.Runtime on the failure path. IT DELIBERATELY DOES NOT CARRY $.source, AND THAT IS A SIZE DECISION: $.raw is the Pipe's record, which at ARCHIVE_MAX_ITEM_BYTES is ~200 KB of escaped selection, and $.source is that same selection AGAIN — the two together breach the 256 KB state limit on a Pass with NO Catch, killing the run before NotifyFailure on exactly the failures the path exists to report.",
       "Parameters": {
+        "traceparent.$": "$.traceparent",
         "requestId.$": "$.requestId",
         "mode.$": "$.mode",
         "actor.$": "$.actor",
@@ -1204,6 +1207,7 @@
       "Type": "Pass",
       "Comment": "RollbackReturnedSeed's twin, and unreachable for the same reason — the verb it follows always raises on this branch. It is here rather than the Next pointing at RequestFailureSeed because that seed reads $.error, which a RETURNING verb does not leave on the state (OutputPath is $.Payload): the Pass would raise an uncatchable States.Runtime on the failure path itself, on a run that had already put some of the user's data back. The error name is a registered reason code, never `TerminalError`, which notify-failure treats as evidence a verb's decorator already spoke.",
       "Parameters": {
+        "traceparent.$": "$.traceparent",
         "requestId.$": "$.requestId",
         "mode.$": "$.mode",
         "actor.$": "$.actor",
@@ -1219,6 +1223,7 @@
       "Type": "Pass",
       "Comment": "The wait loop's own terminal, which is NOT the machine's TimeoutSeconds: this one fires while the execution is healthy, so it reaches RecordFailure and NotifyFailure through the ordinary door rather than needing the EventBridge rule. A restore that exceeds its budget is terminal and is re-submitted — safe at any time, because nothing was copied and the archive is untouched, which is the same property that makes the retrieval's tolerated 409 free.",
       "Parameters": {
+        "traceparent.$": "$.traceparent",
         "requestId.$": "$.requestId",
         "mode.$": "$.mode",
         "actor.$": "$.actor",
@@ -1234,6 +1239,7 @@
       "Type": "Pass",
       "Comment": "HasRestoreItems' default arm, unreachable in practice because inspect-archive already refuses an empty archive as archive_not_found. Specified rather than omitted for the reason its archive twin gives: a branch that raises States.Runtime when it is reached is worse than one that refuses.",
       "Parameters": {
+        "traceparent.$": "$.traceparent",
         "requestId.$": "$.requestId",
         "mode.$": "$.mode",
         "actor.$": "$.actor",
@@ -1249,6 +1255,7 @@
       "Type": "Pass",
       "Comment": "The one whole-request failure this stage of the machine can produce outside a Task, and the reason ChooseMode's Default is not simply pointed at Succeeded. It seeds the SAME shape RecordFailure reads from every other path — requestId, actor, raw, error — so there is one failure terminal rather than two. $.raw comes from the CONTEXT OBJECT because RecordFailure reads it unconditionally; the actor comes from the state, which by here is the verified username. THE SEEDED ERROR NAME IS A REASON CODE, NEVER `TerminalError`: notify-failure treats that one name as positive evidence that a verb's decorator already sent a message, so a seed wearing it would be silently suppressed (the recorded DiffMissingSeed rule). `invalid_request` is a registered arcommon code, so the user reads a real sentence rather than the generic fallback.",
       "Parameters": {
+        "traceparent.$": "$.traceparent",
         "requestId.$": "$.requestId",
         "mode.$": "$.mode",
         "actor.$": "$.actor",
@@ -1264,6 +1271,7 @@
       "Type": "Pass",
       "Comment": "A validate-authorize failure happens before the request identity exists, and its input was the raw SQS ARRAY — so the Catch has no object to merge a ResultPath into and the error REPLACES the state. That is why $.raw is read from the CONTEXT OBJECT rather than from the state: $$.Execution.Input is the Pipe's forwarded batch, still there whatever the Catch did to the state, and it is the only surviving copy of the caller's token. Without it NotifyFailure would take its no-recipient branch on every single failure — a failure path satisfied on paper and silent in practice, on exactly the cold-start failures it exists for. Reading $$ in a PASS state rather than in the failing task's own Parameters is the shape that works. The seed must supply every key the failure terminal reads: a Pass state's JSONPath hard-fails on an absent key with an uncatchable States.Runtime, which a fleet-wide test enforces.",
       "Parameters": {
+        "traceparent": null,
         "requestId": null,
         "mode": null,
         "actor": null,
@@ -1276,6 +1284,7 @@
       "Type": "Pass",
       "Comment": "The single recorded-failure state every whole-request path reaches (identity is null for a pre-identity validate failure). Shapes the structured outcome the notifier reads, then fails the execution. It carries the RAW $.error {Error, Cause}, not a decoded reason: States.StringToJson raises an UNCATCHABLE States.Runtime whenever Cause is absent or is not JSON, which would kill the execution before it could record anything. Decode with cpcommon.errors.failure_reason, never in ASL.",
       "Parameters": {
+        "traceparent.$": "$.traceparent",
         "requestId.$": "$.requestId",
         "mode.$": "$.mode",
         "actor.$": "$.actor",
