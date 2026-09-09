@@ -2990,6 +2990,18 @@ the banned intrinsic could open. The limit is accepted and recorded rather than 
 cross-check landed with a limit of its own — driving a verb answers the question only for a verb
 that BUILDS its return, so seven of its eleven pairs are driven and four are recorded as echoing.
 
+**229 → 228 finish the job, in that order, and the order is the point.** 227's recorded limit rests
+on two claims; the ASL one is true and stands, and the one about the extractor is not — it never
+walks the `raw` the state already carries, which is the repair rather than the reason. **228** adds
+that fifth shape and puts the envelope on every plane's `RecordFailure`, read from the context
+object so the failure-seed guard is untouched. **229** goes first because 228 widens a state whose
+size nothing computes: the request chain has four links, each capped at 256 KiB, and the fourth —
+the Pipe's record plus a 32 KB `Cause` — is measured on no plane while four already carry it. The
+per-plane caps that look like they bound it do not: every one runs inside `validate-authorize`, so
+the request that overflows the chain is the one arriving before the cap that would refuse it. The
+one control upstream is the API's `MAX_MESSAGE_BYTES`, and it is derived from the **SQS** limit
+rather than the Step Functions one — the wrong budget, and measurably so.
+
 **226 gives the seven flat planes child spans, and it is the spec whose premise a reviewer
 destroyed.** Its first draft claimed the shared `cpcommon` layer bought all seven at once. Built,
 that turned out false: **five of its eight named shared functions are called inside loops** —

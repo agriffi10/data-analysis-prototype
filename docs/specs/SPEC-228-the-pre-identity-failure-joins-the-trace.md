@@ -3,7 +3,9 @@
 **ID:** SPEC-228
 **Status:** Draft
 **Last Updated:** 2026-09-09
-**Depends On:** SPEC-227 (Completed)
+**Depends On:** SPEC-227 (Completed), SPEC-229 (Draft) — **SPEC-229 lands first.** It bounds the
+state this spec makes bigger, and the window between widening and bounding is a reachable silent
+failure rather than a tidiness concern.
 
 ## Overview
 
@@ -36,15 +38,14 @@ Every guard SPEC-227 built stays **green and unchanged**: seeds still supply a l
 `RecordFailure` still reads `$.traceparent`, and the pre-identity/post-identity split is still
 derived the same way. Adoption moves to the place that can already do it.
 
-**And carrying the envelope has a byte cost that is already live and already uncomputed**, which
-this spec closes rather than inherits. Archive proves a **three-link chain** — the caller's body,
-the Pipe's record with that body escaped into it, and the validated state — each under the Step
-Functions 256 KiB limit. There is a fourth link nothing measures: `RecordFailure`, which is the
-Pipe's record *plus* an error whose `Cause` Step Functions permits up to 32 KB. Four planes already
-carry it and none of them bounds it. Measured while authoring: a body at the API's cap already
-produces an execution input over the limit, so the API today accepts requests whose execution
-cannot start — the defect archive's own guard says file-send once shipped, in the link above this
-one.
+**Carrying the envelope has a byte cost, and it is SPEC-229's, not this spec's.** A request travels
+a four-link chain, each link capped at 256 KiB, and the fourth — `RecordFailure`, which is the Pipe's
+record plus an error whose `Cause` may reach 32 KB — is computed nowhere and is already live on four
+planes. This spec widens it to eight. That is why the bound lands first: between the widening and the
+bound there is a band of request sizes where `RecordFailure` raises `States.DataLimitExceeded`
+**outside every Catch**, so `NotifyFailure` never runs and a user whose request failed is told
+nothing — the exact silent failure this arc exists to close, introduced by a change meant to close
+it.
 
 ## Scope
 
@@ -56,10 +57,10 @@ one.
   supply it and the failure-seed guard is not disturbed.
 - Retiring the `raw` keys on failure seeds that this change makes dead, and correcting the
   per-plane guards, docstrings and ASL comments that describe where `raw` comes from.
-- **The fourth link of the size chain**, on every plane, with each plane's own cap brought down to
-  clear it. Folding this in rather than deferring it is a user decision (2026-09-09): the exposure
-  is what this spec widens, and a spec that widens it without bounding it is the failure mode the
-  arc exists to close.
+- Nothing about the size chain, which is SPEC-229 and lands first. Bounding the exposure rather
+  than deferring it is a user decision (2026-09-09); putting the bound in its own spec **ahead** of
+  this one is how that decision is honoured, because a per-plane remedy turned out not to exist —
+  every plane's cap is enforced inside the execution it would have to bound.
 - Driving a pre-identity failure end to end on one plane from each half, and asserting
   `notify-failure`'s span carries the run's `trace_id`.
 - Correcting every site that records the limit — the population derived by a search, not by a list.
@@ -90,6 +91,15 @@ one.
   keys, so FR-001 cannot give it one. Still SPEC-225's exclusion rather than this one's.
 - **The success path.** `raw` reaches no success-path state on any plane, and this spec adds it to
   none.
+- **Putting `raw` on the seeds instead — the pre-identity seed supplying the envelope and the 13
+  post-identity seeds a literal `null`, with `RecordFailure` still reading `$.raw`.** Weighed and
+  rejected rather than passed over. It is attractive for two real reasons: it keeps the envelope off
+  every post-identity failure state, and it engages the failure-seed guard rather than being exempt
+  from it. It is rejected because the byte argument is the weaker half of its own case — a
+  post-identity failure's body is the **validated** one, already under its plane's cap, so the state
+  it saves bytes on is not the state that overflows — and because SPEC-229 bounds the chain before
+  this lands, which is what the byte argument was for. What is left is 21 seed edits against 8, and
+  an exemption that is pinned either way.
 
 ---
 
@@ -155,6 +165,14 @@ not match, so a `RecordFailure` reading `$$.Execution.Input` is not a read any s
 property both rejected alternatives lack. That exemption is deliberate and load-bearing, so it is
 pinned rather than depended on silently.
 
+**This is an argued exception to a Fences clause, and it says so rather than slipping past it.**
+"Everything unbounded travels by pointer, never on the state, and a cap is not a substitute" is the
+rule, and an envelope on a state is what this FR adds. The exception is that the envelope **is**
+`$$.Execution.Input` — a value Step Functions has already bounded by admitting the execution, and
+one there is no pointer to, because nothing wrote it anywhere a verb could fetch it from. FR-004
+records the exception in the clause itself; SPEC-229 supplies the cap the clause says is not a
+substitute, which is why it is not one here either.
+
 Once no state reads `$.raw`, the `raw` keys on the failure seeds are dead and are removed. That
 falsifies a set of claims spread across two per-plane guards, several ASL comments and about a dozen
 docstrings, all of which say the **seed** is where the envelope comes from. Two of those guards go
@@ -180,8 +198,10 @@ future `source` key looking free.
 - [ ] The two per-plane guards this breaks are corrected rather than relaxed:
       `results-conversion-common/test_state_machine_results_conversion.py`'s seed key-set equality
       and its `RecordFailure ⊆ RequestFailureSeed` containment, and
-      `file-send-common/test_config_fscommon.py`'s `test_no_failure_seed_carries_the_selection_twice`
-      — the latter re-pointed at `RecordFailure` with its 256 KiB reasoning intact.
+      `file-send-common/test_config_fscommon.py`'s `test_no_failure_seed_carries_the_selection_twice`.
+      The latter asserts two things over three states, and only one of them moves: the `raw`-presence
+      half re-points to `RecordFailure`, and the **`source.$` absence half stays over all three**,
+      because the seeds are where a `source` key would be re-added.
 - [ ] **Every claim that the failure SEED is where `raw` comes from is corrected**, in ASL comments,
       verb and test docstrings, and `file-ops-validate-authorize`'s `created_later` mapping. The
       sweep is closed with a search over `infra/` and `lambdas/`, not with memory of which files were
@@ -225,9 +245,9 @@ two facts rather than free.
 - [ ] The drive fails for the **right reason** when the FR-001 branch is removed — asserted on the
       failure message, not on an exit code, because a post-identity drive in the same file fails with
       the same shape.
-- [ ] A **positive control**: the assertion is shown to be reachable by running it against the
-      pre-change ASL and extractor and watching it fail, so a drive that silently collects nothing
-      cannot pass by asserting over an empty set.
+- [ ] A **positive control that ships**, not a one-time act during the build: the new drive carries
+      a floor on the spans it collected, the way the existing drive's `len(spans) >= expected` does,
+      so a drive that collected nothing cannot satisfy a one-trace assertion vacuously.
 
 ### FR-004: Every site that records the limit says what is now true
 
@@ -242,7 +262,14 @@ its delivery doc; `lambdas/info/shared-layer.md`; the module docstring of
 `cpcommon/observability.py` itself; and the `docs/testing/owed.md` row whose half (b) tells a human
 to confirm `notify-failure` carries a **different** `trace_id`.
 
-The Fences clause is **replaced, not appended to**. Its first sentence — a pre-identity seed supplies
+Two further clauses in the same Fences block are touched. "Everything unbounded travels by pointer,
+never on the state, and a cap is not a substitute" gains the exception FR-002 argues, naming the
+envelope and naming SPEC-229 as the cap. And the clause about a catch routed to a state reading
+`$.raw` describes a hazard that becomes unreachable — no state reads `$.raw` after FR-002 — so it is
+**generalised** to the trap that is still live and still general: a `Pass` hard-fails on an absent
+key, whatever the key is called.
+
+The pre-identity clause is **replaced, not appended to**. Its first sentence — a pre-identity seed supplies
 literals for everything its terminal reads, including `traceparent` — stays true and load-bearing;
 the clause that follows it ("is not meant to … reachable nowhere ASL can read") is what this spec
 falsifies, and leaving it under a new sentence is how a superseded claim goes on being read as
@@ -258,54 +285,16 @@ re-pointed at the context read rather than deleted.
 - [ ] Every corrected site keeps the **ASL half** of SPEC-227's reasoning, which is still true and is
       still why the machines are shaped as they are: the value is reachable nowhere ASL can read, and
       is now read in Python from the envelope on the state.
-- [ ] The `owed.md` row's half (b) is rewritten to check the **new** invariant, and its "if (b) shows
-      one shared trace, the register entry is wrong" sentence is removed rather than left inverted.
-- [ ] The Fences clause about a catch routing to a state reading `$.raw` is re-pointed rather than
-      deleted, so the trap it names still has a home.
+- [ ] The `owed.md` row is rewritten **whole** — its title and its middle column assert the falsified
+      claim too, not only half (b) — and the "if (b) shows one shared trace, the register entry is
+      wrong" sentence is removed rather than left inverted.
+- [ ] The `$.raw` Fences clause is **generalised** rather than re-pointed or deleted: its subject
+      becomes the absent-key hard failure, which is still reachable, rather than a construct that
+      provably cannot trip it.
+- [ ] The "everything unbounded travels by pointer" clause names the envelope exception and the spec
+      that supplies its cap.
 - [ ] No comment in `.tf`, `.tftpl`, `.py` or `.ts` added or edited by this spec names a spec, PR or
       issue number.
-
-### FR-005: The size chain gains its fourth link, and every plane's cap clears it
-
-#### Description:
-
-`archive-common/test_config_arcommon.py`'s `test_the_byte_cap_survives_every_link_of_the_chain_it_bounds`
-computes three links against the Step Functions 256 KiB limit — the caller's body, the Pipe's record
-with that body escaped into it, and the validated state — and says in its own docstring that
-file-send once shipped a cap measured against the last link alone, "which would have permitted a
-request whose execution could not start at all."
-
-There is a fourth link and nothing measures it: `RecordFailure` is the Pipe's record plus the error
-object, whose `Cause` Step Functions permits up to 32 KB. Four planes carry it today unbounded; this
-spec gives it to the other four, so the chain is completed here rather than inherited.
-
-**The remedy is per-plane, not fleet-wide, and that is the decision.** The bound is a property of
-what a plane's request may contain, so a plane that overshoots brings down **its own** cap — the
-shape `ARCHIVE_MAX_ITEM_BYTES` already has — and `MAX_MESSAGE_BYTES` moves only for a plane with no
-cap of its own to lower. Lowering the fleet-wide cap to cover the worst plane would refuse requests
-on seven planes to bound one.
-
-The inputs are named so the number is computed rather than chosen: the limit is `256 * 1024`, the
-constant `archive-common` already holds; escaping is measured by serializing the record, never
-modelled with a factor, because a quote-dense body doubles and a sparse one barely grows; the error
-ceiling is a 32 KB `Cause`; and the literals are the plane's own `RecordFailure` block.
-
-#### Acceptance Criteria:
-
-- [ ] A test computes link four — record + 32 KB `Cause` + the plane's literals — for **all eight**
-      planes, against the same `256 * 1024` constant, with the plane's declared worst-case request as
-      the input.
-- [ ] Each plane's worst case clears the limit, and where it does not, **that plane's own request cap
-      is lowered** until it does; the cap's docstring names the failure state as the budget that
-      sized it.
-- [ ] `MAX_MESSAGE_BYTES` is lowered only for a plane with no cap of its own, and if it moves, its
-      docstring stops describing the SQS service limit as its budget and names this one.
-- [ ] The guard is **mutation-tested against the link it adds**: restoring the three-link model
-      leaves it green only if link four is genuinely absent from the assertion — plant the removal
-      and watch it redden.
-- [ ] The pre-existing overshoot is recorded where the chain guard lives, not only in the delivery
-      doc: the API accepted a body whose escaped record exceeded the limit before this spec, and the
-      new bound is what closes it.
 
 ---
 
@@ -376,8 +365,6 @@ lambdas/results-conversion-common/test_state_machine_results_conversion.py  # FR
 lambdas/file-send-common/test_config_fscommon.py             # FR-002, the 256 KiB fence re-pointed
 lambdas/file-ops-validate-authorize/test_file_ops_validate_authorize.py     # FR-002 `created_later`
 lambdas/{archive,file-ops,file-send,results-conversion}-notify-failure/*.py # FR-002 docstrings
-lambdas/archive-common/test_config_arcommon.py               # FR-005 the fourth link
-lambdas/api/apicommon/enqueue.py                             # FR-005, only where a plane has no cap
 infra/modules/{archive,data-quality,file-ops,file-send,
   results-conversion,shared-spaces,table-builder,
   table-share}/state-machine.asl.json.tftpl                  # FR-002
@@ -409,15 +396,7 @@ docs/testing/owed.md                                         # FR-004
 - Sweep the ASL comments, verb docstrings and `created_later` mapping that name the seed as the
   envelope's source, and close the sweep with a search.
 
-### Phase 3: The fourth link
-
-- Extend the chain guard to link four and to all eight planes, with the escaping measured rather
-  than modelled.
-- Bring down any plane's cap that does not clear, naming the failure state as its budget; move
-  `MAX_MESSAGE_BYTES` only for a plane with no cap of its own.
-- Mutation-test the new link, and record the pre-existing overshoot where the guard lives.
-
-### Phase 4: The drive and the record
+### Phase 3: The drive and the record
 
 - Extend `test_one_run_one_trace.py` with a pre-identity failure drive on one plane from each half,
   with the positive control and the error-shape assertion.

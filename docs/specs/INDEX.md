@@ -234,6 +234,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 226 — Child Spans for the Seven Flat Planes | Completed |
 | 227 — The Failure Path Joins the Trace, and the Cross-Check Nobody Wrote | Completed |
 | 228 — The Pre-Identity Failure Joins the Trace, from the Envelope the State Already Carries | Draft |
+| 229 — The Fourth Link of the Size Chain, and the Cap That Is Measured Against the Wrong Limit | Draft |
 
 ## Arcs
 
