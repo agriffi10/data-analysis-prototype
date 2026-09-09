@@ -2994,14 +2994,17 @@ that BUILDS its return, so seven of its eleven pairs are driven and four are rec
 on two claims; the ASL one is true and stands, and the one about the extractor is not — it never
 walks the `raw` the state already carries, which is the repair rather than the reason. **228** adds
 that fifth shape and puts the envelope on every plane's `RecordFailure`, read from the context
-object so the failure-seed guard is untouched. **229** goes first because 228 widens a state whose
-size nothing computes: the request chain has four links, each capped at 256 KiB, and the fourth —
-the Pipe's record plus a 32 KB `Cause` — is measured on one of the four planes that carry it, and
-that one allows the error 4 KB where the service permits 32. The
-per-plane caps that look like they bound it do not: every one runs inside `validate-authorize`, so
-the request that overflows the chain is the one arriving before the cap that would refuse it. The
-one control upstream is the API's `MAX_MESSAGE_BYTES`, and it is derived from the **SQS** limit
-rather than the Step Functions one — the wrong budget, and measurably so.
+object so the failure-seed guard is untouched. **229** goes first because 228 widens a state whose size nothing bounds. The chain has four links,
+each capped at 256 KiB, and the fourth — the Pipe's record plus an error `Cause` — is measured on
+one of the four planes that carry it, against a model allowing the error 4 KB where the service
+permits 32 KB of characters. The deeper finding is that the chain's *inputs* are unbounded:
+`requestId` is declared `str` on every enqueue request and reaches the state verbatim on seven
+planes, and data-quality's `location` and shared-spaces' `space` are caller strings bounded nowhere
+— two of which already breach the limit on a `Pass` with no `Catch`, before 228 adds anything. The
+per-plane caps that look like they bound this do not: every one runs inside `validate-authorize`, so
+the request that overflows arrives before the cap that would refuse it. The one control upstream is
+`MAX_MESSAGE_BYTES`, derived from the **SQS** limit rather than the Step Functions one — the wrong
+budget, and measurably so.
 
 **226 gives the seven flat planes child spans, and it is the spec whose premise a reviewer
 destroyed.** Its first draft claimed the shared `cpcommon` layer bought all seven at once. Built,
