@@ -90,6 +90,11 @@ manifest write and four planes' transfer-manifest writes together. Checking each
 its OWN verb's root span, which is how three other names were corrected, cannot see this. A
 fleet-wide guard now sweeps every step name against every verb name.
 
+> **Amended since (no spec — a papercut fix).** The pre-existing collision this spec excused by name
+> is gone: data-quality's step is `write-inspection-manifest`, so the guard excuses nothing and both
+> the named item and its staleness companion have been deleted. Full entry:
+> `docs/decisions/control-planes.md` → *Where a child span may go, and the four places it may not*.
+
 The literal table is asserted as a **sorted list, not a set**: set equality hides two functions
 sharing one span name.
 

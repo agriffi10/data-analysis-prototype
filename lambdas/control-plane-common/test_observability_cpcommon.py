@@ -1118,14 +1118,6 @@ def _span_names(scan):
     return traced, stepped
 
 
-#: The one collision that predates this guard, named as an ITEM rather than excused as a class.
-#: `data-quality-inspect-source`'s step is called `write-manifest`, which is also the whole verb
-#: `archive-write-manifest`. Both are outside the scope of the change that added this guard —
-#: data-quality already had its steps and archive's verb name is years old — so the collision is
-#: recorded here rather than fixed in passing. Anything else colliding is a defect.
-_KNOWN_NAME_COLLISIONS = {"write-manifest"}
-
-
 def test_no_step_name_collides_with_a_verbs_own_span_name(step_scan):
     """`function` carries both, so a name used for both returns a verb total and an inner step.
 
@@ -1159,31 +1151,10 @@ def test_no_step_name_collides_with_a_verbs_own_span_name(step_scan):
     collisions = {
         name: {"verb": traced[name], "step": stepped[name]}
         for name in set(traced) & set(stepped)
-        if name not in _KNOWN_NAME_COLLISIONS
     }
     assert not collisions, (
         f"these span names are used for both a whole verb and an internal step: {collisions}. "
         "Name the operation, not the verb."
-    )
-
-
-def test_the_known_collision_still_exists_and_is_the_only_one_excused(step_scan):
-    """An exemption for something already fixed is a hole nobody is watching.
-
-    Args:
-      step_scan: The shared span-decorator scanner.
-
-    Returns:
-      None.
-
-    Raises:
-      None.
-    """
-    traced, stepped = _span_names(step_scan)
-    stale = {name for name in _KNOWN_NAME_COLLISIONS if name not in (set(traced) & set(stepped))}
-    assert not stale, (
-        f"{stale} is excused as a pre-existing collision and is no longer one — delete the "
-        "entry so the guard covers that name again"
     )
 
 

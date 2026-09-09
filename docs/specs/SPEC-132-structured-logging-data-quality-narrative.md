@@ -95,7 +95,7 @@ that is the selection criterion, not importance.
 | Verb | Steps |
 |---|---|
 | validate-authorize | `authorize`, `validate-destination` |
-| inspect-source | `list-objects`, `resolve-format`, `probe-columns`\*, `detect-partitions`, `write-manifest` |
+| inspect-source | `list-objects`, `resolve-format`, `probe-columns`\*, `detect-partitions`, `write-manifest` † |
 | create-temp-tables | `run-ddl` (≤2 per invocation) |
 | start-profile-query | `start-queries` |
 | check-query | `describe-queries` |
@@ -103,6 +103,14 @@ that is the selection criterion, not importance.
 | assemble-report | `find-result`, `read-results`, `write-report` |
 | drop-temp-tables | `drop-table` (≤2 per invocation) |
 | notify-failure | none — the handler is the step |
+
+> † **Renamed since (no spec — a papercut fix).** `inspect-source`'s `write-manifest` step is now
+> **`write-inspection-manifest`**. The old name was also the whole verb `archive-write-manifest`'s
+> root span, so one `function` value returned an invocation's total duration and this write's
+> together. The step moved rather than the verb because a verb's span name is also its directory
+> suffix, its `locals.tf` key and its state machine's wiring, while this step's name was read by
+> nothing else. Full entry: `docs/decisions/control-planes.md` → *Where a child span may go, and the four
+> places it may not*.
 
 \* `probe-columns` and `scan` wrap the **whole loop**, in `_probe_all` / `_scan_all`, not the
 per-object `_probe_columns` / `_scan_file`. Naming them in this table while the criterion below

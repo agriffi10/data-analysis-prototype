@@ -9,7 +9,7 @@ machine are untouched. Shipped as two PRs (front half, then back half + guards).
 | Verb | Narrative | Steps |
 |---|---|---|
 | validate-authorize | actor, space, **own vs shared**, normalized location, report prefix | `authorize`, `validate-destination` |
-| inspect-source | prefix, objects, bytes, format, **column names**, partition-key names, capped, manifest key | `list-objects`, `resolve-format`, `probe-columns`, `detect-partitions`, `write-manifest` |
+| inspect-source | prefix, objects, bytes, format, **column names**, partition-key names, capped, manifest key | `list-objects`, `resolve-format`, `probe-columns`, `detect-partitions`, `write-manifest` † |
 | create-temp-tables | database, table, **raw table (null vs named)**, columns, format | `run-ddl` (≤2) |
 | start-profile-query | queries started, **which optional ones were applicable** | `start-queries` |
 | check-query | **transitions only** — settle, degrade, timeout | `describe-queries` (1/poll) |
@@ -17,6 +17,13 @@ machine are untouched. Shipped as two PRs (front half, then back half + guards).
 | assemble-report | report key, verdict, `row_count`, findings | `find-result`, `read-results`, `write-report` |
 | drop-temp-tables | tables dropped/failed **by name**, skipped | `drop-table` (≤2) |
 | notify-failure | outcome, whether a link was minted, missing-`requestId` warning | none |
+
+† **Renamed since (no spec — a papercut fix): the step is now `write-inspection-manifest`.** The old
+name was also the whole verb `archive-write-manifest`'s root span, so a single `function` value
+returned an invocation's total duration and this write's together. The step moved rather than the
+verb because a verb's span name is also its directory suffix, its `locals.tf` key and its state
+machine's wiring, while this step's name was read by nothing else. Full entry:
+`docs/decisions/control-planes.md` → *Where a child span may go, and the four places it may not*.
 
 Plus two coverage guards in `test_instrumentation_coverage.py`: every verb must narrate (AST, so a
 docstring mention cannot satisfy it), and no emitter may pass a contents-shaped field name.

@@ -40,8 +40,10 @@
 - **`write-manifest` was renamed to `write-transfer-manifest`.** It named three different things
   across the fleet — `archive-write-manifest`'s whole verb, a pre-existing data-quality step, and
   this spec's new one. Checking each span against its *own* verb cannot see that, which is why the
-  guard added here sweeps every step name against every verb name. The pre-existing collision is
-  named in that guard as an item, with a companion test that fails if the exemption goes stale.
+  guard added here sweeps every step name against every verb name. The pre-existing collision was
+  named in that guard as an item, with a companion test that fails if the exemption goes stale —
+  **both since deleted (no spec — a papercut fix)**: data-quality's step became
+  `write-inspection-manifest`, so the guard now excuses nothing.
 - **FR-005 ships a conservative budget and owes its precision.** The day-object ceiling is derived
   from `log_sweep.LARGE_OBJECT_WARN_BYTES` over a measured event size, but that constant is a
   detector deliberately sized to fire early rather than the true ceiling, and there is no invocation

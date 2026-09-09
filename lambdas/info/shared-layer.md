@@ -225,7 +225,9 @@ where one goes is a volume decision rather than a taste one.
   mixed with an inner operation's. Checking each step against its own verb caught three names and
   missed a fourth that collided with a DIFFERENT verb's, which is why
   `test_no_step_name_collides_with_a_verbs_own_span_name` sweeps the fleet rather than trusting a
-  per-verb read. One collision predates the guard and is named in it as an item.
+  per-verb read. The guard excuses nothing: the one collision that predated it — data-quality's
+  manifest write against the whole verb `archive-write-manifest` — was renamed to
+  `write-inspection-manifest` rather than carried as an exemption, so any hit is a defect.
 
 Every one of these is held by a guard that resolves the NAME A DECORATOR IS BOUND TO rather than
 matching its rendered text. Measured twice, because the first fix was incomplete: a
