@@ -364,22 +364,110 @@ def test_a_batch_is_exactly_one_round_of_the_worker_pool():
     )
 
 
-def test_the_copy_timeout_constant_matches_the_deployed_verb():
-    """Guards the guard above: the budget it divides by lives in locals.tf, not in Python.
+#: Every plane that deploys a `copy-objects` verb on the shared engine. FROZEN, and compared by
+#: set EQUALITY rather than counted: a count is satisfied by any four planes, so a plane added
+#: while another quietly stopped importing the engine would leave the new one unchecked and the
+#: guard green. A fifth plane failing here is the guard working — add it, having checked its
+#: timeout is the one the batch bound is computed against.
+_COPY_OBJECTS_PLANES = frozenset({"archive", "file-ops", "file-send", "table-share"})
 
-    A `copy-objects` timeout lowered in Terraform while this constant stayed at 900 would
-    leave the batch bound computing against a budget the verb no longer has.
+#: An actual import of the shared engine, anchored to the start of a line. A substring test over
+#: the whole module was the first attempt and it was vacuous on three of the four planes: their
+#: module docstrings NAME ``cpcommon.transfer.copy`` in prose, so deleting the real import left
+#: them counted. The population half of the check is only as good as this pattern.
+_IMPORTS_THE_ENGINE = re.compile(
+    r"^\s*(?:from cpcommon\.transfer import"
+    r"|from cpcommon import transfer"
+    r"|import cpcommon\.transfer)",
+    re.MULTILINE,
+)
+
+_REPO = pathlib.Path(_HERE).parent.parent
+
+
+def _planes_deploying_a_copy_verb() -> dict:
+    """Every plane whose Terraform deploys a `copy-objects` verb running the shared engine.
+
+    DERIVED from the two artefacts that decide it, rather than from a list: the Terraform row is
+    what deploys the verb, and an import of the engine is what makes the verb run THIS one. A
+    guard naming a single plane is a guard the other planes believe they have.
+
+    Every read is guarded, and a row this cannot parse is REPORTED rather than skipped. The
+    unguarded version raised a bare AttributeError from a module with no relationship to the
+    engine — the glob reaches all thirteen ``infra/modules/*/locals.tf`` — which is a crash in a
+    shared suite for an ordinary edit somewhere else.
+
+    Args:
+      None.
+
+    Returns:
+      ``(planes, unparsable)`` — a plane-name-to-configured-timeout map, and the rows that could
+      not be read, which the caller reports rather than silently dropping.
+
+    Raises:
+      None.
     """
-    locals_tf = os.path.join(
-        _HERE, "..", "..", "infra", "modules", "table-share", "locals.tf"
-    )
-    with open(locals_tf) as handle:
-        text = handle.read()
+    found: dict[str, int] = {}
+    unparsable: list[str] = []
+    for locals_tf in sorted((_REPO / "infra" / "modules").glob("*/locals.tf")):
+        plane = locals_tf.parent.name
+        # Comment lines come off first: `re.search` takes the FIRST match in the file, so a
+        # commented-out row left above a live one is the row this guard reads — and the live one
+        # can then say anything. Measured: a ghost row let a 600s timeout pass.
+        live = "\n".join(
+            line for line in locals_tf.read_text().split("\n")
+            if not line.lstrip().startswith(("#", "//"))
+        )
+        row = re.search(r'"copy-objects"\s*=\s*\{([^}]*)\}', live)
+        if not row:
+            continue
+        handler = re.search(r'handler\s*=\s*"([A-Za-z0-9_]+)\.handler"', row.group(1))
+        timeout = re.search(r"timeout\s*=\s*(\d+)", row.group(1))
+        if not handler or not timeout:
+            unparsable.append(f"{plane} (no readable handler or timeout in its copy-objects row)")
+            continue
+        module = _REPO / "lambdas" / f"{plane}-copy-objects" / f"{handler.group(1)}.py"
+        if not module.exists():
+            unparsable.append(f"{plane} (no {module.name} under {plane}-copy-objects/)")
+            continue
+        if not _IMPORTS_THE_ENGINE.search(module.read_text()):
+            continue
+        found[plane] = int(timeout.group(1))
+    return found, unparsable
 
-    assert re.search(
-        rf'"copy-objects"\s*=\s*\{{[^}}]*timeout\s*=\s*{transfer_config.COPY_TIMEOUT_SECONDS}\b',
-        text,
-    ), f"locals.tf's copy-objects timeout is not {transfer_config.COPY_TIMEOUT_SECONDS}s"
+
+def test_every_plane_running_the_engine_deploys_the_timeout_it_divides_by():
+    """The budget MAX_ITEMS_PER_BATCH is computed against lives in Terraform, once per plane.
+
+    A `copy-objects` timeout moved on any plane while this constant stayed at 900 would leave
+    that plane's batch bound computing against a budget its verb no longer has.
+
+    The guard this replaced read table-share's locals ALONE. Two of the other three have since
+    grown their own plane-local check, so what this closes is file-send's row, which was held by
+    nothing — and the shape, which is the part that matters: four planes each holding one number
+    in their own suite is four places to forget, and the fifth plane to deploy the verb would
+    have arrived unchecked and silent. Deriving the population puts the question in one place and
+    makes a new plane LOUD.
+    """
+    deployed, unparsable = _planes_deploying_a_copy_verb()
+
+    assert not unparsable, (
+        f"a copy-objects row could not be read: {unparsable}. This guard derives its population "
+        "from the Terraform, so an unreadable row would silently drop a plane rather than fail — "
+        "fix the row, or teach _planes_deploying_a_copy_verb the shape it now takes"
+    )
+    assert set(deployed) == _COPY_OBJECTS_PLANES, (
+        f"the planes running the shared copy engine are {sorted(deployed)}, not "
+        f"{sorted(_COPY_OBJECTS_PLANES)}. A plane joined, left, renamed its handler, or stopped "
+        "importing cpcommon.transfer. If it JOINED, check its copy-objects timeout is the budget "
+        "MAX_ITEMS_PER_BATCH is computed against and add it to _COPY_OBJECTS_PLANES in this file; "
+        "the population is frozen so that change is argued rather than absorbed"
+    )
+    wrong = {p: t for p, t in deployed.items() if t != transfer_config.COPY_TIMEOUT_SECONDS}
+    assert not wrong, (
+        f"{wrong} disagree with COPY_TIMEOUT_SECONDS "
+        f"({transfer_config.COPY_TIMEOUT_SECONDS}s), which sizes MAX_ITEMS_PER_BATCH"
+    )
 
 
 # ── copy_batch ──────────────────────────────────────────────────────────────

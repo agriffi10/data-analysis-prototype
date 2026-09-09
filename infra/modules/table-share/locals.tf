@@ -27,8 +27,12 @@ locals {
     # and at worst-case 1024-byte keys that plan is ~21 MB serialised. README.md.
     "inspect-source"      = { handler = "table_share_inspect_source.handler", timeout = 120, memory = 1024 }
     "check-target-absent" = { handler = "table_share_check_target_absent.handler", timeout = 15, memory = 256 }
-    "copy-objects"        = { handler = "table_share_copy_objects.handler", timeout = 900, memory = 1024 }
-    "create-table"        = { handler = "table_share_create_table.handler", timeout = 300, memory = 512 }
+    # 900s is COPY_TIMEOUT_SECONDS, the budget cpcommon/transfer/config.py divides by to size
+    # MAX_ITEMS_PER_BATCH. This plane has no local guard on it: the holder is
+    # test_every_plane_running_the_engine_deploys_the_timeout_it_divides_by in
+    # control-plane-common, which derives every plane deploying this verb rather than naming one.
+    "copy-objects" = { handler = "table_share_copy_objects.handler", timeout = 900, memory = 1024 }
+    "create-table" = { handler = "table_share_create_table.handler", timeout = 300, memory = 512 }
     # THESE TWO ARE THE BINDING CONSTRAINT ON SHARE_MAX_TRANSFER_ITEMS, handling the same
     # volume in opposite directions — a ~46 MB manifest out, and the Map Run export back.
     # Parsing that at 512 MB is where it would have died first, and the memory is also the

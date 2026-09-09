@@ -98,10 +98,11 @@ fires. So it ships with an EventBridge rule on `TIMED_OUT` (**never** `FAILED`, 
 failure would double-notify), a second door in `fs_notify_failure`, that verb's 15s → 60s raise for
 the JWKS fetch that door does, and the deploy role's `events:` grant for the rule.
 
-`test_the_whole_run_fits_the_machines_ceiling` adds up **every** term rather than asserting the
-total: copying 6,597 s + per-child overhead 939 s + the guard Map 600 s + the four serial verbs
-735 s = **8,871 s**. Only one input has no measurement behind it — the per-*round* child overhead —
-and the test says so, along with its break-even (~9 s per round against a ~1,900 s margin).
+`test_the_whole_file_send_run_fits_the_machines_ceiling` adds up **every** term rather than
+asserting the total: copying 6,597 s + per-child overhead 939 s + the guard Map 600 s + the
+four serial verbs 735 s = **8,871 s**. Only one input has no measurement behind it — the
+per-*round* child overhead — and the test says so, along with its break-even (~9 s per
+round against a ~1,900 s margin).
 
 ## The timeout door needed a fallback table-share does not
 

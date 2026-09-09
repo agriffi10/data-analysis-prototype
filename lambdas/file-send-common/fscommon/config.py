@@ -20,9 +20,13 @@ Attributes:
     Map records a per-recipient outcome, each failed item carrying the raw Step Functions
     error bounded by ``cpcommon.errors.MAX_DETAIL_CHARS``, and breaching 256 KB raises
     ``States.DataLimitExceeded`` ON THE MAP — destroying every per-recipient outcome the Map
-    exists to preserve, outside every Catch. ``test_the_validated_state_stays_under_the_
-    payload_limit`` computes the worst case from these constants rather than asserting a
-    number, so raising either cap without re-checking fails the build.
+    exists to preserve, outside every Catch.
+    ``test_the_validated_state_stays_under_the_payload_limit`` computes the worst case from these
+    constants rather than asserting a number, and
+    ``test_a_failed_recipient_carrying_a_bounded_error_still_fits`` does the same for the failure
+    path, which is the binding one. Neither refuses a modest raise — the recipient cap has
+    several times' room before either fires — so RE-CHECK the model when moving a cap rather
+    than expecting the build to.
   SEND_MAX_ITEMS: Cap on the NUMBER of selected items — the files and folders the user picked,
     **not** the objects they expand to. What sizes it is the per-item work that follows: two
     containment checks and, one ``ListObjectsV2`` walk per folder. It is
@@ -74,8 +78,11 @@ Attributes:
     each entry carries the absolute source key, the relative key and the owning item name, so
     at S3's worst-case 1024-byte keys an entry serialises to roughly 2.4 KB and the whole plan
     to ~48 MB, with the in-memory list of dicts several times that again. The verb's 1024 MB
-    (locals.tf) is sized for exactly that, and ``test_the_worst_case_copy_plan_fits_in_the_
-    verbs_memory`` computes it, so raising this cap without raising the memory fails the build.
+    (locals.tf) is sized for exactly that, and
+    ``test_the_worst_case_file_send_copy_plan_fits_in_the_verbs_memory`` computes the plan
+    against that row and READS IT BACK. It refuses neither a modest raise of this cap nor a
+    halving of the memory — the plan sits about four times inside it — so RE-DERIVE the pair
+    when moving either number rather than expecting the build to object.
 
     It is NOT a bound on the transfer. The manifest carries one item per (recipient, object)
     pair, so 20,000 objects to 50 recipients is a million items — the product caps are
