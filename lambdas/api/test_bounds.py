@@ -32,8 +32,8 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from apicommon import bounds, contract  # noqa: E402
-from apicommon.contract import TypeNode  # noqa: E402
+from apicommon import bounds, contract
+from apicommon.contract import TypeNode
 
 #: What the chain guard's own mutation fails with, held here so the two messages cannot converge.
 _CHAIN_MUTATION_MESSAGE = "resolves to no declared origin"
@@ -182,6 +182,27 @@ def test_the_rule_REPORTS_an_unbounded_field_when_there_is_one():
     )
 
 
+def test_a_field_nobody_has_declared_yet_falls_back_to_its_container():
+    """The backstop, which is a claim the resolution's own docstring makes and nothing else tested.
+
+    The guard above requires an EXACT bound for every path the contract declares today, so the
+    outward walk never fires for any of them and could rot unnoticed. It matters for the field that
+    does not exist yet: a key added inside a bounded list is covered from the moment it is declared,
+    and reaches the guard as a request to give it a tighter number rather than as an unbounded
+    field on the wire.
+    """
+    covered = bounds.bound_for("fileOps.enqueue", "source.items[].newFieldNobodyHasDeclared")
+
+    assert covered is not None and covered.path == "source.items", (
+        "a new field inside a bounded list resolves to nothing, so it would travel unbounded until "
+        "somebody noticed the guard asking for it"
+    )
+    assert bounds.bound_for("fileOps.enqueue", "somethingEntirelyNew") is None, (
+        "a new TOP-LEVEL field resolves to a bound it has no relationship with, which would hide it "
+        "from the guard that exists to demand one"
+    )
+
+
 def test_a_literal_field_needs_no_declared_bound_because_its_own_values_bound_it():
     """The one exemption, stated so it cannot quietly widen.
 
@@ -305,7 +326,7 @@ def test_the_request_id_bound_refuses_no_id_the_queue_would_take():
     two bytes. A bound set at the plain length would refuse an id the queue accepts, which is a
     new refusal wearing a measurement's clothes.
     """
-    from apicommon.fifo import MAX_FIFO_KEY_CHARS, _FIFO_KEY_RE
+    from apicommon.fifo import _FIFO_KEY_RE, MAX_FIFO_KEY_CHARS
 
     worst = '"' * MAX_FIFO_KEY_CHARS
 

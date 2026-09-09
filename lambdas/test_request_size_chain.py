@@ -38,8 +38,8 @@ import pytest
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_HERE, "api"))
 
-from apicommon import bounds, contract  # noqa: E402
-from apicommon.contract import TypeNode  # noqa: E402
+from apicommon import bounds, contract
+from apicommon.contract import TypeNode
 
 REPO = pathlib.Path(_HERE).parent
 MODULES = REPO / "infra" / "modules"
@@ -211,7 +211,7 @@ def _worst(node: TypeNode, route_id: str, path: str, fill: str) -> object:
     if budget is None:
         return [element]
     items: list[object] = []
-    while _serialized(items + [element]) <= budget:
+    while _serialized([*items, element]) <= budget:
         items.append(element)
     return items or [element]
 
@@ -297,7 +297,7 @@ def test_a_capped_plane_builds_its_worst_case_AT_its_own_cap():
         measured = _serialized(items)
 
         assert measured <= cap
-        assert _serialized(items + [items[0]]) > cap, (
+        assert _serialized([*items, items[0]]) > cap, (
             f"{route_id}'s selection stops at {measured} of a {cap}-byte cap, so the worst case is "
             f"not at the cap and every measurement over it understates the real one"
         )
@@ -368,7 +368,7 @@ def test_the_fills_disagree_about_which_is_worst_for_the_BODY():
 
     assert body_cost["\x01"] == body_cost["é"] == 6
     assert body_cost["é"] > body_cost[ESCAPE_WORST_FILL] > body_cost["k"]
-    assert len("é".encode("utf-8")) == 2, (
+    assert len("é".encode()) == 2, (
         "the fixture for the measurement that diverged is no longer a two-byte character"
     )
 

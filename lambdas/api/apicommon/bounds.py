@@ -417,9 +417,11 @@ FIELD_BOUNDS: Final[tuple[Bound, ...]] = (
 def bound_for(route_id: str, path: str) -> Bound | None:
     """The bound covering one field, its own or its nearest bounded ancestor's.
 
-    A byte bound on a container bounds every value inside it, so a leaf under a bounded list needs
-    no declaration of its own. Resolution walks from the leaf outwards and returns the first
-    declared bound, so a leaf that declares one narrower than its container's still wins.
+    Every declared path carries its own bound, so this normally answers on the first candidate.
+    Resolution still walks outwards afterwards, because a byte bound on a container really does
+    bound every value inside it — a key cannot exceed the list holding it — and that backstop is
+    what makes a newly declared field safe rather than unbounded until someone notices. The leaf
+    wins where both exist, which is the narrower answer.
 
     Args:
       route_id: The enqueue route.
@@ -432,14 +434,10 @@ def bound_for(route_id: str, path: str) -> Bound | None:
       None.
     """
     declared = {b.path: b for b in FIELD_BOUNDS if b.route_id == route_id}
-    remaining = path
-    while remaining:
-        if remaining in declared:
-            return declared[remaining]
-        cut = max(remaining.rfind("."), remaining.rfind("["))
-        if cut <= 0:
-            return None
-        remaining = remaining[:cut]
+    breaks = [index for index, character in enumerate(path) if character in ".[" and index > 0]
+    for candidate in [path, *(path[:index] for index in reversed(breaks))]:
+        if candidate in declared:
+            return declared[candidate]
     return None
 
 
@@ -481,6 +479,11 @@ def over_bound(route: Route, body: object) -> Bound | None:
     bounds are consulted: a ``verb`` bound is applied inside ``validate-authorize`` and says
     nothing about what the Pipe can start an execution with.
 
+    An ``api`` bound carrying no number is skipped rather than raised on, and that is a fail-open
+    this request path accepts because it cannot happen: the shape is a declaration defect, and
+    ``test_a_verb_bound_says_where_its_number_lives_and_an_api_bound_carries_one`` refuses it at
+    build time. Raising here would turn a table typo into a 500 on every request to that route.
+
     Args:
       route: The route the body was sent to.
       body: The validated request body.
@@ -495,6 +498,8 @@ def over_bound(route: Route, body: object) -> Bound | None:
         return None
     for bound in FIELD_BOUNDS:
         if bound.route_id != route.id or bound.enforced_at != "api":
+            continue
+        if bound.max_bytes is None:
             continue
         for value in _values(body, bound.path):
             serialized = len(json.dumps(value, separators=(",", ":")).encode("utf-8"))
