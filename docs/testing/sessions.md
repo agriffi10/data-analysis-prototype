@@ -172,6 +172,60 @@ its 24 `Catch` transitions to the same `RequestFailureSeed`, `CheckDestinationCl
 so the deliberate occupied-destination restore would have entered the identical state. That makes
 the discharge a proof rather than a judgement call.
 
+### The restored object's attributes, checked after the restore landed
+
+**`owed.md`'s `head-object` row is discharged — and half of its stated blocker was never true.**
+The bucket half is real and current: `tofu-deploy-user` gets `403` on `head-object` against
+`dat-prod-user-space` and an explicit-deny `AccessDenied` on `dat-prod-archive`. **The other half —
+"the UI cannot show a storage class" — has been false since 2026-06-15**, when SPEC-017 shipped the
+Details drawer: `MetadataPanel.tsx` renders a `Storage class` field, and the API contract says in so
+many words that `storageClass` is returned *because* that panel renders it. The row was written on
+2026-08-14, two months later. **It sat owed partly on a UI limitation that did not exist**, which is
+the cheaper lesson here than anything about Glacier: a blocker is a claim, and it goes stale like
+any other.
+
+And "no `head-object`" is not right either — `routes/objects_head.py` calls `head_object`. What
+changed is the **principal**: the route makes the call server-side under a role that can reach the
+bucket, where the operator CLI identity cannot.
+
+The control is `agriffith/header-only.csv`, the **never-archived** object this fixture was copied
+from, so the comparison is against an independent reference rather than the restored file against
+itself:
+
+| | control (never archived) | restored |
+|---|---|---|
+| storage class | `STANDARD` | **`STANDARD`** |
+| content type | `text/csv` | **`text/csv`** |
+| size | 10 | **10** |
+| last modified | 2026-08-06T01:11:48Z | **2026-09-09T14:25:14Z** |
+
+ETag, raw bytes and SHA-256 all equal.
+
+**What each column is actually worth, because three of the four are weaker than they look.**
+
+- **`lastModified` is the one that does real work.** The restored object carries the copy-back's
+  timestamp, hours after the archive; the control keeps its original upload. That is the only
+  first-party evidence here that the file was *rewritten* rather than never removed — the other
+  three columns are all equally consistent with an object that never left. Corroborated: the archive
+  execution ran `DeleteSource`, and the fixture was gone from the root listing.
+- **`STANDARD` excludes a real and silent failure**, which the archive ASL names on
+  `CopyBackObjects`: an item copied without an explicit STANDARD *"lands back in GLACIER and expires
+  to unreadable a few days later, having looked like a success throughout."* That is what the
+  reading buys. It does **not** establish what the vault held — `GLACIER`-stays-`GLACIER` on the
+  archived object is still listed as not observable at all, and nothing here changes that. An
+  earlier draft of this entry argued it did, from the `"storageClass": "GLACIER"` on the transfer
+  manifest; that field is `arcommon.config.ARCHIVE_STORAGE_CLASS`, a constant stamped on every
+  archive run, so it records what the plane was *told* to write and would read the same if S3 had
+  stored the object anywhere.
+- **Read the route's defaults before trusting either string.** `storageClass` is
+  `head.get("StorageClass") or "STANDARD"` and `contentType` falls back to
+  `application/octet-stream`, so `STANDARD` means "S3 reported no class". It still bites, because S3
+  reports `GLACIER` explicitly.
+- **`text/csv` excludes nothing on this fixture.** `MULTIPART_COPY_THRESHOLD` is 5 GiB, so 10 bytes
+  took the single-copy path, where `MetadataDirective` is S3's own default anyway. The content-type
+  loss lives on the multipart path, and the `>5 GiB` row one line below says a fixture under the
+  threshold "passes forever". An earlier draft called this discriminating; it is not.
+
 ### Closed later the same day, after two PRs landed
 
 **The table-builder timeout defect, fixed and confirmed live.** The gap this session found — a
