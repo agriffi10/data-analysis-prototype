@@ -74,8 +74,11 @@ browser ──sqs:SendMessage──▶ FIFO request queue ──▶ EventBridge 
   `cpcommon.errors.failure_reason`, the only decoder.
 - **Every plane notifies on a pre-verb failure** — a `NotifyFailure` before `Fail`, reached on every
   path, because the no-verb-ran paths cannot be selected for in ASL.
-- **A post-identity failure needs its own seed.** A catch routed to a state reading `$.raw` raises an
-  uncatchable error *before* the notifier, because `$.raw` exists on no post-validate state.
+- **A post-identity failure needs its own seed.** A `Pass` hard-fails on an ABSENT key — an
+  uncatchable `States.Runtime`, raised *before* the notifier — so a catch may only route to a state
+  whose every read its seed supplies, whatever the key is called. Nothing reads `$.raw` any more,
+  which is what retired the instance of this that used to bite; the rule is the general one, and a
+  fleet guard walks every seed's forward path to hold it.
 - **Everything unbounded travels by pointer**, never on the state, and a cap is not a substitute.
 - **The request envelope is FLAT** — `actor` is the raw token at the top level — because the DLQ drain
   reads and **redacts** that field flatly. Nested, a dead-lettered request notifies nobody *and*

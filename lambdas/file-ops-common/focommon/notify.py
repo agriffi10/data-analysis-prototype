@@ -408,8 +408,9 @@ def request_payload(event) -> dict | None:
       event: The verb's event, or a recorded failure.
 
     Returns:
-      ``{"requestId": …}``, or None when the event carries none — which is the pre-identity
-      window, where there is nothing to correlate anyway.
+      ``{"requestId": …}``, or None when the event carries none. That window is where the error
+      replaced the state and the seed nulled the key; the id itself is not lost, because the
+      forwarded request the failure terminal carries still names it.
 
     Raises:
       None.

@@ -160,7 +160,7 @@ def _actor_from_raw_request(raw) -> str:
     the same terms as one surfacing at once.
 
     Args:
-      raw: The Pipe's forwarded SQS batch, as captured at the top of the machine.
+      raw: The Pipe's forwarded SQS batch, as RecordFailure copied it off the context object.
 
     Returns:
       The verified username, or an empty string when it cannot be recovered.

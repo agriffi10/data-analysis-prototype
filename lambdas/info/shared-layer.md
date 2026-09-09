@@ -185,14 +185,17 @@ already.
 traceparent, `build_message` sends it, and `traced` adopts it before opening the span — so
 `trace_id` crosses a Lambda boundary and a verb's ROOT span has the API's span as its parent. A
 `step` child nests under its own verb's root, inside that same trace, so SPEC-226's child spans
-deepen the tree without changing this. Four event
-shapes carry it, because a verb can be entered four ways: the state payload, the EventBridge Pipe
-envelope, a Distributed Map's `ItemBatcher.BatchInput`, and an inline Map's `request` block.
+deepen the tree without changing this. Five event
+shapes carry it: the state payload, the EventBridge Pipe envelope, a Distributed Map's
+`ItemBatcher.BatchInput`, an inline Map's `request` block, and the forwarded envelope a failure
+terminal carries on the state as `raw` — four entry points a verb has, plus the one place the
+value survives an error that replaced the state.
 `fields.request_id` STAYS — it is the join key for anything outside the trace, and table-share
-still carries none at all. **One path has no join key of any kind**: a pre-identity failure's
-seed supplies `requestId: null` (and on table-share, no `requestId` key at all) and no `notify-failure` recovers one from `raw`, so that span
-sits outside the run's trace AND outside the request-id join. Measured on archive 2026-09-09;
-SPEC-228 is what closes it.
+still carries none at all. **The path that used to have no join key of any kind now has both**: a
+failure whose error replaced the state has a seed supplying `requestId: null` (and on table-share
+no `requestId` key at all), and `notify-failure` recovers the caller's own id — and the run's
+traceparent — from the forwarded envelope `RecordFailure` carries. That it correlated on nothing
+was measured on archive 2026-09-09, and SPEC-228 closed it.
 
 Two things that look like details and are not. Adoption must come AFTER the per-invocation reset,
 because `reset_context` clears an adopted context as well as baggage; done the other way round the
@@ -202,12 +205,14 @@ previous run's trace, which is worse than many honest traces.
 
 **The FAILURE path is threaded too** (SPEC-227): every failure seed and every `RecordFailure` names
 the traceparent, so a failed run's notification sits in the run's trace rather than in one of its
-own. **One exception, and it is a limit rather than an oversight** — a **pre-identity** failure, one
-raised before `validate-authorize` returns. The error replaced the state, so there is nothing to
-read, and the value is reachable nowhere ASL can look: the Pipes carry no `input_template`, so
+own. **The one case that could not be threaded is now carried instead** — a failure raised before
+`validate-authorize` returns, where the error replaced the state and there is nothing left to read.
+The value is still reachable nowhere ASL can look: the Pipes carry no `input_template`, so
 `$$.Execution.Input` is the raw SQS batch with the traceparent inside a JSON string that only the
-banned `States.StringToJson` could open. Its seed supplies a literal `null` and `notify-failure`
-opens a fresh trace. `validate-authorize`'s own span still adopts the run's trace, in Python.
+banned `States.StringToJson` could open. So it is not read in ASL at all — every `RecordFailure`
+copies the envelope onto the state from the context object, and `notify-failure` parses it in
+Python, the same walk `validate-authorize` already uses on the way in. Its seed still supplies a
+literal `null`, which is load-bearing: a `Pass` hard-fails on an absent key.
 
 **Where an `observability.step` may NOT go — four prohibitions, each mechanical.** A step is two
 events, and every event is an SQS message and a line in a day object the sweep rewrites in full, so

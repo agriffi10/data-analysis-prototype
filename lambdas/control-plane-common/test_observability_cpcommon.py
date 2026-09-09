@@ -201,7 +201,7 @@ def test_the_reset_clears_an_adopted_trace_context(sink):
     assert span.get("parent_span_id") is None
 
 
-# ── SPEC-225 FR-001: the four shapes a verb receives, and the one it must never read ────────
+# ── The five shapes a verb receives, and the one it must never read ─────────────────────────
 
 #: The inbound trace every adoption test joins. Its flags are `-00` — UNSAMPLED — on purpose:
 #: the library's accessor discards version and flags, so an implementation that rebuilt the
@@ -211,8 +211,10 @@ _INBOUND = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00"
 _INBOUND_TRACE = "4bf92f3577b34da6a3ce929d0e0e4736"
 _INBOUND_PARENT = "00f067aa0ba902b7"
 
-#: One entry per shape `_shape_values` walks, as the event a verb actually receives.
-#: `test_the_shape_table_covers_every_shape_the_extractor_walks` is what stops a fifth shape
+#: One entry per shape `_shape_values` walks, as the event a verb actually receives. The last is a
+#: failure terminal's state: its seed supplied literal nulls because the error had replaced the
+#: state, and the envelope beside them is the only surviving copy of the run.
+#: `test_the_shape_table_covers_every_shape_the_extractor_walks` is what stops a SIXTH shape
 #: being added to the module without one here — otherwise this table is a list of the shapes
 #: someone remembered, and the parametrisation below proves nothing about the rest.
 _SHAPES = {
@@ -227,6 +229,12 @@ _SHAPES = {
     "inline-map child": lambda value: {
         "recipient": {"kind": "user", "name": "bob"},
         "request": {"requestId": "REQ", "traceparent": value},
+    },
+    "forwarded envelope on the state": lambda value: {
+        "requestId": None,
+        "traceparent": None,
+        "status": "failed",
+        "raw": [{"body": json.dumps({"requestId": "REQ", "traceparent": value})}],
     },
 }
 
@@ -250,9 +258,10 @@ def _span_start(sink):
 def test_a_traced_handler_joins_the_inbound_trace_on_every_shape(sink, shape):
     """One run is one trace only if every entry point a verb has adopts the run's context.
 
-    Two of these four could not carry a request id at all before this change, so a test that
-    only covered the state payload and the pipe envelope would have passed on the day nine verbs
-    were unjoinable.
+    Three of these five could not carry a request id at all when this table was written, so a
+    test that only covered the state payload and the pipe envelope would have passed on the day
+    nine verbs were unjoinable — and on the day every failure that replaced the state was
+    unjoinable too.
 
     Args:
       sink: The capturing sink.
@@ -275,9 +284,14 @@ def test_a_traced_handler_joins_the_inbound_trace_on_every_shape(sink, shape):
 def test_the_shape_table_covers_every_shape_the_extractor_walks():
     """The table above is a claim about the module, so it is checked against the module.
 
-    `_shape_values` reads one shape per `yield` plus one per name in the nested-block tuple, so
-    a fifth shape cannot be added without moving one of those two counts. Without this, the
-    parametrisation is a list of the shapes whoever wrote it remembered.
+    `_shape_values` reads one shape per bare `yield`, one per name in the nested-block tuple, and
+    one per `yield from` — the delegating form, which is how the two shapes that share the SQS
+    envelope walk reach the one helper that enforces its list-only narrowing. A sixth shape cannot
+    be added without moving one of those three counts. Without this, the parametrisation is a list
+    of the shapes whoever wrote it remembered.
+
+    The `yield from` arm is counted rather than followed: this guard asks whether the TABLE tracks
+    the module, and a delegation is one shape's worth of walk whatever the helper does inside.
 
     Args:
       None.
@@ -295,6 +309,7 @@ def test_the_shape_table_covers_every_shape_the_extractor_walks():
         if isinstance(node, ast.FunctionDef) and node.name == "_shape_values"
     )
     yields = [n for n in ast.walk(fn) if isinstance(n, ast.Yield)]
+    delegated = [n for n in ast.walk(fn) if isinstance(n, ast.YieldFrom)]
     nested = [
         c.value
         for loop in ast.walk(fn)
@@ -304,14 +319,18 @@ def test_the_shape_table_covers_every_shape_the_extractor_walks():
     ]
 
     assert yields, "the extractor yields nothing, so the walk collapsed"
+    assert delegated, (
+        "the extractor delegates to no helper, so the SQS envelope walk was inlined again — the "
+        "two shapes that share it can now narrow differently"
+    )
     assert nested == ["BatchInput", "request"], (
         f"the nested blocks the extractor reads are {nested}, which the shape table does not "
         "describe"
     )
     # One yield sits inside the nested loop and stands for len(nested) shapes, not one.
-    assert len(yields) - 1 + len(nested) == len(_SHAPES), (
-        f"the extractor walks {len(yields) - 1 + len(nested)} shapes and the table names "
-        f"{len(_SHAPES)}"
+    walked = len(yields) - 1 + len(nested) + len(delegated)
+    assert walked == len(_SHAPES), (
+        f"the extractor walks {walked} shapes and the table names {len(_SHAPES)}"
     )
 
 
@@ -369,6 +388,167 @@ def test_the_inline_map_shape_yields_the_request_id_it_used_to_lose():
     """
     child = {"recipient": {}, "request": {"requestId": "REQ-1"}}
     assert observability._extract_request_id(child) == "REQ-1"
+
+
+def _failure_state(traceparent="TP-FROM-ENVELOPE", request_id="REQ-FROM-ENVELOPE"):
+    """A failure terminal's state as `RecordFailure` builds it after a pre-identity catch.
+
+    The identity fields are literal nulls because the seed supplied literals — the error had
+    replaced the state — and the envelope is the context-object copy the terminal carries.
+
+    Args:
+      traceparent: The value to put inside the envelope's body.
+      request_id: The request id to put inside the envelope's body.
+
+    Returns:
+      The state dict.
+
+    Raises:
+      None.
+    """
+    return {
+        "traceparent": None,
+        "requestId": None,
+        "status": "failed",
+        "error": {"Error": "TerminalError", "Cause": "unauthorized"},
+        "raw": [{"messageId": "m-1", "body": json.dumps(
+            {"requestId": request_id, "traceparent": traceparent}
+        )}],
+    }
+
+
+def test_the_forwarded_envelope_on_the_state_yields_both_keys():
+    """The failure an operator most often opens, and the one that correlated on nothing.
+
+    A pre-identity seed supplies `traceparent: null` AND `requestId: null`, so before the state
+    envelope was walked such a failure joined neither the run's trace nor the request-id join that
+    covers everything outside one. Both halves are asserted because they were lost together.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    state = _failure_state()
+
+    assert observability._extract_traceparent(state) == "TP-FROM-ENVELOPE", (
+        "the failure terminal's envelope did not yield the run's traceparent, so notify-failure "
+        "opens a trace of its own"
+    )
+    assert observability._extract_request_id(state) == "REQ-FROM-ENVELOPE", (
+        "the failure terminal's envelope did not yield the run's request id, so the failure "
+        "correlates on nothing at all"
+    )
+
+
+def test_a_threaded_traceparent_wins_over_the_one_inside_the_envelope():
+    """Order matters for cost, not correctness — but it is asserted so it cannot drift.
+
+    A POST-identity failure carries both: a real `$.traceparent` threaded through its seed and the
+    envelope beside it. Both name the same run, so this cannot be checked with realistic data —
+    two DIFFERENT values are used precisely so the assertion cannot pass on the shapes agreeing.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    both = {**_failure_state(traceparent="TP-INSIDE-RAW"), "traceparent": "TP-THREADED"}
+
+    assert observability._extract_traceparent(both) == "TP-THREADED", (
+        "the envelope overtook the threaded value; the state's own traceparent is authoritative "
+        "and walking `raw` first would also pay for a JSON parse on every post-identity failure"
+    )
+
+
+@pytest.mark.parametrize(
+    "raw,case",
+    [
+        (None, "absent"),
+        ({"body": json.dumps({"requestId": "NOT-A-LIST", "traceparent": "NOT-A-LIST"})},
+         "not a list"),
+        ([], "empty list"),
+        ([{"messageId": "m-1"}], "record with no body"),
+        ([{"body": "not json at all"}], "body that is not JSON"),
+        ([json.dumps({"requestId": "X", "traceparent": "Y"})], "record that is not a dict"),
+        ([{"body": json.dumps({"requestId": "X", "traceparent": "Y"}).encode()}],
+         "body that is bytes rather than str"),
+        ([{"body": "[1, 2]"}], "body that is JSON but not an object"),
+    ],
+    ids=["absent", "not-a-list", "empty-list", "no-body", "body-not-json",
+         "record-not-a-dict", "body-not-str", "body-not-an-object"],
+)
+def test_a_malformed_envelope_on_the_state_yields_nothing_and_raises_nothing(raw, case):
+    """Every way `raw` can be unusable, asserted on the EXTRACTORS rather than on the walk.
+
+    `_shape_values` always yields the top-level value first, so for a dict it never returns an
+    empty sequence and asserting emptiness there would assert nothing. The extractors are where
+    "unusable" becomes None. A logging helper that raised here would fail the verb it exists to
+    describe, on the failure path.
+
+    **Every case here is a fixture for ONE of the walk's six guards, and each was chosen by
+    mutating that guard and watching this test go red.** Written the obvious way three of them
+    survived: an empty-object body, a non-dict record and a body that is not a string all return
+    None whether their guard holds or not. So the bodies are POPULATED, the non-dict record is a
+    bare JSON string, the non-str body is bytes (which `json.loads` accepts and the guard is the
+    only thing refusing), and the non-object body parses to a list, whose `.get` would raise.
+
+    The "not a list" case is the one that guards a security boundary rather than a shape: with the
+    list-only narrowing removed, that dict is read AS the record and yields both keys — which is a
+    caller naming this service's trace.
+
+    Args:
+      raw: The malformed value to put under `raw`.
+      case: The case name, for the message.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    state = {"traceparent": None, "requestId": None}
+    if raw is not None:
+        state["raw"] = raw
+
+    assert observability._extract_traceparent(state) is None, f"{case} yielded a traceparent"
+    assert observability._extract_request_id(state) is None, f"{case} yielded a request id"
+
+
+def test_a_bare_dicts_body_still_names_neither_key_now_that_raw_is_walked():
+    """The security narrowing, re-asserted against the shape that shares its walk.
+
+    The envelope walk is reached two ways now, and both go through one helper — so the widening
+    is asked the question that matters: an API Gateway payload-2.0 event is a BARE dict whose
+    `body` is the caller's own HTTP body, and it must still reach neither key. What makes `raw`
+    safe is provenance rather than shape: ASL writes it from `$$.Execution.Input` and a caller
+    cannot.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    caller = {"body": json.dumps({"requestId": "CALLER-CHOSEN", "traceparent": "CALLER-CHOSEN"})}
+
+    assert observability._extract_traceparent(caller) is None, (
+        "a caller's own HTTP body named this service's trace through the top-level `body`"
+    )
+    assert observability._extract_request_id(caller) is None, (
+        "a caller's own HTTP body named this service's correlation key"
+    )
 
 
 def test_no_traceparent_mints_a_fresh_trace_and_says_nothing_about_it(sink, caplog):

@@ -554,9 +554,10 @@ attaches to every control-plane verb.
 actually pays), the **newest** (least understood under real load), and **entirely operator-facing** — a mistake costs log
 quality, not access. Its honest limitation is recorded rather than discovered: `log-foundry`'s trace context is per-process, so
 one run was **nine traces**, joined on a `request_id` field — deliberately, and sequenced *after* the pipe was proven live
-(user decision, 2026-07-22: correlation now, stitching later). **SPEC-225 closed that on the success path and SPEC-227 on the failure path** — with one
-limit: a pre-identity failure carries no traceparent on the state and none reachable from
-the envelope, so its `notify-failure` opens a fresh trace.
+(user decision, 2026-07-22: correlation now, stitching later). **SPEC-225 closed that on the success path, SPEC-227 on the failure path and SPEC-228 on the last
+case** — a failure whose error replaced the state, which carries no traceparent on the state and
+none an ASL intrinsic can reach, so the envelope travels on the state and the notifier reads it in
+Python.
 
 **Two user decisions run against the recommendation and are settled, not open.** `logs/` gets **no lifecycle rule** — nothing is
 ever lost, at the cost of unbounded growth with no ceiling; the invariant that keeps it safe is that every existing rule on the
@@ -2983,18 +2984,22 @@ cross-check that **five of the eight planes did not have** — of which it gave 
 its own comments that it did, citing `test_state_machine_archive.py`, which EXISTS and holds seven tests, none of them that
 cross-check — a real file with a false claim about it, which is the harder case to notice.
 
-**What 227 could NOT do is the half worth recording.** A pre-identity failure cannot join the trace
-at all: authoring said such a seed should read `$$.Execution.Input`, and no Pipe carries an
-`input_template`, so that path is the raw SQS batch with the traceparent inside a JSON string only
-the banned intrinsic could open. The limit is accepted and recorded rather than worked around. The
+**What 227 could NOT do is the half worth recording, and 228 did it from the other side.** A
+failure whose error replaced the state could not join the trace at all: authoring said such a seed
+should read `$$.Execution.Input`, and no Pipe carries an `input_template`, so that path is the raw
+SQS batch with the traceparent inside a JSON string only the banned intrinsic could open. That ASL
+reasoning is correct and still stands — 228 stopped trying to read the value in ASL and carried the
+envelope to a verb that can parse it instead. The
 cross-check landed with a limit of its own — driving a verb answers the question only for a verb
 that BUILDS its return, so seven of its eleven pairs are driven and four are recorded as echoing.
 
-**229 → 228 finish the job, in that order, and the order is the point.** 227's recorded limit rests
-on two claims; the ASL one is true and stands, and the one about the extractor is not — it never
-walks the `raw` the state already carries, which is the repair rather than the reason. **228** adds
-that fifth shape and puts the envelope on every plane's `RecordFailure`, read from the context
-object so the failure-seed guard is untouched. **229** goes first because 228 widens a state whose size nothing bounds. The chain has four links,
+**229 → 228 finished the job, in that order, and the order was the point.** 227's recorded limit
+rested on two claims; the ASL one is true and stands, and the one about the extractor was not — it
+never walked the `raw` the state already carries, which was the repair rather than the reason.
+**228** added that fifth shape and put the envelope on every plane's `RecordFailure`, read from the
+context object so the failure-seed guard is untouched — and the caller's `requestId` came back with
+it, so the one path that correlated on nothing now carries both join keys. **229** went first
+because 228 widens a state whose size nothing bounded. The chain has four links,
 each capped at 256 KiB, and the fourth — the Pipe's record plus an error `Cause` — is measured on
 one of the four planes that carry it, against a model allowing the error 4 KB where the service
 permits 32 KB of characters. The deeper finding is that the chain's *inputs* are unbounded:

@@ -27,11 +27,13 @@ without the context read, `NotifyFailure` would take its no-recipient branch on 
 Threading the request through the state was tried and rejected — the Pipe record carries the same
 selection again as an escaped string, so it roughly doubles the payload for the whole run.
 
-**There are TWO seeds, and the second is not decoration.** `RecordFailure` reads `$.raw`, which
-exists on no post-validate state, so a catch routed straight to it — as every other plane's catches
-are — raises an uncatchable `States.Runtime` and the sender hears nothing. The fleet guard identifies
-a seed structurally by `error.$ == "$"` and **cannot see the second shape** (`"$.error"`, because
-that catch carries a `ResultPath`), so the plane's own suite walks every catch instead.
+**There are TWO seeds, and the second is not decoration.** `RecordFailure` names fields the state
+has to carry — `traceparent`, `requestId`, `actor` — and a `Pass` hard-fails on an absent key, so a
+catch routed straight to it raises an uncatchable `States.Runtime` and the sender hears nothing. The
+envelope is the one field that is *not* such a read: it comes from `$$.Execution.Input`, which no
+seed supplies and no catch can lose. The fleet guard identifies a seed structurally by
+`error.$ == "$"` and **cannot see the second shape** (`"$.error"`, because that catch carries a
+`ResultPath`), so the plane's own suite walks every catch instead.
 
 **`TimeoutSeconds` (10,800) is top-level and ships WITH its rule.** Catchers do not cover top-level
 execution failures, so an EventBridge `TIMED_OUT` rule — never `FAILED` — invokes `notify-failure`

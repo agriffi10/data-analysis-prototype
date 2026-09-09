@@ -85,6 +85,11 @@ parent. **Say "the run's request id" carefully:** only the archive records carry
 gateway's own.
 
 **So the limit SPEC-227 recorded is real, and half (b) confirms it rather than falsifying it.**
+*(Superseded by SPEC-228: the measurements in this entry stand as what the fleet did on 2026-09-09,
+and they are what the repair was derived from — but the limit itself is closed. `RecordFailure` now
+carries the forwarded envelope from `$$.Execution.Input`, so this failure joins the run's trace and
+recovers the caller's request id. The ASL half of the reasoning — that the value is reachable
+nowhere an intrinsic may look — still stands.)*
 
 **The failure correlates on nothing at all — measured, and the register disagrees.** Those three
 `notify-failure` records carry no `request_id` field, so the fallback join is not available either.

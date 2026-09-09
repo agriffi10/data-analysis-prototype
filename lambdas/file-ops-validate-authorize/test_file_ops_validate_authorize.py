@@ -232,7 +232,6 @@ def test_the_output_supplies_every_path_the_MACHINE_reads_of_it():
         "lock": "AcquireLock",
         "error": "every Catch's ResultPath",
         "execution": "StampExecution",
-        "raw": "the failure seeds",
         "guardPass": "SeedFirstGuardPass / SeedSecondGuardPass",
         "transfer": "BuildTransferManifest",
         "deletableCount": "CollectTransferResults",
