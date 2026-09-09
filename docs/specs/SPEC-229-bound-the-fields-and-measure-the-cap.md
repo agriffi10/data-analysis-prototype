@@ -138,8 +138,9 @@ have a request byte cap, leaving five planes and seven routes with none.
 
 #### Acceptance Criteria:
 
-- [ ] Coverage is asserted as **set equality against the ids of `contract.ROUTES`'s `EnqueueRoute`
-      entries** — not a count, which a substitution satisfies, and not against `ROUTES` whole.
+- [ ] Coverage is asserted as **set equality against `contract.ENQUEUE_ROUTES`'s ids** — the derived
+      tuple already exists, so nothing re-derives it — not a count, which a substitution satisfies,
+      and not against `ROUTES` whole, which holds 34.
 - [ ] The subset that traverses a Pipe is derived from the presence of a `pipe.tf`, not listed, so
       `notifications.enqueue` is excluded by rule and a ninth pipe would be included by rule.
 - [ ] Where a plane enforces a byte cap in `validate-authorize`, the worst case is built **at** that
