@@ -38,8 +38,9 @@ const NON_ASCII = /[\u007f-\uffff]/g;
  * characters is its length in bytes.
  */
 function wireBytes(value: unknown): number {
-  return JSON.stringify(value).replace(NON_ASCII, (character) =>
-    `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`
+  return JSON.stringify(value).replace(
+    NON_ASCII,
+    (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`
   ).length;
 }
 

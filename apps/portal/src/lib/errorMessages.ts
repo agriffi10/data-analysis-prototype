@@ -570,11 +570,7 @@ export function logBackgroundFailure(scope: string, error: unknown): void {
   if (import.meta.env.DEV) console.warn(`[${scope}] background operation failed:`, error);
 }
 
-function fromRule(
-  rule: ErrorRule,
-  serviceMessage: string | undefined,
-  params?: {limit?: number}
-): UserFacingMessage {
+function fromRule(rule: ErrorRule, serviceMessage: string | undefined, params?: {limit?: number}): UserFacingMessage {
   // Passthrough: the service authored user-safe text (possibly parameterized).
   // Guard against an empty/absent message so we still never surface nothing.
   if (rule.passthrough) {
