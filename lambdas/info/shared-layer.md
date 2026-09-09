@@ -189,7 +189,10 @@ deepen the tree without changing this. Four event
 shapes carry it, because a verb can be entered four ways: the state payload, the EventBridge Pipe
 envelope, a Distributed Map's `ItemBatcher.BatchInput`, and an inline Map's `request` block.
 `fields.request_id` STAYS — it is the join key for anything outside the trace, and table-share
-still carries none at all.
+still carries none at all. **One path has no join key of any kind**: a pre-identity failure's
+seed supplies `requestId: null` (and on table-share, no `requestId` key at all) and no `notify-failure` recovers one from `raw`, so that span
+sits outside the run's trace AND outside the request-id join. Measured on archive 2026-09-09;
+SPEC-228 is what closes it.
 
 Two things that look like details and are not. Adoption must come AFTER the per-invocation reset,
 because `reset_context` clears an adopted context as well as baggage; done the other way round the
