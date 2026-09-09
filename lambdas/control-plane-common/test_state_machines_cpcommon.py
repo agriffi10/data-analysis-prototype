@@ -14,6 +14,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import pytest
+from cpcommon import config
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _INFRA = os.path.join(_HERE, "..", "..", "infra", "modules")
@@ -216,8 +217,9 @@ def test_every_plane_notifies_before_it_fails(path):
 
 
 #: Step Functions' hard cap on a state payload. Breaching it raises
-#: States.DataLimitExceeded, which is thrown OUTSIDE every Catch.
-_STATE_PAYLOAD_LIMIT = 256 * 1024
+#: States.DataLimitExceeded, which is thrown OUTSIDE every Catch. Read from the module this file
+#: tests rather than restated beside it.
+_STATE_PAYLOAD_LIMIT = config.STATE_PAYLOAD_LIMIT_BYTES
 
 
 def _definition_at_cap(cap_bytes):

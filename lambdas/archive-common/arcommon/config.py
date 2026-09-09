@@ -75,10 +75,12 @@ Attributes:
     A failure state is the Pipe's record PLUS an error whose ``Cause`` the service permits 32,768
     CHARACTERS of — which is a length on an execution-history event, not a byte quota on a state,
     so a Cause sitting inside a JSON string on the state costs twice that. Reserved honestly, a
-    quote-heavy selection at the old cap reached a ``RecordFailure`` of 263,223 bytes against a
-    262,144-byte limit: on a ``Pass`` with no ``Catch``, so the user whose request failed was told
-    nothing at all. The fleet guard computes every link for every piped route against one
-    constant, and ``lambdas/api/apicommon/enqueue.py`` derives the message cap this sits under.
+    quote-heavy selection at the old cap breached that limit on a ``Pass`` with no ``Catch``, so
+    the user whose request failed was told nothing at all. **The number is not written here** — a
+    byte figure in a docstring has nothing holding it to the model it came from, and the first one
+    written here was stale within the same branch. ``lambdas/test_request_size_chain.py`` computes
+    every link for every piped route against one constant and pins the overshoot; the message cap
+    this sits under is derived in ``lambdas/api/apicommon/enqueue.py``.
   ARCHIVE_MAX_OBJECTS: Cap on the EXPANDED object count — what the selection actually resolves
     to, which ``ARCHIVE_MAX_ITEMS`` says nothing about because one selected folder can hold any
     number of objects. What sizes it is the copy plan held in MEMORY by inspect-source, which

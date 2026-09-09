@@ -53,6 +53,11 @@ REPO = pathlib.Path(_HERE).parent
 MODULES = REPO / "infra" / "modules"
 
 FILLS = ("k", '"', "\\", "\x01", "é")
+
+#: A ceiling on how many elements a worst case will model. Not a bound on the product — it is a
+#: circuit breaker: an unbounded list loop turned a raised byte bound into a hang, which reads as
+#: an infrastructure fault rather than as the failing assertion it is.
+_MAX_MODELLED_ITEMS = 5_000
 ESCAPE_WORST_FILL = '"'
 
 
@@ -135,6 +140,16 @@ PIPED_ROUTES = tuple(
 )
 
 
+#: What to build a field at when the plane bounds it with something that is not a number. A
+#: regex has no length to read, and returning nothing made the factory fall back to a single
+#: character — so `tableName` was modelled at 3 bytes where its own rule permits 65, in every
+#: worst case on three routes. The model is the length the rule admits, and `_budget` refuses an
+#: owner that is in neither this table nor an integer rather than shrinking silently.
+NON_NUMERIC_OWNERS = {
+    "cpcommon.config.CATALOG_IDENTIFIER_RE": bounds.MAX_IDENTIFIER_BYTES,
+}
+
+
 def _budget(route_id: str, path: str) -> tuple[int, str] | None:
     """The bound covering one field, with the unit its number is in.
 
@@ -145,8 +160,8 @@ def _budget(route_id: str, path: str) -> tuple[int, str] | None:
     7,497 bytes and table-share's by sixteen times, in the model the fleet cap is derived from.
 
     A ``verb`` bound's number lives in the plane, so it is read from there. ``apicommon.bounds``
-    deliberately does not import those modules — a plane's ``config`` raises at import on its own
-    unset environment — and this file may, because the suite stands the layers up.
+    deliberately does not import those modules — the API does not depend on the plane layers — and
+    this file may, because a guard is not the service.
 
     Args:
       route_id: The enqueue route.
@@ -165,7 +180,15 @@ def _budget(route_id: str, path: str) -> tuple[int, str] | None:
         return bound.max_bytes, bound.measured
     module_path, _, constant = bound.owner.rpartition(".")
     value = getattr(__import__(module_path, fromlist=[constant]), constant)
-    return (value, bound.measured) if isinstance(value, int) else None
+    if isinstance(value, int):
+        return value, bound.measured
+    modelled = NON_NUMERIC_OWNERS.get(bound.owner)
+
+    assert modelled is not None, (
+        f"{bound.owner} is not a number and this file has no model for it, so every worst case "
+        f"built for {route_id}/{path} would silently carry one character"
+    )
+    return modelled, bound.measured
 
 
 def _filled(fill: str, budget: int, measured: str = "wire") -> str:
@@ -232,8 +255,14 @@ def _worst(node: TypeNode, route_id: str, path: str, fill: str) -> object:
     if measured == "items":
         return [element] * number
     items: list[object] = []
-    while _serialized([*items, element]) <= number:
+    while _serialized([*items, element]) <= number and len(items) < _MAX_MODELLED_ITEMS:
         items.append(element)
+
+    assert len(items) < _MAX_MODELLED_ITEMS, (
+        f"{route_id}/{path} admits at least {_MAX_MODELLED_ITEMS} elements at its bound of "
+        f"{number} — which is a bound that is not bounding, and without this the loop runs until "
+        f"the suite is killed rather than failing"
+    )
     return items or [element]
 
 
@@ -1048,3 +1077,105 @@ def test_an_accented_file_ops_selection_breached_what_its_own_cap_measured():
     failure_state = _serialized(_record(body)) + cp_config.CAUSE_RESERVATION_BYTES
 
     assert failure_state > cp_config.STATE_PAYLOAD_LIMIT_BYTES
+
+
+def test_the_overshoot_the_register_cites_is_the_one_this_model_computes():
+    """The figures the register and the delivery doc quote, computed rather than transcribed.
+
+    An earlier pair was measured before the recipients-count and identifier-unit corrections and
+    was wrong by up to 8 KB — in the direction that justified a user-visible capacity cut, written
+    into two production docstrings where nothing could contradict it. The numbers live here now,
+    so a change to the model reddens this and whoever fixes it sees the prose that quotes it.
+    """
+    from arcommon import config as ar_config
+    from fscommon import config as fs_config
+
+    breaches = {}
+    for route_id, module, name, plane in (
+        ("archive.archive", ar_config, "ARCHIVE_MAX_ITEM_BYTES", "archive"),
+        ("fileSend.enqueue", fs_config, "SEND_MAX_ITEM_BYTES", "file-send"),
+    ):
+        route = next(r for r in contract.ENQUEUE_ROUTES if r.id == route_id)
+        original = getattr(module, name)
+        try:
+            setattr(module, name, OLD_SELECTION_CAP_BYTES)
+            breaches[plane] = max(link_four(route, plane, fill) for fill in FILLS)
+        finally:
+            setattr(module, name, original)
+
+    assert breaches == {"archive": 263_533, "file-send": 271_446}, (
+        f"the overshoot at the old caps is now {breaches}, and the register, the delivery doc and "
+        f"this branch's own commit message quote the old pair — correct all four together"
+    )
+    assert all(size > cp_config.STATE_PAYLOAD_LIMIT_BYTES for size in breaches.values())
+
+
+def test_the_accented_file_ops_figures_are_the_ones_the_register_cites():
+    """The same, for the fourth overshoot, which no spec named.
+
+    Three numbers travel together in the prose — what the old measurement counted, what the wire
+    actually spends, and how far over the limit the failure state lands — and a reader can only
+    check the middle one against the other two if all three come from one place.
+    """
+    accented = [{"kind": "folder", "key": "é" * 512, "targetName": "é" * 127} for _ in range(49)]
+    plane_measured = len(
+        json.dumps(accented, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    )
+    on_the_wire = _serialized(accented)
+    body = json.dumps({"items": accented}, separators=(",", ":"))
+    failure_state = _serialized(_record(body)) + cp_config.CAUSE_RESERVATION_BYTES
+
+    assert (plane_measured, on_the_wire) == (64_730, 189_974)
+    assert failure_state - cp_config.STATE_PAYLOAD_LIMIT_BYTES == 27_151
+
+
+def test_the_factorys_non_string_defaults_are_the_LARGEST_the_contract_allows():
+    """FR-002's blind spot is a field pinned small, and three defaults were unguarded.
+
+    Measured before this existed: building an ``optional`` as ``None``, a ``literal`` at its
+    SHORTEST member and an ``int`` as ``1`` each left the whole battery green — and the first of
+    those shrinks ``notifications.enqueue``'s worst case by 78%, because its only declared field
+    is optional. A worst case that quietly omits what a caller may legally send understates every
+    measurement built on it.
+    """
+    notifications = next(r for r in contract.ENQUEUE_ROUTES if r.id == "notifications.enqueue")
+    built = worst_case_body(notifications, "k")
+
+    assert built["id"] is not None, (
+        "an optional field is built absent, so the worst case is missing everything a caller may "
+        "legally send but need not"
+    )
+
+    conversion = next(r for r in contract.ENQUEUE_ROUTES if r.id == "resultsConversion.enqueue")
+    literals = contract.walk(conversion.request)
+    declared = {name: node for name, node, _ in literals.fields}
+    built_conversion = worst_case_body(conversion, "k")
+
+    assert built_conversion["format"] == max(declared["format"].literals, key=len), (
+        "a literal field is built at something other than its longest member"
+    )
+
+    table_build = next(r for r in contract.ENQUEUE_ROUTES if r.id == "tableBuild.create")
+    digits = worst_case_body(table_build, "k")["partitionKeys"][0]["digits"]
+
+    assert digits > 2**32, (
+        f"an int field is built as {digits}, which costs a handful of bytes where JSON permits "
+        f"many more — the term is small, and so is the point at which it stops being small"
+    )
+
+
+def test_a_verb_bounded_name_is_modelled_at_the_length_its_RULE_permits():
+    """The regex-owner case, which silently built one character.
+
+    ``tableName``'s owner is ``CATALOG_IDENTIFIER_RE`` — a pattern, not a number — so the budget
+    lookup returned nothing and the string branch fell back to a single character. Three routes
+    carried a 3-byte table name in every worst case where the rule permits 65.
+    """
+    for route_id in ("tableBuild.create", "tableBuild.refresh", "tableShare.enqueue"):
+        route = next(r for r in contract.ENQUEUE_ROUTES if r.id == route_id)
+        built = worst_case_body(route, "k")["tableName"]
+
+        assert _serialized(built) == bounds.MAX_IDENTIFIER_BYTES, (
+            f"{route_id}'s worst case carries a {_serialized(built)}-byte tableName where the "
+            f"catalog rule permits {bounds.MAX_IDENTIFIER_BYTES}"
+        )

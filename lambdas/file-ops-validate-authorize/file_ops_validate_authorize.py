@@ -201,9 +201,10 @@ def _normalize_items(items, root: str) -> list:
     sends literal UTF-8 and the Pipe keeps it literal. Both halves are true and the conclusion was
     not: the API re-serialises the body with the default escaping one hop before the Pipe, so an
     accented key costs six bytes on the wire where this counted two. A selection of accented
-    folder names passed this cap at 64,730 bytes, reached the queue at 191,134, and produced a
-    ``RecordFailure`` 29,172 bytes over the state limit — on a ``Pass`` with no ``Catch``, so the
-    user heard nothing. A pathological key now costs its real size and is refused here, which is
+    folder names passed this cap at a third of what it cost on the wire, and produced a
+    ``RecordFailure`` over the state limit — on a ``Pass`` with no ``Catch``, so the user heard
+    nothing. The figures are in ``lambdas/test_request_size_chain.py``, which computes them,
+    rather than here, where nothing would keep them true. A pathological key now costs its real size and is refused here, which is
     the rule the sibling planes' caps already used.
 
     Args:

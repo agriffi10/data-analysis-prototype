@@ -15,7 +15,7 @@ from types import SimpleNamespace
 import handler as api_handler
 import pytest
 import router
-from apicommon import contract
+from apicommon import bounds, contract
 from apicommon import enqueue as enqueue_module
 from apicommon.envelope import ApiError
 from conftest import bearer
@@ -348,6 +348,45 @@ def test_a_failed_send_answers_the_caller_without_calling_it_their_fault(
 
     assert response["statusCode"] == status
     assert json.loads(response["body"])["error"]["code"] == expected
+
+
+def test_an_over_long_FIELD_is_refused_through_the_router_and_never_sent(sqs):
+    """The refusal driven through the ROUTER, which is the only thing that makes the table a fence.
+
+    The bounds table and its own unit tests can both be perfect while the pass that consults them
+    is absent: deleting the call in ``router.py`` left the whole suite green, because every test of
+    it called ``bounds.over_bound`` directly. This drives the real request and asserts the three
+    things a caller sees — the status, the code, and the bound that refused it — plus the thing a
+    caller does not see and which matters most: nothing reached the queue.
+    """
+    route = next(r for r in contract.ENQUEUE_ROUTES if r.id == "dataQuality.enqueue")
+    bound = bounds.bound_for(route.id, "location")
+    body = {**_BODIES[route.id], "location": "l" * (bound.max_bytes + 1)}
+
+    response = _post(route, body)
+
+    assert response["statusCode"] == 413, (
+        f"an over-long {bound.path} was answered {response['statusCode']}, so the bounds pass is "
+        f"not in the request path at all"
+    )
+    answered = json.loads(response["body"])["error"]
+    assert answered["code"] == "PayloadTooLarge"
+    assert answered["params"]["limit"] == bound.max_bytes
+    assert sqs.sends == [], "an over-long field reached the queue"
+
+
+def test_a_body_INSIDE_every_bound_still_reaches_the_queue(sqs):
+    """The other direction, so the guard above cannot be satisfied by refusing everything.
+
+    A pass that answered 413 unconditionally would make every assertion above pass and take the
+    whole product down.
+    """
+    route = next(r for r in contract.ENQUEUE_ROUTES if r.id == "dataQuality.enqueue")
+
+    response = _post(route)
+
+    assert response["statusCode"] == 200
+    assert len(sqs.sends) == 1
 
 
 def test_the_size_cap_is_derived_from_the_limit_that_actually_binds():

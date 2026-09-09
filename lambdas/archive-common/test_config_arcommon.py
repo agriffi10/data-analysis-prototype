@@ -16,10 +16,13 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 
 from arcommon import config
+from cpcommon import config as cp_config
 
 #: Step Functions' hard cap on a state payload AND on an execution input. Breaching either
-#: raises States.DataLimitExceeded, which is thrown OUTSIDE every Catch.
-_STATE_PAYLOAD_LIMIT = 256 * 1024
+#: raises States.DataLimitExceeded, which is thrown OUTSIDE every Catch. Read from the fleet
+#: constant rather than restated — four private copies of one service quota is the rule-written-
+#: twice failure, and the copies do not have to disagree to be a problem: they have to be able to.
+_STATE_PAYLOAD_LIMIT = cp_config.STATE_PAYLOAD_LIMIT_BYTES
 
 #: S3's own maximum key length. The worst case a cap has to survive, not the typical one.
 _MAX_S3_KEY = 1024

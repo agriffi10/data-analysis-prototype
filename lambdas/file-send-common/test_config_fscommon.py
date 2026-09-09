@@ -769,3 +769,38 @@ def test_the_results_folder_resolves_to_todays_name():
 def test_the_portal_managed_folders_are_exactly_these_two():
     """The two folders a send never carries out, spelled out."""
     assert expand._PORTAL_MANAGED_FOLDERS == ("athenaresults", "user_settings")
+
+
+def test_the_tripwire_above_holds_far_below_the_shipped_cap():
+    """WHERE the counterfactual stops being evidence, measured with the tripwire's own arithmetic.
+
+    ``enqueue.MESSAGE_HEADROOM_BYTES`` names this as its ceiling from above: headroom lowers the
+    send cap, a lower cap shrinks the record, and eventually "the selection beside the envelope
+    would breach" stops being true — at which point the tripwire passes while proving nothing.
+
+    The first version of that sentence said the floor was about 82 KiB. It was measured against
+    the tripwire's OLD 4 KB error model, which this file replaced with the real escaped
+    reservation; the floor moved twenty kibibytes down with it and the sentence did not. Measured
+    here, beside the arithmetic it is about, so the two cannot drift again.
+    """
+    error = cp_config.CAUSE_RESERVATION_BYTES
+    original = config.SEND_MAX_ITEM_BYTES
+
+    floor = None
+    try:
+        for kib in range(original // 1024, 0, -1):
+            config.SEND_MAX_ITEM_BYTES = kib * 1024
+            record = max(_pipe_record(_items_at_the_byte_cap(char)) for char in ("k", '"', _WORST_ESCAPE))
+            if record + config.SEND_MAX_ITEM_BYTES + error <= _STATE_PAYLOAD_LIMIT:
+                floor = kib
+                break
+    finally:
+        config.SEND_MAX_ITEM_BYTES = original
+
+    assert floor == 62, (
+        f"the counterfactual stops firing at {floor} KiB, not the 62 the headroom constant names"
+    )
+    assert original // 1024 > floor, (
+        f"the shipped cap of {original // 1024} KiB is at or below the floor, so the tripwire "
+        f"beside it is passing without evidence"
+    )

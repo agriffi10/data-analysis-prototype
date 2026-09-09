@@ -25,6 +25,7 @@ os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 
 from cpcommon import app_managed
+from cpcommon import config as cp_config
 from cpcommon import messages as cpmessages
 from rccommon import config, messages, reasons
 
@@ -387,7 +388,7 @@ GOLDEN_ROW_LIMIT = (
 
 
 #: Step Functions' ceiling on a task state's input or output, in bytes.
-STATE_LIMIT_BYTES = 256 * 1024
+STATE_LIMIT_BYTES = cp_config.STATE_PAYLOAD_LIMIT_BYTES
 
 #: The widest column entry describe-results can emit: a long name, plus the two fields only a
 #: decimal carries. Serialised the way the Lambda runtime returns a payload.

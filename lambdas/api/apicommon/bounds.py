@@ -56,8 +56,9 @@ Attributes:
     ``tbcommon.config.REFRESH_MAX_DEFINITION_BYTES``, the plane's own budget for a table definition
     on the state, because the declared keys become part of that definition. Mirrored rather than
     imported for the reason ``Bound.owner`` gives, and a guard holds the two equal.
-  MAX_PARTITION_VALUE_BYTES: What one projected partition value may serialize to. A value becomes
-    a segment of the table's own S3 path, so S3's key-segment budget is what sizes it.
+  MAX_PARTITION_VALUE_BYTES: How long one projected partition value may be, in the UTF-8 bytes S3
+    counts. A value becomes a segment of the table's own S3 path, so S3's key-segment budget sizes
+    it — and it is measured in the same unit as ``MAX_S3_KEY_BYTES``, which cites the same budget.
   MAX_PARTITION_VALUES_BYTES: What one key's enumerated values may serialize to together. **A
     share of the definition budget rather than a derivation of it** — nothing in the plane says
     how many projected keys a table may declare, so a quarter is a choice, and it is written down
@@ -129,7 +130,7 @@ MAX_BUCKET_NAME_BYTES: Final[int] = _plain(63)
 MAX_TIMESTAMP_BYTES: Final[int] = _plain(32)
 MAX_MEMBERS_PER_REQUEST: Final[int] = 44
 MAX_PARTITION_KEYS_BYTES: Final[int] = 40 * 1024
-MAX_PARTITION_VALUE_BYTES: Final[int] = _plain(255)
+MAX_PARTITION_VALUE_BYTES: Final[int] = 255
 MAX_PARTITION_VALUES_BYTES: Final[int] = MAX_PARTITION_KEYS_BYTES // 4
 
 
@@ -158,9 +159,13 @@ class Bound:
         Pipe has to start an execution with. The two are not interchangeable and the distinction is
         recorded rather than inferred.
       owner: Where a ``verb`` bound's number lives, as ``module.CONSTANT``. Empty for an ``api``
-        bound. Named rather than imported: a plane's ``config`` raises at import when its own
-        environment is unset, so reaching for one from here would turn a cold start into a crash
-        for a number this service never applies.
+        bound. **Named rather than imported, and the reason is a boundary rather than a crash**:
+        this service does not depend on the plane layers, which is why ``protected`` and ``spaces``
+        each carry their own implementation of a rule ``focommon`` also has. Importing six domain
+        configs to read six integers would reverse that for values this service never applies.
+        (It would not fail — every plane ``config`` imports cleanly with no environment, because
+        the env-backed ones resolve on first read. An earlier draft of this docstring said
+        otherwise and was wrong.)
       budget: What sized the number. Never a round figure — the sentence names the quota, rule or
         measurement the bound is derived from, so a later reader can re-derive it rather than
         trust it.
@@ -255,6 +260,8 @@ FIELD_BOUNDS: Final[tuple[Bound, ...]] = (
             Bound(
                 route_id, "partitionKeys[].values[]", MAX_PARTITION_VALUE_BYTES, "api",
                 "S3's key-segment budget, which a projected partition value becomes",
+                "",
+                "value",
             ),
             Bound(
                 route_id, "partitionKeys[].intervalUnit", MAX_IDENTIFIER_BYTES, "api",

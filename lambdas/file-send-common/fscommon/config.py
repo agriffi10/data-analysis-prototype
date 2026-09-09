@@ -56,10 +56,12 @@ Attributes:
     request.** A failure state is that record PLUS an error whose ``Cause`` the service permits
     32,768 CHARACTERS of — a length on an execution-history event, not a byte quota on a state —
     so a Cause sitting inside a JSON string on the state costs twice that. The old model allowed
-    it 4 KB. Reserved honestly, a quote-heavy selection at the old cap reached a
-    ``RecordFailure`` of 263,473 bytes against a 262,144-byte limit, on a ``Pass`` with no
-    ``Catch``. The fleet guard computes every link for every piped route against one constant,
-    and ``lambdas/api/apicommon/enqueue.py`` derives the message cap this sits under.
+    it 4 KB. Reserved honestly, a quote-heavy selection at the old cap breached the 256 KiB limit
+    on a ``Pass`` with no ``Catch``. **The number is not written here** — a byte figure in a
+    docstring has nothing holding it to the model it came from, and the first one written here was
+    stale within the same branch. ``lambdas/test_request_size_chain.py`` computes every link for
+    every piped route against one constant and pins the overshoot; the message cap this sits under
+    is derived in ``lambdas/api/apicommon/enqueue.py``.
 
     An earlier value of 192 KiB was measured against the validated output ALONE and would have
     permitted a request whose execution could not start. ``test_config_fscommon`` now computes

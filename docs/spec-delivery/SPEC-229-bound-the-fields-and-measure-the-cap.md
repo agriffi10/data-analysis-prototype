@@ -18,8 +18,10 @@
   answered "what does add-members finish inside its timeout" with a fuller cost model; a second
   derivation came out at 100 against its 44. The API now mirrors it, and a guard holds the two equal
   and checks the Terraform default the derivation charges is still 60 with no per-verb override.
-- **One worst-case request per route**, `lambdas/test_request_size_chain.py`, replacing three
-  hand-built literals in three plane guards that disagreed. Coverage is **set equality** against
+- **One worst-case request per route**, `lambdas/test_request_size_chain.py`. What moved out of
+  the three plane guards is links one and two, which each modelled separately and disagreed about;
+  their own selection fixtures stay, because link three is what a VERB RETURNS and each plane's is
+  a different shape. Coverage is **set equality** against
   `ENQUEUE_ROUTES`; the piped subset is derived from the presence of a `pipe.tf`, so
   `notifications.enqueue` is excluded by rule. The fill is **swept** over five characters, not
   fixed: `"` is the escape-worst into the Pipe record at a measured 2.0, and `\x01` and `é` are
@@ -33,14 +35,18 @@
   against the old 261,632. The SQS arm survives as the queue's ceiling and is asserted unreachable.
   `ARCHIVE_MAX_ITEM_BYTES` 96 → **89 KiB** and `SEND_MAX_ITEM_BYTES` 96 → **84 KiB**, each pinned
   tight (one whole kibibyte more breaches the chain), with the SPA mirrors moved in the same change.
+- **Every measured figure in this document is computed by a test**, not transcribed. The first
+  set written here was taken before the recipients-count and identifier-unit corrections and was
+  wrong by up to 8 KB in the direction that justified the cap cut — which is why the production
+  docstrings now carry the mechanism and point at the guard rather than repeating a number.
 - **Four live overshoots characterised against the old constants**, so the suite carries the reason
   the caps moved rather than only the delivery doc: a body at the old cap producing a record over
   the limit; data-quality's `location` and shared-spaces' `space` on a `Pass` with no `Catch`; and
   the fourth below.
 - **file-ops measured a quantity nothing produces.** Its cap counted the selection with
   `ensure_ascii=False`; the API re-serialises with the default escaping one hop before the Pipe. 49
-  folders of accented keys passed the cap at 64,730 bytes, cost 191,134 on the wire, and produced a
-  failure state 29,172 over the limit. Both sides moved to the escaped form — the cap does not
+  folders of accented keys passed the cap at 64,730 bytes, cost 189,974 on the wire, and produced a
+  failure state 27,151 over the limit. Both sides moved to the escaped form — the cap does not
   move, ASCII selections are unaffected, and reverting the browser's half reddens exactly the new
   accented test and nothing else.
 - **The refusal names the bound.** `PayloadTooLarge` carries `ErrorParams.limit`, and

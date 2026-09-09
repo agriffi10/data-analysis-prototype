@@ -58,10 +58,10 @@ def _chain_guard_message() -> str:
     return test_request_size_chain.UNRESOLVED_MESSAGE
 
 
-#: What the chain guard's own mutation fails with, READ from it rather than restated, so the
-#: assertion the two feed compares this file's message with that guard's actual one. Written out
-#: as a second literal here, it compared two strings in this file and could not fail.
-_CHAIN_MUTATION_MESSAGE = _chain_guard_message()
+#: Resolved LAZILY, inside the one test that needs it. At module scope the two guards import each
+#: other — this file for the walk, that one for this message — and the chain guard could not be run
+#: on its own at all: collection died on a partially initialised module. Whole-tree collection hid
+#: it, because ``lambdas/api/`` sorts first.
 
 ADD_MEMBERS_TIMEOUT_SECONDS = 60
 
@@ -197,7 +197,7 @@ def test_the_rule_REPORTS_an_unbounded_field_when_there_is_one():
         "the planted unbounded field was not reported, so the fleet guard's clean result says "
         f"nothing: {reported}"
     )
-    assert UNBOUNDED_MESSAGE not in _CHAIN_MUTATION_MESSAGE, (
+    assert UNBOUNDED_MESSAGE not in _chain_guard_message(), (
         "this guard and the chain guard's RecordFailure mutation fail with overlapping messages, "
         "so one plant could be read as satisfying both"
     )
@@ -251,9 +251,9 @@ def test_a_verb_bound_says_where_its_number_lives_and_an_api_bound_carries_one()
 
     A ``verb`` bound is applied inside ``validate-authorize``, so it bounds what a failure state
     can carry and says nothing about what the Pipe needs to start an execution. It therefore
-    carries no number here — importing a plane's ``config`` would raise at this service's cold
-    start, because those modules fail fast on their own unset environment — and names the constant
-    instead. An ``api`` bound is the opposite: this service applies it, so the number is here.
+    carries no number here and names the constant instead — the API does not depend on the plane
+    layers, and copying their numbers in would be one rule in two places. An ``api`` bound is the
+    opposite: this service applies it, so the number is here.
     """
     for bound in bounds.FIELD_BOUNDS:
         if bound.enforced_at == "api":
@@ -597,3 +597,122 @@ def _smallest(node: TypeNode) -> object:
     if node.kind == "list":
         return []
     return {name: _smallest(child) for name, child, required in node.fields if required}
+
+
+#: What kind of field each name-shape is, and therefore which constant its bound must be. The
+#: table is what makes a single mis-wired row visible: swapping one path's constant for another
+#: real one — a destination prefix bounded by the identifier rule, say — is an eightfold-tighter
+#: bound that refuses legitimate requests, and every other guard here passes on it, because each
+#: only asks whether SOME bound resolves.
+_KIND_BY_SUFFIX = (
+    ("requestId", "MAX_REQUEST_ID_BYTES"),
+    ("archiveId", "MAX_REQUEST_ID_BYTES"),
+    ("submittedAt", "MAX_TIMESTAMP_BYTES"),
+    ("location", "MAX_S3_KEY_BYTES"),
+    ("prefix", "MAX_S3_KEY_BYTES"),
+    ("key", "MAX_S3_KEY_BYTES"),
+    ("bucket", "MAX_BUCKET_NAME_BYTES"),
+    ("space", "MAX_IDENTIFIER_BYTES"),
+    ("name", "MAX_IDENTIFIER_BYTES"),
+    ("database", "MAX_IDENTIFIER_BYTES"),
+    ("table", "MAX_IDENTIFIER_BYTES"),
+    ("queryExecutionId", "MAX_IDENTIFIER_BYTES"),
+    ("format", "MAX_IDENTIFIER_BYTES"),
+    ("intervalUnit", "MAX_IDENTIFIER_BYTES"),
+    ("id", "MAX_IDENTIFIER_BYTES"),
+    ("newOwner", "MAX_IDENTIFIER_BYTES"),
+    ("members[]", "MAX_IDENTIFIER_BYTES"),
+    ("range[]", "MAX_IDENTIFIER_BYTES"),
+    ("values[]", "MAX_PARTITION_VALUE_BYTES"),
+)
+
+
+def test_each_bound_carries_the_constant_its_KIND_of_field_calls_for():
+    """The per-row wiring, which every other guard in this file is blind to.
+
+    They all ask whether a path resolves to SOME bound. None asks whether it is the right one, so
+    a row pointing at a neighbouring constant — or raised to a billion, which removes the bound in
+    all but name — passes them. Measured before this existed: 37 of 68 single-row plants survived
+    the whole battery.
+
+    The mapping is by name-shape because that is what a reader checks a row against anyway: a
+    field called ``destination.prefix`` is a key, and a key is bounded by S3's key length. A row
+    whose leaf name matches no shape here is skipped rather than guessed at, and those are listed
+    so the skip cannot quietly grow.
+
+    **A list and its elements are different rows and must stay distinguishable**: the leaf keeps
+    its ``[]``, so ``payload.members`` (a count of people) and ``payload.members[]`` (one username)
+    do not collapse onto one expectation. Stripping it made them collide, which would have let
+    either take the other's constant.
+    """
+    unchecked = []
+    for bound in bounds.FIELD_BOUNDS:
+        if bound.enforced_at != "api":
+            continue
+        leaf = bound.path.rsplit(".", 1)[-1]
+        expected = next((name for suffix, name in _KIND_BY_SUFFIX if leaf == suffix), None)
+        if expected is None:
+            unchecked.append(bound.path)
+            continue
+
+        assert bound.max_bytes == getattr(bounds, expected), (
+            f"{bound.route_id}/{bound.path} is a {leaf!r} and carries {bound.max_bytes}, but that "
+            f"kind of field is bounded by {expected} = {getattr(bounds, expected)}"
+        )
+
+    assert sorted(set(unchecked)) == [
+        "partitionKeys",
+        "partitionKeys[].range",
+        "partitionKeys[].values",
+        "payload.members",
+    ], (
+        f"the set of paths this rule cannot judge by name has changed: {sorted(set(unchecked))}. "
+        f"All four are CONTAINERS, whose bound is a capacity rather than a kind of value — a "
+        f"fifth entry means a leaf has slipped out of the rule."
+    )
+
+
+def test_a_wire_bound_charges_the_escaping_the_API_actually_sends():
+    """The measurement `over_bound` makes, pinned — because getting it wrong is this spec's bug.
+
+    file-ops counted its selection with non-ASCII left literal while the API escapes it, and that
+    divergence hid a live overshoot. The same mistake here would be invisible: switching
+    ``over_bound`` to ``ensure_ascii=False`` passed every other test in this file.
+    """
+    route = next(r for r in contract.ENQUEUE_ROUTES if r.id == "sharedSpace.enqueue")
+    bound = bounds.bound_for(route.id, "space")
+    accented = "é" * ((bound.max_bytes - 2) // 6)
+
+    assert len(accented.encode("utf-8")) * 3 == len(json.dumps(accented).encode("utf-8")) - 2, (
+        "a two-byte character no longer costs six serialized bytes, so this fixture is not "
+        "measuring the divergence it exists for"
+    )
+
+    body = {**_smallest_valid_body(route), "space": accented + "éé"}
+
+    assert bounds.over_bound(route, body) is not None, (
+        "an accented value over the bound once escaped is not refused, so this bound is being "
+        "measured on the literal form and not on what the API sends"
+    )
+
+
+def test_a_bound_applies_to_EVERY_element_of_a_list_not_the_first():
+    """Four bounds sit under a list, and reading only the first element would miss all of them.
+
+    Measured: reducing ``_values`` to ``value[:1]`` left 570 tests green.
+    """
+    route = next(r for r in contract.ENQUEUE_ROUTES if r.id == "fileSend.enqueue")
+    bound = bounds.bound_for(route.id, "source.items[].key")
+    body = _smallest_valid_body(route)
+    body["source"]["items"] = [
+        {"kind": "file", "key": "a"},
+        {"kind": "file", "key": "b"},
+        {"kind": "file", "key": "k" * (bound.max_bytes + 1)},
+    ]
+
+    breached = bounds.over_bound(route, body)
+
+    assert breached is not None and breached.path == "source.items[].key", (
+        "an over-long key on the THIRD item is not refused, so only the first element of each "
+        "list is being measured"
+    )

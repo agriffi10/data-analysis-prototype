@@ -248,8 +248,9 @@ ceiling and is asserted **unreachable**, so nobody reads its passing as evidence
 is a maximum length in **characters** on the execution-history event shapes, not a byte quota on a
 state, and a Cause is a JSON document inside a JSON string on the state — escaped there like
 everything else. Reserved honestly, a quote-heavy selection at the old 96 KiB caps reached a
-`RecordFailure` of 263,223 bytes (archive) and 263,473 (file-send) against 262,144, on a `Pass` with
-no `Catch`. `ARCHIVE_MAX_ITEM_BYTES` is now **89 KiB** and `SEND_MAX_ITEM_BYTES` **84 KiB**, each
+`RecordFailure` of **263,533 bytes (archive) and 271,446 (file-send)** against 262,144, on a `Pass`
+with no `Catch` — figures the chain guard computes rather than restates, because the first pair
+written here was measured before the units were corrected and was wrong by up to 8 KB. `ARCHIVE_MAX_ITEM_BYTES` is now **89 KiB** and `SEND_MAX_ITEM_BYTES` **84 KiB**, each
 pinned tight — one whole kibibyte more and the chain breaches — with the SPA's mirrors moved with
 them.
 
@@ -257,8 +258,8 @@ them.
 selection cap counted the selection with `ensure_ascii=False`, on the reasoning that the browser
 sends literal UTF-8 and the Pipe keeps it literal. Both halves are true and the conclusion was not —
 the API re-serialises the body with the default escaping one hop before the Pipe. Measured: 49
-folders of accented keys passed the 64 KiB cap at 64,730 bytes, cost 191,134 on the wire, and
-produced a failure state 29,172 bytes over the limit. Both sides now measure the escaped form; the
+folders of accented keys passed the 64 KiB cap at 64,730 bytes, cost **189,974** on the wire, and
+produced a failure state **27,151** bytes over the limit. Both sides now measure the escaped form; the
 cap does not move and an ASCII selection is unaffected. **The wire stays pure ASCII deliberately** —
 that is what keeps the worst-case escape into the Pipe record a provable 2.0 whatever AWS's own
 serialiser does.

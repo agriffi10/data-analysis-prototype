@@ -36,10 +36,11 @@ sys.path.insert(
     os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "control-plane-common"),
 )
 
+from cpcommon import config as cp_config
 from focommon import config, delete
 
 #: Step Functions' limit on an execution input and on any single state.
-_STATE_LIMIT = 256 * 1024
+_STATE_LIMIT = cp_config.STATE_PAYLOAD_LIMIT_BYTES
 
 #: S3's own maximum key length. The worst selection is every key at this length.
 _MAX_KEY_BYTES = 1024
@@ -400,8 +401,9 @@ def test_the_browsers_mirrored_caps_are_never_more_permissive_than_these():
     """The browser refuses early so the common case fails fast and legibly, but it is not the
     authority — and it cannot measure the same quantity anyway.
 
-    Its byte cap is over ``JSON.stringify(items)`` alone; this one is over the whole chain, which
-    includes the actor's token, the destination and one outcome record per item. So the property
+    Its byte cap is over the SAME escaped serialisation this side measures — that was made true
+    rather than assumed, and the test below compares the two measurements. This one is over the
+    whole chain, which also includes the destination and one outcome record per item. So the property
     that matters is not equality but DIRECTION: a local refusal must never admit a request the
     plane would refuse, or the user gets a notification minutes later where they could have had a
     message immediately.

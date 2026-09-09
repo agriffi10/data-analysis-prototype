@@ -22,7 +22,7 @@ os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
 import pytest
-from cpcommon import clients, messages
+from cpcommon import clients, config, messages
 from cpcommon.errors import TerminalError, TransientError
 from cpcommon.transfer import config as transfer_config
 from cpcommon.transfer import copy as copy_mod
@@ -200,7 +200,9 @@ def test_a_worst_case_batch_stays_under_the_input_limit():
         },
         "Items": [worst] * transfer_config.MAX_ITEMS_PER_BATCH,
     })
-    assert len(batch.encode()) < 256 * 1024 // 2, "a worst-case batch is not far below the limit"
+    assert len(batch.encode()) < config.STATE_PAYLOAD_LIMIT_BYTES // 2, (
+        "a worst-case batch is not far below the limit"
+    )
 
 
 def test_a_worst_case_batch_stays_under_the_limit_with_the_WIDEST_echoed_field():
@@ -236,7 +238,7 @@ def test_a_worst_case_batch_stays_under_the_limit_with_the_WIDEST_echoed_field()
         },
         "Items": [worst] * transfer_config.MAX_ITEMS_PER_BATCH,
     })
-    assert len(batch.encode()) < 256 * 1024 // 2, (
+    assert len(batch.encode()) < config.STATE_PAYLOAD_LIMIT_BYTES // 2, (
         "a worst-case batch carrying the widest echoed field is no longer far below the limit"
     )
 

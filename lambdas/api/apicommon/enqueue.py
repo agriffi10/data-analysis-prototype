@@ -41,8 +41,10 @@ Attributes:
   MESSAGE_HEADROOM_BYTES: What the cap deliberately leaves unspent. A budget pinned at today's
     measurement leaves the next legitimate addition nothing, which makes the gate cause the damage
     it exists to prevent. It is bounded ABOVE as well: file-send's counterfactual tripwire — that
-    carrying the selection beside the envelope would breach the limit — stops firing once the
-    send cap falls to about 82 KiB, which is roughly 24 KiB of headroom.
+    carrying the selection beside the envelope would breach the limit — stops being evidence once
+    the send cap falls to **62 KiB**, which `test_the_tripwire_above_holds_far_below_the_shipped_cap`
+    measures with that tripwire's own arithmetic rather than restating. An earlier version of this
+    sentence said 82 KiB, measured against the 4 KB error model this spec replaced.
   MAX_MESSAGE_BYTES: What a caller's payload may serialize to once everything above is stamped
     onto it. Derived from the limit that actually binds, which is not the queue's: SQS accepting a
     message says nothing about Step Functions starting an execution with it, and every per-plane
@@ -175,11 +177,15 @@ def build_message(
 
 
 def _refuse_if_oversized(body: str) -> None:
-    """Refuses a message the queue would not accept, before it is billed for or partly done.
+    """Refuses a message the CHAIN cannot carry, before it is billed for or partly done.
 
     Measured on the SERIALIZED body after stamping, because that is what is sent: a cap applied to
     the caller's payload permits a request the send cannot make, and the failure then arrives as a
     dead-letter minutes later rather than as an answer now.
+
+    The queue is no longer what it is measured against, and the summary said so for as long as it
+    was true. What binds is the state limit an execution has to fit — see ``MAX_MESSAGE_BYTES`` —
+    and a message SQS would happily take can still be one no execution can start from.
 
     Args:
       body: The serialized message body.
