@@ -264,14 +264,19 @@ read from the connections cache `useConnections` already fetches. **A complete l
 in the organisation would be strictly more useful, and it was declined.**
 
 Strictly more useful because sharing a table to a space does **not** require membership —
-`test_recipient_space_membership_not_required` pins that any active space is a valid target — so the
-suggestions cover less than the field accepts, on purpose. The cost of closing that gap is a
-disclosure with **no existing equivalent**: today a non-member learns a space exists only by
-colliding with its name at create time, and space names are user-chosen and often descriptive
-(`acme_merger`, `q4_layoffs`). The username directory is not a precedent — a username is already the
-S3 prefix, the principal tag and the Glue database name (see the entry above); a space name a user
-does not belong to is disclosed nowhere. The trade was put to the user on 2026-08-05 and **declined
-in favour of suggesting only what the user can already see.**
+`test_recipient_space_membership_not_required` pins that a space the sender does not belong to is a
+valid target — so the suggestions cover less than the field accepts, on purpose. Membership is the
+only thing that is waived: an emptied space keeps `status: "active"` and is still refused, because
+`may_receive_share` wants an owner as well as a status. The cost of closing that gap is a **bulk**
+disclosure, and the argument is about the bulk rather than about secrecy: a non-member can already
+learn whether one named space exists by attempting a share and reading the refusal, which is the
+existence oracle `control-planes.md` records as open on the transfer path and deliberately not
+inherited. That is per-name, authenticated, logged, and it copies a table; a directory is every
+space name in the organisation, free, to every signed-in user, and space names are user-chosen and
+often descriptive (`acme_merger`, `q4_layoffs`). The username directory is not a precedent — a
+username is already the S3 prefix, the principal tag and the Glue database name (see the entry
+above). The trade was put to the user on 2026-08-05 and **declined in favour of suggesting only what
+the user can already see.**
 
 **Do NOT add a space directory "for symmetry with SPEC-146."** The absence is the decision. What
 holds the line in the UI is that a space the user does not belong to **stays typeable and still

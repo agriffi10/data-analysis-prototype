@@ -289,8 +289,11 @@ server-side copy finishes comfortably inside copy-objects' 900s timeout (archite
 > buys the timeout as much as the headroom.
 > `test_the_manifest_verbs_are_sized_for_the_transfer_item_cap`
 > (`lambdas/table-share-common/test_state_machine_table_share.py`) **computes** the worst-case
-> volume from the cap and the same worst-case item the batch sizing uses, so raising the constant
-> without re-sizing the verbs fails the build.
+> volume from the cap and the same worst-case item the batch sizing uses, and holds the deployed
+> memory above it. **It is a floor, not a tripwire, and the difference is measured:** the first
+> item count it refuses is 38,207, so the cap can be raised by 91% without touching either verb.
+> What it does catch is the verbs being shrunk — 1024 MB and the fleet default 512 MB are both
+> refused — which is the direction a tidy-up moves them. Raising the cap is on the author.
 >
 > **The item cap equals the object cap, so the object cap is reachable only for a single-recipient
 > share** — 500 objects can go to 40 recipients, and 500 to all 50 is refused at 25,000 items. A

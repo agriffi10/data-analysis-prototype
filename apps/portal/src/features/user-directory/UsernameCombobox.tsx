@@ -86,7 +86,8 @@ const ANNOUNCE_DEBOUNCE_MS = 400;
  *
  * **Every source here is ADVISORY and this component never blocks a name it does not know.** The
  * directory is up to a day stale and misses users not yet provisioned; the space list covers only
- * the spaces the user belongs to, while any active space is a valid share target. Neither is the
+ * the spaces the user belongs to, while a space the user does not belong to is a valid share
+ * target too. Neither is the
  * authority on what exists — the control plane is, and it *already reports an unknown name*:
  * `add_members.py` notifies the space owner by name, and table-share reports unresolved
  * recipients. So an absent name is a SLOWER path, not a lost one, and refusing it here would turn

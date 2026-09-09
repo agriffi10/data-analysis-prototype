@@ -80,9 +80,9 @@ Attributes:
     cap measures and two in the statement. Where that ``'`` sits decides the ratio: a column
     pays ~40 bytes of JSON overhead per comment, so apostrophe-heavy COMMENTS render at about
     1.7x, while a table property or a SerDe parameter pays ~9 and renders at nearly the full
-    2x. Measured at a 128 KiB cap the worst case reached **99.98%** of the quota — sixty-two
-    bytes of margin, which is a coin flip rather than a check — so the cap is 64 KiB, where
-    the same worst case lands near half. ``test_an_at_cap_definition_still_renders_under_
+    2x. Measured at a 128 KiB cap the worst case reached **99.8%** of the quota — 460 bytes of
+    margin, which is a coin flip rather than a check — so the cap is 64 KiB, where the same
+    worst case lands at 49.8%. ``test_an_at_cap_definition_still_renders_under_
     athenas_query_string_quota`` builds the property-shaped worst case, not the comment-shaped
     one. Rejected in inspect-source as a whole-request terminal, before the write and before
     any recipient runs, so nobody gets a definition that cannot be rendered.

@@ -32,9 +32,10 @@ function itemName(item: SendItem): string {
 /**
  * The note shown after committing a space name the user's own space list does not hold.
  *
- * It must NOT read as a rejection: any active space is a valid target whether or not the sender
- * belongs to it, and the suggestions cover only the sender's own spaces. That rule was established
- * this wording for the share dialog and it is the same claim here.
+ * It must NOT read as a rejection: a space the sender does not belong to is a valid target, and
+ * the suggestions cover only the sender's own spaces. Membership is the only thing waived — an
+ * emptied space keeps an active status and is still refused — so the note promises a check rather
+ * than making one. The share dialog established this wording and it is the same claim here.
  *
  * @param names - The committed names absent from the suggestions; never empty.
  * @returns The sentence to show.
