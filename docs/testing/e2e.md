@@ -290,7 +290,7 @@ curl -sSI "$APP_URL" | grep -io "connect-src[^;]*"
 | Download from the row and from **Details** | Read the bytes back in-page (instrument 4). |
 | Rename / move / copy / delete **one FILE** | Done in front of you, listing updated on the spot — the synchronous path, unchanged. |
 | Rename / move / copy / delete **a FOLDER, or more than one item** | Accepted immediately: a toast saying *requested*, never *moved*; a card in **File operations in progress**; the listing NOT yet changed. |
-| Open **Details** | Size, type, timestamps, metadata; sizes read consistently across every screen (one TB ceiling, so 3 TB never reads `3072.0 GB` on one screen and `3.0 TB` on another). |
+| Open **Details** | Size, type, timestamps, metadata — **and the storage class and ETag**, which are the two nobody remembers are here: an owed check sat for a month on "the UI cannot show a storage class", which has been false since this drawer shipped. Sizes read consistently across every screen (one TB ceiling, so 3 TB never reads `3072.0 GB` on one screen and `3.0 TB` on another); sizes read consistently across every screen (one TB ceiling, so 3 TB never reads `3072.0 GB` on one screen and `3.0 TB` on another). |
 
 **The managed folders, each by its own rule.** For every refusal below assert all five:
 `aria-disabled="true"`, `disabled === false`, `tabIndex 0`, the exact reason string, **zero**
