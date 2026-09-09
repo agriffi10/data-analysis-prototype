@@ -26,6 +26,7 @@ import os
 import pathlib
 import re
 import sys
+from typing import TypedDict
 
 import pytest
 
@@ -33,6 +34,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from apicommon import bounds, contract  # noqa: E402
 from apicommon.contract import TypeNode  # noqa: E402
+
+#: What the chain guard's own mutation fails with, held here so the two messages cannot converge.
+_CHAIN_MUTATION_MESSAGE = "resolves to no declared origin"
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 
@@ -83,6 +87,38 @@ def _declared_paths(route: contract.Route) -> list[tuple[str, str]]:
     return found
 
 
+UNBOUNDED_MESSAGE = "declare no byte bound"
+
+#: Every (route, path) a bound is declared for BY NAME. The resolution in ``bounds.bound_for``
+#: also walks outwards to a container, which is a true validation rule and a useless construction
+#: one — a leaf inheriting its list's budget builds a worst case forty kilobytes wide and satisfies
+#: every check that a field is not pinned small. The guard therefore asks for the exact path.
+_DECLARED = {(bound.route_id, bound.path) for bound in bounds.FIELD_BOUNDS}
+
+
+def _unbounded(routes) -> list[tuple[str, str, str]]:
+    """Every declared string or list path on those routes that no bound covers.
+
+    The one resolution both the fleet guard and its positive control run, so the control proves
+    the mechanism that the guard's absence assertion rests on rather than a parallel copy of it.
+
+    Args:
+      routes: The enqueue routes to walk.
+
+    Returns:
+      Route id, path and kind for each unbounded field.
+
+    Raises:
+      None.
+    """
+    return [
+        (route.id, path, kind)
+        for route in routes
+        for path, kind in _declared_paths(route)
+        if (route.id, path) not in _DECLARED
+    ]
+
+
 def test_every_declared_string_or_list_field_carries_a_bound():
     """The whole rule, over a population the contract decides rather than this file.
 
@@ -90,16 +126,59 @@ def test_every_declared_string_or_list_field_carries_a_bound():
     satisfied by a substitution — but the resolution is, for every one of them, naming the route
     and the path that has nothing covering it.
     """
-    unbounded = [
-        (route.id, path, kind)
-        for route in contract.ENQUEUE_ROUTES
-        for path, kind in _declared_paths(route)
-        if bounds.bound_for(route.id, path) is None
-    ]
+    unbounded = _unbounded(contract.ENQUEUE_ROUTES)
 
     assert not unbounded, (
-        "these caller-controlled fields declare no byte bound, so the chain they travel cannot "
+        f"these caller-controlled fields {UNBOUNDED_MESSAGE}, so the chain they travel cannot "
         f"be measured: {unbounded}"
+    )
+
+
+def test_the_rule_REPORTS_an_unbounded_field_when_there_is_one():
+    """The positive control the guard above cannot supply for itself.
+
+    An absence assertion over an empty collector passes for the wrong reason, and this file's whole
+    claim is that a field added later with no bound fails here. So a route is planted whose request
+    type declares a string nothing covers, and the resolution is required to name it — the same
+    ``_unbounded`` the guard runs, not a re-implementation, or the control would prove a mechanism
+    the guard does not use.
+
+    The message is asserted because the sibling mutation in ``test_request_size_chain.py`` plants
+    the OTHER direction — an unresolvable ``RecordFailure`` key — and the two are required to fail
+    differently, so one plant cannot be read as satisfying both.
+    """
+    class UnboundedRequest(TypedDict):
+        """A request type carrying a field no bound covers.
+
+        Attributes:
+          souvenir: The planted field. Declared here rather than added to the real contract, so the
+            plant cannot escape into the shipped wire types.
+        """
+
+        souvenir: str
+
+    planted = contract.EnqueueRoute(
+        id="planted.enqueue",
+        method="POST",
+        path="/v1/planted",
+        idempotent=False,
+        plane="api",
+        request=UnboundedRequest,
+        query=None,
+        response=contract.EnqueueAccepted,
+        queue="shared-space",
+        stamped=frozenset({"traceparent"}),
+    )
+
+    reported = _unbounded([planted])
+
+    assert reported == [("planted.enqueue", "souvenir", "str")], (
+        "the planted unbounded field was not reported, so the fleet guard's clean result says "
+        f"nothing: {reported}"
+    )
+    assert UNBOUNDED_MESSAGE not in _CHAIN_MUTATION_MESSAGE, (
+        "this guard and the chain guard's RecordFailure mutation fail with overlapping messages, "
+        "so one plant could be read as satisfying both"
     )
 
 

@@ -23,10 +23,14 @@ downstream check would accept is refused here; where it would multiply the fleet
 control characters serializes six-fold — the bound is set at the plain form and a pathological
 value is refused earlier, which is the rule the plane caps already use.
 
-**A bound on a container bounds everything inside it.** ``source.items`` carries a byte bound, so
-``source.items[].key`` needs no declaration of its own: it cannot exceed the list that holds it.
-That is what collapses the sixty-eight declared string and list paths to the entries below, and
-``bound_for`` is where the ancestor rule lives.
+**Every declared path carries its OWN bound, and a container carries one too.** ``source.items``
+has a byte bound and so does ``source.items[].key``, because the two answer different questions:
+one is how much selection may travel, the other is how long a single key may be. An earlier draft
+let a leaf inherit its container's number, which is TRUE as a validation rule — a key cannot exceed
+the list holding it — and useless as a construction rule: the worst case built from it was a single
+partition key of forty kilobytes, and the guard meant to catch a field pinned small was satisfied
+by one pinned absurdly large. ``bound_for`` still resolves outwards, so an inherited bound is a
+backstop; the guard requires the exact path.
 
 Attributes:
   MAX_REQUEST_ID_BYTES: What a caller's own request id may serialize to. Its budget is
@@ -46,6 +50,13 @@ Attributes:
     ``tbcommon.config.REFRESH_MAX_DEFINITION_BYTES``, the plane's own budget for a table definition
     on the state, because the declared keys become part of that definition. Mirrored rather than
     imported for the reason ``Bound.owner`` gives, and a guard holds the two equal.
+  MAX_PARTITION_VALUE_BYTES: What one projected partition value may serialize to. A value becomes
+    a segment of the table's own S3 path, so S3's key-segment budget is what sizes it.
+  MAX_PARTITION_VALUES_BYTES: What one key's enumerated values may serialize to together. A
+    quarter of the definition budget, so a table may declare a projected enum alongside three more
+    keys and still fit the definition the plane carries onto the state. The whole ``partitionKeys``
+    list is the bound that actually binds; this one keeps a single key from being pathological on
+    its own.
   MAX_MEMBERS_PER_REQUEST: How many members one shared-space request may name. Measured against
     the add-members verb's own timeout, which is the budget: the verb does a Cognito slot
     assignment, a roster write and a notification per member, serially, so a request naming more
@@ -111,6 +122,8 @@ MAX_BUCKET_NAME_BYTES: Final[int] = _plain(63)
 MAX_TIMESTAMP_BYTES: Final[int] = _escaped(32)
 MAX_MEMBERS_PER_REQUEST: Final[int] = 100
 MAX_PARTITION_KEYS_BYTES: Final[int] = 40 * 1024
+MAX_PARTITION_VALUE_BYTES: Final[int] = _plain(255)
+MAX_PARTITION_VALUES_BYTES: Final[int] = MAX_PARTITION_KEYS_BYTES // 4
 
 
 def _list_of_identifiers(count: int) -> int:
@@ -176,6 +189,10 @@ FIELD_BOUNDS: Final[tuple[Bound, ...]] = (
         "the add-members verb's own timeout: a Cognito slot assignment, a roster write and a notification per member",
     ),
     Bound(
+        "sharedSpace.enqueue", "payload.members[]", MAX_IDENTIFIER_BYTES, "api",
+        "the catalog identifier rule every username answers to",
+    ),
+    Bound(
         "sharedSpace.enqueue", "payload.newOwner", MAX_IDENTIFIER_BYTES, "api",
         "the catalog identifier rule every username answers to",
     ),
@@ -211,6 +228,34 @@ FIELD_BOUNDS: Final[tuple[Bound, ...]] = (
             Bound(
                 route_id, "partitionKeys", MAX_PARTITION_KEYS_BYTES, "api",
                 "the plane's own budget for a table definition on the state, which the declared keys become part of",
+            ),
+            Bound(
+                route_id, "partitionKeys[].name", MAX_IDENTIFIER_BYTES, "api",
+                "the catalog identifier rule the plane checks every key name against",
+            ),
+            Bound(
+                route_id, "partitionKeys[].range", 2 + 2 * (MAX_IDENTIFIER_BYTES + 1), "api",
+                "the two projection bounds a range declares, each a number or a date in the declared format",
+            ),
+            Bound(
+                route_id, "partitionKeys[].range[]", MAX_IDENTIFIER_BYTES, "api",
+                "one projection bound, a number or a date in the declared format",
+            ),
+            Bound(
+                route_id, "partitionKeys[].format", MAX_IDENTIFIER_BYTES, "api",
+                "a date format string, which is shorter than the names it formats values for",
+            ),
+            Bound(
+                route_id, "partitionKeys[].values", MAX_PARTITION_VALUES_BYTES, "api",
+                "a quarter of the plane's definition budget, so several projected keys still fit one definition",
+            ),
+            Bound(
+                route_id, "partitionKeys[].values[]", MAX_PARTITION_VALUE_BYTES, "api",
+                "S3's key-segment budget, which a projected partition value becomes",
+            ),
+            Bound(
+                route_id, "partitionKeys[].intervalUnit", MAX_IDENTIFIER_BYTES, "api",
+                "a projection interval unit, one word from Athena's own closed set",
             ),
         )
     ),
@@ -266,6 +311,10 @@ FIELD_BOUNDS: Final[tuple[Bound, ...]] = (
         "fscommon.config.SEND_MAX_ITEM_BYTES",
     ),
     Bound(
+        "fileSend.enqueue", "source.items[].key", MAX_S3_KEY_BYTES, "api",
+        "S3's own maximum key length, which every selected item names",
+    ),
+    Bound(
         "fileSend.enqueue", "recipients", None, "verb",
         "the plane's own recipient count cap, whose per-recipient name this service bounds",
         "fscommon.config.SEND_MAX_RECIPIENTS",
@@ -286,6 +335,10 @@ FIELD_BOUNDS: Final[tuple[Bound, ...]] = (
         "archive.archive", "source.items", None, "verb",
         "the plane's own serialized selection cap, applied where the selection is normalised",
         "arcommon.config.ARCHIVE_MAX_ITEM_BYTES",
+    ),
+    Bound(
+        "archive.archive", "source.items[].key", MAX_S3_KEY_BYTES, "api",
+        "S3's own maximum key length, which every selected item names",
     ),
     Bound(
         "archive.restore", "requestId", MAX_REQUEST_ID_BYTES, "api",
@@ -311,6 +364,15 @@ FIELD_BOUNDS: Final[tuple[Bound, ...]] = (
         "fileOps.enqueue", "source.items", None, "verb",
         "the plane's own serialized selection cap, applied where the selection is normalised",
         "focommon.config.FILE_OPS_MAX_SELECTION_BYTES",
+    ),
+    Bound(
+        "fileOps.enqueue", "source.items[].key", MAX_S3_KEY_BYTES, "api",
+        "S3's own maximum key length, which every selected item names",
+    ),
+    Bound(
+        "fileOps.enqueue", "source.items[].targetName", None, "verb",
+        "the plane's own cap on a per-item destination name, which is S3's key-segment budget",
+        "focommon.config.MAX_TARGET_NAME",
     ),
     Bound(
         "fileOps.enqueue", "destination.space.name", MAX_IDENTIFIER_BYTES, "api",
