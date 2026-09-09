@@ -30,10 +30,11 @@ const KIND_LABEL: Record<ShareRecipient['kind'], string> = {user: 'user', space:
 /**
  * The note shown after committing a space name the user's own space list does not hold.
  *
- * It must NOT read as a rejection: any active space is a valid recipient whether or not the
- * sender belongs to it (`test_recipient_space_membership_not_required`), and the suggestions
- * cover only the sender's own spaces. This note is the one place a user could be misled into
- * thinking the name was wrong.
+ * It must NOT read as a rejection: a space the sender does not belong to is a valid recipient
+ * (`test_recipient_space_membership_not_required`), and the suggestions cover only the sender's
+ * own spaces. This note is the one place a user could be misled into thinking the name was
+ * wrong. Whether the space exists and can still receive is settled server-side, which is why
+ * the note promises a check rather than making one.
  *
  * @param names - The committed names absent from the suggestions; never empty.
  *
@@ -196,8 +197,8 @@ export function TableShareDialog({source, busy = false, submitError, onSubmit, o
               The current user is deliberately NOT excluded from the user kind: sharing a table
               into your own database is something the pipeline allows, and the field must not
               invent a restriction the control plane does not have. The space kind's suggestions
-              are the user's OWN spaces, and any active space is a valid recipient — hence the
-              softer unlisted-name wording.
+              are the user's OWN spaces, while a space the sender does not belong to is still a
+              valid recipient — hence the softer unlisted-name wording.
 
               `key={kind}` REMOUNTS on a toggle, so a note or error raised under one kind cannot
               linger over the other. The two branches used to be different components, which gave

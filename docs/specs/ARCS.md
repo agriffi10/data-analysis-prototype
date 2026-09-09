@@ -777,13 +777,14 @@ Filed 2026-08-03 (user request). **Every flow that asks a user to name another u
 is a textarea, `TableShareDialog` is an input with chips; both run `parseMemberInput`, which silently drops anything failing
 the catalog-safe pattern, and neither checks that a name belongs to anyone — the browser has never had a way to know.
 
-**What happens next is better than this repo's own comments claim, and the arc was nearly specced on the wrong premise.**
-`add_members.py` catches `UserNotFoundException` and queues a notification to the space **owner** naming the user it could
-not add (pinned by `test_add_unknown_notifies_owner`); table-share reports unresolved recipients too, and
-`TableShareDialog`'s inline help already says so. Meanwhile **`add_members.py`'s module docstring and
-`parseMemberInput`'s docstring both still say unknown users are "silently ignored"** — stale since the notification landed,
-and exactly the kind of wrong comment about error handling that a later design gets built on. Correcting both is in
-SPEC-146's scope. The real cost is therefore not silence but **latency and asymmetry**: the report arrives minutes later,
+**What happens next was better than this repo's own comments claimed at the time, and the arc was nearly specced on that
+wrong premise.** `add_members.py` catches `UserNotFoundException` and queues a notification to the space **owner** naming
+the user it could not add (pinned by `test_an_operator_add_of_an_unknown_user_still_names_them_TO_THE_OWNER`); table-share
+reports unresolved recipients too, and `TableShareDialog`'s inline help already says so. **`add_members.py`'s module
+docstring and `parseMemberInput`'s docstring both said unknown users were "silently ignored"** long after the notification
+landed — exactly the kind of wrong comment about error handling that a later design gets built on. Both now say the
+opposite in as many words: the browser's came right with SPEC-146, the Lambda's in the docstring sweep that followed it.
+The real cost is therefore not silence but **latency and asymmetry**: the report arrives minutes later,
 only the owner sees it, the person you were adding still is not in the space, and every typo costs a full round trip
 through an async control plane to learn something the browser could have flagged as you typed. The arc replaces
 remembering with picking.
@@ -900,9 +901,10 @@ a roster CAS that overwrites the field it protects, and DDL literals bypassing t
 module. **152** is split out from 151 *because it provisions infrastructure* — new ASL states and a verb
 per plane so that a failure occurring before any verb runs still notifies the user; CLAUDE.md's infra rule
 and the deploy-role IAM expansion apply in full. **153** is test and gate integrity — the guards that pass
-by coincidence, chief among them that `test_deploy_matrix.py`, written *because* SPEC-137's gates were all
-blind, never checks the layer job's copy list against the layer directory, which is SPEC-137's actual
-shape. **154** is frontend journey coverage: the suite's real gap is not weak assertions but untested
+by coincidence, chief among them that `test_deploy_matrix.py` — since retired with the layers it
+guarded — was written *because* SPEC-137's gates were all blind and still never checked the layer
+job's copy list against the layer directory, which is SPEC-137's actual shape.
+**154** is frontend journey coverage: the suite's real gap is not weak assertions but untested
 *wires* — a hook tested with `renderHook`, a component tested with a stub callback, and nothing between.
 **155** and **156** are the reuse work, browser and Lambda respectively, deliberately last so no refactor
 rides along with a behaviour change.
@@ -970,10 +972,10 @@ to revisit it.
 is worth keeping.** Sharing to a space does **not** require membership
 (`test_recipient_space_membership_not_required`), so a full list would be strictly more useful than
 "spaces you belong to" — and that is exactly what makes it a disclosure: it would publish every
-space name in the organisation to every authenticated user, with no existing equivalent. A username
+space name in the organisation to every authenticated user, free and in bulk. A username
 is already the S3 prefix, the principal tag, the Glue database name and a roster entry; a space name
-is discoverable today only by colliding with it at create time, and space names are user-chosen and
-often descriptive. So 158 suggests only what the user can already see, and any other space stays
+is otherwise learned one at a time, by colliding at create time or by reading a share's refusal, and
+space names are user-chosen and often descriptive. So 158 suggests only what the user can already see, and any other space stays
 typeable. **Do not add the directory "for symmetry with SPEC-146."**
 
 ## Table-share-at-scale arc (SPEC-160 → 161)
@@ -2696,11 +2698,12 @@ to settle, and fails loudly on a shortfall.
 
 **214's risk was the mirror image: a deletion, where the danger is a guard nobody misses.**
 Its surface grew slightly when 213 removed `point-lambda.sh`'s zip branch: `deploy-lambda.sh` was
-left called by nothing, while `lambdas/test_deploy_packaging.py` still extracted and RAN its copy
-block — a suite pinning unreachable shell, green forever. Both were named in 214's In Scope and
-both are deleted.
-`lambdas/test_deploy_matrix.py` **was** the only thing standing between a missing layer and that
-cold start — before 213, when layers still attached. Deleting it removes real protection unless something already replaced it, and a review will
+left called by nothing, while `lambdas/test_deploy_packaging.py` — retired here — still extracted
+and RAN its copy block, a suite pinning unreachable shell, green forever. Both were named in 214's
+In Scope and both are gone.
+`lambdas/test_deploy_matrix.py`, retired in the same pass, **was** the only thing standing between a
+missing layer and that cold start — before 213, when layers still attached. Retiring it removes real
+protection unless something already replaced it, and a review will
 not catch that — a reviewer reads what is there, and a deletion leaves nothing to read. So 214 does
 not begin with a deletion. It began with a sweep that enumerated every function, every assertion
 the matrix makes, and what now covers each one, printed before anything was removed. Three counts —

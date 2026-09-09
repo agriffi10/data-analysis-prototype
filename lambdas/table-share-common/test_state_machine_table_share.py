@@ -123,6 +123,140 @@ def _timeout_seconds():
     return int(match.group(1))
 
 
+def _verb_sizing():
+    """The timeout and memory locals.tf deploys for each table-share verb.
+
+    Read from the Terraform rather than restated here, for the reason the cap constants are:
+    a sizing decision asserted against a copy of itself agrees with nothing.
+
+    Args:
+      None.
+
+    Returns:
+      A dict of verb name to its ``(timeout seconds, memory MB)`` pair.
+
+    Raises:
+      AssertionError: If no verb entries are found, which would make every bound below
+        vacuously true over an empty population.
+    """
+    with open(_LOCALS) as handle:
+        entries = re.findall(
+            r'"([a-z-]+)"\s*=\s*\{[^}]*timeout\s*=\s*(\d+),\s*memory\s*=\s*(\d+)\s*\}',
+            handle.read(),
+        )
+    assert len(entries) >= 8, f"read {len(entries)} verb entries from locals.tf, expected the plane's"
+    return {name: (int(timeout), int(memory)) for name, timeout, memory in entries}
+
+
+def _worst_item():
+    """The largest transfer item the manifest can carry, SHAPED BY THE BUILDER ITSELF.
+
+    Built by handing worst-case inputs to ``build-transfer-manifest``'s own ``_items`` rather
+    than by writing the seven fields out here. A hand-kept second copy of a production shape is
+    the thing this whole commit exists to remove: it agrees with the original on the day it is
+    written and silently stops agreeing when a field is added, and the bound computed from it
+    then understates the manifest with every test still green.
+
+    Worst case is S3's own: 1024-byte keys on both sides and 63-byte bucket names, which is the
+    same worst case the batch sizing is computed against in
+    ``test_a_worst_case_batch_stays_under_the_input_limit``.
+
+    Args:
+      None.
+
+    Returns:
+      One transfer item dict, as the builder would write it.
+
+    Raises:
+      AssertionError: If the builder returns anything but the single expected item.
+    """
+    sys.path.insert(
+        0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "table-share-build-transfer-manifest")
+    )
+    import table_share_build_transfer_manifest as builder
+
+    relative_key = "o" * 512
+    items = builder._items(
+        [{"name": "r" * 63, "kind": "space", "destBucket": "d" * 63, "destPrefix": "p" * (1024 - len(relative_key))}],
+        {"bucket": "b" * 63, "prefix": "s" * (1024 - len(relative_key))},
+        [{"relKey": relative_key, "size": 5 * 1024**3}],
+    )
+    assert len(items) == 1, f"the builder returned {len(items)} items for one pair"
+    assert len(items[0]["srcKey"]) == 1024 and len(items[0]["destKey"]) == 1024, (
+        "the fixture no longer builds S3's worst-case keys, so the manifest bound is understated"
+    )
+    return items[0]
+
+
+#: Peak resident bytes per byte of manifest, measured against the production paths under
+#: CPython. **The WRITE side is the larger one**, which is the opposite of the first guess:
+#: ``write_manifest`` holds the item list, the joined string and the encoded body at once and
+#: reached 3.5x to 4.8x depending on how the peak is sampled. ``read_failed_items`` opens ONE
+#: result file at a time and accumulates only bounded ``{recipient, kind, reason}`` records, so
+#: it holds the whole volume only in the degenerate single-result-file export, and measured
+#: 2.6x to 3.4x even there. Six sits above every observation rather than on the highest.
+_PEAK_RESIDENT_MULTIPLE = 6
+
+#: How far the deployed memory must sit above that peak. The measurement above is CPython on a
+#: developer machine with no boto3 client, no Lambda runtime and no allocator fragmentation, so
+#: it is a floor rather than an estimate; and a Lambda that runs out of memory is killed with no
+#: partial result and no reason an operator can read, while memory on this path is cheap. Four
+#: is a judgment, stated here rather than folded into the multiple above so the two can be
+#: argued separately.
+_MEMORY_SAFETY_FACTOR = 4
+
+
+def test_the_manifest_verbs_are_sized_for_the_transfer_item_cap():
+    """``SHARE_MAX_TRANSFER_ITEMS`` is a bound on two Lambdas, so it is computed against them.
+
+    The cap is not about the fan-out — the Map is happy at a hundred million items. It is about
+    the two verbs that handle the whole manifest in one invocation, in opposite directions:
+    ``build-transfer-manifest`` serialises every item into one body — it is the verb that holds
+    the whole volume, and the one this bound is really sized for. ``collect-transfer-results``
+    reads the Map Run export, which carries every batch's input back again; it streams that a
+    result file at a time, so it reaches the same peak only when the export lands as one file.
+    Both are held to the same floor because both are deployed from one sizing decision.
+
+    Computed from the cap and the worst-case item rather than asserted as 46 MB, so the model is
+    visible and a raise has somewhere to fail. What it does NOT claim is that the timeouts are
+    derived: measured, serialising and parsing a worst-case manifest costs about a fifth of a
+    second, so the 300 s is I/O headroom rather than a computed bound, and only its containment
+    in the machine's own ceiling is asserted here.
+
+    The floor this leaves is deliberate and worth knowing, because a bound whose bite is
+    unmeasured is the kind that turns out to have had none. Measured against the shipped
+    numbers it refuses 1024 MB and the fleet default of 512 MB, which is the direction a
+    tidy-up moves a verb. In the other direction it is a floor rather than a tripwire: the
+    first item count it refuses is 38,207, so the cap can be raised by 91% without touching
+    either verb, and the plane doc says so rather than promising a build failure it cannot
+    deliver.
+    """
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from tscommon import config as ts_config
+
+    item_bytes = len(json.dumps(_worst_item(), separators=(",", ":")).encode())
+    volume = ts_config.SHARE_MAX_TRANSFER_ITEMS * item_bytes
+    required_mb = (volume * _PEAK_RESIDENT_MULTIPLE * _MEMORY_SAFETY_FACTOR) / 1024**2
+
+    sizing = _verb_sizing()
+    for verb in ("build-transfer-manifest", "collect-transfer-results"):
+        memory = sizing[verb][1]
+        assert memory >= required_mb, (
+            f"{verb} deploys {memory} MB, under the {required_mb:.0f} MB a worst-case "
+            f"{volume / 1024**2:.0f} MB manifest needs at SHARE_MAX_TRANSFER_ITEMS="
+            f"{ts_config.SHARE_MAX_TRANSFER_ITEMS} — raise the verb or lower the cap"
+        )
+
+    # What this catches is the machine's ceiling being LOWERED beneath the work, not the verbs
+    # growing into it: Lambda's own 900 s limit caps the sum well under the current 10800 s, so
+    # no edit to the verb table alone can trip it. Stated rather than dressed as a fence.
+    serial = sum(sizing[verb][0] for verb in sizing if verb != "copy-objects")
+    assert serial < _timeout_seconds(), (
+        f"the serial verbs alone want {serial} s of the machine's {_timeout_seconds()} s, so the "
+        "run can die at the top level, where no Catch reaches the sender"
+    )
+
+
 def test_the_timeout_is_a_top_level_field_of_the_definition():
     """SPEC-161 FR-003 AC1, and the distinction is the whole criterion.
 

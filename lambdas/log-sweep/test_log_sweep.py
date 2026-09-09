@@ -111,11 +111,12 @@ class FifoSQS:
     have blocked.
     """
 
-    def __init__(self, per_group):
+    def __init__(self, per_group, reject_deletes=False):
         self.pending = {g: list(ms) for g, ms in per_group.items()}
         self.inflight = {}
         self.deleted = []
         self.receives = 0
+        self.reject_deletes = reject_deletes
 
     def receive_message(self, **kwargs):
         assert kwargs["WaitTimeSeconds"] == 0, (
@@ -139,6 +140,10 @@ class FifoSQS:
         return {"Messages": taken} if taken else {}
 
     def delete_message_batch(self, QueueUrl, Entries):
+        if self.reject_deletes:
+            # SQS reports a rejected delete as HTTP 200 with a Failed array, and the message
+            # stays in flight — so the group it belongs to keeps yielding nothing.
+            return {"Failed": [{"Id": entry["Id"]} for entry in Entries]}
         for entry in Entries:
             handle = entry["ReceiptHandle"]
             self.inflight.pop(handle, None)
@@ -355,3 +360,79 @@ def test_the_wave_cap_bounds_a_sweep_and_says_so(monkeypatch, captured):
     assert stopped[0]["fields"]["reason"] == log_sweep.STOP_WAVE_CAP
 
 
+
+
+def test_a_backlog_across_groups_drains_in_one_sweep(monkeypatch, captured):
+    """A backlog spread over several message groups leaves in ONE invocation, not one wave.
+
+    The shape the wave loop exists for. A wave takes at most ten messages per unblocked group
+    and then holds them, so on a FIFO queue every group it touched stops yielding until the
+    delete lands — three groups give a wave thirty messages and an empty round, which the
+    single-wave sweep read as a drained queue.
+
+    Twenty-five per group over three groups is deliberately not a multiple of that wave: the
+    final wave is partial, so a sweep that stopped on a short wave rather than an empty queue
+    is visible here too. Against the single-wave shape this takes 30 of 75.
+    """
+    per_group = {
+        service: [_message(_event(service=service), f"{service}-{n}") for n in range(25)]
+        for service in ("data-quality", "table-share", "archive")
+    }
+    sqs, s3 = FifoSQS(per_group), FakeS3()
+    monkeypatch.setattr(log_sweep.clients, "sqs", lambda: sqs)
+    monkeypatch.setattr(log_sweep.clients, "s3", lambda: s3)
+
+    result = log_sweep.handler({}, None)
+
+    assert result["swept"] == 75, "the sweep left part of the backlog on the queue"
+    assert result["written"] == 75 and len(sqs.deleted) == 75
+    assert result["waves"] == 3, "thirty messages a wave, so 75 needs three of them"
+    assert not any(queued for queued in sqs.pending.values()) and not sqs.inflight
+    assert not _by_message(captured, "stopped with the queue possibly still yielding")
+
+
+def test_a_rejected_delete_stops_the_sweep_on_its_own_reason(monkeypatch, captured):
+    """``group-blocked`` is reported, and it is not the wave cap or the time reserve.
+
+    A rejected delete leaves the message in flight, so its group keeps yielding nothing and the
+    very next receive comes back empty with the queue nowhere near drained. That empty round is
+    indistinguishable from a drained queue at the receive, which is why the sweep has to reach
+    for what it knows about its own deletes to name it.
+
+    The reason is asserted rather than the warning alone: all three stop reasons travel on the
+    same event, and the operator response to each is a different one.
+    """
+    per_group = {"data-quality": [_message(_event(), f"m-{n}") for n in range(30)]}
+    sqs, s3 = FifoSQS(per_group, reject_deletes=True), FakeS3()
+    monkeypatch.setattr(log_sweep.clients, "sqs", lambda: sqs)
+    monkeypatch.setattr(log_sweep.clients, "s3", lambda: s3)
+
+    result = log_sweep.handler({}, None)
+
+    assert result["swept"] == 10 and result["waves"] == 1
+    stopped = _by_message(captured, "stopped with the queue possibly still yielding")
+    assert stopped and stopped[0]["fields"]["reason"] == log_sweep.STOP_GROUP_BLOCKED
+
+
+def test_a_sweep_running_out_of_time_stops_on_the_reserve(monkeypatch, captured):
+    """The reserve is checked BETWEEN waves and never before the first one.
+
+    A wave's cost tracks the day object, which grows all day, so the wave cap bounds the count
+    and not the duration. Forcing the reserve to bite after one wave separates the two: the
+    sweep must still take that wave, then stop and say the reserve is why — a sweep that
+    reported the wave cap here would send an operator to raise a limit that was not reached.
+    """
+    per_group = {"data-quality": [_message(_event(), f"m-{n}") for n in range(30)]}
+    sqs, s3 = FifoSQS(per_group), FakeS3()
+    monkeypatch.setattr(log_sweep.clients, "sqs", lambda: sqs)
+    monkeypatch.setattr(log_sweep.clients, "s3", lambda: s3)
+
+    class _Context:
+        def get_remaining_time_in_millis(self):
+            return log_sweep.SWEEP_RESERVE_MS - 1
+
+    result = log_sweep.handler({}, _Context())
+
+    assert result["swept"] == 10 and result["waves"] == 1, "the first wave runs unconditionally"
+    stopped = _by_message(captured, "stopped with the queue possibly still yielding")
+    assert stopped and stopped[0]["fields"]["reason"] == log_sweep.STOP_TIME_RESERVE

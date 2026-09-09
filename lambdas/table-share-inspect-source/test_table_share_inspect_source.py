@@ -6,6 +6,7 @@ ignore rules, and the caps. Runnable under pytest or directly:
 python3 test_table_share_inspect_source.py.
 """
 
+import json
 import os
 import sys
 
@@ -20,6 +21,8 @@ os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 import table_share_inspect_source as m
 from cpcommon import clients, config
 from cpcommon.errors import TerminalError
+from tscommon import config as ts_config
+from tscommon import ddl
 
 USER_BUCKET = config.USER_SPACE_BUCKET
 
@@ -218,6 +221,88 @@ def test_listing_applies_ignore_rules_and_relative_keys():
         {"relKey": "part-0.parquet", "size": 100},
         {"relKey": "year=2025/part-1.parquet", "size": 50},
     ]
+
+
+def _definition_at_cap():
+    """A cloned definition sized to exactly the cap, shaped for the WORST render ratio.
+
+    Property-shaped, not comment-shaped, and that choice is the fixture doing the work.
+    ``ddl._lit`` backslash-escapes, so an apostrophe costs one byte in the JSON the cap
+    measures and two in the rendered statement; what decides the ratio is the per-entry
+    overhead it is spread over. A column comment pays ~40 bytes of JSON per entry and renders
+    at about 1.7x, while a table property pays ~9 and renders at nearly the full 2x. Sizing
+    against the gentler shape would certify a bound the harsher one breaches.
+
+    The length is converged against the PRODUCTION serialisation rather than recomputed here:
+    the loop grows the property, clones through the handler, and reads the size back off what
+    inspect-source actually wrote. A fixture that measured itself would agree with nothing.
+
+    Args:
+      None.
+
+    Returns:
+      The ``(definition, value_length)`` pair sitting exactly at the cap.
+
+    Raises:
+      AssertionError: If the length does not converge.
+    """
+    length = ts_config.SHARE_MAX_DEFINITION_BYTES // 2
+
+    def _clone(size):
+        _setup(table=_table(parameters={"worst": "\'" * size}))
+        m.handler(_event(), None)
+        definition = _DEFINITIONS[-1]
+        return definition, len(json.dumps(definition, separators=(",", ":")).encode())
+
+    for _ in range(8):
+        definition, actual = _clone(length)
+        if actual == ts_config.SHARE_MAX_DEFINITION_BYTES:
+            return definition, length
+        length += ts_config.SHARE_MAX_DEFINITION_BYTES - actual
+    raise AssertionError("the at-cap definition did not converge")
+
+
+def test_an_at_cap_definition_still_renders_under_athenas_query_string_quota():
+    """The cap's real budget is Athena's query string, so the cap is computed against it.
+
+    ``SHARE_MAX_DEFINITION_BYTES`` stopped bounding the Step Functions state when the
+    definition became a pointer; what it bounds now is the one CREATE EXTERNAL TABLE the
+    definition is rendered into, and Athena refuses a query string over 262,144 bytes. A
+    definition is measured as JSON and spent as DDL, and the two are not the same size.
+
+    Three things are asserted and the first is what keeps the other two honest. The fixture is
+    proved to sit ON the boundary — accepted at the cap, refused one byte past it — because a
+    definition that had quietly drifted under the cap would render well inside the quota and
+    this test would pass while measuring nothing.
+
+    The headroom is asserted, not just the quota, and that is the difference between a guard
+    and a coin flip. Raise the cap to 128 KiB and this same fixture renders to 99.8% of the
+    quota, 460 bytes short of it — a number that fits rather than a bound that holds; at 64 KiB
+    it lands at 49.8%. The assertion is 60%
+    rather than the measured 49.8% deliberately, and the gap is what the guard tolerates: a
+    new field in the clone may move the ratio a little and should not redden this. Measured,
+    it still passes at 72 KiB and fails at 80 KiB, so the headroom costs a 12% cap raise and
+    buys a 25% one.
+    """
+    definition, length = _definition_at_cap()
+
+    _setup(table=_table(parameters={"worst": "\'" * (length + 1)}))
+    _expect_reason("source_definition_too_large")
+
+    rendered = ddl.render_create_external(
+        definition, "recipient_db", "orders_copy", f"s3://{USER_BUCKET}/bob/shared/orders_copy/"
+    )
+    spent = len(rendered.encode())
+
+    assert spent < _ATHENA_QUERY_STRING_QUOTA, (
+        f"an at-cap definition renders to {spent} bytes, over Athena's "
+        f"{_ATHENA_QUERY_STRING_QUOTA}-byte query string quota"
+    )
+    assert spent < _ATHENA_QUERY_STRING_QUOTA * 0.6, (
+        f"an at-cap definition renders to {100 * spent / _ATHENA_QUERY_STRING_QUOTA:.1f}% of "
+        "the quota; the cap is sized to land near half, and this margin is what makes it a "
+        "bound rather than a fit"
+    )
 
 
 if __name__ == "__main__":
