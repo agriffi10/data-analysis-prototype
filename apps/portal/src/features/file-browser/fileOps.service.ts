@@ -1,4 +1,5 @@
 import {apiRequest} from '../../lib/apiClient';
+import {wireBytes} from '../../lib/wireBytes';
 import {discardPayload} from '../../lib/serviceResult';
 import type {ServiceResult} from '../../types/service.types';
 import type {FileOpRequest} from './fileOps.types';
@@ -12,11 +13,17 @@ import type {FileOpRequest} from './fileOps.types';
  * minutes later rather than from a refusal now. Below the caps the verb is still the authority;
  * these exist so the common case fails fast and legibly.
  *
- * Both sides measure the SAME quantity — the UTF-8 bytes of the compact JSON selection — and that
- * had to be made true rather than assumed. Python escapes non-ASCII by default and JavaScript does
- * not, so a folder of accented filenames measured 26 KB here and 66 KB there, and the browser
- * accepted selections the plane then refused by notification. A test now compares the two
+ * Both sides measure the SAME quantity — the bytes of the compact JSON selection with non-ASCII
+ * ESCAPED — and that had to be made true rather than assumed. A test compares the two
  * MEASUREMENTS on the same input, not just the two constants.
+ *
+ * Escaped, because that is what travels. The two sides first disagreed the other way — Python
+ * escapes non-ASCII by default and `JSON.stringify` does not, so a folder of accented filenames
+ * measured 26 KB here and 66 KB there — and were reconciled on the LITERAL form, which agreed with
+ * each other and with nothing else: the API re-serialises the body with the default escaping one
+ * hop before the Pipe. An accented selection therefore passed both caps, reached the queue at three
+ * times its measured size, and produced a failure state over the 256 KB limit on a state with no
+ * catch, where the user hears nothing at all. An ASCII selection is unaffected.
  */
 const FILE_OPS_MAX_ITEMS = 200;
 const FILE_OPS_MAX_SELECTION_BYTES = 64 * 1024;
@@ -32,7 +39,7 @@ const FILE_OPS_MAX_SELECTION_BYTES = 64 * 1024;
  * silent no-op. The FIFO keys themselves are derived server-side now.
  */
 export async function submitFileOperation(request: FileOpRequest): Promise<ServiceResult<void>> {
-  const selectionBytes = new TextEncoder().encode(JSON.stringify(request.source.items)).length;
+  const selectionBytes = wireBytes(request.source.items);
   if (request.source.items.length > FILE_OPS_MAX_ITEMS || selectionBytes > FILE_OPS_MAX_SELECTION_BYTES) {
     return {
       success: false,

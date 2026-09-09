@@ -27,6 +27,12 @@ type ErrorRule = {
   code?: string;
   /** Or a matcher over the technical message (e.g. Athena "cannot be resolved"). */
   match?: (technicalMessage: string) => boolean;
+  /**
+   * A sentence built from the typed values the API sent, used in place of `message` when they
+   * are present. The API answers a field over its bound with the bound itself, and a static
+   * sentence throws that away — which leaves the user guessing at a number the server knows.
+   */
+  withParams?: (params: {limit?: number}) => string;
   title?: string;
   /** Authored friendly text. Omitted only for `passthrough` rules. */
   message?: string;
@@ -327,12 +333,20 @@ const CODE_RULES: readonly ErrorRule[] = [
   // API's, and it can name nothing, so the wording must stand without specifics.
   {code: 'Conflict', message: 'That changed while you were working. Refresh and try again.', userFixable: true},
 
-  // Trigger: the request body exceeded the gateway's limit. Distinct from `TooLarge` above,
-  // which is our upload path naming the file and the limit; this is the transport's, and it
-  // carries neither.
+  // Trigger: the request body, or one field in it, exceeded what the API accepts. Distinct from
+  // `TooLarge` above, which is our upload path naming the file and the limit. This one used to
+  // carry neither and said "try again with less selected" — false for the case that is now the
+  // common one, a single field over its own bound, where nothing is selected at all. The API
+  // sends the bound it enforced, so the sentence names it when it is there.
   {
     code: 'PayloadTooLarge',
-    message: 'That request was too large. Try again with less selected.',
+    message: 'That request was too large. Try again with less in it.',
+    // Unit-neutral on purpose: the API's bounds are counted in three different units — serialized
+    // bytes, a string's own bytes, and for a roster or a recipient list a plain count — and the
+    // wire carries the number without which of them it is. "Over its limit of 44" is true of all
+    // three; "44-byte limit" would be false for the one that means people.
+    withParams: ({limit}) =>
+      `That request was too large — one field is over its limit of ${limit?.toLocaleString()}. Make it smaller and try again.`,
     userFixable: true
   },
   {code: 'UnsupportedMediaType', message: `Something went wrong. ${CONTACT_ADMIN}`, userFixable: false},
@@ -463,10 +477,15 @@ const MATCH_RULES: readonly ErrorRule[] = [
 ];
 
 /** Pull `{name, message, code}` out of a thrown value or a `ServiceResult` error. */
-function normalize(error: MappableError): {name?: string; message?: string; code?: string} {
+function normalize(error: MappableError): {
+  name?: string;
+  message?: string;
+  code?: string;
+  params?: {limit?: number};
+} {
   if (error && typeof error === 'object') {
-    const e = error as {name?: string; message?: string; code?: string};
-    return {name: e.name, message: e.message, code: e.code};
+    const e = error as {name?: string; message?: string; code?: string; params?: {limit?: number}};
+    return {name: e.name, message: e.message, code: e.code, params: e.params};
   }
   return {message: typeof error === 'string' ? error : undefined};
 }
@@ -497,13 +516,13 @@ function logOriginal(code: string | undefined, original: {name?: string; message
  * authored as user-safe. Logs the original to the console in dev only.
  */
 export function toUserMessage(error: MappableError): UserFacingMessage {
-  const {name, message, code} = normalize(error);
+  const {name, message, code, params} = normalize(error);
   const key = code ?? name;
   logOriginal(key, {name, message});
 
   if (key) {
     const rule = CODE_INDEX.get(key);
-    if (rule) return fromRule(rule, message);
+    if (rule) return fromRule(rule, message, params);
   }
 
   if (message) {
@@ -551,11 +570,16 @@ export function logBackgroundFailure(scope: string, error: unknown): void {
   if (import.meta.env.DEV) console.warn(`[${scope}] background operation failed:`, error);
 }
 
-function fromRule(rule: ErrorRule, serviceMessage: string | undefined): UserFacingMessage {
+function fromRule(rule: ErrorRule, serviceMessage: string | undefined, params?: {limit?: number}): UserFacingMessage {
   // Passthrough: the service authored user-safe text (possibly parameterized).
   // Guard against an empty/absent message so we still never surface nothing.
   if (rule.passthrough) {
     return {title: rule.title, message: serviceMessage?.trim() || GENERIC.message};
+  }
+  // The typed values the API sent, where the rule knows what to do with them. Never the API's own
+  // prose — that stays operator text nobody renders.
+  if (rule.withParams && params?.limit !== undefined) {
+    return {title: rule.title, message: rule.withParams(params)};
   }
   return {title: rule.title, message: rule.message ?? GENERIC.message};
 }

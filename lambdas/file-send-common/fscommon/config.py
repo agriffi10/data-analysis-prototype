@@ -50,9 +50,18 @@ Attributes:
     execution input; Step Functions caps that input at 256 KB exactly as it caps a state. The
     escaping is not a rounding error — every ``"`` the selection already spent two bytes on
     costs four in the record — so a quote-heavy selection reaches the record at **twice** its
-    measured size. At 96 KiB the worst case is a ~200 KB record and a ~204 KB failure state,
-    both clear of the limit, and the success state is ~104 KB, leaving room for the fields
-    the expansion adds when it resolves this same state.
+    measured size.
+
+    **It came down from 96 KiB, and what moved was the fourth link's model rather than the
+    request.** A failure state is that record PLUS an error whose ``Cause`` the service permits
+    32,768 CHARACTERS of — a length on an execution-history event, not a byte quota on a state —
+    so a Cause sitting inside a JSON string on the state costs twice that. The old model allowed
+    it 4 KB. Reserved honestly, a quote-heavy selection at the old cap breached the 256 KiB limit
+    on a ``Pass`` with no ``Catch``. **The number is not written here** — a byte figure in a
+    docstring has nothing holding it to the model it came from, and the first one written here was
+    stale within the same branch. ``lambdas/test_request_size_chain.py`` computes every link for
+    every piped route against one constant and pins the overshoot; the message cap this sits under
+    is derived in ``lambdas/api/apicommon/enqueue.py``.
 
     An earlier value of 192 KiB was measured against the validated output ALONE and would have
     permitted a request whose execution could not start. ``test_config_fscommon`` now computes
@@ -187,7 +196,7 @@ SEND_MAX_RECIPIENTS = 50
 
 SEND_MAX_ITEMS = 200
 
-SEND_MAX_ITEM_BYTES = 96 * 1024
+SEND_MAX_ITEM_BYTES = 84 * 1024
 
 SEND_MAX_OBJECTS = 20_000
 

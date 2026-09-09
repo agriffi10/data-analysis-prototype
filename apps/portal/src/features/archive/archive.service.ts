@@ -1,3 +1,4 @@
+import {wireBytes} from '../../lib/wireBytes';
 import {apiRequest} from '../../lib/apiClient';
 import {discardPayload} from '../../lib/serviceResult';
 import type {ServiceResult} from '../../types/service.types';
@@ -16,11 +17,11 @@ import type {ArchiveRequest, RestoreRequest} from '../../types/archive.types';
  * nobody checks is worse than no guard at all — the wrong number reads as deliberate.
  */
 const ARCHIVE_MAX_ITEMS = 200;
-const ARCHIVE_MAX_ITEM_BYTES = 96 * 1024;
+const ARCHIVE_MAX_ITEM_BYTES = 89 * 1024;
 
 /** Both modes' shared shape guard: the selection cap the control plane enforces again. */
 function selectionTooLarge(items: ArchiveRequest['items']): boolean {
-  const bytes = new TextEncoder().encode(JSON.stringify(items)).length;
+  const bytes = wireBytes(items);
   return items.length > ARCHIVE_MAX_ITEMS || bytes > ARCHIVE_MAX_ITEM_BYTES;
 }
 

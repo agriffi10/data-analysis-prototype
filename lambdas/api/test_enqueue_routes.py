@@ -15,10 +15,11 @@ from types import SimpleNamespace
 import handler as api_handler
 import pytest
 import router
-from apicommon import contract
+from apicommon import bounds, contract
 from apicommon import enqueue as enqueue_module
 from apicommon.envelope import ApiError
 from conftest import bearer
+from cpcommon import config as cp_config
 from cpcommon import observability
 from cpcommon.auth import Principal
 
@@ -349,16 +350,76 @@ def test_a_failed_send_answers_the_caller_without_calling_it_their_fault(
     assert json.loads(response["body"])["error"]["code"] == expected
 
 
-def test_the_size_cap_is_derived_from_what_the_queue_takes_and_what_is_stamped_on():
-    """A cap written as a literal hides a wrong model, and this one has two moving parts.
+def test_an_over_long_FIELD_is_refused_through_the_router_and_never_sent(sqs):
+    """The refusal driven through the ROUTER, which is the only thing that makes the table a fence.
 
-    It had three. The bearer allowance went with the token, which returned 8 KB of headroom to
-    callers rather than relaxing a limit — and its absence is asserted, because an allowance
-    reappearing is the shape of the exposure coming back.
+    The bounds table and its own unit tests can both be perfect while the pass that consults them
+    is absent: deleting the call in ``router.py`` left the whole suite green, because every test of
+    it called ``bounds.over_bound`` directly. This drives the real request and asserts the three
+    things a caller sees — the status, the code, and the bound that refused it — plus the thing a
+    caller does not see and which matters most: nothing reached the queue.
+    """
+    route = next(r for r in contract.ENQUEUE_ROUTES if r.id == "dataQuality.enqueue")
+    bound = bounds.bound_for(route.id, "location")
+    body = {**_BODIES[route.id], "location": "l" * (bound.max_bytes + 1)}
+
+    response = _post(route, body)
+
+    assert response["statusCode"] == 413, (
+        f"an over-long {bound.path} was answered {response['statusCode']}, so the bounds pass is "
+        f"not in the request path at all"
+    )
+    answered = json.loads(response["body"])["error"]
+    assert answered["code"] == "PayloadTooLarge"
+    assert answered["params"]["limit"] == bound.max_bytes
+    assert sqs.sends == [], "an over-long field reached the queue"
+
+
+def test_a_body_INSIDE_every_bound_still_reaches_the_queue(sqs):
+    """The other direction, so the guard above cannot be satisfied by refusing everything.
+
+    A pass that answered 413 unconditionally would make every assertion above pass and take the
+    whole product down.
+    """
+    route = next(r for r in contract.ENQUEUE_ROUTES if r.id == "dataQuality.enqueue")
+
+    response = _post(route)
+
+    assert response["statusCode"] == 200
+    assert len(sqs.sends) == 1
+
+
+def test_the_size_cap_is_derived_from_the_limit_that_actually_binds():
+    """A cap written as a literal hides a wrong model, and this one WAS a wrong model.
+
+    It used to be the SQS message limit less the identity block — wrong in kind, because SQS
+    accepting a message says nothing about Step Functions starting an execution with it, and
+    every per-plane cap that looks like it bounds the chain runs INSIDE ``validate-authorize``,
+    after the request that would overflow has already arrived. The state arm is now roughly a
+    third of the queue arm, so the queue's ceiling no longer binds anything.
+
+    **The SQS arm is asserted to be unreachable rather than quietly kept**, so nobody later reads
+    its passing as evidence it fires.
+
+    The bearer allowance went with the token, which returned 8 KB of headroom to callers rather
+    than relaxing a limit — and its absence is asserted, because an allowance reappearing is the
+    shape of the exposure coming back.
     """
     assert enqueue_module.SQS_MAX_MESSAGE_BYTES == 262_144
+    assert enqueue_module.MAX_MESSAGE_BYTES == enqueue_module._STATE_ARM
+    assert enqueue_module._STATE_ARM < enqueue_module._QUEUE_ARM, (
+        "the queue arm now binds, so this test's whole premise — that the state limit is the "
+        "tighter one — has been inverted by something and the derivation needs re-deriving"
+    )
     assert enqueue_module.MAX_MESSAGE_BYTES == (
-        enqueue_module.SQS_MAX_MESSAGE_BYTES - enqueue_module.MAX_IDENTITY_BLOCK_BYTES
+        cp_config.STATE_PAYLOAD_LIMIT_BYTES
+        - cp_config.CAUSE_RESERVATION_BYTES
+        - enqueue_module.MAX_PIPE_RECORD_OVERHEAD_BYTES
+        - enqueue_module.MAX_RECORD_FAILURE_LITERAL_BYTES
+        - enqueue_module.MESSAGE_HEADROOM_BYTES
+    ) // enqueue_module.BODY_ESCAPE_FACTOR
+    assert enqueue_module.MESSAGE_HEADROOM_BYTES > 0, (
+        "a cap pinned at its own measurement leaves the next legitimate addition nothing to spend"
     )
     assert not hasattr(enqueue_module, "MAX_BEARER_BYTES"), (
         "a bearer allowance means a bearer is being sent again"
@@ -710,3 +771,29 @@ def test_a_missing_queue_variable_is_a_fault_and_not_a_refusal_blaming_the_queue
     assert "could not be reached" not in json.dumps(body), (
         "a misconfigured queue must not be reported as an unreachable one"
     )
+
+
+def test_a_MALFORMED_body_is_refused_as_malformed_and_not_as_oversized(sqs):
+    """The bounds pass runs AFTER shape validation, which its own contract leans on.
+
+    ``over_bound`` documents that "every value it sees is already the declared type", and its
+    zero-size fallback for a wrong-shaped value is only safe because of that ordering. Nothing held
+    it: moving the pass ahead of ``validate_request`` left the suite green, because no enqueue route
+    declares query parameters and the only visible consequence is which code a malformed body gets.
+
+    A caller who sends a list where a string belongs should be told the shape is wrong, not that
+    the request is too large — the second sends them to shorten a field they cannot fix.
+
+    **The field has to be a ``wire``-measured one for this to discriminate**, and the first version
+    of this test used a ``value``-measured one, so it passed either way: ``_size`` returns zero for
+    a non-string under ``value``, and a zero never breaches. ``space`` is serialized whatever its
+    type, so a malformed one is large enough to be refused as oversized if the order is wrong.
+    """
+    route = next(r for r in contract.ENQUEUE_ROUTES if r.id == "sharedSpace.enqueue")
+    body = {**_BODIES[route.id], "space": ["not-a-string"] * 200}
+
+    response = _post(route, body)
+
+    assert response["statusCode"] == 400
+    assert json.loads(response["body"])["error"]["code"] == "InvalidRequest"
+    assert sqs.sends == []

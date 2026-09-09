@@ -12,6 +12,25 @@ describe('errorMessages', () => {
       vi.unstubAllEnvs();
     });
 
+    it('names the bound the API refused a field against', () => {
+      // The API knows which limit it enforced and now sends it. A static sentence threw that
+      // away and told the user to "try again with less selected" — false for the case this
+      // refusal is now mostly about, one field over its own bound with nothing selected at all.
+      const {message} = toUserMessage({code: 'PayloadTooLarge', params: {limit: 1024}});
+
+      expect(message).toContain('1,024');
+      expect(message).not.toContain('less selected');
+    });
+
+    it('still answers a PayloadTooLarge that carries no limit', () => {
+      // API Gateway's own 413 is produced above the router and carries no envelope, so the
+      // static sentence is not dead code — and it must not read as though a number went missing.
+      const {message} = toUserMessage({code: 'PayloadTooLarge'});
+
+      expect(message).toBe('That request was too large. Try again with less in it.');
+      expect(message).not.toContain('undefined');
+    });
+
     it('passes a recognized app code through with its authored message', () => {
       const {message} = toUserMessage({code: 'Collision', message: '"reports/q4.csv" already exists.'});
       expect(message).toBe('"reports/q4.csv" already exists.');

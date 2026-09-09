@@ -31,11 +31,12 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 
+from cpcommon import config as cp_config
 from cpcommon import errors
 from cpcommon.transfer import config as transfer_config
 from fscommon import config, expand
 
-_STATE_PAYLOAD_LIMIT = 256 * 1024
+_STATE_PAYLOAD_LIMIT = cp_config.STATE_PAYLOAD_LIMIT_BYTES
 
 _MAX_KEY_BYTES = 1024
 
@@ -158,24 +159,6 @@ def test_the_validated_state_stays_under_the_payload_limit():
     )
 
 
-def test_a_selection_at_the_byte_cap_can_actually_START_an_execution():
-    """THE LINK THE FIRST TWO MODELS BOTH MISSED, in opposite ways.
-
-    The first version measured the item COUNT against the state and ignored escaping. The
-    second measured the serialised selection against the state and ignored that the Pipe
-    escapes it AGAIN into the execution input. A cap that permits a request whose execution
-    cannot start is the worst of the three: the user hears nothing, because the failure happens
-    before any state exists to catch it.
-    """
-    for char in ("k", '"', _WORST_ESCAPE):
-        record = _pipe_record(_items_at_the_byte_cap(char))
-
-        assert record < _STATE_PAYLOAD_LIMIT, (
-            f"a byte-cap selection of {char!r} keys reaches the Pipe as a {record}-byte "
-            f"execution input, over the {_STATE_PAYLOAD_LIMIT}-byte limit"
-        )
-
-
 def test_the_failure_state_carries_the_request_and_still_fits():
     """The failure path reads the whole request back from $$.Execution.Input, so the recorded
     object is the record PLUS the error. If that breached, the notification would be lost on
@@ -187,15 +170,24 @@ def test_the_failure_state_carries_the_request_and_still_fits():
     cap with quote-heavy keys that pair was ~300 KB: a Pass with no Catch raising
     States.DataLimitExceeded, on the failure path, after a three-hour copy. The selection is no
     longer carried, and this is what holds that.
+
+    **The error was modelled at 4 KB and that was the third thing wrong here.** Step Functions
+    documents 32,768 as a maximum length in CHARACTERS on the execution-history event shapes, not
+    as a byte quota on a state — and a Cause is a JSON document sitting inside a JSON string on the
+    state, escaped there like every other value. The reservation is twice the documented length,
+    and it is read from ``cpcommon.config`` rather than restated, because the counterfactual below
+    is only evidence while the number it adds is the real one. Under the old 4 KB the tripwire
+    inverted the moment the send cap came down.
     """
     records = {char: _pipe_record(_items_at_the_byte_cap(char)) for char in ("k", '"', _WORST_ESCAPE)}
+    error = cp_config.CAUSE_RESERVATION_BYTES
 
     for char, record in records.items():
-        assert record + 4 * 1024 < _STATE_PAYLOAD_LIMIT, (
-            f"the failure state for {char!r} keys is {record + 4 * 1024} bytes"
+        assert record + error < _STATE_PAYLOAD_LIMIT, (
+            f"the failure state for {char!r} keys is {record + error} bytes"
         )
 
-    would_have_been = max(records.values()) + config.SEND_MAX_ITEM_BYTES + 4 * 1024
+    would_have_been = max(records.values()) + config.SEND_MAX_ITEM_BYTES + error
     assert would_have_been > _STATE_PAYLOAD_LIMIT, (
         f"carrying the selection beside the raw request would now be {would_have_been} bytes, "
         f"under the limit — so the reason the post-validate seed leaves it off may have gone "
@@ -777,3 +769,38 @@ def test_the_results_folder_resolves_to_todays_name():
 def test_the_portal_managed_folders_are_exactly_these_two():
     """The two folders a send never carries out, spelled out."""
     assert expand._PORTAL_MANAGED_FOLDERS == ("athenaresults", "user_settings")
+
+
+def test_the_tripwire_above_holds_far_below_the_shipped_cap():
+    """WHERE the counterfactual stops being evidence, measured with the tripwire's own arithmetic.
+
+    ``enqueue.MESSAGE_HEADROOM_BYTES`` names this as its ceiling from above: headroom lowers the
+    send cap, a lower cap shrinks the record, and eventually "the selection beside the envelope
+    would breach" stops being true — at which point the tripwire passes while proving nothing.
+
+    The first version of that sentence said the floor was about 82 KiB. It was measured against
+    the tripwire's OLD 4 KB error model, which this file replaced with the real escaped
+    reservation; the floor moved twenty kibibytes down with it and the sentence did not. Measured
+    here, beside the arithmetic it is about, so the two cannot drift again.
+    """
+    error = cp_config.CAUSE_RESERVATION_BYTES
+    original = config.SEND_MAX_ITEM_BYTES
+
+    floor = None
+    try:
+        for kib in range(original // 1024, 0, -1):
+            config.SEND_MAX_ITEM_BYTES = kib * 1024
+            record = max(_pipe_record(_items_at_the_byte_cap(char)) for char in ("k", '"', _WORST_ESCAPE))
+            if record + config.SEND_MAX_ITEM_BYTES + error <= _STATE_PAYLOAD_LIMIT:
+                floor = kib
+                break
+    finally:
+        config.SEND_MAX_ITEM_BYTES = original
+
+    assert floor == 62, (
+        f"the counterfactual stops firing at {floor} KiB, not the 62 the headroom constant names"
+    )
+    assert original // 1024 > floor, (
+        f"the shipped cap of {original // 1024} KiB is at or below the floor, so the tripwire "
+        f"beside it is passing without evidence"
+    )

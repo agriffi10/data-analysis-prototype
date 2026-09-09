@@ -36,16 +36,15 @@ sys.path.insert(
     os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "control-plane-common"),
 )
 
+from cpcommon import config as cp_config
 from focommon import config, delete
 
 #: Step Functions' limit on an execution input and on any single state.
-_STATE_LIMIT = 256 * 1024
+_STATE_LIMIT = cp_config.STATE_PAYLOAD_LIMIT_BYTES
 
 #: S3's own maximum key length. The worst selection is every key at this length.
 _MAX_KEY_BYTES = 1024
 
-#: A generous Cognito ID token. It rides at the top level of every request.
-_MAX_TOKEN_BYTES = 8 * 1024
 
 #: The module whose ``locals.tf`` carries the memory and timeout every expansion cap is computed
 #: against. Read back rather than restated, so lowering one without lowering the cap fails the
@@ -147,56 +146,14 @@ def _serialised(value: object) -> int:
       value: Anything JSON-serialisable.
 
     Returns:
-      The byte length of the UTF-8 form that actually travels — non-ASCII left literal, as both
-      the browser's serialiser and the Pipe leave it.
+      The byte length of the form that actually travels — non-ASCII ESCAPED, because the API
+      re-serialises the body with the default escaping one hop before the Pipe. Measuring the
+      literal form counted an accented key at two bytes where the wire spends six.
 
     Raises:
       None.
     """
-    return len(json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode())
-
-
-def _pipe_record(selection: list) -> int:
-    """Returns the size of the execution input the Pipe hands to ``StartExecution``.
-
-    The link an obvious model leaves out. A request over this limit cannot start an execution at
-    all: no verb runs, no Catch fires, and nothing notifies anyone — the request dead-letters and
-    the actor hears about it from the drain minutes later, if at all.
-
-    Args:
-      selection: The selection, as the browser sends it.
-
-    Returns:
-      The serialised byte length of the Pipe's forwarded batch.
-
-    Raises:
-      None.
-    """
-    body = json.dumps(
-        {
-            "requestId": "0" * 36,
-            "actor": "t" * _MAX_TOKEN_BYTES,
-            "operation": "move",
-            "source": {"space": {"kind": "personal", "name": "a" * 64}, "items": selection},
-            "destination": {
-                "space": {"kind": "shared", "name": "s" * 64},
-                "prefix": ("p" * 512) + "/",
-            },
-            "onConflict": "overwrite",
-            "submittedAt": "2026-08-19T12:00:00Z",
-        },
-        separators=(",", ":"),
-    )
-    record = [
-        {
-            "messageId": "m" * 36,
-            "receiptHandle": "r" * 1024,
-            "body": body,
-            "attributes": {"MessageGroupId": "g" * 64, "MessageDeduplicationId": "d" * 36},
-            "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:dat-prod-file-ops-requests.fifo",
-        }
-    ]
-    return _serialised(record)
+    return len(json.dumps(value, separators=(",", ":")).encode())
 
 
 def _validated_state(selection: list) -> int:
@@ -307,21 +264,6 @@ def test_the_item_cap_fits_the_verbs_own_timeout_at_the_MEASURED_per_item_cost()
     assert config.FILE_OPS_MAX_ITEMS % 25 == 0, "the cap should be a whole number of browser pages"
 
 
-def test_the_byte_cap_admits_its_worst_selection_through_the_pipe():
-    """The whole chain, measured on the ESCAPED form, at the cap.
-
-    A control character costs six bytes escaped where an ASCII letter costs one, so this is the
-    selection that actually decides the number — and it is the case a count cap cannot see.
-    """
-    worst = _items_at_the_byte_cap("\x01")
-
-    assert _serialised(worst) <= config.FILE_OPS_MAX_SELECTION_BYTES
-    assert _pipe_record(worst) < _STATE_LIMIT, (
-        f"a selection at the byte cap reaches StartExecution at {_pipe_record(worst)} bytes, "
-        f"over the {_STATE_LIMIT}-byte limit — the execution could not start at all"
-    )
-
-
 def test_the_byte_cap_leaves_the_validated_state_room_for_the_outcome_list():
     """The term borrowed models drop: every selected item rides twice.
 
@@ -414,8 +356,9 @@ def test_the_browsers_mirrored_caps_are_never_more_permissive_than_these():
     """The browser refuses early so the common case fails fast and legibly, but it is not the
     authority — and it cannot measure the same quantity anyway.
 
-    Its byte cap is over ``JSON.stringify(items)`` alone; this one is over the whole chain, which
-    includes the actor's token, the destination and one outcome record per item. So the property
+    Its byte cap is over the SAME escaped serialisation this side measures — that was made true
+    rather than assumed, and the test below compares the two measurements. This one is over the
+    whole chain, which also includes the destination and one outcome record per item. So the property
     that matters is not equality but DIRECTION: a local refusal must never admit a request the
     plane would refuse, or the user gets a notification minutes later where they could have had a
     message immediately.
@@ -462,15 +405,18 @@ def test_the_two_runtimes_MEASURE_the_same_selection_the_same_way():
     selections this plane then refused by notification, which is the outcome the browser's own cap
     exists to prevent. Two matching numbers said nothing about it.
 
-    Asserted on the SERIALISER, against the byte length JavaScript produces for the same input:
-    compact separators, non-ASCII left literal.
+    **They were reconciled the wrong way round, and this is the corrected agreement.** Both sides
+    were moved to the LITERAL form, which agreed with each other and with nothing else: the API
+    re-serialises the body with the default escaping, so the wire spent six bytes on the character
+    both caps counted as two. Both sides now measure the ESCAPED form, so all three agree, and the
+    number below is what the browser computes for the same input after escaping.
     """
     selection = [{"kind": "file", "key": "alice/" + ("\u00e9" * 60)} for _ in range(170)]
 
-    # What `new TextEncoder().encode(JSON.stringify(items))` yields for this input, computed in
-    # Node rather than derived from this side — a value taken from Python would only prove Python
-    # is self-consistent.
-    javascript_bytes = 25671
+    #: What the browser's own measurement yields for this input, computed in Node rather than
+    #: derived from this side — a value taken from Python would only prove Python is
+    #: self-consistent.
+    javascript_bytes = 66471
 
     assert _serialised(selection) == javascript_bytes
 

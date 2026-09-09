@@ -103,7 +103,10 @@ class ErrorParams(TypedDict, total=False):
     Attributes:
       name: The colliding leaf name, for a Conflict.
       attempts: The bound a free-name search exhausted, for a Conflict.
-      limit: The byte cap that refused a payload, for a PayloadTooLarge.
+      limit: The bound that refused a request, for a PayloadTooLarge. **Not always bytes** —
+        the enqueue bounds are counted in three units, and for a roster or a recipient list this
+        is a count of entries. The wire carries the number and not the unit, so a client's
+        wording has to hold for all three.
     """
 
     name: str

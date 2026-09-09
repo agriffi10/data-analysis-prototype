@@ -187,6 +187,24 @@ cannot see the failure this arc is about: the `deploy-lambdas` concurrency group
 run, so a merge landing mid-exercise can evict the FORWARD dispatch and leave the fleet on the
 rollback image, serving perfectly. The queue lock was held across both runs for that reason.
 
+### The Cause reservation's escape ratio is measured on a CONSTRUCTED Cause, not a captured one
+
+The fleet reserves twice `CAUSE_MAX_CHARS` for an error `Cause` on a state, because 32,768 is a
+maximum length in **characters** on the execution-history event shapes and a Cause is a JSON
+document sitting inside a JSON string. The guard measures the escape ratio and the bytes per
+character of a Cause built to the shape Lambda documents, at `errors.MAX_DETAIL_CHARS`.
+
+**The properties asserted are of the encoding rather than of that string** — which is deliberate,
+because asserting a captured Cause FITS would prove nothing: a real one runs to a couple of
+thousand characters and fits a 32 KiB, a 36 KiB and a 66 KiB reservation identically. So this is a
+weaker premise than it looks only in one direction: a real Cause carrying a character class the
+fixture has none of would escape differently.
+
+| Check | Why it is not settled | What it takes |
+|---|---|---|
+| **A Cause captured from a real failure escapes no worse than the reservation** | No captured Pipes record or Lambda Cause exists in the tree, and producing one needs a production failure on a real execution — which no session can cause, and which the classifier blocks writing to production to arrange. The fixture is written from Lambda's documented shape. | Take any `RecordFailure` state from a real failed execution — the DLQ drain surfaces these, or `aws stepfunctions get-execution-history` on a failed run — and measure `len(json.dumps(cause)) / len(cause)`. Assert it against `CAUSE_RESERVATION_BYTES / CAUSE_MAX_CHARS`. If a real Cause carries multi-byte characters the fixture does not, the reservation's units need re-deriving, not just its size. |
+| **The Pipes SQS record's real field set matches the model** | Same reason: the record model in `test_request_size_chain.py` is written from the service's documented shape at each field's maximum, and its reservation guard therefore measures a model against a model. | Read one `$$.Execution.Input` from a real execution and diff its keys against `_record`. A field the model omits is bytes the fleet cap does not reserve. |
+
 ### The cold-start probe's discriminator has never been observed on this fleet
 
 The probe fails a function when its `errorType` is under `Runtime.`, when its log carries

@@ -57,7 +57,7 @@ from collections.abc import Callable, Mapping
 from types import MappingProxyType
 from typing import Any
 
-from apicommon import contract, envelope, errors, identity, planes, principal
+from apicommon import bounds, contract, envelope, errors, identity, planes, principal
 from apicommon.config import ConfigError
 from apicommon.context import RequestContext
 from cpcommon import observability
@@ -358,6 +358,24 @@ def route(
             "request body refused", reason=refusal, route=asked_for, request_id=request_id
         )
         return _answered(envelope.failure(refusal, request_id), refusal)
+
+    breached = bounds.over_bound(declared, body)
+    if breached is not None:
+        observability.warning(
+            "request field over its bound",
+            reason=breached.path,
+            route=asked_for,
+            request_id=request_id,
+        )
+        return _answered(
+            envelope.failure(
+                "PayloadTooLarge",
+                request_id,
+                f"{breached.path} is longer than {breached.max_bytes} bytes",
+                {"limit": breached.max_bytes},
+            ),
+            "PayloadTooLarge",
+        )
 
     refusal = contract.validate_query(declared, query)
     if refusal is not None:
