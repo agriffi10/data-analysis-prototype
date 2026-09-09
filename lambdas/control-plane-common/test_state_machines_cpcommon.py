@@ -414,21 +414,33 @@ def test_the_whole_map_state_stays_under_the_payload_limit():
     )
 
 
-def _read_keys(parameters):
-    """The top-level state keys a Parameters block reads, from its `"x.$": "$.path"` pairs.
+def _read_keys(block):
+    """Every top-level state key a Parameters-style block reads, at ANY nesting depth.
 
-    A NESTED path yields its FIRST SEGMENT — ``$.space.database`` reads ``space`` — because that
-    is the key the state must carry for the path to resolve at all. Anchoring on a bare
-    ``$.key``, which this did, extracts NOTHING from a nested path, and nineteen nested reads
-    exist on the fleet's failure-adjacent ``Pass`` states. The blind spot is not theoretical:
-    ``table-share/FinishRecipients/RecipientSucceeded`` reads only ``$.recipient.kind`` and
-    ``$.recipient.name``, so any equality built on the old form compared an empty set with an
-    empty set and passed whatever the verb returned. The widening was measured before it was
-    adopted — the guard below reports zero violations under either form, so it closes a hole
-    without moving the fleet.
+    The population this guard actually evaluates is worth stating exactly, because two looser
+    versions of this sentence were written before this one and both overstated it. Nineteen nested
+    reads exist across every ``Pass`` in the fleet. This guard evaluates the reads of states
+    DOWNSTREAM of a seed, and exactly ONE of those is nested today: ``table-builder/RecordFailure``
+    reading ``$.space.database``, whose ``ValidateFailureSeed`` supplies a literal ``space``. Three
+    more sit on seeds themselves, where the block is read as what is SUPPLIED rather than what is
+    read. The remaining fifteen are success-path states this guard never walks.
+
+    A NESTED PATH yields its FIRST SEGMENT — ``$.space.database`` reads ``space`` — because that
+    is the key the state must carry for the path to resolve at all.
+
+    A NESTED BLOCK is recursed into, for exactly the reason ``_intrinsics_in`` above already
+    recurses: a payload template nests, and ``{"detail": {"who.$": "$.nobody"}}`` is precisely as
+    fatal as a top-level read and precisely as invisible to a flat scan. The two helpers in this
+    file disagreed about that until a reviewer planted the nested form and watched the whole file
+    stay green.
+
+    What this does NOT do, said plainly because the guard's name over-claims otherwise: it
+    compares the first segment only, so ``$.error.Detail.Name`` is satisfied by a seed supplying
+    a literal ``error`` that has no ``Detail``. Resolving a path INTO a literal would need the
+    seed's whole value modelled, which is a different guard.
 
     Args:
-      parameters: A state's ``Parameters`` block, or None.
+      block: A state's ``Parameters`` (or any block nested inside one), or None.
 
     Returns:
       The set of top-level state keys the block reads.
@@ -437,12 +449,17 @@ def _read_keys(parameters):
       None.
     """
     keys = set()
-    for name, value in (parameters or {}).items():
-        if not name.endswith(".$") or not isinstance(value, str):
-            continue
-        match = re.fullmatch(r"\$\.([A-Za-z0-9_]+)(?:\.[A-Za-z0-9_]+)*", value.strip())
-        if match:
-            keys.add(match.group(1))
+    if isinstance(block, dict):
+        for name, value in block.items():
+            if name.endswith(".$") and isinstance(value, str):
+                match = re.fullmatch(r"\$\.([A-Za-z0-9_]+)(?:\.[A-Za-z0-9_]+)*", value.strip())
+                if match:
+                    keys.add(match.group(1))
+            else:
+                keys |= _read_keys(value)
+    elif isinstance(block, list):
+        for value in block:
+            keys |= _read_keys(value)
     return keys
 
 
@@ -736,10 +753,20 @@ def _seed_violations(plane, asl):
     Collected rather than raised at the first offender, so a red run names every seed missing the
     key and the remedy can be applied in one pass instead of one run per seed.
 
+    EVERY state's reads are checked, not only a ``Pass``'s. ``NotifyFailure`` is a Task and it
+    sits between the seed and ``Failed`` on all eight planes; a reviewer planted
+    ``"who.$": "$.nobody"`` in its ``Parameters`` and the whole file stayed green. This file
+    already says elsewhere that such a read on a non-``Pass`` state is "an uncatchable
+    States.Runtime on every share" — the walk simply was not asking.
+
     A Task between the seed and the read only ADDS keys through its ``ResultPath`` and never
-    removes one, so anything a downstream ``Pass`` reads must already come from the seed. That
-    premise is checked rather than assumed: no seed's forward walk crosses a Task with an absent
-    ``ResultPath`` today.
+    removes one, so anything read downstream must already come from the seed. That premise is
+    MEASURED rather than guarded — no seed's forward walk crosses a Task with an absent
+    ``ResultPath`` today, and nothing enforces that it stays so. The converse is a known
+    FALSE-POSITIVE risk rather than a hole: a Task whose ``ResultPath`` adds a key that a later
+    state reads would be reported here, because ``supplied`` is the seed's block and not a
+    per-path accumulation. Measured at zero today, and a false positive is a red test somebody
+    reads, which is the right way round for this guard to be wrong.
 
     Args:
       plane: The plane's name, for the message.
@@ -762,14 +789,13 @@ def _seed_violations(plane, asl):
                 continue
             seen.add(name)
             state = states[name]
-            if state.get("Type") == "Pass":
-                missing = _read_keys(state.get("Parameters")) - supplied
-                if missing:
-                    found.append(
-                        f"{plane}: {name} reads {sorted(missing)}, which {qualified} does not "
-                        "seed — an absent key raises an uncatchable States.Runtime and the user "
-                        "is never notified"
-                    )
+            missing = _read_keys(state.get("Parameters")) - supplied
+            if missing:
+                found.append(
+                    f"{plane}: {name} ({state.get('Type')}) reads {sorted(missing)}, which "
+                    f"{qualified} does not seed — an absent key raises an uncatchable "
+                    "States.Runtime and the user is never notified"
+                )
             frontier.extend(_targets(state))
     return sorted(found)
 
@@ -891,6 +917,13 @@ def test_the_failure_seed_walk_traverses_a_nested_container():
     nested violation, and that the old flattened lookup finds none. Only the second makes the
     first mean anything — a fixture that both walks fail on proves nothing about the repair.
 
+    The violating read sits TWO hops from the seed, behind a relay, and that is the point rather
+    than decoration: with it one hop away, truncating the walk to a seed's immediate successors —
+    which is the very shape of the bug being repaired — left the whole suite green. The relay
+    carries a ``ResultPath`` so that it merges rather than replaces; without one it is itself
+    recognised as a seed by the graph half and the fixture yields two violations instead of the
+    one it asserts.
+
     Args:
       None.
 
@@ -919,8 +952,9 @@ def test_the_failure_seed_walk_traverses_a_nested_container():
                         "Seed": {
                             "Type": "Pass",
                             "Parameters": {"error.$": "$"},
-                            "Next": "Shape",
+                            "Next": "Relay",
                         },
+                        "Relay": {"Type": "Pass", "ResultPath": "$.relay", "Next": "Shape"},
                         "Shape": {
                             "Type": "Pass",
                             "Parameters": {"who.$": "$.recipient"},
@@ -938,7 +972,11 @@ def test_the_failure_seed_walk_traverses_a_nested_container():
     violations = _seed_violations("fixture", machine)
 
     assert len(violations) == 1, f"the walk did not reach into the container: {violations}"
-    assert "Shape reads ['recipient']" in violations[0], violations[0]
+    assert "Shape (Pass) reads ['recipient']" in violations[0], violations[0]
+    assert machine["States"]["Fan"]["ItemProcessor"]["States"]["Seed"]["Next"] == "Relay", (
+        "the violation must sit more than one hop from the seed, or a walk truncated to a seed's "
+        "immediate successors passes this fixture"
+    )
 
     flattened = dict(_states(machine))
     assert "Fan/Seed" in flattened and "Seed" not in flattened, (
@@ -959,8 +997,9 @@ def test_the_read_extraction_sees_a_nested_path_and_a_seed_that_reaches_no_termi
 
     The NESTED READ: widening ``_read_keys`` to the first path segment moved no plane — zero
     violations under either form — so nothing above would redden if it were narrowed back to a
-    bare ``$.key``. What it protects is the CROSS-CHECK that reads it, where an empty read set
-    compares equal to an empty read set and passes whatever a verb returns.
+    bare ``$.key``. What it protects is the one nested read this guard evaluates
+    today — ``table-builder/RecordFailure`` reading ``$.space.database`` — where the old form
+    extracted an empty set, so a seed that stopped supplying ``space`` produced no finding.
 
     The EMPTY TERMINAL SET: with a terminal defined as a state that hands control nowhere, every
     walk in the fleet reaches one, so the non-empty check never fires and reads as decorative. A
@@ -998,6 +1037,148 @@ def test_the_read_extraction_sees_a_nested_path_and_a_seed_that_reaches_no_termi
     assert not _is_a_failure_seed("Round", looping["Round"], looping), (
         "a state whose only future is a cycle reaches no terminal, so `all([])` calls it a "
         "failure seed unless the non-empty check refuses it"
+    )
+
+
+def test_each_recognition_discriminator_decides_a_case_of_its_own():
+    """One synthetic case per discriminator, because the fleet exercises none of them alone.
+
+    An adversarial pass narrowed each of these in turn and the whole file stayed green: the fleet
+    happens not to contain the shape that separates the correct form from the narrow one. A
+    discriminator nothing can distinguish is a discriminator the next editor deletes, so each gets
+    a case where it alone decides the answer.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If any discriminator stops deciding its own case.
+    """
+    mixed = {
+        "Seed": {"Type": "Pass", "Parameters": {"k": None}, "Next": "Fork"},
+        "Fork": {"Type": "Choice", "Choices": [{"Next": "Bad"}], "Default": "Good"},
+        "Bad": {"Type": "Fail"},
+        "Good": {"Type": "Succeed"},
+    }
+    assert not _is_a_failure_seed("Seed", mixed["Seed"], mixed), (
+        "a state that can still SUCCEED is not a failure seed; `any` in place of `all` calls it "
+        "one, and the guard then demands failure-path seeding of the success path"
+    )
+
+    via_choice = {
+        "Seed": {"Type": "Pass", "Parameters": {"k": None}, "Next": "Fork"},
+        "Fork": {"Type": "Choice", "Choices": [{"Next": "Bad"}]},
+        "Bad": {"Type": "Fail"},
+    }
+    assert _terminals_reachable_from("Seed", via_choice) == [("Bad", "Fail")], (
+        "the terminal walk followed `Next` only, so a Fail reachable through a Choice is unseen "
+        "and the Choice itself reads as the terminal"
+    )
+    assert _is_a_failure_seed("Seed", via_choice["Seed"], via_choice)
+
+    replaced = {
+        "Seed": {"Type": "Pass", "Parameters": {"error.$": "$"}, "ResultPath": "$.e", "Next": "Ok"},
+        "Ok": {"Type": "Succeed"},
+    }
+    assert _is_a_failure_seed("Seed", replaced["Seed"], replaced), (
+        "the structural test's `\"$\"` arm — the error REPLACED the state — is what identifies a "
+        "PRE-IDENTITY seed, and nothing on the fleet distinguishes it today because every such "
+        "state is graph-recognised as well; deleting it reddens nothing without this case"
+    )
+
+    discarding = {
+        "Seed": {"Type": "Pass", "Parameters": {"k": None}, "ResultPath": None, "Next": "Bad"},
+        "Bad": {"Type": "Fail"},
+    }
+    assert not _is_a_failure_seed("Seed", discarding["Seed"], discarding), (
+        "an explicit `ResultPath: null` DISCARDS the block, so the state passes through unchanged "
+        "and seeds nothing — telling that from an absent ResultPath needs `in`, not `.get()`, "
+        "because both parse as None"
+    )
+
+
+def test_the_walk_follows_every_kind_of_edge_a_state_can_hand_control_along():
+    """`Next` is one of four edges, and the fleet's failure paths exercise only some of them.
+
+    Narrowing the walk to `Next` alone left the whole file green, and then hid a real
+    `States.Runtime` planted behind a `Choice`. So the breadth is pinned on a fixture that routes
+    a bad read behind each edge in turn.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If any edge kind stops being followed.
+    """
+    for edge, wiring in (
+        ("Choices", {"Type": "Choice", "Choices": [{"Next": "Bad"}]}),
+        ("Default", {"Type": "Choice", "Choices": [], "Default": "Bad"}),
+        ("Catch", {"Type": "Task", "Catch": [{"ErrorEquals": ["States.ALL"], "Next": "Bad"}],
+                   "End": True}),
+    ):
+        machine = {
+            "StartAt": "Seed",
+            "States": {
+                "Seed": {"Type": "Pass", "Parameters": {"error.$": "$"}, "Next": "Hop"},
+                "Hop": wiring,
+                "Bad": {"Type": "Pass", "Parameters": {"who.$": "$.nobody"}, "Next": "Failed"},
+                "Failed": {"Type": "Fail"},
+            },
+        }
+        violations = _seed_violations("fixture", machine)
+
+        assert len(violations) == 1 and "nobody" in violations[0], (
+            f"a read behind a `{edge}` edge is invisible to the walk: {violations}"
+        )
+
+
+def test_a_read_nested_inside_a_payload_template_is_not_invisible():
+    """A payload template nests, and a read one level down is exactly as fatal as one on top.
+
+    `_intrinsics_in` in this file has recursed for that reason since it was written; this
+    extraction did not, and a reviewer planted `{"detail": {"who.$": "$.nobody"}}` in archive's
+    `RecordFailure` and watched every test pass. The two helpers now agree.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a nested read, or a deeply nested one, is dropped.
+    """
+    assert _read_keys({"detail": {"who.$": "$.nobody"}}) == {"nobody"}
+    assert _read_keys({"a": {"b": {"c.$": "$.deep"}}}) == {"deep"}, (
+        "the recursion stops after one level, so anything further down is unseen"
+    )
+    assert _read_keys({"items": [{"k.$": "$.inList"}]}) == {"inList"}
+    assert _read_keys({"Payload.$": "$"}) == set(), (
+        "a whole-state pass-through reads no NAMED key and must not be reported as one"
+    )
+
+    machine = {
+        "StartAt": "Seed",
+        "States": {
+            "Seed": {"Type": "Pass", "Parameters": {"error.$": "$"}, "Next": "Notify"},
+            "Notify": {
+                "Type": "Task",
+                "Parameters": {"Payload": {"who.$": "$.nobody"}},
+                "Next": "Failed",
+            },
+            "Failed": {"Type": "Fail"},
+        },
+    }
+    violations = _seed_violations("fixture", machine)
+
+    assert len(violations) == 1 and "Notify (Task)" in violations[0], (
+        f"a Task's payload read on the failure path is unchecked: {violations}"
     )
 
 
@@ -1046,6 +1227,11 @@ def test_the_widened_guard_catches_the_edit_that_passes_today():
         "RollbackReturnedSeed",
         "UnknownModeSeed",
     }, f"the widened guard named {sorted(named)}"
+
+    assert all("reads ['probe']" in line for line in violations), (
+        "the six seeds are named for a DIFFERENT missing key, so this test would pass on a "
+        "neighbouring defect rather than on the plant it exists to reproduce"
+    )
 
     structural_only = {
         name
