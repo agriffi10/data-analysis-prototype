@@ -34,6 +34,16 @@ execution's* input and can be no other run's; its `body` is the message `enqueue
 assembled, whose `traceparent` the API stamps unconditionally over anything a caller sent. So the
 adopted trace is the run's own, by construction rather than by convention.
 
+**"Pre-identity" names the catch shape, not the absence of an identity, and the register's wording
+is too narrow.** A live data-quality refusal on 2026-09-09 — actor verified, `location` refused as a
+reserved prefix — produced `validate-authorize` records on the run's trace and a `notify-failure` on
+a different one with a null `parent_span_id`. That failure had an identity; it lands on
+`ValidateFailureSeed` anyway, because the seed is defined by the error having **replaced** the state
+(`"error.$": "$"`), which is what every `validate-authorize` failure does whatever it knew by then.
+The class this spec fixes is therefore every validate-authorize failure, not only the ones occurring
+before an actor exists — the mechanism is unchanged, the description of who it reaches is wider than
+SPEC-227 wrote it, and FR-004 corrects that wording along with the rest.
+
 Every guard SPEC-227 built stays **green and unchanged**: seeds still supply a literal `null`,
 `RecordFailure` still reads `$.traceparent`, and the pre-identity/post-identity split is still
 derived the same way. Adoption moves to the place that can already do it.
@@ -289,7 +299,14 @@ re-pointed at the context read rather than deleted.
       is now read in Python from the envelope on the state.
 - [ ] The `owed.md` row is rewritten **whole** — its title and its middle column assert the falsified
       claim too, not only half (b) — and the "if (b) shows one shared trace, the register entry is
-      wrong" sentence is removed rather than left inverted.
+      wrong" sentence is removed rather than left inverted. Its 2026-09-09 data-quality evidence is
+      **kept and re-pointed**, not deleted with the row's old claim: it is the observation that the
+      class was wider than "pre-identity", and it predicted this spec's result before this spec
+      existed.
+- [ ] Every site is corrected on the **class**, not just the mechanism: a `validate-authorize`
+      failure reaches `ValidateFailureSeed` whether or not an actor was verified, so "pre-identity"
+      is replaced wherever it is used to mean "before an identity exists" rather than "the error
+      replaced the state".
 - [ ] The `$.raw` Fences clause is **generalised** rather than re-pointed or deleted: its subject
       becomes the absent-key hard failure, which is still reachable, rather than a construct that
       provably cannot trip it.
