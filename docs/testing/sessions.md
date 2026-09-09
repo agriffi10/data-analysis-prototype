@@ -10,6 +10,191 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-09, second sitting (SPEC-227 FR-002 half (b), and §4.11's read-only rows at both widths)
+
+**Browser and CLI.** `main` at **`d49ba809`**, green — `Deploy SPA image` and `Deploy Lambda image`
+on that commit, `Deploy Infrastructure` and `Deploy Lambdas` last run and green on `a1fd6264`
+beneath it. Signed in as **agriffith** in Andrew's own Chrome through the Claude-in-Chrome
+extension, at **1512x788** and again at **606x732**. CLI identity
+`arn:aws:iam::696000197480:user/tofu-deploy-user`, reads only — **this session issued no AWS write
+of its own.** (The control-plane run it drove wrote objects of its own; see *Left behind* at the
+end, which is the honest version of that sentence.)
+
+**The one API call below was issued with `fetch` from the signed-in page's own JS context**, using
+the session's own bearer token; the token was never read out of the browser. Everything else is a
+read: Step Functions history, two of the admin bucket's log objects, and the portal's own UI.
+
+### SPEC-227 FR-002 half (b) — the negative, and the recorded limit is REAL
+
+**The row said this half needed a hand-crafted envelope onto the archive queue, and it does not.**
+The row reasoned that the portal cannot produce an unregistered space because the UI offers none —
+true of the UI, and not true of the API beneath it. `lambdas/api/routes/enqueue.py` reads no
+membership by design ("every authorization question belongs to the plane's own validate-authorize
+verb"), the route contract types `space.kind` as a literal and `space.name` as a free string, and
+the FIFO group id is derived from the body rather than resolved. So a signed-in `POST
+/v1/enqueue/archive` naming a space that does not exist reaches the plane intact — **no assumed
+role, no `sqs:SendMessage`, and no queue write at all**, which is what made this runnable from a
+session whose production AWS writes the harness refuses.
+
+**No object under `s3://dat-prod-athena-admin/shared-spaces/` is named `spec227_no_such_space`** —
+that absence is the load-bearing fact and it keeps; the registry's population is not quoted, because
+it grows every time anyone creates a space. The POST answered **200** with `{"requestId":
+"579de943-7bba-4606-ac93-d1c33eceb346"}`; execution
+**`301a88ae-8d9c-5d28-ad49-ebb505467882`** ran 12:17:34.148 to 12:17:37.291 EDT and **FAILED**.
+
+**The envelope is the trap's opposite, and that is the whole point of the run.** Its body carries
+exactly five top-level keys — `identity`, `mode`, `requestId`, `source`, `traceparent` — with
+`identity` a nested block (`actor: agriffith`, `delegated_by: null`, `assurance: interactive`) and
+**no token anywhere**. So this is not the no-identity-block envelope the row warns about, which
+would have produced the same SHAPE while proving nothing.
+
+**Check the reason, not the shape — and the reason the row names does not exist on this plane.** The
+refusal is `TerminalError` / **`forbidden: 'agriffith' is not a member of 'spec227_no_such_space'`**,
+raised by `arcommon.authz.authorize_source`. It is **not** `unauthorized`, which is what the
+no-identity-block envelope would have given. It is also not `unknown_space`: **archive has no such
+code**, deliberately — `arcommon/messages.py` records that a shared space that does not exist fails
+as `forbidden` precisely so that "no such space" and "you are not a member" stay indistinguishable,
+because the difference is an existence oracle over other people's spaces. The discriminator this
+half actually turns on is therefore **`unauthorized` versus `forbidden`**, and the owed row saying
+`unknown_space` was wrong about this plane.
+
+The execution took the pre-identity catch: `ValidateAuthorize` → **`ValidateFailureSeed`** →
+`RecordFailure` → `NotifyFailure` → `Failed` (`ArchiveFailed`). Both Pass states' real output was
+read back: `traceparent: null`, `requestId: null`, `mode: null`, `actor: null`, with `raw` holding
+the forwarded SQS batch. That is the mechanism, observed rather than inferred.
+
+**The two traces.** Read from the day's log objects, and **the sweep is per SERVICE, so a count is
+meaningless until the partitions it spans are named** — a first draft of this paragraph said "two
+records" of a trace that has four:
+
+| Partition | Span | trace_id | span_id | parent_span_id | request id |
+|---|---|---|---|---|---|
+| `service=api` | `request` (2 records) | `336d82e07059767422be1e24311389f3` | `8f52805494b02b63` | **null** — it is the root | `fields.body_request_id` is the run's; `fields.request_id` is the gateway's `DcH4vjxOoAMEP6g=` |
+| `service=archive` | `validate-authorize` (`span.start` INFO, `span.end` ERROR) | same | `de08ab514e4a6ab5` | `8f52805494b02b63` | `fields.request_id` is the run's |
+| `service=archive` | `notify-failure` (3 records) | `8a06aa9a8fb26ed08c24770137c9a8ef` | `1fde01515da25e83` | **null** | **no request id in any field** |
+
+So the run's trace is **four** records over two partitions and `notify-failure`'s is **three** in one,
+and nothing joins them. Those are per-run figures on runs that have ended, so they hold; the DAY
+objects they were read out of keep growing and no count of those is quoted here.
+
+**The propagation is visible end to end, which is more than the row asked for.** The API's own span
+`8f52805494b02b63` is the trace's root, it is the span id inside the envelope's `traceparent`, and it
+is `validate-authorize`'s `parent_span_id`. `notify-failure` is on a different trace with a null
+parent. **Say "the run's request id" carefully:** only the archive records carry it in
+`fields.request_id`; the API's two carry it as `body_request_id` and reserve `request_id` for the
+gateway's own.
+
+**So the limit SPEC-227 recorded is real, and half (b) confirms it rather than falsifying it.**
+
+**The failure correlates on nothing at all — measured, and the register disagrees.** Those three
+`notify-failure` records carry no `request_id` field, so the fallback join is not available either.
+The mechanism: the seed supplies `requestId: null`, and on the ASL door `ar_notify_failure` recovers
+only the **actor** out of `raw` — never a request id, and **not the mode either**, which it reads off
+the state where the seed put null (`_mode_from_raw_request` exists but is reached only from the
+EventBridge `TIMED_OUT` door, which never passes through this seed). **A draft of this paragraph went
+on to derive a consequence and got it wrong** — that a pre-identity restore failure is therefore
+worded as an archive. It is not, for a REFUSAL: `notify-failure` suppresses a `TerminalError` and
+words nothing, and the sentence the user reads comes from `validate-authorize`'s own `emit_failure`,
+which seeds its mode from the untrusted body precisely so a refusal is worded as the operation the
+user asked for. The measured fact is the one above and stops there.
+Corroborated on the ASL side, which is a source
+read rather than a second measurement: seven of the eight planes' `ValidateFailureSeed` supply
+`requestId: null` and `table-share` supplies none at all. **SPEC-228 FR-001 already says this**
+("today a pre-identity failure correlates on nothing at all — neither a trace nor the join key"), so
+the finding here is the production confirmation and the fact that
+`docs/decisions/control-planes.md` still claimed `fields.request_id` stays as the join key. That
+clause is corrected in this PR; the spec was right and the register was stale.
+
+**The user was told, and the suppression is correct rather than a lost notification.** The newest
+entry in agriffith's inbox reads *"You don't have access to archive those files."* — no link, no
+archive id, and no hint that the space does not exist. It was written by `validate-authorize`
+itself: its `except TerminalError` calls `notify.emit_failure` before re-raising, which is why its
+decorator is `notify_terminal=False`. That is what `notify-failure`'s
+*"suppressed a duplicate of the verb's own failure notification"* (`reason: "forbidden"`,
+`notified: false`) is talking about, and it means this class of failure is invisible in the trace
+without being invisible to the user.
+
+### §4.11's read-only rows around the restored archive folder, at both widths
+
+`agriffith/system_settings/archive/f0465c23-60c2-4a6f-b622-c5ca10e5ffc7/` holds `receipt.txt` at
+**414 B**. It was 359 B when the archive wrote it; what grew it is the two restore lines being
+filled, and **which write filled which** is not something this sitting measured —
+`MarkRestoreRequested` ran hours before the completion rewrite. Every reason string below is the
+button's `title`, read off the DOM, and it is the same sentence in all six places: *"The archive
+folder is read-only — it holds your archive receipts. You can open and download them, but not change
+them."* — the banner's text too. **No `AccessDenied` appears anywhere.**
+
+| Control | 1512x788 | 606x732 |
+|---|---|---|
+| Banner | present | present |
+| **New folder**, **Upload** | present, disabled, that reason | present in the bottom action bar, disabled, that reason |
+| **Move**, **Delete** (receipt selected) | present, disabled, that reason | present as icons, disabled, that reason |
+| **Archive** | **absent from the DOM** | **absent from the DOM** |
+| Check data quality, Send to, Copy | enabled | enabled |
+| **Details** | opens a side panel | opens a **sheet** — a different mount |
+| **Download** | works | works |
+| **Rename** (in Details) | present, disabled, that reason | present, disabled, that reason |
+
+**The control is what makes "Archive is gone" mean anything.** In `agriffith/spec220_archive_fixture/`
+— an ordinary folder, restored earlier today and holding `header-only.csv` at its original 10 B —
+`Archive selected items` is **present** at both widths: disabled with nothing ticked, **enabled**
+with one file ticked, beside Move and Delete enabled and New folder and Upload carrying no title at
+all. Absent in one folder and present-and-enabled in the other, at the same width, in the same
+session.
+
+**Download was checked by its effect, not by its affordance.** Clicking it wrote
+`~/Downloads/receipt (1).txt` at 1512 and `receipt (2).txt` at 606, **414 bytes each**, both reading
+`Restore requested: 2026-09-09 11:14:39 UTC` and `Restored to: s3://dat-prod-user-space/agriffith/`.
+That independently corroborates this morning's receipt finding through a different instrument — the
+browser's own download rather than an S3 read.
+
+**Why both widths were worth the trouble.** At 606 the app mounts a different toolbar: a bottom
+action bar carrying Restore Archived Data, New folder and Upload, an icon-only selection row, and
+Details as a sheet. A desktop-only pass would have asserted nothing about any of them.
+
+### The narrow width needed two things, and the log records only one of them
+
+`resize_window` reported success and **the window really had resized** — `app_list_windows` showed
+its bounds at `w: 606` — while the page went on reporting `innerWidth: 1512` and `outerWidth` of `0`
+or a half-scaled number. This file already records that symptom and says the fix is to
+bring the WINDOW to the foreground. **That is not the whole fix, and the missing half is the
+TAB.** In order: minimized, stale; un-minimized by hand, **still** `innerWidth: 1512`;
+`Control_Chrome`'s `switch_to_tab` on the tab id, and the viewport became 606x732 with **both**
+compiled breakpoints reading `false` and `scrollWidth === innerWidth`. So `switch_to_tab` is
+demonstrably necessary and is the one call to reach for. **Whether un-minimizing was ALSO
+necessary is not settled here** — `switch_to_tab` was never tried against the minimized window,
+so it may do both. Do not read the sequence as two required steps.
+
+Two consequences worth keeping. A session that resizes and reads a stale `innerWidth` should check
+`app_list_windows` before concluding the resize failed — the window and the tab disagree, and the
+tab is the one lying. And **400px remains unreachable**: the window bounds confirm Chrome's macOS
+floor of 606 again. 606 is the same CSS branch as 400 on this app — only `tablet:` and `desktop:`
+are compiled and both are false there — so the rows above are a real narrow-branch pass, while the
+overflow half of the 400px pass stays owed as it was.
+
+**Left behind:** `receipt (1).txt` and `receipt (2).txt` in `~/Downloads`, and the refused archive's
+notification in agriffith's inbox. **No fixture was created or removed, and this session issued no
+AWS write of its own** — but "nothing was written to S3" would be false, and a first draft said it,
+then a second draft said "two objects" and "five log records" and was also wrong. This ledger is
+where a later reader looks to know what production state a sitting moved, so here is the whole of
+it, measured:
+
+| Object | What the run put there |
+|---|---|
+| `dat-prod-user-space/agriffith/user_settings/notifications.json` | the refusal notification — a get-then-put **rewrite of an existing inbox object**, not a new one |
+| `logs/service=api/…/data.jsonl` | 2 records |
+| `logs/service=archive/…/data.jsonl` | 5 records |
+| `logs/service=notifications/…/data.jsonl` | 3 records |
+
+**The notifications plane is the partition both earlier drafts forgot, and it carries the fact
+worth having:** the notification the user actually reads was written on a **third** trace,
+`dea0c455a12dc150a66d2356d086983d` — neither the run's nor `notify-failure`'s. Its `write` record
+reads `recipient: agriffith`, `action: create`, `notifications: 107`, and 107 is what the inbox
+showed, which is what ties that record to this run rather than to a neighbour in the same second.
+The archive refusal itself touches no bucket; everything above is the plumbing around it.
+
+---
+
 ## Live-check session — 2026-09-09 (SPEC-220 FR-004, and the owed rows discharged alongside it)
 
 **Browser and CLI.** `main` at **`ac23ac45`**, every deploy workflow green on it. Signed in as
@@ -376,7 +561,10 @@ notify"*. That is the shape the register attributes to **pre**-identity failures
 user-visible defect** — the refusal notification was written 1 s earlier by the notifications
 `write` verb on its own trace `1c485086…` (0.9 s before `notify-failure` ran), so the lost `notify-failure` notification is not user-visible **here**. Note the two facts are independent: `notify-failure` skipped because the seed handed it no actor, **not** because it detected an existing notification — had the seed carried one it would have sent a second. It is
 recorded because SPEC-227's row is about **archive**, and if archive does the same the register's
-"pre-identity" wording is too narrow. **Superseded later the same day — half (a) is discharged; see the restore-completion section
+"pre-identity" wording is too narrow. **ANSWERED in the second sitting above: archive does do the
+same, the wording was too narrow, and the register now defines "pre-identity" as the CATCH shape —
+which makes this data-quality run an ordinary instance of the class rather than the anomaly this
+paragraph took it for.** **Superseded later the same day — half (a) is discharged; see the restore-completion section
 above.** What this paragraph proposed (a restore into an occupied destination, failing at
 `CheckDestinationClear` before any billable retrieval) was never needed: the losing restore supplied
 the same state through the same seed.
