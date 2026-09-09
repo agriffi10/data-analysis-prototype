@@ -10,6 +10,260 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-09 (SPEC-220 FR-004, and the owed rows discharged alongside it)
+
+**Browser and CLI.** `main` at **`ac23ac45`**, every deploy workflow green on it. Signed in as
+**agriffith** in Andrew's own Chrome profile through the Claude-in-Chrome extension, 1568x782,
+light theme. CLI identity `arn:aws:iam::696000197480:user/tofu-deploy-user`.
+
+**Two instruments, and both are ways this run differed from a user's.** The API calls below were
+issued with `fetch` **from the signed-in page's own JS context**, using the session's own bearer
+token — the token was never read out of the browser, and the responses were scrubbed before being
+read. And `tofu-deploy-user` is **not** the deploy role (`dat-deploy-role` is GitHub-OIDC-only), so
+it cannot read the space buckets — the user-space bucket policy answers `explicit deny` — and Lake
+Formation filters `glue:GetDatabases` to `[]` for it. Every S3-and-catalog fact below therefore came
+through the portal's API, not the CLI. The **admin** bucket it can read, which is what made the
+structured-log rows reachable at all.
+
+### SPEC-220 FR-004 — the live checks between the write switch and `finish`
+
+Migration record **34234219110** (`copy`, 788 keys, 0 conflicts). **`finish` was NOT run.**
+
+| Row | Result |
+|---|---|
+| Glue `LOCATION` unchanged | **Discharged (pre-`finish`).** All three real shared tables read `{space}/shared_tables/{table}`; across the **14** located tables in every database the session can see, **zero** point at `system_settings/`, `athenaresults/` or `archive/`. Zero catalog writes: the migration builds no Glue client at all. Owed: the same read after `finish`. |
+| Archive ids | **Partly discharged** — see the archive section below. |
+| First-segment rules | **Discharged.** `system_settings/athenaresults/…` refused, ordinary folder ran. |
+| Query results at the new home | **Discharged.** |
+| Attribute preservation | **Discharged for what the population carries**, three columns vacuous — see below. |
+| Both archive homes refuse a write | **Discharged**, IAM and route halves, each with a control. |
+
+**Query results.** `SELECT 1;` from the Query workspace, execution
+`d069d840-e991-4cd4-a731-540f01927654`, SUCCEEDED 07:18:14 EDT. `batch-get-query-execution`
+OutputLocation `s3://dat-prod-user-space/agriffith/system_settings/athenaresults/d069d840-….csv`.
+It renders in the browser on page 8 of that folder, 12 B, dated Sep 9 among Sep 8 migrated files.
+*Save results to my files* wrote `agriffith/query-results-20260909-0718.csv` — the save read a
+**post-switch** execution's CSV at its new location. **Every other post-switch execution in the
+workgroup does the same for its own owner** — `pxie` and `atalapatra`, real users, not fixtures.
+
+**First-segment rules, discriminated by the execution INPUT rather than by timing.** Only one
+refusal notification appeared and its "53 sec ago" was ambiguous between the two submissions, so
+both were read out of the state machine:
+
+| Execution | `location` in the SQS body | Outcome |
+|---|---|---|
+| `4666ef72-0f02-5ad7-b6ad-8c694ca31231` | `agriffith/system_settings/athenaresults/d069d840-….csv` | **FAILED** |
+| `7cda642e-5da4-5acb-8e5d-07351e6b7a2e` | `agriffith/spec-222-athena-types.csv` | **SUCCEEDED** 07:24:07 |
+
+The reason came from `RecordFailure`, not from the exit status:
+`forbidden: 'system_settings' is a reserved prefix and cannot be checked`. It names the **first
+segment**, not `athenaresults`. The user-visible notification is *"You don't have access to check
+data quality there."*
+
+**Both archive homes refuse a write.** IAM, from the operator CLI identity against
+`dat-portal-user-role`, bucket `dat-prod-user-space`, context
+`aws:PrincipalTag/username=alice`, **one resource per call**:
+
+| Action | Key | Decision |
+|---|---|---|
+| `s3:PutObject` | `alice/archive/x` | **explicitDeny** |
+| `s3:PutObject` | `alice/system_settings/archive/x` | **explicitDeny** |
+| `s3:PutObject` | `alice/notes.txt` — control | allowed |
+| `s3:DeleteObject` | both archive keys | **explicitDeny** |
+
+Route, from the signed-in session — `PUT /v1/objects/content`:
+
+| Key | Status | Body |
+|---|---|---|
+| `agriffith/archive/spec220probe.txt` | **403** | `{"error":{"code":"AccessDenied","detail":"archived locations are not writable"}}` |
+| `agriffith/system_settings/archive/spec220probe.txt` | **403** | identical code **and** detail |
+| `agriffith/spec220_route_control.txt` — control | **200** | wrote; deleted again afterwards |
+
+The controls are what make both halves mean anything: without them a blanket refusal and a
+key-specific one look identical. Together they are the proof the FR wanted — reverting the switch at
+this point leaves nothing unprotected, because the **old** home still refuses too.
+
+**Attribute preservation — and three of its five columns are vacuous for a reason worth stating.**
+Two independent samples agree: `verify` run 34234773116 (40 keys, every bucket and space) and, this
+session, `GET /v1/objects/metadata` on 12 old/new pairs read through the app. All match.
+
+| Column | Verdict |
+|---|---|
+| content type | **Preserved and it VARIES** (`application/octet-stream` vs `binary/octet-stream`) — real evidence |
+| size | Preserved |
+| storage class | Every object in both moving prefixes is `STANDARD` |
+| user metadata | Empty on every sampled object, both samples |
+| tags | Empty on every sampled object |
+
+The last three are vacuous because the **population is uniform**, not because the check was skipped.
+The `StorageClass` / `MetadataDirective=COPY` / `TaggingDirective=COPY` mechanism is covered only by
+FR-002's fake-asserted unit test; production holds no object that could redden it.
+
+### The archive and restore, run under §4.11's approval gate
+
+Fixture `agriffith/spec220_archive_fixture/` created this session with one copied file
+(`header-only.csv`, 10 B). The confirm dialog named the folder **relative to the space root**, said
+removed-from-this-space and "several hours", carried **no** "can't be undone", and focus was on
+**Cancel**. Archive finished in ~16 s: **`f0465c23-60c2-4a6f-b622-c5ca10e5ffc7`**, the fixture gone
+from the root.
+
+- **The notification's href is `/files?prefix=agriffith/system_settings/archive/f0465c23-…/`** — the
+  new home, not the space root. The 21-hour-older archive `ff8c833a-…` links there too.
+- Following it: `receipt.txt` 359 B, read-only banner, **Archive absent** from the toolbar, New
+  folder and Upload greyed.
+- Restore dialog, nonsense id: *"That doesn't look like an archive id. Ids look like
+  3f8a1c2e-9b4d-4a17-8c65-2e0d7b1f4a93."*, and the submit control stayed **enabled**.
+
+**Submitted twice, 25 s apart (11:14:39 and 11:15:04 UTC).** Two executions with **distinct**
+request ids — `589e1b90-…` and `7728c043-…` — so the FIFO dedup did not collapse them, and both
+target the same receipt key `agriffith/system_settings/archive/f0465c23-…/receipt.txt`. **One
+`RestoreObject` bill**, read from `/aws/lambda/dat-prod-archive-initiate-restore`:
+
+```
+11:14:48  requested retrieval of 2 object(s) in this batch
+11:15:07  retrieval of …/header-only.csv needs nothing further
+          (RestoreAlreadyInProgress … Object restore is already in progress)
+11:15:07  retrieval of …/spec220_archive_fixture/ needs nothing further (RestoreAlreadyInProgress …)
+```
+
+The vault root is unchanged at `personal/agriffith/archive/{uuid}/` — fact 2 did not move.
+
+**The receipt at the new key has already been REWRITTEN once by the plane** — it carries
+`Restore requested: 2026-09-09 11:15:04 UTC` (the second submission's timestamp) with
+`Restored to: -` still empty. So the write path to the new home is proven; what is owed is only the
+final `Restored to` fill on completion. Both executions were in `WaitForRetrieval` when this entry
+was written.
+
+### Owed rows discharged alongside, none of them SPEC-220's
+
+**SPEC-225 FR-005 — a real run's records carry ONE `trace_id`, in production.** Today's
+`logs/service=archive/` holds **207 records**, of which **193 carry one of 3 request ids** — all
+three driven by this session (one archive, two restores). The other **14** carry no request id and
+are the deploy-time cold-start probe, 2 per `Deploy Lambdas` run:
+
+| Run | requestId | records | trace_id |
+|---|---|---|---|
+| archive | `f0465c23-…` | 33 | `563c95688e4f0d0a68c4e248f79075ca` |
+| restore #1 | `589e1b90-…` | 80 | `084afa307f1c5931a58f39330ad114ca` |
+| restore #2 | `7728c043-…` | 80 | `4176296ab3e0910e5adcf75520db8f87` |
+
+**Zero** request ids carry more than one `trace_id`. **Three runs, three different trace ids** —
+which is the warm-container half: the two restores ran 25 s apart, so the containers were certainly
+warm, and neither stayed in the first run's trace. Of the **66** `span.start` records outside the
+API across the three runs, **zero** carry a null `parent_span_id` — and the scope is load-bearing: the day's log holds **73** `span.start`, the other 7 being the cold-start probe, every one of which has a **null** parent. The archive run's trace id is the
+one in its own SQS `traceparent`, so it was minted at the API and propagated in. **The file-send half
+holds too** — three runs driven below, each one trace, zero null parents, the largest 65 records
+across 8 Distributed-Map children — so the row is settled on both planes the recipe names.
+
+**SPEC-225 FR-003 AC-1 — `ItemBatcher.BatchInput` reaches the child of an `ItemReader`-fed
+Distributed Map, `Items` unchanged beside it.** Discharged without the throwaway state machine, as
+the row predicted. The deployed archive orchestrator has **three** Distributed Maps —
+`TransferObjects`, `RetrieveObjects`, `CopyBackObjects` — each `ItemReader`-fed with
+`ItemBatcher.BatchInput` carrying `traceparent.$` and `requestId.$`. A child execution's **actual
+input**, read back from the archive run:
+
+```json
+{"BatchInput":{"requestId":"f0465c23-…","traceparent":"00-563c95688e4f0d0a68c4e248f79075ca-be39d1932b67fee8-01"},
+ "Items":[{"srcBucket":"dat-prod-user-space","srcKey":"agriffith/spec220_archive_fixture/", … ,"storageClass":"GLACIER"},
+          {"srcBucket":"dat-prod-user-space","srcKey":"agriffith/spec220_archive_fixture/header-only.csv", … }]}
+```
+
+`BatchInput` and `Items` are both present, the items are the manifest rows untouched, and **the
+items carry no traceparent of their own** — which is what makes this sound rather than circumstantial:
+`BatchInput` is the only channel the child's trace could have arrived by. Corroborated at runtime on
+two different Maps, since `copy-objects` and `initiate-restore` records both carry their run's trace
+id and a non-null parent span.
+
+**SPEC-170 — the restore plan agrees with the receipt.**
+`s3://dat-prod-athena-admin/archive/589e1b90-…/restore-plan.json` exists, `objectCount: 2`,
+`totalBytes: 10`, and the receipt reads `Files archived: 2`. Both `destKey`s are the original paths
+(`agriffith/spec220_archive_fixture/` and `…/header-only.csv`).
+
+**The `TIMED_OUT` door — the pattern half, and it found a hole.** Production runs **eight**
+orchestrators. Five — `archive`, `file-ops`, `file-send`, `results-conversion`, `table-share` —
+each carry an `…-orchestrator-timed-out` rule, all **ENABLED**, all with `detail.status` exactly
+`["TIMED_OUT"]`, **no `FAILED` anywhere in the pattern**, each scoped to its own
+`stateMachineArn` and targeting that plane's `notify-failure`. `data-quality` and `shared-space`
+set no `TimeoutSeconds`, so they cannot emit `TIMED_OUT` and correctly have none. **`table-builder`
+sets `TimeoutSeconds: 3600`, ships `dat-prod-table-builder-notify-failure`, and has NO rule** —
+confirmed twice, no rule in the account names it in its event pattern and
+`infra/modules/table-builder/` defines none. A state-machine timeout cannot be caught by a `Catch`,
+so EventBridge is the only door and that plane has none: an hour-long build that times out
+notifies nobody. Raised as a defect row in [`owed.md`](owed.md), not filed as coverage.
+
+**The synthetic-event half is still owed, and my first write-up of WHY it was owed was wrong.** I
+recorded that it needs a real ID token the session cannot extract. It does not: since SPEC-201
+(`ff3a76b6`, 2026-08-30) `cpactor.trusted_actor` reads only the nested `identity` block and
+imports no JWT code, and §2.5's payload still carrying a flat `actor` token is stale — a run built
+from it would be refused `unauthorized` and read as a broken door. `events:PutEvents` on the
+default bus measured **`allowed`** for this CLI identity. What actually blocks it is that the
+harness refuses an agent session's production AWS writes, and `put-events` is one — measured, not
+assumed. The recipe in §2.5 has been rewritten to build the payload in Python and to say this.
+
+**SPEC-196 §E.9 — the twelve-row IAM simulation, run rather than inherited.** All twelve rows of
+SPEC-196's table against `dat-portal-user-role`, one resource per call, every denial paired with
+its `allowed` control: GetObject alice/bob; ListBucket with `s3:prefix` alice/bob; DeleteObject on
+an ordinary key versus `DO_NOT_DELETE.txt`; PutObject on `alice/archive/`; `glue:GetTable` on
+database alice/bob; and the three shared-space slot-tag rows including **slot tags absent** to
+`implicitDeny`. **Twelve expected verdicts, twelve matches, zero mismatches.** Four extra rows
+beyond the table: shared-space `DO_NOT_DELETE.txt` **explicitDeny** with an ordinary shared key
+**allowed** as its control, and `system_settings/archive/` and shared
+`system_settings/athenaresults/` both **explicitDeny** — which is SPEC-220's new home refusing on
+the shared side too. That also discharges the `DO_NOT_DELETE.txt` row, personal and shared.
+
+**A correction I had to make to my own first pass at this file.** I initially struck §E.9 on the
+strength of its section intro, which says SPEC-202 FR-010 discharged it on 2026-08-31. The intro
+is not evidence: the ported Arc B log covers GetObject/PutObject alice-versus-bob and nothing
+else, so the strike retired a twelve-row check on about two rows — while `DO_NOT_DELETE`, which
+IS row 6 of those twelve, sat a few lines above still marked open. I had spot-checked that the
+intro said it, not that the evidence covered it. Running the twelve is what actually settled it.
+
+**The file-send plane's nightly ERROR records are the cold-start probe, not breakage.**
+`logs/service=file-send/` carries, every day, a run of `validate-authorize` `span.start` /
+`span.end` pairs at **ERROR** level in the same millisecond, with no `request_id` and a null
+`parent_span_id` — 7 on day 09, 7 on day 07, 10 on day 08, 15 on day 06. Today's **7** is exactly
+the number of `Deploy Lambdas` runs on `main` today, and the shape matches the probe's discharged
+2026-09-02 result ("six `validate-authorize` verbs refusing with `TerminalError`"). Recorded because
+ERROR-level records on a plane with no user traffic look like a live defect and are not one.
+
+**The file-send half of the trace row, and the fan-out row.** That plane had **no real run** in the
+logs bucket for days 06–09, so three were driven. The log sweep is on a ten-minute schedule, so each
+needed a wait.
+
+| # | requestId | Recipients | Outcome |
+|---|---|---|---|
+| 1 | `456ae6a8-…` | `agriffith_three` | **`recipient conflict`**, transfer skipped — the recipient already held the file. 18 records, **one** `trace_id` `522a88ce…` (the one in its own SQS `traceparent`), 6 `span.start`, **zero** null parents. **No Map child at all**, so no `batch copied`. |
+| 2 | `e2fbb066-…` | `agriffith_three` + space `dwb_testing_all` | Copied, trace `fb345885…`. Map run `total: 2`, and `MaxItemsPerBatch: 8` put both items in **one** child. |
+| 3 | `1de4a077-…` | same two | `arcb_files/` — the copy plan counted **29 objects** (the browser lists 23 files; that listing is not recursive and the plan is). Map run **`total: 58, succeeded: 58`** = 29 × 2, across **8 children**. |
+
+Run 3 is the fan-out: **exactly 8 `batch copied` events for 8 child executions**, item counts
+`8+8+8+8+8+8+8+2 = 58` — the Map's own total — each with a distinct `span_id` under **one shared
+`parent_span_id`** `f037c2da…`, so the fan-out reads as a span tree rather than a count. 65 records,
+one `trace_id` `25dc566d…`, 25 `span.start`, **zero** null parents.
+
+**Two traps worth writing down.** First, runs 1 and 2 would each have "passed" the fan-out row while measuring nothing: one file to one recipient is 1 item → 1 child → 1 event and the 1:1 holds trivially, while a conflict produces 0 children and 0 events, which also "matches". It needs **more than `MaxItemsPerBatch` (8) transfer items** before it can fail. Second, **size that from the OBJECT count, not from the browser's**: this folder shows 23 files in the UI and the copy plan counted 29 keys, because the rendered listing is not recursive. Sizing a fixture from the UI number lands you under the batch size in the direction that measures nothing.
+
+**A re-measurement that turned out to measure nothing, which is worth recording as such.** §1's *Accepted exposure* row records a complete stale Cognito token set for `agriffith_three` in `localStorage`, observed 2026-09-01. Today `localStorage` on `https://portal.dataquarry.app` holds **exactly one** key, `CognitoIdentityServiceProvider.<app-client-id>.oauthSignIn` — the key count settles that no token key is hiding. **But it is not the same subject.** `localStorage` is per origin: the 2026-09-01 reading was on `d1kbh4bnvh1je8.cloudfront.net` in Chromium via an agent browser; today's is `portal.dataquarry.app` in Andrew's own Chrome — and that same origin already read exactly this way on 2026-08-31. So nothing changed and nothing was retired. The CloudFront distribution was destroyed 2026-09-02, so the origin holding the set cannot be loaded again: it is **unreachable, not demonstrably cleared**. Recorded because a reading that looks like good news and is really an origin mismatch is exactly how a dated claim gets retired for the wrong reason.
+
+**One observation against SPEC-227 FR-002's recorded limit, on the wrong plane to settle it.** The
+refused data-quality check above (`d3c33db9-…`) is a **post**-identity failure — actor verified, the
+*location* refused. Its `validate-authorize` records sit on the run's trace `69f4847b…`; its
+`notify-failure` ran 3 s later on a **different** trace `2333f306…` with a **null**
+`parent_span_id`, logging *"no requestId on the failed request"* and *"no verified actor; nothing to
+notify"*. That is the shape the register attributes to **pre**-identity failures. **It is not a
+user-visible defect** — the refusal notification was written 1 s earlier by the notifications
+`write` verb on its own trace `1c485086…` (0.9 s before `notify-failure` ran), so the lost `notify-failure` notification is not user-visible **here**. Note the two facts are independent: `notify-failure` skipped because the seed handed it no actor, **not** because it detected an existing notification — had the seed carried one it would have sent a second. It is
+recorded because SPEC-227's row is about **archive**, and if archive does the same the register's
+"pre-identity" wording is too narrow. A cheap archive instance exists and is not yet run: a restore
+whose destination is already occupied fails at `CheckDestinationClear`, which runs **before**
+`RetrieveObjects`, so it costs no Glacier retrieval.
+
+**Left behind in agriffith's space:** `query-results-20260909-0718.csv` (the evidence for the save
+row) and archive `f0465c23-…` with its receipt folder; the restore will put
+`spec220_archive_fixture/` back at the space root. The route-layer control object was deleted.
+
+---
+
 ## Live-check session — 2026-09-02 (SPEC-202's post-merge-2 CLI pass, and the arc's close)
 
 **CLI only, no browser.** Run against the deployed account from the repo worktree with the
