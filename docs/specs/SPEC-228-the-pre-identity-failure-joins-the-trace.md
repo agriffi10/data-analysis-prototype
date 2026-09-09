@@ -1,7 +1,7 @@
 # Spec: The Pre-Identity Failure Joins the Trace, from the Envelope the State Already Carries
 
 **ID:** SPEC-228
-**Status:** In Progress
+**Status:** Completed
 **Last Updated:** 2026-09-09
 **Depends On:** SPEC-227 (Completed), SPEC-229 (Completed) — **SPEC-229 landed first.** It bounds the
 state this spec makes bigger, and the window between widening and bounding is a reachable silent
