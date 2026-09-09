@@ -377,6 +377,33 @@ def _verb_directory(plane, task):
 #:
 #: Pinned as an EQUALITY, not a skip-list. A verb that stops offending must be removed from here, so
 #: this cannot quietly become the place failures go to be forgiven.
+#: The exact number of (plane, Task) producers the walk reaches. Pinned rather than floored: a
+#: `>= 40` floor left eighteen percent of headroom, and dropping the `Default` edge or the `Wait`
+#: pass-through from the walk stayed above it while silently losing producers — after which a real
+#: key-drop on one of the lost verbs went unseen.
+_PRODUCER_COUNT = 49
+
+#: Directories whose source RETURNS or SPREADS a dict comprehension — the shape that RESHAPES a
+#: mapping rather than removing a named key from it. Pinned as a tripwire, not as a verdict: three
+#: separate bypasses of the check below all took this form (a helper returning a filtered
+#: comprehension, a return rewritten to `{k: out[k] for k in KEEP}`, and the same thing one level
+#: deeper in the shared layer), and none of them names `traceparent` anywhere, so nothing that looks
+#: for the key can see them.
+#:
+#: A new entry here is not a defect — most of these reshape something that is not the run's state.
+#: It is a demand that somebody look, which is the honest thing a shape check can offer.
+_RESHAPES_A_MAPPING = frozenset({
+    "api",
+    "control-plane-common",
+    "data-quality-start-profile-query",
+    "file-ops-collect-transfer-results",
+    "file-ops-finalise-outcomes",
+    "file-send-collect-transfer-results",
+    "results-conversion-common",
+    "table-builder-diff-schema",
+    "table-share-collect-transfer-results",
+})
+
 _NEVER_RETURNS = frozenset({"archive:Rollback"})
 
 
@@ -458,8 +485,8 @@ def _returns_carry(directory):
         return False
 
     echoes = mints = False
-    for module in sorted((_LAMBDAS / directory).glob("*.py")):
-        if module.name.startswith("test_"):
+    for module in sorted((_LAMBDAS / directory).glob("**/*.py")):
+        if module.name.startswith("test_") or "__pycache__" in module.parts:
             continue
         for node in ast.walk(ast.parse(module.read_text(encoding="utf-8"))):
             if isinstance(node, ast.Dict):
@@ -493,8 +520,24 @@ def test_every_producer_of_a_failure_path_traceparent_read_carries_it_through():
 
     The population is bounded and derived, not listed: walk back from every state that reads
     `$.traceparent` on a failure path to the Task whose return it reads, resolve that Task to its
-    Lambda, and require the verb to echo its event or mint the key itself. Forty-odd verbs, and
-    NO exemption list — an exemption list is the thing that rots.
+    Lambda, and require the verb to echo its event or mint the key itself. Forty-nine verbs, and one
+    pinned exemption whose premise is checked by its own test.
+
+    **This is a DETECTOR, not a proof, and the difference is worth stating where it lives.** Whether
+    a verb's return still carries its input's keys is not decidable from source, and five drafts
+    were each defeated by a reviewer: a `return <name>`, a `**<name>` spread, an `event`-anchored
+    version, `dict(event)` followed by `.pop`, and a helper that trimmed the mapping after a genuine
+    echo. What it now catches is the shapes that occur — carrying the event, minting the key,
+    removing it by name — with a fleet-wide tripwire beside it for the one shape that names nothing
+    (`test_the_shape_that_reshapes_a_mapping_is_pinned_fleet_wide`). A determined enough indirection
+    still gets past it.
+
+    What makes that acceptable rather than hollow: production correctness does not rest on this
+    test. A separate review traced every one of the reads with an abstract interpreter over all
+    eight graphs and found zero states reachable with the key absent, and no producer can carry
+    `requestId` and drop `traceparent` because every one either mints or echoes. This guard's job is
+    to make the NEXT change to one of those verbs loud, and it is honest about being that rather
+    than a fence.
 
     Args:
       None.
@@ -521,9 +564,11 @@ def test_every_producer_of_a_failure_path_traceparent_read_carries_it_through():
                         continue
                     producers.add((plane, task))
 
-    assert len(producers) >= 40, (
-        f"the walk found only {len(producers)} producers; it reached forty-odd when written, so a "
-        "population this small means the walk stopped early and every check below is vacuous"
+    assert len(producers) == _PRODUCER_COUNT, (
+        f"the walk found {len(producers)} producers, not {_PRODUCER_COUNT}. A floor was tried here "
+        "first and it left eighteen percent of headroom: dropping the `Default` edge or the `Wait` "
+        "pass-through silently lost producers and stayed above it, and a real key-drop on one of "
+        "the lost verbs then went unseen. An exact count has no headroom to hide in"
     )
 
     for plane, task in sorted(producers):
@@ -536,6 +581,124 @@ def test_every_producer_of_a_failure_path_traceparent_read_carries_it_through():
         "the traceparent, and a state downstream reads `$.traceparent` off their return — an "
         "uncatchable States.Runtime on the failure path, which kills the execution before the user "
         f"is notified. No longer offending: {sorted(_NEVER_RETURNS - set(offenders))}"
+    )
+
+
+def test_the_producer_walk_follows_a_default_edge_and_passes_through_a_wait():
+    """Two rules of the backward walk that the fleet cannot separate from their absence.
+
+    Both were found by planting: dropping the `Default` edge, or the `Wait` pass-through, silently
+    lost producers while every fleet-wide assertion stayed green — and with the `Wait` rule gone, a
+    blunt `out.pop("traceparent", None)` planted in the verb behind it went unseen. The exact
+    producer count above closes the headroom they hid in; these give each rule a case where it alone
+    decides.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If either rule stops being followed.
+    """
+    via_default = {
+        "Make": {"Type": "Task", "Next": "Fork"},
+        "Fork": {"Type": "Choice", "Choices": [], "Default": "Reader"},
+        "Reader": {"Type": "Pass", "Parameters": {"k.$": "$.k"}, "End": True},
+    }
+    assert _producers("Reader", via_default) == {"Make"}, (
+        "the walk does not follow a `Default` edge, so a state reached only through one has no "
+        "producer and drops out of the population unnoticed"
+    )
+
+    via_wait = {
+        "Make": {"Type": "Task", "Next": "Hold"},
+        "Hold": {"Type": "Wait", "Seconds": 1, "Next": "Reader"},
+        "Reader": {"Type": "Pass", "Parameters": {"k.$": "$.k"}, "End": True},
+    }
+    assert _producers("Reader", via_wait) == {"Make"}, (
+        "a `Wait` touches nothing on the state, so the walk must pass THROUGH it; stopping there "
+        "loses the verb whose return the reader actually reads"
+    )
+
+
+def test_the_shape_that_reshapes_a_mapping_is_pinned_fleet_wide():
+    """The tripwire for the one thing a key-named check cannot see: a RESHAPE.
+
+    Every guard in this file that asks about the traceparent asks it by name — is the key spread
+    in, is it popped, is it excluded by a filter that names it. A verb that instead builds its
+    return from a KEEP-list never mentions the key at all, and all three bypasses of the check below
+    took exactly that form. The population is small enough to pin, so a new one is a red run.
+
+    It is a tripwire and not a verdict, and the difference is worth being exact about: most of these
+    reshape something that is not the run's state, and a fence that claimed otherwise would be a
+    detector wearing a fence's clothes.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a directory starts or stops reshaping a mapping.
+    """
+    found = set()
+    for module in sorted(_LAMBDAS.glob("**/*.py")):
+        if module.name.startswith("test_") or "__pycache__" in module.parts:
+            continue
+        try:
+            tree = ast.parse(module.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            reshapes = isinstance(node, ast.Return) and isinstance(node.value, ast.DictComp)
+            if isinstance(node, ast.Dict):
+                reshapes = reshapes or any(
+                    key is None and isinstance(value, ast.DictComp)
+                    for key, value in zip(node.keys, node.values, strict=True)
+                )
+            if reshapes:
+                found.add(module.relative_to(_LAMBDAS).parts[0])
+
+    assert found == _RESHAPES_A_MAPPING, (
+        f"new: {sorted(found - _RESHAPES_A_MAPPING)} — each one builds a mapping from a chosen set "
+        "of keys, which drops everything it was not told to keep WITHOUT naming what it dropped. "
+        f"If any sits on a failure-reachable path, the run's trace stops there silently. "
+        f"No longer reshaping: {sorted(_RESHAPES_A_MAPPING - found)}"
+    )
+
+
+def test_the_rollback_exemption_still_cannot_return_a_mapping():
+    """`_NEVER_RETURNS` rests on a claim about archive-rollback, so the claim is checked.
+
+    The exemption says the verb always raises and so returns no state to drop a key from. That is a
+    property of the source, not a licence, and `RollbackReturnedSeed` — the state built precisely
+    for a rollback that DOES return — reads `$.traceparent` as its first parameter. On any path
+    where the premise is false, the seed built for it raises the very error the guard prevents
+    elsewhere.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the verb gains a path that returns a mapping.
+    """
+    returns = []
+    for module in sorted((_LAMBDAS / "archive-rollback").glob("**/*.py")):
+        if module.name.startswith("test_") or "__pycache__" in module.parts:
+            continue
+        for node in ast.walk(ast.parse(module.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Return) and isinstance(node.value, (ast.Dict, ast.DictComp)):
+                returns.append(f"{module.name}:{node.lineno}")
+
+    assert not returns, (
+        f"archive-rollback returns a mapping at {returns}, so `_NEVER_RETURNS` no longer holds: "
+        "the verb can now hand a state to RollbackReturnedSeed, which reads `$.traceparent` off it"
     )
 
 

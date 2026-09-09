@@ -689,9 +689,13 @@ def test_the_verbs_that_filter_their_echo_are_exactly_the_two_that_are_pinned():
     it. The test above pins what those two are allowed to drop — but its parametrisation is a LIST,
     so a THIRD verb adopting the same idiom would drop the run's traceparent silently.
 
-    Detected by SHAPE rather than by text: a `Dict` spreading a FILTERED comprehension. A substring
-    search for `event.items()` — which is what this did — is blind to the same idiom written over a
-    differently named local, and blind in the direction that matters.
+    Detected by SHAPE rather than by text: a `Dict` spreading ANY comprehension. Three narrowings
+    were tried and each was blind in the direction that matters. A substring search for
+    `event.items()` misses the same idiom over a differently named local. Requiring the
+    comprehension to carry an `if` misses one that selects from a KEEP-list instead of excluding —
+    which drops just as much and names nothing. And globbing `*/*.py` misses the shared layer
+    entirely: **134 of the fleet's 242 non-test modules sit deeper than that**, and the same drop
+    planted one directory down was invisible to this and to the guard beside it.
 
     The wider invariant this belongs to — that every replacing Task on a failure-reachable path
     carries the traceparent through — is guarded, not merely stated:
@@ -709,8 +713,8 @@ def test_the_verbs_that_filter_their_echo_are_exactly_the_two_that_are_pinned():
       AssertionError: If a third verb starts filtering its echo.
     """
     filtering = set()
-    for module in sorted(_LAMBDAS.glob("*/*.py")):
-        if module.name.startswith("test_"):
+    for module in sorted(_LAMBDAS.glob("**/*.py")):
+        if module.name.startswith("test_") or "__pycache__" in module.parts:
             continue
         try:
             tree = ast.parse(module.read_text(encoding="utf-8"))
@@ -720,9 +724,8 @@ def test_the_verbs_that_filter_their_echo_are_exactly_the_two_that_are_pinned():
             if not isinstance(node, ast.Dict):
                 continue
             for key, value in zip(node.keys, node.values, strict=True):
-                if (key is None and isinstance(value, ast.DictComp)
-                        and any(generator.ifs for generator in value.generators)):
-                    filtering.add(module.parent.name)
+                if key is None and isinstance(value, ast.DictComp):
+                    filtering.add(module.relative_to(_LAMBDAS).parts[0])
 
     assert filtering == {
         "file-send-collect-transfer-results",
