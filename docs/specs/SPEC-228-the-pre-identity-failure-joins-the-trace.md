@@ -40,8 +40,9 @@ derived the same way. Adoption moves to the place that can already do it.
 
 **Carrying the envelope has a byte cost, and it is SPEC-229's, not this spec's.** A request travels
 a four-link chain, each link capped at 256 KiB, and the fourth — `RecordFailure`, which is the Pipe's
-record plus an error whose `Cause` may reach 32 KB — is computed nowhere and is already live on four
-planes. This spec widens it to eight. That is why the bound lands first: between the widening and the
+record plus an error whose `Cause` may reach 32 KB — is computed on **one** plane out of the four
+that carry it, against a model that allows the error 4 KB where the service permits 32. This spec
+widens it to eight. That is why the bound lands first: between the widening and the
 bound there is a band of request sizes where `RecordFailure` raises `States.DataLimitExceeded`
 **outside every Catch**, so `NotifyFailure` never runs and a user whose request failed is told
 nothing — the exact silent failure this arc exists to close, introduced by a change meant to close

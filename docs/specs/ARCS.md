@@ -2996,7 +2996,8 @@ walks the `raw` the state already carries, which is the repair rather than the r
 that fifth shape and puts the envelope on every plane's `RecordFailure`, read from the context
 object so the failure-seed guard is untouched. **229** goes first because 228 widens a state whose
 size nothing computes: the request chain has four links, each capped at 256 KiB, and the fourth —
-the Pipe's record plus a 32 KB `Cause` — is measured on no plane while four already carry it. The
+the Pipe's record plus a 32 KB `Cause` — is measured on one of the four planes that carry it, and
+that one allows the error 4 KB where the service permits 32. The
 per-plane caps that look like they bound it do not: every one runs inside `validate-authorize`, so
 the request that overflows the chain is the one arriving before the cap that would refuse it. The
 one control upstream is the API's `MAX_MESSAGE_BYTES`, and it is derived from the **SQS** limit
