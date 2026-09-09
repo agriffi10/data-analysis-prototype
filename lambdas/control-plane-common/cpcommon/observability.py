@@ -31,8 +31,9 @@ metadata in, file contents out, tokens and emails always out. The emitters do no
 at runtime, deliberately: it turns on provenance, which no filter over a field name or value
 shape can see, and a filter that looked like enforcement would be worse than none because it
 would be trusted. Shape notes, the stack-trace exemption and how a run becomes ONE trace are
-in ``lambdas/info/shared-layer.md``. The FAILURE path is not threaded yet, so a failed run is
-still its success prefix in one trace and its terminal in another.
+in ``lambdas/info/shared-layer.md``. The FAILURE path is threaded too; the one
+exception is a PRE-identity failure, whose traceparent is reachable nowhere ASL can read, so its
+``notify-failure`` opens a fresh trace while this verb's own span still adopts the run's.
 
 Import-safety is the point of this module's shape. ``cpcommon`` is resolved by every
 control-plane verb, including three that set almost none of ``config``'s environment — and

@@ -2979,8 +2979,8 @@ in a `Pass`: a `States.Runtime` error that is neither retriable nor catchable, k
 have caught it identifies a seed structurally and cannot see NINE of the fleet's seed states — authoring
 counted eight and missed `shared-spaces/RefusedSeed`, re-derived by parsing all eight templates. So
 the guard is widened before anything is threaded through it. 227 also writes the ASL↔verb
-cross-check that **five of the eight planes do not have** — and that the archive machine claims in
-its own comments that it does, citing `test_state_machine_archive.py`, which EXISTS and holds seven tests, none of them that
+cross-check that **five of the eight planes did not have** — of which it gave archive, data-quality and table-share a real pair, and reported file-ops and table-builder as having nothing to check — — and that the archive machine claimed in
+its own comments that it did, citing `test_state_machine_archive.py`, which EXISTS and holds seven tests, none of them that
 cross-check — a real file with a false claim about it, which is the harder case to notice.
 
 **What 227 could NOT do is the half worth recording.** A pre-identity failure cannot join the trace
@@ -3013,7 +3013,8 @@ it is not a repair, and the thirteen are not 226's cost.
 not competing with the one-trace guards for the same capturing-sink fixtures.
 
 > **Superseded in the event: 226 shipped BEFORE 227**, on the pin alone, while 227 was unstarted —
-> the built order is 224 → 225 (FR-001/FR-002) → 226 → 225 (FR-003→FR-005), with 227 outstanding.
+> the built order is 224 → 225 (FR-001/FR-002) → 226 → 225 (FR-003→FR-005) → 227, which has since
+> landed and closed the arc.
 > The heading and the arc-list entry no longer carry an arrow, because a name that asserts a
 > sequence is a claim a reader meets before any marker that corrects it.
 > **The predicted fixture contention did not occur.** This paragraph forecast it while only 225's
@@ -3023,9 +3024,11 @@ not competing with the one-trace guards for the same capturing-sink fixtures.
 > mechanism, so the rest of the order stands. Entry: `decisions/control-planes.md`
 > (*Where a child span may go*).
 
-**Three defects in `main` were found while authoring.** Two are fixed inside the arc: the archive
-machine's `Validated` and `ArchiveComplete` comments cite a cross-check test that does not exist,
-and the failure-seed guard cannot see eight of the states it exists to police — both 227. The third
+**Three defects in `main` were found while authoring.** Two were fixed inside the arc: the archive
+machine's `Validated` and `ArchiveComplete` comments CLAIMED a cross-check that
+`test_state_machine_archive.py` never held — the file is real, which is what made the claim hard to
+notice — and the failure-seed guard could not see NINE of the states it exists to police, one more
+than authoring counted. Both 227, both repaired there. The third
 turned out to belong elsewhere. A sweep for the first found the class — **23 citations in live
 source and 21 in current-tier docs name tests that do not exist** — and then found its cause:
 `a41bda69` (#540) deleted 53 test files and left every citation to them standing, so this is one

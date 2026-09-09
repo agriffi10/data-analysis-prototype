@@ -5,7 +5,7 @@
 - **The failure-seed guard can see every state that feeds a failure terminal.** Recognition in
   `test_a_failure_seed_supplies_every_key_the_failure_terminal_reads` is now the **union** of the
   old structural test and a graph test — a `Pass` with no `ResultPath` whose every reachable
-  terminal is a `Fail`. Measured across the eight templates: structural 23, graph 29, **union 32**.
+  terminal is a `Fail`. Measured across the eight templates: structural 23 seeds, graph 29 seeds, **union 32**.
   A union rather than a replacement, because the graph half alone loses the three nested seeds
   whose `ItemProcessor` holds no `Fail` at all.
 - **A latent walk bug is repaired.** The guard flattened states to qualified names while ASL `Next`
@@ -53,9 +53,10 @@
 - **FR-003's AC-6 was struck**: shared-spaces has no usable pair, so its conditionally-shaped
   validator return had nothing to attach to. (Checked separately: `traceparent` is set before the
   refusal branch, so every arm carries it.)
-- **AC-2 is met by a synthetic fixture, and the guard says so.** All three nested seeds are
-  `End: true` with no `Next`, so even with the walk repaired their walks reach zero states — the
-  repair buys no assertion over today's fleet, only over the day a nested seed gains a successor.
+- **AC-2 — which asked that the nested walk be asserted to traverse more than one hop — is met by a
+  SYNTHETIC fixture, and the guard says so.** All three nested seeds are `End: true` with no `Next`,
+  so even with the walk repaired their walks reach zero states: the repair buys no assertion over
+  today's fleet, only over the day a nested seed gains a successor.
 - **Three spec measurements did not reproduce** and were corrected in place before building: the
   graph half gains nine seeds, not eight (`shared-spaces/RefusedSeed` was missed); "349 violations"
   does not reproduce; and FR-003's population was wrong in both directions, with two criteria that
@@ -67,8 +68,10 @@ Whether a verb's return still carries its input's keys is **not decidable from s
 of the classifier were each defeated by a reviewer: a bare `return <name>`; a `**<name>` spread; an
 `event`-anchored version; `dict(event)` followed by `.pop`; and a genuine echo trimmed afterwards by
 a helper. The reviewer's own remedy — bind to the handler's return and fail closed — was measured
-and rejected: it flags **63 of 105** directories and needs exactly the exemption list the guard
-refuses.
+and rejected: it flags **most** of the fleet's verb directories, because most verbs build their
+return rather than echoing it, so it would need exactly the exemption list the guard refuses. (An
+earlier draft gave a count. It was measured against a throwaway prototype that no longer exists, so
+nobody could re-derive it — and its denominator did not match any population in the tree.)
 
 So it is a **detector, not a fence**, and the docstring says so. It catches the shapes that occur and
 makes the next change to one of those verbs loud. **Production correctness does not rest on it**: the
@@ -95,7 +98,7 @@ so the hardening is free and is owed to the next change in that guard.
 
 ## Verification
 
-Local, green by exit code: `ruff`, `mypy`, `pytest lambdas/` (3521 passed, coverage 90.32%),
+Local, green by exit code: `ruff`, `mypy`, `pytest lambdas/` (3531 passed, coverage 90.38%),
 `npm run format:check|lint|test|build|check:bundle`, the contract regen and its no-diff check, all
 five doc/flag/path validators, and `pre_push_test.py`. Every edited template passes
 `aws stepfunctions validate-state-machine-definition`.
@@ -124,8 +127,11 @@ to re-check, re-measured independently: of the **27** states reading `$.tracepar
 `$.error` off the same state. So the new read is a new failure mode only if a producer could carry
 those and drop the traceparent, and none can: every producer either mints the key or echoes the
 whole event.
-Payload headroom measured rather than estimated, at the worst case the archive cap allows: the
-traceparent costs **72 bytes against 58,802 bytes of headroom** on the 256 KB state limit.
+Payload headroom is not restated here, and that is deliberate: an earlier draft of this paragraph
+carried a byte figure taken from a review and never re-derived, and neither half of it matched the
+model the repo already owns. `test_the_whole_map_state_stays_under_the_payload_limit` derives the
+traceparent's cost — 55 bytes as a value, **73** with its key and comma — against the 256 KB state
+limit, and a reader who needs the number should re-measure there rather than trust a copy.
 
 Deferred to deploy: nothing. No verb changed, every validator already returned `traceparent` on the
 live image, and no `notify-failure` handler holds a strict envelope — so the two deploy workflows

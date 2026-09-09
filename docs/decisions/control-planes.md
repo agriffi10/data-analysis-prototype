@@ -71,15 +71,11 @@ DLQ lets one malformed request dead-letter someone else's work.
   path, because the no-verb-ran paths cannot be selected for in ASL.
 - **A post-identity failure needs its own seed.** A catch routed to a state reading `$.raw` raises an
   uncatchable error *before* the notifier, because `$.raw` exists on no post-validate state.
-- **A PRE-identity failure cannot join the run's trace, and its seed supplies LITERALS for
-  everything the terminal reads.** The error REPLACED the state (`"error.$": "$"`), so nothing from
-  before it survives — and the value cannot be recovered from the envelope either: no Pipe carries
-  an `input_template`, so `$$.Execution.Input` is the raw SQS batch and the traceparent sits inside
-  a **JSON string** only `States.StringToJson` could open, which is banned above for exactly this
-  failure mode. `validate-authorize`'s own span still adopts the trace, in Python; `notify-failure`
-  opens its own. Everything post-identity reads `$.traceparent`, and a seed that OMITS the key
-  rather than supplying a literal `null` makes `RecordFailure`'s read the uncatchable error the
-  whole rule exists to prevent.
+- **A PRE-identity seed — `"error.$": "$"`, where the error REPLACED the state — supplies LITERALS
+  for everything its terminal reads, including `traceparent`.** Omitting the key instead of
+  supplying a literal `null` makes `RecordFailure`'s read the uncatchable error this whole rule
+  exists to prevent. Such a failure cannot join the run's trace and is not meant to: the value is
+  reachable nowhere ASL can read. Everything post-identity reads `$.traceparent`.
 - **Everything unbounded travels by pointer**, never on the state, and **a cap is not a substitute**.
 - **Every cap is COMPUTED by a test**, against the budget that sized it — memory, makespan, or a
   service quota — and it names that budget. A hard-coded number hides a wrong model.
@@ -203,7 +199,8 @@ DLQ lets one malformed request dead-letter someone else's work.
   comes **after** the per-invocation reset, which clears it; `run_traceparent()` returns the value
   **verbatim**, since rebuilding it re-emits an inbound `-00` as `-01`. A Map's `BatchInput` pair is
   **per-plane** — table-share's state has no `requestId`, so demanding one is `States.Runtime` on
-  every share. The **failure path is not threaded** (SPEC-227).
+  every share. The failure path is threaded too, since SPEC-227 — with the pre-identity limit in the
+  clause above.
 
 ## Everything unbounded on the state travels by pointer — including the definition (SPEC-161, extending SPEC-090/160)
 
@@ -330,12 +327,13 @@ notification names the traceparent, that span belongs to a trace of its own. Twe
 carry it — 13 post-identity seeds and 8 `RecordFailure` states read `$.traceparent`, 8 pre-identity
 seeds supply a literal `null`.
 
-**The limit is real and is not a shortcut.** Authoring specified that a pre-identity seed read the
-value from `$$.Execution.Input`. It cannot: with no `input_template` on any Pipe that path is the
-raw SQS batch, the traceparent is inside `[0].body` as a JSON string, and extracting a field from it
-needs the one intrinsic this area bans fleet-wide. Independently,
-`observability._shape_values` walks the event's top level, `BatchInput` and `request` — never
-`raw` — so even a parsed envelope would not be adopted. Accepted as a limit rather than worked
+**The limit is real and is not a shortcut, and the obvious repair does not work.** A pre-identity
+seed reading `$$.Execution.Input` cannot get at the value: with no `input_template` on any Pipe that
+path is the raw SQS batch, the traceparent is inside `[0].body` as a JSON string, and extracting it
+needs `States.StringToJson` — banned in ANY intrinsic-evaluating field on any state, not only on
+`$.error.Cause`, for the same uncatchable `States.Runtime`. Independently,
+`observability._shape_values` walks the four inbound shapes — top level, the SQS envelope,
+`BatchInput` and `request` — but never `raw` — so even a parsed envelope would not be adopted. Accepted as a limit rather than worked
 around.
 
 **The guard had to be widened before anything was threaded through it, and that ordering was the
@@ -348,11 +346,6 @@ terminal is a `Fail`), because the graph half alone loses the three nested seeds
 `ItemProcessor` contains no `Fail`. "Terminal" means **a state that hands control nowhere**; under
 the other reading an `ItemProcessor` has none, `all([])` is true, and the sweep selects success
 leaves.
-
-**Two guards that cannot fail were found by planting, not by reading.** The terminal definition and
-the non-empty check beside it are *independent* defences, so neither reddens while the other stands;
-both are pinned directly. And the fleet exercises no shape that separates several discriminators
-from their narrower forms, so each has a synthetic case where it alone decides.
 
 **The cross-check's own limit is the interesting part.** Driving a verb answers the question only
 for a verb that **builds** its return. One returning `{**event, …}` inherits its key set from its
@@ -367,15 +360,20 @@ silence a failing pair.
 it.** Whether a verb's return still carries its input's keys is not decidable from source: five
 drafts of the classifier were each defeated — a bare `return <name>`, a `**<name>` spread, an
 `event`-anchored version, `dict(event)` then `.pop`, and a genuine echo trimmed afterwards by a
-helper. Binding to the handler's return and failing closed was measured and rejected at 63 of 105
-directories. What it catches is the shapes that occur, plus a fleet-wide tripwire on the one shape
-that names nothing — a verb that reshapes a mapping. Production correctness rests on the traced
-analysis, not on the test.
+helper. Binding to the handler's return and failing closed was measured and rejected — it flags
+most of the fleet's verb directories, because most verbs build their return rather than echoing
+it. What it catches is the shapes that occur, plus a fleet-wide tripwire on the one shape
+that names nothing — a verb that reshapes a mapping. Production correctness today rests on the
+traced analysis rather than on the test — but that analysis was a one-time review artifact over the
+eight graphs as they stood, so the day a ninth producer lands the detector is the only live thing
+left. Its job is to make the next change to one of those verbs loud; weakening it removes the only
+standing check.
 
 Do **NOT** add a second copy of a plane's fixture to drive its verb: import the plane's own suite.
 Do **NOT** hold a state's reads to a verb that echoes its event — the answer is your fixture.
-Do **NOT** glob `lambdas/*/*.py` for a fleet-wide source sweep: 134 of 242 non-test modules sit
-deeper, in the shared layer, and a drop planted there is invisible to it.
+Do **NOT** glob `lambdas/*/*.py` for a fleet-wide source sweep — it sees the handler modules only,
+and misses the `*-common` packages, the API tree and the files at `lambdas/` top level. A key
+dropped in any of them is invisible to it.
 
 Detail, the corrected populations, and the residual first-segment gap: `spec-delivery/SPEC-227`.
 
