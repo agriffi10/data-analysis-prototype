@@ -62,6 +62,9 @@ for _dir in (
     "shared-space-common",
     "shared-space-validate",
     "shared-space-notify-failure",
+    "file-send-notify-failure",
+    "results-conversion-common",
+    "results-conversion-notify-failure",
     "api",
 ):
     sys.path.insert(0, str(_LAMBDAS / _dir))
@@ -76,6 +79,8 @@ import file_send_copy_objects
 import file_send_notify
 import file_send_validate_authorize
 import fo_notify_failure
+import fs_notify_failure
+import rc_notify_failure
 import ss_notify_failure
 import test_state_machines_cpcommon as machines
 import validate as shared_space_validate
@@ -675,7 +680,9 @@ def _drive_a_pre_identity_failure(plane, validate, envelope, notify_failure, ref
 
     The validator is made to RAISE rather than the state hand-shaped, because `"error.$": "$"` is
     what defines this seed: the error object it produces has to be the one a real Lambda failure
-    produces, or the drive proves nothing about the state the machine actually builds.
+    produces, or the drive proves nothing about the state the machine actually builds. `caught`
+    below is therefore what a `Catch` with no `ResultPath` leaves on the state and nothing else —
+    the key-set assertion further down is what holds it to that.
 
     Args:
       plane: The plane's directory name under infra/modules.
@@ -697,13 +704,12 @@ def _drive_a_pre_identity_failure(plane, validate, envelope, notify_failure, ref
     with pytest.raises(expected, match=refusal) as raised:
         validate(envelope, None)
 
-    # What a Catch with no ResultPath leaves on the state, and nothing else.
     caught = {"Error": type(raised.value).__name__, "Cause": str(raised.value)}
 
     seeded = _apply(_state(plane, "ValidateFailureSeed")["Parameters"], caught, envelope)
     recorded = _apply(_state(plane, "RecordFailure")["Parameters"], seeded, envelope)
 
-    assert seeded["error"] == caught, (
+    assert set(seeded["error"]) == {"Error", "Cause"}, (
         f"{plane}: the seed's `error.$: $` captured {sorted(seeded['error'])} rather than the "
         f"error alone — a harness-only key reached the state, and this drive is exercising a "
         f"shape no real run produces on the very state it exists to build faithfully"
@@ -801,6 +807,64 @@ def test_a_pre_identity_failure_is_one_trace_including_its_notification(plane, d
     assert all(event.get("parent_span_id") for event in notifications), (
         f"{plane}: notify-failure's span has no parent, so it is a root of its own trace rather "
         "than a child of the run — adoption did not happen even though the trace ids agree"
+    )
+
+
+@pytest.mark.parametrize(
+    "plane,recover,expected",
+    [
+        ("archive", lambda e: ar_notify_failure._actor_from_raw_request(e["raw"]), "alice"),
+        ("file-ops", lambda e: fo_notify_failure._actor_from_raw_request(e["raw"]), "alice"),
+        ("file-send", lambda e: fs_notify_failure._sender_from_raw_request(e["raw"]), "alice"),
+        (
+            "results-conversion",
+            lambda e: rc_notify_failure._identity_from_raw(e["raw"]).get("username"),
+            "alice",
+        ),
+    ],
+    ids=["archive", "file-ops", "file-send", "results-conversion"],
+)
+def test_the_notifiers_that_recover_an_actor_read_the_envelope_the_template_builds(
+    plane, recover, expected
+):
+    """The four verbs whose recipient comes out of the envelope, driven through the REAL template.
+
+    These four recover the actor from `raw` when the state has none — which is every failure whose
+    error replaced the state, the one case where there is no verified actor to read. Their input
+    used to be threaded up from a seed and now arrives from the context object, so the ASL path
+    that delivers it changed underneath them while their Python did not.
+
+    Driven rather than reasoned about, and driven through `RecordFailure`'s own `Parameters` rather
+    than a hand-built event: a fixture written beside the assertion would agree with it whatever
+    the template says, which is exactly what a provenance change needs to be caught.
+
+    Args:
+      plane: The plane's directory name under infra/modules.
+      recover: The verb's own recovery function, applied to the built state.
+      expected: The actor the envelope names.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the template stops delivering an envelope the verb can read.
+    """
+    envelope = [{"messageId": "m-1", "body": json.dumps(
+        {"requestId": _UUID, "mode": "archive", "operation": "copy", "format": "csv",
+         "identity": _IDENTITY}
+    )}]
+    caught = {"Error": "TerminalError", "Cause": "unauthorized: no identity block"}
+
+    seeded = _apply(_state(plane, "ValidateFailureSeed")["Parameters"], caught, envelope)
+    recorded = _apply(_state(plane, "RecordFailure")["Parameters"], seeded, envelope)
+
+    assert recorded.get("raw") == envelope, (
+        f"{plane}: RecordFailure built no envelope, so the recovery below would be asserting "
+        "against a fixture rather than against the machine"
+    )
+    assert recover(recorded) == expected, (
+        f"{plane}: the notifier could not recover the actor from the envelope the template now "
+        "builds, so a failure that replaced the state reaches nobody"
     )
 
 

@@ -172,10 +172,9 @@ def _on_execution_timed_out(event) -> dict:
 def _wording_tokens(request: dict) -> dict:
     """Collects what a refusal's sentence needs beyond the format, from wherever it survives.
 
-    Only what nothing else can supply. The file NAME is recovered from the request body under
-    the forwarded request, which ``RecordFailure`` carries on every path, so it needs no key of
-    its own. A COUNT
-    is not derivable from anything the request said: it is a fact about the RESULT SET,
+    Only what nothing else can supply. The file NAME is recovered from the request body inside the
+    forwarded request, which ``RecordFailure`` carries on every path, so it needs no key of its
+    own. A COUNT is not derivable from anything the request said: it is a fact about the RESULT SET,
     discovered by the convert verb, and Excel's row ceiling is the only refusal of the
     converter's whose sentence has to name one. That is the whole reason the machine's refusal seed carries a
     ``tokens`` object at all, and why it carries nothing else.

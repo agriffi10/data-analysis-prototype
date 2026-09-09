@@ -211,7 +211,9 @@ _INBOUND = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00"
 _INBOUND_TRACE = "4bf92f3577b34da6a3ce929d0e0e4736"
 _INBOUND_PARENT = "00f067aa0ba902b7"
 
-#: One entry per shape `_shape_values` walks, as the event a verb actually receives.
+#: One entry per shape `_shape_values` walks, as the event a verb actually receives. The last is a
+#: failure terminal's state: its seed supplied literal nulls because the error had replaced the
+#: state, and the envelope beside them is the only surviving copy of the run.
 #: `test_the_shape_table_covers_every_shape_the_extractor_walks` is what stops a SIXTH shape
 #: being added to the module without one here — otherwise this table is a list of the shapes
 #: someone remembered, and the parametrisation below proves nothing about the rest.
@@ -228,8 +230,6 @@ _SHAPES = {
         "recipient": {"kind": "user", "name": "bob"},
         "request": {"requestId": "REQ", "traceparent": value},
     },
-    # The failure terminal's state: the seed supplied literal nulls because the error had
-    # replaced the state, and the envelope beside them is the only surviving copy of the run.
     "forwarded envelope on the state": lambda value: {
         "requestId": None,
         "traceparent": None,
@@ -473,7 +473,8 @@ def test_a_threaded_traceparent_wins_over_the_one_inside_the_envelope():
     "raw,case",
     [
         (None, "absent"),
-        ({"body": "{}"}, "not a list"),
+        ({"body": json.dumps({"requestId": "NOT-A-LIST", "traceparent": "NOT-A-LIST"})},
+         "not a list"),
         ([], "empty list"),
         ([{"messageId": "m-1"}], "record with no body"),
         ([{"body": "not json at all"}], "body that is not JSON"),
@@ -487,6 +488,11 @@ def test_a_malformed_envelope_on_the_state_yields_nothing_and_raises_nothing(raw
     empty sequence and asserting emptiness there would assert nothing. The extractors are where
     "unusable" becomes None. A logging helper that raised here would fail the verb it exists to
     describe, on the failure path.
+
+    The "not a list" case carries a POPULATED body on purpose, and it is the one case here that
+    guards a security boundary rather than a shape. With the list-only narrowing removed that dict
+    would be read AS the record and yield both keys; an empty body returns None either way, so the
+    fixture would pass whether the narrowing held or not.
 
     Args:
       raw: The malformed value to put under `raw`.
