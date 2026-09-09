@@ -478,8 +478,13 @@ def test_a_threaded_traceparent_wins_over_the_one_inside_the_envelope():
         ([], "empty list"),
         ([{"messageId": "m-1"}], "record with no body"),
         ([{"body": "not json at all"}], "body that is not JSON"),
+        ([json.dumps({"requestId": "X", "traceparent": "Y"})], "record that is not a dict"),
+        ([{"body": json.dumps({"requestId": "X", "traceparent": "Y"}).encode()}],
+         "body that is bytes rather than str"),
+        ([{"body": "[1, 2]"}], "body that is JSON but not an object"),
     ],
-    ids=["absent", "not-a-list", "empty-list", "no-body", "body-not-json"],
+    ids=["absent", "not-a-list", "empty-list", "no-body", "body-not-json",
+         "record-not-a-dict", "body-not-str", "body-not-an-object"],
 )
 def test_a_malformed_envelope_on_the_state_yields_nothing_and_raises_nothing(raw, case):
     """Every way `raw` can be unusable, asserted on the EXTRACTORS rather than on the walk.
@@ -489,10 +494,16 @@ def test_a_malformed_envelope_on_the_state_yields_nothing_and_raises_nothing(raw
     "unusable" becomes None. A logging helper that raised here would fail the verb it exists to
     describe, on the failure path.
 
-    The "not a list" case carries a POPULATED body on purpose, and it is the one case here that
-    guards a security boundary rather than a shape. With the list-only narrowing removed that dict
-    would be read AS the record and yield both keys; an empty body returns None either way, so the
-    fixture would pass whether the narrowing held or not.
+    **Every case here is a fixture for ONE of the walk's six guards, and each was chosen by
+    mutating that guard and watching this test go red.** Written the obvious way three of them
+    survived: an empty-object body, a non-dict record and a body that is not a string all return
+    None whether their guard holds or not. So the bodies are POPULATED, the non-dict record is a
+    bare JSON string, the non-str body is bytes (which `json.loads` accepts and the guard is the
+    only thing refusing), and the non-object body parses to a list, whose `.get` would raise.
+
+    The "not a list" case is the one that guards a security boundary rather than a shape: with the
+    list-only narrowing removed, that dict is read AS the record and yields both keys — which is a
+    caller naming this service's trace.
 
     Args:
       raw: The malformed value to put under `raw`.
