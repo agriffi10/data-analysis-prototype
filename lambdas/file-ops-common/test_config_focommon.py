@@ -45,8 +45,6 @@ _STATE_LIMIT = cp_config.STATE_PAYLOAD_LIMIT_BYTES
 #: S3's own maximum key length. The worst selection is every key at this length.
 _MAX_KEY_BYTES = 1024
 
-#: A generous Cognito ID token. It rides at the top level of every request.
-_MAX_TOKEN_BYTES = 8 * 1024
 
 #: The module whose ``locals.tf`` carries the memory and timeout every expansion cap is computed
 #: against. Read back rather than restated, so lowering one without lowering the cap fails the
@@ -156,49 +154,6 @@ def _serialised(value: object) -> int:
       None.
     """
     return len(json.dumps(value, separators=(",", ":")).encode())
-
-
-def _pipe_record(selection: list) -> int:
-    """Returns the size of the execution input the Pipe hands to ``StartExecution``.
-
-    The link an obvious model leaves out. A request over this limit cannot start an execution at
-    all: no verb runs, no Catch fires, and nothing notifies anyone — the request dead-letters and
-    the actor hears about it from the drain minutes later, if at all.
-
-    Args:
-      selection: The selection, as the browser sends it.
-
-    Returns:
-      The serialised byte length of the Pipe's forwarded batch.
-
-    Raises:
-      None.
-    """
-    body = json.dumps(
-        {
-            "requestId": "0" * 36,
-            "actor": "t" * _MAX_TOKEN_BYTES,
-            "operation": "move",
-            "source": {"space": {"kind": "personal", "name": "a" * 64}, "items": selection},
-            "destination": {
-                "space": {"kind": "shared", "name": "s" * 64},
-                "prefix": ("p" * 512) + "/",
-            },
-            "onConflict": "overwrite",
-            "submittedAt": "2026-08-19T12:00:00Z",
-        },
-        separators=(",", ":"),
-    )
-    record = [
-        {
-            "messageId": "m" * 36,
-            "receiptHandle": "r" * 1024,
-            "body": body,
-            "attributes": {"MessageGroupId": "g" * 64, "MessageDeduplicationId": "d" * 36},
-            "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:dat-prod-file-ops-requests.fifo",
-        }
-    ]
-    return _serialised(record)
 
 
 def _validated_state(selection: list) -> int:

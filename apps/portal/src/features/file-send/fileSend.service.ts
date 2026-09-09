@@ -1,3 +1,4 @@
+import {wireBytes} from '../../lib/wireBytes';
 import {apiRequest} from '../../lib/apiClient';
 import {discardPayload} from '../../lib/serviceResult';
 import type {ServiceResult} from '../../types/service.types';
@@ -27,7 +28,7 @@ const SEND_MAX_ITEM_BYTES = 84 * 1024;
  * silent no-op. The FIFO keys themselves are derived server-side now.
  */
 export async function enqueueFileSend(req: FileSendRequest): Promise<ServiceResult<void>> {
-  const selectionBytes = new TextEncoder().encode(JSON.stringify(req.items)).length;
+  const selectionBytes = wireBytes(req.items);
   if (req.items.length > SEND_MAX_ITEMS || selectionBytes > SEND_MAX_ITEM_BYTES) {
     return {
       success: false,

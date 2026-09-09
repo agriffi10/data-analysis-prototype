@@ -1,4 +1,5 @@
 import {apiRequest} from '../../lib/apiClient';
+import {wireBytes} from '../../lib/wireBytes';
 import {discardPayload} from '../../lib/serviceResult';
 import type {ServiceResult} from '../../types/service.types';
 import type {FileOpRequest} from './fileOps.types';
@@ -26,23 +27,6 @@ import type {FileOpRequest} from './fileOps.types';
  */
 const FILE_OPS_MAX_ITEMS = 200;
 const FILE_OPS_MAX_SELECTION_BYTES = 64 * 1024;
-
-/** Non-ASCII, which the wire's serialiser escapes to `\uXXXX` and `JSON.stringify` leaves literal. */
-const NON_ASCII = /[\u007f-\uffff]/g;
-
-/**
- * The serialized size of a value as the API sends it, in bytes.
- *
- * `JSON.stringify` matches Python's escaping for every control character already; the two part
- * company from `U+007F` up, which this closes. The result is pure ASCII, so its length in
- * characters is its length in bytes.
- */
-function wireBytes(value: unknown): number {
-  return JSON.stringify(value).replace(
-    NON_ASCII,
-    (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`
-  ).length;
-}
 
 /**
  * Enqueue one file operation onto the file-ops FIFO queue — the browser's only file-ops write,

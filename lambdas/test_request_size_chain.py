@@ -359,10 +359,13 @@ def test_a_route_with_no_plane_cap_builds_its_worst_case_at_the_FIELD_bounds():
     Built at the field bounds rather than at "the largest body the fleet cap admits", which would
     make the cap check that reads this ``X ≤ X`` on most of the fleet.
     """
-    capped = {"archive.archive", "fileSend.enqueue", "fileOps.enqueue", "archive.restore"}
+    #: The routes whose SELECTION a plane caps. ``archive.restore`` sat here once and does not
+    #: belong: archive is a plane with a cap, but a restore carries no selection to cap — so the
+    #: one route that most needs the blind-spot check below was the one excluded from it.
+    capped = {"archive.archive", "fileSend.enqueue", "fileOps.enqueue"}
     uncapped = [r for r in contract.ENQUEUE_ROUTES if r.id not in capped]
 
-    assert len(uncapped) == 7
+    assert len(uncapped) == 8
 
     for route in uncapped:
         body = worst_case_body(route, "k")
@@ -510,7 +513,6 @@ RECORD_FAILURE_ORIGINS = {
     "traceparent": ("stamped", 64),
     "status": ("stamped", 16),
     "mode": ("stamped", 16),
-    "schemaVersion": ("stamped", 8),
     "action": ("contract", bounds.MAX_IDENTIFIER_BYTES),
     "format": ("contract", 16),
     "requestId": ("contract", bounds.MAX_REQUEST_ID_BYTES),
@@ -653,11 +655,24 @@ def test_the_origin_rule_REPORTS_a_key_it_cannot_explain():
     )
 
 
-def test_every_declared_origin_kind_is_one_of_the_six():
-    """The kinds are a closed set, so `derived` cannot quietly become an escape hatch."""
+def test_every_declared_origin_kind_is_one_of_the_six_and_every_entry_is_USED():
+    """The kinds are a closed set, so `derived` cannot quietly become an escape hatch.
+
+    And every entry answers for a key some plane actually names. An unused row is a byte figure
+    nothing measures — it costs the model nothing today and silently sizes the reservation the day
+    a plane adopts that key, which is the wrong moment to discover it was guessed at.
+    """
+    named = {key for plane in _planes_with_a_failure_state() for key in _record_failure_keys(plane)}
+
     for key, (kind, cost) in RECORD_FAILURE_ORIGINS.items():
         assert kind in ORIGIN_KINDS, f"{key} declares an origin kind outside the closed set: {kind}"
         assert cost >= 0, f"{key} declares a negative cost"
+
+    assert set(RECORD_FAILURE_ORIGINS) == named, (
+        f"the origin table and the templates disagree — declared but unnamed: "
+        f"{sorted(set(RECORD_FAILURE_ORIGINS) - named)}; named but undeclared: "
+        f"{sorted(named - set(RECORD_FAILURE_ORIGINS))}"
+    )
 
 
 def _stamped_and_identity(route: contract.Route) -> dict:
@@ -1179,3 +1194,55 @@ def test_a_verb_bounded_name_is_modelled_at_the_length_its_RULE_permits():
             f"{route_id}'s worst case carries a {_serialized(built)}-byte tableName where the "
             f"catalog rule permits {bounds.MAX_IDENTIFIER_BYTES}"
         )
+
+
+#: The browser services that cap a selection by size, and therefore have to measure the selection
+#: the way the API serialises it.
+_SELECTION_SERVICES = (
+    "apps/portal/src/features/archive/archive.service.ts",
+    "apps/portal/src/features/file-send/fileSend.service.ts",
+    "apps/portal/src/features/file-browser/fileOps.service.ts",
+)
+
+
+def test_every_browser_selection_cap_measures_what_the_API_SENDS():
+    """One helper for the three planes that cap a selection, and none of them rolling its own.
+
+    `JSON.stringify` leaves non-ASCII literal and the API escapes it, so a browser measuring the
+    literal form under-counts an accented key threefold. On file-ops that was live: the selection
+    passed both caps and its failure state went over the state limit, where nothing notifies. The
+    other two had the same divergence and were saved only by the API's new cap refusing the
+    request — which is a legible 413 rather than silence, but it is the same defect.
+
+    Asserted over the POPULATION rather than on the one plane that was broken, because the reason
+    it was broken is that each service answered the question for itself.
+    """
+    offenders = {}
+    for relative in _SELECTION_SERVICES:
+        source = (REPO / relative).read_text()
+        if "wireBytes(" not in source:
+            offenders[relative] = "does not measure with the shared helper"
+        elif re.search(r"TextEncoder\(\)\.encode\(JSON\.stringify", source):
+            offenders[relative] = "still measures the literal form somewhere"
+
+    assert not offenders, (
+        f"a browser selection cap measures something other than what the API sends: {offenders}"
+    )
+
+
+def test_the_shared_helper_is_declared_once():
+    """A second copy of the escaping is a second answer to one question.
+
+    file-ops carried a private copy for exactly as long as it was the only plane fixed; the guard
+    above would pass with three private copies that disagree, so the population is held to ONE
+    definition.
+    """
+    definitions = [
+        path
+        for path in (REPO / "apps/portal/src").rglob("*.ts")
+        if "function wireBytes" in path.read_text()
+    ]
+
+    assert [p.name for p in definitions] == ["wireBytes.ts"], (
+        f"wireBytes is defined in {[str(p) for p in definitions]} — one escaping rule, one home"
+    )
