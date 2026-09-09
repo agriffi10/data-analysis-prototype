@@ -181,7 +181,7 @@ are *not* sensitive here — the username already is the S3 prefix, the principa
 Glue database name (SPEC-033), so it is the primary key of every operator-facing record
 already.
 
-**One run is ONE trace on the success path, and this used to say nine.** The API mints a
+**One run is ONE trace, and this used to say nine.** The API mints a
 traceparent, `build_message` sends it, and `traced` adopts it before opening the span — so
 `trace_id` crosses a Lambda boundary and a verb's ROOT span has the API's span as its parent. A
 `step` child nests under its own verb's root, inside that same trace, so SPEC-226's child spans
@@ -197,8 +197,14 @@ reset erases the adoption. And `continue_trace` is ONE-SHOT only in the pinned v
 releases made it sticky, so a warm container's next, unrelated invocation silently joined the
 previous run's trace, which is worse than many honest traces.
 
-**The FAILURE path is not threaded yet** (SPEC-227), so a run that fails is still its success
-prefix in one trace and its failure terminal in another.
+**The FAILURE path is threaded too** (SPEC-227): every failure seed and every `RecordFailure` names
+the traceparent, so a failed run's notification sits in the run's trace rather than in one of its
+own. **One exception, and it is a limit rather than an oversight** — a **pre-identity** failure, one
+raised before `validate-authorize` returns. The error replaced the state, so there is nothing to
+read, and the value is reachable nowhere ASL can look: the Pipes carry no `input_template`, so
+`$$.Execution.Input` is the raw SQS batch with the traceparent inside a JSON string that only the
+banned `States.StringToJson` could open. Its seed supplies a literal `null` and `notify-failure`
+opens a fresh trace. `validate-authorize`'s own span still adopts the run's trace, in Python.
 
 **Where an `observability.step` may NOT go — four prohibitions, each mechanical.** A step is two
 events, and every event is an SQS message and a line in a day object the sweep rewrites in full, so
