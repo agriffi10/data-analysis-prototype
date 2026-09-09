@@ -27,6 +27,7 @@ Attributes:
   _LAMBDAS: The lambdas tree, for reaching a verb's directory by name.
 """
 
+import ast
 import json
 import os
 import pathlib
@@ -683,23 +684,20 @@ def test_the_two_verbs_that_filter_their_echo_keep_the_runs_trace(plane, module,
 def test_the_verbs_that_filter_their_echo_are_exactly_the_two_that_are_pinned():
     """The population above is a hard-coded pair; this is what makes it a claim about the FLEET.
 
-    Every other verb returns ``{**event, …}`` and cannot drop a key it was never told about. These
+    Every other verb returns `{**event, …}` and cannot drop a key it was never told about. These
     two return an explicit exclusion set, and a key added to one disappears from every state after
-    it. The test above pins what those two are allowed to drop — but its parametrisation is a
-    LIST, so a THIRD verb adopting the same idiom would drop the run's traceparent silently and
-    nothing would object.
+    it. The test above pins what those two are allowed to drop — but its parametrisation is a LIST,
+    so a THIRD verb adopting the same idiom would drop the run's traceparent silently.
 
-    Deriving the population is the whole point: it costs one glob, and it converts "we know of two"
-    into "there are two". Measured when this was written: exactly two files outside a test use
-    ``event.items()``.
+    Detected by SHAPE rather than by text: a `Dict` spreading a FILTERED comprehension. A substring
+    search for `event.items()` — which is what this did — is blind to the same idiom written over a
+    differently named local, and blind in the direction that matters.
 
-    The wider invariant this belongs to is stated rather than guarded, and the boundary is worth
-    being explicit about: what actually keeps the traceparent alive across a plane is that every
-    replacing Task returns ``{**event, …}``. Guarding THAT would need each of eighty-odd verbs
-    classified from source, which misreads a handler that delegates its return (archive's
-    initiate-restore builds its dict in ``arcommon.restore``) and would need a standing exemption
-    list — and an exemption list that rots is worse than the gap it covers. The driven failure runs
-    cover it empirically instead, on the two planes an operator is most likely to be reading.
+    The wider invariant this belongs to — that every replacing Task on a failure-reachable path
+    carries the traceparent through — is guarded, not merely stated:
+    `test_every_producer_of_a_failure_path_traceparent_read_carries_it_through` derives the
+    forty-odd producers from the templates and checks each. This test is the narrower half, and the
+    two overlap deliberately.
 
     Args:
       None.
@@ -710,12 +708,21 @@ def test_the_verbs_that_filter_their_echo_are_exactly_the_two_that_are_pinned():
     Raises:
       AssertionError: If a third verb starts filtering its echo.
     """
-    filtering = {
-        path.parent.name
-        for path in sorted(_LAMBDAS.glob("*/*.py"))
-        if not path.name.startswith("test_")
-        and "event.items()" in path.read_text(encoding="utf-8")
-    }
+    filtering = set()
+    for module in sorted(_LAMBDAS.glob("*/*.py")):
+        if module.name.startswith("test_"):
+            continue
+        try:
+            tree = ast.parse(module.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Dict):
+                continue
+            for key, value in zip(node.keys, node.values, strict=True):
+                if (key is None and isinstance(value, ast.DictComp)
+                        and any(generator.ifs for generator in value.generators)):
+                    filtering.add(module.parent.name)
 
     assert filtering == {
         "file-send-collect-transfer-results",

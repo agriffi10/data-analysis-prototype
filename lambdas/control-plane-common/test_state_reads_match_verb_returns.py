@@ -25,13 +25,17 @@ because for three of them a faithful drive is not merely expensive but impossibl
 sits in the chain and the state after it is built from a Map Run export no drive can produce without
 hand-shaping the very thing under test.
 
-What still covers the four: the success-path sweep in `test_state_machines_cpcommon.py` pins that
-each names the traceparent, and the two collectors' exclusion sets are pinned verb-side in
-`test_one_run_one_trace.py`.
+What still covers the four, stated exactly because a looser version of this sentence was wrong:
+`file-send/ShapeSummary` is in `_THREADING_STATES` and the success-path sweep pins that it names the
+traceparent. The other three are NOT, and are not meant to be — they are success terminals whose
+`Next` is `Succeeded`, which is precisely why they may drop the key, and
+`test_no_checked_pair_is_allowed_to_drop_the_traceparent` asserts that rather than assuming it. The
+two collectors' exclusion sets are pinned verb-side in `test_one_run_one_trace.py`.
 
 Runnable under pytest or directly: python3 test_state_reads_match_verb_returns.py.
 """
 
+import ast
 import json
 import os
 import pathlib
@@ -40,6 +44,7 @@ import sys
 _HERE = pathlib.Path(__file__).resolve().parent
 _LAMBDAS = _HERE.parent
 for _dir in (
+    ".",
     "control-plane-common",
     "archive-common",
     "file-send-common",
@@ -112,8 +117,9 @@ _CHECKED = {
 #: Run export that no drive can produce. `data-quality/RecordSuccess` is the same shape one verb
 #: earlier.
 #:
-#: What still covers them: the success-path sweep pins that each names the traceparent, and the
-#: two collectors' exclusion sets are pinned verb-side in `test_one_run_one_trace.py`.
+#: What still covers them: `file-send/ShapeSummary` is threaded and pinned by the success-path
+#: sweep; the other three are success terminals, which is why they may drop the key at all, and the
+#: test below asserts that rather than taking it on trust.
 _ECHOING = {
     ("archive", "ArchiveComplete"):
         "write-receipt returns {**event, …}, and archive's chain crosses a Distributed Map whose "
@@ -124,6 +130,17 @@ _ECHOING = {
         "the collector filters and re-emits its event, and it reads a Map Run export",
     ("table-share", "ShapeSummary"):
         "the collector filters and re-emits its event, and it reads a Map Run export",
+}
+
+#: The producer sets that make each excluded state excluded. Pinned, because the REASON is what the
+#: exclusion rests on and deriving it without asserting it leaves the guard unable to tell "excluded
+#: because three producers converge" from "excluded because the walk lost an edge kind". Measured:
+#: dropping the `Choices` loop from `_inbound` silently takes two of these from three producers to
+#: two, and every other test stays green.
+_EXCLUDED_PRODUCERS = {
+    ("archive", "RestoreComplete"): ["CollectRestoreResults", "DeleteArchived", "UpdateReceipt"],
+    ("table-builder", "RecordSuccess"): ["ApplyRefresh", "DiffSchema", "ExecuteDdl"],
+    ("table-share", "FinishRecipients/RecipientCarried"): [],
 }
 
 #: The planes with nothing to check, and WHY — named so the sweep reports them rather than passing
@@ -204,7 +221,7 @@ def _producers(target, states, seen=None):
             found |= _producers(source, states, seen)
         elif state.get("Type") == "Task":
             found.add(source)
-        elif state.get("Type") == "Choice":
+        elif state.get("Type") in ("Choice", "Wait"):
             found |= _producers(source, states, seen)
         else:
             found.add(f"!{state.get('Type')}-replaced-at-{source}")
@@ -283,9 +300,16 @@ def test_the_sweep_derives_the_pairs_it_checks_and_reports_the_planes_with_none(
     )
     for plane in _NOTHING_TO_CHECK:
         assert not any(p == plane for p, _s in usable), plane
-        assert any(p == plane for p, _s in excluded) or plane in ("file-ops", "shared-spaces"), (
-            f"{plane} is recorded as excluded-by-rule but the sweep found nothing to exclude"
+
+    assert excluded == _EXCLUDED_PRODUCERS, (
+        f"unexpected: {sorted(set(excluded) - set(_EXCLUDED_PRODUCERS))}; "
+        f"missing: {sorted(set(_EXCLUDED_PRODUCERS) - set(excluded))}; "
+        + "; ".join(
+            f"{k} produced by {excluded[k]} not {_EXCLUDED_PRODUCERS[k]}"
+            for k in set(excluded) & set(_EXCLUDED_PRODUCERS)
+            if excluded[k] != _EXCLUDED_PRODUCERS[k]
         )
+    )
 
 
 def test_every_derived_pair_is_either_checked_or_recorded_as_echoing():
@@ -313,15 +337,15 @@ def test_every_derived_pair_is_either_checked_or_recorded_as_echoing():
 _IRREGULAR = {("shared-spaces", "acknowledge"): "shared-space-acknowledge-membership"}
 
 
-def _verb_source(plane, task):
-    """The source text of the Lambda a Task invokes.
+def _verb_directory(plane, task):
+    """The lambdas/ directory holding the Lambda a Task invokes.
 
     Args:
       plane: The plane's name.
       task: The ASL state name of the Task.
 
     Returns:
-      The concatenated source of the verb's non-test modules.
+      The directory name under `lambdas/`.
 
     Raises:
       AssertionError: If the placeholder does not resolve to a directory, which means a rename has
@@ -343,10 +367,175 @@ def _verb_source(plane, task):
     ]
     directory = next((c for c in candidates if c and (_LAMBDAS / c).is_dir()), None)
     assert directory, f"{plane}:{task} resolves to none of {candidates}"
-    return "".join(
-        f.read_text(encoding="utf-8")
-        for f in sorted((_LAMBDAS / directory).glob("*.py"))
-        if not f.name.startswith("test_")
+    return directory
+
+
+#: The one producer that neither echoes nor mints, and may not: `archive-rollback` ALWAYS raises
+#: (`archive_rollback.py:66` — "every path raises"), so it returns no state at all and cannot drop a
+#: key from one. `RollbackReturnedSeed` exists to make a RETURNING rollback fail the way it meant
+#: to, and its own template comment says it is unreachable today.
+#:
+#: Pinned as an EQUALITY, not a skip-list. A verb that stops offending must be removed from here, so
+#: this cannot quietly become the place failures go to be forgiven.
+_NEVER_RETURNS = frozenset({"archive:Rollback"})
+
+
+def _returns_carry(directory):
+    """Whether a verb ECHOES its event, MINTS the traceparent, or neither — read by AST.
+
+    By AST rather than by substring, and the difference is not pedantry: a substring test over the
+    verb's source is satisfied by the words appearing in a DOCSTRING. Since `lambdas/` forbids
+    inline comments, a docstring is the whole risk surface, and a reviewer used exactly that to
+    silence a genuine disagreement — mention `{**event, …}` in the module docstring, move the pair
+    into `_ECHOING`, and the file went on reporting full coverage over eleven pairs.
+
+    Every shape is anchored on ONE question — does this expression evaluate to the handler's whole
+    event — rather than on a pattern per shape. Three drafts were written pattern-by-pattern and
+    each one called a verb that BUILDS its return an echoing verb: first any `return <name>`, which
+    caught `archive-validate-authorize` returning a dict it names `validated`; then any `**<name>`
+    spread, which caught `file-send-validate-authorize` merging a local `{**entry, …}`. Both errors
+    ran in the direction that matters — they would have let this guard pass for a verb that drops
+    whatever it was not told to keep.
+
+    The shapes that really occur: `{**event, …}`, `out = dict(event)`, `return event`, and the two
+    collectors' `{**{k: v for k, v in event.items() if …}, …}`.
+
+    Carrying the event is NOT sufficient on its own, and that is the fourth draft's lesson rather
+    than a refinement: `carried = dict(event)` followed by `carried.pop("traceparent", None)`
+    satisfies every "does the event reach the return" rule above and drops the key regardless. So a
+    verb that removes THIS key anywhere is not echoing, whatever else it does. That question is
+    decidable where the general one is not.
+
+    Args:
+      directory: The verb's directory name under `lambdas/`.
+
+    Returns:
+      An (echoes, mints) pair of booleans.
+
+    Raises:
+      None.
+    """
+    def is_the_event(node):
+        """Whether an expression evaluates to the handler's whole event."""
+        if isinstance(node, ast.Name):
+            return node.id == "event"
+        if isinstance(node, ast.Call):
+            return (getattr(node.func, "id", None) == "dict"
+                    and any(is_the_event(arg) for arg in node.args))
+        if isinstance(node, ast.DictComp):
+            return any(
+                isinstance(gen.iter, ast.Call)
+                and getattr(gen.iter.func, "attr", None) == "items"
+                and is_the_event(getattr(gen.iter.func, "value", None))
+                for gen in node.generators
+            )
+        return False
+
+    def discards_the_traceparent(node):
+        """Whether an expression REMOVES the traceparent from a mapping.
+
+        Key-specific on purpose. Deciding in general whether a verb's return still carries its
+        input's keys is dataflow analysis on Python, and three source-shape rules were written and
+        defeated in turn before this one: `carried = dict(event)` followed by
+        `carried.pop("traceparent", None)` satisfies every "does the event flow to the return"
+        test there is, and drops the key anyway. Asking instead whether anything removes THIS key
+        is decidable, catches that exact shape, and cannot false-positive on the two dozen
+        unrelated pops and filtering comprehensions elsewhere in the fleet.
+        """
+        if isinstance(node, ast.Call) and getattr(node.func, "attr", None) == "pop":
+            return any(isinstance(a, ast.Constant) and a.value == "traceparent" for a in node.args)
+        if isinstance(node, ast.Delete):
+            return any(
+                isinstance(t, ast.Subscript) and isinstance(t.slice, ast.Constant)
+                and t.slice.value == "traceparent"
+                for t in node.targets
+            )
+        if isinstance(node, ast.DictComp):
+            return any(
+                isinstance(c, ast.Constant) and c.value == "traceparent"
+                for gen in node.generators for test in gen.ifs for c in ast.walk(test)
+            )
+        return False
+
+    echoes = mints = False
+    for module in sorted((_LAMBDAS / directory).glob("*.py")):
+        if module.name.startswith("test_"):
+            continue
+        for node in ast.walk(ast.parse(module.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Dict):
+                for key, value in zip(node.keys, node.values, strict=True):
+                    if key is None and is_the_event(value):
+                        echoes = True
+                    if (isinstance(key, ast.Constant) and key.value == "traceparent"
+                            and isinstance(value, ast.Call)
+                            and getattr(value.func, "attr", None) == "run_traceparent"):
+                        mints = True
+            elif (isinstance(node, (ast.Assign, ast.Return))
+                    and is_the_event(node.value)):
+                echoes = True
+            if discards_the_traceparent(node):
+                return False, mints
+    return echoes, mints
+
+
+def test_every_producer_of_a_failure_path_traceparent_read_carries_it_through():
+    """The invariant the whole failure path rests on, DERIVED rather than stated.
+
+    A `Catch` hands its target the failing Task's INPUT, so a failure seed stands on a success-path
+    state — and what actually keeps the traceparent alive on that state is the fleet's echo
+    convention: every replacing Task returns `{**event, …}` and so cannot drop a key it was never
+    told about. Nothing checked that.
+
+    It is not a hypothetical. Deleting the traceparent from `archive-build-transfer-manifest`'s echo
+    left the ENTIRE suite green while `archive/NothingToArchiveSeed` — which reads `$.traceparent`
+    off that verb's return — would raise an uncatchable `States.Runtime`, killing the execution
+    before `NotifyFailure`, so a user whose archive found nothing to archive is told nothing at all.
+
+    The population is bounded and derived, not listed: walk back from every state that reads
+    `$.traceparent` on a failure path to the Task whose return it reads, resolve that Task to its
+    Lambda, and require the verb to echo its event or mint the key itself. Forty-odd verbs, and
+    NO exemption list — an exemption list is the thing that rots.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a producer can drop the run's trace on its way to a failure.
+    """
+    producers, offenders = set(), set()
+    for path in machines._TEMPLATES:
+        plane = os.path.basename(os.path.dirname(path))
+        asl = machines._load(path)
+        for label, _start, states in machines._containers(asl):
+            if label:
+                continue
+            for name, state in states.items():
+                block = state.get("Parameters") or {}
+                if block.get("traceparent.$") != "$.traceparent":
+                    continue
+                for task in sorted(_producers(name, states)):
+                    if task.startswith("!") or states[task].get("Type") != "Task":
+                        continue
+                    producers.add((plane, task))
+
+    assert len(producers) >= 40, (
+        f"the walk found only {len(producers)} producers; it reached forty-odd when written, so a "
+        "population this small means the walk stopped early and every check below is vacuous"
+    )
+
+    for plane, task in sorted(producers):
+        echoes, mints = _returns_carry(_verb_directory(plane, task))
+        if not (echoes or mints):
+            offenders.add(f"{plane}:{task}")
+
+    assert set(offenders) == _NEVER_RETURNS, (
+        f"unexpected: {sorted(set(offenders) - _NEVER_RETURNS)} neither echo their event nor mint "
+        "the traceparent, and a state downstream reads `$.traceparent` off their return — an "
+        "uncatchable States.Runtime on the failure path, which kills the execution before the user "
+        f"is notified. No longer offending: {sorted(_NEVER_RETURNS - set(offenders))}"
     )
 
 
@@ -370,17 +559,16 @@ def test_a_pair_recorded_as_echoing_really_does_echo():
     Raises:
       AssertionError: If an excluded verb builds its own return, or a checked one echoes.
     """
-    def echoes(text):
-        return "**event" in text or "dict(event)" in text or "event.items()" in text
-
     for (plane, state), _reason in sorted(_ECHOING.items()):
-        assert echoes(_verb_source(plane, _PAIRS[(plane, state)])), (
+        echoes, _mints = _returns_carry(_verb_directory(plane, _PAIRS[(plane, state)]))
+        assert echoes, (
             f"{plane}:{state} is recorded as echoing its event, and {_PAIRS[(plane, state)]} does "
             "not — so it builds its own return and belongs in the driven check"
         )
 
     for plane, state in sorted(_CHECKED):
-        assert not echoes(_verb_source(plane, _PAIRS[(plane, state)])), (
+        echoes, _mints = _returns_carry(_verb_directory(plane, _PAIRS[(plane, state)]))
+        assert not echoes, (
             f"{plane}:{state}'s verb now echoes its event, so the driven comparison is against "
             "this file's own fixture and proves nothing — move it to _ECHOING with the reason"
         )
@@ -435,17 +623,45 @@ _UUID = "9f2c1b8e-4c1a-4b2f-8d3e-1a2b3c4d5e6f"
 
 
 def _drive_archive_validated(monkeypatch):
-    """archive validate-authorize, whose return `Validated` reads whole."""
+    """archive validate-authorize, BOTH modes, because `Validated` is entered from both.
+
+    `ValidateAuthorize` is a single producing Task and not a single return shape: the restore arm
+    delegates to `arcommon.restore.validate`, which builds its own dict. Driving one mode makes the
+    equality below a claim about one of two runtime paths — the same objection this file uses to
+    EXCLUDE `archive/RestoreComplete`, and it applies just as much to a verb's internal branches.
+    Measured when this was written: a key added to the restore arm alone left the whole suite green.
+
+    The two returns are required to agree, and only then is one compared against the state — so the
+    state is held to both arms rather than to whichever this fixture happened to drive.
+    """
     import archive_validate_authorize as verb
 
     monkeypatch.setattr(verb.authz.reg, "load", lambda name: None)
     monkeypatch.setattr(verb.notify, "emit_notification", lambda *a, **kw: None, raising=False)
-    return verb.handler([{"messageId": "m-1", "body": json.dumps({
+
+    def drive(body):
+        return verb.handler([{"messageId": "m-1", "body": json.dumps(body)}], None)
+
+    archived = drive({
         "requestId": _UUID, "mode": "archive", "actor": JWT_SHAPED,
         "source": {"space": {"kind": "personal", "name": "alice"},
                    "items": [{"kind": "file", "key": "alice/q1.csv"}]},
         "identity": _IDENTITY,
-    })}], None)
+    })
+    restored = drive({
+        "requestId": _UUID, "mode": "restore", "actor": JWT_SHAPED,
+        "space": {"kind": "personal", "name": "alice"},
+        "archiveId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+        "identity": _IDENTITY,
+    })
+
+    assert set(archived) == set(restored), (
+        "archive's two modes return different top-level keys, and both flow through one `Validated` "
+        f"Pass: archive-only {sorted(set(archived) - set(restored))}, restore-only "
+        f"{sorted(set(restored) - set(archived))}. Whichever the Pass does not carry is an "
+        "uncatchable States.Runtime on that mode"
+    )
+    return archived
 
 
 def _drive_file_send_validated(monkeypatch):
