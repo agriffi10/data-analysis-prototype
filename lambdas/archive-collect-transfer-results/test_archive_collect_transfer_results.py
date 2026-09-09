@@ -9,8 +9,6 @@ STATUS, and the batch copier deliberately succeeds while carrying per-item failu
 The structural half of FR-004 AC2 — that no path in the ASL leads from a shortfall to the deletion
 — is a property of the graph rather than of
 this verb.
-
-Runnable under pytest or directly: python3 test_archive_collect_transfer_results.py.
 """
 
 import json
@@ -170,7 +168,3 @@ def test_an_unreadable_export_notifies_the_actor_and_leaves_the_source_alone(_no
 
     assert err.value.reason == "transfer_results_unreadable"
     assert [user for user, _ in _no_real_notifications] == ["alice"]
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

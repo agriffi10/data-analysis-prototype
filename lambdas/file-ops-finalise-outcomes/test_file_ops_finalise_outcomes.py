@@ -4,8 +4,6 @@ This verb is what stops a gate verdict reaching a terminal, so the cases that ma
 where an item ends the run wearing the wrong word: ``cleared`` surviving to the notification, a
 ``delete`` that removed nothing reported as a duplicate, and a copied item whose source survived
 reported as a success.
-
-Runnable under pytest or directly: python3 test_file_ops_finalise_outcomes.py.
 """
 
 import json

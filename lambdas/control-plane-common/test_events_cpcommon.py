@@ -2,8 +2,7 @@
 
 Consolidates the ``_extract_record`` + ``_parse_request`` pair the three control-plane
 validate-authorize verbs each carried; every guard is exercised so a regression in one
-branch fails here rather than silently in one verb. Runnable under pytest or directly:
-python3 test_events_cpcommon.py.
+branch fails here rather than silently in one verb.
 """
 
 import json
@@ -50,10 +49,6 @@ def test_malformed_inputs_raise_terminal_with_the_callers_reason(event, detail):
         events.parse_sqs_request(event, reason=REASON)
     assert exc.value.reason == REASON
     assert detail in exc.value.detail
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))
 
 
 # ── SPEC-156 FR-005: the `exc=` factory path ────────────────────────────────

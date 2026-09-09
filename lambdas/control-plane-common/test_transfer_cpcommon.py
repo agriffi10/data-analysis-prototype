@@ -2,8 +2,7 @@
 
 The manifest writer's file format, the batch copier's failure isolation, and the result
 reader's two attribution paths — including the one a FAILED-only collector silently passes.
-AWS is stubbed with a recording fake. Runnable under pytest or directly:
-python3 test_transfer_cpcommon.py.
+AWS is stubbed with a recording fake.
 """
 
 import json
@@ -1119,10 +1118,6 @@ def test_a_throttled_results_read_is_transient():
             unreadable_reason=_UNREADABLE,
             echo_fields=_ECHO,
         )
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))
 
 
 # ── results_location — the Map state's export pointer ────────────────────────

@@ -4,8 +4,6 @@ This verb decides which items may have their source REMOVED, so every case here 
 wrong implementation still reports success: a FAILED-only read over a batch that succeeded while
 carrying failures, a skip branch recognised by the absence of an export, and an item with one failed
 object still landing in the deletable set.
-
-Runnable under pytest or directly: python3 test_file_ops_collect_transfer_results.py.
 """
 
 import json

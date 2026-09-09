@@ -200,13 +200,6 @@ def test_delete_clears_every_index_entry_BEFORE_the_name_is_freed():
 
     assert still_indexed == {"alice": [], "bob": []}
 
-if __name__ == "__main__":
-    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
-    for fn in fns:
-        fn()
-    print(f"All {len(fns)} delete-space tests passed.")
-    sys.exit(0)
-
 
 # ── SPEC-151 FR-003: a partial teardown must not free the name ───────────────
 

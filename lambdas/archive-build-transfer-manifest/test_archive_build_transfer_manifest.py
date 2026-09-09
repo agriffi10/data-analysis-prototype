@@ -2,8 +2,7 @@
 
 The dataset the Distributed Map reads. What matters here is that every line carries the four
 things the engine needs — source, destination, SIZE and STORAGE CLASS — and that the destination
-comes from the one key builder a restore will invert. Runnable under pytest or directly:
-python3 test_archive_build_transfer_manifest.py.
+comes from the one key builder a restore will invert.
 """
 
 import json
@@ -120,7 +119,3 @@ def test_a_plan_short_of_its_recorded_count_is_refused_before_a_line_is_written(
 
     assert err.value.reason == "plan_unreadable"
     assert fake.puts == []
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

@@ -3,8 +3,6 @@
 The last gate before bytes move. The cases that matter are the ones where a wrong implementation
 still produces a plausible manifest: a decided item contributing lines, an object travelling without
 its size, and — the expensive one — an undeletable item being refused only after it has been copied.
-
-Runnable under pytest or directly: python3 test_file_ops_build_transfer_manifest.py.
 """
 
 import json

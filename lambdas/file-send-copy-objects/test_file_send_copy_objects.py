@@ -3,8 +3,7 @@
 The copy mechanics live in ``cpcommon.transfer.copy`` and are tested there — deliberately, since
 the engine is shared with table-share. What this file holds is what is file-send's: the batch
 contract with the Distributed Map, the per-item isolation the collector depends on, and the
-property that this verb knows nothing about recipients, plans or requests. Runnable under pytest
-or directly: python3 test_file_send_copy_objects.py.
+property that this verb knows nothing about recipients, plans or requests.
 """
 
 import os
@@ -93,7 +92,3 @@ def test_a_transient_failure_raises_so_the_map_retries_the_whole_batch():
 
     with pytest.raises(TransientError):
         m.handler({"Items": [_item()]}, None)
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

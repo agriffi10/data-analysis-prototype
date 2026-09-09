@@ -351,7 +351,3 @@ def test_the_budget_is_spent_only_at_the_cap_and_not_before_it():
     assert not retrieval.exhausted(RESTORE_MAX_POLLS - 1)
     assert retrieval.exhausted(RESTORE_MAX_POLLS)
     assert retrieval.exhausted(RESTORE_MAX_POLLS + 1)
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

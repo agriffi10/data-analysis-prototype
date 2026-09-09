@@ -2,8 +2,7 @@
 
 Fake Athena client + fake clock (the runner's _now/_sleep seams): asserts the
 submit parameters, success/failed/cancelled/timeout outcome mapping, and the
-transient-vs-terminal error classification. Runnable under pytest or directly:
-python3 test_table_share_athena.py.
+transient-vs-terminal error classification.
 
 The runner was `tscommon.athena`, a per-plane wrapper byte-identical to the table-builder's
 bar two reason codes; SPEC-156 FR-005 replaced both with `cpcommon.athena.bound_runner`. What
@@ -133,16 +132,3 @@ def test_poll_cap_exceeded_is_create_timeout():
     clock = _setup(_FakeAthena(states=("RUNNING",)))
     _expect("create_timeout")
     assert clock.t >= athena_mod.MAX_POLL_DURATION_SECONDS
-
-
-if __name__ == "__main__":
-    failures = 0
-    for name, fn in sorted(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            try:
-                fn()
-                print(f"PASS {name}")
-            except AssertionError as exc:
-                failures += 1
-                print(f"FAIL {name}: {exc}")
-    raise SystemExit(1 if failures else 0)

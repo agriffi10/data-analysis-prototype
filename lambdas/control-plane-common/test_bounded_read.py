@@ -3,8 +3,6 @@
 Stubs the S3 client, never polars: the point of this module is the BYTES handed to
 polars and the fact that a big object is not drained to get them. The fake body counts
 what was actually read, so "bounded" is asserted by observation rather than assumed.
-
-Runnable under pytest or directly: python3 test_bounded_read.py.
 """
 
 import io
@@ -308,17 +306,3 @@ def test_range_reader_serves_a_real_parquet_footer_to_polars():
     assert served < len(data) / 4, f"read {served} of {len(data)} — not a footer read"
     starts = [int(r.split("=")[1].split("-")[0]) for r in fake.ranges]
     assert min(starts) > len(data) / 2, "the footer read must sit in the object's tail"
-
-
-if __name__ == "__main__":
-    tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
-    failed = 0
-    for fn in tests:
-        try:
-            fn()
-            print(f"PASS {fn.__name__}")
-        except Exception as exc:  # noqa: BLE001
-            failed += 1
-            print(f"FAIL {fn.__name__}: {exc}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    sys.exit(1 if failed else 0)

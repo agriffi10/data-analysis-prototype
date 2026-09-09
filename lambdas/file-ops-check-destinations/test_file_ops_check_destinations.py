@@ -4,8 +4,6 @@ The guard's whole value is that it fails closed and refuses only what it must. S
 are the ones where the wrong implementation still looks right: an ambiguous head read as clear, a
 merge into an existing folder read as a collision, an overwrite that stopped early, and a run where
 every item conflicts.
-
-Runnable under pytest or directly: python3 test_file_ops_check_destinations.py.
 """
 
 import json
@@ -198,10 +196,6 @@ def test_an_object_NEWER_than_the_submission_conflicts_the_item():
 
 
 # ── The plan and the outcome list ────────────────────────────────────────────
-
-
-if __name__ == "__main__":
-    raise SystemExit(pytest.main([__file__, "-v"]))
 
 
 # ── The second pass ──────────────────────────────────────────────────────────

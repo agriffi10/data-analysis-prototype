@@ -3,7 +3,6 @@
 Drives the real handler: the inbox listing itself is covered in ``file-send-common``, so what
 this file exercises is the guard's decisions — the short-circuit that costs no S3 call, the
 conflict that names the item, and the isolation that keeps a refusal inside one Map item.
-Runnable under pytest or directly: python3 test_file_send_check_target_absent.py.
 """
 
 import os
@@ -18,7 +17,6 @@ os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 
 import file_send_check_target_absent as m
-import pytest
 from cpcommon import clients
 
 
@@ -109,7 +107,3 @@ def test_another_senders_item_of_the_same_name_is_not_a_conflict():
     record = m.handler(_event({"kind": "user", "name": "bob"}), None)
 
     assert record["status"] == "ok"
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

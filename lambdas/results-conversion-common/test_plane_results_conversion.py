@@ -736,7 +736,3 @@ def test_the_module_ships_no_moved_block():
 def test_the_files_this_suite_reads_exist(fixture):
     path = {"module_dir": _MODULE, "policy": _POLICY, "asl": _ASL}[fixture]
     assert path.exists(), f"{path} is missing, so the assertions over it are vacuous"
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

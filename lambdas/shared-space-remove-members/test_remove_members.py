@@ -77,13 +77,6 @@ def test_a_removed_member_loses_their_index_entry_while_the_space_stays_active()
     assert json.loads(s3.store[("admin-bkt", "memberships/bob.json")])["spaces"] == []
     assert json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])["status"] == "active"
 
-if __name__ == "__main__":
-    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
-    for fn in fns:
-        fn()
-    print(f"All {len(fns)} remove-members tests passed.")
-    sys.exit(0)
-
 
 # ── FR-006: the verb refuses a refused request, and records who asked ────────
 

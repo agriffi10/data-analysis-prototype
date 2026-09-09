@@ -1,8 +1,7 @@
 """Unit tests for the file-send build-transfer-manifest Lambda (SPEC-166 FR-002).
 
 Drives the real handler against a fake S3, so the manifest asserted here is the bytes that
-would reach the Map's ``ItemReader``. Runnable under pytest or directly:
-python3 test_file_send_build_transfer_manifest.py.
+would reach the Map's ``ItemReader``.
 """
 
 import json
@@ -131,7 +130,3 @@ def test_an_unreadable_plan_fails_the_whole_request_and_notifies():
         m.handler(_event([_cleared("user", "bob", "bob/")]), None)
 
     assert sent and sent[0][0] == "alice"
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

@@ -4,8 +4,6 @@ The first state on the commit branch. Its contents have their own suite in ``arc
 what is tested here is the verb's own two jobs — assembling the record from the state, and
 failing the WHOLE REQUEST at the cheapest moment on this plane, with the user still holding every
 file.
-
-Runnable under pytest or directly: python3 test_archive_write_manifest.py.
 """
 
 import json
@@ -101,7 +99,3 @@ def test_a_write_failure_fails_the_whole_request_before_anything_is_deleted(_no_
 
     assert err.value.reason == "manifest_write_failed"
     assert "nothing was deleted" in _no_real_notifications[0][1]
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

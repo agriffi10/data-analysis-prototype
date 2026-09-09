@@ -8,8 +8,6 @@ containment rules, recipient annotation and every terminal reason.
 with a test each, because either alone leaves a hole a cross-tenant read fits through:
 ``alice2/`` passes a raw ``startswith`` against root ``alice/``, and
 ``"alice/../bob/secrets.csv".startswith("alice/")`` is ``True``.
-
-Runnable under pytest or directly: python3 test_file_send_validate_authorize.py.
 """
 
 import json
@@ -191,12 +189,6 @@ def test_too_many_recipients_is_a_whole_request_failure():
 
 
 # ── Notification behaviour ───────────────────────────────────────────────────
-
-
-if __name__ == "__main__":
-    import pytest
-
-    sys.exit(pytest.main([__file__, "-q"]))
 
 
 def test_the_block_decides_the_actor_and_the_flat_field_beside_it_does_not():

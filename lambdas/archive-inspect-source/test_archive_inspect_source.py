@@ -3,8 +3,7 @@
 The expansion rules and the caps have their own suite in ``archive-common``; this file exercises
 them THROUGH the real handler and covers what only the verb can carry: the plan pointer coming
 back on the state, the object list NOT coming back with it, and the actor being notified before
-the Catch records a refusal. Runnable under pytest or directly:
-python3 test_archive_inspect_source.py.
+the Catch records a refusal.
 """
 
 import json
@@ -160,7 +159,3 @@ def test_a_request_id_that_has_been_used_before_is_refused_before_anything_is_re
     assert err.value.reason == "request_id_reused"
     assert fake.puts == []
     assert [user for user, _ in _no_real_notifications] == ["alice"]
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

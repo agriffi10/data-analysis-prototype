@@ -2,7 +2,7 @@
 
 No AWS / polars — asserts the exact generated CREATE EXTERNAL TABLE for flat
 Parquet, partitioned CSV (integer projection + OpenCSVSerde all-string), partitioned
-JSON, and a string enum partition key. Runnable under pytest or directly.
+JSON, and a string enum partition key.
 
 The first five tests came UNCHANGED from table-builder's ``test_ddl.py``, deliberately:
 they are what proved the module move did not alter that arc's shipped output. Their
@@ -69,20 +69,6 @@ def test_quote_dml_escapes_an_embedded_double_quote():
     """A CSV header can contain anything. Unescaped, this ends the identifier early and
     the rest of the name is parsed as SQL."""
     assert quote_dml('he said "hi"') == '"he said ""hi"""'
-
-
-if __name__ == "__main__":
-    tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
-    failed = 0
-    for fn in tests:
-        try:
-            fn()
-            print(f"PASS {fn.__name__}")
-        except Exception as exc:  # noqa: BLE001
-            failed += 1
-            print(f"FAIL {fn.__name__}: {exc}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    sys.exit(1 if failed else 0)
 
 
 # ── SPEC-151 FR-006: every DDL literal goes through literal() ───────────────

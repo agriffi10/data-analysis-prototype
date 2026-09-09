@@ -4,8 +4,6 @@ What this verb owes is a plan that describes exactly what the operation will tou
 outcome for everything it could not. The cases below are the ones where a plausible implementation
 is silently wrong: a folder past its pagination boundary, an exclusion that empties a legal copy, a
 duplicate that collapses into a placeholder, and an item an earlier verb already decided.
-
-Runnable under pytest or directly: python3 test_file_ops_inspect_source.py.
 """
 
 import json
@@ -276,10 +274,6 @@ def test_the_plan_goes_to_S3_and_only_its_pointer_and_counts_ride_on_the_state()
 def test_the_portal_managed_folders_swept_from_an_expansion_are_exactly_these_two():
     """The two folders swept out of an expansion at a space root, spelled out."""
     assert m._PORTAL_MANAGED_FOLDERS == ("athenaresults", "user_settings")
-
-
-if __name__ == "__main__":
-    raise SystemExit(pytest.main([__file__, "-v"]))
 
 
 # ── both homes of a managed folder (SPEC-219 FR-002) ─────────────────────────

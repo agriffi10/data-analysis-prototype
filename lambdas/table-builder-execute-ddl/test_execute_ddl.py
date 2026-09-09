@@ -2,11 +2,9 @@
 
 Athena is stubbed via ``clients._athena`` (a fake client with a scripted state
 sequence); the poll clock is driven by fake ``_now`` / ``_sleep`` seams so the timeout
-path is deterministic with no real sleeping. Runnable under pytest OR directly:
-``python3 test_execute_ddl.py``.
+path is deterministic with no real sleeping.
 """
 
-import inspect
 import os
 import sys
 
@@ -184,31 +182,3 @@ def test_the_ddl_run_is_a_child_span_of_the_verbs_own_span(captured_events):
         f"execute-ddl emitted {len(children)} 'athena-run-ddl' child spans, expected exactly one"
     )
     assert children[0]["parent_span_id"] == root[0]["span_id"]
-
-
-if __name__ == "__main__":
-    # This runner injects no fixtures, so a test that takes one is skipped rather than called
-    # with the wrong arity. Without the skip, adding the first fixture-taking test to this file
-    # turns the documented direct-run mode red for a reason that is about the runner.
-    tests = [
-        fn
-        for name, fn in sorted(globals().items())
-        if name.startswith("test_") and not inspect.signature(fn).parameters
-    ]
-    skipped = [
-        name
-        for name, fn in sorted(globals().items())
-        if name.startswith("test_") and inspect.signature(fn).parameters
-    ]
-    for name in skipped:
-        print(f"SKIP {name} (needs a pytest fixture; run this file under pytest for it)")
-    failed = 0
-    for fn in tests:
-        try:
-            fn()
-            print(f"PASS {fn.__name__}")
-        except Exception as exc:  # noqa: BLE001
-            failed += 1
-            print(f"FAIL {fn.__name__}: {exc}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    sys.exit(1 if failed else 0)

@@ -2,8 +2,7 @@
 
 Pure logic, AWS stubbed: the Glue GetTable and the S3 listing are faked per case.
 Asserts the shape rejections, the definition clone, the relative-key listing with
-ignore rules, and the caps. Runnable under pytest or directly:
-python3 test_table_share_inspect_source.py.
+ignore rules, and the caps.
 """
 
 import json
@@ -303,16 +302,3 @@ def test_an_at_cap_definition_still_renders_under_athenas_query_string_quota():
         "the quota; the cap is sized to land near half, and this margin is what makes it a "
         "bound rather than a fit"
     )
-
-
-if __name__ == "__main__":
-    failures = 0
-    for name, fn in sorted(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            try:
-                fn()
-                print(f"PASS {name}")
-            except AssertionError as exc:
-                failures += 1
-                print(f"FAIL {name}: {exc}")
-    raise SystemExit(1 if failures else 0)

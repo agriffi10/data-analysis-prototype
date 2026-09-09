@@ -249,10 +249,6 @@ def _manifest_of(fake):
 # ── FR-006: the state payload bound ──────────────────────────────────────────
 
 
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))
-
-
 # -- SPEC-132: the narrative ------------------------------------------------------------
 
 

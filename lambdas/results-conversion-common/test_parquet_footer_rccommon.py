@@ -147,7 +147,3 @@ def test_an_unrecognised_codec_reads_as_a_change_rather_than_an_empty_set(tmp_pa
     assert parquet_footer.CODECS[6] == "zstd"
     monkeypatch.setattr(parquet_footer, "CODECS", {})
     assert parquet_footer.codecs_of(_written(tmp_path, 4)) == {"codec-6"}
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

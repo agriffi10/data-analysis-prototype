@@ -4,8 +4,6 @@ The lock primitive has its own suite against a fake with real conditional-put se
 (``table-builder-common/test_table_lock.py``). What is asserted HERE is what only the verb does:
 that the request id is the holder, that a refusal is terminal and notified under
 ``refresh_already_running``, and that a refused request writes NOTHING.
-
-Runnable under pytest or directly: python3 test_acquire_refresh_lock.py.
 """
 
 import os
@@ -85,7 +83,3 @@ def test_a_held_lock_is_a_terminal_refusal_named_for_the_reason(lock, sqs):
         verb.handler(dict(REQUEST), None)
 
     assert raised.value.reason == "refresh_already_running"
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-v"]))

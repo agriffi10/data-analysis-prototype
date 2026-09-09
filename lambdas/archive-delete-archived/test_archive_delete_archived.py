@@ -3,8 +3,7 @@
 The batching discipline is ``arcommon.delete``'s and has its own suite; what only this verb can
 get wrong is the ASYMMETRY with delete-source — a partial sweep here is a FLAG on a successful
 run, where a partial source deletion is a terminal failure — and the listing carrying the objects
-a default predicate would drop. Runnable under pytest or directly:
-python3 test_archive_delete_archived.py.
+a default predicate would drop.
 """
 
 import os
@@ -120,7 +119,3 @@ def test_a_key_outside_the_prefix_refuses_before_anything_is_issued():
 
     assert caught.value.reason == "forbidden"
     assert fake.deleted == []
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

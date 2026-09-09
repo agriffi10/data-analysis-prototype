@@ -2,8 +2,7 @@
 
 Pure logic, AWS stubbed: the Glue existence check and the S3 prefix probe are
 faked per case. Asserts destination resolution by kind, both conflict guards, the
-invalid-recipient short-circuit, and the transient/terminal routing. Runnable
-under pytest or directly: python3 test_table_share_check_target_absent.py.
+invalid-recipient short-circuit, and the transient/terminal routing.
 """
 
 import os
@@ -114,16 +113,3 @@ def test_lf_denied_recipient_db_is_terminal():
     _setup()
     m.glue_mod.table_exists = _denied
     _expect_reason(_event(), "target_not_readable")
-
-
-if __name__ == "__main__":
-    failures = 0
-    for name, fn in sorted(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            try:
-                fn()
-                print(f"PASS {name}")
-            except AssertionError as exc:
-                failures += 1
-                print(f"FAIL {name}: {exc}")
-    raise SystemExit(1 if failures else 0)

@@ -7,8 +7,7 @@ has: that the transfer Map is TOP LEVEL, that its sizing matches the constants t
 reads, that the recipient work really did split into a guard and a finish, and that the Map's
 permissions landed on the STATE MACHINE role rather than the Lambda one.
 
-Reads the deployed templates rather than a copy, so drift fails rather than passes. Runnable
-under pytest or directly: python3 test_state_machine_table_share.py.
+Reads the deployed templates rather than a copy, so drift fails rather than passes.
 """
 
 import json
@@ -18,7 +17,6 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 
-import pytest
 from cpcommon.transfer import config as transfer_config
 
 _MODULE = os.path.join(
@@ -336,7 +334,3 @@ def test_the_state_machine_role_holds_the_distributed_maps_permissions():
     assert "states:StartExecution" in actions
     assert "states:DescribeExecution" in actions
     assert {"s3:GetObject", "s3:PutObject", "s3:ListMultipartUploadParts", "s3:AbortMultipartUpload"} <= actions
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

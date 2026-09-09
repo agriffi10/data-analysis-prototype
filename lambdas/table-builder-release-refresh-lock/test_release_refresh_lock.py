@@ -2,8 +2,6 @@
 
 It runs on paths the CREATE branch shares, so the no-op case is not an edge case here: it is the
 majority of invocations. The assertions weighted accordingly.
-
-Runnable under pytest or directly: python3 test_release_refresh_lock.py.
 """
 
 import os
@@ -51,7 +49,3 @@ def test_a_create_passes_straight_through(released):
 
     assert verb.handler(event, None) == {"released": False}
     assert released == []
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-v"]))

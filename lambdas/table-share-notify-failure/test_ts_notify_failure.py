@@ -6,8 +6,6 @@ to still put a friendly sentence in the sender's inbox.
 
 Every assertion is on the NOTIFICATION BODY the sender would receive rather than on a
 mock's call args (FR-004).
-
-Runnable under pytest or directly: python3 test_ts_notify_failure.py.
 """
 
 import json
@@ -19,7 +17,6 @@ sys.path.insert(0, os.path.join(_HERE, "..", "control-plane-common"))
 sys.path.insert(0, os.path.join(_HERE, "..", "table-share-common"))
 sys.path.insert(0, _HERE)
 
-import pytest
 import ts_notify_failure as nf
 from cpcommon import clients, config
 from token_shapes import JWT_SHAPED
@@ -208,9 +205,3 @@ def test_a_timed_out_execution_with_no_identity_block_notifies_nobody():
     )
 
     assert fake.calls == []
-
-
-if __name__ == "__main__":
-    import pytest
-
-    raise SystemExit(pytest.main([__file__, "-q"]))

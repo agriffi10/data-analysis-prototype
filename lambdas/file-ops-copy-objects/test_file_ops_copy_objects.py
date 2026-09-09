@@ -3,8 +3,6 @@
 Thin by design — it is ``cpcommon.transfer.copy`` with this plane's reason code and its attribution
 field. What is worth pinning is exactly that: the field it echoes, and the fact that a deterministic
 failure does not take its siblings down with it.
-
-Runnable under pytest or directly: python3 test_file_ops_copy_objects.py.
 """
 
 import os

@@ -3,8 +3,7 @@
 The retrieval's own rules — the two tolerated codes, the attempt-everything-then-raise ordering
 — have their suite in ``archive-common``; this file exercises them THROUGH the real handler and
 covers what only the verb can carry: the batch shape the Map hands it, and the deliberate
-ABSENCE of a failure notification. Runnable under pytest or directly:
-python3 test_archive_initiate_restore.py.
+ABSENCE of a failure notification.
 """
 
 import os
@@ -99,7 +98,3 @@ def test_a_genuine_failure_raises_so_the_map_run_fails_and_nothing_is_copied():
     # ToleratedFailurePercentage 0 that fails the Map Run and the run.
     with pytest.raises(_S3Error):
         m.handler(_batch(_item()), None)
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

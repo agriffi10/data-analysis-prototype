@@ -8,15 +8,11 @@ strand an execution, and that the new Task carries the same retry contract as it
 siblings.
 
 Reads the deployed template rather than a copy, so drift fails rather than passes.
-Runnable under pytest or directly: python3 test_state_machine_table_builder.py.
 """
 
 import json
 import os
 import re
-import sys
-
-import pytest
 
 _TFTPL = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
@@ -124,10 +120,6 @@ def _strings(value, key=None):
     elif isinstance(value, list):
         for nested in value:
             yield from _strings(nested)
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))
 
 
 # ── SPEC-157 FR-002: the lock is released on EVERY terminal path ─────────────

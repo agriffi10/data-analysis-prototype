@@ -3,7 +3,6 @@
 One function serves three stages of a restore, and each has a DIFFERENT failure contract — which
 is the thing this file mostly exists to pin. Before the bill a failed write fails the run; after
 the data has landed it must not; and the third stage always raises whatever the write did.
-Runnable under pytest or directly: python3 test_archive_update_receipt.py.
 """
 
 import os
@@ -172,7 +171,3 @@ def test_the_incomplete_stage_ALWAYS_raises_after_recording_what_it_can():
 
 
 # ── the rewrite itself ──────────────────────────────────────────────────────
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

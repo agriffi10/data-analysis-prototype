@@ -4,8 +4,6 @@ The Distributed Map's batch copier. The engine is ``cpcommon.transfer`` and has 
 including the per-item storage class this plane is the first caller of — so what is tested here is
 the thin verb: the batch shape the ItemBatcher hands it, the outcome shape the collector reads
 back, and the deliberate absence of a raise on a deterministic per-item fault.
-
-Runnable under pytest or directly: python3 test_archive_copy_objects.py.
 """
 
 import os
@@ -96,7 +94,3 @@ def test_a_transient_failure_raises_so_the_map_retries_the_whole_batch():
 
     with pytest.raises(TransientError):
         m.handler(_batch(), None)
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

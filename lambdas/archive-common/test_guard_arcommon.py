@@ -4,8 +4,6 @@ Two of these tests are about a direction rather than a value. A guard that reads
 key as "clear" ends in an overwrite of data this plane holds no right to destroy, and a guard
 that issues 200,000 heads to report a conflict in the first hundred times out before it can
 report anything at all. Both are asserted by counting what the guard actually did.
-
-Runnable under pytest or directly: python3 test_guard_arcommon.py.
 """
 
 import os
@@ -107,7 +105,3 @@ def test_no_raw_service_text_reaches_the_sample():
         guard.assert_clear("user-bkt", _keys(1), "alice/")
 
     assert "AccessDenied" not in caught.value.tokens["sample"]
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

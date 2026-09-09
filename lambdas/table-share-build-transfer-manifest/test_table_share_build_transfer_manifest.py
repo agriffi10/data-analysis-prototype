@@ -2,8 +2,7 @@
 
 The expansion arithmetic (N recipients x M objects), the destination keys being byte-identical
 to the ones the per-recipient copy produced before this spec, the refused recipients
-contributing nothing, the empty path, and the execution-unique key. Runnable under pytest or
-directly: python3 test_table_share_build_transfer_manifest.py.
+contributing nothing, the empty path, and the execution-unique key.
 """
 
 import json
@@ -93,16 +92,3 @@ def test_a_refused_recipient_contributes_no_lines():
 
     assert out["transfer"]["itemCount"] == 2
     assert {line["recipient"] for line in _lines(fake)} == {"bob"}
-
-
-if __name__ == "__main__":
-    failures = 0
-    for name, fn in sorted(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            try:
-                fn()
-                print(f"PASS {name}")
-            except AssertionError as exc:
-                failures += 1
-                print(f"FAIL {name}: {exc}")
-    raise SystemExit(1 if failures else 0)

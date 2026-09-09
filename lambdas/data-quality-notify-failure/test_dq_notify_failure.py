@@ -3,8 +3,6 @@
 The state this covers is the one that fires when NO VERB CODE RAN — a Lambda import
 failure, a Step Functions-level error — so its input is whatever RecordFailure could
 shape, and its job is to still put a friendly sentence in the actor's inbox.
-
-Runnable under pytest or directly: python3 test_dq_notify_failure.py.
 """
 
 import json
@@ -94,13 +92,3 @@ def test_access_denied_leaks_no_path_or_space_name():
     fake = _arm()
     nf.handler(_event(_terminal_cause("forbidden"), location="finance/salaries"), None)
     assert "salaries" not in fake.messages()[0]
-
-
-if __name__ == "__main__":
-    for name, fn in sorted(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            fn()
-            print(f"  ok  {name}")
-    print("all notify-failure tests passed")
-
-

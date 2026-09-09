@@ -59,11 +59,3 @@ def test_acknowledge_idempotent_when_already_active():
     assert out["activated"] is False
     # No spurious projection write (FR-003).
     assert s3.store[("user-bkt", "alice/user_settings/shared-connections.json")] == before
-
-
-if __name__ == "__main__":
-    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
-    for fn in fns:
-        fn()
-    print(f"All {len(fns)} acknowledge-membership tests passed.")
-    sys.exit(0)

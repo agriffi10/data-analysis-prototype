@@ -3,8 +3,6 @@
 Three ways an outcome producer goes wrong: telling the wrong person, telling somebody twice, and
 failing a completed operation because a message did not go out. The third is the one that matters
 most here — by the time this verb runs, a ``move`` has already deleted its sources.
-
-Runnable under pytest or directly: python3 test_file_ops_notify.py.
 """
 
 import os
@@ -86,7 +84,3 @@ def test_a_mixed_run_produces_ONE_message_naming_both_halves(sent):
     assert len(sent) == 1
     message = sent[0][1]
     assert "Moved 1 of 2 items" in message and '"q1.csv"' in message
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))
