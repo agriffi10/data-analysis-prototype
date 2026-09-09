@@ -81,6 +81,11 @@ _BODIES = {
         "finish, then check whether you still need to refresh again."
     ),
     "update_failed": "the table couldn't be updated. Nothing was changed. Please try again or contact the Administrator.",
+    "build_timed_out": (
+        "it ran for too long and was stopped part-way, so the table may or may not have been "
+        "built - check it before trying again. Give it a few minutes first: that table stays "
+        "locked for a short while afterwards."
+    ),
 }
 
 

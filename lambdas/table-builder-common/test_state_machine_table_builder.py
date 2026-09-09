@@ -169,3 +169,94 @@ def test_no_path_reaches_a_terminal_state_still_holding_the_lock():
         "these paths reach a terminal state still holding the refresh lock, stranding the table "
         f"until the steal expires: {violations[:3]}"
     )
+
+
+# ── The timed-out door, both halves ───────────────────────────────────────────
+
+_STEPFUNCTION_TF = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "..", "..", "infra", "modules", "table-builder", "stepfunction.tf",
+)
+_DOOR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "..", "table-builder-notify-failure", "tb_notify_failure.py",
+)
+
+
+def test_the_timeout_rule_exists_and_matches_timed_out_and_never_failed():
+    """The rule this plane shipped WITHOUT for two years, and the reason it must stay narrow.
+
+    A top-level TimeoutSeconds expiry is not an ASL path, so no Catch covers it and EventBridge is
+    the only route to a notification — which is why its absence was invisible to every other test
+    here. FAILED must stay out of the pattern: every other whole-request failure already reaches
+    NotifyFailure through the shared Catch, so matching it would double-notify all of them.
+    """
+    with open(_STEPFUNCTION_TF, encoding="utf-8") as handle:
+        text = handle.read()
+
+    assert "aws_cloudwatch_event_rule" in text, "the plane has a ceiling and needs the door"
+    assert 'status          = ["TIMED_OUT"]' in text
+    pattern = text.split("event_pattern")[1].split("})")[0]
+    assert "FAILED" not in pattern, "FAILED would double-notify every caught failure"
+    assert "aws_lambda_permission" in text, "the rule needs the resource-based invoke grant"
+
+
+def test_the_rule_is_only_half_the_door():
+    """The rule alone deploys green and still notifies nobody.
+
+    An EventBridge status-change event carries no top-level `actor`, so a handler without the
+    detail-type dispatch takes its no-actor branch and returns — indistinguishable from the gap the
+    rule was added to close. This asserts the other half exists beside it.
+    """
+    import ast
+
+    with open(_DOOR, encoding="utf-8") as handle:
+        source = handle.read()
+    tree = ast.parse(source)
+
+    assigned = {
+        t.id: n.value.value
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant)
+        for t in n.targets
+        if isinstance(t, ast.Name)
+    }
+    assert assigned.get("_TIMEOUT_DETAIL_TYPE") == "Step Functions Execution Status Change", (
+        "the dispatch key must be the literal EventBridge sends, not merely mentioned in a docstring"
+    )
+
+    called = {
+        n.func.attr if isinstance(n.func, ast.Attribute) else getattr(n.func, "id", "")
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+    }
+    assert "_is_execution_timeout" in called, "the handler must dispatch, not just define the door"
+    assert "trusted_actor" in called, "the actor must come from the identity block, not the body"
+
+
+def test_the_door_reads_the_event_and_never_describes_the_execution():
+    """This plane's inputs cannot approach EventBridge's cap, so it takes no DescribeExecution
+    grant — and the door must not reach for the shared helper that falls back to one.
+
+    Asserted on the CALLS rather than on the text. A substring sweep for the helper's name is
+    satisfied by the docstring that explains why the door does not use it, so the first version of
+    this test failed on its own subject's documentation — and would equally have passed a file that
+    named the helper in a comment while calling it on the line below.
+    """
+    import ast
+
+    with open(_DOOR, encoding="utf-8") as handle:
+        source = handle.read()
+
+    called = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Attribute):
+                called.add(func.attr)
+            elif isinstance(func, ast.Name):
+                called.add(func.id)
+
+    assert "timed_out_execution_input" not in called, "the fallback needs a grant this plane lacks"
+    assert "describe_execution" not in called
+    assert 'detail.get("input")' in source, "the door reads the event's own input directly"

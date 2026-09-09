@@ -36,7 +36,7 @@ LAMBDAS = pathlib.Path(__file__).resolve().parent
 PARSE_CALL = "events.parse_sqs_request"
 READER_CALL = "trusted_actor"
 
-#: The four timeout doors. They are ordinary members of the population — they call the reader like
+#: The six timeout doors. They are ordinary members of the population — they call the reader like
 #: everyone else — but their refusal SHAPE is the opposite: a raise here is an async Lambda failure
 #: that EventBridge retries, turning one unattributable event into three, so every failure degrades
 #: to a logged no-op instead. Named rather than detected, because "returns instead of raising" is
@@ -47,11 +47,12 @@ DEGRADING = frozenset(
         "file-ops-notify-failure",
         "file-send-notify-failure",
         "results-conversion-notify-failure",
+        "table-builder-notify-failure",
         "table-share-notify-failure",
     }
 )
 
-EXPECTED_POPULATION = 13
+EXPECTED_POPULATION = 14
 
 
 def _deployed_names() -> set[str]:

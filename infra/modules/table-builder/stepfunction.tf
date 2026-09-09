@@ -46,3 +46,43 @@ resource "aws_sfn_state_machine" "table_builder" {
     aws_cloudwatch_log_group.orchestrator,
   ]
 }
+
+# ── The timed-out run's only route to a notification ─────
+# TimeoutSeconds above expires the execution OUTRIGHT, and catchers do not cover top-level
+# failures — so the machine's own NotifyFailure path is unreachable on this one failure and
+# the actor would be told nothing at all. This plane shipped the bound without the door and
+# was silent on it until a live check found the gap.
+#
+# TIMED_OUT ONLY, NEVER FAILED: every other whole-request failure already reaches
+# NotifyFailure through the shared Catch, so FAILED would double-notify every one of them.
+#
+# The rule is HALF the door — tb_notify_failure must dispatch on the detail-type too, or this
+# delivers a status-change event to a handler that reads a top-level `actor` the event does not
+# carry and notifies nobody, which looks exactly like the gap it was added to close.
+resource "aws_cloudwatch_event_rule" "execution_timed_out" {
+  name        = "${local.state_machine_name}-timed-out"
+  description = "Notify the actor when a table-builder execution is stopped by the state machine's own timeout."
+
+  event_pattern = jsonencode({
+    "source"      = ["aws.states"]
+    "detail-type" = ["Step Functions Execution Status Change"]
+    "detail" = {
+      status          = ["TIMED_OUT"]
+      stateMachineArn = [local.state_machine_arn]
+    }
+  })
+}
+
+resource "aws_cloudwatch_event_target" "execution_timed_out" {
+  rule = aws_cloudwatch_event_rule.execution_timed_out.name
+  arn  = module.functions["notify-failure"].function_arn
+}
+
+# Resource-based grant, so the rule needs no invoke role. Scoped to this rule's ARN.
+resource "aws_lambda_permission" "execution_timed_out" {
+  statement_id  = "AllowEventBridgeExecutionTimedOut"
+  action        = "lambda:InvokeFunction"
+  function_name = module.functions["notify-failure"].function_arn
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.execution_timed_out.arn
+}

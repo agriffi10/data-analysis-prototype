@@ -178,6 +178,14 @@ The recurring non-scopable actions, each isolated in its own wildcard statement:
   its top-level ceiling with its skeleton, so each ships with the rule from day one, **and the grant
   has to be here or the first apply fails on the rule rather than on anything to do with the
   plane's purpose**.
+  **`table-builder` is a THIRD shape, and it is the one that bit: the ceiling shipped WITHOUT the
+  rule.** `TimeoutSeconds` arrived with the refresh lock (`f6cad67d`, SPEC-157) because the lock's
+  steal threshold is derived from it — so the ceiling had a reason of its own and nobody noticed the
+  door was missing. It stayed missing until a live check compared the fleet in 2026-09, and the
+  grant here is retrofitted rather than arriving with the transfer. **So an `events:` statement's
+  absence is not evidence that a plane has no ceiling** — read `TimeoutSeconds` in the plane's own
+  ASL, and if it has one, check for the rule AND for the handler's detail-type door, because the
+  rule alone delivers to a handler that notifies nobody.
   The other is a **schedule**, which has nothing to do with a ceiling: `user-directory`,
   `observability` and `control-plane-dlq-drain` are all schedules, and **`shared-spaces` now holds
   one too** — for the reader that picks operator-driven membership changes out of the admin bucket
