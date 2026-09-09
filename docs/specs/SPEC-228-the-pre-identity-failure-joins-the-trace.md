@@ -179,9 +179,10 @@ falsifies a set of claims spread across two per-plane guards, several ASL commen
 docstrings, all of which say the **seed** is where the envelope comes from. Two of those guards go
 red, and one of them matters more than its redness: file-send's
 `test_no_failure_seed_carries_the_selection_twice` is a 256 KiB fence, not a tidiness check — its
-subject is that the seed must not carry the selection *beside* the envelope. Its subject moves to
-`RecordFailure`, which is where the sum now lives, and dropping the assertion instead would leave a
-future `source` key looking free.
+subject is that the seed must not carry the selection *beside* the envelope. Only half of it moves:
+the envelope is now on `RecordFailure`, so that is where the sum lives and where the `raw`-presence
+half re-points — but the `source.$` absence half stays over all three states, because the seeds are
+where a `source` key would be re-added. Dropping either would leave a future `source` looking free.
 
 #### Acceptance Criteria:
 
