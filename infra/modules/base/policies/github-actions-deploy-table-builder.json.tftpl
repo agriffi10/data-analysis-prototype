@@ -108,6 +108,22 @@
       "Resource": "arn:aws:iam::${account_id}:role/${project_name}-*-table-builder-*"
     },
     {
+      "Sid": "TableBuilderTimeoutRuleManage",
+      "Effect": "Allow",
+      "Action": [
+        "events:PutRule",
+        "events:DeleteRule",
+        "events:DescribeRule",
+        "events:PutTargets",
+        "events:RemoveTargets",
+        "events:ListTargetsByRule",
+        "events:ListTagsForResource",
+        "events:TagResource",
+        "events:UntagResource"
+      ],
+      "Resource": "arn:aws:events:${aws_region}:${account_id}:rule/${project_name}-*-table-builder-orchestrator-timed-out"
+    },
+    {
       "Sid": "TableBuilderLogs",
       "Effect": "Allow",
       "Action": [
