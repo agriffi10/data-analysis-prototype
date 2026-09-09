@@ -3,8 +3,7 @@
 The header rule and the paged sweep have their suite in ``archive-common``; this file exercises
 them THROUGH the real handler and covers what only the verb can carry: the progress record being
 read before the sweep and written after it, and the two booleans the ASL Choice branches on being
-computed HERE rather than compared in the machine. Runnable under pytest or directly:
-python3 test_archive_poll_restore.py.
+computed HERE rather than compared in the machine.
 """
 
 import json
@@ -155,7 +154,3 @@ def test_the_budget_running_out_reports_exhausted_rather_than_looping_on():
 
     assert out["restorePoll"]["exhausted"] is True
     assert out["restorePoll"]["complete"] is False
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

@@ -2,7 +2,7 @@
 
 What only this verb can get wrong: the storage class being STATED rather than defaulted, the
 destinations coming from the plan rather than being recomputed, and one manifest serving both
-Maps. Runnable under pytest or directly: python3 test_archive_build_restore_manifest.py.
+Maps.
 """
 
 import json
@@ -140,7 +140,3 @@ def test_a_plan_that_is_not_this_runs_refuses_and_notifies(_sink):
 
     assert caught.value.reason == "plan_superseded"
     assert _sink and _sink[0][0] == "alice"
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

@@ -646,10 +646,6 @@ def test_the_upload_path_raises_no_transient_error(s3):
     )
 
 
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))
-
-
 def test_a_personal_conversion_emits_all_three_child_spans(s3, captured_events):
     """THREE spans, not one, and on a run that reaches no shared helper at all.
 

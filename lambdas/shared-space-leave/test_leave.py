@@ -69,10 +69,3 @@ def test_leaving_drops_the_actors_index_entry_and_nobody_elses():
     assert json.loads(s3.store[("admin-bkt", "memberships/bob.json")])["spaces"] == []
     owner = json.loads(s3.store[("admin-bkt", "memberships/alice.json")])
     assert owner["spaces"] == [{"name": "sales", "status": "active"}]
-
-if __name__ == "__main__":
-    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
-    for fn in fns:
-        fn()
-    print(f"All {len(fns)} leave tests passed.")
-    sys.exit(0)

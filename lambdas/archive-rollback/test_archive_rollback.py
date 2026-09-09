@@ -4,8 +4,6 @@ The verb on the branch of the commit gate that does not lead to a deletion. Two 
 testing about it: that it removes the partial copy by LISTING the archive prefix (so it catches
 objects a batch copied before it died and never reported), and that it ALWAYS raises — with a
 message that says nothing was deleted, and a different one when the cleanup itself left residue.
-
-Runnable under pytest or directly: python3 test_archive_rollback.py.
 """
 
 import os
@@ -122,7 +120,3 @@ def test_a_clean_rollback_still_fails_the_run_and_names_the_counts(_no_real_noti
     message = _no_real_notifications[0][1]
     assert "6 of 8" in message
     assert "nothing was deleted" in message
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

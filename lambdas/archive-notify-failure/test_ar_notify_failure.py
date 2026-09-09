@@ -121,7 +121,3 @@ def test_a_timed_out_execution_with_an_unhashable_mode_still_notifies(monkeypatc
 
     assert [user for user, _ in sent] == ["alice"]
     assert "ran for too long" in sent[0][1]
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

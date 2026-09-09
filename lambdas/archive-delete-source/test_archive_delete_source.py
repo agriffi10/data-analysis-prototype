@@ -4,8 +4,6 @@ The only verb in this portal that deletes a user's data. The batching discipline
 suite in ``archive-common``; what is tested here is what only the verb decides — that it deletes
 exactly the PLAN's keys under exactly the plan's root, that a partial deletion fails the run and
 KEEPS the archive copy, and that a re-driven execution completes.
-
-Runnable under pytest or directly: python3 test_archive_delete_source.py.
 """
 
 import json
@@ -153,7 +151,3 @@ def test_a_plan_that_does_not_describe_this_run_deletes_nothing(field, value):
 
     assert err.value.reason == "plan_superseded"
     assert fake.deletes == []
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

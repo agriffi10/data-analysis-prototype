@@ -2,7 +2,7 @@
 
 Who is told what, and who is NOT told: the three ways an outcome producer goes wrong are telling
 the wrong person, telling somebody twice, and failing a delivered send because a message did not
-go out. Runnable under pytest or directly: python3 test_file_send_notify.py.
+go out.
 """
 
 import os
@@ -86,7 +86,3 @@ def test_a_conflict_names_the_recipient_AND_the_colliding_item(sent):
     body = sent[0][1]
     assert 'user "carol"' in body
     assert '"reports"' in body
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

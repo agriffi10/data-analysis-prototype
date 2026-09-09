@@ -1,6 +1,4 @@
 """Unit tests for tscommon.copy_plan — the object list, passed by pointer.
-
-Runnable under pytest or directly: python3 test_copy_plan_tscommon.py.
 """
 
 import io
@@ -283,7 +281,3 @@ def test_the_definition_is_written_compactly(_fake_s3):
 
     assert b", " not in _fake_s3.puts[0]["Body"]
     assert json.loads(_fake_s3.puts[0]["Body"]) == DEFINITION
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

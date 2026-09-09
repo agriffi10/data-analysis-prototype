@@ -7,8 +7,6 @@ to still put a friendly sentence in the actor's inbox.
 Every assertion is on the NOTIFICATION BODY the user would receive rather than on a mock's
 call args (FR-004): what is being protected is what the message says, and a test that
 pins the arguments passes just as happily when the wording is wrong.
-
-Runnable under pytest or directly: python3 test_tb_notify_failure.py.
 """
 
 import json
@@ -118,9 +116,3 @@ def test_a_verbs_own_terminal_error_is_suppressed():
 
 
 # ── The instrumentation rules (FR-002) ────────────────────────────────────────
-
-
-if __name__ == "__main__":
-    import pytest
-
-    raise SystemExit(pytest.main([__file__, "-q"]))

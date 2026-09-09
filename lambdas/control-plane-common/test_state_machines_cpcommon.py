@@ -3,8 +3,6 @@
 These read the deployed ASL templates under infra/ rather than a copy, because the whole
 point is to fail when one of them drifts. They are not about any single arc — they encode
 rules that were each learned by breaking production.
-
-Runnable under pytest or directly: python3 test_state_machines_cpcommon.py.
 """
 
 import glob
@@ -1813,7 +1811,3 @@ def test_every_traceparent_read_names_a_path_its_state_actually_supplies():
         "looking at the wrong thing. The eight pre-identity seeds are NOT reads: they supply a "
         "literal null, which is why the total is not 45"
     )
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

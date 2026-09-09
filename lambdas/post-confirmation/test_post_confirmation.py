@@ -1,6 +1,5 @@
 """Unit tests for the post-confirmation trigger (SPEC-033 FR-002) and the backfill
-reuse (FR-004). Runs under pytest *or* as a plain script (`python3
-test_post_confirmation.py`).
+reuse (FR-004).
 
 Before importing the handler we inject a tiny fake `boto3` into sys.modules that records
 Glue/Lake Formation calls and lets us simulate "already exists" — the handler builds both
@@ -125,11 +124,3 @@ def test_handler_never_blocks_signup_on_aws_error():
     event = _event(username="alice")
     # Handler swallows the error and returns the event so sign-up completes.
     assert post_confirmation.handler(event, None) is event
-
-
-if __name__ == "__main__":
-    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
-    for fn in fns:
-        fn()
-        print(f"ok - {fn.__name__}")
-    print(f"\n{len(fns)} passed")

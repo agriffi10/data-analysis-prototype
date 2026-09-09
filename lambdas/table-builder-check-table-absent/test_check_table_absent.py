@@ -2,8 +2,7 @@
 
 Glue is stubbed via clients.glue(): a fake catalog client whose get_table either
 returns (table exists), raises EntityNotFoundException (absent → pass), or raises a
-transient error (must propagate, not be terminalized). Runnable under pytest or
-directly: python3 test_check_table_absent.py.
+transient error (must propagate, not be terminalized).
 """
 
 import os
@@ -93,17 +92,3 @@ def test_transient_glue_throttle_is_raised_as_TransientError():
     except TerminalError:
         raise AssertionError("a throttle must not be terminalized")
     raise AssertionError("expected TransientError from a throttled get_table")
-
-
-if __name__ == "__main__":
-    tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
-    failed = 0
-    for fn in tests:
-        try:
-            fn()
-            print(f"PASS {fn.__name__}")
-        except Exception as exc:  # noqa: BLE001
-            failed += 1
-            print(f"FAIL {fn.__name__}: {exc}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    sys.exit(1 if failed else 0)

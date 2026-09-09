@@ -8,8 +8,8 @@ still put a friendly sentence in the actor's inbox.
 Every assertion is on the NOTIFICATION BODY the user would receive rather than on a mock's
 call args (FR-004).
 
-Runnable as a plain script or under pytest; the common layer is added to sys.path so the
-flat layer modules resolve either way.
+The common layer is added to sys.path here because `lambdas/conftest.py` does not list
+shared-space-common among the layer roots it puts there.
 """
 
 import json
@@ -121,9 +121,3 @@ def test_a_pre_validation_failure_never_falls_back_to_a_body_supplied_username()
 
 
 # ── Totality: it never raises, whatever it is handed (FR-002) ─────────────────
-
-
-if __name__ == "__main__":
-    import pytest
-
-    raise SystemExit(pytest.main([__file__, "-q"]))

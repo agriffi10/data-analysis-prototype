@@ -3,8 +3,7 @@
 The lookup rules have their own suite in ``archive-common``; this file exercises them THROUGH
 the real handler and covers what only the verb can carry: the plan pointer coming back on the
 state, the OBJECT LIST not coming back with it, and the actor being notified before the Catch
-records a refusal. Runnable under pytest or directly:
-python3 test_archive_inspect_archive.py.
+records a refusal.
 """
 
 import json
@@ -137,7 +136,3 @@ def test_an_archive_that_is_not_there_refuses_and_notifies_the_actor(_sink):
 
     assert caught.value.reason == "archive_not_found"
     assert _sink and _sink[0][0] == "alice"
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

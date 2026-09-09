@@ -121,13 +121,6 @@ def test_added_members_get_an_index_entry_and_skipped_ones_do_not():
     assert document["spaces"] == [{"name": "sales", "status": "active"}]
     assert ("admin-bkt", "memberships/nosuchuser.json") not in s3.store
 
-if __name__ == "__main__":
-    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
-    for fn in fns:
-        fn()
-    print(f"All {len(fns)} add-members tests passed.")
-    sys.exit(0)
-
 
 # ── The three refusals, and the slots they must give back ────────────────────
 

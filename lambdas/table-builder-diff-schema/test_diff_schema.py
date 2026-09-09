@@ -2,8 +2,6 @@
 
 `compute_diff` is pure and tested directly against column-list pairs; the verb is tested
 for the two decisions it owns — the removal opt-in and the no-op short circuit.
-
-Runnable under pytest OR directly: ``python3 test_diff_schema.py``.
 """
 
 import os
@@ -21,7 +19,6 @@ os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 import json
 
 import diff_schema as m
-import pytest
 from cpcommon import clients, config
 from cpcommon.errors import TerminalError
 
@@ -138,7 +135,3 @@ def test_diff_schema_emits_no_child_span_at_all(captured_events):
         "diff-schema emitted a child span; its body does no I/O, so a span here times a "
         "comparison over column dicts and pays two events to report it"
     )
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

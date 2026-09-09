@@ -3,8 +3,7 @@
 The guard's own rules — 403-is-occupied, the short-circuit, the bounded sample — have their
 suite in ``archive-common``; this file exercises them THROUGH the real handler and covers what
 only the verb can carry: the plan being read back and proved to be THIS run's, the actor being
-notified, and the refusal reaching the user as a restore. Runnable under pytest or directly:
-python3 test_archive_check_destination_clear.py.
+notified, and the refusal reaching the user as a restore.
 """
 
 import json
@@ -164,7 +163,3 @@ def test_the_second_pass_after_the_retrieval_refuses_with_its_own_reason(_sink):
     assert caught.value.reason == "destination_occupied_after_retrieval"
     assert _sink and "already been retrieved" in _sink[0][1]
     assert "not mean another long wait" in _sink[0][1]
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

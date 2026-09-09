@@ -4,8 +4,6 @@ Versioning is off in both data buckets, so every case here is one where the wron
 still looks right: a partial batch read as complete, a replayed verb reporting its predecessor's
 work as failures, a 409 collapsed into a 412, and an item refused over the whole list instead of on
 its own.
-
-Runnable under pytest or directly: python3 test_delete_focommon.py.
 """
 
 import os

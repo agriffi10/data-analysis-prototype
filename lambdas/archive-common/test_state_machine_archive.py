@@ -13,8 +13,6 @@ import pathlib
 import re
 import sys
 
-import pytest
-
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_HERE, "..", "control-plane-common"))
 sys.path.insert(0, os.path.join(_HERE, "..", "archive-validate-authorize"))
@@ -218,10 +216,6 @@ def test_the_restores_gate_guards_its_comparison_and_fails_closed():
 
 
 # ── SPEC-172: the success producer, and the two things it must never do ──────
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))
 
 
 def test_the_commit_gate_guards_its_comparison_and_fails_closed():

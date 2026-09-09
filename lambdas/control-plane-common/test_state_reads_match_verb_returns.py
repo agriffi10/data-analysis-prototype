@@ -31,8 +31,6 @@ traceparent. The other three are NOT, and are not meant to be — they are succe
 `Next` is `Succeeded`, which is precisely why they may drop the key, and
 `test_no_checked_pair_is_allowed_to_drop_the_traceparent` asserts that rather than assuming it. The
 two collectors' exclusion sets are pinned verb-side in `test_one_run_one_trace.py`.
-
-Runnable under pytest or directly: python3 test_state_reads_match_verb_returns.py.
 """
 
 import ast
@@ -1076,7 +1074,3 @@ def test_a_field_naming_state_reads_exactly_what_its_verb_returns(plane, state, 
         "them. A matching FIRST SEGMENT is not enough: a nested read into a value that lacks the "
         "rest is the same uncatchable States.Runtime, and the set equality above cannot see it"
     )
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

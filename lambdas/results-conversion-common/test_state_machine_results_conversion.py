@@ -243,7 +243,3 @@ def test_the_refusal_seed_supplies_every_key_the_failure_terminal_reads(_stubbed
     assert choice["Choices"] == [
         {"Variable": "$.outcome", "StringEquals": "refused", "Next": "ConvertRefusedSeed"}
     ]
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

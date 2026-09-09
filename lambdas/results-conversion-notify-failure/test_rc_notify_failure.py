@@ -136,7 +136,3 @@ def test_the_timeout_door_degrades_on_every_bad_shape(event):
     sent = _capture()
     assert n.handler(event, None)["username"] == ""
     assert sent == []
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

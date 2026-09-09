@@ -10,13 +10,10 @@ real build failed. Asserts the type rules plus scan-error → terminal and trans
 raised.
 
 Run under pytest, which supplies the cpcommon path and the config env baseline from
-conftest.py. The `python3 test_infer_schema.py` mode this file used to advertise has not
-worked since the verb started importing cpcommon — the __main__ block below still runs,
-but only under an environment that provides both.
+conftest.py.
 """
 
 import datetime as dt
-import inspect
 import os
 import sys
 import tempfile
@@ -221,31 +218,3 @@ def test_the_column_inference_is_a_child_span_of_the_verbs_own_span(captured_eve
         f"infer-schema emitted {len(children)} 'infer-columns' child spans, expected exactly one"
     )
     assert children[0]["parent_span_id"] == root[0]["span_id"]
-
-
-if __name__ == "__main__":
-    # This runner injects no fixtures, so a test that takes one is skipped rather than called
-    # with the wrong arity. Without the skip, adding the first fixture-taking test to this file
-    # turns the documented direct-run mode red for a reason that is about the runner.
-    tests = [
-        fn
-        for name, fn in sorted(globals().items())
-        if name.startswith("test_") and not inspect.signature(fn).parameters
-    ]
-    skipped = [
-        name
-        for name, fn in sorted(globals().items())
-        if name.startswith("test_") and inspect.signature(fn).parameters
-    ]
-    for name in skipped:
-        print(f"SKIP {name} (needs a pytest fixture; run this file under pytest for it)")
-    failed = 0
-    for fn in tests:
-        try:
-            fn()
-            print(f"PASS {fn.__name__}")
-        except Exception as exc:  # noqa: BLE001
-            failed += 1
-            print(f"FAIL {fn.__name__}: {exc}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    sys.exit(1 if failed else 0)

@@ -4,8 +4,6 @@ The last state, and the only artifact of an archive the user can see. The docume
 its own suite in ``archive-common``; what is tested here is the verb's own decision — that a
 failed write fails the RUN, even though the data is safely archived, because a user with no
 receipt has no id and therefore no route to a restore.
-
-Runnable under pytest or directly: python3 test_archive_write_receipt.py.
 """
 
 import os
@@ -107,7 +105,3 @@ def test_a_failed_write_fails_the_run_and_says_the_data_is_archived(_no_real_not
     assert "were archived" in message
     assert _REQUEST_ID in message
     assert "nothing was deleted" not in message
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

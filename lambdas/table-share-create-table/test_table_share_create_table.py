@@ -3,8 +3,7 @@
 Pure logic, AWS stubbed: Athena run_ddl is faked at the module seam. Asserts the
 rendered DDL (recipient DB + repointed LOCATION + carried projection props), the
 recipient-DB execution context + results routing, the pass-through output, and the
-terminal/transient routing. Runnable under pytest or directly:
-python3 test_table_share_create_table.py.
+terminal/transient routing.
 """
 
 import json
@@ -169,16 +168,3 @@ def test_an_unreadable_definition_fails_only_this_recipient():
 
     assert excinfo.value.reason == "definition_unreadable"
     assert fake.calls == [], "no DDL may run when the definition could not be read"
-
-
-if __name__ == "__main__":
-    failures = 0
-    for name, fn in sorted(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            try:
-                fn()
-                print(f"PASS {name}")
-            except AssertionError as exc:
-                failures += 1
-                print(f"FAIL {name}: {exc}")
-    raise SystemExit(1 if failures else 0)

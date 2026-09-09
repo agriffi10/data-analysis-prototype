@@ -1,7 +1,6 @@
 """Unit tests for the notifications writer.
 
-Runs under pytest or as a plain script (`python3 test_notifications_writer.py`); the
-JS CI does not run Python. The S3 client and token verification are faked — the client on
+The S3 client and token verification are faked — the client on
 `cpcommon.clients` since SPEC-156 FR-004, which is also where `lambdas/conftest.py`'s
 shared-layer snapshot restores it from.
 """
@@ -446,20 +445,3 @@ def test_an_unhashable_action_reaches_the_writer_s_own_refusal():
         "unknown action: ['markRead']",
     )
     assert _inbox(s3, "alice") is None
-
-
-if __name__ == "__main__":
-    import sys
-
-    tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
-    failures = 0
-    for test in tests:
-        try:
-            test()
-            print(f"ok   {test.__name__}")
-        except Exception as exc:  # noqa: BLE001
-            failures += 1
-            print(f"FAIL {test.__name__}: {exc}")
-    print(f"\n{len(tests) - failures}/{len(tests)} passed")
-    sys.exit(1 if failures else 0)
-

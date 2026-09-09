@@ -4,8 +4,6 @@ The only verb in this plane that removes a user's own files, in buckets with ver
 case here is one where the wrong implementation still looks like it worked: an unconfirmed item
 deleted alongside confirmed ones, a refusal taking its siblings down with it, and a confirmed key
 that names nothing falling through in silence.
-
-Runnable under pytest or directly: python3 test_file_ops_delete_source.py.
 """
 
 import json

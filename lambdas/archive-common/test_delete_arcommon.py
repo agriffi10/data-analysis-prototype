@@ -5,8 +5,6 @@ uniquely: a per-item ``Errors`` array read only as a status code reports a compl
 a half-deleted source; a batch abandoned on the first failure strands the rest; a delete issued
 against a key the bucket policy refuses stops HALF WAY THROUGH, after some of the user's data has
 already gone.
-
-Runnable under pytest or directly: python3 test_delete_arcommon.py.
 """
 
 import os
@@ -77,7 +75,3 @@ def test_a_prefix_marker_is_refused_for_the_whole_list():
 
 
 # ── The batching, and the array every response carries ───────────────────────
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

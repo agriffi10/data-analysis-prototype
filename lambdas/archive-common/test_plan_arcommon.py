@@ -5,8 +5,6 @@ the commit gate counts against it, and the SOURCE DELETION deletes exactly its k
 here lean on the two properties that make that trust safe: nothing enters the plan without being
 re-checked against the authorized root, and nothing leaves ``load`` that cannot be shown to be
 complete.
-
-Runnable under pytest or directly: python3 test_plan_arcommon.py.
 """
 
 import json
@@ -648,7 +646,3 @@ def test_a_retryable_fault_stays_transient_on_both_sides_of_the_round_trip():
     _install(get_error=_S3Error("SlowDown"))
     with pytest.raises(TransientError):
         plan.load("archive/req/copy-plan.json", {})
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

@@ -2,8 +2,7 @@
 
 The classification logic is tested by stubbing s3_listing.list_data_objects with a
 canned object list (no S3). The shared ignore rules + paginated lister are tested
-directly against a fake S3 paginator. Runnable under pytest or directly:
-python3 test_inspect_source.py.
+directly against a fake S3 paginator.
 """
 
 import os
@@ -85,17 +84,3 @@ def test_mixed_formats_is_terminal():
 
 
 # Fake S3 paginator backing the ignore-rules test above.
-
-
-if __name__ == "__main__":
-    tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
-    failed = 0
-    for fn in tests:
-        try:
-            fn()
-            print(f"PASS {fn.__name__}")
-        except Exception as exc:  # noqa: BLE001
-            failed += 1
-            print(f"FAIL {fn.__name__}: {exc}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    sys.exit(1 if failed else 0)

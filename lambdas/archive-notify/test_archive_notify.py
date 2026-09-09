@@ -3,7 +3,7 @@
 The three ways an outcome producer goes wrong are saying the wrong thing, saying it to the wrong
 person, and failing a run that had already succeeded because a message did not go out. The third
 is the one that matters most here: on the archive arm the source is DELETED by the time this verb
-runs. Runnable under pytest or directly: python3 test_archive_notify.py.
+runs.
 """
 
 import os
@@ -88,7 +88,3 @@ def test_exactly_one_message_is_sent_per_invocation(sent):
         sent.clear()
         m._notify(_event(outcome))
         assert len(sent) == 1, outcome
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

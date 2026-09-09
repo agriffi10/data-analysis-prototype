@@ -10,8 +10,11 @@ the domain env tests.
 
 It also puts the shared Lambda-LAYER package roots on ``sys.path`` so ``from cpcommon
 import …`` (and the domain layers) resolve everywhere under ``pytest lambdas/`` without
-each test re-inserting them. Tests that also run directly (``python3
-test_x.py``) keep their own per-file ``sys.path.insert`` for that mode.
+each test re-inserting them. It does NOT cover every layer: ``shared-space-common`` and
+``data-quality-common`` are absent from ``_LAYER_DIRS``, so the suites that import them keep
+their own per-file ``sys.path.insert`` and that insert is load-bearing — delete one and the
+module fails at collection. pytest is the only runner: no test module carries a ``__main__``
+block, and ``test_no_test_module_ships_its_own_runner`` refuses one that does.
 """
 
 import ast

@@ -144,7 +144,3 @@ def test_the_probe_covers_every_notify_failure_verb_that_exists():
     # the set comparison stays exact rather than being weakened to a subset check.
     expected = set(NOTIFY_FAILURE_VERBS) | {"data-quality-notify-failure"}
     assert found == expected, f"uncovered: {sorted(found - expected)}"
-
-
-if __name__ == "__main__":
-    raise SystemExit(pytest.main([__file__, "-q"]))

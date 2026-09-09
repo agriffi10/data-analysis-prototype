@@ -304,13 +304,6 @@ def test_forget_clears_the_index_on_the_cache_only_path_too():
     assert json.loads(s3.store[("admin-bkt", "memberships/bob.json")])["spaces"] == []
     assert ("admin-bkt", "shared-spaces/sales.json") not in s3.store
 
-if __name__ == "__main__":
-    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
-    for fn in fns:
-        fn()
-    print(f"All {len(fns)} forget-space tests passed.")
-    sys.exit(0)
-
 
 def test_forget_as_the_OWNER_of_a_was_active_now_failed_space_tears_down_NOTHING():
     # THE data-loss path. A delete that fails partway leaves a live workspace in `failed`, and

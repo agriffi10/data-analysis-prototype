@@ -1,8 +1,7 @@
 """Unit tests for the data-quality validate-authorize Lambda (SPEC-109).
 
 Pure logic, AWS stubbed: registry.load is replaced on the
-verb module, so no token is minted and no S3 is touched. Runnable under pytest or
-directly: python3 test_dq_validate_authorize.py.
+verb module, so no token is minted and no S3 is touched.
 """
 
 import json
@@ -161,18 +160,3 @@ def test_a_check_targeting_a_reserved_first_segment_is_forbidden_by_name():
             f"{segment!r} is a reserved prefix",
         )
         assert exc.reason == v.messages.FORBIDDEN
-
-
-if __name__ == "__main__":
-    tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
-    failed = 0
-    for fn in tests:
-        try:
-            fn()
-            print(f"PASS {fn.__name__}")
-        except Exception as exc:  # noqa: BLE001
-            failed += 1
-            print(f"FAIL {fn.__name__}: {exc}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    sys.exit(1 if failed else 0)
-

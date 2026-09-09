@@ -2,8 +2,7 @@
 
 The copy mechanics themselves moved to ``cpcommon.transfer.copy`` and are tested there. What
 this file holds is what is table-share's: the batch contract with the Distributed Map, and the
-FR-003 property that the verb knows nothing about recipients, plans or requests. Runnable under
-pytest or directly: python3 test_table_share_copy_objects.py.
+FR-003 property that the verb knows nothing about recipients, plans or requests.
 """
 
 import os
@@ -120,16 +119,3 @@ def test_a_throttle_still_raises_so_the_map_retries_the_batch():
     _setup(copy_error=_S3Error("SlowDown"))
     with pytest.raises(TransientError):
         m.handler(_batch(_item()), None)
-
-
-if __name__ == "__main__":
-    failures = 0
-    for name, fn in sorted(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            try:
-                fn()
-                print(f"PASS {name}")
-            except AssertionError as exc:
-                failures += 1
-                print(f"FAIL {name}: {exc}")
-    raise SystemExit(1 if failures else 0)

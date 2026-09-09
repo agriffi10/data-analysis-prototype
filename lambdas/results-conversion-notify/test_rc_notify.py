@@ -157,7 +157,3 @@ def test_the_verb_carries_no_failure_decorator():
         f"the notifier's decorator stack is {applied}; a failure decorator here would report a "
         "failure of the notification as a failure of the conversion"
     )
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

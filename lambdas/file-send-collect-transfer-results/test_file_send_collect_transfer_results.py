@@ -4,8 +4,7 @@ Attribution is where per-recipient isolation lives now that the fan-out is over
 (recipient x object) pairs, so these tests are about who is told what: a recipient with one
 failed item did not receive the send, a recipient the guard already refused keeps its own
 reason, and an export that cannot be attributed fails the whole request rather than reporting
-success. Runnable under pytest or directly:
-python3 test_file_send_collect_transfer_results.py.
+success.
 """
 
 import json
@@ -135,7 +134,3 @@ def test_an_export_short_of_the_manifests_items_fails_the_whole_request():
         m.handler(_event([_cleared("user", "bob")], item_count=2), None)
 
     assert caught.value.reason == "transfer_results_unreadable"
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

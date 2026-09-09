@@ -323,10 +323,6 @@ def test_the_identity_is_stamped_on_the_span(captured_events):
     assert stamped, "the verified actor never reached a span"
 
 
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))
-
-
 @pytest.mark.parametrize(
     ("field", "detail"),
     [

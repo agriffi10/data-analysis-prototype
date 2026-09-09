@@ -24,7 +24,6 @@ Attributes:
 
 import pathlib
 import re
-import sys
 
 import pytest
 
@@ -123,7 +122,3 @@ def test_every_requirement_carries_a_version_constraint():
 @pytest.mark.parametrize("path", ["Dockerfile", "requirements.txt"])
 def test_the_files_this_suite_reads_exist(path):
     assert (LAMBDAS / path).exists(), f"{path} is missing, so the assertions over it are vacuous"
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

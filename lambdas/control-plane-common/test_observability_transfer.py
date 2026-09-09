@@ -6,8 +6,8 @@ cheap win and are called once per RECIPIENT, per MEMBER or per TARGET, so steppi
 per-item instrumentation the design forbids. Both halves are held here — the three that are
 instrumented, exactly, and the five that must never be.
 
-Runnable under pytest. This file has no direct-run block: its guards need the
-``captured_events`` and ``step_scan`` fixtures.
+Its guards need the ``captured_events`` and ``step_scan`` fixtures, so they run under
+pytest and nowhere else.
 """
 
 import ast

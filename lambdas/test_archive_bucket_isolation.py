@@ -143,9 +143,3 @@ def test_each_space_bucket_denies_the_browser_writing_under_archive(deny_of):
 
 
 # ── SPEC-139 parity: no new Resource "*" anywhere in this plane ──────────────
-
-
-if __name__ == "__main__":
-    import sys
-
-    sys.exit(pytest.main([__file__, "-q"]))

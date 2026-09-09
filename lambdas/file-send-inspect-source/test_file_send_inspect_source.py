@@ -3,8 +3,7 @@
 The expansion rules and the caps have their own suite in ``file-send-common``; this file
 exercises them THROUGH the real handler, and covers what only the verb can carry: the plan
 pointer coming back on the state, the object list not coming back with it, and the sender being
-notified before the Catch records a refusal. Runnable under pytest or directly:
-python3 test_file_send_inspect_source.py.
+notified before the Catch records a refusal.
 """
 
 import os
@@ -108,9 +107,3 @@ def test_a_refusal_notifies_the_sender_before_it_raises(notified):
 
     assert caught.value.reason == "nothing_to_send"
     assert notified == [("alice", "Couldn't send: there was nothing to send in what you selected.")]
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))
-
-

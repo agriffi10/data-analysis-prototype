@@ -18,8 +18,6 @@ import os
 import re
 import sys
 
-import pytest
-
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(
     0,
@@ -105,7 +103,3 @@ def test_the_verb_timeouts_the_derivation_rests_on_are_still_what_terraform_says
     assert timeouts.get("infer-schema") == 120
     assert timeouts.get("acquire-refresh-lock") == 15
     assert timeouts.get("release-refresh-lock") == 15
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-v"]))

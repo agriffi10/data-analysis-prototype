@@ -3,8 +3,6 @@
 The fake S3 below implements REAL conditional-put semantics (If-Match / If-None-Match with
 a changing ETag), because the whole FR is about what happens when two writers race. A fake
 that ignored the preconditions would make every CAS test pass without exercising the CAS.
-
-Runnable under pytest or directly: python3 test_index_store_dqcommon.py.
 """
 
 import json
@@ -164,11 +162,3 @@ def test_ACCEPTED_the_cap_evicts_by_position_so_a_replay_can_outlive_a_newer_run
     assert len(ids) == config.DQ_INDEX_MAX_ENTRIES
     assert "r-1" not in ids, "the oldest BY POSITION is the row dropped"
     assert "r-0" in ids, "and the replayed, older-by-timestamp row outlived it"
-
-
-if __name__ == "__main__":
-    for name, fn in sorted(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            fn()
-            print(f"  ok  {name}")
-    print("all index-store tests passed")

@@ -1,7 +1,7 @@
 """Unit tests for the create-space verb.
 
-Runnable as a plain script or under pytest; the common layer is added to sys.path so
-the verb's imports resolve locally.
+The common layer is added to sys.path here because `lambdas/conftest.py` does not list
+shared-space-common among the layer roots it puts there.
 """
 
 import json
@@ -131,15 +131,6 @@ def test_a_failed_index_write_rolls_the_create_back_rather_than_stranding_the_sp
     rec = json.loads(clients._s3.store[("admin-bkt", "shared-spaces/sales.json")])
     assert rec["status"] == "failed"
     assert clients._cognito.attrs.get("custom:shared_space_1", "") == ""
-
-if __name__ == "__main__":
-    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
-    for fn in fns:
-        fn()
-    print(f"All {len(fns)} create-space tests passed.")
-    sys.exit(0)
-
-
 
 
 def _record(s3, name="sales"):

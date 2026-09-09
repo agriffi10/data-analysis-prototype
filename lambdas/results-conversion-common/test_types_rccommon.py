@@ -283,7 +283,3 @@ def test_athena_writes_null_unquoted_and_an_empty_string_quoted():
     assert frame["c_empty"][0] == "", "a quoted empty field is an empty STRING"
     assert frame["c_null_text"][0] is None, "an unquoted empty field is NULL"
     assert frame["c_null_bigint"][0] is None, "and so is one in a numeric column"
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

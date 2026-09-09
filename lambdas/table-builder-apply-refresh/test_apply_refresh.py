@@ -7,8 +7,6 @@ canned list would pass a verification the real catalog could fail.
 What this file is really about is FR-002: ``UpdateTable`` replaces the WHOLE definition, so
 every field the input omits is CLEARED. Preservation and mutation are therefore asserted
 TOGETHER — an input that changed nothing would sail through a preservation-only test.
-
-Runnable under pytest OR directly: ``python3 test_apply_refresh.py``.
 """
 
 import os
@@ -27,7 +25,6 @@ import datetime
 import pathlib
 
 import apply_refresh as m
-import pytest
 from cpcommon import clients, config
 
 BUCKET = "dat-prod-user-space"
@@ -270,10 +267,6 @@ _KEYS = [{"name": "year", "type": "integer", "range": [2000, 2100], "digits": 4}
 
 
 # ── SPEC-153 FR-006: the Athena case-fold premise, pinned ────────────────────
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))
 
 
 # ── SPEC-157: the shapes boto3 ACTUALLY returns ──────────────────────────────

@@ -2,8 +2,7 @@
 
 Pure logic, AWS stubbed: registry.load and
 cognito.user_exists are patched per case. Asserts the validated payload shape,
-recipient annotation, and every terminal reason. Runnable under pytest or directly:
-python3 test_validate_authorize.py.
+recipient annotation, and every terminal reason.
 """
 
 import json
@@ -148,16 +147,3 @@ def test_recipient_space_membership_not_required():
     )
 
     assert out["recipients"] == [{"kind": "space", "name": "salesteam", "valid": True}]
-
-
-if __name__ == "__main__":
-    failures = 0
-    for name, fn in sorted(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            try:
-                fn()
-                print(f"PASS {name}")
-            except AssertionError as exc:
-                failures += 1
-                print(f"FAIL {name}: {exc}")
-    raise SystemExit(1 if failures else 0)

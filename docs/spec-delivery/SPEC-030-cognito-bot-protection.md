@@ -27,9 +27,10 @@ Two free, IaC-managed hardening layers (no WAF, no Advanced Security Features):
   (`prevent_user_existence_errors`) lives on the **client**. An empty `user_pool_add_ons` block
   is misleading (it relates to Advanced Security Features, which the spec deliberately avoids)
   and unnecessary, so only the client attribute was set — which achieves FR-001's actual intent.
-- **Test runner.** `test_pre_signup.py` runs under `pytest` *or* as a plain script
-  (`python3 test_pre_signup.py`) — the JS `ci.yml` has no Python step and `deploy-lambdas.yml`
-  does not run tests, so this file is for local/dev verification. Note `deploy-lambdas.yml` zips
+- **Test runner.** ~~`test_pre_signup.py` runs under `pytest` *or* as a plain script
+  (`python3 test_pre_signup.py`)~~ — **no longer true; pytest is the only runner.** The plain-script
+  mode was removed fleet-wide once it was measured: of the 92 files carrying a runner, 35 died at
+  `ModuleNotFoundError` and one reported a pass over half its tests. Note `deploy-lambdas.yml` zips
   `lambdas/pre-signup/*.py`, so the test file is bundled into the function package; it is inert
   (never the handler) and only a few KB.
 

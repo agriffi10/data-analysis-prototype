@@ -761,14 +761,6 @@ def test_member_refusal_makes_no_aws_call_at_all():
     assert calls == [], f"member_refusal called {calls}"
 
 
-if __name__ == "__main__":
-    fns = [v_ for k, v_ in sorted(globals().items()) if k.startswith("test_") and callable(v_)]
-    for fn in fns:
-        fn()
-    print(f"All {len(fns)} validate tests passed.")
-    sys.exit(0)
-
-
 def test_the_deleting_card_names_the_verb_it_belongs_to():
     # The screen offers a retry on a card stuck in this state, and a card that does not say
     # which verb it came from is retried as a CREATE — the one verb that cannot work on a name

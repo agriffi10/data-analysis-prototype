@@ -17,7 +17,6 @@ os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 
 import fs_notify_failure as n
-import pytest
 from token_shapes import JWT_SHAPED
 
 
@@ -102,12 +101,6 @@ def test_the_door_degrades_when_the_request_carries_no_identity_block():
     n.handler(_request({"Error": "RuntimeError", "Cause": None}, actor=None, raw=_raw(identity=False)), None)
 
     assert sent == []
-
-
-if __name__ == "__main__":
-    import pytest
-
-    sys.exit(pytest.main([__file__, "-q"]))
 
 
 # ── SPEC-166 FR-005: the second door ────────────────────────────────────────

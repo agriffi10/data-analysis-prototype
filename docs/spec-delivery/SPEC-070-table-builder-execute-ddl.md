@@ -71,7 +71,9 @@ doc). The live env already has the role (SPEC-066), so this apply is clean.
 
 ## Verification
 
-**11** unit tests — `python3 lambdas/table-builder-execute-ddl/test_execute_ddl.py`: flat +
+**11** unit tests — ~~`python3 lambdas/table-builder-execute-ddl/test_execute_ddl.py`~~
+(**the direct-run mode is retired fleet-wide; pytest is the only runner. This count is the one
+recorded at delivery and has not been re-measured since**): flat +
 partitioned success (assert **exactly one** query — no MSCK), personal/shared results
 routing + workgroup/context DB, `ddl_execution_failed` (FAILED / CANCELLED / bad-start,
 reason carried), transient start/poll → `TransientError`, `ddl_timeout`, replay no-op. Other

@@ -212,7 +212,3 @@ def test_no_column_name_reaches_a_span_on_the_happy_path(captured_events):
     d.handler(_validated(), None)
     assert "secret_column_name" not in json.dumps(captured_events.events)
     assert captured_events.messages("result set described")
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))

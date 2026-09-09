@@ -3,8 +3,6 @@
 Pure logic, AWS stubbed: ``clients.glue`` is a fake returning a scripted Glue table.
 Asserts every refusal, the prefix rewrite, and — the one that matters most — that a
 reconstructed partition key re-renders to the exact properties it was read from.
-
-Runnable under pytest OR directly: ``python3 test_load_table_definition.py``.
 """
 
 import os
@@ -281,10 +279,6 @@ _FOREIGN_PARAMETERS = {
 
 
 # ── Observability + notification ─────────────────────────────────────────────
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))
 
 
 def test_the_catalog_read_is_a_child_span_of_the_verbs_own_span(captured_events):

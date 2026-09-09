@@ -167,10 +167,6 @@ def test_a_PERSONAL_source_that_is_not_the_actors_own_is_refused():
     assert refused == "forbidden"
 
 
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))
-
-
 def test_the_block_decides_the_actor_on_both_modes_and_the_flat_field_does_not():
     """Two allowed-field sets, one per mode, and each must read the block rather than the field.
 

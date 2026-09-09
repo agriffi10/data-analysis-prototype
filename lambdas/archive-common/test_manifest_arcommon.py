@@ -4,8 +4,6 @@ The interesting test in this file is the last one. The manifest is an integrity 
 moment a restore verb reads it, a lost or hand-edited file can make a restore wrong — which is
 exactly what the self-describing archive key exists to prevent. SPEC-170 and SPEC-171 have not
 been written yet, so the sweep is a tripwire for them rather than a check on today's code.
-
-Runnable under pytest or directly: python3 test_manifest_arcommon.py.
 """
 
 import ast

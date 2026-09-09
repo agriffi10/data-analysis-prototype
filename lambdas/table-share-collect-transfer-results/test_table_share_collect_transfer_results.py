@@ -4,7 +4,6 @@ Attribution is where per-recipient isolation lives now that the fan-out is over
 (recipient x object) pairs, so these tests are about who ends up with a table: a recipient with
 one failed item does not, a recipient the guard already refused keeps its own reason, and an
 export that cannot be attributed fails the whole request rather than reporting success.
-Runnable under pytest or directly: python3 test_table_share_collect_transfer_results.py.
 """
 
 import json
@@ -163,16 +162,3 @@ def test_an_export_that_covers_only_some_batches_fails_the_whole_request():
     with pytest.raises(TerminalError) as caught:
         m.handler(_event([{"status": "ok", "recipient": _resolved("bob")}], item_count=99), None)
     assert caught.value.reason == "transfer_results_unreadable"
-
-
-if __name__ == "__main__":
-    failures = 0
-    for name, fn in sorted(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            try:
-                fn()
-                print(f"PASS {name}")
-            except AssertionError as exc:
-                failures += 1
-                print(f"FAIL {name}: {exc}")
-    raise SystemExit(1 if failures else 0)

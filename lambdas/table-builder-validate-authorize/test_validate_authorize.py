@@ -2,8 +2,7 @@
 
 Pure logic, AWS stubbed: the registry read is stubbed for the shared-space cases. The actor
 needs no stub — it is read out of the message's identity block, which the API stamps and this
-harness builds. Asserts the validated payload shape and every terminal reason. Runnable under
-pytest or directly: python3 test_validate_authorize.py.
+harness builds. Asserts the validated payload shape and every terminal reason.
 """
 
 import json
@@ -151,20 +150,6 @@ def test_a_message_with_no_identity_block_is_refused():
         "requestId": "r1",
     }
     _expect_reason([{"body": json.dumps(body)}], "unauthorized")
-
-
-if __name__ == "__main__":
-    tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
-    failed = 0
-    for fn in tests:
-        try:
-            fn()
-            print(f"PASS {fn.__name__}")
-        except Exception as exc:  # noqa: BLE001
-            failed += 1
-            print(f"FAIL {fn.__name__}: {exc}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    sys.exit(1 if failed else 0)
 
 
 # ── SPEC-151 FR-007: partition-key validation is complete ───────────────────

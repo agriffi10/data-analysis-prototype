@@ -1,7 +1,4 @@
 """Unit tests for the pre-signup trigger.
-
-Runs under pytest or as a plain script (`python3 test_pre_signup.py`); the JS CI does
-not run a Python interpreter.
 """
 
 from contextlib import contextmanager
@@ -49,13 +46,3 @@ def test_uppercase_username_rejected():
 def test_disposable_domain_rejected():
     with _raises("temporary email"):
         handler(_event(email="bot@mailinator.com"), None)
-
-
-if __name__ == "__main__":
-    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
-    for fn in fns:
-        fn()
-        print(f"ok - {fn.__name__}")
-    print(f"\n{len(fns)} passed")
-
-
