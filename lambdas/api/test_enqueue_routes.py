@@ -771,3 +771,29 @@ def test_a_missing_queue_variable_is_a_fault_and_not_a_refusal_blaming_the_queue
     assert "could not be reached" not in json.dumps(body), (
         "a misconfigured queue must not be reported as an unreachable one"
     )
+
+
+def test_a_MALFORMED_body_is_refused_as_malformed_and_not_as_oversized(sqs):
+    """The bounds pass runs AFTER shape validation, which its own contract leans on.
+
+    ``over_bound`` documents that "every value it sees is already the declared type", and its
+    zero-size fallback for a wrong-shaped value is only safe because of that ordering. Nothing held
+    it: moving the pass ahead of ``validate_request`` left the suite green, because no enqueue route
+    declares query parameters and the only visible consequence is which code a malformed body gets.
+
+    A caller who sends a list where a string belongs should be told the shape is wrong, not that
+    the request is too large — the second sends them to shorten a field they cannot fix.
+
+    **The field has to be a ``wire``-measured one for this to discriminate**, and the first version
+    of this test used a ``value``-measured one, so it passed either way: ``_size`` returns zero for
+    a non-string under ``value``, and a zero never breaches. ``space`` is serialized whatever its
+    type, so a malformed one is large enough to be refused as oversized if the order is wrong.
+    """
+    route = next(r for r in contract.ENQUEUE_ROUTES if r.id == "sharedSpace.enqueue")
+    body = {**_BODIES[route.id], "space": ["not-a-string"] * 200}
+
+    response = _post(route, body)
+
+    assert response["statusCode"] == 400
+    assert json.loads(response["body"])["error"]["code"] == "InvalidRequest"
+    assert sqs.sends == []

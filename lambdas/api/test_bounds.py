@@ -605,25 +605,25 @@ def _smallest(node: TypeNode) -> object:
 #: bound that refuses legitimate requests, and every other guard here passes on it, because each
 #: only asks whether SOME bound resolves.
 _KIND_BY_SUFFIX = (
-    ("requestId", "MAX_REQUEST_ID_BYTES"),
-    ("archiveId", "MAX_REQUEST_ID_BYTES"),
-    ("submittedAt", "MAX_TIMESTAMP_BYTES"),
-    ("location", "MAX_S3_KEY_BYTES"),
-    ("prefix", "MAX_S3_KEY_BYTES"),
-    ("key", "MAX_S3_KEY_BYTES"),
-    ("bucket", "MAX_BUCKET_NAME_BYTES"),
-    ("space", "MAX_IDENTIFIER_BYTES"),
-    ("name", "MAX_IDENTIFIER_BYTES"),
-    ("database", "MAX_IDENTIFIER_BYTES"),
-    ("table", "MAX_IDENTIFIER_BYTES"),
-    ("queryExecutionId", "MAX_IDENTIFIER_BYTES"),
-    ("format", "MAX_IDENTIFIER_BYTES"),
-    ("intervalUnit", "MAX_IDENTIFIER_BYTES"),
-    ("id", "MAX_IDENTIFIER_BYTES"),
-    ("newOwner", "MAX_IDENTIFIER_BYTES"),
-    ("members[]", "MAX_IDENTIFIER_BYTES"),
-    ("range[]", "MAX_IDENTIFIER_BYTES"),
-    ("values[]", "MAX_PARTITION_VALUE_BYTES"),
+    ("requestId", "MAX_REQUEST_ID_BYTES", "wire"),
+    ("archiveId", "MAX_REQUEST_ID_BYTES", "wire"),
+    ("submittedAt", "MAX_TIMESTAMP_BYTES", "wire"),
+    ("location", "MAX_S3_KEY_BYTES", "value"),
+    ("prefix", "MAX_S3_KEY_BYTES", "value"),
+    ("key", "MAX_S3_KEY_BYTES", "value"),
+    ("bucket", "MAX_BUCKET_NAME_BYTES", "wire"),
+    ("space", "MAX_IDENTIFIER_BYTES", "wire"),
+    ("name", "MAX_IDENTIFIER_BYTES", "wire"),
+    ("database", "MAX_IDENTIFIER_BYTES", "wire"),
+    ("table", "MAX_IDENTIFIER_BYTES", "wire"),
+    ("queryExecutionId", "MAX_IDENTIFIER_BYTES", "wire"),
+    ("format", "MAX_IDENTIFIER_BYTES", "wire"),
+    ("intervalUnit", "MAX_IDENTIFIER_BYTES", "wire"),
+    ("id", "MAX_IDENTIFIER_BYTES", "wire"),
+    ("newOwner", "MAX_IDENTIFIER_BYTES", "wire"),
+    ("members[]", "MAX_IDENTIFIER_BYTES", "wire"),
+    ("range[]", "MAX_IDENTIFIER_BYTES", "wire"),
+    ("values[]", "MAX_PARTITION_VALUE_BYTES", "value"),
 )
 
 
@@ -635,10 +635,24 @@ def test_each_bound_carries_the_constant_its_KIND_of_field_calls_for():
     all but name — passes them. Measured before this existed: 37 of 68 single-row plants survived
     the whole battery.
 
+    **The UNIT is checked as well as the number**, because it is the axis this whole spec turns on
+    and it was the half nothing held: ``space.prefix`` could be flipped from the value's own bytes
+    to the serialized form with the entire suite green, which is exactly the mistake file-ops
+    shipped — a key bounded on its escaped size refuses a third of what S3 allows.
+
     The mapping is by name-shape because that is what a reader checks a row against anyway: a
     field called ``destination.prefix`` is a key, and a key is bounded by S3's key length. A row
     whose leaf name matches no shape here is skipped rather than guessed at, and those are listed
     so the skip cannot quietly grow.
+
+    **What this is not**: a fence against a two-place edit. Retuning a row AND its entry here
+    together passes, for the four leaves that appear on exactly one row — ``newOwner``, ``id``,
+    ``table`` and ``archiveId``. The ones that appear on several are self-anchoring, because
+    retuning the table reddens the other rows sharing the leaf. And ``MAX_BUCKET_NAME_BYTES``
+    happens to equal ``MAX_IDENTIFIER_BYTES``, so a bucket row wired to the identifier constant is
+    invisible here — both are 63 characters plus quotes, and the two would have to diverge before
+    this could tell them apart. What it catches is the single mis-wired row, which is the mistake
+    that actually happened.
 
     **A list and its elements are different rows and must stay distinguishable**: the leaf keeps
     its ``[]``, so ``payload.members`` (a count of people) and ``payload.members[]`` (one username)
@@ -650,14 +664,20 @@ def test_each_bound_carries_the_constant_its_KIND_of_field_calls_for():
         if bound.enforced_at != "api":
             continue
         leaf = bound.path.rsplit(".", 1)[-1]
-        expected = next((name for suffix, name in _KIND_BY_SUFFIX if leaf == suffix), None)
-        if expected is None:
+        kind = next((row for row in _KIND_BY_SUFFIX if leaf == row[0]), None)
+        if kind is None:
             unchecked.append(bound.path)
             continue
+        _, expected, unit = kind
 
         assert bound.max_bytes == getattr(bounds, expected), (
             f"{bound.route_id}/{bound.path} is a {leaf!r} and carries {bound.max_bytes}, but that "
             f"kind of field is bounded by {expected} = {getattr(bounds, expected)}"
+        )
+        assert bound.measured == unit, (
+            f"{bound.route_id}/{bound.path} is a {leaf!r} measured in {bound.measured!r}, not the "
+            f"{unit!r} that kind of field is stated in — and the unit is the axis this whole rule "
+            f"turns on: a key bounded on its serialized form refuses a third of what S3 allows"
         )
 
     assert sorted(set(unchecked)) == [
@@ -716,3 +736,30 @@ def test_a_bound_applies_to_EVERY_element_of_a_list_not_the_first():
         "an over-long key on the THIRD item is not refused, so only the first element of each "
         "list is being measured"
     )
+
+
+def test_the_LARGEST_legal_body_of_every_route_is_accepted():
+    """The positive control the smallest-body one cannot be.
+
+    ``_smallest_valid_body`` omits every optional field and every container, so a bound pinned
+    absurdly tight on one of those is invisible to it. Measured: pinning
+    ``tableBuild.refresh/partitionKeys[].range`` to a single byte refused every refresh request
+    that declares any partition key — an empty list serializes to two bytes, so nothing legal got
+    through — and the whole suite stayed green.
+
+    The body comes from the fleet factory, which builds each field AT its bound, so this asserts
+    the round trip the product depends on: what the bounds admit, the bounds do not then refuse.
+    """
+    sys.path.insert(0, str(REPO / "lambdas"))
+    from test_request_size_chain import FILLS, worst_case_body
+
+    for route in contract.ENQUEUE_ROUTES:
+        for fill in FILLS:
+            body = worst_case_body(route, fill)
+            breached = bounds.over_bound(route, body)
+
+            assert breached is None, (
+                f"{route.id}'s largest legal body at {fill!r} is refused by its own "
+                f"{breached.path} bound — the bounds and the worst case they define disagree, so "
+                f"one of them refuses a request the other calls legal"
+            )

@@ -253,6 +253,10 @@ def _worst(node: TypeNode, route_id: str, path: str, fill: str) -> object:
         return [element]
     number, measured = budget
     if measured == "items":
+        assert number < _MAX_MODELLED_ITEMS, (
+            f"{route_id}/{path} admits {number} elements, which is a count bound that is not "
+            f"bounding — and building it would spend gigabytes before any assertion could fail"
+        )
         return [element] * number
     items: list[object] = []
     while _serialized([*items, element]) <= number and len(items) < _MAX_MODELLED_ITEMS:
@@ -1068,6 +1072,25 @@ def test_an_unbounded_caller_string_breached_the_failure_state(route_id, plane, 
     assert bounds.over_bound(route, {**worst_case_body(route, "k"), field: unbounded}) is not None
 
 
+def _accented_file_ops_selection() -> list:
+    """The selection that passed file-ops' old measurement and breached the chain.
+
+    ONE definition, because two tests characterise it from different angles — what the two
+    measurements disagreed by, and what the register quotes — and written twice they can be edited
+    apart, leaving one of them describing a request that no longer exists.
+
+    Args:
+      None.
+
+    Returns:
+      Forty-nine folders whose keys and target names are accented characters.
+
+    Raises:
+      None.
+    """
+    return [{"kind": "folder", "key": "é" * 512, "targetName": "é" * 127} for _ in range(49)]
+
+
 def test_an_accented_file_ops_selection_breached_what_its_own_cap_measured():
     """The fourth, which the spec did not name because nobody had measured it.
 
@@ -1077,11 +1100,16 @@ def test_an_accented_file_ops_selection_breached_what_its_own_cap_measured():
     before the Pipe. So an accented selection passed the cap at roughly a third of what it cost
     on the wire, and its failure state was over the limit.
     """
-    accented = [{"kind": "folder", "key": "é" * 512, "targetName": "é" * 127} for _ in range(49)]
+    accented = _accented_file_ops_selection()
     literal = len(json.dumps(accented, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
     on_the_wire = _serialized(accented)
 
-    assert literal <= 64 * 1024, "the fixture no longer passes the cap as it used to be measured"
+    from focommon.config import FILE_OPS_MAX_SELECTION_BYTES
+
+    assert literal <= FILE_OPS_MAX_SELECTION_BYTES, (
+        "the fixture no longer passes the cap as it used to be measured, so it characterises a "
+        "request the plane would have refused anyway"
+    )
     assert on_the_wire > 2.5 * literal, (
         f"an accented selection costs {on_the_wire} on the wire against {literal} measured "
         f"literally — if that ratio has collapsed, the two measurements no longer disagree and "
@@ -1119,8 +1147,9 @@ def test_the_overshoot_the_register_cites_is_the_one_this_model_computes():
             setattr(module, name, original)
 
     assert breaches == {"archive": 263_533, "file-send": 271_446}, (
-        f"the overshoot at the old caps is now {breaches}, and the register, the delivery doc and "
-        f"this branch's own commit message quote the old pair — correct all four together"
+        f"the overshoot at the old caps is now {breaches}. The pair is quoted in "
+        f"docs/decisions/control-planes.md and nowhere else — correct it there, and check whether "
+        f"the model moved for a reason or by accident before you do"
     )
     assert all(size > cp_config.STATE_PAYLOAD_LIMIT_BYTES for size in breaches.values())
 
@@ -1132,7 +1161,7 @@ def test_the_accented_file_ops_figures_are_the_ones_the_register_cites():
     actually spends, and how far over the limit the failure state lands — and a reader can only
     check the middle one against the other two if all three come from one place.
     """
-    accented = [{"kind": "folder", "key": "é" * 512, "targetName": "é" * 127} for _ in range(49)]
+    accented = _accented_file_ops_selection()
     plane_measured = len(
         json.dumps(accented, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     )

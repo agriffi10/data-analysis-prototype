@@ -49,6 +49,11 @@
   failure state 27,151 over the limit. Both sides moved to the escaped form — the cap does not
   move, ASCII selections are unaffected, and reverting the browser's half reddens exactly the new
   accented test and nothing else.
+- **A projected partition value is bounded in S3's unit, not the wire's.** It was declared at 257
+  serialized bytes while `MAX_S3_KEY_BYTES` — citing the same S3 budget — was in the value's own
+  bytes. Both now answer the same question, and the per-kind guard checks the UNIT as well as the
+  number, because the unit is the axis this spec turns on and it was the half nothing held: a
+  prefix could be flipped to the serialized form with the whole suite green.
 - **The refusal names the bound.** `PayloadTooLarge` carries `ErrorParams.limit`, and
   `errorMessages.ts` renders it instead of dropping it — the old sentence said "try again with less
   selected", which is false for a single over-long name with nothing selected.
