@@ -91,11 +91,13 @@ def _reads(parameters: dict) -> set[str]:
 #: `States.Runtime` that kills the execution before `NotifyFailure`. Held to equality here, these
 #: guards would forbid that safe order.
 #:
-#: The verb side is asserted directly in each test below, so nothing here is unguarded TODAY —
-#: and today no ASL template names `traceparent` at all, so there is no ASL side to guard yet.
-#: When the threading lands, the ASL side becomes the success-path sweep in
-#: `test_state_machines_cpcommon.py`, which pins the exact set of states naming the key. What is
-#: carved out is only the PAIRING of the two, for keys no domain state consumes.
+#: The verb side is asserted directly in each test below, and the ASL side is now guarded too, so
+#: nothing here is unguarded. (This block used to say no ASL template named `traceparent` at all
+#: and that the ASL side would come later; that was written while SPEC-225 was minting the key with
+#: nothing reading it, and it stopped being true in the same arc.) The ASL side is two sweeps in
+#: `test_state_machines_cpcommon.py`: the success path pins the exact states naming the key, and
+#: the failure path pins the seeds and every `RecordFailure`. What is carved out here is only the
+#: PAIRING of verb and state, for keys no domain state consumes.
 _RUN_KEYS = frozenset({"traceparent"})
 
 
@@ -179,9 +181,17 @@ def test_no_fail_state_is_reachable_except_through_notify_failure():
 def test_every_failure_seed_carries_the_username_the_request_id_and_the_format():
     states = _machine()["States"]
     for seed in ("ValidateFailureSeed", "RequestFailureSeed"):
-        assert {"requestId", "username", "format", "raw", "tokens", "error"} == _reads(
-            states[seed]["Parameters"]
-        )
+        assert {
+            "requestId", "username", "format", "raw", "tokens", "error", "traceparent",
+        } == _reads(states[seed]["Parameters"])
+    assert states["ValidateFailureSeed"]["Parameters"]["traceparent"] is None, (
+        "the pre-identity seed must supply a LITERAL null: the error replaced the state, so there "
+        "is no `$.traceparent` to read, and `_reads` above cannot tell the two forms apart"
+    )
+    assert states["RequestFailureSeed"]["Parameters"]["traceparent.$"] == "$.traceparent", (
+        "the post-identity seed stands on a validated state and must read the run's traceparent, "
+        "or the failure notification opens a trace of its own"
+    )
     assert states["ValidateFailureSeed"]["Parameters"]["error.$"] == "$"
     assert states["RequestFailureSeed"]["Parameters"]["error.$"] == "$.error"
     assert _reads(states["RecordFailure"]["Parameters"]) <= _reads(

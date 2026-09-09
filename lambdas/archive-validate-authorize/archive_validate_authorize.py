@@ -13,8 +13,11 @@ forced by the machine's shape.** ``ChooseMode`` sits DOWNSTREAM of this task and
 escaped JSON string that ASL cannot look into. A separate restore validator would need the
 branch to happen before anything had parsed the body.
 
-**Both modes return the same five top-level keys**, because both flow through one ``Validated``
-Pass and a Pass naming a path the state does not carry raises an uncatchable ``States.Runtime``.
+**Both modes return the same six top-level keys** — ``traceparent``, ``requestId``, ``mode``,
+``actor``, ``source``, ``archive`` — because both flow through one ``Validated`` Pass and a Pass
+naming a path the state does not carry raises an uncatchable ``States.Runtime``. (It said five
+until the run's traceparent joined them; the identical count in the ASL comment was corrected and
+this copy was not, which is what a claim written twice costs.)
 ``source`` is the authorized SPACE in both — the archive's source in one mode, the restore's
 destination in the other — and only its ``items`` are archive-only.
 
