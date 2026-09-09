@@ -308,21 +308,6 @@ def test_the_item_cap_fits_the_verbs_own_timeout_at_the_MEASURED_per_item_cost()
     assert config.FILE_OPS_MAX_ITEMS % 25 == 0, "the cap should be a whole number of browser pages"
 
 
-def test_the_byte_cap_admits_its_worst_selection_through_the_pipe():
-    """The whole chain, measured on the ESCAPED form, at the cap.
-
-    A control character costs six bytes escaped where an ASCII letter costs one, so this is the
-    selection that actually decides the number — and it is the case a count cap cannot see.
-    """
-    worst = _items_at_the_byte_cap("\x01")
-
-    assert _serialised(worst) <= config.FILE_OPS_MAX_SELECTION_BYTES
-    assert _pipe_record(worst) < _STATE_LIMIT, (
-        f"a selection at the byte cap reaches StartExecution at {_pipe_record(worst)} bytes, "
-        f"over the {_STATE_LIMIT}-byte limit — the execution could not start at all"
-    )
-
-
 def test_the_byte_cap_leaves_the_validated_state_room_for_the_outcome_list():
     """The term borrowed models drop: every selected item rides twice.
 

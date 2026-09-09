@@ -159,24 +159,6 @@ def test_the_validated_state_stays_under_the_payload_limit():
     )
 
 
-def test_a_selection_at_the_byte_cap_can_actually_START_an_execution():
-    """THE LINK THE FIRST TWO MODELS BOTH MISSED, in opposite ways.
-
-    The first version measured the item COUNT against the state and ignored escaping. The
-    second measured the serialised selection against the state and ignored that the Pipe
-    escapes it AGAIN into the execution input. A cap that permits a request whose execution
-    cannot start is the worst of the three: the user hears nothing, because the failure happens
-    before any state exists to catch it.
-    """
-    for char in ("k", '"', _WORST_ESCAPE):
-        record = _pipe_record(_items_at_the_byte_cap(char))
-
-        assert record < _STATE_PAYLOAD_LIMIT, (
-            f"a byte-cap selection of {char!r} keys reaches the Pipe as a {record}-byte "
-            f"execution input, over the {_STATE_PAYLOAD_LIMIT}-byte limit"
-        )
-
-
 def test_the_failure_state_carries_the_request_and_still_fits():
     """The failure path reads the whole request back from $$.Execution.Input, so the recorded
     object is the record PLUS the error. If that breached, the notification would be lost on

@@ -120,44 +120,16 @@ def _plan_entry_bytes() -> int:
     return len(json.dumps(entry, separators=(",", ":")).encode())
 
 
-def test_the_byte_cap_survives_every_link_of_the_chain_it_bounds():
-    """THE MIDDLE LINK IS THE ONE AN OBVIOUS MODEL MISSES, and file-send got it wrong once at
-    a value measured against the validated output alone — which would have permitted a request
-    whose execution could not start at all.
+def test_the_validated_state_this_plane_returns_fits_the_payload_limit():
+    """LINK THREE, which is this plane's own and stays here.
 
-    The chain: the browser's SQS body carries the selection; the EventBridge Pipe wraps that
-    body into a record as an ESCAPED JSON STRING and hands it to StartExecution as the
-    execution input; Step Functions caps that input at 256 KB exactly as it caps a state.
-    Escaping is not a rounding error — every `"` the selection already spent two bytes on
-    costs four in the record.
-
-    All three links are computed here, so changing one without the others fails the build.
+    Links one and two — the caller's body and the Pipe's escaped record — moved to
+    ``lambdas/test_request_size_chain.py``, which computes them for every piped route against one
+    constant. Three plane guards used to compute overlapping parts of that chain and disagreed
+    about the fourth link; one model is the repair. What cannot move is this: link three is what a
+    VERB RETURNS, and each plane's is a different shape.
     """
-    # A quote-heavy selection at exactly the byte cap: the worst case the cap admits.
     at_cap = "x" + '"' * (config.ARCHIVE_MAX_ITEM_BYTES // 2)
-    body = json.dumps(
-        {
-            "requestId": "9f2c1b8e-4c1a-4b2f-8d3e-1a2b3c4d5e6f",
-            "mode": "archive",
-            "actor": {"idToken": "e" * 2048},
-            "source": {"space": {"kind": "personal", "name": "a" * 63}, "items": at_cap},
-        },
-        separators=(",", ":"),
-    )
-
-    # LINK 1 — the SQS body itself.
-    assert len(body.encode()) < _STATE_PAYLOAD_LIMIT
-
-    # LINK 2 — the Pipe's record, which carries the body as an ESCAPED STRING.
-    record = json.dumps([{"messageId": "m" * 36, "body": body}], separators=(",", ":"))
-    assert len(record.encode()) < _STATE_PAYLOAD_LIMIT, (
-        f"a selection at ARCHIVE_MAX_ITEM_BYTES reaches {len(record.encode()):,} bytes once the "
-        f"Pipe escapes it into StartExecution's input — over the {_STATE_PAYLOAD_LIMIT:,}-byte "
-        "limit, so the execution could not start and no state would exist to refuse it"
-    )
-
-    # LINK 3 — the validated state the verb returns, which carries the selection again plus
-    # the resolved source and archive blocks.
     validated = json.dumps(
         {
             "requestId": "9f2c1b8e-4c1a-4b2f-8d3e-1a2b3c4d5e6f",
