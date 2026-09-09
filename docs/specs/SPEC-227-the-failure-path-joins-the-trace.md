@@ -1,8 +1,8 @@
 # Spec: The Failure Path Joins the Trace, and the Cross-Check Nobody Wrote
 
 **ID:** SPEC-227
-**Status:** Draft
-**Last Updated:** 2026-09-08
+**Status:** Completed
+**Last Updated:** 2026-09-09
 **Depends On:** SPEC-225 — **for FR-002 and FR-003 only.** FR-001 is test-only over
 failure-path states SPEC-225 never edited, and lands green against an unthreaded tree.
 

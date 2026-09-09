@@ -554,8 +554,9 @@ attaches to every control-plane verb.
 actually pays), the **newest** (least understood under real load), and **entirely operator-facing** — a mistake costs log
 quality, not access. Its honest limitation is recorded rather than discovered: `log-foundry`'s trace context is per-process, so
 one run was **nine traces**, joined on a `request_id` field — deliberately, and sequenced *after* the pipe was proven live
-(user decision, 2026-07-22: correlation now, stitching later). **SPEC-225 closed that on the success path**; the failure path is
-SPEC-227.
+(user decision, 2026-07-22: correlation now, stitching later). **SPEC-225 closed that on the success path and SPEC-227 on the failure path** — with one
+limit: a pre-identity failure carries no traceparent on the state and none reachable from
+the envelope, so its `notify-failure` opens a fresh trace.
 
 **Two user decisions run against the recommendation and are settled, not open.** `logs/` gets **no lifecycle rule** — nothing is
 ever lost, at the cost of unbounded growth with no ceiling; the invariant that keeps it safe is that every existing rule on the
@@ -2975,10 +2976,19 @@ key to each plane's `RecordFailure` and its seeds — was planted by a reviewer 
 whole suite stayed green, while six archive failure paths would have hit an absent `$.traceparent`
 in a `Pass`: a `States.Runtime` error that is neither retriable nor catchable, killing the execution
 *before* `NotifyFailure`, so a user whose archive failed would hear nothing. The guard that should
-have caught it identifies a seed structurally and cannot see eight of the fleet's seed states. So
+have caught it identifies a seed structurally and cannot see NINE of the fleet's seed states — authoring
+counted eight and missed `shared-spaces/RefusedSeed`, re-derived by parsing all eight templates. So
 the guard is widened before anything is threaded through it. 227 also writes the ASL↔verb
 cross-check that **five of the eight planes do not have** — and that the archive machine claims in
-its own comments that it does, citing a test that was never written.
+its own comments that it does, citing `test_state_machine_archive.py`, which EXISTS and holds seven tests, none of them that
+cross-check — a real file with a false claim about it, which is the harder case to notice.
+
+**What 227 could NOT do is the half worth recording.** A pre-identity failure cannot join the trace
+at all: authoring said such a seed should read `$$.Execution.Input`, and no Pipe carries an
+`input_template`, so that path is the raw SQS batch with the traceparent inside a JSON string only
+the banned intrinsic could open. The limit is accepted and recorded rather than worked around. The
+cross-check landed with a limit of its own — driving a verb answers the question only for a verb
+that BUILDS its return, so seven of its eleven pairs are driven and four are recorded as echoing.
 
 **226 gives the seven flat planes child spans, and it is the spec whose premise a reviewer
 destroyed.** Its first draft claimed the shared `cpcommon` layer bought all seven at once. Built,

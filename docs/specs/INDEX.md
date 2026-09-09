@@ -232,7 +232,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 224 — Log Foundry 1.0.0 | Completed |
 | 225 — One Run, One Trace: the Mechanism and the Success Path | Completed |
 | 226 — Child Spans for the Seven Flat Planes | Completed |
-| 227 — The Failure Path Joins the Trace, and the Cross-Check Nobody Wrote | Draft |
+| 227 — The Failure Path Joins the Trace, and the Cross-Check Nobody Wrote | Completed |
 
 ## Arcs
 
