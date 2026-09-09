@@ -19,6 +19,7 @@ Attributes:
 """
 
 import ast
+import dataclasses
 import json
 import os
 import pathlib
@@ -763,3 +764,36 @@ def test_the_LARGEST_legal_body_of_every_route_is_accepted():
                 f"{breached.path} bound — the bounds and the worst case they define disagree, so "
                 f"one of them refuses a request the other calls legal"
             )
+
+
+def test_every_AXIS_of_a_bound_is_covered_by_some_guard():
+    """The structural close on a class of defect three review rounds kept finding.
+
+    ``Bound`` has several independent axes, and each round found a guard checking some of them:
+    the path resolved but the number was unchecked; the number was checked but the unit was not;
+    the unit was checked but only where a leaf matched. Closing instances one at a time is what
+    made it recur, because the shape of the table invites it — nothing said which axes were
+    covered, so a new one arrived uncovered by default.
+
+    This asserts the axes themselves. Adding a field to ``Bound`` fails here until it is either
+    checked by a named guard or recorded as deliberately unchecked with a reason, which turns the
+    next instance of this class into a red test rather than a fourth review finding.
+    """
+    covered = {
+        "route_id": "the population guard walks the contract and requires each path to be declared",
+        "path": "same guard; and the per-kind guard reads the leaf to decide what it should be",
+        "max_bytes": "the per-kind guard, against the constant that kind of field calls for",
+        "measured": "the per-kind guard, in the same loop — the axis the whole spec turns on",
+        "enforced_at": "the api/verb invariant, which also pins what each side may carry",
+        "owner": "the same invariant, plus a guard that every named constant resolves",
+        "budget": "unchecked BY DESIGN: it is the sentence a human re-derives the number from, "
+        "and a test that asserted its wording would pin prose rather than meaning",
+    }
+    declared = {field.name for field in dataclasses.fields(bounds.Bound)}
+
+    assert declared == set(covered), (
+        f"Bound's axes and the ones some guard covers have diverged — uncovered: "
+        f"{sorted(declared - set(covered))}; covered but gone: {sorted(set(covered) - declared)}. "
+        f"An axis nothing checks is how the last three review rounds each found a different half "
+        f"of one table going unguarded."
+    )
