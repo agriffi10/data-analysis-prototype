@@ -196,6 +196,16 @@ def _normalize_items(items, root: str) -> list:
     refusing it costs nothing and closes the class for every root-anchored rule at once. The
     file-send plane records the same ancestor trap for its own results-folder rule.
 
+    **The byte cap is measured on the ESCAPED serialisation, which is what the API actually
+    sends.** It used to be measured with ``ensure_ascii=False`` on the reasoning that the browser
+    sends literal UTF-8 and the Pipe keeps it literal. Both halves are true and the conclusion was
+    not: the API re-serialises the body with the default escaping one hop before the Pipe, so an
+    accented key costs six bytes on the wire where this counted two. A selection of accented
+    folder names passed this cap at 64,730 bytes, reached the queue at 191,134, and produced a
+    ``RecordFailure`` 29,172 bytes over the state limit — on a ``Pass`` with no ``Catch``, so the
+    user heard nothing. A pathological key now costs its real size and is refused here, which is
+    the rule the sibling planes' caps already used.
+
     Args:
       items: The raw selection from the request.
       root: The authorized source root prefix.
@@ -238,11 +248,7 @@ def _normalize_items(items, root: str) -> list:
             item["targetName"] = paths.validate_target_name(entry["targetName"])
         normalized.append(item)
 
-    # ensure_ascii=False, and it is not a preference: it is what actually travels. The browser
-    # sends literal UTF-8 and the Pipe keeps it literal, so the default escaping would measure a
-    # quantity nothing produces — six bytes for every accented character — and refuse selections
-    # that fit comfortably, minutes after the browser accepted them.
-    serialized = len(json.dumps(normalized, separators=(",", ":"), ensure_ascii=False).encode())
+    serialized = len(json.dumps(normalized, separators=(",", ":")).encode())
     if serialized > FILE_OPS_MAX_SELECTION_BYTES:
         raise TerminalError(
             "selection_too_large", f"{serialized} bytes of keys, over {FILE_OPS_MAX_SELECTION_BYTES}"

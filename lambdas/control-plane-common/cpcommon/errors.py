@@ -31,8 +31,10 @@ def bounded_detail(text) -> str:
 
     A detail's length is a payload problem. It becomes the exception's message, which Lambda
     returns as the Step Functions error Cause, which table-share repeats per recipient into
-    its Map result array. Step Functions caps a state payload at 256 KB and a Cause at
-    32 KB, so one verbose reason repeated across as few as seven recipients raises
+    its Map result array. Step Functions caps a state payload at
+    ``config.STATE_PAYLOAD_LIMIT_BYTES`` and a Cause at ``config.CAUSE_MAX_CHARS`` — characters,
+    which is why a state reserves ``config.CAUSE_RESERVATION_BYTES`` for one — so one verbose
+    reason repeated across as few as seven recipients raises
     States.DataLimitExceeded on the Map and destroys every per-recipient outcome it exists
     to preserve. Athena's ``StateChangeReason`` is the realistic source — it can echo a
     large fragment of a statement, and this arc generates wide DDL.

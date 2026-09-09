@@ -114,4 +114,35 @@ describe('submitFileOperation', () => {
     expect(result.success === false && result.error.code).toBe('SelectionTooLarge');
     expect(api.calls).toEqual([]);
   });
+
+  it('charges an accented key what the wire spends on it, not what JSON.stringify does', async () => {
+    // The escaping this pins is the whole reason the cap moved: `JSON.stringify` leaves an
+    // accented character as its two literal UTF-8 bytes, and the API re-serialises the body with
+    // non-ASCII escaped, so the wire spends six. Measured the old way this selection is ~26 KB and
+    // sails through; measured the way the wire does it is ~66 KB and is refused here instead of
+    // reaching a failure state 29 KB over the limit that nothing can catch.
+    const accented = Array.from({length: 170}, () => ({kind: 'file' as const, key: `alice/${'é'.repeat(60)}`}));
+
+    const refused = await submitFileOperation(
+      request({source: {space: {kind: 'personal', name: 'alice'}, items: accented}})
+    );
+
+    expect(refused.success === false && refused.error.code).toBe('SelectionTooLarge');
+    expect(new TextEncoder().encode(JSON.stringify(accented)).length).toBeLessThan(64 * 1024);
+    expect(api.calls).toEqual([]);
+  });
+
+  it('leaves an ASCII selection of the same shape alone', async () => {
+    // The other half of the change, and the one a user notices: escaping costs nothing for keys
+    // that carry none, so the same item count of ordinary names still submits.
+    api.on('fileOps.enqueue', {success: true, data: {requestId: 'req-3'}});
+    const ascii = Array.from({length: 170}, (_, n) => ({kind: 'file' as const, key: `alice/${'k'.repeat(60)}${n}`}));
+
+    const result = await submitFileOperation(
+      request({source: {space: {kind: 'personal', name: 'alice'}, items: ascii}})
+    );
+
+    expect(result.success).toBe(true);
+    expect(api.calls).toHaveLength(1);
+  });
 });

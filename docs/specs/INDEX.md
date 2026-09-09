@@ -234,7 +234,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 226 — Child Spans for the Seven Flat Planes | Completed |
 | 227 — The Failure Path Joins the Trace, and the Cross-Check Nobody Wrote | Completed |
 | 228 — The Pre-Identity Failure Joins the Trace, from the Envelope the State Already Carries | Draft |
-| 229 — Bound the Fields Nothing Bounds, and Measure the Cap Against the Limit That Binds | Draft |
+| 229 — Bound the Fields Nothing Bounds, and Measure the Cap Against the Limit That Binds | Completed |
 
 ## Arcs
 

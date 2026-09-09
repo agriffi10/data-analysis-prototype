@@ -13,14 +13,12 @@ plant cannot satisfy both.
 
 Attributes:
   ADD_MEMBERS_TIMEOUT_SECONDS: The add-members verb's deployed ceiling, read from the plane's
-    Terraform rather than restated.
-  ROUND_TRIP_MS: A pessimistic AWS round trip, the unit the member cap is charged in. Whole
-    milliseconds, because a bound compared against a float sum lands on its own boundary and fails
-    on the last bit rather than on the model.
-  ROUND_TRIPS_PER_MEMBER: What the verb does per member — a Cognito slot assignment, a roster
-    write and a notification.
+    Terraform rather than restated. It is the premise the mirrored member cap rests on: the
+    derivation this file mirrors charges that ceiling, so a Terraform change that moved it would
+    invalidate a number neither module would notice.
 """
 
+import ast
 import json
 import os
 import pathlib
@@ -35,14 +33,37 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from apicommon import bounds, contract
 from apicommon.contract import TypeNode
 
-#: What the chain guard's own mutation fails with, held here so the two messages cannot converge.
-_CHAIN_MUTATION_MESSAGE = "resolves to no declared origin"
-
 REPO = pathlib.Path(__file__).resolve().parents[2]
 
+
+def _chain_guard_message() -> str:
+    """The failure message the chain guard's own mutation produces.
+
+    Read from that module rather than restated, because the assertion these two feed is that the
+    messages DIFFER — and two literals written in one file agree or differ by typing, not by
+    anything either guard does.
+
+    Args:
+      None.
+
+    Returns:
+      The chain guard's unresolved-origin message.
+
+    Raises:
+      None.
+    """
+    sys.path.insert(0, str(REPO / "lambdas"))
+    import test_request_size_chain
+
+    return test_request_size_chain.UNRESOLVED_MESSAGE
+
+
+#: What the chain guard's own mutation fails with, READ from it rather than restated, so the
+#: assertion the two feed compares this file's message with that guard's actual one. Written out
+#: as a second literal here, it compared two strings in this file and could not fail.
+_CHAIN_MUTATION_MESSAGE = _chain_guard_message()
+
 ADD_MEMBERS_TIMEOUT_SECONDS = 60
-ROUND_TRIP_MS = 100
-ROUND_TRIPS_PER_MEMBER = 3
 
 
 def _paths(node: TypeNode, prefix: str, found: list[tuple[str, str]]) -> None:
@@ -249,6 +270,15 @@ def test_a_verb_bound_says_where_its_number_lives_and_an_api_bound_carries_one()
             assert re.fullmatch(r"[a-z_]+\.[a-z_]+\.[A-Z_]+", bound.owner), (
                 f"{bound.route_id}/{bound.path} does not name where its number lives"
             )
+        assert bound.measured in ("wire", "value", "items"), (
+            f"{bound.route_id}/{bound.path} declares an unknown unit {bound.measured!r} — three "
+            f"different questions look alike as integers, and one spent a count as bytes"
+        )
+        if bound.measured == "items":
+            assert bound.path.endswith(("members", "recipients")), (
+                f"{bound.route_id}/{bound.path} is counted in items but is not a list this "
+                f"service counts"
+            )
 
 
 def test_every_verb_owned_constant_exists_where_the_bound_says_it_does():
@@ -280,42 +310,153 @@ def test_the_partition_key_bound_mirrors_the_planes_own_definition_budget():
     assert bounds.MAX_PARTITION_KEYS_BYTES == REFRESH_MAX_DEFINITION_BYTES
 
 
-def test_the_member_cap_is_computed_against_the_verbs_own_timeout():
-    """WHAT SIZES the member cap, rather than the number restated.
+def test_the_member_cap_MIRRORS_the_fleets_existing_derivation():
+    """One question, one answer — held against the copy that already existed.
 
-    ``add_members`` does a Cognito slot assignment, a roster write and a notification per member,
-    all serially, inside a sixty-second ceiling — so a request naming more members than fit could
-    not finish however few bytes it was.
+    The add-members verb's capacity was already derived, in ``transfer_reader``, from the same
+    60-second ceiling: per-member round trips PLUS the per-roster-member fan-out, which a simpler
+    model drops. A second derivation written here came out at 100 against its 44, and the two
+    would have disagreed silently — the API admitting a request the operator CSV path already
+    refuses as unable to finish inside the verb's timeout.
 
-    **Held at HALF the ceiling rather than at it.** The cap that exactly exhausts the budget is the
-    one a fourth round trip per member breaks, and the failure then arrives as a timed-out verb
-    rather than as a refusal. The margin is the assertion, not a comment beside it.
+    Mirrored rather than imported because ``transfer_reader`` is a function module, not a shared
+    layer, and this service cannot import it. The mirror is what makes the copy safe.
     """
-    budget_ms = ADD_MEMBERS_TIMEOUT_SECONDS * 1000
-    spent_ms = bounds.MAX_MEMBERS_PER_REQUEST * ROUND_TRIPS_PER_MEMBER * ROUND_TRIP_MS
-    with_one_more_ms = bounds.MAX_MEMBERS_PER_REQUEST * (ROUND_TRIPS_PER_MEMBER + 1) * ROUND_TRIP_MS
+    reader = _transfer_reader_constants()
 
-    assert spent_ms <= budget_ms, (
-        f"{bounds.MAX_MEMBERS_PER_REQUEST} members spend {spent_ms}ms of a {budget_ms}ms ceiling"
-    )
-    assert with_one_more_ms <= budget_ms, (
-        f"the cap spends {spent_ms}ms of {budget_ms}ms and a fourth round trip per member would "
-        f"take it to {with_one_more_ms}ms — a cap sitting on its own measurement, which the next "
-        f"legitimate addition breaks"
+    assert reader["MAX_MEMBERS_PER_MESSAGE"] == bounds.MAX_MEMBERS_PER_REQUEST, (
+        f"the API admits {bounds.MAX_MEMBERS_PER_REQUEST} members per request and the operator "
+        f"path derives {reader['MAX_MEMBERS_PER_MESSAGE']} — two answers to one question, and the "
+        f"looser one lets a request through that cannot finish"
     )
 
 
-def test_the_add_members_timeout_is_the_number_terraform_deploys():
-    """The budget above is the DEPLOYED ceiling, not a number written twice.
+def test_the_member_bound_is_a_COUNT_because_a_byte_bound_cannot_be_one():
+    """The unit matters here more than the number, and getting it wrong bounded nothing.
 
-    The plane's Terraform gives every verb but one the same default, so the cap this file charges
-    against moves the day that default does.
+    Usernames are 3 to 63 characters, so an allowance sized for full-length names admits many
+    times more short ones — measured, roughly two thousand against a cap of forty-four. A count
+    is the only unit that expresses "how many members will this verb process".
     """
-    locals_text = (REPO / "infra" / "modules" / "shared-spaces" / "lambda.tf").read_text()
-    found = re.search(r"lookup\(local\.shared_space_function_timeouts,\s*each\.key,\s*(\d+)\)", locals_text)
+    bound = bounds.bound_for("sharedSpace.enqueue", "payload.members")
+    route = next(r for r in contract.ENQUEUE_ROUTES if r.id == "sharedSpace.enqueue")
+    body = _smallest_valid_body(route)
+
+    assert bound is not None and bound.measured == "items"
+
+    body["payload"] = {"members": ["abc"] * (bounds.MAX_MEMBERS_PER_REQUEST + 1)}
+    breached = bounds.over_bound(route, body)
+
+    assert breached is not None and breached.path == "payload.members", (
+        "a roster one over the cap, of the shortest legal names, is not refused — which is exactly "
+        "what a byte bound did here"
+    )
+
+    body["payload"] = {"members": ["a" * 63] * bounds.MAX_MEMBERS_PER_REQUEST}
+
+    assert bounds.over_bound(route, body) is None, (
+        "a full-length roster AT the cap is refused, so the count bound has become a byte bound "
+        "by another name"
+    )
+
+
+def _transfer_reader_constants() -> dict:
+    """The shared-space transfer reader's module-level numbers, parsed rather than imported.
+
+    Parsed because importing a function module from a test drags its whole environment in, and
+    because the value wanted is a literal the module computes at import — reading it with ``ast``
+    is the same answer without the dependency.
+
+    **Only arithmetic over names already resolved is evaluated**, decided by walking the node
+    types rather than by attempting it and catching what fails. A blind ``except`` here would make
+    an assignment this cannot read indistinguishable from one that is not there, and the caller's
+    whole purpose is to notice when a constant it mirrors has moved.
+
+    Args:
+      None.
+
+    Returns:
+      The module's numeric constants by name. Floats are kept as well as integers: the
+      derivation this mirrors multiplies its ceiling by a fraction, and dropping the fraction
+      leaves the constant that depends on it unresolvable.
+
+    Raises:
+      None.
+    """
+    source = (REPO / "lambdas" / "shared-space-transfer-reader" / "transfer_reader.py").read_text()
+    namespace: dict[str, float] = {}
+    for node in ast.parse(source).body:
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        if not isinstance(target, ast.Name) or not _is_arithmetic(node.value, namespace):
+            continue
+        value = eval(  # noqa: S307
+            compile(ast.Expression(node.value), "<transfer_reader>", "eval"), {"int": int}, dict(namespace)
+        )
+        if isinstance(value, (int, float)):
+            namespace[target.id] = value
+    return namespace
+
+
+def _is_arithmetic(node: ast.expr, known: dict) -> bool:
+    """Whether an expression is arithmetic over numbers and names already resolved.
+
+    Args:
+      node: The expression to judge.
+      known: The names resolved so far.
+
+    Returns:
+      True if evaluating it can only do arithmetic.
+
+    Raises:
+      None.
+    """
+    if isinstance(node, ast.Constant):
+        return isinstance(node.value, (int, float))
+    if isinstance(node, ast.Name):
+        return node.id in known
+    if isinstance(node, ast.UnaryOp):
+        return _is_arithmetic(node.operand, known)
+    if isinstance(node, ast.BinOp):
+        return _is_arithmetic(node.left, known) and _is_arithmetic(node.right, known)
+    if isinstance(node, ast.Call):
+        return (
+            isinstance(node.func, ast.Name)
+            and node.func.id == "int"
+            and not node.keywords
+            and all(_is_arithmetic(argument, known) for argument in node.args)
+        )
+    return False
+
+
+def test_the_add_members_timeout_is_the_number_terraform_DEPLOYS():
+    """The premise under the mirrored member cap, held against the Terraform.
+
+    The derivation this file mirrors charges the add-members verb's ceiling. That ceiling is a
+    default in the plane's Terraform, not a constant either module can see, so a change to it
+    would invalidate a number in two places and go unnoticed in both.
+
+    **The default is not enough on its own**: a per-verb override would take add-members off it
+    while the default stayed 60, so the absence of an override is asserted too.
+    """
+    lambda_tf = (REPO / "infra" / "modules" / "shared-spaces" / "lambda.tf").read_text()
+    found = re.search(r"lookup\(local\.shared_space_function_timeouts,\s*each\.key,\s*(\d+)\)", lambda_tf)
 
     assert found, "the shared-space verbs no longer take a default timeout from lambda.tf"
     assert int(found.group(1)) == ADD_MEMBERS_TIMEOUT_SECONDS
+
+    overrides = (REPO / "infra" / "modules" / "shared-spaces" / "locals.tf").read_text()
+    block = re.search(r"shared_space_function_timeouts\s*=\s*\{(.*?)\}", overrides, re.DOTALL)
+
+    assert block, "the timeout override map is gone, so nothing says which verbs leave the default"
+    assert "add-members" not in block.group(1), (
+        "add-members now takes its own timeout, so the default this file charges against is no "
+        "longer its budget and the mirrored member cap is derived from the wrong number"
+    )
+    assert _transfer_reader_constants()["ADD_MEMBERS_TIMEOUT_SECONDS"] == ADD_MEMBERS_TIMEOUT_SECONDS, (
+        "the derivation this file mirrors charges a different ceiling than the one deployed"
+    )
 
 
 def test_the_request_id_bound_refuses_no_id_the_queue_would_take():

@@ -16,7 +16,7 @@ import type {ArchiveRequest, RestoreRequest} from '../../types/archive.types';
  * nobody checks is worse than no guard at all — the wrong number reads as deliberate.
  */
 const ARCHIVE_MAX_ITEMS = 200;
-const ARCHIVE_MAX_ITEM_BYTES = 96 * 1024;
+const ARCHIVE_MAX_ITEM_BYTES = 89 * 1024;
 
 /** Both modes' shared shape guard: the selection cap the control plane enforces again. */
 function selectionTooLarge(items: ArchiveRequest['items']): boolean {

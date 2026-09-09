@@ -19,6 +19,7 @@ from apicommon import contract
 from apicommon import enqueue as enqueue_module
 from apicommon.envelope import ApiError
 from conftest import bearer
+from cpcommon import config as cp_config
 from cpcommon import observability
 from cpcommon.auth import Principal
 
@@ -349,16 +350,37 @@ def test_a_failed_send_answers_the_caller_without_calling_it_their_fault(
     assert json.loads(response["body"])["error"]["code"] == expected
 
 
-def test_the_size_cap_is_derived_from_what_the_queue_takes_and_what_is_stamped_on():
-    """A cap written as a literal hides a wrong model, and this one has two moving parts.
+def test_the_size_cap_is_derived_from_the_limit_that_actually_binds():
+    """A cap written as a literal hides a wrong model, and this one WAS a wrong model.
 
-    It had three. The bearer allowance went with the token, which returned 8 KB of headroom to
-    callers rather than relaxing a limit — and its absence is asserted, because an allowance
-    reappearing is the shape of the exposure coming back.
+    It used to be the SQS message limit less the identity block — wrong in kind, because SQS
+    accepting a message says nothing about Step Functions starting an execution with it, and
+    every per-plane cap that looks like it bounds the chain runs INSIDE ``validate-authorize``,
+    after the request that would overflow has already arrived. The state arm is now roughly a
+    third of the queue arm, so the queue's ceiling no longer binds anything.
+
+    **The SQS arm is asserted to be unreachable rather than quietly kept**, so nobody later reads
+    its passing as evidence it fires.
+
+    The bearer allowance went with the token, which returned 8 KB of headroom to callers rather
+    than relaxing a limit — and its absence is asserted, because an allowance reappearing is the
+    shape of the exposure coming back.
     """
     assert enqueue_module.SQS_MAX_MESSAGE_BYTES == 262_144
+    assert enqueue_module.MAX_MESSAGE_BYTES == enqueue_module._STATE_ARM
+    assert enqueue_module._STATE_ARM < enqueue_module._QUEUE_ARM, (
+        "the queue arm now binds, so this test's whole premise — that the state limit is the "
+        "tighter one — has been inverted by something and the derivation needs re-deriving"
+    )
     assert enqueue_module.MAX_MESSAGE_BYTES == (
-        enqueue_module.SQS_MAX_MESSAGE_BYTES - enqueue_module.MAX_IDENTITY_BLOCK_BYTES
+        cp_config.STATE_PAYLOAD_LIMIT_BYTES
+        - cp_config.CAUSE_RESERVATION_BYTES
+        - enqueue_module.MAX_PIPE_RECORD_OVERHEAD_BYTES
+        - enqueue_module.MAX_RECORD_FAILURE_LITERAL_BYTES
+        - enqueue_module.MESSAGE_HEADROOM_BYTES
+    ) // enqueue_module.BODY_ESCAPE_FACTOR
+    assert enqueue_module.MESSAGE_HEADROOM_BYTES > 0, (
+        "a cap pinned at its own measurement leaves the next legitimate addition nothing to spend"
     )
     assert not hasattr(enqueue_module, "MAX_BEARER_BYTES"), (
         "a bearer allowance means a bearer is being sent again"

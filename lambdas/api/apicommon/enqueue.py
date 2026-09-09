@@ -22,13 +22,33 @@ routes rather than one.
 
 Attributes:
   SQS_MAX_MESSAGE_BYTES: What these queues accept for one message body. It is the service default
-    rather than the documented maximum, because no queue module sets ``max_message_size``.
+    rather than the documented maximum, because no queue module sets ``max_message_size``. It is
+    no longer what binds — the state arm below is roughly a third of it — and it stays because the
+    queue's own ceiling is still real. **Nobody should read its passing as evidence it fires.**
   MAX_IDENTITY_BLOCK_BYTES: The allowance for the identity block at its largest.
+  MAX_PIPE_RECORD_OVERHEAD_BYTES: The allowance for everything in the Pipes SQS record that is not
+    the body — the receipt handle, the FIFO attributes block, the source ARN. MODELLED rather than
+    measured: no captured record exists to measure, so a guard holds this against the documented
+    shape at each field's maximum.
+  MAX_RECORD_FAILURE_LITERAL_BYTES: The allowance for every key the largest plane's
+    ``RecordFailure`` names beside the envelope and the error. Not a rounding error and easy to
+    drop: without it the fleet cap and the per-plane failure state disagree by kilobytes. A guard
+    sums the real key sets from the eight templates against it — this module cannot, because the
+    image carries ``lambdas/`` and not ``infra/``.
+  BODY_ESCAPE_FACTOR: What the body costs again when the Pipe embeds it in the record as a JSON
+    string. Exactly 2 in the worst case — a run of quotes or backslashes — and nothing beats it,
+    because ``json.dumps`` emits no raw control character or non-ASCII byte.
+  MESSAGE_HEADROOM_BYTES: What the cap deliberately leaves unspent. A budget pinned at today's
+    measurement leaves the next legitimate addition nothing, which makes the gate cause the damage
+    it exists to prevent. It is bounded ABOVE as well: file-send's counterfactual tripwire — that
+    carrying the selection beside the envelope would breach the limit — stops firing once the
+    send cap falls to about 82 KiB, which is roughly 24 KiB of headroom.
   MAX_MESSAGE_BYTES: What a caller's payload may serialize to once everything above is stamped
-    onto it. Derived, never written down: a cap applied to the caller's payload alone would admit
-    a request the send cannot make. It is measured against the ALREADY-STAMPED body, so the
-    allowance above is reserved twice — the safe direction. It grew by 8 KB when the token stopped
-    being sent, which is headroom returned to callers rather than a limit relaxed.
+    onto it. Derived from the limit that actually binds, which is not the queue's: SQS accepting a
+    message says nothing about Step Functions starting an execution with it, and every per-plane
+    cap that looks like it bounds the chain runs INSIDE ``validate-authorize``, so the request that
+    overflows arrives before the cap that would refuse it. Measured against the ALREADY-STAMPED
+    body, because that is what is sent.
   MAX_LOGGED_REQUEST_ID: How much of the caller's own request id reaches a log field. It is
     caller-controlled text on baggage, so it rides every event of the invocation into a store that
     is retained forever — the reason the router bounds the id IT echoes.
@@ -38,7 +58,7 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
-from cpcommon import observability
+from cpcommon import config, observability
 
 from . import fifo, identity, identity_block, queue_faults
 from .config import queue_url
@@ -48,7 +68,21 @@ from .envelope import ApiError
 
 SQS_MAX_MESSAGE_BYTES = 262_144
 MAX_IDENTITY_BLOCK_BYTES = 512
-MAX_MESSAGE_BYTES = SQS_MAX_MESSAGE_BYTES - MAX_IDENTITY_BLOCK_BYTES
+
+MAX_PIPE_RECORD_OVERHEAD_BYTES = 2 * 1024
+MAX_RECORD_FAILURE_LITERAL_BYTES = 4 * 1024
+BODY_ESCAPE_FACTOR = 2
+MESSAGE_HEADROOM_BYTES = 8 * 1024
+
+_STATE_ARM = (
+    config.STATE_PAYLOAD_LIMIT_BYTES
+    - config.CAUSE_RESERVATION_BYTES
+    - MAX_PIPE_RECORD_OVERHEAD_BYTES
+    - MAX_RECORD_FAILURE_LITERAL_BYTES
+    - MESSAGE_HEADROOM_BYTES
+) // BODY_ESCAPE_FACTOR
+_QUEUE_ARM = SQS_MAX_MESSAGE_BYTES - MAX_IDENTITY_BLOCK_BYTES
+MAX_MESSAGE_BYTES = min(_STATE_ARM, _QUEUE_ARM)
 
 MAX_LOGGED_REQUEST_ID = 128
 

@@ -31,11 +31,12 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 
+from cpcommon import config as cp_config
 from cpcommon import errors
 from cpcommon.transfer import config as transfer_config
 from fscommon import config, expand
 
-_STATE_PAYLOAD_LIMIT = 256 * 1024
+_STATE_PAYLOAD_LIMIT = cp_config.STATE_PAYLOAD_LIMIT_BYTES
 
 _MAX_KEY_BYTES = 1024
 
@@ -187,15 +188,24 @@ def test_the_failure_state_carries_the_request_and_still_fits():
     cap with quote-heavy keys that pair was ~300 KB: a Pass with no Catch raising
     States.DataLimitExceeded, on the failure path, after a three-hour copy. The selection is no
     longer carried, and this is what holds that.
+
+    **The error was modelled at 4 KB and that was the third thing wrong here.** Step Functions
+    documents 32,768 as a maximum length in CHARACTERS on the execution-history event shapes, not
+    as a byte quota on a state — and a Cause is a JSON document sitting inside a JSON string on the
+    state, escaped there like every other value. The reservation is twice the documented length,
+    and it is read from ``cpcommon.config`` rather than restated, because the counterfactual below
+    is only evidence while the number it adds is the real one. Under the old 4 KB the tripwire
+    inverted the moment the send cap came down.
     """
     records = {char: _pipe_record(_items_at_the_byte_cap(char)) for char in ("k", '"', _WORST_ESCAPE)}
+    error = cp_config.CAUSE_RESERVATION_BYTES
 
     for char, record in records.items():
-        assert record + 4 * 1024 < _STATE_PAYLOAD_LIMIT, (
-            f"the failure state for {char!r} keys is {record + 4 * 1024} bytes"
+        assert record + error < _STATE_PAYLOAD_LIMIT, (
+            f"the failure state for {char!r} keys is {record + error} bytes"
         )
 
-    would_have_been = max(records.values()) + config.SEND_MAX_ITEM_BYTES + 4 * 1024
+    would_have_been = max(records.values()) + config.SEND_MAX_ITEM_BYTES + error
     assert would_have_been > _STATE_PAYLOAD_LIMIT, (
         f"carrying the selection beside the raw request would now be {would_have_been} bytes, "
         f"under the limit — so the reason the post-validate seed leaves it off may have gone "

@@ -147,13 +147,14 @@ def _serialised(value: object) -> int:
       value: Anything JSON-serialisable.
 
     Returns:
-      The byte length of the UTF-8 form that actually travels — non-ASCII left literal, as both
-      the browser's serialiser and the Pipe leave it.
+      The byte length of the form that actually travels — non-ASCII ESCAPED, because the API
+      re-serialises the body with the default escaping one hop before the Pipe. Measuring the
+      literal form counted an accented key at two bytes where the wire spends six.
 
     Raises:
       None.
     """
-    return len(json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode())
+    return len(json.dumps(value, separators=(",", ":")).encode())
 
 
 def _pipe_record(selection: list) -> int:
@@ -462,15 +463,18 @@ def test_the_two_runtimes_MEASURE_the_same_selection_the_same_way():
     selections this plane then refused by notification, which is the outcome the browser's own cap
     exists to prevent. Two matching numbers said nothing about it.
 
-    Asserted on the SERIALISER, against the byte length JavaScript produces for the same input:
-    compact separators, non-ASCII left literal.
+    **They were reconciled the wrong way round, and this is the corrected agreement.** Both sides
+    were moved to the LITERAL form, which agreed with each other and with nothing else: the API
+    re-serialises the body with the default escaping, so the wire spent six bytes on the character
+    both caps counted as two. Both sides now measure the ESCAPED form, so all three agree, and the
+    number below is what the browser computes for the same input after escaping.
     """
     selection = [{"kind": "file", "key": "alice/" + ("\u00e9" * 60)} for _ in range(170)]
 
-    # What `new TextEncoder().encode(JSON.stringify(items))` yields for this input, computed in
-    # Node rather than derived from this side — a value taken from Python would only prove Python
-    # is self-consistent.
-    javascript_bytes = 25671
+    #: What the browser's own measurement yields for this input, computed in Node rather than
+    #: derived from this side — a value taken from Python would only prove Python is
+    #: self-consistent.
+    javascript_bytes = 66471
 
     assert _serialised(selection) == javascript_bytes
 

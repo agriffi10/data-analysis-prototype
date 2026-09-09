@@ -3000,7 +3000,13 @@ one of the four planes that carry it, against a model allowing the error 4 KB wh
 permits 32 KB of characters. The deeper finding is that the chain's *inputs* are unbounded:
 `requestId` is declared `str` on every enqueue request and reaches the state verbatim on seven
 planes, and data-quality's `location` and shared-spaces' `space` are caller strings bounded nowhere
-— two of which already breach the limit on a `Pass` with no `Catch`, before 228 adds anything. The
+— the latter two already breaching the limit on a `Pass` with no `Catch`, before 228 adds anything.
+**`requestId` turned out to be the exception**: `fifo._checked` refuses a derived deduplication key
+over 128 characters before the send, so no route carrying one could put an over-long id on a queue.
+229 bounds it anyway, as the chain's own bound rather than a second identity rule, and found a
+*fourth* live breach the specs had not named — file-ops measured its selection cap with non-ASCII
+left literal while the API escapes it one hop later, so an accented selection cost three times what
+its cap counted. The
 per-plane caps that look like they bound this do not: every one runs inside `validate-authorize`, so
 the request that overflows arrives before the cap that would refuse it. The one control upstream is
 `MAX_MESSAGE_BYTES`, derived from the **SQS** limit rather than the Step Functions one — the wrong

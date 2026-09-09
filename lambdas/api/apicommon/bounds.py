@@ -15,13 +15,15 @@ neither — every declared string or list field on an enqueue request either car
 is a finding — and that is strictly stronger, because it catches a field before any template names
 it.
 
-**A bound is a count of SERIALIZED JSON bytes**, because that is what ``enqueue.build_message``
-puts on the wire, escaping and all. It is the quantity the three plane selection caps already
-measure, and measuring anything else is how a cap comes to certify a request the send cannot make.
-Where allowing a value its worst escaped expansion is cheap the bound is set there, so nothing a
-downstream check would accept is refused here; where it would multiply the fleet cap — an S3 key of
-control characters serializes six-fold — the bound is set at the plain form and a pathological
-value is refused earlier, which is the rule the plane caps already use.
+**A bound says which question its number answers, and three of them look alike as integers.** Most
+are SERIALIZED JSON bytes, because that is what ``enqueue.build_message`` puts on the wire, escaping
+and all, and it is the quantity the plane selection caps already measure. A key's bound is in the
+UTF-8 bytes of the value itself, because that is the unit S3 states its own limit in — measured on
+the serialized form instead, a 171-character accented path is refused at a third of what S3 allows,
+which is a new refusal wearing a measurement's clothes. And a recipient or member cap is a COUNT.
+An earlier draft had one field for all three, and spent a count of fifty recipients as fifty bytes:
+the worst case it built carried one recipient, understating the model the fleet cap is derived from
+by seven and a half kilobytes.
 
 **Every declared path carries its OWN bound, and a container carries one too.** ``source.items``
 has a byte bound and so does ``source.items[].key``, because the two answer different questions:
@@ -41,29 +43,34 @@ Attributes:
     it refuses no id ``_checked`` would accept.
   MAX_IDENTIFIER_BYTES: What a catalog-safe name may serialize to. Usernames, space names,
     databases, tables and partition-key names all answer to ``CATALOG_IDENTIFIER_RE``, which is
-    three to sixty-three characters of a lowercase alphabet.
-  MAX_S3_KEY_BYTES: What an object or folder key may serialize to. S3's own maximum key length,
-    plus its quotes.
-  MAX_BUCKET_NAME_BYTES: What a bucket name may serialize to. S3's own maximum.
-  MAX_TIMESTAMP_BYTES: What an ISO-8601 instant may serialize to.
+    three to sixty-three characters of a lowercase alphabet — **none of which escapes**, so the
+    serialized form is the name plus its quotes rather than twice it.
+  MAX_S3_KEY_BYTES: How long an object or folder key may be, in the UTF-8 bytes S3 counts. Not a
+    serialized length: a key of accented characters serializes to three times its own size, and a
+    bound stated on the serialized form would refuse a third of what S3 permits.
+  MAX_BUCKET_NAME_BYTES: What a bucket name may serialize to. S3's own maximum, and its character
+    class escapes nothing.
+  MAX_TIMESTAMP_BYTES: What an ISO-8601 instant may serialize to. Its character class escapes
+    nothing either.
   MAX_PARTITION_KEYS_BYTES: What a declared partition-key list may serialize to. It mirrors
     ``tbcommon.config.REFRESH_MAX_DEFINITION_BYTES``, the plane's own budget for a table definition
     on the state, because the declared keys become part of that definition. Mirrored rather than
     imported for the reason ``Bound.owner`` gives, and a guard holds the two equal.
   MAX_PARTITION_VALUE_BYTES: What one projected partition value may serialize to. A value becomes
     a segment of the table's own S3 path, so S3's key-segment budget is what sizes it.
-  MAX_PARTITION_VALUES_BYTES: What one key's enumerated values may serialize to together. A
-    quarter of the definition budget, so a table may declare a projected enum alongside three more
-    keys and still fit the definition the plane carries onto the state. The whole ``partitionKeys``
-    list is the bound that actually binds; this one keeps a single key from being pathological on
-    its own.
-  MAX_MEMBERS_PER_REQUEST: How many members one shared-space request may name. Measured against
-    the add-members verb's own timeout, which is the budget: the verb does a Cognito slot
-    assignment, a roster write and a notification per member, serially, so a request naming more
-    than this cannot finish inside its ceiling however small its bytes are. It is set at HALF what
-    the ceiling affords rather than at the ceiling, because a cap sitting exactly on its
-    measurement leaves the next legitimate addition — one more round trip per member — nothing to
-    spend, and the gate then causes the failure it exists to prevent.
+  MAX_PARTITION_VALUES_BYTES: What one key's enumerated values may serialize to together. **A
+    share of the definition budget rather than a derivation of it** — nothing in the plane says
+    how many projected keys a table may declare, so a quarter is a choice, and it is written down
+    as one. What actually binds is the ``partitionKeys`` bound above, which IS derived; this only
+    stops a single key from spending the whole definition on its own enum.
+  MAX_MEMBERS_PER_REQUEST: How many members one shared-space request may name — a COUNT, because
+    a byte bound cannot express one: at the shortest legal username a twelve-kilobyte allowance
+    admits two thousand names. **It mirrors the fleet's existing derivation rather than adding a
+    second**, ``transfer_reader.MAX_MEMBERS_PER_MESSAGE``, which charges the add-members verb's
+    timeout for the per-member round trips AND the per-roster-member fan-out this one first
+    dropped. Two answers to one question, differing by more than twice, would have let the API
+    admit a request the operator path already refuses as unable to finish. A guard holds them
+    equal.
   FIELD_BOUNDS: Every declared bound, one per (route, path).
 """
 
@@ -116,29 +123,14 @@ def _plain(byte_length: int) -> int:
 
 
 MAX_REQUEST_ID_BYTES: Final[int] = _escaped(MAX_FIFO_KEY_CHARS)
-MAX_IDENTIFIER_BYTES: Final[int] = _escaped(63)
-MAX_S3_KEY_BYTES: Final[int] = _plain(1024)
+MAX_IDENTIFIER_BYTES: Final[int] = _plain(63)
+MAX_S3_KEY_BYTES: Final[int] = 1024
 MAX_BUCKET_NAME_BYTES: Final[int] = _plain(63)
-MAX_TIMESTAMP_BYTES: Final[int] = _escaped(32)
-MAX_MEMBERS_PER_REQUEST: Final[int] = 100
+MAX_TIMESTAMP_BYTES: Final[int] = _plain(32)
+MAX_MEMBERS_PER_REQUEST: Final[int] = 44
 MAX_PARTITION_KEYS_BYTES: Final[int] = 40 * 1024
 MAX_PARTITION_VALUE_BYTES: Final[int] = _plain(255)
 MAX_PARTITION_VALUES_BYTES: Final[int] = MAX_PARTITION_KEYS_BYTES // 4
-
-
-def _list_of_identifiers(count: int) -> int:
-    """The serialized size of a list of that many catalog-safe names.
-
-    Args:
-      count: How many names the list may hold.
-
-    Returns:
-      The serialized byte length of the whole list.
-
-    Raises:
-      None.
-    """
-    return 2 + count * (MAX_IDENTIFIER_BYTES + 1)
 
 
 @dataclass(frozen=True)
@@ -149,10 +141,17 @@ class Bound:
       route_id: The enqueue route the bound applies to.
       path: The field, as a dotted path from the body's root. A bound on a container covers every
         field beneath it.
-      max_bytes: The largest the field may serialize to, for a bound this service applies.
+      max_bytes: The bound's number, in the unit ``measured`` names. For a bound this service
+        applies.
         ``None`` for a ``verb`` bound, whose number lives in the plane that enforces it — copying
         it here would be the same rule written twice, in two languages, with nothing holding the
         copies together.
+      measured: WHICH QUESTION the number answers, because three different ones look alike as
+        integers and an earlier draft spent a count as though it were a byte budget. ``wire`` is
+        serialized JSON bytes, what the sender puts on the queue. ``value`` is the UTF-8 bytes of
+        the string itself, which is the unit S3 states its key limit in — bounding a key on its
+        serialized form instead refuses a 171-character accented path, a third of what S3 allows.
+        ``items`` is a list's element count, which is what the recipient and member caps are.
       enforced_at: Where the bound is applied. An ``api`` bound is checked before the message is
         built and therefore bounds every link of the chain; a ``verb`` bound is applied inside
         ``validate-authorize`` and so bounds only what a failure state can carry, never what the
@@ -173,6 +172,7 @@ class Bound:
     enforced_at: Literal["api", "verb"]
     budget: str
     owner: str = ""
+    measured: Literal["wire", "value", "items"] = "wire"
 
 
 FIELD_BOUNDS: Final[tuple[Bound, ...]] = (
@@ -185,8 +185,10 @@ FIELD_BOUNDS: Final[tuple[Bound, ...]] = (
         "the catalog identifier rule a creatable space name already answers to",
     ),
     Bound(
-        "sharedSpace.enqueue", "payload.members", _list_of_identifiers(MAX_MEMBERS_PER_REQUEST), "api",
-        "the add-members verb's own timeout: a Cognito slot assignment, a roster write and a notification per member",
+        "sharedSpace.enqueue", "payload.members", MAX_MEMBERS_PER_REQUEST, "api",
+        "the fleet's existing derivation of what add-members finishes inside its timeout",
+        "",
+        "items",
     ),
     Bound(
         "sharedSpace.enqueue", "payload.members[]", MAX_IDENTIFIER_BYTES, "api",
@@ -215,6 +217,7 @@ FIELD_BOUNDS: Final[tuple[Bound, ...]] = (
             Bound(
                 route_id, "space.prefix", MAX_S3_KEY_BYTES, "api",
                 "S3's own maximum key length, which a space prefix is a prefix of",
+                measured="value",
             ),
             Bound(
                 route_id, "space.database", MAX_IDENTIFIER_BYTES, "api",
@@ -276,6 +279,7 @@ FIELD_BOUNDS: Final[tuple[Bound, ...]] = (
         "tableShare.enqueue", "recipients", None, "verb",
         "the plane's own recipient count cap, whose per-recipient name this service bounds",
         "tscommon.config.SHARE_MAX_RECIPIENTS",
+        "items",
     ),
     Bound(
         "tableShare.enqueue", "recipients[].name", MAX_IDENTIFIER_BYTES, "api",
@@ -292,10 +296,12 @@ FIELD_BOUNDS: Final[tuple[Bound, ...]] = (
     Bound(
         "dataQuality.enqueue", "space.prefix", MAX_S3_KEY_BYTES, "api",
         "S3's own maximum key length, which a space prefix is a prefix of",
+        measured="value",
     ),
     Bound(
         "dataQuality.enqueue", "location", MAX_S3_KEY_BYTES, "api",
         "S3's own maximum key length, which the folder being checked is",
+        measured="value",
     ),
     Bound(
         "fileSend.enqueue", "requestId", MAX_REQUEST_ID_BYTES, "api",
@@ -313,11 +319,13 @@ FIELD_BOUNDS: Final[tuple[Bound, ...]] = (
     Bound(
         "fileSend.enqueue", "source.items[].key", MAX_S3_KEY_BYTES, "api",
         "S3's own maximum key length, which every selected item names",
+        measured="value",
     ),
     Bound(
         "fileSend.enqueue", "recipients", None, "verb",
         "the plane's own recipient count cap, whose per-recipient name this service bounds",
         "fscommon.config.SEND_MAX_RECIPIENTS",
+        "items",
     ),
     Bound(
         "fileSend.enqueue", "recipients[].name", MAX_IDENTIFIER_BYTES, "api",
@@ -339,6 +347,7 @@ FIELD_BOUNDS: Final[tuple[Bound, ...]] = (
     Bound(
         "archive.archive", "source.items[].key", MAX_S3_KEY_BYTES, "api",
         "S3's own maximum key length, which every selected item names",
+        measured="value",
     ),
     Bound(
         "archive.restore", "requestId", MAX_REQUEST_ID_BYTES, "api",
@@ -368,11 +377,13 @@ FIELD_BOUNDS: Final[tuple[Bound, ...]] = (
     Bound(
         "fileOps.enqueue", "source.items[].key", MAX_S3_KEY_BYTES, "api",
         "S3's own maximum key length, which every selected item names",
+        measured="value",
     ),
     Bound(
         "fileOps.enqueue", "source.items[].targetName", None, "verb",
         "the plane's own cap on a per-item destination name, which is S3's key-segment budget",
         "focommon.config.MAX_TARGET_NAME",
+           "value",
     ),
     Bound(
         "fileOps.enqueue", "destination.space.name", MAX_IDENTIFIER_BYTES, "api",
@@ -381,6 +392,7 @@ FIELD_BOUNDS: Final[tuple[Bound, ...]] = (
     Bound(
         "fileOps.enqueue", "destination.prefix", MAX_S3_KEY_BYTES, "api",
         "S3's own maximum key length, which the destination folder is",
+        measured="value",
     ),
     Bound(
         "fileOps.enqueue", "submittedAt", MAX_TIMESTAMP_BYTES, "api",
@@ -401,11 +413,13 @@ FIELD_BOUNDS: Final[tuple[Bound, ...]] = (
     Bound(
         "resultsConversion.enqueue", "destination.prefix", MAX_S3_KEY_BYTES, "api",
         "S3's own maximum key length, which the destination folder is",
+        measured="value",
     ),
     Bound(
         "resultsConversion.enqueue", "destination.filename", None, "verb",
         "the plane's own file name cap, which is S3's key-segment budget",
         "rccommon.config.MAX_FILENAME_BYTES",
+           "value",
     ),
     Bound(
         "resultsConversion.enqueue", "submittedAt", MAX_TIMESTAMP_BYTES, "api",
@@ -502,7 +516,27 @@ def over_bound(route: Route, body: object) -> Bound | None:
         if bound.max_bytes is None:
             continue
         for value in _values(body, bound.path):
-            serialized = len(json.dumps(value, separators=(",", ":")).encode("utf-8"))
-            if serialized > bound.max_bytes:
+            if _size(value, bound.measured) > bound.max_bytes:
                 return bound
     return None
+
+
+def _size(value: object, measured: str) -> int:
+    """One value's size, in the unit a bound states its number in.
+
+    Args:
+      value: The value to measure.
+      measured: Which question to answer — ``wire``, ``value`` or ``items``.
+
+    Returns:
+      The size, or zero where the value is the wrong shape for the unit, which shape validation
+      has already refused.
+
+    Raises:
+      None.
+    """
+    if measured == "items":
+        return len(value) if isinstance(value, list) else 0
+    if measured == "value":
+        return len(value.encode("utf-8")) if isinstance(value, str) else 0
+    return len(json.dumps(value, separators=(",", ":")).encode("utf-8"))

@@ -29,6 +29,16 @@ Attributes:
   REGION: Provided by the Lambda runtime, not by Terraform.
   NOTIFICATIONS_QUEUE_URL: Optional and never required — notifications are best-effort, so
     an unset queue URL makes every emit a logged no-op rather than crashing the verb.
+  STATE_PAYLOAD_LIMIT_BYTES: What Step Functions accepts for one state payload AND for one
+    execution input. Breaching either raises ``States.DataLimitExceeded``, which is thrown OUTSIDE
+    every Catch — so a request over it is not refused, it disappears.
+  CAUSE_MAX_CHARS: The longest error ``Cause`` the service will carry. It is a maximum length in
+    CHARACTERS on the execution-history event shapes, not a byte quota on a state, and the
+    distinction is the whole reason the next constant exists.
+  CAUSE_RESERVATION_BYTES: What a ``Cause`` must be reserved at on a state. A Cause is a JSON
+    document sitting inside a JSON string, so it is escaped there like every other value, and the
+    worst escaping ``json.dumps`` produces for the characters it emits is two bytes a character.
+    Reserving it unescaped would exempt the one value in the model most certainly escaped.
   CATALOG_IDENTIFIER_RE: The single catalog-safe identifier rule — lowercase, leading
     letter, [a-z0-9_], 3-63 chars — for usernames, database, view, table and partition-key
     names.
@@ -52,6 +62,10 @@ _OPTIONAL_VARS = {
     "REGION": "AWS_REGION",
     "NOTIFICATIONS_QUEUE_URL": "NOTIFICATIONS_QUEUE_URL",
 }
+
+STATE_PAYLOAD_LIMIT_BYTES = 256 * 1024
+CAUSE_MAX_CHARS = 32_768
+CAUSE_RESERVATION_BYTES = 2 * CAUSE_MAX_CHARS
 
 CATALOG_IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_]{2,62}$")
 

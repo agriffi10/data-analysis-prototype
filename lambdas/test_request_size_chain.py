@@ -31,20 +31,28 @@ Attributes:
 import json
 import os
 import pathlib
+import re
+import shutil
 import sys
+import tempfile
 
 import pytest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_HERE, "api"))
 
-from apicommon import bounds, contract
+from apicommon import bounds, contract, enqueue
 from apicommon.contract import TypeNode
+from cpcommon import config as cp_config
+from cpcommon import errors as cp_errors
+
+sys.path.insert(0, os.path.join(_HERE, "api"))
+import test_bounds as _bounds_guard
 
 REPO = pathlib.Path(_HERE).parent
 MODULES = REPO / "infra" / "modules"
 
-FILLS = ("k", '"', "\x01", "é")
+FILLS = ("k", '"', "\\", "\x01", "é")
 ESCAPE_WORST_FILL = '"'
 
 
@@ -127,8 +135,14 @@ PIPED_ROUTES = tuple(
 )
 
 
-def _bound_bytes(route_id: str, path: str) -> int | None:
-    """The byte bound covering one field, whichever side enforces it.
+def _budget(route_id: str, path: str) -> tuple[int, str] | None:
+    """The bound covering one field, with the unit its number is in.
+
+    **The unit is returned rather than assumed, and an earlier draft assumed.** It read every
+    owner constant as a byte budget, so ``SHARE_MAX_RECIPIENTS = 50`` — a COUNT — was spent as
+    fifty bytes: one recipient serializes to about a hundred and fifty, so the list loop exited
+    immediately and the worst case carried a single recipient. file-send's was understated by
+    7,497 bytes and table-share's by sixteen times, in the model the fleet cap is derived from.
 
     A ``verb`` bound's number lives in the plane, so it is read from there. ``apicommon.bounds``
     deliberately does not import those modules — a plane's ``config`` raises at import on its own
@@ -139,7 +153,7 @@ def _bound_bytes(route_id: str, path: str) -> int | None:
       path: The dotted field path.
 
     Returns:
-      The bound in serialized bytes, or None when nothing covers the field.
+      The number and its unit, or None when nothing covers the field.
 
     Raises:
       None.
@@ -148,18 +162,20 @@ def _bound_bytes(route_id: str, path: str) -> int | None:
     if bound is None:
         return None
     if bound.max_bytes is not None:
-        return bound.max_bytes
+        return bound.max_bytes, bound.measured
     module_path, _, constant = bound.owner.rpartition(".")
     value = getattr(__import__(module_path, fromlist=[constant]), constant)
-    return value if isinstance(value, int) else None
+    return (value, bound.measured) if isinstance(value, int) else None
 
 
-def _filled(fill: str, budget: int) -> str:
-    """The longest string of one character that serializes inside a budget.
+def _filled(fill: str, budget: int, measured: str = "wire") -> str:
+    """The longest string of one character that fits a budget, in that budget's own unit.
 
     Args:
       fill: The character to repeat.
-      budget: The serialized byte budget, quotes included.
+      budget: The number the bound declares.
+      measured: Its unit — ``wire`` for serialized bytes, ``value`` for the string's own UTF-8
+        bytes, which is how S3 states a key length.
 
     Returns:
       The string.
@@ -167,6 +183,8 @@ def _filled(fill: str, budget: int) -> str:
     Raises:
       None.
     """
+    if measured == "value":
+        return fill * max(1, budget // len(fill.encode("utf-8")))
     per_character = _serialized(fill) - 2
     return fill * max(1, (budget - 2) // per_character)
 
@@ -189,8 +207,8 @@ def _worst(node: TypeNode, route_id: str, path: str, fill: str) -> object:
     if node.kind == "optional":
         return _worst(node.of[0], route_id, path, fill)
     if node.kind == "str":
-        budget = _bound_bytes(route_id, path)
-        return _filled(fill, budget) if budget else fill
+        budget = _budget(route_id, path)
+        return _filled(fill, budget[0], budget[1]) if budget else fill
     if node.kind == "literal":
         return max(node.literals, key=len)
     if node.kind == "int":
@@ -207,11 +225,14 @@ def _worst(node: TypeNode, route_id: str, path: str, fill: str) -> object:
             for name, child, _ in node.fields
         }
     element = _worst(node.of[0], route_id, f"{path}[]", fill)
-    budget = _bound_bytes(route_id, path)
+    budget = _budget(route_id, path)
     if budget is None:
         return [element]
+    number, measured = budget
+    if measured == "items":
+        return [element] * number
     items: list[object] = []
-    while _serialized([*items, element]) <= budget:
+    while _serialized([*items, element]) <= number:
         items.append(element)
     return items or [element]
 
@@ -317,15 +338,17 @@ def test_a_route_with_no_plane_cap_builds_its_worst_case_at_the_FIELD_bounds():
     for route in uncapped:
         body = worst_case_body(route, "k")
         for path, _ in _string_paths(route):
-            budget = _bound_bytes(route.id, path)
+            budget = _budget(route.id, path)
             value = _at(body, path)
             if budget is None or value is None:
                 continue
+            number, measured = budget
+            built = len(value.encode("utf-8")) if measured == "value" else _serialized(value)
 
-            assert _serialized(value) > budget - 8, (
-                f"{route.id}/{path} is built at {_serialized(value)} bytes against a {budget}-byte "
-                f"bound — a field hard-coded small where its bound permits large is this factory's "
-                f"blind spot, and every measurement built on it understates the real worst case"
+            assert built == number, (
+                f"{route.id}/{path} is built at {built} against a bound of {number} ({measured}) — "
+                f"a field hard-coded small where its bound permits large is this factory's blind "
+                f"spot, and every measurement built on it understates the real worst case"
             )
 
 
@@ -393,6 +416,10 @@ def _string_paths(route: contract.Route) -> list[tuple[str, str]]:
 def _collect(node: TypeNode, prefix: str, found: list[tuple[str, str]]) -> None:
     """Collects every declared string and list path beneath one node.
 
+    The walk lives in ``test_bounds`` and is imported rather than copied: the two files ask the
+    same question of the same contract, and two byte-identical walkers with nothing holding them
+    equal is how one comes to see a shape the other does not.
+
     Args:
       node: The node to walk.
       prefix: The dotted path reaching it.
@@ -404,15 +431,7 @@ def _collect(node: TypeNode, prefix: str, found: list[tuple[str, str]]) -> None:
     Raises:
       None.
     """
-    if node.kind in ("str", "list"):
-        found.append((prefix, node.kind))
-    if node.kind == "optional":
-        _collect(node.of[0], prefix, found)
-    elif node.kind == "list":
-        _collect(node.of[0], f"{prefix}[]", found)
-    elif node.kind == "object":
-        for name, child, _ in node.fields:
-            _collect(child, f"{prefix}.{name}" if prefix else name, found)
+    _bounds_guard._paths(node, prefix, found)
 
 
 def _at(body: object, path: str) -> object:
@@ -441,3 +460,591 @@ def _at(body: object, path: str) -> object:
         else:
             return None
     return value
+
+
+# ── The chain: links one, two and four, over every piped route ───────────────
+
+#: How the value behind one ``RecordFailure`` key gets there. Six kinds, and the last three are
+#: what an earlier draft of this table was missing: it declared only stamped literals, identity
+#: fields and bounded contract fields, which parsed against the eight real templates is not total.
+#: `envelope` is the forwarded batch, whose size IS link two and is summed as that rather than
+#: twice. `derived` is a value a verb builds, which carries a bound of its own sized from the
+#: bounded inputs it is built from. `error` is the Cause reservation.
+ORIGIN_KINDS = ("stamped", "identity", "contract", "envelope", "derived", "error")
+
+UNRESOLVED_MESSAGE = "resolves to no declared origin"
+
+#: Every key of every plane's ``RecordFailure``, its origin kind, and the bytes it may cost the
+#: state. A key with no entry fails the guard below naming its plane, so a plane that starts
+#: carrying something new is caught rather than silently widening the failure state.
+RECORD_FAILURE_ORIGINS = {
+    "traceparent": ("stamped", 64),
+    "status": ("stamped", 16),
+    "mode": ("stamped", 16),
+    "schemaVersion": ("stamped", 8),
+    "action": ("contract", bounds.MAX_IDENTIFIER_BYTES),
+    "format": ("contract", 16),
+    "requestId": ("contract", bounds.MAX_REQUEST_ID_BYTES),
+    "location": ("contract", bounds.MAX_S3_KEY_BYTES),
+    "space": ("contract", bounds.MAX_IDENTIFIER_BYTES),
+    "database": ("contract", bounds.MAX_IDENTIFIER_BYTES),
+    "tableName": ("contract", bounds.MAX_IDENTIFIER_BYTES),
+    "source": ("contract", 2 * bounds.MAX_IDENTIFIER_BYTES + 32),
+    "actor": ("identity", 512),
+    "username": ("identity", bounds.MAX_IDENTIFIER_BYTES),
+    "raw": ("envelope", 0),
+    "reportKey": ("derived", bounds.MAX_S3_KEY_BYTES),
+    "tokens": ("derived", 3 * bounds.MAX_S3_KEY_BYTES),
+    "error": ("error", 0),
+}
+
+
+def _record_failure_keys(plane: str, root: pathlib.Path = MODULES) -> set[str]:
+    """The keys one plane's ``RecordFailure`` builds, parsed from its own template.
+
+    Parsed rather than listed, so a plane naming a new field is included in the model without
+    anyone remembering to add it here.
+
+    Args:
+      plane: The Terraform module's directory name.
+      root: Where the modules live. Overridden only by the planted control, which patches a COPY
+        of a real template so the plant cannot escape into a machine.
+
+    Returns:
+      The parameter names, with the ``.$`` suffix removed.
+
+    Raises:
+      KeyError: If the plane's machine has no ``RecordFailure`` state.
+    """
+    text = (root / plane / "state-machine.asl.json.tftpl").read_text()
+    machine = json.loads(
+        re.sub(r"\$\{[a-z_0-9]+\}", "PLACEHOLDER", re.sub(r":\s*\$\{[a-z_0-9]+\}", ": 0", text))
+    )
+    return {
+        name.removesuffix(".$")
+        for name in machine["States"]["RecordFailure"]["Parameters"]
+    }
+
+
+def _planes_with_a_failure_state() -> list[str]:
+    """Every plane whose machine records a failure, from the templates.
+
+    Args:
+      None.
+
+    Returns:
+      The module directory names, sorted.
+
+    Raises:
+      None.
+    """
+    return sorted(
+        path.parent.name
+        for path in MODULES.glob("*/state-machine.asl.json.tftpl")
+        if '"RecordFailure"' in path.read_text()
+    )
+
+
+def _unresolved(planes: list[str], root: pathlib.Path = MODULES) -> list[str]:
+    """Every ``RecordFailure`` key across those planes that the origin table does not explain.
+
+    The one resolution both the guard and its planted control run, so the control proves the
+    mechanism the guard's absence assertion rests on rather than a parallel copy of it.
+
+    Args:
+      planes: The module directory names to check.
+      root: Where the modules live.
+
+    Returns:
+      A ``plane/key`` string for each key with no declared origin.
+
+    Raises:
+      None.
+    """
+    return [
+        f"{plane}/{key}"
+        for plane in planes
+        for key in sorted(_record_failure_keys(plane, root))
+        if key not in RECORD_FAILURE_ORIGINS
+    ]
+
+
+def test_every_record_failure_key_resolves_to_a_declared_origin():
+    """The other half of the bounds rule, asked of the templates rather than the contract.
+
+    A field bound catches a caller's value before it travels. This catches the other direction: a
+    plane putting something on its failure state that no bound explains, which is how the state
+    grows past the limit with every guard still green.
+    """
+    unresolved = _unresolved(_planes_with_a_failure_state())
+
+    assert not unresolved, (
+        f"this RecordFailure key {UNRESOLVED_MESSAGE}, so nothing bounds what it costs the failure "
+        f"state: {unresolved}"
+    )
+
+
+def test_the_origin_rule_REPORTS_a_key_it_cannot_explain():
+    """The planted control for the guard above, whose clean result is otherwise unfalsifiable.
+
+    Planted into a COPY of a real template rather than the tree, so the plant cannot escape into a
+    machine. The message is asserted, and asserted to differ from the field-bounds guard's, because
+    the two mutations are the two directions of one rule and a plant satisfying both would let one
+    stand in for the other.
+    """
+    plane = _planes_with_a_failure_state()[0]
+
+    assert not _unresolved([plane]), "the control's own plane is not clean before the plant"
+
+    with tempfile.TemporaryDirectory() as scratch:
+        root = pathlib.Path(scratch)
+        shutil.copytree(MODULES / plane, root / plane)
+        template = root / plane / "state-machine.asl.json.tftpl"
+        planted, substitutions = re.subn(
+            r'("RecordFailure"\s*:\s*\{(?:[^{]|\{(?!"Parameters))*?"Parameters"\s*:\s*\{)',
+            r'\1"Souvenir": "planted",',
+            template.read_text(),
+            count=1,
+        )
+
+        assert substitutions == 1, (
+            "the plant matched nothing, so a green result below would say the guard is vacuous "
+            "when the truth is that the fixture never landed"
+        )
+        template.write_text(planted)
+
+        assert "Souvenir" in _record_failure_keys(plane, root), (
+            "the plant landed somewhere the parser does not read, so the result below says nothing"
+        )
+        assert _unresolved([plane], root) == [f"{plane}/Souvenir"]
+
+    assert UNRESOLVED_MESSAGE != "declare no byte bound", (
+        "this guard and the field-bounds guard fail with the same message, so one plant could be "
+        "read as satisfying both"
+    )
+
+
+def test_every_declared_origin_kind_is_one_of_the_six():
+    """The kinds are a closed set, so `derived` cannot quietly become an escape hatch."""
+    for key, (kind, cost) in RECORD_FAILURE_ORIGINS.items():
+        assert kind in ORIGIN_KINDS, f"{key} declares an origin kind outside the closed set: {kind}"
+        assert cost >= 0, f"{key} declares a negative cost"
+
+
+def _stamped_and_identity(route: contract.Route) -> dict:
+    """What the sender adds to a caller's body, at its largest.
+
+    Args:
+      route: The enqueue route.
+
+    Returns:
+      The stamped fields and the identity block, sized at their own reservations.
+
+    Raises:
+      None.
+    """
+    stamped = {name: "m" * 16 for name in route.stamped if name != "traceparent"}
+    return {
+        **stamped,
+        "traceparent": "00-" + "0" * 32 + "-" + "0" * 16 + "-01",
+        "identity": {
+            "actor": "a" * 63,
+            "delegated_by": "a" * 63,
+            "assurance": "interactive",
+        },
+    }
+
+
+def link_one(route: contract.Route, fill: str) -> int:
+    """The caller's body as the sender serializes it onto the queue.
+
+    Args:
+      route: The enqueue route.
+      fill: The character every string is made of.
+
+    Returns:
+      The serialized byte length of the stamped message.
+
+    Raises:
+      None.
+    """
+    return _serialized({**worst_case_body(route, fill), **_stamped_and_identity(route)})
+
+
+def _record(body: str) -> list:
+    """The Pipes SQS record one message arrives as, at its realistic worst.
+
+    Every field the service actually sends, not the two-key stub one plane guard used: all eight
+    pipes are ``batch_size = 1`` with no ``input_template``, so this shape is what
+    ``StartExecution`` receives. The body sits inside it as an ESCAPED JSON string, which is the
+    link an obvious model leaves out — every quote the body already spent two bytes on costs four
+    here.
+
+    **Modelled, not measured.** No captured Pipes record exists in this repository, so the field
+    set is written from the service's documented shape and sized at each field's own maximum. Its
+    passing is evidence about the model, not about a record anyone has seen.
+
+    Args:
+      body: The serialized message body.
+
+    Returns:
+      The forwarded batch, as a structure.
+
+    Raises:
+      None.
+    """
+    return [
+        {
+            "messageId": "0" * 36,
+            "receiptHandle": "r" * 1024,
+            "body": body,
+            "attributes": {
+                "ApproximateReceiveCount": "1",
+                "SentTimestamp": "1757000000000",
+                "SequenceNumber": "1" * 20,
+                "MessageGroupId": "g" * 128,
+                "SenderId": "AROA" + "A" * 17 + ":" + "s" * 64,
+                "MessageDeduplicationId": "d" * 128,
+                "ApproximateFirstReceiveTimestamp": "1757000000000",
+            },
+            "messageAttributes": {},
+            "md5OfBody": "0" * 32,
+            "eventSource": "aws:sqs",
+            "eventSourceARN": "arn:aws:sqs:eu-west-2:123456789012:dat-prod-requests.fifo",
+            "awsRegion": "eu-west-2",
+        }
+    ]
+
+
+def link_two(route: contract.Route, fill: str) -> int:
+    """The execution input the Pipe hands to ``StartExecution``.
+
+    Args:
+      route: The enqueue route.
+      fill: The character every string is made of.
+
+    Returns:
+      The serialized byte length of the forwarded batch.
+
+    Raises:
+      None.
+    """
+    body = json.dumps(
+        {**worst_case_body(route, fill), **_stamped_and_identity(route)}, separators=(",", ":")
+    )
+    return _serialized(_record(body))
+
+
+def link_four(route: contract.Route, plane: str, fill: str) -> int:
+    """The ``RecordFailure`` state, as that plane's template actually builds it.
+
+    Three terms: the forwarded envelope, which IS link two and is counted once as that; every
+    other key the template names, at the bound its origin declares; and the error, reserved at
+    what an escaped ``Cause`` costs on a state.
+
+    Args:
+      route: The enqueue route.
+      plane: The Terraform module whose template to read.
+      fill: The character every string is made of.
+
+    Returns:
+      The serialized byte length of the failure state.
+
+    Raises:
+      None.
+    """
+    keys = _record_failure_keys(plane)
+    envelope = link_two(route, fill) if "raw" in keys else 0
+    literals = sum(
+        RECORD_FAILURE_ORIGINS[key][1] + len(key) + 4
+        for key in keys
+        if RECORD_FAILURE_ORIGINS[key][0] not in ("envelope", "error")
+    )
+    error = cp_config.CAUSE_RESERVATION_BYTES if "error" in keys else 0
+    return envelope + literals + error + 2
+
+
+def _plane_of(route: contract.Route) -> str:
+    """The Terraform module serving one enqueue route's queue.
+
+    Args:
+      route: The enqueue route.
+
+    Returns:
+      The module's directory name.
+
+    Raises:
+      StopIteration: If no module's name stems to that queue's.
+    """
+    return next(
+        path.parent.name
+        for path in MODULES.glob("*/pipe.tf")
+        if _stem(path.parent.name) == _stem(route.queue)
+    )
+
+
+@pytest.mark.parametrize("route", PIPED_ROUTES, ids=lambda route: route.id)
+def test_every_link_of_the_chain_fits_the_state_limit(route):
+    """The whole chain, for every piped route, against ONE constant.
+
+    Three plane guards used to compute overlapping parts of this and disagree about the fourth
+    link — one of them measured it against a model an order of magnitude too small. This is the
+    one model, and the constant comes from ``cpcommon.config`` rather than a fourth private copy.
+    """
+    plane = _plane_of(route)
+    limit = cp_config.STATE_PAYLOAD_LIMIT_BYTES
+
+    for fill in FILLS:
+        measured = {
+            "link one, the caller's stamped body": link_one(route, fill),
+            "link two, the Pipe's forwarded record": link_two(route, fill),
+            "link four, the RecordFailure state": link_four(route, plane, fill),
+        }
+        for name, size in measured.items():
+            assert size < limit, (
+                f"{route.id} at {fill!r}: {name} reaches {size:,} bytes against a {limit:,}-byte "
+                f"limit — States.DataLimitExceeded, thrown outside every Catch, so the user whose "
+                f"request failed is told nothing"
+            )
+
+
+# ── The reservations, and the caps that follow from them ─────────────────────
+
+
+def _realistic_cause() -> str:
+    """A Lambda error ``Cause`` in the shape this fleet actually produces.
+
+    **Constructed, not captured.** FR-003 asks for a captured Cause and nothing in this repository
+    holds one — capturing one needs a production failure, which no session can cause — so this is
+    written from the shape Lambda documents and the fleet's own ``TerminalError`` detail cap. The
+    assertions below are chosen to be falsifiable anyway: they measure the ESCAPE RATIO and the
+    bytes per character, which are properties of the encoding rather than of this particular
+    string, so a real capture would have to disagree about JSON escaping to disagree with them.
+    ``docs/testing/owed.md`` carries the capture as owed.
+
+    Args:
+      None.
+
+    Returns:
+      The serialized Cause document, as Lambda returns it.
+
+    Raises:
+      None.
+    """
+    return json.dumps(
+        {
+            "errorMessage": "create_failed: " + ("x" * cp_errors.MAX_DETAIL_CHARS),
+            "errorType": "TerminalError",
+            "requestId": "0" * 36,
+            "stackTrace": [
+                '  File "/var/task/file_send_copy_objects.py", line 214, in _copy\n    raise\n'
+            ]
+            * 8,
+        }
+    )
+
+
+def test_the_cause_reservation_is_measured_against_the_encoding_it_reserves_for():
+    """WHY the reservation is twice the documented length, measured rather than asserted.
+
+    32,768 is a maximum length in CHARACTERS on the execution-history event shapes — not a byte
+    quota on a state — and a Cause is a JSON document sitting inside a JSON string on the state, so
+    it is escaped there like every other value. Reserving it unescaped would exempt the one value
+    in the model most certainly escaped.
+
+    **Asserting that a captured Cause FITS would prove nothing**: a real one runs to a couple of
+    thousand characters and fits a 32 KiB, a 36 KiB and a 66 KiB reservation identically. What is
+    falsifiable is the ratio, so that is what is measured.
+    """
+    cause = _realistic_cause()
+    on_the_state = len(json.dumps(cause).encode("utf-8"))
+
+    assert on_the_state > len(cause), "a Cause on a state is not being escaped at all"
+    assert cp_config.CAUSE_RESERVATION_BYTES == 2 * cp_config.CAUSE_MAX_CHARS
+    assert on_the_state / len(cause) <= cp_config.CAUSE_RESERVATION_BYTES / cp_config.CAUSE_MAX_CHARS, (
+        f"a realistic Cause escapes at {on_the_state / len(cause):.3f}x, over the "
+        f"{cp_config.CAUSE_RESERVATION_BYTES / cp_config.CAUSE_MAX_CHARS}x the reservation allows"
+    )
+    assert len(cause.encode("utf-8")) == len(cause), (
+        "the Cause carries a multi-byte character, so counting its characters is no longer "
+        "counting its bytes and the reservation's units have drifted"
+    )
+
+
+def test_the_reservations_cover_what_the_artifacts_actually_produce():
+    """The two numbers ``enqueue`` declares, held against the things it cannot read.
+
+    The image carries ``lambdas/`` and not ``infra/``, so that module cannot sum eight Terraform
+    templates at import. It declares a reservation and this measures it — which is not ``X == X``,
+    because the quantity measured comes from artifacts the module never sees.
+    """
+    largest = max(
+        sum(
+            RECORD_FAILURE_ORIGINS[key][1] + len(key) + 4
+            for key in _record_failure_keys(plane)
+            if RECORD_FAILURE_ORIGINS[key][0] not in ("envelope", "error")
+        )
+        for plane in _planes_with_a_failure_state()
+    )
+
+    assert largest <= enqueue.MAX_RECORD_FAILURE_LITERAL_BYTES, (
+        f"the largest plane's RecordFailure literals reach {largest} bytes against a "
+        f"{enqueue.MAX_RECORD_FAILURE_LITERAL_BYTES}-byte reservation"
+    )
+
+    overhead = _serialized(_record("")) - _serialized("")
+
+    assert overhead <= enqueue.MAX_PIPE_RECORD_OVERHEAD_BYTES, (
+        f"the modelled Pipes record costs {overhead} bytes beside the body, against a "
+        f"{enqueue.MAX_PIPE_RECORD_OVERHEAD_BYTES}-byte reservation"
+    )
+
+
+@pytest.mark.parametrize("route", contract.ENQUEUE_ROUTES, ids=lambda route: route.id)
+def test_every_routes_worst_legal_request_passes_the_cap(route):
+    """The cap has to admit what every route legally accepts, or it refuses correct requests.
+
+    Built from the factory rather than from the cap, so this is not ``X ≤ X``: seven of the eleven
+    routes are sized by their own field bounds and know nothing about ``MAX_MESSAGE_BYTES``.
+    """
+    for fill in FILLS:
+        body = json.dumps(
+            {**worst_case_body(route, fill), **_stamped_and_identity(route)},
+            separators=(",", ":"),
+        )
+
+        assert len(body.encode("utf-8")) <= enqueue.MAX_MESSAGE_BYTES, (
+            f"{route.id} at {fill!r} builds a legal request of {len(body.encode('utf-8')):,} bytes "
+            f"that the {enqueue.MAX_MESSAGE_BYTES:,}-byte cap refuses"
+        )
+
+
+def test_the_two_lowered_caps_are_as_high_as_the_chain_permits():
+    """A ``≤`` check stays green at a cap set far too low, so the two numbers are pinned TIGHT.
+
+    Both came down from 96 KiB. Left there the chain breaches; set at 8 KiB the chain fits and so
+    would any smaller number, and nothing in a fits-the-limit assertion would ever say so. This
+    asserts the other side: one whole kibibyte more and the chain no longer fits, so the caps are
+    the largest round unit the limit admits rather than a comfortable number under it.
+    """
+    from arcommon import config as ar_config
+    from fscommon import config as fs_config
+
+    for route_id, module, name in (
+        ("archive.archive", ar_config, "ARCHIVE_MAX_ITEM_BYTES"),
+        ("fileSend.enqueue", fs_config, "SEND_MAX_ITEM_BYTES"),
+    ):
+        route = next(r for r in contract.ENQUEUE_ROUTES if r.id == route_id)
+        original = getattr(module, name)
+        try:
+            setattr(module, name, original + 1024)
+            over = max(
+                len(
+                    json.dumps(
+                        {**worst_case_body(route, fill), **_stamped_and_identity(route)},
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                )
+                for fill in FILLS
+            )
+        finally:
+            setattr(module, name, original)
+
+        assert over > enqueue.MAX_MESSAGE_BYTES, (
+            f"{name} could be a kibibyte higher and still fit the chain, so it is lower than the "
+            f"limit requires and the reduction is costing users capacity for nothing"
+        )
+
+
+# ── What was live before this spec, characterised so the suite carries the reason ────
+
+
+#: The message cap before it was re-derived: the SQS message limit less the identity block.
+OLD_MAX_MESSAGE_BYTES = 262_144 - 512
+
+#: The archive and file-send selection caps before the fourth link was modelled honestly.
+OLD_SELECTION_CAP_BYTES = 96 * 1024
+
+
+def test_a_body_at_the_OLD_cap_produced_a_record_over_the_state_limit():
+    """The first live overshoot: the cap admitted a message no execution could start from.
+
+    ``MAX_MESSAGE_BYTES`` was the SQS limit less the identity block, which bounds what the QUEUE
+    accepts and says nothing about what Step Functions will start an execution with. A body at
+    that cap, escaped into the Pipe's record, is more than twice the state limit.
+    """
+    wrapper = len(json.dumps({"k": ""}, separators=(",", ":")).encode("utf-8")) - 2
+    body = json.dumps(
+        {"k": _filled(ESCAPE_WORST_FILL, OLD_MAX_MESSAGE_BYTES - wrapper)}, separators=(",", ":")
+    )
+    record = _serialized(_record(body))
+
+    assert len(body.encode("utf-8")) <= OLD_MAX_MESSAGE_BYTES, (
+        "the fixture is not a body the old cap admitted, so it characterises nothing"
+    )
+    assert record > cp_config.STATE_PAYLOAD_LIMIT_BYTES, (
+        "a body at the old cap now fits the record, so this characterisation has gone stale and "
+        "the reason the cap moved needs re-deriving rather than re-reading"
+    )
+    assert enqueue.MAX_MESSAGE_BYTES < OLD_MAX_MESSAGE_BYTES
+
+
+@pytest.mark.parametrize(
+    "route_id,plane,field",
+    [
+        ("dataQuality.enqueue", "data-quality", "location"),
+        ("sharedSpace.enqueue", "shared-spaces", "space"),
+    ],
+)
+def test_an_unbounded_caller_string_breached_the_failure_state(route_id, plane, field):
+    """The second and third: a caller string nothing bounded, named on a ``RecordFailure``.
+
+    Neither plane's ``validate-authorize`` checked a length, and neither field had a bound
+    anywhere, so a caller could put a quarter-megabyte string on a ``Pass`` with no ``Catch``.
+    The state breaches, ``NotifyFailure`` never runs, and a user whose request failed is told
+    nothing — which is the failure this whole arc exists to close.
+    """
+    route = next(r for r in contract.ENQUEUE_ROUTES if r.id == route_id)
+    unbounded = "u" * (256 * 1024)
+    keys = _record_failure_keys(plane)
+
+    assert field in keys, f"{plane}'s RecordFailure no longer names {field}"
+
+    literals = sum(
+        RECORD_FAILURE_ORIGINS[key][1] + len(key) + 4
+        for key in keys
+        if RECORD_FAILURE_ORIGINS[key][0] not in ("envelope", "error")
+    )
+    unbounded_state = literals - RECORD_FAILURE_ORIGINS[field][1] + len(unbounded) + 2
+
+    assert unbounded_state > cp_config.STATE_PAYLOAD_LIMIT_BYTES
+    assert bounds.bound_for(route.id, field) is not None, (
+        f"{field} has lost its bound, so the breach characterised here is live again"
+    )
+    assert bounds.over_bound(route, {**worst_case_body(route, "k"), field: unbounded}) is not None
+
+
+def test_an_accented_file_ops_selection_breached_what_its_own_cap_measured():
+    """The fourth, which the spec did not name because nobody had measured it.
+
+    file-ops' selection cap counted the selection with non-ASCII LEFT LITERAL, on the reasoning
+    that the browser sends literal UTF-8 and the Pipe keeps it literal. Both halves are true and
+    the conclusion was not: the API re-serialises the body with the default escaping one hop
+    before the Pipe. So an accented selection passed the cap at roughly a third of what it cost
+    on the wire, and its failure state was over the limit.
+    """
+    accented = [{"kind": "folder", "key": "é" * 512, "targetName": "é" * 127} for _ in range(49)]
+    literal = len(json.dumps(accented, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+    on_the_wire = _serialized(accented)
+
+    assert literal <= 64 * 1024, "the fixture no longer passes the cap as it used to be measured"
+    assert on_the_wire > 2.5 * literal, (
+        f"an accented selection costs {on_the_wire} on the wire against {literal} measured "
+        f"literally — if that ratio has collapsed, the two measurements no longer disagree and "
+        f"this characterisation is describing something that cannot happen"
+    )
+
+    body = json.dumps({"items": accented}, separators=(",", ":"))
+    failure_state = _serialized(_record(body)) + cp_config.CAUSE_RESERVATION_BYTES
+
+    assert failure_state > cp_config.STATE_PAYLOAD_LIMIT_BYTES

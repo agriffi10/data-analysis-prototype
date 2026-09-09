@@ -14,7 +14,7 @@ import type {FileSendRequest} from './fileSend.types';
  * authority; these exist so the common case fails fast and legibly.
  */
 const SEND_MAX_ITEMS = 200;
-const SEND_MAX_ITEM_BYTES = 96 * 1024;
+const SEND_MAX_ITEM_BYTES = 84 * 1024;
 
 /**
  * Enqueue a send-files request onto the file-send FIFO queue — the browser's only file-send

@@ -1,7 +1,7 @@
 # Spec: Bound the Fields Nothing Bounds, and Measure the Cap Against the Limit That Binds
 
 **ID:** SPEC-229
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-09-09
 **Depends On:** None
 
@@ -23,7 +23,12 @@ request that overflows the chain arrives before the cap that would refuse it.
 **The deeper problem is that most of the chain's inputs are unbounded, so no worst case exists to
 measure.** `requestId` is declared `str` on every enqueue request, spread onto the wire verbatim by
 `build_message`, and put straight onto the state by every validator; the only clip anywhere is
-`MAX_LOGGED_REQUEST_ID`, which bounds a log field and says so. Seven planes' `RecordFailure` name it.
+`MAX_LOGGED_REQUEST_ID`, which bounds a log field and says so. **It is bounded in one place after
+all, and this spec was wrong to say otherwise**: nine of the eleven routes make the id the SQS
+deduplication key verbatim, and `fifo._checked` refuses a derived key over 128 printable-ASCII
+characters — after `build_message`, but before the send. So no route carrying a `requestId` could
+put an over-long one on a queue. What that leaves genuinely unbounded is `archive.restore`'s
+`archiveId`, which is a prior request's id and reaches no FIFO key at all. Seven planes' `RecordFailure` name it.
 data-quality's names `location` and shared-spaces' names `space`, both caller strings bounded
 nowhere. Two of those are already live failures: a ~260 KB `location` or `space` reaches a
 `RecordFailure` that breaches 256 KiB on a `Pass` with **no `Catch`** — `States.DataLimitExceeded`,
@@ -220,8 +225,11 @@ That third term is not a rounding error and is easy to drop; without it the flee
 per-plane link four disagree by kilobytes.
 
 Under FR-003's corrected reservation the derived cap lands **below archive's and file-send's worst
-legal requests**, so those two plane caps come down with it — by roughly 1.8% and 5.3% of their item
-budgets. That is decided here rather than escalated: it is a few dozen object keys per request, the
+legal requests**, so those two plane caps come down with it. Measured on the branch, with the
+headroom below and the corrected units, that is **96 KiB to 89 KiB for archive (−7.3%) and 96 KiB
+to 84 KiB for file-send (−12.5%)** — larger than the 1.8% and 5.3% this spec first estimated,
+because those were the zero-headroom answer to a model that also counted a recipient list as one
+recipient. That is decided here rather than escalated: it is a few dozen object keys per request, the
 alternative is a reservation chosen because it was comfortable, and a cap that is too generous fails
 in the direction where a user hears nothing about a request that failed.
 
@@ -267,16 +275,18 @@ the largest identity block fits inside it, and the reservation is deliberate on 
 // The declared bound for one caller-controlled field. FR-001's table, beside the request types.
 type FieldBound = {
   routeId: string;            // one of the eleven EnqueueRoute ids
-  field: string;              // a declared string or list field on that route's request type
-  maxBytes: number;
+  path: string;               // a declared string or list field, dotted, `[]` for a list element
+  maxBytes: number | null;    // null for a verb bound, whose number lives in the plane
   enforcedAt: "api" | "verb"; // a verb bound covers link four only; link two needs the API
+  owner: string;              // where a verb bound's number lives, as module.CONSTANT
+  measured: "wire" | "value" | "items";  // WHICH question the number answers
+  budget: string;             // the sentence naming what sized it — FR-001's second criterion
 };
 
 // One route's worst case, built by the shared factory from those bounds.
 type WorstCaseRequest = {
   routeId: string;
-  body: string;               // serialized at the route's bounds, filled with the escape-worst char
-  cappedBy: string | null;    // the plane constant that bounds it, or null where none exists
+  body: string;               // serialized at the route's bounds, at each fill in the sweep
 };
 
 // The links this guard owns. Link three stays with the three plane guards.
@@ -295,7 +305,9 @@ None.
 
 ```
 lambdas/api/apicommon/bounds.py                     # NEW — FR-001's field bounds and its validator pass
-lambdas/api/apicommon/contract.py                   # the pass wired in after shape validation
+lambdas/api/router.py                               # the pass wired in after shape validation
+lambdas/api/apicommon/contract.py                   # ErrorParams already carries the limit
+apps/portal/src/lib/errorMessages.ts                # the limit rendered rather than dropped
 lambdas/api/apicommon/enqueue.py                    # MAX_MESSAGE_BYTES re-derived and re-budgeted
 lambdas/api/test_enqueue_routes.py                  # the old derivation's test rewritten
 lambdas/test_request_size_chain.py                  # NEW — links 1/2/4, the ten piped routes
