@@ -32,7 +32,7 @@ Migration record **34234219110** (`copy`, 788 keys, 0 conflicts). **`finish` was
 | Row | Result |
 |---|---|
 | Glue `LOCATION` unchanged | **Discharged (pre-`finish`).** All three real shared tables read `{space}/shared_tables/{table}`; across the **14** located tables in every database the session can see, **zero** point at `system_settings/`, `athenaresults/` or `archive/`. Zero catalog writes: the migration builds no Glue client at all. Owed: the same read after `finish`. |
-| Archive ids | **Partly discharged** — see the archive section below. |
+| Archive ids | **Discharged** — the restore completed later the same day; see the archive section and its completion below. |
 | First-segment rules | **Discharged.** `system_settings/athenaresults/…` refused, ordinary folder ran. |
 | Query results at the new home | **Discharged.** |
 | Attribute preservation | **Discharged for what the population carries**, three columns vacuous — see below. |
@@ -128,29 +128,95 @@ target the same receipt key `agriffith/system_settings/archive/f0465c23-…/rece
 
 The vault root is unchanged at `personal/agriffith/archive/{uuid}/` — fact 2 did not move.
 
-**The receipt at the new key has already been REWRITTEN once by the plane** — it carries
-`Restore requested: 2026-09-09 11:15:04 UTC` (the second submission's timestamp) with
-`Restored to: -` still empty. So the write path to the new home is proven; what is owed is only the
-final `Restored to` fill on completion. Both executions were in `WaitForRetrieval` when this entry
-was written.
+**The receipt at the new key was rewritten THREE times, and the last one closes the row.** Each run's
+`MarkRestoreRequested` wrote it in submission order — 11:14:45 for the winner, 11:15:06 for the
+loser — and then the winner's completion `UpdateReceipt` wrote it again at 14:25:18. Mid-flight it
+carried `Restore requested: 2026-09-09 11:15:04 UTC` — the **second**
+submission's timestamp — with `Restored to: -` empty. On completion it reads:
+
+```
+Restore requested: 2026-09-09 11:14:39 UTC
+Restored to:       s3://dat-prod-user-space/agriffith/
+```
+
+Two things there. `Restored to` is **filled**, at
+`agriffith/system_settings/archive/{uuid}/receipt.txt` — the completion rewrite at the new key,
+which is the last piece FR-004's archive row was waiting on. And **`Restore requested` CHANGED**:
+the winner had written its own timestamp first, the LOSER overwrote it, and the winner's completion
+put it back. A reader who captured that field while both runs were in flight recorded the losing
+run's time with no way to know.
+
+The `restore-progress.json` key is request-stable, so each submission wrote its own: the **winner's**
+`restore-progress.json` ended at `pollCount: 38`, `completedThrough: 2/2` (the loser's stopped at 37
+and 0). The fixture is back
+at `agriffith/spec220_archive_fixture/header-only.csv` at its original 10 bytes — matching the
+restore plan's `destKey` exactly.
+
+**The two submissions ended differently, and the loser is useful.** `a764630d-…` (the first)
+**SUCCEEDED**; `f53a9960-…` (the second) **FAILED** after `PollRestore`, running
+`RequestFailureSeed` → `RecordFailure` → `NotifyFailure` → `Failed` with `ArchiveFailed` — because
+the winner's `DeleteArchived` had already emptied the vault, so `PollRestore` 404'd on the key it was
+tracking. Worth naming: without it a later reader cannot tell a concurrency artefact from a
+reproducible verb failure. That is a
+real **archive-plane post-identity failure**, which is exactly the shape SPEC-227 FR-002's half (a)
+asks for — arrived at without needing the deliberate occupied-destination run that row proposes.
+**And it settles half (a) — the read is recorded here rather than left as an instruction.** In
+`logs/service=archive/year=2026/month=09/day=09/`, that run's `notify-failure` records sit on trace
+`4176296ab3e0910e5adcf75520db8f87` with `parent_span_id` `6a790f3dafd1a9fb` — the **same trace and
+the same parent** as its own `validate-authorize` records — logging *"suppressed a duplicate of the
+verb's own failure notification"*, reason `archive_object_unreadable`. Every one of the run's records
+carries that single trace.
+
+**It is not a lucky stand-in for the run the row proposed.** The deployed archive ASL routes 20 of
+its 24 `Catch` transitions to the same `RequestFailureSeed`, `CheckDestinationClear`'s among them —
+so the deliberate occupied-destination restore would have entered the identical state. That makes
+the discharge a proof rather than a judgement call.
+
+### Closed later the same day, after two PRs landed
+
+**The table-builder timeout defect, fixed and confirmed live.** The gap this session found — a
+plane with a state-machine ceiling and no EventBridge door — was closed in two PRs (the deploy-role
+grant first, on the register's rule, then the rule and the handler's detail-type door). Re-measured
+against the account afterwards: the rule is **ENABLED**, `TIMED_OUT` only, no `FAILED`, scoped to
+its own machine and targeting `dat-prod-table-builder-notify-failure`, and **all six orchestrators
+with a `TimeoutSeconds` now carry one** while the two without a ceiling correctly carry none.
+
+**Three things the landing itself taught, none of which a test would have said.**
+
+The `Deploy Infrastructure` failure on the first push read `checkov-plan.json missing` — three
+steps downstream of the truth. The real failure was `Assert the planned Lambda fleet`, which skipped
+the Checkov steps; `Summarize` then ran under `if: always()` and failed on the absent file. **Read
+the first failing STEP, not the last error line.**
+
+That fixture caught a change a review had called a nit: a `notify-failure` timeout raised 15 s → 60 s
+"for consistency" with the five sibling doors. It was reverted rather than declared, because the reason the
+siblings sit at 60 does not transfer — three of them read the execution input back with
+`DescribeExecution` **when EventBridge drops an oversized one** — a conditional AWS call with its own
+retries — which this door skips by design. **"The siblings do it" is not a measurement.**
+
+And `git diff origin/main` showed **788 deletions** including two of a peer's new spec files, purely
+because `main` had moved under the branch. The three-dot diff showed the real change: 10 files, 7
+deletions — and the merged commit is 9 files and 6, the difference being the revert above. **A two-dot diff against a moving branch reads a peer's additions as your deletions.**
 
 ### Owed rows discharged alongside, none of them SPEC-220's
 
-**SPEC-225 FR-005 — a real run's records carry ONE `trace_id`, in production.** Today's
-`logs/service=archive/` holds **207 records**, of which **193 carry one of 3 request ids** — all
-three driven by this session (one archive, two restores). The other **14** carry no request id and
-are the deploy-time cold-start probe, 2 per `Deploy Lambdas` run:
+**SPEC-225 FR-005 — a real run's records carry ONE `trace_id`, in production.** Three runs driven
+from the portal — one archive, two restores — read out of
+`logs/service=archive/year=2026/month=09/day=09/`:
 
-| Run | requestId | records | trace_id |
+| Run | requestId | trace_id | records (final) |
 |---|---|---|---|
-| archive | `f0465c23-…` | 33 | `563c95688e4f0d0a68c4e248f79075ca` |
-| restore #1 | `589e1b90-…` | 80 | `084afa307f1c5931a58f39330ad114ca` |
-| restore #2 | `7728c043-…` | 80 | `4176296ab3e0910e5adcf75520db8f87` |
+| archive | `f0465c23-…` | `563c95688e4f0d0a68c4e248f79075ca` | 33 |
+| restore #1 — succeeded | `589e1b90-…` | `084afa307f1c5931a58f39330ad114ca` | 159 |
+| restore #2 — failed | `7728c043-…` | `4176296ab3e0910e5adcf75520db8f87` | 139 |
+
+These per-run counts are **final** — each run has ended, so they no longer move, and they are the
+cheapest way for a later reader to confirm they are looking at the same population. What does keep
+growing is the DAY's object, which is why nothing below is stated as a day-scoped total.
 
 **Zero** request ids carry more than one `trace_id`. **Three runs, three different trace ids** —
 which is the warm-container half: the two restores ran 25 s apart, so the containers were certainly
-warm, and neither stayed in the first run's trace. Of the **66** `span.start` records outside the
-API across the three runs, **zero** carry a null `parent_span_id` — and the scope is load-bearing: the day's log holds **73** `span.start`, the other 7 being the cold-start probe, every one of which has a **null** parent. The archive run's trace id is the
+warm, and neither stayed in the first run's trace. **Every `span.start` belonging to those three runs carries a non-null `parent_span_id`; every record carrying NO request id is a deploy-time cold-start probe, and every one of those has a null parent.** That split is the load-bearing part, and stating it as two POPULATIONS rather than as a pair of counts is deliberate — an earlier draft of this entry pinned 66 and 73, which the restores had already outgrown before the entry was written, and which every deploy since has grown further. The archive run's trace id is the
 one in its own SQS `traceparent`, so it was minted at the API and propagated in. **The file-send half
 holds too** — three runs driven below, each one trace, zero null parents, the largest 65 records
 across 8 Distributed-Map children — so the row is settled on both planes the recipe names.
@@ -179,7 +245,9 @@ id and a non-null parent span.
 `totalBytes: 10`, and the receipt reads `Files archived: 2`. Both `destKey`s are the original paths
 (`agriffith/spec220_archive_fixture/` and `…/header-only.csv`).
 
-**The `TIMED_OUT` door — the pattern half, and it found a hole.** Production runs **eight**
+**The `TIMED_OUT` door — the pattern half, and it found a hole.** **Superseded later the same day:
+the hole is closed and all six planes with a ceiling now carry a rule — see "Closed later the same
+day" above. What follows is the state as measured at the time.** Production runs **eight**
 orchestrators. Five — `archive`, `file-ops`, `file-send`, `results-conversion`, `table-share` —
 each carry an `…-orchestrator-timed-out` rule, all **ENABLED**, all with `detail.status` exactly
 `["TIMED_OUT"]`, **no `FAILED` anywhere in the pattern**, each scoped to its own
@@ -254,9 +322,10 @@ notify"*. That is the shape the register attributes to **pre**-identity failures
 user-visible defect** — the refusal notification was written 1 s earlier by the notifications
 `write` verb on its own trace `1c485086…` (0.9 s before `notify-failure` ran), so the lost `notify-failure` notification is not user-visible **here**. Note the two facts are independent: `notify-failure` skipped because the seed handed it no actor, **not** because it detected an existing notification — had the seed carried one it would have sent a second. It is
 recorded because SPEC-227's row is about **archive**, and if archive does the same the register's
-"pre-identity" wording is too narrow. A cheap archive instance exists and is not yet run: a restore
-whose destination is already occupied fails at `CheckDestinationClear`, which runs **before**
-`RetrieveObjects`, so it costs no Glacier retrieval.
+"pre-identity" wording is too narrow. **Superseded later the same day — half (a) is discharged; see the restore-completion section
+above.** What this paragraph proposed (a restore into an occupied destination, failing at
+`CheckDestinationClear` before any billable retrieval) was never needed: the losing restore supplied
+the same state through the same seed.
 
 **Left behind in agriffith's space:** `query-results-20260909-0718.csv` (the evidence for the save
 row) and archive `f0465c23-…` with its receipt folder; the restore will put
