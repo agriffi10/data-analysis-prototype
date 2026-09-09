@@ -669,7 +669,7 @@ def _manifest_key(report_prefix: str) -> str:
     return f"{report_prefix.rstrip('/')}/{MANIFEST_BASENAME}"
 
 
-@observability.step("write-manifest")
+@observability.step("write-inspection-manifest")
 def _write_manifest(bucket: str, key: str, manifest: dict) -> None:
     """Writes the manifest canonically and compactly.
 
@@ -678,6 +678,10 @@ def _write_manifest(bucket: str, key: str, manifest: dict) -> None:
     canonical rather than dependent on how the dict happened to be built — defence against a
     future edit, not what makes a replay byte-identical, which follows from the manifest being a
     pure function of the request and the listing.
+
+    The span is not named after this function. `write-manifest` is a whole verb elsewhere in the
+    fleet and `function` carries a verb's root span and a step alike, so the two would arrive as
+    one field an operator cannot separate: an invocation's total duration mixed with this write's.
 
     Args:
       bucket: The reports bucket.
