@@ -36,7 +36,7 @@
     },
     "Validated": {
       "Type": "Pass",
-      "Comment": "THE ASL/VERB CROSS-CHECK POINT. A Task hands its output on whole, so nothing in a Task-to-Task chain would notice validate-authorize renaming a field — while a Pass naming each key fails the build via test_state_machine_archive.py, which reads this block and the verb's real return value and requires them to agree. It emits exactly the five keys the verb returns, and it carries NO status literal: a placeholder marker that outlives its placeholder is how a field nothing reads survives into production.",
+      "Comment": "THE ASL/VERB CROSS-CHECK POINT. A Task hands its output on whole, so nothing in a Task-to-Task chain would notice validate-authorize renaming a field — while a Pass naming each key does. What holds it is test_a_field_naming_state_reads_exactly_what_its_verb_returns, which DRIVES validate-authorize and requires this block's reads and the verb's real return to be equal in both directions — a key the verb stops returning is an uncatchable States.Runtime, and a key it starts returning that this block drops is silent. (The comment here used to name test_state_machine_archive.py, which holds seven tests and none of them this one.) It carries NO status literal: a placeholder marker that outlives its placeholder is how a field nothing reads survives into production.",
       "Parameters": {
         "traceparent.$": "$.traceparent",
         "requestId.$": "$.requestId",
@@ -464,7 +464,7 @@
     },
     "ArchiveComplete": {
       "Type": "Pass",
-      "Comment": "The whole-request success terminal, and the ASL/verb cross-check for write-receipt — the same job Validated does for the validator: a Task hands its output on whole, so nothing in a Task-to-Task chain would notice a renamed field, while a Pass naming each key fails the build via test_state_machine_archive.py. Everything the run no longer needs — the plan key, the transfer block, the Map Run pointer, the selection — is dropped here rather than carried into the execution output. The notification producer reads this shape; this machine deliberately emits none itself.",
+      "Comment": "The whole-request success terminal. Its producing verb is write-receipt, NOT the archive-notify Task immediately before it: NotifyArchived carries an explicit ResultPath of null, so it discards its own result and this state reads what write-receipt left. That is why the fleet sweep walks back THROUGH a discarding Task rather than stopping at the nearest one. This pair is the one thing the sweep cannot drive, and the exclusion is recorded rather than left silent: write-receipt returns {**event, ...}, so its key set is its input's, and archive's chain crosses a Distributed Map whose result no drive can produce without hand-shaping the state under test. What does hold this block is the success-path threading sweep, which requires every field-naming state to name the traceparent. (The comment here used to claim test_state_machine_archive.py read this block against the verb's real return; it never did.) Everything the run no longer needs — the plan key, the transfer block, the Map Run pointer, the selection — is dropped here rather than carried into the execution output. The notification producer reads this shape; this machine deliberately emits none itself.",
       "Parameters": {
         "requestId.$": "$.requestId",
         "actor.$": "$.actor.username",

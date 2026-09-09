@@ -565,10 +565,17 @@ def test_every_plane_hands_its_run_a_trace_to_join():
     so a plane whose validator drops it loses the whole run, and the loss is invisible — the run
     still succeeds, it just lands in eight traces instead of one.
 
-    A source read rather than eight driven handlers: driving them needs eight bespoke request
-    fixtures and eight fake installations that do not exist in this tree, and the point here is
-    the POPULATION — that no plane is missing — rather than the value, which each plane's own
-    suite asserts against its driven handler.
+    A source read rather than eight driven handlers, and the reason is the POPULATION: what this
+    asks is that no plane is MISSING, which a sweep over the tree can answer and a set of driven
+    handlers cannot. The value each validator actually returns is asserted by driving it — in each
+    plane's own suite, and for three of them again in
+    test_a_field_naming_state_reads_exactly_what_its_verb_returns, which holds the return against
+    the state that reads it.
+
+    This used to say the fixtures for driving them "do not exist in this tree", in the same breath
+    as saying each plane's own suite drives its handler. Both could not be true, and it was the
+    first half that was wrong: every one of these verbs already had a green success-return call
+    beside it.
     """
     modules = _validator_modules()
     planes = {p.parent.name for p in modules}

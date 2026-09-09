@@ -1,0 +1,703 @@
+"""One cross-check, over every plane, holding a field-naming state to its verb's real return.
+
+THE GAP THIS FILLS. A Task hands its output on whole, so nothing in a Task-to-Task chain notices a
+verb renaming a field. A `Pass` that names each key does notice — but only in one direction, and
+only where somebody wrote the check. Three planes had one; five had none, and archive's machine
+said in its own comments that it did.
+
+DIRECTION IS THE POINT. `reads ⊆ returns` catches a state reading a key its verb does not return,
+which is a `States.Runtime` at execution and therefore loud. It cannot catch a verb returning a key
+the state DROPS, which is silent — and that is exactly how the run's traceparent went missing.
+
+BARE SET EQUALITY IS STILL TOO STRONG. A state may drop a key deliberately — `table-share`'s Map
+children shape a per-recipient outcome and drop the request block whole. So the form is
+`reads == returns - declared_drops`, with the drop set pinned PER PAIR, which turns a dropped key
+from a silent event into a written decision and reddens on a key added to a verb's return as well as
+on one removed. No checked pair may drop `traceparent`; that is refused rather than merely unused.
+
+AND DRIVING A VERB ONLY ANSWERS THE QUESTION FOR SOME VERBS. This is the discriminator that decides
+what this file covers, and it is about evidence rather than cost. A verb returning `{**event, …}`
+INHERITS its key set from its input, so driving it with a hand-built mid-chain state compares that
+fixture with itself and would agree with any state at all. Eleven pairs exist; SEVEN have a verb
+that builds its own return, rooted at the plane's real API envelope or the plane's own Map-item
+fixture, and those are checked here. The other FOUR are recorded in `_ECHOING` with the reason,
+because for three of them a faithful drive is not merely expensive but impossible: a Distributed Map
+sits in the chain and the state after it is built from a Map Run export no drive can produce without
+hand-shaping the very thing under test.
+
+What still covers the four: the success-path sweep in `test_state_machines_cpcommon.py` pins that
+each names the traceparent, and the two collectors' exclusion sets are pinned verb-side in
+`test_one_run_one_trace.py`.
+
+Runnable under pytest or directly: python3 test_state_reads_match_verb_returns.py.
+"""
+
+import json
+import os
+import pathlib
+import sys
+
+_HERE = pathlib.Path(__file__).resolve().parent
+_LAMBDAS = _HERE.parent
+for _dir in (
+    "control-plane-common",
+    "archive-common",
+    "file-send-common",
+    "table-share-common",
+    "results-conversion-common",
+    "archive-validate-authorize",
+    "archive-write-receipt",
+    "data-quality-drop-temp-tables",
+    "data-quality-common",
+    "file-send-validate-authorize",
+    "file-send-collect-transfer-results",
+    "results-conversion-validate-authorize",
+    "results-conversion-describe-results",
+    "results-conversion-convert",
+    "table-share-collect-transfer-results",
+    "table-share-check-target-absent",
+    "table-share-create-table",
+):
+    sys.path.insert(0, str(_LAMBDAS / _dir))
+
+import pytest
+import test_state_machines_cpcommon as machines
+from cpcommon import clients
+from token_shapes import JWT_SHAPED
+
+#: Every replacing `Pass` the walk-back rule pairs with exactly one producing Task, across the
+#: fleet. Derived by `_pairs` and pinned here as a MEMBERSHIP, because a rule that widened in one
+#: place and narrowed in another keeps the count and changes the answer.
+#:
+#: This is the whole population. `_CHECKED` and `_ECHOING` partition it, and that partition is
+#: asserted, so a pair cannot fall out of both.
+_PAIRS = {
+    ("archive", "Validated"): "ValidateAuthorize",
+    ("archive", "ArchiveComplete"): "WriteReceipt",
+    ("data-quality", "RecordSuccess"): "DropTempTables",
+    ("file-send", "Validated"): "ValidateAuthorize",
+    ("file-send", "ShapeSummary"): "CollectTransferResults",
+    ("results-conversion", "Validated"): "ValidateAuthorize",
+    ("results-conversion", "Described"): "DescribeResults",
+    ("results-conversion", "Converted"): "Convert",
+    ("table-share", "ShapeSummary"): "CollectTransferResults",
+    ("table-share", "GuardRecipients/RecipientCleared"): "CheckTargetAbsent",
+    ("table-share", "FinishRecipients/RecipientSucceeded"): "CreateTable",
+}
+
+#: The pairs whose verb DECIDES its own return, with the keys the state may drop.
+#:
+#: The discriminator is not cost — it is whether the answer is independent of the fixture. A verb
+#: returning `{**event, …}` inherits its key set from its input, so driving it with a hand-built
+#: mid-chain state compares that fixture with itself and would agree with any state at all. These
+#: seven are rooted at the plane's real API envelope (or, for the two Map children, the plane's own
+#: item fixture) and the verb builds the dict, so the key set is the verb's decision.
+_CHECKED = {
+    ("archive", "Validated"): frozenset(),
+    ("file-send", "Validated"): frozenset(),
+    ("results-conversion", "Validated"): frozenset(),
+    ("results-conversion", "Described"): frozenset(),
+    ("results-conversion", "Converted"): frozenset(),
+    ("table-share", "GuardRecipients/RecipientCleared"): frozenset({"request"}),
+    ("table-share", "FinishRecipients/RecipientSucceeded"): frozenset({"request"}),
+}
+
+#: The four pairs excluded from the DRIVEN check, each with the reason — recorded rather than
+#: silently skipped, which is the difference between a known limit and a false claim.
+#:
+#: All four producers echo their input (`{**event, …}`, or the two collectors' filtered form), so
+#: the comparison would only be meaningful driven from the plane's envelope through its whole real
+#: chain. For archive and both collectors that is not merely expensive, it is impossible without
+#: hand-shaping: a Distributed Map sits in the middle and the state after it is built from a Map
+#: Run export that no drive can produce. `data-quality/RecordSuccess` is the same shape one verb
+#: earlier.
+#:
+#: What still covers them: the success-path sweep pins that each names the traceparent, and the
+#: two collectors' exclusion sets are pinned verb-side in `test_one_run_one_trace.py`.
+_ECHOING = {
+    ("archive", "ArchiveComplete"):
+        "write-receipt returns {**event, …}, and archive's chain crosses a Distributed Map whose "
+        "result no drive can produce without hand-shaping the very state under test",
+    ("data-quality", "RecordSuccess"):
+        "drop-temp-tables returns the event plus `cleanup`, so its key set is its input's",
+    ("file-send", "ShapeSummary"):
+        "the collector filters and re-emits its event, and it reads a Map Run export",
+    ("table-share", "ShapeSummary"):
+        "the collector filters and re-emits its event, and it reads a Map Run export",
+}
+
+#: The planes with nothing to check, and WHY — named so the sweep reports them rather than passing
+#: silently over a third of the fleet, which is how a population claim rots.
+_NOTHING_TO_CHECK = {
+    "file-ops": "no success-path replacing Pass at all: the tail is Task-to-Task to Succeeded",
+    "shared-spaces": "no success-path replacing Pass at all",
+    "table-builder": "RecordSuccess has three possible producers, because ReleaseRefreshLock "
+                     "merges under $.released and the walk passes through it",
+}
+
+
+def _inbound(name, states):
+    """Every edge landing on `name`, as (source, kind, the catch's ResultPath or None).
+
+    Args:
+      name: The target state's name.
+      states: Its container's states.
+
+    Returns:
+      One triple per edge.
+
+    Raises:
+      None.
+    """
+    edges = []
+    for source, state in states.items():
+        for target in (state.get("Next"), state.get("Default")):
+            if target == name:
+                edges.append((source, "flow", None))
+        for choice in state.get("Choices") or []:
+            if choice.get("Next") == name:
+                edges.append((source, "flow", None))
+        for catch in state.get("Catch") or []:
+            if catch.get("Next") == name:
+                edges.append((source, "catch", catch.get("ResultPath", "<absent>")))
+    return edges
+
+
+def _producers(target, states, seen=None):
+    """Every distinct origin of the top-level object a state reads.
+
+    THREE EDGE SEMANTICS decide this, and getting any of them wrong picks the wrong verb:
+
+    * A `Next`/`Default`/`Choices` edge carries the SOURCE'S OUTPUT.
+    * A `Catch` edge carries the failing Task's INPUT plus the error — never its result — so the
+      walk continues past it rather than stopping on the Task that raised.
+    * A state REPLACES the state only when it carries no `ResultPath` key at all. A non-null one
+      merges and a `null` one discards, and both leave the incoming object intact, so the walk
+      passes through them.
+
+    That last distinction is why every test here reads ``"ResultPath" in state``: an ABSENT
+    ResultPath and an explicit ``null`` both parse as None, and only membership tells them apart.
+
+    Args:
+      target: The state to walk back from.
+      states: Its container's states.
+      seen: Names already visited, for cycles.
+
+    Returns:
+      The set of producing state names, with a sentinel for any origin that is not a Task.
+
+    Raises:
+      None.
+    """
+    seen = (seen or set()) | {target}
+    found = set()
+    for source, kind, catch_path in _inbound(target, states):
+        if source in seen:
+            continue
+        state = states[source]
+        if kind == "catch":
+            if catch_path == "<absent>":
+                found.add(f"!error-replaced-at-{source}")
+            else:
+                found |= _producers(source, states, seen)
+        elif "ResultPath" in state:
+            found |= _producers(source, states, seen)
+        elif state.get("Type") == "Task":
+            found.add(source)
+        elif state.get("Type") == "Choice":
+            found |= _producers(source, states, seen)
+        else:
+            found.add(f"!{state.get('Type')}-replaced-at-{source}")
+    return found
+
+
+def _pairs():
+    """Every (plane, state) -> producing Task the rule selects, and every state it excludes.
+
+    A pair is usable only where EVERY inbound path converges on exactly one replacing Task, so the
+    `Pass` provably reads that verb's return and nothing else.
+
+    Args:
+      None.
+
+    Returns:
+      A (usable, excluded) pair of dicts, both keyed by (plane, qualified state name).
+
+    Raises:
+      None.
+    """
+    usable, excluded = {}, {}
+    for path in machines._TEMPLATES:
+        plane = os.path.basename(os.path.dirname(path))
+        asl = machines._load(path)
+        seeds = {name for _p, name in machines._failure_seed_population()
+                 if _p == plane}
+        for label, start, states in machines._containers(asl):
+            for name, state in states.items():
+                if state.get("Type") != "Pass" or not isinstance(state.get("Parameters"), dict):
+                    continue
+                if "ResultPath" in state:
+                    continue
+                qualified = f"{label}/{name}".lstrip("/")
+                if qualified in seeds:
+                    continue
+                producers = {"!start"} if name == start else _producers(name, states)
+                only = next(iter(producers)) if len(producers) == 1 else None
+                if only and states.get(only, {}).get("Type") == "Task":
+                    usable[(plane, qualified)] = only
+                else:
+                    excluded[(plane, qualified)] = sorted(producers)
+    return usable, excluded
+
+
+def test_the_sweep_derives_the_pairs_it_checks_and_reports_the_planes_with_none():
+    """The population is DERIVED, then pinned — and the empty planes are named, not skipped.
+
+    Naming them is the point of the criterion: a sweep that "covered every plane" while silently
+    finding nothing on three of them is how a population claim rots into a false one.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the derived pairs, or the empty planes, move.
+    """
+    usable, excluded = _pairs()
+
+    assert usable, "the sweep selected no pair at all, so every check below is vacuous"
+    assert usable == _PAIRS, (
+        f"unexpected: {sorted(set(usable) - set(_PAIRS))}; "
+        f"missing: {sorted(set(_PAIRS) - set(usable))}"
+    )
+
+    checked = {plane for plane, _state in usable}
+    assert checked | set(_NOTHING_TO_CHECK) == machines._EXPECTED_ARCS, (
+        "a plane is neither checked nor recorded as having nothing to check"
+    )
+    assert not checked & set(_NOTHING_TO_CHECK), (
+        f"{sorted(checked & set(_NOTHING_TO_CHECK))} are recorded as having nothing to check and "
+        "the sweep found a pair on them"
+    )
+    for plane in _NOTHING_TO_CHECK:
+        assert not any(p == plane for p, _s in usable), plane
+        assert any(p == plane for p, _s in excluded) or plane in ("file-ops", "shared-spaces"), (
+            f"{plane} is recorded as excluded-by-rule but the sweep found nothing to exclude"
+        )
+
+
+def test_every_derived_pair_is_either_checked_or_recorded_as_echoing():
+    """No pair may be silently absent from both, which is the only way this sweep can lie.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a pair belongs to neither set, or to both.
+    """
+    assert set(_CHECKED) | set(_ECHOING) == set(_PAIRS), (
+        f"in neither: {sorted(set(_PAIRS) - set(_CHECKED) - set(_ECHOING))}; "
+        f"invented: {sorted((set(_CHECKED) | set(_ECHOING)) - set(_PAIRS))}"
+    )
+    assert not set(_CHECKED) & set(_ECHOING)
+
+
+#: How a plane's ASL state name maps to the lambda directory holding its verb. Derived from the
+#: template's own `"FunctionName": "${…_function_arn}"` placeholder, with one irregular pair the
+#: convention does not cover.
+_IRREGULAR = {("shared-spaces", "acknowledge"): "shared-space-acknowledge-membership"}
+
+
+def _verb_source(plane, task):
+    """The source text of the Lambda a Task invokes.
+
+    Args:
+      plane: The plane's name.
+      task: The ASL state name of the Task.
+
+    Returns:
+      The concatenated source of the verb's non-test modules.
+
+    Raises:
+      AssertionError: If the placeholder does not resolve to a directory, which means a rename has
+        silently shrunk whatever population is built on this.
+    """
+    import re
+
+    path = next(p for p in machines._TEMPLATES
+                if os.path.basename(os.path.dirname(p)) == plane)
+    raw = pathlib.Path(path).read_text(encoding="utf-8")
+    pattern = '"' + re.escape(task) + r'": \{.*?"FunctionName": "\$\{(\w+)\}"'
+    match = re.search(pattern, raw, re.DOTALL)
+    assert match, f"{plane}:{task} names no FunctionName placeholder"
+    verb = match.group(1).removesuffix("_function_arn").replace("_", "-")
+    candidates = [
+        _IRREGULAR.get((plane, match.group(1).removesuffix("_function_arn"))),
+        f"{plane}-{verb}",
+        f"{plane.rstrip('s')}-{verb}",
+    ]
+    directory = next((c for c in candidates if c and (_LAMBDAS / c).is_dir()), None)
+    assert directory, f"{plane}:{task} resolves to none of {candidates}"
+    return "".join(
+        f.read_text(encoding="utf-8")
+        for f in sorted((_LAMBDAS / directory).glob("*.py"))
+        if not f.name.startswith("test_")
+    )
+
+
+def test_a_pair_recorded_as_echoing_really_does_echo():
+    """The exclusion list is the escape hatch, so it is the thing most worth checking.
+
+    Without this, a pair whose check started failing could be silenced by moving it into
+    `_ECHOING` with a plausible sentence, and the sweep would keep reporting full coverage. The
+    reason those four are excluded is a property of their SOURCE — the return spreads the event —
+    so it is read off the source rather than taken on trust.
+
+    Asserted in both directions, because a rule that only checked the exclusions would be
+    satisfied by a file that excluded everything.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If an excluded verb builds its own return, or a checked one echoes.
+    """
+    def echoes(text):
+        return "**event" in text or "dict(event)" in text or "event.items()" in text
+
+    for (plane, state), _reason in sorted(_ECHOING.items()):
+        assert echoes(_verb_source(plane, _PAIRS[(plane, state)])), (
+            f"{plane}:{state} is recorded as echoing its event, and {_PAIRS[(plane, state)]} does "
+            "not — so it builds its own return and belongs in the driven check"
+        )
+
+    for plane, state in sorted(_CHECKED):
+        assert not echoes(_verb_source(plane, _PAIRS[(plane, state)])), (
+            f"{plane}:{state}'s verb now echoes its event, so the driven comparison is against "
+            "this file's own fixture and proves nothing — move it to _ECHOING with the reason"
+        )
+
+
+def test_no_checked_pair_is_allowed_to_drop_the_traceparent():
+    """A drop set is a licence to lose a key silently, and this is the key the arc is about.
+
+    None of the seven driven pairs may hold that licence: every one of them is a state whose output
+    a later state reads. The permission exists in the shape of the check — a drop set is per pair —
+    so it is refused here rather than merely unused, which is the difference between a rule and an
+    accident.
+
+    The four ECHOING pairs are not covered by this file at all, so their traceparent is checked
+    where it can be: `_THREADING_STATES` in the success-path sweep pins that each of them names the
+    key, and this asserts that pairing rather than assuming it.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a checked pair may drop the trace, or an echoing one is unpinned elsewhere.
+    """
+    dropping = {key for key, drops in _CHECKED.items() if "traceparent" in drops}
+    assert not dropping, (
+        f"{sorted(dropping)} are held to their verb's return AND allowed to drop the run's trace, "
+        "so the trace stops there with this file's blessing"
+    )
+
+    threaded = machines._THREADING_STATES
+    terminal = {
+        key for key in _ECHOING
+        if key not in threaded
+    }
+    for plane, state in sorted(terminal):
+        path = next(p for p in machines._TEMPLATES
+                    if os.path.basename(os.path.dirname(p)) == plane)
+        states = machines._load(path)["States"]
+        following = states[state].get("Next") if state in states else None
+        assert following and states.get(following, {}).get("Type") == "Succeed", (
+            f"{plane}:{state} is neither driven here nor threaded by the success-path sweep, and "
+            "it is not a success terminal either — so nothing checks that it carries the run's "
+            "trace, and nothing has decided it may drop it"
+        )
+
+
+_IDENTITY = {"actor": "alice", "delegated_by": None, "assurance": "interactive"}
+_UUID = "9f2c1b8e-4c1a-4b2f-8d3e-1a2b3c4d5e6f"
+
+
+def _drive_archive_validated(monkeypatch):
+    """archive validate-authorize, whose return `Validated` reads whole."""
+    import archive_validate_authorize as verb
+
+    monkeypatch.setattr(verb.authz.reg, "load", lambda name: None)
+    monkeypatch.setattr(verb.notify, "emit_notification", lambda *a, **kw: None, raising=False)
+    return verb.handler([{"messageId": "m-1", "body": json.dumps({
+        "requestId": _UUID, "mode": "archive", "actor": JWT_SHAPED,
+        "source": {"space": {"kind": "personal", "name": "alice"},
+                   "items": [{"kind": "file", "key": "alice/q1.csv"}]},
+        "identity": _IDENTITY,
+    })}], None)
+
+
+def _drive_file_send_validated(monkeypatch):
+    """file-send validate-authorize."""
+    import file_send_validate_authorize as verb
+
+    monkeypatch.setattr(verb.reg, "load", lambda name: None)
+    monkeypatch.setattr(verb.cognito, "user_exists", lambda name: True)
+    return verb.handler([{"body": json.dumps({
+        "requestId": "req-1",
+        "source": {"space": {"kind": "personal", "name": "alice"},
+                   "items": [{"kind": "file", "key": "alice/q1.csv"}]},
+        "recipients": [{"kind": "user", "name": "bob"}],
+        "identity": _IDENTITY,
+    })}], None)
+
+
+def _drive_results_conversion(which, monkeypatch):
+    """The three results-conversion verbs, driven through the plane's OWN fixtures.
+
+    Imported rather than copied. These need an Athena fake that answers `get_query_execution` and
+    `get_query_results`, an S3 fake with `head_object`/`download_fileobj`/`put_object`, and a
+    scratch root — forty-odd lines that already exist beside the verbs. A second copy here would be
+    a second thing to keep true, and the copy that drifts is the one nobody is looking at.
+
+    Args:
+      which: "validate", "describe" or "convert".
+      monkeypatch: pytest's patcher.
+
+    Returns:
+      The verb's success return.
+
+    Raises:
+      None.
+    """
+    import pathlib as _pathlib
+    import tempfile
+
+    import rc_convert as convert
+    import rc_describe_results as describe
+    import rc_validate_authorize as validate
+    import test_state_machine_results_conversion as plane
+
+    monkeypatch.setattr(clients, "_athena", plane._Athena(), raising=False)
+    monkeypatch.setattr(clients, "_s3", plane._S3(), raising=False)
+    for module in (validate, describe, convert):
+        monkeypatch.setattr(module.notify, "emit_notification", lambda *a, **kw: None,
+                            raising=False)
+    monkeypatch.setattr(convert, "SCRATCH_ROOT", _pathlib.Path(tempfile.mkdtemp()))
+
+    validated = validate.handler(plane._event(), None)
+    if which == "validate":
+        return validated
+    described = describe.handler(validated, None)
+    if which == "describe":
+        return described
+    return convert.handler(described, None)
+
+
+def _drive_table_share(which, monkeypatch):
+    """table-share's three verbs, through their own suites' fixtures.
+
+    Args:
+      which: "check" or "create".
+      monkeypatch: pytest's patcher.
+
+    Returns:
+      The verb's success return.
+
+    Raises:
+      None.
+    """
+    if which == "check":
+        import table_share_check_target_absent as verb
+        import test_table_share_check_target_absent as plane
+
+        monkeypatch.setattr(verb.glue_mod, "table_exists", lambda db, t: False)
+        monkeypatch.setattr(clients, "_s3", plane._FakeS3(0), raising=False)
+        return verb.handler(plane._event(), None)
+    import table_share_create_table as verb
+    import test_table_share_create_table as plane
+
+    monkeypatch.setattr(verb.athena_mod, "run_ddl", lambda **kw: "qid-1", raising=False)
+    return verb.handler(plane._event(), None)
+
+
+#: How each pinned pair's producing verb is driven to a SUCCESS return. Keyed identically to
+#: `_PAIRS`, and the two are held equal below, so a pair added without a drive is a red run rather
+#: than a silently unchecked plane.
+_DRIVES = {
+    ("archive", "Validated"): _drive_archive_validated,
+    ("file-send", "Validated"): _drive_file_send_validated,
+    ("results-conversion", "Validated"): lambda mp: _drive_results_conversion("validate", mp),
+    ("results-conversion", "Described"): lambda mp: _drive_results_conversion("describe", mp),
+    ("results-conversion", "Converted"): lambda mp: _drive_results_conversion("convert", mp),
+    ("table-share", "GuardRecipients/RecipientCleared"): lambda mp: _drive_table_share("check", mp),
+    ("table-share", "FinishRecipients/RecipientSucceeded"): lambda mp: _drive_table_share("create", mp),
+}
+
+
+def _full_paths(block):
+    """Every `$.a.b` reference path a Parameters block reads, at any nesting depth.
+
+    `machines._read_keys` yields FIRST SEGMENTS, which is what the set equality below compares.
+    This yields the whole path, because a state can read `$.recipient.kind` off a verb that
+    returns `recipient` without any `kind` in it — and the first segment alone cannot see that.
+
+    Args:
+      block: A `Parameters` block, or any block nested inside one.
+
+    Returns:
+      The set of reference paths, without their leading `$.`.
+
+    Raises:
+      None.
+    """
+    paths = set()
+    if isinstance(block, dict):
+        for name, value in block.items():
+            if name.endswith(".$") and isinstance(value, str):
+                if value.startswith("$.") and "$$" not in value:
+                    paths.add(value.removeprefix("$."))
+            else:
+                paths |= _full_paths(value)
+    elif isinstance(block, list):
+        for value in block:
+            paths |= _full_paths(value)
+    return paths
+
+
+def _unresolvable(block, returned):
+    """Every reference path in `block` that `returned` cannot resolve, whole.
+
+    Args:
+      block: A state's `Parameters`.
+      returned: The verb's driven return.
+
+    Returns:
+      The set of unresolvable paths, without their leading `$.`.
+
+    Raises:
+      None.
+    """
+    bad = set()
+    for reference in _full_paths(block):
+        value = returned
+        for segment in reference.split("."):
+            if not isinstance(value, dict) or segment not in value:
+                bad.add(reference)
+                break
+            value = value[segment]
+    return bad
+
+
+def test_the_nested_path_check_sees_a_read_whose_first_segment_resolves():
+    """The positive control for a check the fleet cannot currently exercise.
+
+    Every nested read on the fleet resolves today, so deleting the check outright leaves the whole
+    file green — it is an absence, and an absence proves nothing unless the thing looking for it can
+    find one. This plants the exact shape it exists for: a first segment the verb DOES return, and a
+    remainder it does not.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the check stops distinguishing a resolvable path from a broken one.
+    """
+    returned = {"recipient": {"kind": "user"}, "request": {}}
+
+    assert _unresolvable({"kind.$": "$.recipient.kind"}, returned) == set()
+    assert _unresolvable({"name.$": "$.recipient.name"}, returned) == {"recipient.name"}, (
+        "the check compares first segments only, so a read into a value that lacks the rest passes"
+    )
+    assert _unresolvable({"deep.$": "$.recipient.kind.more"}, returned) == {"recipient.kind.more"}
+    assert _unresolvable({"whole.$": "$"}, returned) == set(), (
+        "a whole-state read names no path and must not be reported as unresolvable"
+    )
+
+
+def test_every_pinned_pair_has_a_drive():
+    """A pair with no drive would be a plane the sweep claims to cover and does not.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the two mappings disagree.
+    """
+    assert set(_DRIVES) == set(_CHECKED), (
+        f"undriven: {sorted(set(_CHECKED) - set(_DRIVES))}; "
+        f"driven but not pinned: {sorted(set(_DRIVES) - set(_CHECKED))}"
+    )
+
+
+@pytest.mark.parametrize("plane,state", sorted(_CHECKED), ids=lambda v: v)
+def test_a_field_naming_state_reads_exactly_what_its_verb_returns(plane, state, monkeypatch):
+    """Both directions, against the verb's REAL return rather than its source.
+
+    Reading the source would answer a different question: what the verb appears to return. Driving
+    it answers what it does return, which is the only thing the machine will meet.
+
+    Two assertions, because one of them alone is satisfiable while the state is broken. The set
+    equality catches a key the verb stopped returning AND a key the state silently drops; the path
+    check catches a nested read whose first segment resolves and whose remainder does not, which
+    the set equality cannot see.
+
+    Args:
+      plane: The plane's name.
+      state: The qualified state name.
+      monkeypatch: pytest's patcher.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: On any disagreement between the state and its verb.
+    """
+    verb, drops = _PAIRS[(plane, state)], _CHECKED[(plane, state)]
+    returned = _DRIVES[(plane, state)](monkeypatch)
+
+    assert isinstance(returned, dict) and returned, (
+        f"{plane}:{verb} returned {returned!r}; the drive did not reach a success return, so the "
+        "comparison below would pass against an empty set"
+    )
+
+    path = next(p for p in machines._TEMPLATES
+                if os.path.basename(os.path.dirname(p)) == plane)
+    block = dict(machines._states(machines._load(path)))[state].get("Parameters")
+    reads = machines._read_keys(block)
+
+    assert reads == set(returned) - drops, (
+        f"{plane}:{state} reads {sorted(reads)} and {verb} returns {sorted(returned)} "
+        f"(dropping {sorted(drops)} deliberately). "
+        f"Reads the verb does not return: {sorted(reads - set(returned))} — an uncatchable "
+        f"States.Runtime. Returns the state drops undeclared: "
+        f"{sorted(set(returned) - drops - reads)} — silent, and how the traceparent went missing"
+    )
+
+    unresolvable = _unresolvable(block, returned)
+    assert not unresolvable, (
+        f"{plane}:{state} reads {sorted(unresolvable)} off {verb}'s return, which does not resolve "
+        "them. A matching FIRST SEGMENT is not enough: a nested read into a value that lacks the "
+        "rest is the same uncatchable States.Runtime, and the set equality above cannot see it"
+    )
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-q"]))
