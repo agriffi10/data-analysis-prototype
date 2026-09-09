@@ -4,7 +4,7 @@
 
 A control-plane run's success path is now **one distributed trace** instead of one per verb.
 
-- **`cpcommon.observability` adopts an inbound traceparent.** `_shape_values` walks the four
+- **`cpcommon.observability` adopts an inbound traceparent.** `_shape_values` walked the four
   shapes a verb can be entered by — the state payload, the EventBridge Pipe envelope, a
   Distributed Map's `ItemBatcher.BatchInput`, and an inline Map's `request` block — and
   `_adopt_trace` runs after `_reset_context` and before the span opens. New public name:

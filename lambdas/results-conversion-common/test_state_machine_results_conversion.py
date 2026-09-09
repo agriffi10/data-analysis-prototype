@@ -100,6 +100,15 @@ def _reads(parameters: dict) -> set[str]:
 #: PAIRING of verb and state, for keys no domain state consumes.
 _RUN_KEYS = frozenset({"traceparent"})
 
+#: Keys `RecordFailure` reads from the CONTEXT OBJECT rather than from any seed, so the seed→
+#: terminal containments below must allow them on the terminal and NOT require them on a seed.
+#: `raw` is the forwarded envelope: it used to ride the seeds, and it moved to
+#: `$$.Execution.Input` on the terminal because that is a value the execution cannot be missing —
+#: which is what lets a failure whose error REPLACED the state still name its own run. `_reads`
+#: keys off the parameter NAME and never the value, so a `$$` read looks exactly like a `$.` one
+#: here and the carve-out has to be explicit rather than falling out of the path shape.
+_CONTEXT_KEYS = frozenset({"raw"})
+
 
 def _domain(keys) -> set[str]:
     """The request keys a cross-check owns — everything but the run-scoped ones.
@@ -182,7 +191,7 @@ def test_every_failure_seed_carries_the_username_the_request_id_and_the_format()
     states = _machine()["States"]
     for seed in ("ValidateFailureSeed", "RequestFailureSeed"):
         assert {
-            "requestId", "username", "format", "raw", "tokens", "error", "traceparent",
+            "requestId", "username", "format", "tokens", "error", "traceparent",
         } == _reads(states[seed]["Parameters"])
     assert states["ValidateFailureSeed"]["Parameters"]["traceparent"] is None, (
         "the pre-identity seed must supply a LITERAL null: the error replaced the state, so there "
@@ -196,7 +205,7 @@ def test_every_failure_seed_carries_the_username_the_request_id_and_the_format()
     assert states["RequestFailureSeed"]["Parameters"]["error.$"] == "$.error"
     assert _reads(states["RecordFailure"]["Parameters"]) <= _reads(
         states["RequestFailureSeed"]["Parameters"]
-    ) | {"status"}
+    ) | {"status"} | _CONTEXT_KEYS
 
 
 def test_the_machine_starts_at_the_validator_with_a_top_level_ceiling():
@@ -233,7 +242,7 @@ def test_the_refusal_seed_supplies_every_key_the_failure_terminal_reads(_stubbed
         assert "tokens" in _reads(states[seed]["Parameters"]), f"{seed} supplies no tokens"
     assert _reads(states["RecordFailure"]["Parameters"]) <= set.intersection(
         *(_reads(states[seed]["Parameters"]) for seed in seeds)
-    ) | {"status"}
+    ) | {"status"} | _CONTEXT_KEYS
     assert states["ConvertRefusedSeed"]["Parameters"]["error"] == {"Error.$": "$.reason"}, (
         "the refusal must NOT arrive tagged as a TerminalError: notify-failure suppresses one "
         "as a duplicate of a verb notification that, on this path, never happened"

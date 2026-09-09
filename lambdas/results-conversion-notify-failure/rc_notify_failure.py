@@ -76,7 +76,7 @@ def _identity_from_raw(raw) -> dict:
     saved in the sentence, and the sentence goes to the inbox the verified actor owns.
 
     Args:
-      raw: The Pipe's forwarded SQS batch, as captured at the top of the machine.
+      raw: The Pipe's forwarded SQS batch, as RecordFailure copied it off the context object.
 
     Returns:
       ``{"username": ..., "format": ..., "filename": ...}``, with an empty username when it
@@ -173,7 +173,8 @@ def _wording_tokens(request: dict) -> dict:
     """Collects what a refusal's sentence needs beyond the format, from wherever it survives.
 
     Only what nothing else can supply. The file NAME is recovered from the request body under
-    ``$.raw``, which every failure seed already carries, so it needs no key of its own. A COUNT
+    the forwarded request, which ``RecordFailure`` carries on every path, so it needs no key of
+    its own. A COUNT
     is not derivable from anything the request said: it is a fact about the RESULT SET,
     discovered by the convert verb, and Excel's row ceiling is the only refusal of the
     converter's whose sentence has to name one. That is the whole reason the machine's refusal seed carries a

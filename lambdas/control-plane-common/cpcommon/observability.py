@@ -31,9 +31,10 @@ metadata in, file contents out, tokens and emails always out. The emitters do no
 at runtime, deliberately: it turns on provenance, which no filter over a field name or value
 shape can see, and a filter that looked like enforcement would be worse than none because it
 would be trusted. Shape notes, the stack-trace exemption and how a run becomes ONE trace are
-in ``lambdas/info/shared-layer.md``. The FAILURE path is threaded too; the one
-exception is a PRE-identity failure, whose traceparent is reachable nowhere ASL can read, so its
-``notify-failure`` opens a fresh trace while this verb's own span still adopts the run's.
+in ``lambdas/info/shared-layer.md``. The FAILURE path is threaded too, including the one where the
+error REPLACED the state: its traceparent is reachable nowhere ASL can read, which is still true and
+is why the machines are shaped as they are, so the envelope travels on the state instead and this
+module reads the value out of it in Python.
 
 Import-safety is the point of this module's shape. ``cpcommon`` is resolved by every
 control-plane verb, including three that set almost none of ``config``'s environment — and
@@ -581,17 +582,59 @@ def _stamp_verb(verb: str) -> None:
     stamp(verb=verb)
 
 
+def _envelope_values(batch: object, key: str) -> Iterator[object]:
+    """Yields one key's value out of a forwarded SQS batch, wherever that batch was found.
+
+    Two shapes reach the same bytes: the Pipe hands the batch to a validate-authorize verb as its
+    whole event, and a failure terminal carries the same batch on the state as ``raw``. One walk
+    serves both, so the list-only narrowing — a security boundary, argued in ``_shape_values`` —
+    cannot be enforced for one shape and forgotten for the other.
+
+    Args:
+      batch: The forwarded SQS records, of any type — anything but a non-empty list yields nothing.
+      key: The field name to look for inside the first record's JSON body.
+
+    Yields:
+      The first record's value for that key, unvalidated and possibly None. Nothing at all when the
+      batch is empty, holds no dict, carries no string body, or carries a body that is not JSON —
+      every malformed step degrades to silence rather than raising.
+
+    Raises:
+      None. Never parses beyond what it needs.
+    """
+    if not isinstance(batch, list):
+        return
+    record = batch[0] if batch else None
+    if isinstance(record, dict):
+        body = record.get("body")
+        if isinstance(body, str):
+            try:
+                parsed = json.loads(body)
+            except (TypeError, ValueError):
+                parsed = None
+            if isinstance(parsed, dict):
+                yield parsed.get(key)
+
+
 def _shape_values(event: object, key: str) -> Iterator[object]:
     """Yields one key's value from every event shape a control-plane verb can receive.
 
-    Four shapes, because a control plane has four kinds of entry point. The Step Functions state
-    payload is a plain dict carrying the value at the top level — every verb from inspect-source
-    onward. The EventBridge Pipe envelope is the raw SQS batch, a LIST whose single record's body
-    is a JSON string — every validate-authorize verb. A Distributed Map hands its child
-    ``{"BatchInput": {...}, "Items": [...]}``, where the manifest lines leave no room for a
+    FIVE shapes, because a control plane has five ways a run's identity can reach a verb. The Step
+    Functions state payload is a plain dict carrying the value at the top level — every verb from
+    inspect-source onward. The EventBridge Pipe envelope is the raw SQS batch, a LIST whose single
+    record's body is a JSON string — every validate-authorize verb. A Distributed Map hands its
+    child ``{"BatchInput": {...}, "Items": [...]}``, where the manifest lines leave no room for a
     per-run value and the batch block is the only place one can travel. An inline Map nests the
     parent state under ``request``, which is why the three inline-Map children could not be
     joined to their own run at all.
+
+    The fifth is that same forwarded batch carried ON the state as ``raw``, and it is how a failure
+    terminal's verb reaches a run whose seed had no traceparent to thread. Where the error REPLACED
+    the state there is nothing left to read — but ``$$.Execution.Input`` did not go anywhere, and
+    every ``RecordFailure`` copies it onto the state, so the value is reachable in Python even
+    though it is reachable nowhere ASL can look. It is walked LAST: a post-identity failure carries
+    both a real top-level value and ``raw``, both name the same run, and walking the threaded one
+    first keeps it authoritative and skips the parse.
 
     **The body branch fires for a LIST and nothing else, and that is a security boundary rather
     than a shape detail.** It used to fall back to treating a non-list event as the record, and
@@ -601,12 +644,19 @@ def _shape_values(event: object, key: str) -> Iterator[object]:
     which is what makes the second one live rather than latent. Production always delivers the
     array, and the API is the only verb in the fleet with a top-level ``body``.
 
+    **The fifth shape does not reopen that**, and the reason is provenance rather than shape.
+    ``raw`` is written only by ASL, from ``$$.Execution.Input``, and never by a caller: the value
+    is this execution's own input and can be no other run's, and the ``traceparent`` inside its
+    body is one the API stamps unconditionally over anything a caller sent. The narrowing itself is
+    unchanged and now lives in one place — ``_envelope_values`` yields nothing for a non-list — so a
+    BARE dict carrying a top-level ``body`` string still names neither key.
+
     Deliberately does not call ``events.parse_sqs_request``, which raises ``TerminalError`` on
     a malformed envelope: a logging helper that can raise a domain terminal is a logging helper
     that can fail a verb.
 
     Args:
-      event: The handler's event, of any of the four shapes.
+      event: The handler's event, of any of the five shapes.
       key: The field name to look for.
 
     Yields:
@@ -619,16 +669,7 @@ def _shape_values(event: object, key: str) -> Iterator[object]:
       None. Never parses beyond what it needs.
     """
     if isinstance(event, list):
-        record = event[0] if event else None
-        if isinstance(record, dict):
-            body = record.get("body")
-            if isinstance(body, str):
-                try:
-                    parsed = json.loads(body)
-                except (TypeError, ValueError):
-                    parsed = None
-                if isinstance(parsed, dict):
-                    yield parsed.get(key)
+        yield from _envelope_values(event, key)
         return
 
     if not isinstance(event, dict):
@@ -639,10 +680,22 @@ def _shape_values(event: object, key: str) -> Iterator[object]:
         block = event.get(nested)
         if isinstance(block, dict):
             yield block.get(key)
+    yield from _envelope_values(event.get("raw"), key)
 
 
 def _extract_request_id(event: object) -> str | None:
     """Pulls the request id out of every event shape a control-plane verb can receive.
+
+    Reaching the forwarded envelope on the state is the intended consequence of the fifth shape and
+    not a side effect of it. A seed that supplies ``requestId: null`` used to leave a failure
+    correlating on NOTHING — neither a trace nor the join key that exists for everything outside
+    one — and the caller's own id is sitting in the envelope beside the traceparent.
+
+    That id is the caller's by design and is not a new exposure: the API echoes it back, the planes
+    carry it, and this same field is already read from this same place for every validate-authorize
+    in the fleet. What the list-only narrowing refuses is a BARE dict's ``body``, which for an API
+    Gateway request is the caller's live HTTP body; ``raw`` is written by ASL and never by a caller,
+    so that narrowing is untouched.
 
     Args:
       event: The handler's event.

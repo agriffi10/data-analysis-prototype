@@ -11,15 +11,22 @@ ASL block — `Validated`'s `Parameters`, `TransferObjects`'s `ItemBatcher.Batch
 template. A hand-written event would agree with a hand-written assertion and prove nothing about
 the machine; a wrong path in the template fails here.
 
-**The planes are named rather than chosen.** A guard against data-quality, shared-spaces or
-table-builder exercises no Map hop, no field-naming state and no inline-Map nesting, and would
-pass while every one of those was broken. It runs against **file-send** and **archive**, which
-between them cover all four event shapes a verb can receive.
+**The planes are named rather than chosen.** On the SUCCESS path a guard against data-quality,
+shared-spaces or table-builder exercises no Map hop, no field-naming state and no inline-Map
+nesting, and would pass while every one of those was broken — so that half runs against
+**file-send** and **archive**, which between them cover four of the five event shapes a verb can
+receive.
+
+The FAILURE path picks on a different axis, because the shapes are not what varies there. The
+fifth shape — the forwarded envelope carried on the state — is reached by two different ASL edits:
+some planes already carried the envelope on their seeds and now source it from the context object,
+and others carried none at all and gained the key. So the pre-identity drive runs one plane from
+each half, **archive** and **shared-spaces**, and a drive over one says nothing about the other.
 
 What this does NOT drive is the middle of each chain — inspect-source, build-transfer-manifest,
 collect-transfer-results — which need S3 fakes and whose returns are `{**event, ...}` echoes.
 Their spans are not in the counts below, and that is stated rather than implied: what is proved
-is that the value survives the four SHAPES, which is where it was being lost.
+is that the value survives the SHAPES, which is where it was being lost.
 
 Attributes:
   _IDENTITY: The identity block the API stamps, as every plane's validator reads it.
@@ -52,6 +59,9 @@ for _dir in (
     "file-ops-validate-authorize",
     "file-ops-notify-failure",
     "archive-notify-failure",
+    "shared-space-common",
+    "shared-space-validate",
+    "shared-space-notify-failure",
     "api",
 ):
     sys.path.insert(0, str(_LAMBDAS / _dir))
@@ -60,17 +70,25 @@ import ar_notify_failure
 import archive_copy_objects
 import archive_notify
 import archive_validate_authorize
+import auth
 import file_ops_validate_authorize
 import file_send_copy_objects
 import file_send_notify
 import file_send_validate_authorize
 import fo_notify_failure
+import ss_notify_failure
 import test_state_machines_cpcommon as machines
-from cpcommon import observability
+import validate as shared_space_validate
+from cpcommon import errors, observability
 from token_shapes import JWT_SHAPED
 
 _IDENTITY = {"actor": "alice", "delegated_by": None, "assurance": "interactive"}
 _UUID = "9f2c1b8e-4c1a-4b2f-8d3e-1a2b3c4d5e6f"
+
+#: Passed to `_apply`/`_resolve` when no template being applied reads the context object. A
+#: sentinel rather than `None`, because `None` is a value `$$.Execution.Input` could legitimately
+#: resolve to and the whole point is that an unsupplied one is LOUD.
+_NO_EXECUTION_INPUT = object()
 
 
 class _Sink:
@@ -209,19 +227,27 @@ def _state(plane, name):
     raise KeyError(f"{plane} has no state {name!r}")
 
 
-def _resolve(path, state):
+def _resolve(path, state, execution_input=_NO_EXECUTION_INPUT):
     """Reads one `$.a.b` JSONPath out of a state.
+
+    The context object arrives as an ARGUMENT rather than as a key on the state, and that is
+    structural rather than tidy. A pre-identity seed's `"error.$": "$"` resolves to the WHOLE
+    state, so a synthetic key modelling `$$` would land inside the error object — a shape no real
+    run produces, on the very state a pre-identity drive exists to build faithfully.
 
     Args:
       path: The reference path.
       state: The state to read from.
+      execution_input: What `$$.Execution.Input` resolves to. Omitted where no template being
+        applied reads it; a `$$` read with it omitted is refused rather than resolving to None.
 
     Returns:
       The value, or None where the path is absent — which is what makes an ABSENT key visible as
       a null rather than a KeyError, so a test asserting the value catches it.
 
     Raises:
-      None.
+      AssertionError: On a context-object path this interpreter does not model, or on one it does
+        model that the caller did not supply.
     """
     if path == "$":
         return state
@@ -232,7 +258,12 @@ def _resolve(path, state):
             "begins with `$` so the loud check below never fires — and the drive then proves "
             "nothing about the field it fabricated"
         )
-        return state.get("__execution_input__")
+        assert execution_input is not _NO_EXECUTION_INPUT, (
+            "this template reads `$$.Execution.Input` and the drive did not supply one. Defaulting "
+            "it to None would resolve SILENTLY and the drive would exercise a shape no real run "
+            "produces — which is the failure the loud check above exists to prevent"
+        )
+        return execution_input
     value = state
     for segment in path.removeprefix("$.").split("."):
         if not isinstance(value, dict):
@@ -241,7 +272,7 @@ def _resolve(path, state):
     return value
 
 
-def _apply(block, state):
+def _apply(block, state, execution_input=_NO_EXECUTION_INPUT):
     """Builds one state's output from an ASL payload template, the way Step Functions does.
 
     Only the shapes these ten states and six Maps actually use: a `"x.$": "$.path"` reference and
@@ -251,12 +282,14 @@ def _apply(block, state):
     Args:
       block: The `Parameters`, `Payload` or `BatchInput` template.
       state: The state it is evaluated against.
+      execution_input: What `$$.Execution.Input` resolves to, for a template that reads it.
 
     Returns:
       The built payload.
 
     Raises:
-      AssertionError: On a template shape this interpreter does not implement.
+      AssertionError: On a template shape this interpreter does not implement, or on a
+        context-object read the caller did not supply a value for.
     """
     built = {}
     for key, value in block.items():
@@ -265,7 +298,7 @@ def _apply(block, state):
                 f"{key} holds {value!r}, which this interpreter does not evaluate — teach it, or "
                 "the guard silently stops modelling the machine"
             )
-            built[key.removesuffix(".$")] = _resolve(value, state)
+            built[key.removesuffix(".$")] = _resolve(value, state, execution_input)
         else:
             built[key] = value
     return built
@@ -371,7 +404,7 @@ def _minted_traceparent():
 
 
 def _drive_file_send():
-    """Drives a file-send run through the four event shapes, hop by hop.
+    """Drives a file-send run through the four SUCCESS-path event shapes, hop by hop.
 
     Args:
       None. The `sink` fixture installs the capturing sink; this only drives verbs.
@@ -530,19 +563,17 @@ def _drive_a_failure(plane, validate, envelope, seed_state, notify_failure):
       None.
     """
     validated = validate(envelope, None)
-    caught = {**validated, "error": {"Error": "some_reason", "Cause": None},
-              "__execution_input__": envelope}
+    caught = {**validated, "error": {"Error": "some_reason", "Cause": None}}
 
-    seeded = _apply(_state(plane, seed_state)["Parameters"], caught)
-    seeded["__execution_input__"] = envelope
-    recorded = _apply(_state(plane, "RecordFailure")["Parameters"], seeded)
+    seeded = _apply(_state(plane, seed_state)["Parameters"], caught, envelope)
+    recorded = _apply(_state(plane, "RecordFailure")["Parameters"], seeded, envelope)
 
     assert recorded.get("traceparent"), (
         f"{plane}: RecordFailure produced no traceparent, so notify-failure cannot join the run — "
         f"the seed {seed_state} built {sorted(seeded)}"
     )
     assert recorded.get("raw") == envelope, (
-        f"{plane}: the seed's `$$.Execution.Input` read did not resolve to the Pipe envelope. "
+        f"{plane}: RecordFailure's `$$.Execution.Input` read did not resolve to the Pipe envelope. "
         "That path begins with `$`, so an interpreter that does not model the context object "
         "returns None SILENTLY rather than refusing — and notify-failure falls back to `raw` for "
         "the actor, so the drive would be exercising a shape no real run produces"
@@ -631,6 +662,145 @@ def test_a_failed_run_is_one_trace_including_its_notification(plane, drive, sink
     assert len(traces) == 1, (
         f"{plane}'s failure path opens {len(traces)} traces: {sorted(verbs)} — the run cannot be "
         "followed from the failure to the notification the user was sent"
+    )
+
+
+def _drive_a_pre_identity_failure(plane, validate, envelope, notify_failure, refusal):
+    """Drives the failure whose error REPLACED the state, from the validator to the notification.
+
+    The one shape the fleet could not join to its own run. A validator's `Catch` has no object to
+    merge a `ResultPath` into — its input was the raw SQS ARRAY — so the error REPLACES the state,
+    taking the traceparent and the request id with it. What survives is `$$.Execution.Input`, and
+    `RecordFailure` copies it onto the state as `raw` for the notifier to read in Python.
+
+    The validator is made to RAISE rather than the state hand-shaped, because `"error.$": "$"` is
+    what defines this seed: the error object it produces has to be the one a real Lambda failure
+    produces, or the drive proves nothing about the state the machine actually builds.
+
+    Args:
+      plane: The plane's directory name under infra/modules.
+      validate: The plane's validate-authorize handler, which this calls expecting a raise.
+      envelope: The Pipe's forwarded SQS batch, which is what `$$.Execution.Input` holds.
+      notify_failure: The plane's notify-failure handler.
+      refusal: The reason the validator is expected to refuse with, matched on the message. Named
+        rather than accepting any exception, because an ImportError at cold start would otherwise
+        satisfy the raise and the drive would then be modelling a failure the machine never sees.
+
+    Returns:
+      The number of spans the drive should have produced.
+
+    Raises:
+      AssertionError: If the validator returns instead of raising, refuses for a different reason,
+        or if the harness leaks a key into the error object.
+    """
+    expected = (errors.TerminalError, auth.AuthorizationError)
+    with pytest.raises(expected, match=refusal) as raised:
+        validate(envelope, None)
+
+    # What a Catch with no ResultPath leaves on the state, and nothing else.
+    caught = {"Error": type(raised.value).__name__, "Cause": str(raised.value)}
+
+    seeded = _apply(_state(plane, "ValidateFailureSeed")["Parameters"], caught, envelope)
+    recorded = _apply(_state(plane, "RecordFailure")["Parameters"], seeded, envelope)
+
+    assert seeded["error"] == caught, (
+        f"{plane}: the seed's `error.$: $` captured {sorted(seeded['error'])} rather than the "
+        f"error alone — a harness-only key reached the state, and this drive is exercising a "
+        f"shape no real run produces on the very state it exists to build faithfully"
+    )
+    assert recorded.get("traceparent") is None, (
+        f"{plane}: the seed supplied a traceparent, so this is not the pre-identity path and the "
+        "test below would pass without reading the envelope at all"
+    )
+    assert recorded.get("raw") == envelope, (
+        f"{plane}: RecordFailure did not carry the forwarded envelope, so there is nothing for "
+        "notify-failure to recover the run from"
+    )
+
+    notify_failure(recorded, None)
+    return 2
+
+
+@pytest.mark.parametrize(
+    "plane,drive",
+    [
+        (
+            "archive",
+            lambda: _drive_a_pre_identity_failure(
+                "archive",
+                archive_validate_authorize.handler,
+                [{"messageId": "m-1", "body": json.dumps(_api_message())}],
+                ar_notify_failure.handler,
+                "malformed_event: unexpected mode",
+            ),
+        ),
+        (
+            "shared-spaces",
+            lambda: _drive_a_pre_identity_failure(
+                "shared-spaces",
+                shared_space_validate.handler,
+                [{"messageId": "m-1", "body": json.dumps(_api_message())}],
+                ss_notify_failure.handler,
+                "unsupported schemaVersion",
+            ),
+        ),
+    ],
+    ids=["archive", "shared-spaces"],
+)
+def test_a_pre_identity_failure_is_one_trace_including_its_notification(plane, drive, sink):
+    """The failure an operator is most likely to open, and the one that used to join nothing.
+
+    A run is one trace on the success path and on the post-identity failure path. This is the
+    third case: the error replaced the state, so the seed supplies literal nulls for both the
+    traceparent AND the request id, and the notification used to sit outside the run's trace and
+    outside the request-id join — correlating on nothing at all.
+
+    ONE PLANE FROM EACH HALF OF THE FLEET, because the two halves reach `RecordFailure` by
+    different edits: archive already carried the envelope on its seeds and now sources it from the
+    context object, while shared-spaces carried none at all and gains the key. A drive over one
+    says nothing about the other. Both are planes whose `ValidateFailureSeed` goes STRAIGHT to
+    `RecordFailure` — data-quality and table-builder route through a cleanup Task first, and
+    stubbing one would put a hop in the drive that the machine does not have.
+
+    The envelope's body is minted by `_api_message`, so the traceparent inside it is the one the
+    real API producer wrote. That body is a FILE-SEND request on both planes, and deliberately so:
+    only `raw[0].body.traceparent` is read on this path, and a body from the wrong plane is what
+    makes each validator raise in the first place.
+
+    Args:
+      plane: The plane's name.
+      drive: The driver.
+      sink: The capturing sink.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the notification opens a trace of its own.
+    """
+    expected = drive()
+    observability.flush()
+
+    spans = sink.spans()
+    verbs = {event.get("fields", {}).get("verb") for event in spans}
+    traces = {event["trace_id"] for event in spans}
+    notifications = [e for e in spans if e.get("fields", {}).get("verb") == "notify-failure"]
+
+    assert len(spans) >= expected, (
+        f"{plane} produced {len(spans)} spans for {expected} driven verbs, so the drive stopped "
+        "short and the trace assertion below would pass vacuously"
+    )
+    assert notifications, (
+        f"{plane} never reached notify-failure ({sorted(verbs)}), which is the span this test "
+        "exists for"
+    )
+    assert len(traces) == 1, (
+        f"{plane}: a failure that replaced the state opens {len(traces)} traces {sorted(verbs)} — "
+        "the notification the user was sent cannot be found from the run that failed"
+    )
+    assert all(event.get("parent_span_id") for event in notifications), (
+        f"{plane}: notify-failure's span has no parent, so it is a root of its own trace rather "
+        "than a child of the run — adoption did not happen even though the trace ids agree"
     )
 
 

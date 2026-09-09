@@ -1255,6 +1255,192 @@ def test_the_widened_guard_catches_the_edit_that_passes_today():
             frontier.extend(_targets(states[name]))
 
 
+# ── The forwarded envelope on the failure terminal ──────────────────────────────────────────
+
+
+def _record_failure_states():
+    """Every plane's failure terminal, derived from the templates rather than listed.
+
+    Args:
+      None.
+
+    Returns:
+      A list of (plane, qualified name, state) triples.
+
+    Raises:
+      None.
+    """
+    found = []
+    for path in _TEMPLATES:
+        plane = os.path.basename(os.path.dirname(path))
+        for name, state in _states(_load(path)):
+            if name == "RecordFailure":
+                found.append((plane, name, state))
+    return found
+
+
+def test_every_failure_terminal_carries_the_envelope_from_the_context_object():
+    """The value a failure whose error REPLACED the state has left to name its own run.
+
+    The seed cannot thread it: the catch on a validator has no object to merge a ``ResultPath``
+    into, so the error replaces the state and there is no ``$.traceparent`` and no ``$.requestId``
+    to read. ``$$.Execution.Input`` survives that, because it is not on the state at all — it is
+    the execution's own input, and it holds the message the API stamped the traceparent into. The
+    terminal copies it onto the state and ``notify-failure`` reads it there, in Python.
+
+    Read from the CONTEXT OBJECT and not from a seed, which is what keeps this change to eight
+    states instead of twenty-nine: ``_read_keys`` matches ``$.<key>`` and a ``$$.`` value does not
+    match, so this is not a read any seed has to supply. That exemption is pinned by
+    ``test_a_context_object_read_is_not_a_read_a_seed_must_supply`` below rather than relied on
+    silently.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a plane's terminal stops carrying the envelope, or one appears nested
+        inside a Map where the context object still resolves but the population claim would be
+        wrong.
+    """
+    terminals = _record_failure_states()
+    planes = {plane for plane, _name, _state in terminals}
+
+    assert planes == set(_EXPECTED_ARCS), (
+        f"unexpected: {sorted(planes - set(_EXPECTED_ARCS))}; "
+        f"missing: {sorted(set(_EXPECTED_ARCS) - planes)}"
+    )
+    assert len(terminals) == len(_EXPECTED_ARCS), (
+        f"{len(terminals)} failure terminals across {len(_EXPECTED_ARCS)} planes — a plane grew a "
+        "second one, and only one of them is being checked"
+    )
+
+    for plane, name, state in terminals:
+        assert "/" not in name, (
+            f"{plane}: {name} sits inside a Map or Parallel; $$.Execution.Input still resolves "
+            "there, but this guard's claim about the population would no longer be derived"
+        )
+        assert (state.get("Parameters") or {}).get("raw.$") == "$$.Execution.Input", (
+            f"{plane}: the failure terminal does not carry the forwarded envelope from the "
+            "context object, so a failure that replaced the state names neither the run's trace "
+            "nor its request id — it correlates on nothing at all"
+        )
+
+
+def test_no_state_reads_the_envelope_off_the_state():
+    """``$.raw`` is gone from every plane, and this is what keeps it gone.
+
+    A state reading ``$.raw`` is the uncatchable ``States.Runtime`` this area keeps paying for:
+    the key exists on no post-validate state, so a catch routed to such a reader kills the
+    execution BEFORE the notifier. Sourcing the envelope from the context object retires the whole
+    class, and re-adding a ``$.raw`` read anywhere would quietly reopen it.
+
+    Derived by PARSING every state's block rather than by grepping the templates: a grep cannot
+    tell a read in ``Parameters`` from the same characters inside a ``Comment``, and this file's
+    comments discuss ``$.raw`` at length.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If any state reads the envelope off the state, or if the walk collected
+        nothing and the absence above is vacuous.
+    """
+    readers, walked = [], 0
+    for path in _TEMPLATES:
+        plane = os.path.basename(os.path.dirname(path))
+        for name, state in _states(_load(path)):
+            block = state.get("Parameters")
+            if block is None:
+                continue
+            walked += 1
+            if "raw" in _read_keys(block):
+                readers.append(f"{plane}/{name}")
+
+    assert walked > len(_TEMPLATES), (
+        f"the walk inspected {walked} blocks across {len(_TEMPLATES)} planes, which is too few to "
+        "have reached the failure paths — the absence asserted below would be vacuous"
+    )
+    assert not readers, (
+        f"{sorted(readers)} read the envelope off the state; a catch routed to one raises an "
+        "uncatchable States.Runtime before the notifier ever runs"
+    )
+
+
+def test_a_context_object_read_is_not_a_read_a_seed_must_supply():
+    """The exemption the failure terminal's envelope rests on, pinned rather than assumed.
+
+    ``_seed_violations`` reports a downstream read its seed does not supply. A context-object read
+    is exempt, and the reason is not that ``$$`` is special syntax — it is that
+    ``$$.Execution.Input`` CANNOT BE ABSENT. It is the execution's own input, present in every
+    state of every machine, which is exactly the property the two rejected alternatives lacked: a
+    ``$.raw`` threaded up from a seed is absent on any path whose seed forgot it, and an SQS
+    message attribute is absent for every message already in flight when the change lands.
+
+    The positive control is the point of the second half. A fixture whose seed
+    ``_is_a_failure_seed`` does not recognise produces an empty violation list too, so an assertion
+    that only checks for emptiness passes on a fixture that proved nothing. Swapping the SAME
+    fixture's read to ``$.raw`` must make it complain.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a context-object read is reported, or if the ``$.raw`` control is not.
+    """
+    def machine(read):
+        """A minimal seed → terminal → Fail machine whose terminal reads one path.
+
+        Args:
+          read: The reference path the terminal reads for ``raw``.
+
+        Returns:
+          The state machine.
+
+        Raises:
+          None.
+        """
+        return {
+            "StartAt": "Seed",
+            "States": {
+                "Seed": {
+                    "Type": "Pass",
+                    "Parameters": {"traceparent": None, "error.$": "$"},
+                    "Next": "Terminal",
+                },
+                "Terminal": {
+                    "Type": "Pass",
+                    "Parameters": {"traceparent.$": "$.traceparent", "raw.$": read},
+                    "Next": "Failed",
+                },
+                "Failed": {"Type": "Fail"},
+            },
+        }
+
+    exempt = _seed_violations("fixture", machine("$$.Execution.Input"))
+    control = _seed_violations("fixture", machine("$.raw"))
+
+    assert control, (
+        "the $.raw control was not reported, so this fixture reaches the guard at all is "
+        "unproven — an empty list above would mean nothing"
+    )
+    assert any("reads ['raw']" in line for line in control), (
+        f"the control was reported for a different missing key: {control}"
+    )
+    assert not exempt, (
+        f"a context-object read was reported as unseeded: {exempt} — the failure terminal's "
+        "envelope would have to be threaded through all twenty-nine seeds instead of eight states"
+    )
+
+
 # ── SPEC-225: one run, one trace — the success path ─────────────────────────────────────────
 
 #: Every state whose own block must name the run's traceparent, as (plane, qualified name).

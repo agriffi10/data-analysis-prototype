@@ -164,12 +164,16 @@ def test_the_failure_state_carries_the_request_and_still_fits():
     object is the record PLUS the error. If that breached, the notification would be lost on
     exactly the failures the state exists to report.
 
-    **BOTH seeds are modelled, and the second one is the reason this test was wrong.** It used
-    to model only the pre-identity shape — the raw record plus nulls — while the post-validate
-    seed carries the same record AND, until SPEC-166, the normalised selection again. At the byte
-    cap with quote-heavy keys that pair was ~300 KB: a Pass with no Catch raising
+    **BOTH catch shapes are modelled, and the second one is the reason this test was wrong.** It
+    used to model only the shape where the error replaced the state — the raw record plus nulls —
+    while the post-validate path carried the same record AND, for a while, the normalised selection
+    again. At the byte cap with quote-heavy keys that pair was ~300 KB: a Pass with no Catch raising
     States.DataLimitExceeded, on the failure path, after a three-hour copy. The selection is no
     longer carried, and this is what holds that.
+
+    The sum is the same whichever seed the catch lands on, which is why this models a record and an
+    error rather than a named state: the envelope reaches the terminal from the context object on
+    every path, so there is one failure state's worth of bytes and not two shapes of it.
 
     **The error was modelled at 4 KB and that was the third thing wrong here.** Step Functions
     documents 32,768 as a maximum length in CHARACTERS on the execution-history event shapes, not
@@ -198,9 +202,16 @@ def test_the_failure_state_carries_the_request_and_still_fits():
 def test_no_failure_seed_carries_the_selection_twice():
     """The fix for the above, asserted against the MACHINE rather than trusted.
 
-    Every post-validate catch lands on one seed, and that seed reads ``$$.Execution.Input`` —
-    which already holds the selection. A ``source`` beside it is the same bytes a second time,
-    and the sum is over the limit for a legal request.
+    Every post-validate catch lands on one seed, and the failure TERMINAL reads
+    ``$$.Execution.Input`` — which already holds the selection. A ``source`` beside it is the same
+    bytes a second time, and the sum is over the limit for a legal request.
+
+    **Two assertions over three states, and only one of them moved.** The envelope now arrives on
+    ``RecordFailure`` from the context object rather than being threaded up from a seed, so that is
+    where the sum lives and where the presence half is asked. The ``source`` half stays over ALL
+    THREE, because the seeds are where a ``source`` key would be re-added — asking it only of the
+    terminal would leave a future ``source`` on a seed looking free, which is the bytes this fence
+    exists to refuse.
     """
     asl = (
         pathlib.Path(__file__).resolve().parents[2]
@@ -213,11 +224,17 @@ def test_no_failure_seed_carries_the_selection_twice():
 
     for name in ("RequestFailureSeed", "ValidateFailureSeed", "RecordFailure"):
         parameters = machine["States"][name]["Parameters"]
-        assert "raw.$" in parameters or "raw" in parameters
         assert "source.$" not in parameters, (
             f"{name} carries the selection alongside the raw request — together they breach the "
             f"256 KB state limit, on a Pass with no Catch"
         )
+
+    terminal = machine["States"]["RecordFailure"]["Parameters"]
+    assert terminal.get("raw.$") == "$$.Execution.Input", (
+        "the failure terminal stopped carrying the forwarded request, so the notifier has no "
+        "sender to write to on a failure that replaced the state — and the byte sum this test "
+        "fences is no longer the sum that ships"
+    )
 
 
 def test_the_byte_cap_leaves_room_for_the_fields_spec_165_adds():

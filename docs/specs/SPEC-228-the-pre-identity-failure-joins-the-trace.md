@@ -1,9 +1,9 @@
 # Spec: The Pre-Identity Failure Joins the Trace, from the Envelope the State Already Carries
 
 **ID:** SPEC-228
-**Status:** Draft
+**Status:** In Progress
 **Last Updated:** 2026-09-09
-**Depends On:** SPEC-227 (Completed), SPEC-229 (Draft) — **SPEC-229 lands first.** It bounds the
+**Depends On:** SPEC-227 (Completed), SPEC-229 (Completed) — **SPEC-229 landed first.** It bounds the
 state this spec makes bigger, and the window between widening and bounding is a reachable silent
 failure rather than a tidiness concern.
 
@@ -383,6 +383,12 @@ lambdas/control-plane-common/test_state_machines_cpcommon.py # FR-002 derived po
 lambdas/results-conversion-common/test_state_machine_results_conversion.py  # FR-002
 lambdas/file-send-common/test_config_fscommon.py             # FR-002, the 256 KiB fence re-pointed
 lambdas/file-ops-validate-authorize/test_file_ops_validate_authorize.py     # FR-002 `created_later`
+lambdas/test_request_size_chain.py                           # FR-002 — SPEC-229's chain guard reads
+                                                             #   `"raw" in keys` off the templates,
+                                                             #   so four more planes now measure the
+                                                             #   envelope. Re-derived, not re-checked.
+infra/info/control-plane-shape.md                            # FR-004 — carries the `$.raw` Fences
+                                                             #   clause VERBATIM beside the register's
 lambdas/{archive,file-ops,file-send,results-conversion}-notify-failure/*.py # FR-002 docstrings
 infra/modules/{archive,data-quality,file-ops,file-send,
   results-conversion,shared-spaces,table-builder,

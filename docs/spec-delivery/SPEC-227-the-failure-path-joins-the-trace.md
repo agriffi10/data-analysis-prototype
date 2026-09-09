@@ -37,11 +37,13 @@
   forbidden fleet-wide for exactly the uncatchable `States.Runtime` this arc exists to avoid. The
   envelope the spec said "exists on every plane" exists on four. **Andrew's decision: accept the
   limit.**
-- **KNOWN LIMIT — a pre-identity failure cannot join the run's trace.** One occurring before
-  `validate-authorize` returns has no traceparent on the state, so its seed supplies a literal
-  `null` and `notify-failure` opens a trace of its own. What is **not** lost:
-  `validate-authorize`'s own span still adopts the trace, because it reads the envelope in Python.
-  What falls outside is `notify-failure`, a separate invocation.
+- **KNOWN LIMIT, since CLOSED by SPEC-228 — a failure raised before `validate-authorize` returns
+  could not join the run's trace.** It has no traceparent on the state, so its seed supplies a
+  literal `null` (which it still does, and must — a `Pass` hard-fails on an absent key) and
+  `notify-failure` opened a trace of its own. The ASL half of the reasoning was right; what was
+  wrong was the claim that the extractor could not reach the value either. SPEC-228 walks the
+  forwarded envelope the state carries, so the notification now sits in the run's trace and
+  recovers the caller's request id besides.
 - **FR-003 drives seven of its eleven pairs, not all eleven.** Driving a verb only answers the
   question for a verb that BUILDS its return; one returning `{**event, …}` inherits its key set from
   its input, so driving it with a hand-built mid-chain state compares the fixture with itself. For

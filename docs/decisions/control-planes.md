@@ -20,7 +20,7 @@ entry you need, not the file.**
 - [Per-plane instrumentation rules (SPEC-132→137)](#per-plane-instrumentation-rules-spec-132137)
 - [The log-foundry pin, and what a library upgrade owes the code written around it (SPEC-224)](#the-log-foundry-pin-and-what-a-library-upgrade-owes-the-code-written-around-it-spec-224)
 - [Where a child span may go, and the four places it may not (SPEC-226)](#where-a-child-span-may-go-and-the-four-places-it-may-not-spec-226)
-- [The failure path joins the trace, except where ASL cannot reach the value (SPEC-227)](#the-failure-path-joins-the-trace-except-where-asl-cannot-reach-the-value-spec-227)
+- [The failure path joins the trace, including where ASL cannot reach the value (SPEC-227, SPEC-228)](#the-failure-path-joins-the-trace-including-where-asl-cannot-reach-the-value-spec-227-spec-228)
 - [A run is ONE trace on the success path, and the extractor is a security boundary (SPEC-225)](#a-run-is-one-trace-on-the-success-path-and-the-extractor-is-a-security-boundary-spec-225)
 - [No ASL state decodes an error Cause (PR #252, control-plane-wide)](#no-asl-state-decodes-an-error-cause-pr-252-control-plane-wide)
 - [Notifications (SPEC-058→061)](#notifications-spec-058061)
@@ -70,18 +70,29 @@ DLQ lets one malformed request dead-letter someone else's work.
   `cpcommon.errors.failure_reason`, the only decoder.
 - **Every plane notifies on a pre-verb failure** — a `NotifyFailure` before `Fail`, reached on every
   path, because the no-verb-ran paths cannot be selected for in ASL.
-- **A post-identity failure needs its own seed.** A catch routed to a state reading `$.raw` raises an
-  uncatchable error *before* the notifier, because `$.raw` exists on no post-validate state.
+- **A post-identity failure needs its own seed.** A `Pass` hard-fails on an ABSENT key — an
+  uncatchable `States.Runtime`, raised *before* the notifier — so a catch may only route to a state
+  whose every read its seed supplies, whatever the key is called. Nothing reads `$.raw` any more,
+  which is what retired the instance of this that used to bite; the rule is the general one, and a
+  fleet guard walks every seed's forward path to hold it.
 - **A PRE-identity seed — `"error.$": "$"`, where the error REPLACED the state — supplies LITERALS
   for everything its terminal reads, including `traceparent`.** Omitting the key instead of
   supplying a literal `null` makes `RecordFailure`'s read the uncatchable error this whole rule
-  exists to prevent. Such a failure cannot join the run's trace and is not meant to: the value is
-  reachable nowhere ASL can read. Everything post-identity reads `$.traceparent`.
+  exists to prevent. Everything post-identity reads `$.traceparent`. **Such a failure DOES join
+  the run's trace, and not through ASL:** the value is still reachable nowhere ASL can read — that
+  half stands and is why the machines are shaped this way — so `RecordFailure` carries the
+  forwarded envelope from `$$.Execution.Input` and `notify-failure` parses the traceparent and the
+  request id out of it in Python. **"Pre-identity" names the CATCH SHAPE, not the absence of an
+  identity**: every validate-authorize failure lands on that seed, an authorized actor's refused
+  request included.
 - **Everything unbounded travels by pointer**, never on the state, and **a cap is not a substitute**.
   The exception is a value the system did not choose to put there: `$$.Execution.Input` is bounded
   by Step Functions admitting the execution and there is no pointer to it, because nothing wrote it
-  anywhere a verb could fetch it. That exception does not generalise, and what stops it is that
-  **every caller-controlled field on an enqueue request declares a bound**.
+  anywhere a verb could fetch it. **Every plane's `RecordFailure` now carries that envelope**, which
+  is what lets a failure that replaced the state name its own run — so the exception is load-bearing
+  on eight states rather than theoretical. What stops it generalising is the cap SPEC-229 supplies:
+  **every caller-controlled field on an enqueue request declares a bound**, and the four-link chain
+  is measured against the 256 KiB state limit for every route rather than argued about.
 - **Every cap is COMPUTED against the budget that sized it** — memory, makespan, or a service
   quota — and it names that budget. A hard-coded number hides a wrong model, and so does the right
   number against the wrong quota: the fleet message cap was derived from SQS's message limit, which
@@ -203,15 +214,17 @@ DLQ lets one malformed request dead-letter someone else's work.
   be one, since both quote a user's own cell values back; `sql_bytes` and `state` instead. The API
   **prevents rather than redacts**: there is no scrubber, a handler is never given a credential, and
   an AST sweep is what holds it.
-- **A run is ONE trace on the success path**, adopted from FOUR event shapes — the state payload,
-  the Pipe envelope, a Distributed Map's `ItemBatcher.BatchInput` and an inline Map's `request`.
+- **A run is ONE trace**, adopted from FIVE event shapes — the state payload, the Pipe envelope,
+  a Distributed Map's `ItemBatcher.BatchInput`, an inline Map's `request`, and the forwarded
+  envelope a failure terminal carries on the state as `raw`, which is the only one of the five
+  reachable when the error REPLACED the state.
   **The shape list is a security boundary**: the body branch fires for a LIST only, because a bare
   dict's `body` is an API Gateway caller's own, and nothing overwrites an adopted trace. Adoption
   comes **after** the per-invocation reset, which clears it; `run_traceparent()` returns the value
   **verbatim**, since rebuilding it re-emits an inbound `-00` as `-01`. A Map's `BatchInput` pair is
   **per-plane** — table-share's state has no `requestId`, so demanding one is `States.Runtime` on
-  every share. The failure path is threaded too, since SPEC-227 — with the pre-identity limit in the
-  clause above.
+  every share. The failure path is threaded too, since SPEC-227, and the case that could not be
+  threaded is CARRIED instead since SPEC-228 — the clause above says how.
 
 ## The chain a request travels is bounded at its inputs and measured against the limit that binds (SPEC-229)
 
@@ -330,7 +343,7 @@ The **notifications DLQ is deliberately undrained** and is the one hole this can
 
 ## Structured-logging pipe (SPEC-127→129)
 
-The pipe every control-plane function logs through; it carried **boundaries only** until SPEC-130 added the narrative half (next entry). `log-foundry` (pinned **exactly**, core not `[aws]`) ships in the `cpcommon` layer. `LOGS_QUEUE_URL` is **optional** (`environ.get`, never `_require`) so a function missing it logs to stdout instead of crashing a whole plane at cold start. The logs queue is **FIFO** with `message_group_id` = the **service** (SPEC-129; it was standard until `log-foundry` gained the ability to set `MessageGroupId`), with **no** content-based dedup (the library mints UUID dedup ids), and it is **swept** on a 10-min schedule, never long-polled (#270/#271). `service` = the **control plane**, and it is untrusted input on an S3 key: anything failing `^[a-z][a-z0-9-]{2,62}$` goes to `logs/_unrouted/`. Layout is `logs/service={s}/year=/month=/day=/data.jsonl` — **one appended object per service-day**, so every write is an **ETag-CAS read-modify-write** (a failed read must never overwrite a day) and the sweep role can **read** `logs/*`, reversing SPEC-127 FR-006. Delivery is put-then-delete (at-least-once; duplicates collapse on `log_id`). Partitions come from the **event's** timestamp. `logs/` is retained **forever**. `@traced` goes **outermost, above `@notifies_on_failure`**, or failed invocations close their span as `ok`. One run = **one trace** since SPEC-225 on the success path and SPEC-227 on the failure path (the API mints the traceparent and `traced` adopts it over four event shapes) — with one exception that is a limit rather than a gap: a **pre-identity** failure has no traceparent on the state and none reachable from the envelope, so its `notify-failure` opens a fresh trace — and **it correlates on nothing at all**, because that seed supplies `requestId: null` on seven of the eight planes and none at all on the eighth, and no notifier recovers one from `raw`. The `request_id` join stated everywhere else in this file holds for the success path and for post-identity failures; **here there is no join key of any kind**, measured on archive 2026-09-09, and it is the hole SPEC-228 exists to close. "Pre-identity" names the CATCH shape rather than the absence of an identity: all eight validators Catch `States.ALL` to that seed, so every failure raised **in the validator** lands there whatever the verb knew by then — an authorized actor's refused space included. (A failure raised downstream has its own plane's post-identity seed; archive alone has eighteen such Catches.) A refusal RETURNED as a value does not land there either: shared-spaces' `Route` sends `$.refusal` to `RefusedSeed`, one of **six** returned-refusal seeds across the fleet, and all six carry `traceparent.$`.
+The pipe every control-plane function logs through; it carried **boundaries only** until SPEC-130 added the narrative half (next entry). `log-foundry` (pinned **exactly**, core not `[aws]`) ships in the `cpcommon` layer. `LOGS_QUEUE_URL` is **optional** (`environ.get`, never `_require`) so a function missing it logs to stdout instead of crashing a whole plane at cold start. The logs queue is **FIFO** with `message_group_id` = the **service** (SPEC-129; it was standard until `log-foundry` gained the ability to set `MessageGroupId`), with **no** content-based dedup (the library mints UUID dedup ids), and it is **swept** on a 10-min schedule, never long-polled (#270/#271). `service` = the **control plane**, and it is untrusted input on an S3 key: anything failing `^[a-z][a-z0-9-]{2,62}$` goes to `logs/_unrouted/`. Layout is `logs/service={s}/year=/month=/day=/data.jsonl` — **one appended object per service-day**, so every write is an **ETag-CAS read-modify-write** (a failed read must never overwrite a day) and the sweep role can **read** `logs/*`, reversing SPEC-127 FR-006. Delivery is put-then-delete (at-least-once; duplicates collapse on `log_id`). Partitions come from the **event's** timestamp. `logs/` is retained **forever**. `@traced` goes **outermost, above `@notifies_on_failure`**, or failed invocations close their span as `ok`. One run = **one trace** since SPEC-225 on the success path and SPEC-227 on the failure path (the API mints the traceparent and `traced` adopts it over five event shapes). The exception SPEC-227 recorded is **closed by SPEC-228 and is no longer a limit**: a failure whose error replaced the state has no traceparent on the state, and none an ASL intrinsic may reach — that much was and is true — but the forwarded envelope is on the state as `raw`, so `notify-failure` reads both the traceparent and the caller's `requestId` out of it in Python. Before that it **correlated on nothing at all**, because the seed supplies `requestId: null` on seven of the eight planes and none at all on the eighth; that was measured on archive 2026-09-09 and is what the repair was derived from. The `request_id` join stated everywhere else in this file now holds on every path. "Pre-identity" names the CATCH shape rather than the absence of an identity: all eight validators Catch `States.ALL` to that seed, so every failure raised **in the validator** lands there whatever the verb knew by then — an authorized actor's refused space included. (A failure raised downstream has its own plane's post-identity seed; archive alone has eighteen such Catches.) A refusal RETURNED as a value does not land there either: shared-spaces' `Route` sends `$.refusal` to `RefusedSeed`, one of **six** returned-refusal seeds across the fleet, and all six carry `traceparent.$`.
 
 ## Structured-logging narrative primitives & the one-door rule (SPEC-130/131)
 
@@ -386,7 +399,7 @@ The fleet runs **`log-foundry==1.0.0`**, pinned exactly and core-only, for the r
 
 **A threshold that reads like a fence may be a detector.** FR-005's budget rests on `log_sweep.LARGE_OBJECT_WARN_BYTES`, which is sized to fire *long before* anything binds. That makes it a conservative basis for a budget and **not** the day-object ceiling; the ceiling's real value needs the sweep's peak-resident multiple, which is unmeasured. Refusing to derive a budget at all was the first answer and the wrong one — erring safe is how a budget is stated. The drain that follows from it repairs nothing that pre-existed — removing it reddens only the tests written for the drain itself — so it is a forward guard rather than a fix. Detail, the rejected rate-free alternative, and the delivery-timing consequence: `spec-delivery/SPEC-226`.
 
-## The failure path joins the trace, except where ASL cannot reach the value (SPEC-227)
+## The failure path joins the trace, including where ASL cannot reach the value (SPEC-227, SPEC-228)
 
 SPEC-225 put a run's **success** path into one trace. The half an operator actually opens after an
 incident is the other one: `notify-failure` is a **separate invocation**, reached from
@@ -395,14 +408,18 @@ notification names the traceparent, that span belongs to a trace of its own. Twe
 carry it — 13 post-identity seeds and 8 `RecordFailure` states read `$.traceparent`, 8 pre-identity
 seeds supply a literal `null`.
 
-**The limit is real and is not a shortcut, and the obvious repair does not work.** A pre-identity
-seed reading `$$.Execution.Input` cannot get at the value: with no `input_template` on any Pipe that
+**The limit was real and was not a shortcut, and the obvious repair does not work.** A seed
+reading `$$.Execution.Input` cannot get at the value: with no `input_template` on any Pipe that
 path is the raw SQS batch, the traceparent is inside `[0].body` as a JSON string, and extracting it
 needs `States.StringToJson` — banned in ANY intrinsic-evaluating field on any state, not only on
 `$.error.Cause`, for the same uncatchable `States.Runtime`. Independently,
-`observability._shape_values` walks the four inbound shapes — top level, the SQS envelope,
-`BatchInput` and `request` — but never `raw` — so even a parsed envelope would not be adopted. Accepted as a limit rather than worked
-around.
+`observability._shape_values` walked four inbound shapes — top level, the SQS envelope,
+`BatchInput` and `request` — but never `raw`. **That second half was the repair rather than the
+reason, and SPEC-228 took it:** the envelope does not need parsing in ASL at all, because it is
+already on the state. The extractor gained `raw` as a fifth shape, every `RecordFailure` carries
+`$$.Execution.Input`, and the failure that replaced the state now joins the run's trace AND
+recovers the caller's request id. The ASL half above stands unchanged and is still why the
+machines are shaped this way.
 
 **The guard had to be widened before anything was threaded through it, and that ordering was the
 point.** Recognition of a "failure seed" was structural (`Parameters["error.$"]`), which missed
@@ -449,13 +466,15 @@ Detail, the corrected populations, and the residual first-segment gap: `spec-del
 
 The traceparent is minted at the **API** — the one place a run begins — written into the message
 by `enqueue.build_message`, and adopted by `traced` before the span opens, so a verb's root span
-parents to the API's. `request_id` **stays**: it is the join key for anything outside the trace — **except on the pre-identity failure path, where the seed nulls it and there is no join at all** (the SPEC-127→129 entry above carries the measurement),
+parents to the API's. `request_id` **stays**: it is the join key for anything outside the trace — **including the failure path whose error replaced the state, where the seed nulls it and the notifier recovers the caller's own id from the forwarded envelope instead** (the SPEC-127→129 entry above carries the measurement of what that path looked like before),
 and table-share carries none at all.
 
-**Four event shapes, because a verb has four entry points**: the state payload, the EventBridge
-Pipe envelope, a Distributed Map's `ItemBatcher.BatchInput`, and an inline Map's `request` block.
-The last two carried no correlation value of any kind before this, which is why nine Map-child
-verbs could not be joined to their own run.
+**Five event shapes**: the state payload, the EventBridge Pipe envelope, a Distributed Map's
+`ItemBatcher.BatchInput`, an inline Map's `request` block, and the forwarded envelope a failure
+terminal carries on the state as `raw`. The Map ones carried no correlation value of any kind
+before SPEC-225, which is why nine Map-child verbs could not be joined to their own run; the fifth
+is the failure path's, and it is a walk over the SAME envelope the Pipe branch reads rather than a
+second parser, so the list-only narrowing below is enforced once.
 
 **The shape list is a security boundary, not a convenience.** `_extract_request_id` used to fall
 back to parsing a bare dict's `body`, and for an API Gateway payload-2.0 request that `body` is

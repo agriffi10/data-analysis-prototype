@@ -159,13 +159,12 @@
     },
     "ConvertRefusedSeed": {
       "Type": "Pass",
-      "Comment": "The third failure seed, for the one failure that is a RETURN VALUE. It shapes a refusal into the {Error, Cause} the failure terminal already reads: Error is the verb's own reason code and there is no Cause, so cpcommon.errors.failure_reason returns that code and notify-failure words it. It is NOT tagged as a TerminalError, which is what stops the notifier suppressing it as a duplicate of a verb notification that never happened. `tokens` carries the row count and nothing else — the file name is recovered from $.raw, which every seed already carries.",
+      "Comment": "The third failure seed, for the one failure that is a RETURN VALUE. It shapes a refusal into the {Error, Cause} the failure terminal already reads: Error is the verb's own reason code and there is no Cause, so cpcommon.errors.failure_reason returns that code and notify-failure words it. It is NOT tagged as a TerminalError, which is what stops the notifier suppressing it as a duplicate of a verb notification that never happened. `tokens` carries the row count and nothing else — the file name is recovered from the forwarded request, which RecordFailure carries on every path.",
       "Parameters": {
         "traceparent.$": "$.traceparent",
         "requestId.$": "$.requestId",
         "username.$": "$.username",
         "format.$": "$.format",
-        "raw.$": "$$.Execution.Input",
         "tokens.$": "$.tokens",
         "error": {
           "Error.$": "$.reason"
@@ -206,13 +205,12 @@
     },
     "RequestFailureSeed": {
       "Type": "Pass",
-      "Comment": "The failure seed for every state after the request identity exists. The request IS on the state here, so the username comes from $.username — the verified identity the validator already produced — and the format rides with it so the notification can name what was being saved. $.raw still comes from the CONTEXT OBJECT: notify-failure falls back to it when the username is empty, and RecordFailure reads it unconditionally, so a Pass that did not supply it would raise an uncatchable States.Runtime on the failure path.",
+      "Comment": "The failure seed for every state after the request identity exists. The request IS on the state here, so the username comes from $.username — the verified identity the validator already produced — and the format rides with it so the notification can name what was being saved. It no longer carries the forwarded request: RecordFailure reads $$.Execution.Input for itself, so threading the envelope up from here would be the same bytes twice and one more key a seed could forget. This path.",
       "Parameters": {
         "traceparent.$": "$.traceparent",
         "requestId.$": "$.requestId",
         "username.$": "$.username",
         "format.$": "$.format",
-        "raw.$": "$$.Execution.Input",
         "tokens": null,
         "error.$": "$.error"
       },
@@ -220,13 +218,12 @@
     },
     "ValidateFailureSeed": {
       "Type": "Pass",
-      "Comment": "A validate-authorize failure happens before the request identity exists, and its input was the raw SQS ARRAY — so the Catch has no object to merge a ResultPath into and the error REPLACES the state. $.raw is read from the CONTEXT OBJECT: $$.Execution.Input is the Pipe's forwarded batch, still there whatever the Catch did to the state, and it carries the identity block the notifier recovers the actor from. The seed supplies every key the failure terminal reads: a Pass state's JSONPath hard-fails on an absent key with an uncatchable States.Runtime.",
+      "Comment": "A validate-authorize failure happens before the request identity exists, and its input was the raw SQS ARRAY — so the Catch has no object to merge a ResultPath into and the error REPLACES the state. The forwarded batch carries the identity block the notifier recovers the actor from, and RecordFailure reads it from the CONTEXT OBJECT rather than from any seed: $$.Execution.Input is still there whatever the Catch did to the state. The seed supplies every key the failure terminal reads: a Pass state's JSONPath hard-fails on an absent key with an uncatchable States.Runtime.",
       "Parameters": {
         "traceparent": null,
         "requestId": null,
         "username": null,
         "format": null,
-        "raw.$": "$$.Execution.Input",
         "tokens": null,
         "error.$": "$"
       },
@@ -234,13 +231,13 @@
     },
     "RecordFailure": {
       "Type": "Pass",
-      "Comment": "The single recorded-failure state every whole-request Catch reaches (identity is null for a pre-identity validate failure). It carries the RAW $.error {Error, Cause}, not a decoded reason: States.StringToJson raises an UNCATCHABLE States.Runtime whenever Cause is absent or is not JSON. Decode with cpcommon.errors.failure_reason, never in ASL.",
+      "Comment": "The single recorded-failure state every whole-request Catch reaches (identity is null for a pre-identity validate failure). It carries the RAW $.error {Error, Cause}, not a decoded reason: States.StringToJson raises an UNCATCHABLE States.Runtime whenever Cause is absent or is not JSON. Decode with cpcommon.errors.failure_reason, never in ASL. IT CARRIES THE FORWARDED REQUEST FROM THE CONTEXT OBJECT, $$.Execution.Input, not from the seed that reached it: a failure whose error REPLACED the state has no $.traceparent and no $.requestId left to read, and the envelope is the only surviving copy of the run — notify-failure parses the traceparent and the request id out of it in Python, which is the one place that value is reachable, since prising it out in ASL would need the banned States.StringToJson. Reading $$ here rather than threading it up through the seeds is also what keeps this to one key on one state per plane: the context object cannot be absent, so it is not a read any seed has to supply.",
       "Parameters": {
         "traceparent.$": "$.traceparent",
         "requestId.$": "$.requestId",
         "username.$": "$.username",
         "format.$": "$.format",
-        "raw.$": "$.raw",
+        "raw.$": "$$.Execution.Input",
         "tokens.$": "$.tokens",
         "status": "failed",
         "error.$": "$.error"

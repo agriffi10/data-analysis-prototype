@@ -166,8 +166,10 @@ verified rather than reasoned about:
    batch and the traceparent sits inside `[0].body`, a **JSON string**. Pulling a field out of it
    needs `States.StringToJson`, which `test_no_state_uses_a_throwing_intrinsic` forbids fleet-wide,
    for exactly the uncatchable `States.Runtime` this arc exists to avoid. Independently:
-   `cpcommon.observability._shape_values` walks the event's top level, `BatchInput` and `request` —
-   it never walks `raw`, so even a parsed envelope would not be adopted.
+   `cpcommon.observability._shape_values` walked the event's top level, `BatchInput` and `request` —
+   it never walked `raw`, so even a parsed envelope would not be adopted. **That second half was the
+   repair rather than the reason, and SPEC-228 took it**: the extractor gained `raw` as a fifth
+   shape and the envelope reaches it on the state, so nothing has to be parsed in ASL.
 2. **"The same shape exists on every plane" is false — it exists on four.** `"raw.$":
    "$$.Execution.Input"` is carried by archive, file-ops, file-send and results-conversion. The other
    four planes' pre-identity seeds carry no envelope at all.
@@ -179,11 +181,14 @@ raise the uncatchable `States.Runtime` on the failure path itself.
 `cpcommon.observability._extract_traceparent` documents a null traceparent as normal and warns on
 neither absent nor null, so the literal costs nothing at runtime.
 
-**The known limit, recorded here, in the delivery doc and in the register entry:** a **pre-identity
-failure** — one occurring before `validate-authorize` returns — **cannot join the run's trace**,
-because the only place the value exists at that moment is inside a JSON string the machine may not
-parse. What is **not** lost: `validate-authorize`'s own span already adopts the trace, reading the
-envelope in Python. What falls outside is `notify-failure`, a separate invocation.
+**The known limit, recorded here, in the delivery doc and in the register entry — SUPERSEDED by
+SPEC-228, which closed it:** a failure occurring before `validate-authorize` returns could not join
+the run's trace, because the only place the value exists at that moment is inside a JSON string the
+machine may not parse. That ASL reasoning stands. What it missed is that the value need not be read
+in ASL at all: SPEC-228 carries the envelope to `RecordFailure` from `$$.Execution.Input` and
+`notify-failure` parses it in Python, exactly as `validate-authorize` already did on the way in. The
+class is also wider than "pre-identity" describes — every validate-authorize failure lands on that
+seed, whether or not an actor was verified.
 
 #### Acceptance Criteria:
 
