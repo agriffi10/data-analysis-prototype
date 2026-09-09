@@ -1261,6 +1261,12 @@ def test_the_widened_guard_catches_the_edit_that_passes_today():
 def _record_failure_states():
     """Every plane's failure terminal, derived from the templates rather than listed.
 
+    Matched on the LAST path segment, not on the whole qualified name. ``_states`` prefixes a
+    nested state with its container (``GuardRecipients/RecordFailure``), so an exact-name match
+    would filter a nested terminal out of the population — and the two assertions in the caller
+    that exist to catch exactly that (a second terminal, and one sitting inside a Map) would then
+    be unreachable rather than merely quiet.
+
     Args:
       None.
 
@@ -1274,7 +1280,7 @@ def _record_failure_states():
     for path in _TEMPLATES:
         plane = os.path.basename(os.path.dirname(path))
         for name, state in _states(_load(path)):
-            if name == "RecordFailure":
+            if name.split("/")[-1] == "RecordFailure":
                 found.append((plane, name, state))
     return found
 

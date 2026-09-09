@@ -647,9 +647,16 @@ def _shape_values(event: object, key: str) -> Iterator[object]:
     **The fifth shape does not reopen that**, and the reason is provenance rather than shape.
     ``raw`` is written only by ASL, from ``$$.Execution.Input``, and never by a caller: the value
     is this execution's own input and can be no other run's, and the ``traceparent`` inside its
-    body is one the API stamps unconditionally over anything a caller sent. The narrowing itself is
-    unchanged and now lives in one place — ``_envelope_values`` yields nothing for a non-list — so a
-    BARE dict carrying a top-level ``body`` string still names neither key.
+    body is one the API stamps unconditionally over anything a caller sent.
+
+    **``_envelope_values``' list check is the SINGLE refusal that stops a caller's ``body`` being
+    read, and it is load-bearing on both routes.** This function's dict/list split decides which
+    value is handed over — the whole event, or ``event["raw"]`` — but it is not what refuses a bare
+    dict: measured, routing the event itself into the helper changes no extractor's answer, because
+    the helper turns a non-list away. That is the argument for one enforcement point rather than
+    two, and it is also why that check needs a fixture whose ``raw`` is a non-list carrying a
+    POPULATED body. One with an empty body returns None whether the check holds or not, and a
+    version of this docstring stood over exactly that fixture.
 
     Deliberately does not call ``events.parse_sqs_request``, which raises ``TerminalError`` on
     a malformed envelope: a logging helper that can raise a domain terminal is a logging helper
