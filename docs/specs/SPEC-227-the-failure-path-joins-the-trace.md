@@ -97,10 +97,13 @@ predicate matters — three plausible readings were built and two are wrong:
 - The predicate that works is *"**every** reachable terminal is a `Fail`"*, with a terminal
   identified structurally rather than by a name like `*NotifyFailure*` — a name test is what this FR
   is moving away from. **"Terminal" means a state that hands control nowhere**, and the definition is
-  load-bearing: read instead as *a `Succeed`/`Fail` state*, an `ItemProcessor` contains neither,
-  `all([])` is `True`, and the graph half vacuously selects **35** states fleet-wide including
-  success leaves such as `table-share/FinishRecipients/RecipientSucceeded`. The guard pins the
-  definition and keeps an emptiness guard beside it.
+  load-bearing: read instead as *a `Succeed`/`Fail` state*, an `ItemProcessor` contains neither and
+  `all([])` is `True`, so the graph half vacuously selects **35** states fleet-wide including success
+  leaves such as `table-share/FinishRecipients/RecipientSucceeded`. **Two independent things prevent
+  that and the guard keeps both, because either alone would make the other read as decorative**: the
+  terminal definition, and a non-empty check on the terminal set. Measured — the type reading *with*
+  the emptiness check gives 29, and the hands-control-nowhere reading gives 29 with or without it; 35
+  needs both mistakes at once.
 - A selected state must also have **no `ResultPath`**. A merging `Pass` does not replace the state,
   so "the seed supplies everything downstream reads" is false for it; without this discriminator
   four states are selected and produce **seven findings that are not defects**.
@@ -193,29 +196,52 @@ envelope in Python. What falls outside is `notify-failure`, a separate invocatio
       `table-share/GuardRecipients/RecipientRefused` and
       `table-share/FinishRecipients/RecipientFailed` are `End: true` inside an `ItemProcessor` and
       cannot reach `RecordFailure`; their output becomes one element of their Map's result array.
+- [ ] **The two independent derivations of the failure-path population are asserted to agree.**
+      SPEC-225's `_blocks_that_name_their_fields` already excludes exactly these 29 states by a
+      completely different mechanism — its discriminator 3, `not _reaches_a_success_terminal` — and
+      its docstring already says "29 of them, which SPEC-227 owns". Holding the two to each other is
+      nearly free and it fences a discriminator that drifts in one place only.
 - [ ] The pre-identity/post-identity split is **derived, not listed**: a seed whose
       `Parameters["error.$"]` is `"$"` had the error **replace** the whole state, so nothing from
       before the failure survives. A test asserts in **both** directions — every pre-identity seed
       supplies a literal `null`, and none reads `$.traceparent`.
 - [ ] A failure run is driven end to end on archive and on file-ops, and every span — including
-      `notify-failure`'s — carries the run's `trace_id`. Neither plane is driven through a failure
-      today: `test_one_run_one_trace.py` drives archive and file-send **success** paths only and
-      never invokes a `notify-failure` handler, so this is new work.
+      `notify-failure`'s — carries the run's `trace_id`. **This is the largest single piece of new
+      work in the spec and it is sized here rather than left to the build.**
+      `test_one_run_one_trace.py` drives archive and file-send **success** paths only, imports no
+      `*notify_failure` module, and mentions file-ops solely in a template scan — so archive needs a
+      new failure drive and file-ops needs its first appearance in the harness at all. What makes it
+      tractable: the **ASL door** into `ar_notify_failure.handler` and `fo_notify_failure.handler`
+      needs **no AWS stubbing whatsoever** (only `notify.emit_notification`), because only the
+      EventBridge door reaches a client; ready-made event fixtures already exist in each verb's own
+      suite; the span sink is `lambdas/conftest.py`'s `captured_events`, whose readers drain
+      log-foundry on every read. **One hole to plug:** that harness's `_apply`/`_resolve` strips
+      `$.` only, and `"$$.Execution.Input"` also begins with `$`, so it resolves to `None`
+      **silently** instead of tripping the loud assert beside it — building a seed's event through
+      it would fabricate `raw: None` and the drive would prove nothing.
 - [ ] The `notify-failure` verb still receives every field it reads; FR-001's guard is green.
 - [ ] **No verb changes and no inert-then-live split.** Verified: all eight validators already
       return `traceparent`, so no state reads a key a verb must first return; and no
       `notify-failure` handler holds a strict envelope check — each reads its fields with `.get()` —
       so the added key is additive. The two deploy workflows can therefore race harmlessly here.
 - [ ] Every edited template passes `aws stepfunctions validate-state-machine-definition`.
-- [ ] **The premise FR-002 rests on is closed, not assumed.** A `Catch` hands its target the failing
-      Task's *input*, so a seed stands on a success-path state, which carries the traceparent because
-      `_THREADING_STATES` is a derived-and-pinned complete set of the states that name their fields
-      individually. The one hole is a **verb** that filters its echo, which that sweep cannot see:
-      SPEC-225 pins the two that do, but as a hard-coded parametrisation rather than a derived
-      population, so a third would drop the traceparent silently. This FR derives that population by
-      globbing and asserts it equals the two (measured: exactly two files in `lambdas/` use
-      `event.items()` outside a test, so the pinned list is right today and the gap is the missing
-      derivation, not a live defect).
+- [ ] **The premise FR-002 rests on is stated as the invariant it actually is, and guarded.** The
+      tempting justification — "every validator returns `traceparent`" — does **not** support the
+      conclusion: 21 of the 29 threaded states take their object from a **non-validator** Task whose
+      absent `ResultPath` replaces the state (`archive/RequestFailureSeed` alone can be entered with
+      the return of **13** different Tasks). What actually makes it safe is the fleet's **echo
+      convention**: every replacing Task on a failure-reachable path returns `{**event, …}`,
+      `dict(event)` or `return event`, so it cannot drop a key it was never told about. That is the
+      real invariant, it was verified verb by verb across roughly thirty modules, and **nothing in
+      the tree checks it**.
+- [ ] **One guard for that invariant, derived rather than listed**, because two separate blind spots
+      turned out to be the same one. Derive the set of verbs whose Task replaces the state on a
+      failure-reachable path and assert each echoes its event. This subsumes the narrower hole in
+      SPEC-225's `test_the_two_verbs_that_filter_their_echo_keep_the_runs_trace`, whose population is
+      a **hard-coded parametrisation of two** rather than a derivation — so a third verb adopting the
+      `{k: v for k, v in event.items() if k not in (…)}` idiom would drop the traceparent silently.
+      Measured: exactly two files in `lambdas/` use `event.items()` outside a test, so the pinned
+      list is right today and what is missing is the derivation, not a fix.
 
 ### FR-003: One cross-check, over all eight planes, in both directions
 
@@ -263,17 +289,36 @@ one overlaps it is how coverage is lost quietly.
 
       | Plane | pairs (`Pass` ← producing Task) |
       |---|---|
-      | archive | `Validated`←ValidateAuthorize, `ArchiveComplete`←**WriteReceipt**, `RestoreComplete`←**UpdateReceipt** |
+      | archive | `Validated`←ValidateAuthorize, `ArchiveComplete`←**WriteReceipt** |
       | data-quality | `RecordSuccess`←DropTempTables |
       | file-send | `Validated`←ValidateAuthorize, `ShapeSummary`←CollectTransferResults |
       | results-conversion | `Validated`←ValidateAuthorize, `Described`←DescribeResults, `Converted`←Convert |
-      | table-share | `GuardRecipients/RecipientCleared`←CheckTargetAbsent, `FinishRecipients/RecipientSucceeded`←CreateTable |
+      | table-share | `ShapeSummary`←CollectTransferResults, `GuardRecipients/RecipientCleared`←CheckTargetAbsent, `FinishRecipients/RecipientSucceeded`←CreateTable |
 
       **Three** planes are "nothing to check", not two, and they are reported explicitly rather than
-      passed over silently: shared-spaces (no pair), **file-ops** (both edges carry
-      `"ResultPath": null`) and **table-builder** (`ReleaseRefreshLock` nests under `$.released`).
-      **table-share has two pairs**, both nested in `ItemProcessor`s, where authoring said it had
-      none.
+      passed over silently: shared-spaces, file-ops and table-builder. **table-share has three
+      pairs**, where authoring said it had none.
+- [ ] **Every exclusion falls out of ONE rule, rather than a list of reasons.** A pair is usable
+      only where **every inbound path converges on exactly one replacing Task**, so the `Pass`
+      provably reads that verb's return and nothing else. Three edge semantics decide it: a
+      `Next`/`Default`/`Choices` edge carries the source's **output**; a `Catch` edge carries the
+      failing Task's **input** plus the error; and a state replaces only when it has **no
+      `ResultPath` key at all**, merging when it is non-null and discarding when it is `null`.
+      Applying it, each exclusion is derived rather than asserted:
+
+      - **file-ops** and **shared-spaces** have no success-path replacing `Pass` at all — file-ops'
+        success tail is `FinaliseOutcomes → ReleaseLock → NotifyOutcomes → Succeeded`, every one a
+        Task. (Authoring's stated reason, that both file-ops edges carry `"ResultPath": null`, is
+        the wrong reason for the right answer.)
+      - **table-builder/RecordSuccess** has **three** possible producers — `ApplyRefresh`,
+        `DiffSchema`, `ExecuteDdl` — because `ReleaseRefreshLock` merges under `$.released` and the
+        walk passes through it rather than stopping there.
+      - **archive/RestoreComplete** has three — `UpdateReceipt`, `DeleteArchived`,
+        `CollectRestoreResults`. `UpdateReceipt`'s own `Catch` carries `ResultPath: "$.receiptError"`
+        and lands on `NotifyRestored` too, so on that path the state is `UpdateReceipt`'s *input*,
+        not its return. Set equality against that verb would have been a claim about one of three
+        runtime paths. `ArchiveComplete` is unaffected — single producer, verified.
+      - **table-share/FinishRecipients/RecipientCarried** resolves to no single Task producer.
 - [ ] Set equality is asserted only where it is meaningful. `file-ops/ReleaseLockOnFailure` has
       `ResultPath: null` (the result is discarded, so the next `Pass` reads the incoming state) and
       `table-builder/ReleaseRefreshLock` nests its return under `$.released`; equality against the
@@ -304,8 +349,12 @@ one overlaps it is how coverage is lost quietly.
       the two archive comments: this sweep is what falsifies it.
 - [ ] Mutation-tested per plane in both directions: renaming a key in a verb's return must fail, and
       removing a key from a state's `Parameters` must fail, each naming the plane and the key.
-- [ ] shared-spaces' conditionally-shaped validator return is handled explicitly — its optional keys
-      are declared, not silently absorbed by a subset comparison.
+- [ ] ~~shared-spaces' conditionally-shaped validator return is handled explicitly.~~ **Struck:**
+      shared-spaces has **no** usable pair, so there is nothing for this criterion to attach to —
+      `RefusedSeed` hands control to `NotifyFailure` and `UnknownActionSeed` carries
+      `ResultPath: "$.error"`. Its conditional return is harmless for a different reason, checked:
+      `traceparent` is set **before** the refusal branch (`lambdas/shared-space-validate/validate.py:235`),
+      so every arm carries it.
 - [ ] The three existing per-plane cross-checks are still present and green.
 - [ ] **Both archive comments state what actually holds them**, naming this sweep. They currently
       cite `test_state_machine_archive.py` as reading the `Validated` and `ArchiveComplete` blocks
