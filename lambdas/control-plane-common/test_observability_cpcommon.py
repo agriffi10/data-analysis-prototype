@@ -369,7 +369,7 @@ def test_an_api_gateway_body_can_set_neither_the_trace_nor_the_request_id(sink):
         "a caller put this service's API span into a trace of their choosing"
     )
     assert span.get("parent_span_id") is None
-    assert observability._extract_request_id(poisoned) is None, (
+    assert observability.request_id_of(poisoned) is None, (
         "a caller named this service's correlation key from their own HTTP body"
     )
 
@@ -387,7 +387,7 @@ def test_the_inline_map_shape_yields_the_request_id_it_used_to_lose():
       None.
     """
     child = {"recipient": {}, "request": {"requestId": "REQ-1"}}
-    assert observability._extract_request_id(child) == "REQ-1"
+    assert observability.request_id_of(child) == "REQ-1"
 
 
 def _failure_state(traceparent="TP-FROM-ENVELOPE", request_id="REQ-FROM-ENVELOPE"):
@@ -439,7 +439,7 @@ def test_the_forwarded_envelope_on_the_state_yields_both_keys():
         "the failure terminal's envelope did not yield the run's traceparent, so notify-failure "
         "opens a trace of its own"
     )
-    assert observability._extract_request_id(state) == "REQ-FROM-ENVELOPE", (
+    assert observability.request_id_of(state) == "REQ-FROM-ENVELOPE", (
         "the failure terminal's envelope did not yield the run's request id, so the failure "
         "correlates on nothing at all"
     )
@@ -482,9 +482,11 @@ def test_a_threaded_traceparent_wins_over_the_one_inside_the_envelope():
         ([{"body": json.dumps({"requestId": "X", "traceparent": "Y"}).encode()}],
          "body that is bytes rather than str"),
         ([{"body": "[1, 2]"}], "body that is JSON but not an object"),
+        ([{"body": '{"a":' + "[" * 200_000 + "]" * 200_000 + "}"}],
+         "body nested past the parser's recursion limit"),
     ],
     ids=["absent", "not-a-list", "empty-list", "no-body", "body-not-json",
-         "record-not-a-dict", "body-not-str", "body-not-an-object"],
+         "record-not-a-dict", "body-not-str", "body-not-an-object", "body-too-deep"],
 )
 def test_a_malformed_envelope_on_the_state_yields_nothing_and_raises_nothing(raw, case):
     """Every way `raw` can be unusable, asserted on the EXTRACTORS rather than on the walk.
@@ -500,6 +502,11 @@ def test_a_malformed_envelope_on_the_state_yields_nothing_and_raises_nothing(raw
     None whether their guard holds or not. So the bodies are POPULATED, the non-dict record is a
     bare JSON string, the non-str body is bytes (which `json.loads` accepts and the guard is the
     only thing refusing), and the non-object body parses to a list, whose `.get` would raise.
+
+    The parse guard is fed twice because it refuses two unrelated failures: text that is not JSON,
+    and JSON nested deeper than the decoder recurses, which raises neither `ValueError` nor
+    `TypeError`. The second matters more since a failure notification reads its request id
+    through this walk, and that emit must never raise.
 
     The "not a list" case is the one that guards a security boundary rather than a shape: with the
     list-only narrowing removed, that dict is read AS the record and yields both keys — which is a
@@ -520,7 +527,32 @@ def test_a_malformed_envelope_on_the_state_yields_nothing_and_raises_nothing(raw
         state["raw"] = raw
 
     assert observability._extract_traceparent(state) is None, f"{case} yielded a traceparent"
-    assert observability._extract_request_id(state) is None, f"{case} yielded a request id"
+    assert observability.request_id_of(state) is None, f"{case} yielded a request id"
+
+
+@pytest.mark.parametrize(
+    "value", [123, True, ["REQ-1"], {"id": "REQ-1"}, ""], ids=["int", "bool", "list", "dict", "empty"]
+)
+def test_only_a_non_empty_string_is_a_request_id_on_either_route(value):
+    """The filter two readers now lean on, and neither owns a copy of it.
+
+    The span's join key and a failure notification's payload both take whatever this returns, and
+    the browser matches the payload's id against its own string. An id of any other shape must
+    come back as None from the top-level route and from the envelope route alike.
+
+    Args:
+      value: The unusable request id.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    envelope = [{"body": json.dumps({"requestId": value})}]
+
+    assert observability.request_id_of({"requestId": value}) is None
+    assert observability.request_id_of({"requestId": None, "raw": envelope}) is None
 
 
 def test_a_bare_dicts_body_still_names_neither_key_now_that_raw_is_walked():
@@ -546,7 +578,7 @@ def test_a_bare_dicts_body_still_names_neither_key_now_that_raw_is_walked():
     assert observability._extract_traceparent(caller) is None, (
         "a caller's own HTTP body named this service's trace through the top-level `body`"
     )
-    assert observability._extract_request_id(caller) is None, (
+    assert observability.request_id_of(caller) is None, (
         "a caller's own HTTP body named this service's correlation key"
     )
 

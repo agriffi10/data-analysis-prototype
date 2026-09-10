@@ -18,11 +18,10 @@ emitted from exactly one place, so there is no duplicate-emit pair for a token t
 while the machine's own states carry a ``Retry``, and a re-invocation after a transient Lambda
 fault would otherwise send the same message twice. Content dedup is what makes that retry safe.
 
-The cost is real and worth knowing: two requests that render a byte-identical sentence inside the
-queue's five-minute window collapse to one message. The reachable case is a user refused for the
-same protected folder twice in a row — the second refusal reads identically and is dropped, so
-they see no response to their second attempt. Inherited from the neighbouring planes rather than
-introduced here.
+What content dedup does NOT collapse is two different requests, because the dedup hashes the whole
+body and every failure row carries its own request id in the payload. A user refused for the same
+protected folder twice in a row sees both refusals; only a request with no usable id, whose row
+carries no payload, can still merge with an identical one inside the queue's five-minute window.
 """
 
 import json
@@ -30,6 +29,7 @@ import logging
 import re
 from urllib.parse import quote
 
+from cpcommon import observability
 from cpcommon.errors import TerminalError
 from cpcommon.notify import actor_of, dedup_id, emit_notification
 from cpcommon.notify import notifies_on_failure as _notifies_on_failure
@@ -404,19 +404,22 @@ def request_payload(event) -> dict | None:
     record for it is held until its own expiry rather than answered. The rest of the payload is
     absent because there is no terminal to build it from.
 
+    **The id is read from every shape a failure reaches an emitter in**, not only a top-level key:
+    a recorded failure whose error replaced the state carries ``requestId: null`` beside the
+    forwarded request under ``raw``, and a timed-out execution hands over the Pipe's batch itself.
+    Reading only the key answered None on exactly the failures nothing else settles.
+
     Args:
-      event: The verb's event, or a recorded failure.
+      event: The verb's event, a recorded failure, or the Pipe's forwarded batch.
 
     Returns:
-      ``{"requestId": …}``, or None when the event carries none. That window is where the error
-      replaced the state and the seed nulled the key; the id itself is not lost, because the
-      forwarded request the failure terminal carries still names it.
+      ``{"requestId": …}``, or None when no shape names a usable one.
 
     Raises:
       None.
     """
-    request_id = event.get("requestId") if isinstance(event, dict) else None
-    return {"requestId": request_id} if isinstance(request_id, str) and request_id else None
+    request_id = observability.request_id_of(event)
+    return {"requestId": request_id} if request_id else None
 
 
 def _destination_label(prefix: str) -> str:

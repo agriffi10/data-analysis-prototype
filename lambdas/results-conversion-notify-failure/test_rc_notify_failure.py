@@ -20,6 +20,12 @@ def _capture():
     return sent
 
 
+def _payloads():
+    sent = []
+    n.notify.emit_notification = lambda user, message, **kw: sent.append(kw.get("payload"))
+    return sent
+
+
 def _request(error, username="alice", fmt="json", raw=None):
     return {"requestId": "req-1", "username": username, "format": fmt, "raw": raw, "status": "failed", "error": error}
 
@@ -129,6 +135,38 @@ def test_a_timed_out_execution_notifies_the_actor_from_the_event_input():
     sent = _capture()
     n.handler(_timed_out(json.dumps(_raw())), None)
     assert sent == [("alice", "Couldn't save the query results as Parquet: the conversion was still running after an hour and was stopped. Nothing was saved.")]
+
+
+@pytest.mark.parametrize(
+    "event,expected",
+    [
+        (
+            {**_request({"Error": "destination_occupied"}, fmt="parquet", raw=_raw(filename="q1.parquet")), "tokens": None},
+            {"requestId": "req-1", "format": "parquet"},
+        ),
+        (_request({"Error": "Sandbox.Timedout", "Cause": None}), {"requestId": "req-1", "format": "json"}),
+        (
+            {**_request({"Error": "Runtime.ImportModuleError"}, username=None, fmt=None, raw=_raw()), "requestId": None},
+            {"requestId": "req-1", "format": "parquet"},
+        ),
+        (_timed_out(json.dumps(_raw())), {"requestId": "req-1", "format": "parquet"}),
+    ],
+    ids=["convert-refusal", "converter-out-of-time", "seed-nulled-the-id", "timeout-door"],
+)
+def test_every_door_carries_the_payload_every_other_row_on_this_plane_carries(event, expected):
+    """A refusal and a success both carry the request id and the format; the terminal, where a
+    convert refusal and a converter that ran out of time both land, carried nothing. No reader
+    tracks a conversion in flight yet, and the first one would have settled every outcome but
+    these.
+
+    The third case is the one a top-level read misses: a validator fault replaces the state, so
+    the seed nulls the id and the format, and only the forwarded request still names them.
+    """
+    sent = _payloads()
+
+    n.handler(event, None)
+
+    assert sent == [expected]
 
 
 @pytest.mark.parametrize("event", [_timed_out(None, included=False), _timed_out("not json"), {"detail-type": "Step Functions Execution Status Change", "detail": "x"}])

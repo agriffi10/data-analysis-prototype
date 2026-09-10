@@ -96,6 +96,14 @@ destination prefix and the **bounded** conflicted items. Bounded by **bytes as w
 because one conflicted item is around 200 bytes at ordinary key lengths and around 12,000 at this
 plane's caps.
 
+**A whole-request failure carries `{requestId}` and nothing else**, from every Lambda of this
+plane's own that sends one. A verb's decorator reads it off the running state. The validator builds
+its emitter's event by hand, so it names the id there. Both doors of `notify-failure` read it through
+`observability.request_id_of`, because a seed that replaced the state nulls it and only the
+forwarded request under `raw` still carries it. The browser reads a row with an id and no
+`operation` as a refusal, and settles the card on it. The shared DLQ drain is the exception: it
+writes its row with no payload, so a request that dead-letters settles only at the card's expiry.
+
 The link is the destination when anything landed, the source otherwise, and for a `delete` the common
 folder of the items' **parents**. Its prefix is **percent-encoded**, which no other plane's link
 needs, because this is the only one built from an arbitrary user-controlled key.

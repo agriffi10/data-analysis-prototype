@@ -108,6 +108,7 @@ def _on_execution_timed_out(event) -> dict:
     detail = event.get("detail") or {}
     username = ""
     operation = None
+    payload = None
     if not isinstance(detail, dict):
         logger.info("timed-out execution event carries no detail object")
     else:
@@ -119,6 +120,7 @@ def _on_execution_timed_out(event) -> dict:
                 parsed = json.loads(raw)
                 username = _actor_from_raw_request(parsed)
                 operation = notify.operation_of({"raw": parsed})
+                payload = notify.request_payload(parsed)
             except ValueError as exc:
                 logger.info("could not attribute the timed-out execution: %s", exc)
 
@@ -131,7 +133,9 @@ def _on_execution_timed_out(event) -> dict:
         )
         return {"actor": {"username": ""}, "error": {"Error": "States.Timeout", "Cause": None}}
 
-    notify.emit_notification(username, messages.failure_message(operation, _TIMEOUT_REASON))
+    notify.emit_notification(
+        username, messages.failure_message(operation, _TIMEOUT_REASON), payload=payload
+    )
     logger.info("notified %s that their file operation timed out", username)
     observability.info(
         "notified the actor that the execution timed out",
@@ -223,6 +227,10 @@ def handler(event, context) -> dict:
     own actor field is attacker-controlled, and notifying it would let anyone deliver text to
     any inbox.
 
+    Both doors attach the request id as the payload, read from the forwarded request when the seed
+    nulled it: a browser holding an in-flight card for this run settles it by matching that id, and
+    no outcome producer will run to settle it instead.
+
     Two entry shapes reach this one handler, dispatched on the detail-type: the ASL state's
     request object, and EventBridge's status-change event for a run the machine's own
     ``TimeoutSeconds`` stopped. One function rather than two because they end in the same
@@ -274,7 +282,11 @@ def handler(event, context) -> dict:
         )
         return request
 
-    notify.emit_notification(username, messages.failure_message(notify.operation_of(request), reason))
+    notify.emit_notification(
+        username,
+        messages.failure_message(notify.operation_of(request), reason),
+        payload=notify.request_payload(request),
+    )
     observability.info(
         "notified the actor of a failure",
         outcome="notified",

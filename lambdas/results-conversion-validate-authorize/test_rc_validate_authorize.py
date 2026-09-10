@@ -346,6 +346,33 @@ def test_a_refusal_after_identity_notifies_the_actor_exactly_once_with_the_reque
     assert kwargs["payload"] == {"requestId": "req-1", "format": "parquet"}
 
 
+def test_a_CONTRACT_refusal_carries_the_request_id_but_not_the_format_it_refused():
+    """The id was named only after the contract passed, so a contract refusal carried no payload
+    at all. The format is the half that must wait: it is rendered into the sentence, and here it
+    is the very field that failed."""
+    err, sent, _ = _refused(_body(format="csv"))
+
+    assert err.reason == "invalid_request"
+    assert [kwargs["payload"] for _, _, kwargs in sent] == [{"requestId": "req-1"}]
+
+
+@pytest.mark.parametrize("request_id", [None, 7], ids=["missing", "not-a-string"])
+def test_a_request_with_no_usable_id_reaches_the_contracts_own_refusal_and_names_no_id(request_id):
+    """The id is read before the contract has checked it, so reading it must not be what fails: a
+    subscript would raise outside the refusal's own handler and the actor would be told nothing
+    specific. What the payload cannot use it drops, rather than forwarding it."""
+    body = _body()
+    if request_id is None:
+        del body["requestId"]
+    else:
+        body["requestId"] = request_id
+
+    err, sent, _ = _refused(body)
+
+    assert err.reason == "malformed_event"
+    assert [kwargs.get("payload") for _, _, kwargs in sent] == [None]
+
+
 def test_the_identity_is_stamped_on_the_span(captured_events):
     _setup()
     v.handler(_event(), None)

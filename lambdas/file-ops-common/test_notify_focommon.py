@@ -384,7 +384,13 @@ def test_one_message_per_run_and_one_dedup_token_for_it(sent):
 
 def test_a_whole_request_FAILURE_also_carries_its_request_id(sent):
     """Same argument, one path over: a run that failed before it reached the producer settles
-    nothing otherwise, and a reader's in-flight record for it is held until its own expiry."""
+    nothing otherwise, and a reader's in-flight record for it is held until its own expiry.
+
+    This proves the emitter forwards an id it is handed, and nothing more. The validator builds
+    the emitter's event by hand, so whether that event names the id is asserted by driving the
+    validator's handler, in its own suite — this test stayed green while every refusal the
+    validator sent in production carried no id at all.
+    """
     notify.emit_failure(
         {"requestId": "r-2", "actor": {"username": "alice"}, "operation": "move"},
         TerminalError("no_items", "nothing selected"),
@@ -394,12 +400,17 @@ def test_a_whole_request_FAILURE_also_carries_its_request_id(sent):
     assert sent[0][2]["payload"] == {"requestId": "r-2"}
 
 
-def test_the_pre_identity_window_carries_no_payload_because_there_is_nothing_to_correlate(sent):
-    notify.emit_failure(
-        {"raw": _pipe()}, TerminalError("malformed_event", "bad"), "validate-authorize"
-    )
-
-    assert sent[0][2]["payload"] is None
+@pytest.mark.parametrize(
+    "event",
+    [{"requestId": "r"}, {"requestId": None, "raw": _pipe()}, _pipe()],
+    ids=["the-running-state", "a-recorded-failure-whose-seed-nulled-it", "the-pipe-batch-itself"],
+)
+def test_the_request_id_is_found_in_every_shape_a_failure_arrives_in(event):
+    """The failure terminal is handed the second shape and the timeout door the third, and
+    reading only a top-level key answered None on both — which are the failures no outcome
+    producer will ever settle instead."""
+    assert notify.request_payload(event) == {"requestId": "r"}
+    assert notify.request_payload({"requestId": None, "raw": [{"body": "{"}]}) is None
 
 
 def test_a_delete_whose_items_share_no_folder_falls_back_to_the_space_root():

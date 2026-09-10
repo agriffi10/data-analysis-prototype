@@ -476,8 +476,8 @@ before SPEC-225, which is why nine Map-child verbs could not be joined to their 
 is the failure path's, and it is a walk over the SAME envelope the Pipe branch reads rather than a
 second parser, so the list-only narrowing below is enforced once.
 
-**The shape list is a security boundary, not a convenience.** `_extract_request_id` used to fall
-back to parsing a bare dict's `body`, and for an API Gateway payload-2.0 request that `body` is
+**The shape list is a security boundary, not a convenience.** The request-id walk
+(`request_id_of`) used to fall back to parsing a bare dict's `body`, and for an API Gateway payload-2.0 request that `body` is
 **the caller's own HTTP body** — so a caller could name this service's correlation key. Latent for
 the request id, because the router overwrites it with the gateway's; **not** latent once a
 traceparent travels the same walk, since nothing overwrites an adopted trace. The body branch is
@@ -1081,6 +1081,20 @@ scoping the field to "what a re-submit needs" would leave successful operations 
 argument applies one path over, to a run that **failed** before the producer ever ran, which settles
 nothing otherwise; so the two failure emitters carry a minimal `{requestId}` payload too. That is
 beyond the spec's own acceptance criteria and was built deliberately.
+
+**Built into the emitters, it still never reached a failure row, and why is the lesson.** The
+emitters forward whatever id their event names, and their test handed them one. The validator
+builds that event by hand and left the id out, so every validate-stage refusal landed with
+`payload: null` in production, and the failure terminal sent no payload on either of its doors.
+Now the validator names the id, and the terminal reads it through
+`observability.request_id_of`, which finds it in the forwarded request wherever the seed nulled it.
+The tests drive the validator's handler and the terminal's doors, because an emitter's own test
+cannot see what its caller leaves out. Results-conversion had the same two gaps: its terminal sent
+no payload, and its validator named the id only once the contract passed. Both took the same fix,
+though no reader tracks a conversion in flight yet: every row the plane's own Lambdas write now
+carries the id, and the first reader built would otherwise miss exactly the failures nobody
+exercises. The shared DLQ drain still writes its row with no payload on either plane, so a
+dead-lettered request settles only at a reader's own expiry.
 
 ## The outcome link: destination, source, or the common folder of the items' PARENTS (SPEC-191)
 
