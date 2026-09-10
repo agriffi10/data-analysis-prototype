@@ -37,6 +37,7 @@ entry you need, not the file.**
 - [The free-name probe moved to the API, not to the plane (SPEC-198, amends SPEC-187)](#the-free-name-probe-moved-to-the-api-not-to-the-plane-spec-198-amends-spec-187)
 - [An app-managed path is built by one function per tree, and a sweep refuses a second (SPEC-218, superseded in part by SPEC-219)](#an-app-managed-path-is-built-by-one-function-per-tree-and-a-sweep-refuses-a-second-spec-218-superseded-in-part-by-spec-219)
 - [Both homes of a moving folder are admitted before either is written to (SPEC-219)](#both-homes-of-a-moving-folder-are-admitted-before-either-is-written-to-spec-219)
+- [The folders moved, and five Deny mirrors did not move with them (SPEC-220)](#the-folders-moved-and-five-deny-mirrors-did-not-move-with-them-spec-220)
 
 ## Fences
 
@@ -71,13 +72,21 @@ unrecoverable — revisit before real user data lands.
 - **The free-name probe moved to the API, not to the plane** — 999 round trips would be strictly
   worse than the loop it replaced. `numberedName` lives in Python only, and **exhaustion is now
   distinguishable from failure** (409 + `attempts`), which it was not.
-- **An app-managed path is BUILT by two functions per tree** — the SINGULAR builder is where a
-  write goes, the PLURAL one is every root-anchored comparison, and a moving folder has two admitted
-  homes while a migration runs. **The plural spells both as literals rather than deriving either
-  from the singular**, so moving the write does not drag every comparison to a third place. No VALUE
-  can show that while the singular is still depth-one, so each tree guards it directly. A CI sweep
-  refuses a declaration or construction outside the owners, and **no builder normalizes** (the FIFO
-  group id digests one).
+- **An app-managed path is BUILT by three functions per tree** — the SINGULAR builder is where a
+  write goes, the PLURAL one is every root-anchored comparison, and the SEGMENT one is every
+  any-depth scan. The plural spelled both homes as literals while a moving folder had two, so that
+  moving the write could not drag every comparison to a third place; with one home left it
+  delegates, and each tree guards the delegation directly because no VALUE can tell a derived
+  prefix from a literal one. A CI sweep refuses a declaration or construction outside the owners,
+  and **no builder normalizes** (the FIFO group id digests one).
+- **A rule that mirrors a SHARED-bucket Deny scans segments, and it must scan for the folder's
+  segments rather than its NAME.** The shared Denies put a wildcard where the space name goes and an
+  S3 resource wildcard matches `/`, so they reach the folder at any depth — which is why these rules
+  exist. Five of them were written as `name in segments`, fed by no builder, and every one silently
+  outlived the move: the Deny became `*/system_settings/archive/*` while they went on refusing
+  `finance/archive/`, a folder that is now the user's. **This class fails SAFE**, which is what let
+  it sit unnoticed behind a green suite — a pair test that only asserts the refusal cannot see it,
+  and only a row expecting `null` at the retired name can. They all read `app_managed_segments` now.
 - **A rule that builds its prefix from a PARAMETER is invisible to that sweep** — two were — so it
   owes a pair test instead. And **a pair test asserts which folder the refusal NAMES, not just its
   reason code**: once the parent prefix joins the same list, a rule that learned one home still
@@ -1182,6 +1191,13 @@ What shipped, module by module: `docs/spec-delivery/SPEC-218-one-builder-per-app
 
 ## Both homes of a moving folder are admitted before either is written to (SPEC-219)
 
+> **The window this opened is CLOSED (SPEC-220, 2026-09-09).** Each folder has one home again: the
+> objects moved, the old prefixes are proved empty and their statements are gone, so nothing below
+> describes the current tree. It is kept because the SHAPE is the reusable part — admit additively,
+> move, then narrow — and because the narrowing found what admitting additively could not: the
+> builders carried every root-anchored rule and none of the five that scan segments. Read the
+> entry below this one for what is true now.
+
 Relocating an app-managed folder relocates two things at once: the IAM Deny keyed on its literal
 path, and every rule that compares a key to that same path. The window between them is one in which
 the data is writable and nothing fails, so this spec opened the destination first and left the
@@ -1217,3 +1233,38 @@ the parent prefix joins the same list, every second home is a strict descendant 
 distinguishes the two tuples through `startswith` — the test proves the list membership and cannot
 prove the re-pointing. And adding the parent to a list gives every rule a neighbour that refuses the
 same fixture with the same reason code, so a pair test must assert which folder the refusal NAMES.
+
+
+## The folders moved, and five Deny mirrors did not move with them (SPEC-220)
+
+`athenaresults/` and the receipt folder now sit under `system_settings/`; their objects were copied
+and the sources deleted (`finish` run `34415666578`, 788 deleted, 0 refused; `prove-empty`
+`34415782105`), and the old-anchor statements came out. `shared_tables/` did **not** move — those
+tables were sent to the space and are the user's to edit — so it keeps its depth-one anchors and the
+`system_settings/shared_tables/` ones SPEC-219 added additively came out instead. A depth-one
+**Allow** came out too: results-conversion held `s3:GetObject` on `*/athenaresults/*`, and every
+other anchor removed was a Deny, so that one's survival would have been an escalation over a path
+the narrowing makes ordinary rather than a de-restriction.
+
+**The builders carried the anchored rules; they did not carry the any-depth ones.** A rule mirroring
+a SHARED-bucket Deny cannot compare a prefix — the Deny's wildcard sits where the space name goes and
+matches `/`, so it reaches the folder at any depth — so it scans segments instead. Five did, and all
+five scanned for the bare folder NAME, fed by no builder: `writeLockedPrefix.ts`,
+`focommon.protected._is_at_or_below`, `focommon.delete.assert_item_deletable`,
+`apicommon.protected._is_write_locked`, `arcommon.plan._assert_deletable_folder`. After the move each
+refused writes, deletes and archives IAM permits, in a folder the user made and called `archive`.
+
+**The reason it survived a green suite is the direction it fails in.** Over-refusal produces no
+error anyone reports — a control greys out — and every pair test asserted only that the refusal
+happened. So the pair tests were **inverted rather than collapsed**: each keeps two rows, and the
+retired home's row expects `null`. A single row would pass just as happily against a rule still
+anchored at depth one, which is the regression the narrowing can introduce. `app_managed_segments`
+is now the one home for the segment form, as `app_managed_prefixes` is for the prefix form.
+
+Do **NOT** re-reserve the three names at a space root: after the narrowing `alice/athenaresults/` is
+an ordinary user path, and the dialogs' refusal of those names *directly inside* `system_settings/`
+is partial by construction — uploads, pastes and plane-side moves create folders without the
+validator. A root-aware, all-paths guard is its own spec. `scripts/migrate_system_settings.py` stays
+and every mode now refuses `narrowing_already_merged`, which is what makes the destructive workflow
+inert rather than merely un-dispatched. Full write-up:
+`docs/spec-delivery/SPEC-220-move-the-app-managed-folders-then-narrow.md`.

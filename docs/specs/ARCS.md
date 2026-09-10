@@ -2811,10 +2811,27 @@ loss of protection.
   one. Nothing user-visible
   changes and the rollback stays exercisable, because the old path is still the live one.
 - **SPEC-220 — the move, then the narrowing.** Two merges. Writes switch, existing objects are
-  copied, the shared tables' Glue `LOCATION`s are re-pointed and the Athena output location follows;
-  the group row is **deleted**, because the folder is now real. Then, after the live checks and
-  while the rollback still works, the old-path statements come out and the old prefix is proved
-  empty **positively** — an absence read off a plan is not evidence.
+  copied and the Athena output location follows; the group row is **deleted**, because the folder is
+  now real. Then, after the live checks and while the rollback still works, the old-path statements
+  come out and the old prefix is proved empty **positively** — an absence read off a plan is not
+  evidence.
+
+  > **Shipped 2026-09-09, and the arc's own summary above is wrong in one clause.** No Glue
+  > `LOCATION` was re-pointed and the migration built no Glue client at all, because
+  > `shared_tables/` turned out **not** to move — a shared table is data another space sent this
+  > one and the user may edit it. **Two folders moved, not three.** So trap 1 below never fired,
+  > and the `system_settings/shared_tables/` anchors SPEC-219 added additively guarded a prefix
+  > nothing would ever write to and came out with the narrowing, along with the `glue:UpdateTable`
+  > grant that was issued for the re-point and never called once.
+  >
+  > **The trap the arc did not name is the one it shipped.** The builders carried every
+  > root-anchored rule, and carried none of the five that mirror a SHARED-bucket Deny by scanning
+  > segments — those were hand-written against the bare folder NAME, and went on refusing
+  > `finance/archive/` after the Deny moved. It fails in the SAFE direction, so a green suite says
+  > nothing: every pair test asserted the refusal and none asserted its absence. The fix was a
+  > third builder, `app_managed_segments`, and pair tests **inverted rather than collapsed**.
+  > Entry: `decisions/storage.md` (*The folders moved, and five Deny mirrors did not move with
+  > them*).
 
 **Four traps this arc is most likely to ship green.**
 

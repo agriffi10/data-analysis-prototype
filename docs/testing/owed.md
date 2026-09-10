@@ -1108,11 +1108,43 @@ than "gone from the plan":
 
 ---
 
+## SPEC-220 — the migration ran, and what the post-`finish` read could and could not see (2026-09-09)
+
+**The one-shot is complete.** `report` `34415568703` (788 keys, no conflicts), `copy` `34234219110`
+(788 keys, 0 conflicts), `verify` `34234773116` (40 keys), **`finish` `34415666578` — 788 deleted,
+0 absent, 0 refused**, and **`prove-empty` `34415782105` — "every old prefix is empty across every
+space"**, run under the deploy role from `main`, which is the identity and the ref the workflow
+requires. The proved-empty run is FR-005's evidence and it is recorded here rather than in
+[`e2e.md`](e2e.md) because no signed-in session can make it: it enumerates both space buckets.
+
+**The post-`finish` catalog read, and the population it could not reach.** FR-004 left one row owed
+after the pre-`finish` pass: re-read every table's `LOCATION` once the sources were gone. Run this
+session through the portal's own API, by wrapping `fetch` in the signed-in page and driving the
+schema rail, so the session's bearer was never read out of the browser.
+
+| What | Result |
+|---|---|
+| The three real shared tables | Still `{space}/shared_tables/{table}`. `shared_tables/` did not move, and did not. |
+| Tables pointing into a moved prefix | **One of 16 located tables** — `dwb_testing_all.lotto_draws_by_year` → `s3://dat-prod-user-space/admin/system_settings/athenaresults/tables/89cfcb49-…`. It is at the **new** home, and its uuid appears in **zero** of the record's 788 keys, so `finish` did not touch it: a table created after the write switch. |
+| Did `finish` delete any table's data? | **No.** The 788 deleted sources are 331 `.csv`, 348 `.metadata`, 107 `.txt` and 2 `.json`, with **zero** keys under any `athenaresults/tables/` subfolder — Athena result artifacts, not table backing data. |
+
+**The 09-09 pre-`finish` reading of "zero located tables point at these prefixes" was true of that
+day's population and is NOT a durable invariant.** A table created from query results legitimately
+lives under `system_settings/athenaresults/tables/`, and one now does. Anything written later that
+repeats the absence as a rule is wrong.
+
+| Still owed | Why one signed-in session cannot close it |
+|---|---|
+| The same `LOCATION` read across **every** Glue database, not the nine this session can see | `agriffith` sees its own database and the eight shared spaces it belongs to. A table in another user's personal database could in principle have been located under their old prefix. What bounds the risk is the extension-and-population evidence above — the deleted set contains no table data of any kind — rather than a sweep. A full sweep needs the deploy role, which is a Lake Formation data-lake admin; no workflow currently exposes a Glue read, and adding one for a check whose risk is already bounded was not worth a new dispatchable surface. |
+
+---
+
 ## SPEC-219 — the new `system_settings/` Denies, proved either side of the apply (2026-09-06)
 
 **DISCHARGED.** FR-004's IAM half. The route half is **not** here: it runs from a signed-in session,
-so by this file's own scope it belongs in [`e2e.md`](e2e.md)'s API table, where it sits beside its
-`{root}archive/` twin marked *OWED, not yet run*.
+so by this file's own scope it belongs in [`e2e.md`](e2e.md)'s API table. Both halves were run on
+2026-09-09 and both answered `explicitDeny` / 403; SPEC-220's narrowing then made the
+`{root}archive/` twin an ordinary writable path, and that row now expects **200**.
 
 | Check | Before the apply | After |
 |---|---|---|
