@@ -333,6 +333,7 @@ def test_every_code_any_verb_on_this_plane_can_raise_is_registered_and_worded():
         reasons.RESULTS_UNREADABLE,
         reasons.UNSUPPORTED_COLUMN_TYPE,
         reasons.EXCEL_ROW_LIMIT,
+        reasons.EXCEL_CELL_LIMIT,
         reasons.DESTINATION_OCCUPIED,
         reasons.TOO_MANY_COLUMNS,
         reasons.INVALID_COLUMN_NAME,
@@ -381,6 +382,7 @@ NAMES_THE_FILE = (
     "results_unreadable",
     "unsupported_column_type",
     "excel_row_limit",
+    "excel_cell_limit",
     "destination_occupied",
     "too_many_columns",
     "protected_location",
@@ -402,6 +404,64 @@ GOLDEN_ROW_LIMIT = (
     'than a spreadsheet can hold, so "q1.xlsx" was not written. Please save them as Parquet '
     "instead, or narrow the query."
 )
+
+#: The cell-limit refusal as a user reads it for the query that timed out in production, with
+#: the converter's own integer counts. Written out in full because the resolver BLANKS a marker
+#: nothing filled, so a sentence that lost its limit would still carry no brace and pass every
+#: sweep that looks for one.
+GOLDEN_CELL_LIMIT = (
+    "Couldn't save the query results as Excel: the results have 1,048,575 rows and 15 columns "
+    "(15,728,625 cells), which is more than the 4,100,000 cells an Excel file can be made from "
+    'here, so "big.xlsx" was not written. Please save them as Parquet instead, or narrow the query.'
+)
+
+
+def test_the_cell_limit_refusal_reads_as_the_spec_wrote_it():
+    produced = messages.failure_message(
+        reasons.EXCEL_CELL_LIMIT,
+        {"format": "xlsx", "filename": "big.xlsx", "rows": 1_048_575, "columns": 15, "count": 15_728_625},
+    )
+    assert produced == GOLDEN_CELL_LIMIT
+
+
+def test_every_code_the_excel_predicate_returns_is_one_the_converter_refuses_with():
+    """`excel_refusal` names the code; the converter has to have a branch that refuses with it.
+
+    Read from the two ASTs rather than trusted: the predicate lives in this layer and the branch
+    in the verb, so a code the predicate learns with no branch beside it would fall straight
+    through to a write. The branches are collected from the one helper that holds them — the
+    whole module also refuses `results_unreadable`, which would satisfy a predicate that returned
+    it with no Excel branch at all.
+    """
+    predicate = next(
+        node
+        for node in ast.walk(ast.parse((_HERE / "rccommon" / "config.py").read_text(encoding="utf-8")))
+        if isinstance(node, ast.FunctionDef) and node.name == "excel_refusal"
+    )
+    returned = {
+        node.value.attr
+        for node in ast.walk(predicate)
+        if isinstance(node, ast.Return) and isinstance(node.value, ast.Attribute)
+    }
+    assert {"EXCEL_ROW_LIMIT", "EXCEL_CELL_LIMIT"} <= returned, f"the collector read {returned}"
+    verb = ast.parse(
+        (_HERE.parent / "results-conversion-convert" / "rc_convert.py").read_text(encoding="utf-8")
+    )
+    writer = next(
+        node
+        for node in ast.walk(verb)
+        if isinstance(node, ast.FunctionDef) and node.name == "_refuse_what_excel_cannot_hold"
+    )
+    branches = {
+        node.args[0].attr
+        for node in ast.walk(writer)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_Refusal"
+        and node.args
+        and isinstance(node.args[0], ast.Attribute)
+    }
+    assert returned <= branches, f"the converter has no refusal for {sorted(returned - branches)}"
 
 
 #: Step Functions' ceiling on a task state's input or output, in bytes.
@@ -518,7 +578,7 @@ def test_the_row_limit_refusal_is_the_sentence_the_browser_renders():
     """
     produced = messages.failure_message(
         reasons.EXCEL_ROW_LIMIT,
-        {"format": "xlsx", "filename": "q1.xlsx", "count": "1,400,000"},
+        {"format": "xlsx", "filename": "q1.xlsx", "count": 1_400_000},
     )
     assert produced == GOLDEN_ROW_LIMIT
     assert produced == _browser_golden(), (
@@ -557,6 +617,59 @@ def test_the_wording_names_the_format_and_the_file_where_they_are_known():
 _CAP_GRANULARITY_MB = 64
 
 
+#: The granularity the cell cap is floored to, for the same reason: the sentence quotes it.
+_CELL_GRANULARITY = 100_000
+
+_MIB = 1024**2
+
+#: How much slower production converts than the local measurement. MEASURED at 4.0 on the
+#: 490,000-row production run's own query, rebuilt to the byte: 19,566 ms in its REPORT line
+#: against 4.91 s locally, where the production figure also carries the download and the
+#: upload. Rounded up, and used for every format's time check alike.
+_LOCAL_TO_PRODUCTION = 5
+
+_TIMEOUT_RESERVE_SECONDS = 60
+
+#: The Excel path's peak memory, MEASURED per shape in the fleet image — `config.MEASURED_ON`
+#: says which runs and against what. Each row is one generated Athena-shaped result: its column
+#: count, its CSV bytes per cell, the peak bytes per cell (the cgroup slope between two sizes, the
+#: HIGHEST over every run on either architecture, since the slope moves by several percent from
+#: run to run), and cells per second (the LOWEST over the native runs). Most maxima come from the
+#: two exploratory runs, which charged a large CSV's page cache twice; `scripts/measure_excel_peak.py`
+#: reads each shape at or below its row here. This is the corpus the model is held to and the guard
+#: scales, and it is the evidence the constants in `config` cite.
+MEASURED_EXCEL_SHAPES = (
+    ("NULL text", 15, 1.0, 252.4, 480_000),
+    ("empty text", 15, 3.0, 258.5, 475_000),
+    ("one-character text, the query that timed out in production", 15, 4.0, 293.0, 425_000),
+    ("small integer", 15, 4.0, 255.2, 484_000),
+    ("unique integer", 15, 9.75, 319.0, 483_000),
+    ("double", 15, 6.0, 311.2, 479_000),
+    ("boolean", 15, 7.0, 263.3, 364_000),
+    ("date", 15, 13.0, 311.9, 412_000),
+    ("timestamp", 15, 26.0, 363.0, 379_000),
+    ("decimal(10,2)", 15, 9.0, 413.3, 431_000),
+    ("unique decimal(38,10)", 15, 41.0, 487.8, 383_000),
+    ("unique 20-character text", 15, 23.0, 497.8, 302_000),
+    ("unique 37-character text", 15, 40.0, 610.0, 276_000),
+    ("NULL integer", 15, 1.0, 238.5, 491_000),
+    ("NULL double", 15, 1.0, 244.8, 525_000),
+    ("one-character text, sixty wide", 60, 4.0, 273.1, 505_000),
+    ("three bigints and a label, the 490,000-row production run", 4, 8.22, 410.8, 396_000),
+    ("unique 13-character text, the live check at the caps", 4, 16.0, 520.4, 257_000),
+    ("unique 16-character text", 4, 19.0, 539.3, 184_000),
+    ("timestamp, four wide", 4, 26.0, 433.0, 346_000),
+    ("decimal(10,2), four wide", 4, 9.0, 490.8, 353_000),
+    ("unique 200-character text", 4, 203.0, 1552.6, 152_000),
+    ("one-character text, one wide", 1, 4.0, 642.5, 296_000),
+)
+
+
+def _memory_budget_mb() -> float:
+    """The converter's memory, less the reserve it never spends, in MiB."""
+    return config.CONVERTER_MEMORY_MB * (1 - config.MEMORY_RESERVE)
+
+
 def _derived_cap(fmt: str) -> int:
     """Recomputes one format's size cap from the measured budget, independently of the module.
 
@@ -574,34 +687,53 @@ def _derived_cap(fmt: str) -> int:
       None.
     """
     disk_mb = config.CONVERTER_EPHEMERAL_MB * (1 - config.DISK_RESERVE)
-    memory_mb = config.CONVERTER_MEMORY_MB * (1 - config.MEMORY_RESERVE)
     # The downloaded CSV and the written file sit on the scratch disk at the same time.
     bounds = [disk_mb / (1 + config.OUTPUT_EXPANSION[fmt])]
     if fmt == "xlsx":
-        # And only Excel also has to fit in RAM, because only Excel cannot stream.
-        bounds.append(memory_mb / config.EXCEL_MEMORY_EXPANSION)
+        # And Excel's bytes are the ones its cell cap's cells are already paid for, so the
+        # corner the caps admit carries no long-text term.
+        bounds.append(config.EXCEL_COVERED_BYTES_PER_CELL * _derived_cell_cap() / _MIB)
     floored = int(min(bounds) // _CAP_GRANULARITY_MB) * _CAP_GRANULARITY_MB
-    return floored * 1024**2
+    return floored * _MIB
+
+
+def _derived_cell_cap() -> int:
+    """Recomputes the Excel cell cap: what memory holds once the baseline and every row are paid."""
+    rows_mb = config.EXCEL_PEAK_BYTES_PER_ROW * config.EXCEL_MAX_ROWS / _MIB
+    cells_mb = _memory_budget_mb() - config.EXCEL_BASELINE_MB - rows_mb
+    cells = int(cells_mb * _MIB / config.EXCEL_PEAK_BYTES_PER_CELL)
+    return cells // _CELL_GRANULARITY * _CELL_GRANULARITY
+
+
+def _modelled_bytes_per_cell(columns: int, csv_bytes_per_cell: float) -> float:
+    """The model's peak bytes per cell for a shape, its row's share included."""
+    long_bytes = max(0.0, csv_bytes_per_cell - config.EXCEL_COVERED_BYTES_PER_CELL)
+    return (
+        config.EXCEL_PEAK_BYTES_PER_CELL
+        + config.EXCEL_PEAK_BYTES_PER_ROW / columns
+        + long_bytes * config.EXCEL_PEAK_BYTES_PER_LONG_BYTE
+    )
 
 
 def test_each_formats_size_cap_is_computed_from_the_measured_converter_budget():
     """The caps are derived, and the derivation is the reason they differ by an order of magnitude.
 
-    Both bounds are measured on the fleet image rather than assumed — `config.MEASURED_ON` says
-    against what. The streamed formats are bounded by the SCRATCH DISK, which has to hold the
-    downloaded CSV and the written file at once. Excel is bounded by MEMORY, because it is the
-    one format that cannot stream: polars materialises the frame and xlsxwriter builds the whole
-    workbook beside it, and the measured peak was 23x to 32x the CSV. Taking the worst of those
-    rather than a fitted slope is deliberate — the failure it guards against is an OOM.
+    The streamed formats are bounded by the SCRATCH DISK, which has to hold the downloaded CSV
+    and the written file at once. Excel is bounded by MEMORY, because it is the one format that
+    cannot stream, and its memory is set by CELLS: polars hands xlsxwriter a Python copy of every
+    cell and xlsxwriter stores each again, so a one-byte NULL costs about 250 bytes. That is why
+    its first cap is a cell count, and why its byte cap is only the bytes those cells already
+    pay for — a byte cap alone, safe for the worst shape, would be about 8 MB.
 
-    A single cap could not be honest here: applied at Excel's bound it would refuse Parquet
-    conversions that work comfortably, and applied at the disk bound it would promise an Excel
-    conversion that runs out of memory two thirds of the way through.
+    The model is only honest if the corner is its maximum, and the last assertion is what makes
+    it one: a cell must cost more than the long-text bytes it covers, or a result of fewer and
+    longer cells would out-weigh the corner the cap was derived at.
     """
     assert set(config.RESULTS_MAX_BYTES) == set(config.OUTPUT_EXPANSION) == {"parquet", "json", "xlsx"}
     for fmt, cap in config.RESULTS_MAX_BYTES.items():
         assert cap == _derived_cap(fmt), f"{fmt}'s cap is not what the budget derives"
-        assert cap % 1024**2 == 0, "the cap must render in whole units to a user"
+        assert cap % _MIB == 0, "the cap must render in whole units to a user"
+    assert _derived_cell_cap() == config.EXCEL_MAX_CELLS, "the cell cap is not what the budget derives"
     assert config.RESULTS_MAX_BYTES["xlsx"] < config.RESULTS_MAX_BYTES["json"], (
         "Excel is the memory-bound format; a budget that made it the largest has lost the "
         "constraint that produced it"
@@ -609,27 +741,112 @@ def test_each_formats_size_cap_is_computed_from_the_measured_converter_budget():
     assert config.max_result_bytes("nonsense") == min(config.RESULTS_MAX_BYTES.values()), (
         "an unknown format falls to the smallest cap, never the largest"
     )
+    covered_cost = config.EXCEL_PEAK_BYTES_PER_LONG_BYTE * config.EXCEL_COVERED_BYTES_PER_CELL
+    assert covered_cost < config.EXCEL_PEAK_BYTES_PER_CELL, (
+        "a cell must cost more than the long-text bytes it covers, or trading cells for bytes "
+        "raises the peak and the corner the cap is derived at is no longer the worst case"
+    )
+
+
+def test_the_excel_memory_model_bounds_every_measured_shape():
+    """Every term of the model sits at or above what was measured, so the SUM does too.
+
+    Held per shape, at the shape's own width and CSV bytes, against the measured slope — the
+    model is an upper envelope, and a constant edited below the shape that sets it is red here
+    whether or not the cap it feeds happens to floor to the same number.
+    """
+    under = [
+        f"{name}: modelled {_modelled_bytes_per_cell(columns, csv):.1f} B/cell, measured {peak}"
+        for name, columns, csv, peak, _ in MEASURED_EXCEL_SHAPES
+        if _modelled_bytes_per_cell(columns, csv) < peak
+    ]
+    assert len(MEASURED_EXCEL_SHAPES) == 23, "the corpus is the spec's measured table"
+    assert not under, "the model is below a measurement: " + "; ".join(under)
+
+
+def _largest_admitted_rows(columns: int, csv_bytes_per_cell: float) -> int:
+    """The most rows of one shape that clear both of production's Excel checks.
+
+    Those are describe-results' byte cap and the converter's `excel_refusal`, and the answer is
+    SEARCHED through them rather than computed from the constants: a predicate that stopped
+    refusing then lets the shape grow here as it would in production, and the guard below fails
+    on the memory that shape needs, naming it, rather than on its own bookkeeping. Both checks
+    only ever refuse more as rows grow, so a bisection finds the boundary, and the byte cap
+    always binds eventually, so the search is bounded.
+    """
+
+    def admitted(rows: int) -> bool:
+        within_bytes = rows * columns * csv_bytes_per_cell <= config.max_result_bytes("xlsx")
+        return within_bytes and config.excel_refusal(rows, columns) is None
+
+    low, high = 0, int(config.max_result_bytes("xlsx") // (columns * csv_bytes_per_cell)) + 1
+    while low < high:
+        middle = (low + high + 1) // 2
+        if admitted(middle):
+            low = middle
+        else:
+            high = middle - 1
+    return low
+
+
+def test_every_measured_shape_fits_the_converter_at_the_largest_size_the_caps_admit():
+    """The guard the byte cap never had: every shape, scaled to the most the caps let through.
+
+    Its memory is the shape's MEASURED per-cell cost times its cells, plus the baseline, and it
+    must fit what the function has less the reserve; its time, at the local rate over the
+    measured local-to-production ratio, must fit the timeout less its reserve. The size is found
+    through production's own two checks, so this measures what the plane admits rather than a
+    copy of the rule.
+
+    This is the check the 1,048,575 x 15 one-character result would have failed: under a byte
+    cap alone it scales to every row Excel holds and to 4.5 GB. Every failing shape is collected
+    before the assertion, so the message names all of them.
+    """
+    failures = []
+    for name, columns, csv, peak, rate in MEASURED_EXCEL_SHAPES:
+        rows = _largest_admitted_rows(columns, csv)
+        assert rows > 0, f"{name}: the caps admit nothing"
+        assert config.excel_refusal(rows, columns) is None, f"{name}: {rows} rows are refused"
+        over_bytes = (rows + 1) * columns * csv > config.max_result_bytes("xlsx")
+        assert over_bytes or config.excel_refusal(rows + 1, columns) is not None, (
+            f"{name}: {rows + 1} rows would be admitted too, so {rows} is not the boundary"
+        )
+        cells = rows * columns
+        peak_mb = config.EXCEL_BASELINE_MB + cells * peak / _MIB
+        seconds = cells / (rate / _LOCAL_TO_PRODUCTION)
+        if peak_mb > _memory_budget_mb():
+            failures.append(f"{name}: {peak_mb:.0f} MiB over {_memory_budget_mb():.0f}")
+        if seconds > config.CONVERTER_TIMEOUT_SECONDS - _TIMEOUT_RESERVE_SECONDS:
+            failures.append(f"{name}: {seconds:.0f} s over the timeout")
+    assert not failures, "admitted but does not fit: " + "; ".join(failures)
+
+
+def test_the_query_that_timed_out_in_production_is_refused_by_its_cell_count():
+    """1,048,575 rows x 15 one-character columns: 62,914,590 bytes, under the byte cap and exactly
+    at Excel's row ceiling, so everything up front let it through — and the converter then ran
+    for ten minutes at 3,008 MB and was killed. It is refused now, from its cells."""
+    assert config.max_result_bytes("xlsx") >= 62_914_590
+    assert config.excel_refusal(1_048_575, 15) == reasons.EXCEL_CELL_LIMIT
+    assert config.excel_refusal(config.EXCEL_MAX_ROWS + 1, 15) == reasons.EXCEL_ROW_LIMIT, (
+        "a result over both limits is named by the row ceiling, the truer of the two sentences"
+    )
 
 
 def test_the_converter_can_finish_its_largest_input_inside_its_own_timeout():
-    """The time bound is a CHECK on the caps above, not an input to them — which is why it is
-    stated separately and why it can be honest about what it does not know.
+    """The time bound for the STREAMED formats is a check on their caps, not an input to them.
 
-    Measured in the fleet image: Excel converts at about 4.2 MB/s (xlsxwriter is single-threaded
-    Python and dominates), the streamed formats at 130 MB/s or better. Those figures come from
-    an arm64 build on a developer machine and production runs amd64, so the check derates by 4
-    rather than pretending the measurement transfers. If the live figure comes back below
-    roughly 1 MB/s for Excel, the cap has to come down; that measurement is owed from the
-    spec's live verification and is recorded on its PR.
+    Measured in the fleet image, Parquet and JSON convert at 130 MB/s or better; the figure is
+    slowed by the measured local-to-production ratio before it is compared. Excel's time is not
+    here: it is set per cell, like its memory, and is held shape by shape in the guard above.
     """
-    measured_mb_per_second = {"parquet": 212.0, "json": 132.0, "xlsx": 4.2}
-    derate, reserve_seconds = 4, 60
-    usable = config.CONVERTER_TIMEOUT_SECONDS - reserve_seconds
+    measured_mb_per_second = {"parquet": 212.0, "json": 132.0}
+    usable = config.CONVERTER_TIMEOUT_SECONDS - _TIMEOUT_RESERVE_SECONDS
     assert usable > 0
-    for fmt, cap in config.RESULTS_MAX_BYTES.items():
-        seconds = (cap / 1024**2) / (measured_mb_per_second[fmt] / derate)
+    for fmt, mb_per_second in measured_mb_per_second.items():
+        cap = config.RESULTS_MAX_BYTES[fmt]
+        seconds = (cap / _MIB) / (mb_per_second / _LOCAL_TO_PRODUCTION)
         assert seconds <= usable, (
-            f"{fmt} needs {seconds:.0f}s for its {cap // 1024**2} MB cap but has {usable}s"
+            f"{fmt} needs {seconds:.0f}s for its {cap // _MIB} MB cap but has {usable}s"
         )
     assert config.CONVERTER_TIMEOUT_SECONDS <= 900, "Lambda refuses a timeout over 15 minutes"
 

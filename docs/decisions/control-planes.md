@@ -53,6 +53,7 @@ entry you need, not the file.**
 - [The converter's shape is decided by what cannot stream and what cannot be retried (SPEC-222)](#the-converters-shape-is-decided-by-what-cannot-stream-and-what-cannot-be-retried-spec-222)
 - [The destination prefix is relative, and the doubling it invites is refused by nothing (SPEC-223)](#the-destination-prefix-is-relative-and-the-doubling-it-invites-is-refused-by-nothing-spec-223)
 - [A closed vocabulary is type-checked before it is looked up (PR #662, control-plane-wide)](#a-closed-vocabulary-is-type-checked-before-it-is-looked-up-pr-662-control-plane-wide)
+- [Excel is bounded by cells, because the converter's memory is spent per cell (SPEC-230)](#excel-is-bounded-by-cells-because-the-converters-memory-is-spent-per-cell-spec-230)
 
 ## Fences
 
@@ -171,9 +172,10 @@ DLQ lets one malformed request dead-letter someone else's work.
   show are populated; the verb refuses the column rather than guessing a scale, so being wrong
   about that costs a loud refusal and not a silently rounded number. The vocabulary is closed and
   **refuses rather than falling back**. Excel is
-  the one format that cannot stream, so its size cap is set by MEMORY at a measured 23–32x the
-  CSV while the others are set by the disk — one cap for all three either starves Parquet or
-  promises an Excel conversion that OOMs. `Convert` retries **`TransientError` only**: a `Lambda.*`
+  the one format that cannot stream, and its memory is spent per **CELL** — a one-byte NULL costs
+  ~250 bytes — so it is capped by a cell count taken from the CSV **before** anything is built,
+  while the others are set by the disk. A byte cap alone cannot be both safe and useful, and one
+  admitted a result that ran the converter out of memory. `Convert` retries **`TransientError` only**: a `Lambda.*`
   retry can re-run an invocation that already completed its conditional `PutObject`, and it then
   meets its own object and reports `destination_occupied` for a save that succeeded.
 - **A conversion's destination prefix is RELATIVE to the space root; the browser's picker is
@@ -1613,7 +1615,9 @@ validator defect unable to write into a receipt folder the day the Allow arrives
 **The size cap is per format because Excel cannot stream.** Parquet and JSON are `scan_csv` into
 `sink_*`, so memory holds a batch and the ceiling is the scratch disk. Excel has no streaming
 writer: polars materialises the frame and xlsxwriter builds the whole workbook beside it, at a
-peak measured on the fleet image at 23–32x the input CSV. One cap for all three is dishonest in
+peak ~~measured on the fleet image at 23–32x the input CSV~~ — **superseded by SPEC-230**: the peak
+is set per CELL, not per byte, and that figure was one shape's; see *Excel is bounded by cells*
+below. One cap for all three is dishonest in
 whichever direction it is set — at Excel's bound it refuses Parquet conversions that work
 comfortably, and at the disk bound it promises an Excel conversion that runs out of memory two
 thirds of the way through. The caps are recomputed from the measured constants by a test, so a
@@ -1728,3 +1732,43 @@ top-level timeout leaves nothing recorded — under a docstring promising it rai
 tells the actor nothing, three hours into a restore. Its sibling reader on the ASL door already
 type-checked, which is why the first test written for it passed while exercising nothing: **the two
 readers are different doors, and a case driven on one says nothing about the other.**
+
+## Excel is bounded by cells, because the converter's memory is spent per cell (SPEC-230)
+
+**The byte cap admitted a result the converter could not hold, and every up-front check agreed.**
+A 1,048,575 × 15 one-character result — 62,914,590 bytes, under the 64 MB cap and exactly at
+Excel's row ceiling — ran the converter for its full ten minutes at its full 3,008 MB, and the user
+was told "something went wrong". The cap had been derived per CSV BYTE from one wide shape, and the
+offline time check that stood behind it measured a wide shape too, so it passed. The Excel path's
+peak is set by CELLS: polars hands xlsxwriter a Python copy of every cell and xlsxwriter stores each
+again, at no less than about 240 bytes a cell whatever it holds — more for long text or a narrow
+result — while a CSV cell can be one byte. A byte cap
+safe for the worst shape would be about 8 MB.
+
+**Cells, not bytes, and not a streaming writer — the owner's call.** xlsxwriter refuses
+`add_table()` in `constant_memory` mode, and polars' `write_excel` always builds a table from
+`df.rows()`, so streaming means a hand-written writer that loses the Excel table — and still needs
+a cell cap, because time is per cell as well. It is the follow-up if the cap proves too small.
+
+**The rows are counted in the converter, not in describe-results.** The only cheap source up front
+is Athena's runtime statistics, which the API reference says may not be returned and are omitted
+under Lake Formation row filters, and the only fallback for a missing count is the byte cap this
+replaced. The converter counts through ONE column with the real CSV reader, and both Excel
+refusals are decided from that before the frame exists, the row ceiling first — and asked again of
+the frame's height once it is built. **Not `pl.len()`**: polars' fast count projects nothing and
+tracks quotes chunk by chunk, so across threads it miscounts a quoted newline, and a review showed
+it admitting a result over Excel's ceiling whose rows xlsxwriter then dropped, reported as saved.
+Each refusal names its code where it is raised, because the plane's vocabulary sweep reads a
+literal first argument.
+
+**The cap is derived from a measured model held to a corpus, and three things were learned
+measuring it.** Units: Lambda's MB is MiB, and one anchor subtracted a decimal figure from a binary
+one, which only a review caught. The anchor: the production run it rests on was rebuilt from
+Athena's own history, to the byte, rather than approximated by a shape that looked similar. And the
+cgroup slope moves by several percent run to run, so every constant is rounded up above the worst
+run and the 15% reserve stays. The guard scales every measured shape to the largest input the caps
+admit, through the production predicate; under the byte cap alone the production shape fails it.
+
+**An Excel conversion that runs out of time or memory is named**, because neither can raise and
+the notifier otherwise words the Lambda's error as the fallback. The streamed formats keep the
+fallback — pointing a Parquet request at Parquet would be wrong.

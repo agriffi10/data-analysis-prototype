@@ -338,7 +338,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         ],
         callout: {
           kind: 'tip',
-          text: 'Which to choose: <b>CSV</b> and <b>Excel</b> open in a spreadsheet; <b>Parquet</b> is the one to build a table from, and the only one with no size limit worth worrying about; <b>JSON</b> is written one object per line, which is what most tools expect. <b>Excel</b> holds about a million rows and no more — over that you are asked to save as Parquet instead — and it stores numbers approximately, so very large whole numbers and long decimals may be rounded.'
+          text: 'Which to choose: <b>CSV</b> and <b>Excel</b> open in a spreadsheet; <b>Parquet</b> is the one to build a table from, and the only one with no size limit worth worrying about; <b>JSON</b> is written one object per line, which is what most tools expect. <b>Excel</b> holds about a million rows at most, and fewer when the results are wide — over that you are asked to save as Parquet instead, and the notification says which limit it reached — and it stores numbers approximately, so very large whole numbers and long decimals may be rounded.'
         }
       },
       {
@@ -515,7 +515,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Select some cells and press <b>Ctrl+C</b> (<b>⌘C</b> on a Mac) to copy them as plain columns you can paste straight into a spreadsheet.',
           'Pick <b>Copy…</b> from <b>Options</b> instead to choose a format — <b>CSV</b>, <b>JSON</b>, a <b>Markdown table</b>, a <b>SQL INSERT</b> or <b>XML</b> — and whether to include column names, row numbers or quotes.',
           'Click <b>Save results to my files</b> beside the pager (it is in <b>Options</b> too) to save the full result. Give the file a name, choose the space and folder, and pick a <b>Format</b>.',
-          '<b>CSV</b> is saved straight away — the button reads <b>Save here</b>. <b>Parquet</b>, <b>JSON</b> and <b>Excel</b> are converted first: the button reads <b>Convert and save</b>, and a <b>notification</b> tells you when the file is ready. JSON is written one object per line; Excel holds about a million rows and stores numbers approximately, so long decimals may be rounded.',
+          '<b>CSV</b> is saved straight away — the button reads <b>Save here</b>. <b>Parquet</b>, <b>JSON</b> and <b>Excel</b> are converted first: the button reads <b>Convert and save</b>, and a <b>notification</b> tells you when the file is ready. JSON is written one object per line; Excel holds about a million rows at most, fewer when the results are wide, and stores numbers approximately, so long decimals may be rounded.',
           'If a file of that name is already there you are asked before anything is replaced.'
         ],
         callout: {
