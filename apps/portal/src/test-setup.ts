@@ -3,8 +3,9 @@ import '@testing-library/jest-dom/vitest';
 // `expect.extend` registers `toHaveNoViolations` at runtime so every test can
 // assert axe results without a per-file import; its TypeScript types are
 // declared in `src/vitest-axe.d.ts`.
-import {beforeEach, expect, onTestFinished} from 'vitest';
+import {afterAll, beforeEach, expect, onTestFinished, vi} from 'vitest';
 import * as axeMatchers from 'vitest-axe/matchers';
+import {notifyManager} from '@tanstack/query-core';
 import {memoryStorage} from './test/storage';
 import {addSchemeListener, prefersDarkScheme, removeSchemeListener, resetColorScheme} from './test/colorScheme';
 
@@ -82,8 +83,39 @@ beforeEach(() => {
  * timeout instead of draining. Nothing is lost by stepping around the fake clock: a fake timer
  * still pending when `vi.useRealTimers()` runs is discarded and never fires at all, so it can
  * never reach a torn-down environment either way.
+ *
+ * Captured per FILE, which is safe only because `isolate` is on — each file re-evaluates this
+ * module in a fresh environment before any test can touch the clock. Turning isolation off
+ * would let one file's leftover fake clock become the next file's capture, and the hook would
+ * then hang while blaming a file that did nothing wrong.
  */
 const realSetTimeout = globalThis.setTimeout.bind(globalThis);
+
+/**
+ * Notifications TanStack has scheduled on the real clock and not yet delivered.
+ *
+ * Counted here because nothing else can see them, and both the drain and the check below need
+ * the number: the drain to know whether it still has work, the check to refuse a file that
+ * reaches teardown with work left. Callbacks scheduled while a fake clock is installed are
+ * deliberately NOT counted — `vi.useRealTimers()` discards those rather than firing them, so
+ * they can neither reach a dead environment nor ever bring this count back down.
+ *
+ * The wrapper calls the AMBIENT `setTimeout`, exactly as query-core's own scheduler does, so a
+ * notification's timing is unchanged by being counted. Using the captured real one would move
+ * fake-clock notifications onto the real clock and change what the suite exercises.
+ */
+let realPending = 0;
+notifyManager.setScheduler((callback: () => void) => {
+  const onFakeClock = vi.isFakeTimers();
+  if (!onFakeClock) realPending += 1;
+  setTimeout(() => {
+    if (!onFakeClock) realPending -= 1;
+    callback();
+  }, 0);
+});
+
+/** Enough turns for a notification chain to settle; a runaway one fails the check instead. */
+const MAX_DRAIN_TURNS = 10;
 
 /**
  * Let TanStack's queued notifications run before this file's jsdom is taken away.
@@ -91,8 +123,11 @@ const realSetTimeout = globalThis.setTimeout.bind(globalThis);
  * TanStack batches every notification through a `setTimeout(0)`. A batch still queued when
  * vitest tears down the environment fires into a world with no `window`, and react-dom reads
  * `window.event` unconditionally when an update is scheduled — an uncaught `ReferenceError`
- * that fails a run whose every test passed, blaming whichever file was last. Yielding one real
- * macrotask after each test empties the queue while the environment is still standing.
+ * that fails a run whose every test passed, blaming whichever file was last. Yielding real
+ * macrotasks after each test empties the queue while the environment is still standing.
+ *
+ * A LOOP rather than a single yield, because delivering one notification can schedule the next:
+ * one turn drains one generation, and the generation it uncovers would be left behind.
  *
  * Registered HERE rather than in `renderWithProviders`, and that placement is the point: the
  * queue belongs to the worker, not to any one client, so a test that builds its own
@@ -104,6 +139,23 @@ const realSetTimeout = globalThis.setTimeout.bind(globalThis);
  */
 beforeEach(() => {
   onTestFinished(async () => {
-    await new Promise((resolve) => realSetTimeout(resolve, 0));
+    for (let turn = 0; realPending > 0 && turn < MAX_DRAIN_TURNS; turn += 1) {
+      await new Promise((resolve) => realSetTimeout(resolve, 0));
+    }
   });
+});
+
+/**
+ * Refuse a file that reaches teardown with a notification still queued.
+ *
+ * Without this the drain is a guard nothing watches: delete it and the suite stays green, every
+ * test passing, until the race resurfaces as an intermittent `ReferenceError` in whichever file
+ * was unlucky. Asserting the count here turns that into a deterministic failure in the file that
+ * actually leaked, on every run rather than one in three.
+ */
+afterAll(() => {
+  expect(
+    realPending,
+    'a TanStack notification was still queued when this file finished — it would fire after the environment is torn down'
+  ).toBe(0);
 });
