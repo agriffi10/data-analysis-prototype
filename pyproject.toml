@@ -174,6 +174,10 @@ files = [
     # deletes production objects against a persisted record, so a wrong Optional or a widened dict
     # here is a deletion decided on a value the type checker could not see.
     "scripts/migrate_system_settings.py",
+    # The harness the Excel caps are measured with joins on the same precedent, entering at zero.
+    # Its failure mode is a slope computed from the wrong field, which prints a plausible number
+    # that then becomes a constant — the last kind of wrong a type checker should be blind to.
+    "scripts/measure_excel_peak.py",
     # The Terraform reader every infrastructure suite asserts through. It joins the ratchet with
     # the change that extends it, on the precedent above and for its reason: its failure mode is
     # a scanner that returns a SMALLER slice, which leaves every assertion over it green while

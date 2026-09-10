@@ -42,8 +42,9 @@ locals {
     # CreateFunction refused it: "'MemorySize' value failed to satisfy constraint: Member must
     # have value less than or equal to 3008" — the un-raised quota, which nothing local can see.
     # `tofu validate` passed, the module's range check passed, the plan was green, and the APPLY
-    # is what knew. Raising it is an AWS support request; until then the Excel cap is 64 MB of
-    # result CSV, because that path cannot stream and its peak memory is ~32x the input.
+    # is what knew. Raising it is an AWS support request; until then Excel is capped at the cell
+    # count rccommon.config derives from it, because that path cannot stream and its peak memory
+    # is spent per cell rather than per byte of input.
     #
     # Ephemeral asks 2048 of a documented 10240 because no function in this account has ever run
     # above the 512 default, so the larger figure is unproven here too.

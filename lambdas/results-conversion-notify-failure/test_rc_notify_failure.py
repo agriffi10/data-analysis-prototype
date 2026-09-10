@@ -87,10 +87,49 @@ def test_a_converters_refusal_reaches_the_user_with_the_count_and_the_file_name(
 
     assert len(sent) == 1 and sent[0][0] == "alice"
     message = sent[0][1]
-    assert "2000000 rows" in message, "the count is on the state and reaches the sentence"
+    assert "2,000,000 rows" in message, "the count is on the state and reaches the sentence"
     assert '"q1.xlsx"' in message, "the file name is in the request body and reaches it too"
     assert "as Excel" in message
     assert "{" not in message, "no marker was left unfilled"
+
+
+_EXHAUSTED_SENTENCE = (
+    "Couldn't save the query results as Excel: the conversion ran out of time or memory before it "
+    "finished, so nothing was saved. Please save them as Parquet instead, or narrow the query."
+)
+
+
+@pytest.mark.parametrize(
+    ("name", "message"),
+    [
+        ("Sandbox.Timedout", "RequestId: r Error: Task timed out after 600.00 seconds"),
+        ("Runtime.OutOfMemory", "RequestId: r Error: Runtime exited with error: signal: killed"),
+    ],
+)
+def test_an_excel_conversion_that_ran_out_of_time_or_memory_says_so(name, message, captured_events):
+    """Neither can raise, so the Lambda's own error arrives here in place of a reason — shaped as
+    production delivered the timeout, a Cause whose errorType is the name itself. The user reads
+    what happened; the operator's log keeps the name Lambda gave it."""
+    sent = _capture()
+    cause = json.dumps({"errorType": name, "errorMessage": message})
+    n.handler(_request({"Error": name, "Cause": cause}, fmt="xlsx"), None)
+
+    assert sent == [("alice", _EXHAUSTED_SENTENCE)]
+    notified = captured_events.messages("notified the actor of a failure")
+    assert [event["fields"]["reason"] for event in notified] == [name]
+
+
+def test_running_out_on_a_streamed_format_or_failing_any_other_way_keeps_the_fallback():
+    """Pointing a Parquet request at Parquet would be wrong, and a name outside the two is not
+    evidence the result was too big — so the mapping widens nothing beyond Excel and those two."""
+    sent = _capture()
+    n.handler(_request({"Error": "Sandbox.Timedout", "Cause": None}, fmt="parquet"), None)
+    n.handler(_request({"Error": "Lambda.Unknown", "Cause": None}, fmt="xlsx"), None)
+
+    assert [message for _, message in sent] == [
+        "Couldn't save the query results as Parquet: something went wrong.",
+        "Couldn't save the query results as Excel: something went wrong.",
+    ]
 
 
 def test_a_refusal_that_carries_no_count_still_names_the_file():

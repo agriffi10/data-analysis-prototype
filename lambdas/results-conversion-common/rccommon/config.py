@@ -26,16 +26,41 @@ Attributes:
     converter is not sized to fill a disk exactly or to run at the edge of an OOM.
   OUTPUT_EXPANSION: MEASURED bytes of output per byte of CSV, per format — the worst figure
     observed across the fixture sizes, not the average.
-  EXCEL_MEMORY_EXPANSION: MEASURED peak resident bytes per byte of CSV for the Excel path,
-    again the worst observed. It is large because that path cannot stream: polars materialises
-    the frame and xlsxwriter builds the whole workbook in memory beside it.
+  EXCEL_MAX_ROWS: Excel's own data-row ceiling — one less than its 1,048,576 rows, because the
+    header takes one. Declared here rather than in the converter because the cell cap below is
+    derived from it: the per-row cost is paid on every admitted row.
+  EXCEL_BASELINE_MB: The Excel path's MEASURED fixed cost in production, in MiB as every
+    ``_MB`` here is: the peak a conversion of no cells would reach. The 490,000-row production
+    run's own query, rebuilt to the byte, puts it at 165 to 209 across the measurement runs; the
+    largest of any shape, once its own run's local-to-production offset is added, is 249.2.
+    Rounded up to the next ten.
+  EXCEL_PEAK_BYTES_PER_CELL: MEASURED peak bytes per cell for the Excel path, net of the per-row
+    term. Excel's peak is set by CELLS, not bytes: polars hands xlsxwriter a Python copy of
+    every cell and xlsxwriter stores every cell again before it writes, so a NULL — one byte of
+    CSV — costs about 250 bytes of memory. The shape that binds this is unique 20-character text
+    at 15 columns, 498 bytes a cell less its 27-byte row share; rounded up to the next ten.
+  EXCEL_PEAK_BYTES_PER_ROW: MEASURED peak bytes per row beyond the cells, from one column of
+    one-character text against fifteen in the same run — 362 to 392 across the runs. Rounded up
+    to the next ten.
+  EXCEL_COVERED_BYTES_PER_CELL: The CSV width, in bytes per cell, of the shape that binds the
+    per-cell figure, and so the widest cell that figure already pays for.
+  EXCEL_PEAK_BYTES_PER_LONG_BYTE: MEASURED peak bytes per CSV byte beyond the covered width — the
+    long-text term, which the corpus needs at no more than 6.1. Rounded up to a whole byte.
+  EXCEL_MAX_CELLS: The largest result, in cells (rows times columns), converted to Excel: what
+    the memory budget holds once the baseline and every admitted row's own cost are paid. It is
+    derived from the constants above and the budget test recomputes it. The worst corner the
+    caps admit — every admitted cell, every admitted row, the byte cap reached — carries no
+    long-byte term, because the byte cap is set so that there is none there; fewer, longer
+    cells pay it, but pay less in total, because a cell costs more than the bytes it covers.
   RESULTS_MAX_BYTES: The largest result object this plane converts, PER FORMAT. One number
     could not be honest: the streamed formats are bounded by the scratch disk and Excel by
     memory, which on this account's numbers puts them an order of magnitude apart — so a single
     cap would either starve Parquet and JSON or promise an Excel conversion that runs out of
-    memory. The numbers themselves are not restated here: they are derived below from the
-    constants above and the budget test recomputes them, so a hand edit to either side is a red
-    test and a figure copied into this prose is the one that would go stale.
+    memory. Excel's is the smaller of the disk bound and the bytes its cell cap's cells are
+    already paid for at the covered width. The numbers themselves are not restated here: they
+    are derived below from the constants above and the budget test recomputes them, so a hand
+    edit to either side is a red test and a figure copied into this prose is the one that would
+    go stale.
   MAX_RESULT_COLUMNS: The widest result set this plane converts, in ANY format. Bounded by the
     transport rather than by a file format: the described columns travel on the Step Functions
     state, which is capped at 256 KB. Where that boundary falls depends on how wide a column
@@ -47,7 +72,11 @@ Attributes:
     ``excel_column_limit``: a refusal that can deny nobody reads as a fence to everyone
     downstream. At 1,500 the worst entry still uses under 60% of the limit.
   MEASURED_ON: What the numbers above were measured against, so a reader can re-measure rather
-    than trust them.
+    than trust them. The Excel figures are the container's cgroup peak, which counts the page
+    cache of the CSV and of xlsxwriter's temporary XML and so is the larger of the two measures;
+    memory was measured on both architectures and agrees within 5% at matched sizes, while time
+    under emulation is not used for anything. The cgroup slope moves by several percent from run
+    to run, which is why the corpus is the maximum over every run and each constant sits above it.
   MACHINE_TIMEOUT_SECONDS: The state machine's own ceiling, mirrored from the module's
     ``locals.tf`` because ASL cannot import Python. A test holds the two equal, and the timeout
     notification words this number rather than a sentence that can drift from it.
@@ -69,6 +98,8 @@ Attributes:
 """
 
 from cpcommon import app_managed as _app_managed
+
+from . import reasons
 
 SPACE_KINDS = frozenset({"personal", "shared"})
 
@@ -94,7 +125,19 @@ MEMORY_RESERVE = 0.15
 
 OUTPUT_EXPANSION = {"parquet": 0.252, "json": 1.481, "xlsx": 0.603}
 
-EXCEL_MEMORY_EXPANSION = 32.45
+EXCEL_MAX_ROWS = 1_048_575
+
+EXCEL_BASELINE_MB = 250
+
+EXCEL_PEAK_BYTES_PER_CELL = 480
+
+EXCEL_PEAK_BYTES_PER_ROW = 400
+
+EXCEL_COVERED_BYTES_PER_CELL = 23
+
+EXCEL_PEAK_BYTES_PER_LONG_BYTE = 7
+
+EXCEL_MAX_CELLS = 4_100_000
 
 RESULTS_MAX_BYTES = {
     "parquet": 1472 * 1024**2,
@@ -105,8 +148,15 @@ RESULTS_MAX_BYTES = {
 MAX_RESULT_COLUMNS = 1_500
 
 MEASURED_ON = (
-    "the fleet image built from lambdas/Dockerfile, polars 1.12.0 and xlsxwriter 3.2.9, over "
-    "generated Athena-shaped CSVs of 7.2 MB, 14.6 MB, 29.2 MB and 58.6 MB"
+    "the fleet image built from lambdas/Dockerfile, polars 1.12.0 and xlsxwriter 3.2.9. Parquet "
+    "and JSON over generated Athena-shaped CSVs of 7.2 MB, 14.6 MB, 29.2 MB and 58.6 MB; Excel by "
+    "five runs over 23 generated shapes at two sizes each, on arm64 and amd64: two exploratory "
+    "runs on an image built at 13bb7a30, which copied each CSV into /tmp through a bind mount and "
+    "so charged a large file's page cache twice, and set most of the maxima; and three runs of "
+    "scripts/measure_excel_peak.py on an image built from the commit that introduced these "
+    "constants, which read each shape at or below them. Anchored to the converter's own REPORT "
+    "lines of 2026-09-10: a 490,000 x 4 result at 933 MiB and a 1,048,575 x 15 one that timed out "
+    "at 3,008"
 )
 
 
@@ -124,6 +174,34 @@ def max_result_bytes(fmt: str) -> int:
       None.
     """
     return RESULTS_MAX_BYTES.get(fmt, min(RESULTS_MAX_BYTES.values()))
+
+
+def excel_refusal(rows: int, columns: int) -> str | None:
+    """Decides whether a result set is too big to become a workbook, from its shape alone.
+
+    The one predicate the converter and the budget test both ask, so the guard measures what
+    production refuses rather than a copy of it. It is asked before anything is materialised,
+    because the materialisation is the thing that does not fit.
+
+    The row ceiling is checked FIRST: a result over it is usually over the cell cap too, and
+    "more than a spreadsheet can hold" is the truer of the two sentences for it.
+
+    Args:
+      rows: The result's data rows, counted from the CSV itself.
+      columns: Its column count.
+
+    Returns:
+      ``reasons.EXCEL_ROW_LIMIT`` over Excel's row ceiling, ``reasons.EXCEL_CELL_LIMIT`` over the
+      cell cap, and None otherwise. A result exactly at either limit is admitted.
+
+    Raises:
+      None.
+    """
+    if rows > EXCEL_MAX_ROWS:
+        return reasons.EXCEL_ROW_LIMIT
+    if rows * columns > EXCEL_MAX_CELLS:
+        return reasons.EXCEL_CELL_LIMIT
+    return None
 
 MACHINE_TIMEOUT_SECONDS = 3600
 

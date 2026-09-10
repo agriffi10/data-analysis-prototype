@@ -5,18 +5,21 @@ file in the format the user chose, and uploads it to the destination validate-au
 proved they may write. Nothing here re-authorizes: the destination key was contained and the
 protected folders refused two states ago, and re-deriving either would be a second copy of a rule.
 
-**An expected refusal is a RETURN VALUE, not a raise.** Four outcomes are things the user asked
+**An expected refusal is a RETURN VALUE, not a raise.** Five outcomes are things the user asked
 for and cannot have — an unmappable column type, a result that will not parse, Excel's row
-ceiling, and a destination name taken since the browser last looked — and each comes back as
-``{"outcome": "refused", "reason": ...}`` for the machine's Choice to route. A raise would reach
-the failure terminal by a path that cannot carry the row count that refusal has to name.
+ceiling, more cells than the Excel path can hold, and a destination name taken since the browser
+last looked — and each comes back as ``{"outcome": "refused", "reason": ...}`` for the machine's
+Choice to route. A raise would reach the failure terminal by a path that cannot carry the counts
+those refusals have to name.
 
 **Parquet and JSON never materialise the frame.** The read is ``scan_csv`` over the downloaded
 file and the write is ``sink_*``, so memory holds a batch at a time and the ceiling is the
-scratch disk rather than RAM. Excel cannot stream — the workbook is built whole — which is why
-its ceiling is Excel's own row limit instead. The row count for the two streamed formats is read
-back from the written file, by ``rccommon.parquet_footer`` and by counting record separators;
-a count taken with polars would be the one ``collect`` that makes the streaming guard unprovable.
+scratch disk rather than RAM. Excel cannot stream — the workbook is built whole, at a peak set by
+its number of CELLS — so its rows are counted before anything is materialised, and a result over
+Excel's row ceiling or the cell cap is refused while it still costs nothing. The row count for
+the two streamed formats is read back from the written file, by ``rccommon.parquet_footer`` and
+by counting record separators; a count taken with polars would be the one ``collect`` that makes
+the streaming guard unprovable.
 
 **A refusal is logged by its CODE, never by its detail.** A detail can carry the destination
 key, and the plane's log line is plain text — a newline in a key forges a second line in it.
@@ -35,10 +38,6 @@ Attributes:
     bytes into the next.
   CONTENT_TYPES: The ``Content-Type`` each format is stored under. No user metadata is written:
     the SQL, the execution id and the actor are not stamped onto the object.
-  EXCEL_MAX_ROWS: Excel's own data-row ceiling — one less than its 1,048,576 rows, because the
-    header takes one. Its COLUMN ceiling is deliberately absent: describe-results refuses a
-    result set wider than the state can carry, at a third of Excel's 16,384, so a check here
-    could never fire and would read as a fence that stops nobody.
   EXCEL_EXACT_INTEGER: The largest integer an Excel cell holds exactly; it stores every number
     as a double.
   EXCEL_EXACT_DIGITS: The significant digits a double holds, which is what bounds a decimal.
@@ -58,7 +57,12 @@ import polars as pl
 from cpcommon import clients, config, errors, events, observability
 from cpcommon.errors import TerminalError
 from rccommon import notify, parquet_footer, reasons, types
-from rccommon.config import max_result_bytes
+from rccommon.config import (
+    EXCEL_MAX_CELLS,
+    EXCEL_MAX_ROWS,
+    excel_refusal,
+    max_result_bytes,
+)
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -72,7 +76,6 @@ CONTENT_TYPES = {
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
 
-EXCEL_MAX_ROWS = 1_048_575
 EXCEL_EXACT_INTEGER = 2**53
 EXCEL_EXACT_DIGITS = 15
 
@@ -332,8 +335,23 @@ def _write_ndjson(frame: pl.LazyFrame, schema: dict, target: pathlib.Path) -> in
     return rows
 
 
-def _write_excel(frame: pl.LazyFrame, target: pathlib.Path) -> tuple[int, bool]:
-    """Materialises the frame and writes one workbook with a single sheet.
+def _write_excel(frame: pl.LazyFrame, schema: dict, target: pathlib.Path) -> tuple[int, bool]:
+    """Counts the rows, refuses what the Excel path cannot hold, then writes one single-sheet workbook.
+
+    **The count comes first.** This path's peak memory is set per CELL — polars hands xlsxwriter a
+    Python copy of every cell and xlsxwriter stores each again before it writes — so a result can
+    pass the byte cap and still not fit, which is how a one-character million-row result ran the
+    function out of memory for ten minutes. The count reads ONE column through the real CSV
+    reader, which costs tens of milliseconds, so the frame that would not fit is never built.
+
+    **Not ``pl.len()``, which is polars' fast count and projects nothing.** It miscounts a quoted
+    newline once the reader splits the file across threads — measured at 65,104 rows for 100,000
+    on two threads, which is what this function has — so it admits a result over Excel's ceiling,
+    whose rows xlsxwriter then silently drops, and the user is told an empty workbook was saved.
+
+    **And the frame's height is asked again once it is built**, because a count that disagreed
+    with the frame is exactly that failure, and refusing then still costs less than a workbook
+    written without its rows.
 
     **No workbook is passed in.** polars builds its own with ``strings_to_formulas: False``, and
     that default is the whole of the formula-injection guard: a cell beginning ``=`` is written
@@ -342,28 +360,62 @@ def _write_excel(frame: pl.LazyFrame, target: pathlib.Path) -> tuple[int, bool]:
 
     Args:
       frame: The typed lazy frame.
+      schema: The dtypes, whose length is the column count.
       target: Where to write.
 
     Returns:
       The row count, and whether the precision sentence applies.
 
     Raises:
-      _Refusal: ``excel_row_limit`` with the count, writing nothing; ``results_unreadable``
-        when a value does not parse as its declared type. The COLUMN ceiling is not checked
-        here — it is a fact about the metadata and is refused before the download.
+      _Refusal: ``excel_row_limit`` or ``excel_cell_limit``, writing nothing — from the count
+        before anything is materialised, and from the height if the two disagree;
+        ``results_unreadable`` when a value does not parse as its declared type. The COLUMN
+        ceiling is not checked here — it is a fact about the metadata and is refused before the
+        download.
     """
+    columns = len(schema)
+    try:
+        rows = frame.select(pl.first().len()).collect().item()
+    except Exception as exc:
+        raise _unreadable(exc) from exc
+    _refuse_what_excel_cannot_hold(rows, columns)
     try:
         materialised = frame.collect()
     except Exception as exc:
         raise _unreadable(exc) from exc
-    if materialised.height > EXCEL_MAX_ROWS:
-        raise _Refusal(
-            reasons.EXCEL_ROW_LIMIT,
-            f"{materialised.height} rows, over {EXCEL_MAX_ROWS}",
-            {"count": materialised.height},
-        )
+    _refuse_what_excel_cannot_hold(materialised.height, columns)
     materialised.write_excel(target, worksheet="results")
     return materialised.height, _loses_precision(materialised)
+
+
+def _refuse_what_excel_cannot_hold(rows: int, columns: int) -> None:
+    """Refuses a result too big to become a workbook, from its shape alone.
+
+    **Each refusal names its reason where it is raised**, one branch per code, rather than raising
+    whatever the predicate returned: the plane's vocabulary test reads the codes this verb can
+    refuse with from the construction's first argument, and a code chosen at runtime would be
+    invisible to it.
+
+    Args:
+      rows: The result's data rows.
+      columns: Its column count.
+
+    Returns:
+      None.
+
+    Raises:
+      _Refusal: ``excel_row_limit`` with the count, or ``excel_cell_limit`` with the rows, the
+        columns and the cells.
+    """
+    refusal = excel_refusal(rows, columns)
+    if refusal == reasons.EXCEL_ROW_LIMIT:
+        raise _Refusal(reasons.EXCEL_ROW_LIMIT, f"{rows} rows, over {EXCEL_MAX_ROWS}", {"count": rows})
+    if refusal == reasons.EXCEL_CELL_LIMIT:
+        raise _Refusal(
+            reasons.EXCEL_CELL_LIMIT,
+            f"{rows * columns} cells, over {EXCEL_MAX_CELLS}",
+            {"rows": rows, "columns": columns, "count": rows * columns},
+        )
 
 
 def _loses_precision(materialised: pl.DataFrame) -> bool:
@@ -647,5 +699,5 @@ def _write(fmt: str, frame: pl.LazyFrame, schema: dict, target: pathlib.Path) ->
     if fmt == "json":
         return _write_ndjson(frame, schema, target), False
     if fmt == "xlsx":
-        return _write_excel(frame, target)
+        return _write_excel(frame, schema, target)
     raise KeyError(f"no writer for format {fmt!r}")

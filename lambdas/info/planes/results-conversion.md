@@ -46,12 +46,20 @@ username; `MessageDeduplicationId` is the `requestId`.
   a response lost after the function completed, and a re-invocation there meets its own
   conditional `PutObject` and reports `destination_occupied` to a user whose save succeeded. The
   verb raises `TransientError` only before the upload begins.
-- **The size cap is per format**, because Excel cannot stream: polars materialises the frame and
-  xlsxwriter builds the workbook beside it, at a measured 23–32x the CSV. The streamed formats
-  are bounded by the scratch disk and Excel by memory, an order of magnitude apart. The numbers
-  live in `rccommon.config` and are derived from the function's memory and disk by a test —
-  quoting them here is how this line was wrong within an hour of being written, when the
-  account's real memory ceiling moved all three.
+- **The size cap is per format**, because Excel cannot stream: polars hands xlsxwriter a Python
+  copy of every cell and xlsxwriter stores each again, so Excel's memory is spent per **CELL** —
+  a one-byte NULL costs about 250 bytes. The streamed formats are bounded by the scratch disk;
+  Excel by a cell count, which the converter takes from the CSV before it builds anything, and
+  by the bytes those cells are already paid for. A byte cap alone admitted a result that ran the
+  converter out of memory for ten minutes. The numbers live in `rccommon.config`, derived from a
+  measured model that a corpus in the plane suite holds them to — and
+  `scripts/measure_excel_peak.py` re-measures it — so quoting them here is how this line was wrong
+  within an hour of being written, when the account's real memory ceiling moved all three.
+- **polars' fast count (`select(pl.len())` on a CSV scan) miscounts a quoted newline once the file
+  is split across threads**, in either direction — 65,104 rows for 100,000 at the converter's two
+  threads. The Excel path counts through one projected column with the real reader instead, and
+  asks the built frame's height again. A test of it needs a file large enough to be split; a
+  three-line fixture is one chunk and passes against the broken count.
 - **`scan_csv` with `schema_overrides` renames columns to the override keys and applies types
   positionally when the header does not match**, silently. The verb checks the CSV's header
   against the metadata before the typed read for that reason alone.

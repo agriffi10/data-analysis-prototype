@@ -27,9 +27,20 @@ that reached the machine can be missing from the event.
 The two doors cannot double-notify: the ASL door is reached only through a ``Catch``, which a
 timeout never fires; the EventBridge door matches ``TIMED_OUT`` only, never ``FAILED``.
 
+**A FUNCTION THAT RAN OUT OF TIME OR MEMORY IS NAMED, ON AN EXCEL REQUEST.** Neither can raise,
+so this door receives the Lambda error in place of a reason and would otherwise word it as the
+fallback. On Excel the cause is almost always the size of the result — its path cannot stream —
+so the user is told that and pointed at Parquet. On the streamed formats running out is a fault
+the user cannot act on, and pointing them at Parquet from a Parquet request would be wrong, so
+the fallback stands. The log keeps the Lambda's own name for the operator.
+
 Attributes:
   _TIMEOUT_DETAIL_TYPE: The EventBridge detail-type the timeout door matches on.
   _TIMEOUT_REASON: Reason code for a run the state machine's own timeout stopped.
+  _EXHAUSTION: The Lambda error names for a function stopped by its own timeout or its memory.
+    ``Sandbox.Timedout`` is the name production delivered for the converter's timeout.
+    ``Runtime.OutOfMemory`` is the name Lambda gives an out-of-memory kill and has not been seen
+    in this account; if it is not what arrives, that case keeps the fallback it had before.
 """
 
 import json
@@ -46,6 +57,7 @@ observability.init(service="results-conversion")
 
 _TIMEOUT_DETAIL_TYPE = "Step Functions Execution Status Change"
 _TIMEOUT_REASON = reasons.CONVERSION_TIMED_OUT
+_EXHAUSTION = frozenset({"Sandbox.Timedout", "Runtime.OutOfMemory"})
 
 
 def _is_execution_timeout(event) -> bool:
@@ -180,9 +192,10 @@ def _wording_tokens(request: dict) -> dict:
     Only what nothing else can supply. The file NAME is recovered from the request body inside the
     forwarded request, which ``RecordFailure`` carries on every path, so it needs no key of its
     own. A COUNT is not derivable from anything the request said: it is a fact about the RESULT SET,
-    discovered by the convert verb, and Excel's row ceiling is the only refusal of the
-    converter's whose sentence has to name one. That is the whole reason the machine's refusal seed carries a
-    ``tokens`` object at all, and why it carries nothing else.
+    discovered by the convert verb, and Excel's two size refusals are the converter's only ones
+    whose sentences have to name one — the row ceiling its rows, the cell cap its rows, columns
+    and cells. That is the whole reason the machine's refusal seed carries a ``tokens`` object at
+    all, and why it carries nothing else.
 
     Args:
       request: The recorded failure the ASL door received.
@@ -221,6 +234,25 @@ def _verb_already_notified(error) -> bool:
       None.
     """
     return isinstance(error, dict) and error.get("Error") == TerminalError.__name__
+
+
+def _worded_reason(reason: str, fmt: str | None) -> str:
+    """Picks the reason a user's sentence is worded from, which is not always the one that arrived.
+
+    Args:
+      reason: The decoded reason: a plane code, or the raw Step Functions or Lambda error name.
+      fmt: The request's output format, where it survived.
+
+    Returns:
+      ``reasons.EXCEL_EXHAUSTED`` for an Excel request whose function ran out of time or memory,
+      and the reason unchanged otherwise.
+
+    Raises:
+      None.
+    """
+    if fmt == "xlsx" and reason in _EXHAUSTION:
+        return reasons.EXCEL_EXHAUSTED
+    return reason
 
 
 @observability.traced("notify-failure")
@@ -284,7 +316,7 @@ def handler(event, context) -> dict:
         return request
     notify.emit_notification(
         username,
-        messages.failure_message(reason, {"format": fmt, **tokens}),
+        messages.failure_message(_worded_reason(reason, fmt), {"format": fmt, **tokens}),
         payload=notify.request_payload({**request, "format": fmt}),
     )
     observability.info(

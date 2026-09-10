@@ -29,6 +29,7 @@ os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 import rc_convert as c
 from cpcommon import clients
 from cpcommon.type_mapping import map_dtype
+from rccommon import config as rc_config
 from rccommon import parquet_footer
 
 #: One column per mapped dtype, with the text Athena renders for each. The empty and NULL text
@@ -367,11 +368,32 @@ def test_an_occupied_destination_is_refused_only_when_the_request_asked_to_be(s3
     assert "IfNoneMatch" not in put, "an overwrite carries no condition"
 
 
+def _collected_widths(monkeypatch):
+    """Records the width of every frame any lazy frame is collected into.
+
+    The refusals below must be decided before the typed frame is materialised, and the count
+    they are decided from is itself a collect — of ONE column. So "nothing was collected" is the
+    wrong assertion and "every collect was one column wide" is the right one.
+    """
+    widths = []
+    original = pl.LazyFrame.collect
+
+    def recording(self, *args, **kwargs):
+        collected = original(self, *args, **kwargs)
+        widths.append(collected.width)
+        return collected
+
+    monkeypatch.setattr(pl.LazyFrame, "collect", recording)
+    return widths
+
+
 def test_too_many_rows_for_a_spreadsheet_refuses_with_the_count(s3, monkeypatch):
     """Driven against a lowered ceiling rather than a million-row fixture: the guard is the
     comparison, and a fixture large enough to trip the real number would take minutes to build
-    and would test polars rather than this."""
-    monkeypatch.setattr(c, "EXCEL_MAX_ROWS", 2)
+    and would test polars rather than this. Lowered where the predicate reads it, in
+    `rccommon.config`, which is the module both this verb and the budget test ask."""
+    monkeypatch.setattr(rc_config, "EXCEL_MAX_ROWS", 2)
+    widths = _collected_widths(monkeypatch)
     s3.payload = _csv(rows=3)
     s3.size = len(s3.payload)
 
@@ -379,6 +401,103 @@ def test_too_many_rows_for_a_spreadsheet_refuses_with_the_count(s3, monkeypatch)
 
     assert result["outcome"] == "refused" and result["reason"] == "excel_row_limit"
     assert result["tokens"] == {"count": 3}
+    assert s3.written == []
+    assert widths == [1], "only the one-column count was collected; the typed frame never was"
+
+
+def test_too_many_cells_for_a_spreadsheet_refuses_before_the_frame_is_built(s3, monkeypatch):
+    """The refusal that would have stopped the production timeout: a result under the byte cap
+    and the row ceiling whose CELLS do not fit, refused from the count and the column count."""
+    columns = _columns()
+    monkeypatch.setattr(rc_config, "EXCEL_MAX_CELLS", 3 * len(columns) - 1)
+    widths = _collected_widths(monkeypatch)
+    s3.payload = _csv(rows=3)
+    s3.size = len(s3.payload)
+
+    result = c.handler(_event("xlsx"), None)
+
+    assert result["outcome"] == "refused" and result["reason"] == "excel_cell_limit"
+    assert result["tokens"] == {"rows": 3, "columns": len(columns), "count": 3 * len(columns)}
+    assert s3.written == []
+    assert widths == [1], "only the one-column count was collected; the typed frame never was"
+
+
+def test_the_count_is_the_csvs_own_rows(s3, monkeypatch):
+    """The count is the CSV's data-row count, not a line count and not an estimate.
+
+    A quoted newline is one row: the file below has two rows over three lines, so it converts
+    at a ceiling of two and is refused, naming two, at a ceiling of one — a count of lines
+    would say three both times. A header-only file is zero rows, so it converts even at a
+    ceiling of zero.
+    """
+    pairs = (("c_text", "varchar", '"one\nline"'),)
+    s3.payload = b'"c_text"\n"one\nline"\n"two"\n'
+    s3.size = len(s3.payload)
+    event = _event("xlsx", columns=_columns(pairs, decimal=False))
+
+    monkeypatch.setattr(rc_config, "EXCEL_MAX_ROWS", 2)
+    assert c.handler(event, None)["outcome"] == "converted"
+
+    monkeypatch.setattr(rc_config, "EXCEL_MAX_ROWS", 1)
+    refused = c.handler(event, None)
+    assert refused["reason"] == "excel_row_limit" and refused["tokens"] == {"count": 2}
+
+    monkeypatch.setattr(rc_config, "EXCEL_MAX_ROWS", 0)
+    s3.payload = b'"c_text"\n'
+    s3.size = len(s3.payload)
+    assert c.handler(event, None)["outcome"] == "converted"
+
+
+def _multi_line_payload(rows: int) -> bytes:
+    """A result whose every tenth value is a multi-line JSON document, as Athena quotes it.
+
+    Large enough that polars splits the file across threads, which is where a count that tracks
+    quotes chunk by chunk goes wrong: polars' fast count read this shape as 3,256 rows of 5,000.
+    """
+    lines = ['"id","doc"']
+    for i in range(rows):
+        doc = '{\n  ""k"": 1,\n  ""v"": ""' + "z" * 200 + '""\n}' if i % 10 == 0 else "{}"
+        lines.append(f'"{i}","{doc}"')
+    return ("\n".join(lines) + "\n").encode()
+
+
+def test_a_multi_line_value_across_chunks_is_still_one_row_to_the_count(s3, monkeypatch):
+    """The refusal comes from the COUNT, not from the check after the frame is built.
+
+    That is what the width recorder says: only the one-column count was collected. A count that
+    miscounted here would admit the file, build the frame, and leave the refusal to the height
+    check — correct in its answer and wrong in its cost. It can only miscount where polars runs
+    more than one thread, which is every developer machine and the function itself.
+    """
+    columns = [{"name": "id", "type": "bigint"}, {"name": "doc", "type": "varchar"}]
+    s3.payload = _multi_line_payload(5_000)
+    s3.size = len(s3.payload)
+    monkeypatch.setattr(rc_config, "EXCEL_MAX_ROWS", 4_999)
+    widths = _collected_widths(monkeypatch)
+
+    result = c.handler(_event("xlsx", columns=columns), None)
+
+    assert result["reason"] == "excel_row_limit" and result["tokens"] == {"count": 5_000}
+    assert widths == [1], "the count refused it, before anything was materialised"
+
+
+def test_a_count_that_disagrees_with_the_built_frame_is_refused_before_the_write(s3, monkeypatch):
+    """The check after the frame is built is the net under the count: a count that admitted a
+    result the frame then shows to be over a limit is refused there, never written short."""
+    asked = []
+
+    def admits_first(rows, columns):
+        asked.append(rows)
+        return None if len(asked) == 1 else "excel_row_limit"
+
+    monkeypatch.setattr(c, "excel_refusal", admits_first)
+    s3.payload = _csv(rows=3)
+    s3.size = len(s3.payload)
+
+    result = c.handler(_event("xlsx"), None)
+
+    assert result["reason"] == "excel_row_limit" and result["tokens"] == {"count": 3}
+    assert asked == [3, 3], "asked of the count, then of the built frame's height"
     assert s3.written == []
 
 
@@ -609,7 +728,9 @@ def test_the_sheet_is_named_and_excels_row_ceiling_is_excels(s3):
         if sheet.tag.endswith("}sheet")
     ]
     assert names == ["results"]
-    assert c.EXCEL_MAX_ROWS == 1_048_575, "one less than Excel's 1,048,576, because the header takes one"
+    assert rc_config.EXCEL_MAX_ROWS == 1_048_575, (
+        "one less than Excel's 1,048,576, because the header takes one"
+    )
 
 
 def test_the_upload_path_raises_no_transient_error(s3):

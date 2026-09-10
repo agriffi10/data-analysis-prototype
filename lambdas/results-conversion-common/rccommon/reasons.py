@@ -24,6 +24,12 @@ Attributes:
   RESULTS_UNREADABLE: A value in the result set does not parse as the type Athena declared for
     its column. The whole conversion refuses and no partial file is written.
   EXCEL_ROW_LIMIT: The result set has more rows than a worksheet can hold.
+  EXCEL_CELL_LIMIT: The result set has more cells than the converter can hold while it builds a
+    workbook. Not a file-format limit: Excel's path cannot stream, and its memory is set per
+    cell, so this is the converter's ceiling rather than Excel's.
+  EXCEL_EXHAUSTED: An Excel conversion's function ran out of time or memory before it finished.
+    Not raised by any verb — a function that is out of either cannot raise — but worded by the
+    notifier of last resort from the Lambda error it receives in place of one.
   TOO_MANY_COLUMNS: The result set has more columns than the plane can carry between its
     states. Not a file-format limit: Excel's own column ceiling is more than three times this
     and can never be reached, so there is no separate code for it.
@@ -48,6 +54,8 @@ INVALID_COLUMN_NAME = "invalid_column_name"
 UNSUPPORTED_COLUMN_TYPE = "unsupported_column_type"
 RESULTS_UNREADABLE = "results_unreadable"
 EXCEL_ROW_LIMIT = "excel_row_limit"
+EXCEL_CELL_LIMIT = "excel_cell_limit"
+EXCEL_EXHAUSTED = "excel_exhausted"
 TOO_MANY_COLUMNS = "too_many_columns"
 DESTINATION_OCCUPIED = "destination_occupied"
 MALFORMED_EVENT = "malformed_event"
@@ -69,6 +77,8 @@ REASONS = frozenset(
         UNSUPPORTED_COLUMN_TYPE,
         RESULTS_UNREADABLE,
         EXCEL_ROW_LIMIT,
+        EXCEL_CELL_LIMIT,
+        EXCEL_EXHAUSTED,
         TOO_MANY_COLUMNS,
         DESTINATION_OCCUPIED,
         MALFORMED_EVENT,

@@ -134,12 +134,14 @@ echo "== SPEC-222 §4 · throughput on the deployed architecture =="
 cat <<'EYES'
   Read the LAST log stream of /aws/lambda/dat-prod-results-conversion-convert and record, for the
   .xlsx run: the REPORT line's Duration and Max Memory Used, and the "converted N row(s) into M
-  byte(s)" line. Divide the source CSV's size by the duration.
+  byte(s)" line.
 
-  The size caps derate a measured 4.2 MB/s Excel figure by 4, because that measurement was taken
-  on an arm64 build and this runs amd64. BELOW ROUGHLY 1 MB/s AND THE CAP MUST COME DOWN. Max
-  Memory Used against the 3008 MB the function is sized at is the other half — the Excel cap is
-  memory-bound, at a measured 23-32x the input CSV.
+  Excel's time and memory are both spent per CELL, not per byte, and its cap is a cell count
+  derived in rccommon.config from a measured model; the plane suite scales every measured shape
+  to the largest input the caps admit, slowing its local rate by 5 (a measured 4.0). Compare
+  Max Memory Used with that model for the input you converted — e2e.md section 4.3 carries the
+  one input worth converting for this, the largest the caps admit, with its expected figure. A
+  reading above the model is a finding against the constants, not a pass.
 EYES
 
 echo
