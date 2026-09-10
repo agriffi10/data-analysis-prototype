@@ -199,11 +199,13 @@ query in "agriffith".").
     that straddles a minute boundary also becomes two.
 - **§G.3.** The first `span.end` per route in `logs/service=api/` covers `sharedSpace`,
   `dataQuality`, `fileSend` and `notifications` on day 10 and `fileOps` on day 08. Each carries
-  `route_id`, `queue`, `actor`, `message_group_id`, `body_request_id`, `dedup_id`, and `env`/`version`
-  at the top level. `body_request_id` is absent on `notifications` by design, because that body has
-  no id. None contains a JWT shape, an email, any of the six presigned-URL tokens, a path-like value
-  or a recipient field. **Table-builder, table-share and results-conversion are pending**, because
-  the log sweep is two hours behind (see the observations).
+  `route_id`, `queue`, `actor`, `message_group_id`, `body_request_id`, `dedup_id`, `body_bytes`, and
+  `env`/`version` at the top level. `body_request_id` is absent on `notifications` by design, because
+  that body has no id. None contains a JWT shape, an email, any of the six presigned-URL tokens, a
+  path-like value or a recipient field. **Later the same evening**, once the sweep had caught up to
+  19:24Z, the same reading of the day-10 partition covered `tableBuild.create` (all 3 records, queue
+  `table-builder`) and `resultsConversion.enqueue` (all 8), with the same fields and the same
+  absences. **Table-share is pending**: its records, from 19:52Z on, were still behind the sweep.
 - **§G.4.** No `Authorization` → **401 `SessionExpired`**. A body with `actor`, `identity` and
   `idToken` → **400 `InvalidRequest`**. A 4,000-item, 380,302-byte file-ops body → **413
   `PayloadTooLarge`**, *"the request is too large to enqueue"*, which is the whole-message bound.
@@ -250,7 +252,14 @@ instead.
   sorts first (`114a…` before `c781…`). A background CLI loop read both lock objects about once a
   second while a large copy held the personal lock. During that 30-second wait **the shared lock was
   free in every sample**, then both were held by the waiter at 20:17:54, and both were free at
-  20:17:57.
+  20:17:57. The `acquire-lock` log settles what a once-a-second sampler cannot: at 20:17:23 the
+  waiter (`e8a06e3c`) logged *space lock acquired*, *space lock refused* and *space lock released*
+  within 66 ms, then *"space lock not yet available"* with **`released_partial: 1`**. The earlier
+  cross-space copy (`c4ed47d8`) did the same on three attempts. So the first lock was taken and let
+  go, not merely never taken.
+  - **The script's §8b recipe is vacuous for this pair.** It wedges the shared lock, but that lock
+    sorts first, so a request that loses it holds nothing and the personal lock reads free whatever
+    the code does. The recipe now says to wedge the lock that sorts second.
 - **SPEC-191, notifications, from `notifications.json`.**
   - **One notification per request**, e.g. *"Moved 1 item to "fileops_clean0910"."* and *"Copied 1
     item to …"*, linking to the destination. The payload carries `requestId`, `operation`, `source`
@@ -380,12 +389,12 @@ instead.
   - The card settled to *"Finished — see your notifications…"*.
   - **The card does not survive navigation.** See the fifth defect.
 
-### Defects found, and where each went
+### Defects found — each is tracked in `owed.md`'s defects table until its re-run passes
 
 1. **The Excel cap admits inputs the converter cannot finish.** A 60 MiB result of 1,048,575 rows ×
    15 one-character columns passed both the size cap and the row limit. `convert` ran **600,000 ms,
    `Max Memory Used: 3008 MB`, `Status: timeout`**, and the user got *"Couldn't save the query
-   results as Excel: something went wrong."* ten minutes later. Handed to a follow-up session.
+   results as Excel: something went wrong."* ten minutes later.
 2. **File-ops refusals at validation carried no `requestId`.** `validate-authorize`'s failure
    handler built its notification event by hand, as `{actor, operation}`, and left the request id
    out, so both whole-request refusals (`forbidden` and `space_root_not_an_item`) arrived with
@@ -396,8 +405,7 @@ instead.
 3. **The Query workspace's row-count walk is unbounded.** The code assumes *"GetQueryResults calls
    are free"*, but each page is now a billed API call. A 10-million-row result walked at about 1.6
    calls a second, which would be roughly 10,000 calls; it stopped at 124 when the page was left.
-   Handed to a follow-up session.
-4. **A top-bar overflow band at 900–946 px**, widening with username length. Not yet handed off.
+4. **A top-bar overflow band at 900–946 px**, widening with username length.
 5. **Navigation remounts the signed-in shell.** `RootLayout`'s `<ErrorBoundary key={pathname}>`
    remounts everything beneath it on every route change. The shell's wrapper node is new after a
    route change, and both providers reset.
@@ -406,11 +414,12 @@ instead.
      abort. `POST /v1/objects/upload/abort` returned 200, which is SPEC-216 FR-004's navigation
      variant.
    - **The in-progress card and the space's submit gate are lost.**
-   - Handed to a follow-up session.
 
-Smaller: the save dialog resets when an overwrite is cancelled; the row-limit count has no thousands
-separator; a relative listing prefix equal to the space name reads as the root
-(`protected.contained_prefix`); and the Pipes record model is incomplete.
+Smaller, and in the same table: the save dialog resets when an overwrite is cancelled; the
+row-limit count has no thousands separator; a relative listing prefix equal to the space name reads
+as the root, because `protected.contained_prefix` treats any prefix starting with the root as
+absolute; and the log sweep is saturated (see *Observability*). The Pipes record model's gap is
+tracked in its own `owed.md` row.
 
 ### Not run, and why
 
@@ -424,7 +433,7 @@ separator; a relative listing prefix equal to the space name reads as the root
   catalog-unsafe name, and §G.1 row 1. Andrew chose to use the existing space instead.
 - **The classifier refused.** Corrupting `query-history.json` (SPEC-159).
 - **Production writes, which need CI or an operator.** Every row in that group.
-- **Pending the log-sweep lag.** §G.3's last three planes.
+- **Pending the log-sweep lag.** §G.3's table-share record.
 
 ### Left behind — created by this session, not deleted
 
