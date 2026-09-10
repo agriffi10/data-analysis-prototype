@@ -238,6 +238,10 @@ def _validate_and_authorize(event) -> dict:
     them before the Catch records it; a failure before it has no trusted recipient and stays
     notification-free.
 
+    The request id rides on that refusal from the start, a contract refusal included, because a
+    reader settles its in-flight record by matching it and the payload drops an id that is not a
+    usable string. The format joins it only once validated, since it is rendered into the sentence.
+
     Args:
       event: The EventBridge Pipe envelope.
 
@@ -257,10 +261,9 @@ def _validate_and_authorize(event) -> dict:
     )
     username = who.username
     tokens: dict[str, str] = {}
-    notified = {"username": username, "requestId": None, "format": None}
+    notified = {"username": username, "requestId": req.get("requestId"), "format": None}
     try:
         _check_contract(req)
-        notified["requestId"] = req["requestId"]
         notified["format"] = tokens["format"] = req["format"]
         destination = req["destination"]
         prefix = paths.check_prefix(destination.get("prefix"))

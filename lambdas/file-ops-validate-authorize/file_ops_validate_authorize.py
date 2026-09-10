@@ -416,6 +416,10 @@ def _validate_and_authorize(event) -> dict:
     the actor is known, a whole-request rejection notifies them before the Catch records it; a
     failure before it has no trusted recipient and stays notification-free.
 
+    That notification is built by hand from the parsed body, so it names the request id itself:
+    a browser tracking the request in flight settles its card by matching that id, and a run
+    refused here reaches no outcome producer that could settle it instead.
+
     Args:
       event: The EventBridge Pipe envelope.
 
@@ -468,7 +472,12 @@ def _validate_and_authorize(event) -> dict:
             source["items"], operation, source, destination, source_space.get("kind") or "personal"
         )
     except TerminalError as err:
-        notify.emit_failure({"actor": {"username": actor}, "operation": req.get("operation")}, err, "validate")
+        notified = {
+            "requestId": req.get("requestId"),
+            "actor": {"username": actor},
+            "operation": req.get("operation"),
+        }
+        notify.emit_failure(notified, err, "validate")
         raise
 
     validated = {

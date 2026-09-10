@@ -18,6 +18,7 @@ Attributes:
   None.
 """
 
+from cpcommon import observability
 from cpcommon.errors import TerminalError
 from cpcommon.notify import emit_notification
 from cpcommon.notify import notifies_on_failure as _notifies_on_failure
@@ -71,19 +72,21 @@ def request_payload(event) -> dict | None:
     """The structured payload a notification carries beside its message.
 
     The request id is what lets a reader tracking this request in flight settle its record;
-    the format is what it was saving as.
+    the format is what it was saving as. The id is read through the shared walk rather than off a
+    top-level key, because the failure terminal's state has ``requestId: null`` wherever the error
+    replaced the state, and the forwarded request beside it under ``raw`` still names the run.
 
     Args:
-      event: The verb's event.
+      event: The verb's event, or the failure terminal's recorded failure.
 
     Returns:
-      The payload, or None when the event carries no request id.
+      The payload, or None when no shape names a usable request id.
 
     Raises:
       None.
     """
-    request_id = event.get("requestId") if isinstance(event, dict) else None
-    if not isinstance(request_id, str):
+    request_id = observability.request_id_of(event)
+    if not request_id:
         return None
     return {"requestId": request_id, **_format_of(event)}
 

@@ -28,10 +28,10 @@ import type {FileOpSpace, InFlightOperation} from './fileOps.types';
  * gate released — so a mis-inference costs a word on a card and nothing else, which is what makes
  * reading another module's payload shape an acceptable coupling.
  *
- * **Some runs settle by neither route.** `request_payload` returns nothing at all in the
- * pre-identity window, and the shared DLQ drain writes no payload — so a request that
- * dead-letters is never correlated. That is what the two belt-and-braces bounds are for: every
- * entry is dismissible, and every entry expires at the machine's `TimeoutSeconds`.
+ * **Some runs settle by neither route.** A request whose identity block cannot be verified is
+ * told nothing at all, having no inbox to be told in, and the shared DLQ drain writes its row with
+ * no payload — so neither is ever correlated. That is what the two belt-and-braces bounds are for:
+ * every entry is dismissible, and every entry expires at the machine's `TimeoutSeconds`.
  */
 export function FileOpsInFlightProvider({children}: {children: ReactNode}) {
   const {status, user} = useAuth();

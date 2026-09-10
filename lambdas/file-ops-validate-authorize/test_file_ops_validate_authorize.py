@@ -252,6 +252,55 @@ def test_the_SPACE_ROOT_is_refused_as_an_item():
     assert _refused(operation="delete", items=[{"kind": "folder", "key": "alice/"}]) == "space_root_not_an_item"
 
 
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"operation": "delete", "items": [{"kind": "folder", "key": "alice/"}]},
+        {"operation": "delete", "space": {"kind": "personal", "name": "bob"}, "items": [{"kind": "file", "key": "bob/q1.csv"}]},
+        {"operation": "rename"},
+    ],
+    ids=["space-root-not-an-item", "forbidden", "a-contract-refusal"],
+)
+def test_a_refusal_notifies_the_actor_WITH_the_request_id_their_browser_is_waiting_on(kwargs):
+    """The browser settles its in-flight card by matching ``payload.requestId``, and a run refused
+    here reaches no outcome producer — so a refusal without it holds the card, and the space's
+    submit gate, until the card's own expiry.
+
+    Driven through the handler on purpose. The emitter always forwarded an id it was given; this
+    verb builds the emitter's event by hand and left the id out, and a test that handed the
+    emitter a ready-made event could not see that.
+    """
+    _setup()
+    sent = []
+    v.notify.emit_notification = lambda user, text, **kw: sent.append((user, kw.get("payload")))
+
+    with pytest.raises(TerminalError):
+        v.handler(_event(**kwargs), None)
+
+    assert sent == [("alice", {"requestId": "req-1"})], "the refusal cannot settle the card it answers"
+
+
+@pytest.mark.parametrize("request_id", [None, 7], ids=["missing", "not-a-string"])
+def test_a_request_with_no_usable_id_reaches_the_contracts_own_refusal_and_names_no_id(request_id):
+    """The id is read before anything has checked it, so reading it must not be what fails: a
+    subscript would turn the contract's refusal into an unexpected error and the actor would read
+    the generic sentence. What the payload cannot use it drops, rather than forwarding it."""
+    _setup()
+    sent = []
+    v.notify.emit_notification = lambda user, text, **kw: sent.append((user, kw.get("payload")))
+    body = _body()
+    if request_id is None:
+        del body["requestId"]
+    else:
+        body["requestId"] = request_id
+
+    with pytest.raises(TerminalError) as caught:
+        v.handler([{"body": json.dumps(body)}], None)
+
+    assert caught.value.reason == "malformed_event"
+    assert sent == [("alice", None)]
+
+
 def test_the_block_decides_the_actor_and_the_flat_field_beside_it_does_not():
     """The block wins, and the flat field must not — it holds a raw token until the cutover.
 

@@ -112,26 +112,29 @@ def _timed_out_request(detail) -> dict:
       detail: The event's ``detail`` block.
 
     Returns:
-      ``{"username": ..., "format": ..., "filename": ...}``, with an empty username when the
-      input was omitted or cannot be attributed.
+      ``{"username": ..., "format": ..., "filename": ..., "raw": ...}``, with an empty username
+      when the input was omitted or cannot be attributed. ``raw`` is the parsed batch, carried so
+      the notification can name the request id from the same bytes, or None when there is none.
 
     Raises:
       None. Every failure degrades to no verified actor: a raise here would be an async Lambda
       failure, and EventBridge retries those, turning one unattributable event into three.
     """
+    nobody = {"username": "", "format": None, "filename": None, "raw": None}
     if not isinstance(detail, dict):
         logger.info("timed-out execution event carries no detail object")
-        return {"username": "", "format": None, "filename": None}
+        return nobody
     included = (detail.get("inputDetails") or {}).get("included")
     raw = detail.get("input")
     if included is False or not isinstance(raw, str) or not raw:
         logger.info("timed-out execution carries no input; nobody can be attributed")
-        return {"username": "", "format": None, "filename": None}
+        return nobody
     try:
-        return _identity_from_raw(json.loads(raw))
+        batch = json.loads(raw)
     except ValueError as exc:
         logger.info("could not attribute the timed-out execution: %s", exc)
-        return {"username": "", "format": None, "filename": None}
+        return nobody
+    return {**_identity_from_raw(batch), "raw": batch}
 
 
 def _on_execution_timed_out(event) -> dict:
@@ -157,7 +160,9 @@ def _on_execution_timed_out(event) -> dict:
         )
         return {"username": "", "error": {"Error": "States.Timeout", "Cause": None}}
     notify.emit_notification(
-        username, messages.failure_message(_TIMEOUT_REASON, {"format": recovered["format"]})
+        username,
+        messages.failure_message(_TIMEOUT_REASON, {"format": recovered["format"]}),
+        payload=notify.request_payload({"raw": recovered["raw"], "format": recovered["format"]}),
     )
     observability.info(
         "notified the actor that the execution timed out",
@@ -231,6 +236,11 @@ def handler(event, context) -> dict:
     username is missing: the file name a refusal's sentence names lives there whether or not the
     actor had to be recovered from it.
 
+    Both doors carry the request id and the format as the payload, as the plane's other producers
+    do. The terminal is where a convert refusal and a converter that ran out of time both land, so
+    a payload-less row here would be the one of this plane's own that a reader tracking a
+    conversion in flight could never settle.
+
     Args:
       event: The failed request carrying the raw Step Functions error, or an EventBridge
         ``Step Functions Execution Status Change`` event.
@@ -273,7 +283,9 @@ def handler(event, context) -> dict:
         )
         return request
     notify.emit_notification(
-        username, messages.failure_message(reason, {"format": fmt, **tokens})
+        username,
+        messages.failure_message(reason, {"format": fmt, **tokens}),
+        payload=notify.request_payload({**request, "format": fmt}),
     )
     observability.info(
         "notified the actor of a failure",

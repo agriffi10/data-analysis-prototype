@@ -610,7 +610,7 @@ def _envelope_values(batch: object, key: str) -> Iterator[object]:
         if isinstance(body, str):
             try:
                 parsed = json.loads(body)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, RecursionError):
                 parsed = None
             if isinstance(parsed, dict):
                 yield parsed.get(key)
@@ -690,7 +690,7 @@ def _shape_values(event: object, key: str) -> Iterator[object]:
     yield from _envelope_values(event.get("raw"), key)
 
 
-def _extract_request_id(event: object) -> str | None:
+def request_id_of(event: object) -> str | None:
     """Pulls the request id out of every event shape a control-plane verb can receive.
 
     Reaching the forwarded envelope on the state is the intended consequence of the fifth shape and
@@ -703,6 +703,10 @@ def _extract_request_id(event: object) -> str | None:
     in the fleet. What the list-only narrowing refuses is a BARE dict's ``body``, which for an API
     Gateway request is the caller's live HTTP body; ``raw`` is written by ASL and never by a caller,
     so that narrowing is untouched.
+
+    Public because a failure NOTIFICATION needs the same id from the same places: a browser settles
+    its in-flight record by matching it, and the failure terminal's state is exactly the one whose
+    seed nulled it. A second walk in a plane layer would be a second copy of the narrowing above.
 
     Args:
       event: The handler's event.
@@ -841,7 +845,7 @@ def _stamp_request_id(event: object) -> None:
     """
     request_id = None
     try:
-        request_id = _extract_request_id(event)
+        request_id = request_id_of(event)
     except Exception as exc:  # noqa: BLE001
         logger.warning(
             "structured logging: could not read request_id (%s: %s)", type(exc).__name__, exc

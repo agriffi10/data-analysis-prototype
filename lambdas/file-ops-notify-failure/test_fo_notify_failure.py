@@ -9,6 +9,8 @@ import json
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "file-ops-common"))
 
 os.environ.setdefault("COGNITO_USER_POOL_ID", "us-east-1_testpool")
@@ -22,7 +24,13 @@ from token_shapes import JWT_SHAPED
 
 def _capture():
     sent = []
-    n.notify.emit_notification = lambda user, message: sent.append((user, message))
+    n.notify.emit_notification = lambda user, message, **kw: sent.append((user, message))
+    return sent
+
+
+def _payloads():
+    sent = []
+    n.notify.emit_notification = lambda user, message, **kw: sent.append(kw.get("payload"))
     return sent
 
 
@@ -129,3 +137,27 @@ def test_a_timed_out_execution_notifies_the_actor():
 
     assert len(sent) == 1
     assert sent[0][0] == "alice"
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        _request({"Error": "States.Timeout", "Cause": None}),
+        {**_request({"Error": "Runtime.ImportModuleError", "Cause": None}, actor=None, raw=_raw()), "requestId": None},
+        _timed_out(json.dumps(_raw())),
+    ],
+    ids=["id-on-the-state", "seed-nulled-the-id", "timeout-door"],
+)
+def test_every_door_names_the_request_id_the_browser_is_waiting_on(event):
+    """The browser settles its in-flight card by matching ``payload.requestId``, and nothing
+    reaches the outcome producer after a failure lands here — so a message without it leaves the
+    card, and the space's submit gate, held until the card's own expiry.
+
+    The second case is the one a top-level read misses: a validator fault replaces the state, so
+    the seed nulls the id and only the forwarded request beside it still names the run.
+    """
+    sent = _payloads()
+
+    n.handler(event, None)
+
+    assert sent == [{"requestId": "req-1"}]
