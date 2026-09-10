@@ -1,5 +1,6 @@
 """The app-managed folder names and the builders every anchored rule goes through."""
 
+import pytest
 from cpcommon import app_managed, s3_listing
 
 
@@ -107,3 +108,58 @@ def test_the_listing_ignores_exactly_these_two_subtrees():
         "system_settings/athenaresults/",
         "user_settings/",
     )
+
+
+SEGMENT_CASES = [
+    # (segments, folder, held, why this row is in the table)
+    ([], "archive", False, "an empty list — the loop must not read past the end"),
+    (["system_settings", "archive"], "archive", True, "the pair, exactly"),
+    (["a", "system_settings", "archive"], "archive", True, "the pair, below a user folder"),
+    (["system_settings", "archive", "b"], "archive", True, "the pair, above a user folder"),
+    (["archive"], "archive", False, "the NAME the folder left — the whole narrowing"),
+    (["a", "archive", "b"], "archive", False, "the name it left, nested"),
+    (["system_settings"], "archive", False, "the parent alone is not the folder"),
+    (["system_settings", "x", "archive"], "archive", False, "a SPLIT pair is not the folder"),
+    (["archive", "system_settings"], "archive", False, "the pair reversed is not the pair"),
+    (["system_settings", "system_settings", "archive"], "archive", True, "a doubled parent"),
+    (["user_settings"], "user_settings", True, "a folder that did NOT move, at depth one"),
+    # TRUE, and this row was written expecting False. A non-moving folder's Deny did not move
+    # either: the shared one is still `*/user_settings/*`, and an S3 wildcard matches `/`, so it
+    # reaches that name at ANY depth including under the new prefix. The mirror has to answer what
+    # the Deny answers, not what the browser's root-anchored rule answers — those are different
+    # questions, and `_is_under_root_folder` is the one that asks the other.
+    (["system_settings", "user_settings"], "user_settings", True, "a non-moving name, at any depth"),
+    (["archived"], "archive", False, "segment equality, never a substring"),
+]
+
+
+@pytest.mark.parametrize(("segments", "folder", "held", "why"), SEGMENT_CASES)
+def test_the_segment_predicate_answers_each_boundary_case(segments, folder, held, why):
+    """``segments_hold_app_managed``'s own table, rather than one borrowed from a caller.
+
+    It had none when it landed: four of its five call sites' suites reddened when it was broken,
+    but only ONE assertion anywhere discriminated a SPLIT pair, and it lived in an API test. A
+    predicate that five rules delegate to owes its own boundary table, because a caller's suite
+    tests the caller.
+
+    Args:
+      segments: The key's segments below the space root.
+      folder: The folder name asked about.
+      held: What the predicate must answer.
+      why: The property this row is here for, so a deleted row is a visible loss.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the predicate disagrees.
+    """
+    assert app_managed.segments_hold_app_managed(segments, folder) is held, why
+
+
+def test_the_segments_builder_pairs_only_the_folders_that_moved():
+    """The two tuples the predicate is built on, spelled out."""
+    assert app_managed.app_managed_segments("archive") == ("system_settings", "archive")
+    assert app_managed.app_managed_segments("athenaresults") == ("system_settings", "athenaresults")
+    assert app_managed.app_managed_segments("user_settings") == ("user_settings",)
+    assert app_managed.app_managed_segments("shared_tables") == ("shared_tables",)

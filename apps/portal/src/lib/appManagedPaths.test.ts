@@ -5,6 +5,8 @@ import ownerSource from './appManagedPaths?raw';
 import {
   appManagedPrefix,
   appManagedPrefixes,
+  appManagedSegments,
+  segmentsHoldAppManaged,
   ARCHIVE_FOLDER,
   ATHENA_RESULTS_FOLDER,
   MOVING_FOLDERS,
@@ -64,20 +66,51 @@ describe('appManagedPrefixes', () => {
     expect(body![1]).toContain('return');
   });
 
-  it('answers exactly what the singular answers, for every name', () => {
-    // This replaces the assertion that pinned the plural's FIRST element to the depth-one path
-    // while the objects were still there. They have moved, the old prefixes are proved empty and
-    // their fences are gone, so a depth-one `alice/archive/` is an ordinary user folder.
-    for (const root of ['', 'alice/', 'finance/']) {
-      for (const folder of [
-        ATHENA_RESULTS_FOLDER,
-        ARCHIVE_FOLDER,
-        SHARED_TABLES_FOLDER,
-        'user_settings',
-        SYSTEM_SETTINGS_FOLDER
-      ]) {
-        expect(appManagedPrefixes(root, folder)).toEqual([appManagedPrefix(root, folder)]);
-      }
-    }
+  it('answers the one literal location, for every name and every root', () => {
+    // Spelled out rather than compared against `appManagedPrefix`. The plural's body IS
+    // `[appManagedPrefix(...)]`, so an equality against it cannot fail for ANY implementation of
+    // the singular — it would go green with the singular returning the empty string. The
+    // delegation is guarded by the body-reading test above; what this asserts is the VALUE.
+    expect(appManagedPrefixes('', ARCHIVE_FOLDER)).toEqual(['system_settings/archive/']);
+    expect(appManagedPrefixes('alice/', ATHENA_RESULTS_FOLDER)).toEqual(['alice/system_settings/athenaresults/']);
+    expect(appManagedPrefixes('finance/', ARCHIVE_FOLDER)).toEqual(['finance/system_settings/archive/']);
+    expect(appManagedPrefixes('finance/', SHARED_TABLES_FOLDER)).toEqual(['finance/shared_tables/']);
+    expect(appManagedPrefixes('alice/', 'user_settings')).toEqual(['alice/user_settings/']);
+    expect(appManagedPrefixes('alice/', SYSTEM_SETTINGS_FOLDER)).toEqual(['alice/system_settings/']);
+  });
+
+  // ─── the segment builder, which five rules across two trees delegate to ───
+
+  it('pairs only the folders that moved', () => {
+    expect(appManagedSegments(ARCHIVE_FOLDER)).toEqual([SYSTEM_SETTINGS_FOLDER, 'archive']);
+    expect(appManagedSegments(ATHENA_RESULTS_FOLDER)).toEqual([SYSTEM_SETTINGS_FOLDER, 'athenaresults']);
+    expect(appManagedSegments(SHARED_TABLES_FOLDER)).toEqual(['shared_tables']);
+    expect(appManagedSegments('user_settings')).toEqual(['user_settings']);
+  });
+
+  it.each([
+    // [segments, folder, held, why this row is here]
+    [[], ARCHIVE_FOLDER, false, 'an empty list — the scan must not read past the end'],
+    [['system_settings', 'archive'], ARCHIVE_FOLDER, true, 'the pair, exactly'],
+    [['a', 'system_settings', 'archive'], ARCHIVE_FOLDER, true, 'the pair, below a user folder'],
+    [['system_settings', 'archive', 'b'], ARCHIVE_FOLDER, true, 'the pair, above a user folder'],
+    [['archive'], ARCHIVE_FOLDER, false, 'the NAME the folder left — the whole narrowing'],
+    [['a', 'archive', 'b'], ARCHIVE_FOLDER, false, 'the name it left, nested'],
+    [['system_settings'], ARCHIVE_FOLDER, false, 'the parent alone is not the folder'],
+    [['system_settings', 'x', 'archive'], ARCHIVE_FOLDER, false, 'a SPLIT pair is not the folder'],
+    [['archive', 'system_settings'], ARCHIVE_FOLDER, false, 'the pair reversed is not the pair'],
+    [['system_settings', 'system_settings', 'archive'], ARCHIVE_FOLDER, true, 'a doubled parent'],
+    [['archived'], ARCHIVE_FOLDER, false, 'segment equality, never a substring'],
+    [['user_settings'], 'user_settings', true, 'a folder that did not move, at depth one'],
+    [
+      ['system_settings', 'user_settings'],
+      'user_settings',
+      true,
+      'and at any depth, since its Deny did not move either'
+    ]
+  ])('segmentsHoldAppManaged(%j, %s) === %s — %s', (segments, folder, held) => {
+    // This twin had NO test when it landed, and no key anywhere in the app exercised a split
+    // pair. Five rules across the two trees delegate here; a caller's suite tests the caller.
+    expect(segmentsHoldAppManaged(segments as string[], folder as string)).toBe(held);
   });
 });

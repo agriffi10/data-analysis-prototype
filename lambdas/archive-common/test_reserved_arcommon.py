@@ -79,7 +79,7 @@ def test_an_ordinary_selection_and_a_lookalike_file_still_archive():
     assert assert_not_reserved("alice/", "alice/archived-notes.txt") == "alice/archived-notes.txt"
 
 
-def test_the_expansion_excludes_both_homes_of_every_reserved_folder():
+def test_the_expansion_excludes_each_reserved_folder_at_its_one_home():
     """Every reserved location is excluded from an archive expansion, at either home.
 
     **This proves the LIST membership, not the re-pointing, and no fixture here could prove the

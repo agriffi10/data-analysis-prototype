@@ -621,6 +621,22 @@ def test_the_shared_space_template_lost_ONLY_the_enqueue_and_the_depth_one_denie
     }, f"it should add exactly the two system-settings Denies; it added {set(after) - set(before)}"
     assert "sqs:SendMessage" not in (REPO / EDITED).read_text()
 
+    # The surviving receipt Deny's ACTION list, compared against the one it replaced. Without this
+    # the shared template has ONE guard on its actions where the personal template has two: the
+    # sibling gate that used to hold this equality was deleted with the depth-one halves it
+    # compared, and a Sid-membership assertion cannot see an action leaving a statement that stays.
+    # Measured: dropping `s3:PutObject` from the shared Deny reddened one guard before this line
+    # and two after it.
+    survivor = after["SharedArchiveReceiptsAreNotUserWritableSystemSettings"]
+    replaced = before["SharedArchiveReceiptsAreNotUserWritable"]
+    for action in ("s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"):
+        assert action in survivor, f"the surviving shared Deny drops {action}"
+        assert action in replaced, f"the baseline shared Deny did not carry {action}"
+    assert replaced.replace("/archive/", "/system_settings/archive/") == survivor.replace(
+        "SharedArchiveReceiptsAreNotUserWritableSystemSettings",
+        "SharedArchiveReceiptsAreNotUserWritable",
+    ), "the survivor must differ from the statement it replaced by the prefix and the Sid alone"
+
 
 def test_the_user_space_template_TRADED_its_depth_one_receipt_deny() -> None:
     """The user-space permission template, checked by content because bytes cannot say how.

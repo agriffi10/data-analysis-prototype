@@ -86,11 +86,12 @@ function keyMatcher(resource: string, principal: string): (key: string) => boole
 }
 
 /**
- * The union of a Sid and its `…SystemSettings` sibling, because the folder now has two homes and
- * IAM refuses each with its own statement.
+ * The union of every Deny naming the receipt folder in one template.
  *
- * A matcher built from one of them would agree with the browser only where that one reaches, and
- * the row that would catch it is the one the sibling exists for.
+ * It wrapped two matchers while the folder had two homes and IAM refused each with its own
+ * statement. One home, one statement, one matcher — and it stays a union because what it expresses
+ * is "every Deny naming this folder", so a second statement returning would otherwise go
+ * unmeasured by every row below.
  */
 function anyOf(...matchers: ((key: string) => boolean)[]): (key: string) => boolean {
   return (key) => matchers.some((matches) => matches(key));

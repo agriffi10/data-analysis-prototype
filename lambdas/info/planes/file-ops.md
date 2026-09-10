@@ -210,7 +210,9 @@ The `Action` sets, by contrast, ARE covered — both surviving statements, by tw
 `test_portal_role_preservation.py` reaches the same two from the other side, comparing each against
 the depth-one statement it replaced, read from the baseline commit. So the set cannot be narrowed in
 one place and left alone in the other, and dropping `s3:PutObject` from either Deny reddens both
-guards — measured.
+guards — measured on BOTH, which is the point: the first draft of this paragraph measured the
+personal half and wrote "either", and the shared half then had one guard, not two. The preservation
+test's shared branch gained its action comparison for that reason.
 
 There were four statements and three guards until the narrowing: each folder had a depth-one home
 and a `…SystemSettings` sibling, and a third guard held the shared sibling's actions equal to its

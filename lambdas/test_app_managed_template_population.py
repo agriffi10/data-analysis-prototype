@@ -224,7 +224,11 @@ def test_the_admin_bucket_archive_prefix_gained_no_sibling() -> None:
             if f"/{SYSTEM_SETTINGS}/" in line:
                 offenders.append(f"{path.relative_to(INFRA).as_posix()}: {line.strip()}")
 
-    assert marked >= 10, (
+    # Re-derived when this test moved here, because a floor 4.5x below its population stops being
+    # a positive control: the tree holds 45 such lines and the floor was 10, so the glob could lose
+    # three quarters of the file set and the check would still read as healthy. 30 leaves room for
+    # the plane deletions this repo actually does while still reporting a broken scan.
+    assert marked >= 30, (
         f"only {marked} lines name the admin bucket, so the absence below is about an empty scan "
         "rather than about the tree — the glob or the marker has stopped matching"
     )
