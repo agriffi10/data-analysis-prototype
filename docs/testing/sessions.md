@@ -200,11 +200,11 @@ query in "agriffith".").
 - **§G.3.** The first `span.end` per route in `logs/service=api/` covers `sharedSpace`,
   `dataQuality`, `fileSend` and `notifications` on day 10 and `fileOps` on day 08. Each carries
   `route_id`, `queue`, `actor`, `message_group_id`, `body_request_id`, `dedup_id`, `body_bytes`, and
-  `env`/`version` at the top level. `body_request_id` is absent on `notifications` by design, because
+  `env`/`version` at the top level. `body_request_id` is `null` on `notifications` by design, because
   that body has no id. None contains a JWT shape, an email, any of the six presigned-URL tokens, a
   path-like value or a recipient field. **Later the same evening**, once the sweep had caught up to
   19:24Z, the same reading of the day-10 partition covered `tableBuild.create` (all 3 records, queue
-  `table-builder`) and `resultsConversion.enqueue` (all 8), with the same fields and the same
+  `table-builder`) and `resultsConversion.enqueue` (all 8 accepted records up to then), with the same fields and the same
   absences. **Table-share is pending**: its records, from 19:52Z on, were still behind the sweep.
 - **§G.4.** No `Authorization` → **401 `SessionExpired`**. A body with `actor`, `identity` and
   `idToken` → **400 `InvalidRequest`**. A 4,000-item, 380,302-byte file-ops body → **413
@@ -253,10 +253,12 @@ instead.
   second while a large copy held the personal lock. During that 30-second wait **the shared lock was
   free in every sample**, then both were held by the waiter at 20:17:54, and both were free at
   20:17:57. The `acquire-lock` log settles what a once-a-second sampler cannot: at 20:17:23 the
-  waiter (`e8a06e3c`) logged *space lock acquired*, *space lock refused* and *space lock released*
-  within 66 ms, then *"space lock not yet available"* with **`released_partial: 1`**. The earlier
-  cross-space copy (`c4ed47d8`) did the same on three attempts. So the first lock was taken and let
-  go, not merely never taken.
+  waiter (`e8a06e3c`) logged *space lock acquired* for the shared space, *space lock refused* for
+  the personal one and **_space lock released_ for the shared one** within 66 ms. The earlier
+  cross-space copy (`c4ed47d8`), blocked by three short personal-space requests, did the same on
+  three attempts. The *released* record is written only after the conditional release succeeds, so
+  the first lock was taken and let go, not merely never taken. (The `released_partial: 1` beside it
+  counts locks held, and would read 1 with the release removed, so it is not the proof.)
   - **The script's §8b recipe is vacuous for this pair.** It wedges the shared lock, but that lock
     sorts first, so a request that loses it holds nothing and the personal lock reads free whatever
     the code does. The recipe now says to wedge the lock that sorts second.
@@ -346,7 +348,8 @@ instead.
   widths and stacked, and the button is **31.5 px** tall for both labels. At 899 and 768 px the
   dialog was opened from the Explorer, because below 900 px the Query page shows only Saved and
   History; it is stacked there too, at 31.5 px, with no page overflow. **375 px was not run.**
-- **The top bar overflows** from 900 px to about 946 px. At 900 px the page is 945 px wide in an 885
+- **The top bar overflows** from 900 px up to about 960 px of `innerWidth`, the scrollbar taking 15
+  px of each. At 900 px the page is 945 px wide in an 885
   px viewport, and the header in a 925 px viewport at 940 px; it clears at 960 px. The account
   button's username label turns on at the `tablet:` breakpoint and nothing shrinks, so longer
   usernames widen the band.
@@ -405,7 +408,8 @@ instead.
 3. **The Query workspace's row-count walk is unbounded.** The code assumes *"GetQueryResults calls
    are free"*, but each page is now a billed API call. A 10-million-row result walked at about 1.6
    calls a second, which would be roughly 10,000 calls; it stopped at 124 when the page was left.
-4. **A top-bar overflow band at 900–946 px**, widening with username length.
+4. **A top-bar overflow band from 900 px up to about 960 px** (`innerWidth`), widening with
+   username length.
 5. **Navigation remounts the signed-in shell.** `RootLayout`'s `<ErrorBoundary key={pathname}>`
    remounts everything beneath it on every route change. The shell's wrapper node is new after a
    route change, and both providers reset.

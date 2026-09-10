@@ -6,7 +6,9 @@
 # `POST /v1/enqueue/file-ops` stamps the actor from the bearer and refuses a body that carries
 # `actor` itself, as these do. Send each section's body WITHOUT `actor` through that route instead,
 # from the signed-in page — the 2026-09-10 section of docs/testing/sessions.md ran every section it
-# reached that way. The sections' DO / EXPECT / PASS text still holds.
+# reached that way. The sections' EXPECT / PASS text still holds, and so does their DO text except
+# §6's single send-message-batch, which the route cannot express: two POSTs in one Promise.all
+# stand in for it.
 #
 # It is named for the plane deliberately. Four specs build this thing, and a script per spec would
 # be four files that share a token, a queue URL, a group digest and an envelope builder — the same
@@ -213,9 +215,12 @@ if [ -n "${SHARED_SPACE:-}" ]; then
   echo "   SECOND (as in §7). Wedging the one that sorts first proves nothing: the request loses the"
   echo "   first lock, holds nothing, and the other lock reads free whatever the code does."
   echo "   Then send the same cross-space move."
-  echo "   PASS: acquire-lock logs \"space lock not yet available\" with released_partial: 1 on each"
-  echo "   attempt, and the lock that sorts FIRST reads holder null afterwards. A held first lock"
-  echo "   here is the deadlock, and it blocks that space for hours."
+  echo "   PASS: EVERY acquire-lock span that logs \"space lock not yet available\" also logs"
+  echo "   \"space lock released\" for the space that sorts FIRST — that record is written only after"
+  echo "   the conditional release succeeds — and that lock reads holder null during each Wait and"
+  echo "   after the give-up. released_partial on the same record counts locks HELD, not released,"
+  echo "   so it proves nothing on its own. A held first lock is the deadlock, and it blocks that"
+  echo "   space for hours."
 else
   echo "   SKIPPED — no SHARED_SPACE set. This one is owed until it runs."
 fi
