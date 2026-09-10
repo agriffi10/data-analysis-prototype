@@ -205,13 +205,17 @@ plane loudly, so each fails in the direction where something stops working rathe
 opening — but a guard that reads statements can never see any of them, and saying so is the point
 of this table.
 
-The `Action` sets, by contrast, ARE covered — all four statements, by three guards that divide the
-work unevenly. `test_archive_bucket_isolation.py` pins the exact set on the two PRIMARY Sids.
-`test_app_managed_template_siblings.py` holds the SHARED sibling's actions equal to its twin's (its
-`TEXT_CHECKED` names the shared template only). `test_portal_role_preservation.py` reaches the
-PERSONAL sibling, comparing the twin against the statement it was copied from. So a sibling can
-only drift together with its original, and dropping `s3:PutObject` from both shared archive Denies
-still reddens `test_archive_bucket_isolation.py` and `test_portal_role_preservation.py` — measured.
+The `Action` sets, by contrast, ARE covered — both surviving statements, by two guards.
+`test_archive_bucket_isolation.py` pins the exact set on each bucket's receipt Deny.
+`test_portal_role_preservation.py` reaches the same two from the other side, comparing each against
+the depth-one statement it replaced, read from the baseline commit. So the set cannot be narrowed in
+one place and left alone in the other, and dropping `s3:PutObject` from either Deny reddens both
+guards — measured.
+
+There were four statements and three guards until the narrowing: each folder had a depth-one home
+and a `…SystemSettings` sibling, and a third guard held the shared sibling's actions equal to its
+twin's. The depth-one halves are retired, so that comparison has no second side left and the guard
+that made it was retired with them.
 
 ## The layer — `file-ops-common/focommon/`
 

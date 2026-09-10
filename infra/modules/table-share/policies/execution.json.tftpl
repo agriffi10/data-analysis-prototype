@@ -73,9 +73,7 @@
       ],
       "Resource": [
         "${user_space_bucket_arn}/*/shared_tables/*",
-        "${shared_space_bucket_arn}/*/shared_tables/*",
-        "${user_space_bucket_arn}/*/system_settings/shared_tables/*",
-        "${shared_space_bucket_arn}/*/system_settings/shared_tables/*"
+        "${shared_space_bucket_arn}/*/shared_tables/*"
       ]
     },
     {
@@ -127,8 +125,6 @@
         "s3:PutObject"
       ],
       "Resource": [
-        "${user_space_bucket_arn}/*/athenaresults/*",
-        "${shared_space_bucket_arn}/*/athenaresults/*",
         "${user_space_bucket_arn}/*/system_settings/athenaresults/*",
         "${shared_space_bucket_arn}/*/system_settings/athenaresults/*"
       ]

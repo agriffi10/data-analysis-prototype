@@ -27,6 +27,7 @@ os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 from cpcommon import app_managed
 from cpcommon import config as cp_config
 from cpcommon import messages as cpmessages
+from cpcommon.app_managed import app_managed_prefix
 from rccommon import config, messages, reasons
 
 _MODULE = _ROOT / "infra" / "modules" / "results-conversion"
@@ -140,13 +141,20 @@ def test_the_execution_role_writes_files_and_starts_no_query():
 
 
 def test_the_deny_names_every_refused_destination_in_both_buckets():
-    """The validator's refusal and the role's Deny are one rule stated twice, held equal here."""
+    """The validator's refusal and the role's Deny are one rule stated twice, held equal here.
+
+    The expected Resource is BUILT from ``app_managed_prefix`` rather than spelled ``{folder}/``,
+    because two of these destinations moved under ``system_settings/`` and a literal here would
+    have had to be edited to agree — which is the edit that makes a mirror test agree with a rule
+    nobody re-read. Built, it follows the Deny wherever the folder goes.
+    """
     denies = [s for s in _render_policy()["Statement"] if s["Effect"] == "Deny"]
     assert len(denies) == 1 and _actions(denies[0]) == {"s3:PutObject"}
     denied = set(_resources(denies[0]))
     for bucket in ("@user_space_bucket_arn@", "@shared_space_bucket_arn@"):
         for folder in config.PROTECTED_DESTINATIONS:
-            assert f"{bucket}/*/{folder}/*" in denied, f"{folder} is refused but not denied in {bucket}"
+            expected = f"{bucket}/*/{app_managed_prefix('', folder)}*"
+            assert expected in denied, f"{folder} is refused but not denied in {bucket}"
 
 
 def test_the_deny_names_the_system_settings_prefix_itself_in_both_buckets():

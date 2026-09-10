@@ -351,8 +351,13 @@ describe('the saved_queries/ folder (SPEC-173)', () => {
     it('names saved queries in its refusal, and query results in theirs', () => {
       expect(undeletableRootFolderRefusal('alice/saved_queries/', 'alice/', 'delete')).toMatch(/saved queries/i);
       expect(undeletableRootFolderRefusal('alice/saved_queries/', 'alice/', 'move')).toMatch(/moved or renamed/i);
-      expect(undeletableRootFolderRefusal('alice/athenaresults/', 'alice/', 'delete')).toMatch(/query results/i);
+      expect(undeletableRootFolderRefusal('alice/system_settings/athenaresults/', 'alice/', 'delete')).toMatch(
+        /query results/i
+      );
       expect(undeletableRootFolderRefusal('alice/photos/', 'alice/', 'delete')).toBeNull();
+      // The results folder moved, so the depth-one name is an ordinary folder — and `saved_queries`
+      // did NOT move, which is why the row above still names it at the space root.
+      expect(undeletableRootFolderRefusal('alice/athenaresults/', 'alice/', 'delete')).toBeNull();
     });
   });
 

@@ -1,4 +1,4 @@
-"""Both homes of a reserved folder are refused as archive sources, and each is named for itself.
+"""A reserved folder is refused as an archive source at its ONE home, and named for itself.
 
 The refusal's wording is the point as much as its reason: a user who selects the receipt folder at
 its new location must be told about the receipt folder, not about the prefix it now sits under.
@@ -11,12 +11,19 @@ from arcommon.authz import assert_not_reserved
 from arcommon.plan import _excluder
 from cpcommon.errors import TerminalError
 
-BOTH_HOMES = pytest.mark.parametrize("home", ["alice/{}/", "alice/system_settings/{}/"])
+BOTH_HOMES = pytest.mark.parametrize(
+    ("home", "reserved"),
+    [("alice/{}/", False), ("alice/system_settings/{}/", True)],
+    ids=["the-home-it-left", "the-app-managed-home"],
+)
 
 
 @BOTH_HOMES
-def test_either_home_of_a_reserved_folder_is_refused_and_names_that_folder(home):
-    """The direct arms, over every home, before any ancestor arm runs."""
+def test_the_reserved_folder_is_refused_at_its_home_and_names_that_folder(home, reserved):
+    """The direct arms, before any ancestor arm runs — and the retired home is a user's folder."""
+    if not reserved:
+        assert_not_reserved("alice/", home.format("archive"))
+        return
     with pytest.raises(TerminalError) as caught:
         assert_not_reserved("alice/", home.format("archive"))
 
@@ -25,8 +32,11 @@ def test_either_home_of_a_reserved_folder_is_refused_and_names_that_folder(home)
 
 
 @BOTH_HOMES
-def test_a_file_inside_either_home_is_refused_alike(home):
-    """Anything beneath the folder, at both locations."""
+def test_a_file_inside_the_folder_is_refused_at_its_home_only(home, reserved):
+    """Anything beneath the folder — and nothing beneath the name it vacated."""
+    if not reserved:
+        assert_not_reserved("alice/", f"{home.format('athenaresults')}q.csv")
+        return
     with pytest.raises(TerminalError) as caught:
         assert_not_reserved("alice/", f"{home.format('athenaresults')}q.csv")
 
@@ -83,10 +93,11 @@ def test_the_expansion_excludes_both_homes_of_every_reserved_folder():
     """
     ignore = _excluder("alice/")
 
-    assert ignore("alice/archive/r.txt", 1, "alice/") is True
     assert ignore("alice/system_settings/archive/r.txt", 1, "alice/") is True
     assert ignore("alice/system_settings/", 1, "alice/") is True
     assert ignore("alice/reports/mine.csv", 1, "alice/") is False
+    # The name it left: an ordinary folder, and its contents belong in the archive.
+    assert ignore("alice/archive/r.txt", 1, "alice/") is False
 
 
 def test_the_any_depth_deletability_rule_reaches_the_new_home_too():
@@ -99,8 +110,14 @@ def test_the_any_depth_deletability_rule_reaches_the_new_home_too():
     from arcommon import plan
     from cpcommon.errors import TerminalError
 
-    for key in ("alice/projects/archive/notes.txt", "alice/system_settings/archive/notes.txt"):
+    for key in (
+        "alice/projects/system_settings/archive/notes.txt",
+        "alice/system_settings/archive/notes.txt",
+    ):
         with pytest.raises(TerminalError) as caught:
             plan._assert_deletable_folder("alice/", key)
         assert caught.value.reason == "undeletable_folder", key
         assert caught.value.tokens == {"folderName": "archive"}, key
+
+    # The name it left is deletable at any depth, which is what the narrowing bought.
+    plan._assert_deletable_folder("alice/", "alice/projects/archive/notes.txt")

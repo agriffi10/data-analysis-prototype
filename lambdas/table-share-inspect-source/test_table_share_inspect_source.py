@@ -208,7 +208,7 @@ def test_listing_applies_ignore_rules_and_relative_keys():
             ("alice/sales/part-0.parquet", 100),
             ("alice/sales/year=2025/part-1.parquet", 50),
             ("alice/sales/DO_NOT_DELETE.txt", 5),
-            ("alice/sales/athenaresults/run.csv", 10),
+            ("alice/sales/system_settings/athenaresults/run.csv", 10),
             ("alice/sales/_temporary/x", 10),
             ("alice/sales/.hidden", 10),
             ("alice/sales/empty.parquet", 0),

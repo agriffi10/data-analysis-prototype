@@ -1,8 +1,9 @@
-"""Both homes of a moving folder answer the same, on every rule this plane anchors at a root.
+"""A moving folder is refused at its ONE home, and the home it left is ordinary again.
 
-The rules are parametrised over the two locations rather than written twice, because the failure
-this guards against is a rule that learned one home and not the other — which reads as working
-code and refuses nothing where the data actually is.
+The rules stay parametrised over the two locations after the narrowing, and the expectations now
+differ per row. Collapsing to a single row would have been the cheaper edit and a worse test: it
+would go green just as happily against a rule that still refused at depth one, which is the exact
+regression the narrowing can introduce and the only one a reader of this file would want caught.
 
 Two of these rules build their prefix from a PARAMETER (``_is_root_folder`` and
 ``_is_under_root_folder``), which is why the path sweep cannot see them and why the coverage has
@@ -16,11 +17,15 @@ from focommon.protected import (
     source_refusal,
 )
 
-BOTH_HOMES = pytest.mark.parametrize("home", ["alice/{}/", "alice/system_settings/{}/"])
+BOTH_HOMES = pytest.mark.parametrize(
+    ("home", "refused"),
+    [("alice/{}/", False), ("alice/system_settings/{}/", True)],
+    ids=["the-home-it-left", "the-app-managed-home"],
+)
 
 
 @BOTH_HOMES
-def test_a_paste_into_either_home_of_a_locked_folder_is_refused_alike(home):
+def test_a_paste_is_refused_at_the_app_managed_home_and_nowhere_else(home, refused):
     """``_is_under_root_folder``, the picker mirror — the folder itself and anything under it.
 
     **The DETAIL is asserted, not just the reason.** ``system_settings`` is itself in this list, so
@@ -35,6 +40,9 @@ def test_a_paste_into_either_home_of_a_locked_folder_is_refused_alike(home):
     """
     refusal = destination_refusal("alice/", home.format("athenaresults"), "personal")
 
+    if not refused:
+        assert refusal is None
+        return
     assert refusal is not None
     assert refusal.reason == "destination_folder_locked"
     assert refusal.detail.startswith("athenaresults/")
@@ -57,36 +65,50 @@ def test_shared_tables_is_refused_as_a_paste_target_at_its_one_home():
 
 
 @BOTH_HOMES
-def test_a_move_of_either_home_of_the_results_folder_is_refused_alike(home):
+def test_a_move_of_the_results_folder_is_refused_at_its_home_only(home, refused):
     """``_is_root_folder``, the undeletable-roots rule, which matches the folder itself only."""
     refusal = source_refusal("alice/", home.format("athenaresults"), "move", "personal")
 
+    if not refused:
+        assert refusal is None
+        return
     assert refusal is not None
     assert refusal.reason == "source_folder_undeletable"
     assert refusal.detail.startswith("athenaresults/")
 
 
 @BOTH_HOMES
-def test_a_receipt_in_either_home_is_read_only_alike(home):
+def test_a_receipt_is_read_only_at_its_home_and_the_old_one_is_ordinary(home, refused):
     """``_is_at_or_below``'s anchored arm, in a personal space, where it is the only arm."""
     refusal = source_refusal("alice/", f"{home.format('archive')}r.txt", "delete", "personal")
 
+    if not refused:
+        assert refusal is None
+        return
     assert refusal is not None
     assert refusal.reason == "archive_read_only"
 
 
 @BOTH_HOMES
-def test_a_receipt_in_either_home_is_read_only_in_a_shared_space_too(home):
-    """The shared arm is any-depth and reaches both homes without being re-pointed.
+def test_the_shared_any_depth_arm_follows_the_folder_rather_than_its_name(home, refused):
+    """The shared arm scans SEGMENTS, and the narrowing changed which segments it scans for.
 
     **The key sits one segment BELOW the root**, which is what makes this about the shared arm at
     all: a key at the root-anchored home is caught by the anchored arm whichever space it is in, so
     a fixture there passes with the shared arm deleted outright — measured, and true at base too.
+
+    The retired row is the one that earns this test its place now. ``finance/projects/archive/``
+    is a folder a user made, in a shared space, and the Deny that used to reach it is gone — so an
+    arm still keyed on the bare name refuses a delete IAM permits, and only a row expecting ``None``
+    can see that.
     """
     key = f"finance/projects/{home.format('archive').split('/', 1)[1]}r.txt"
 
     refusal = source_refusal("finance/", key, "delete", "shared")
 
+    if not refused:
+        assert refusal is None
+        return
     assert refusal is not None
     assert refusal.reason == "archive_read_only"
 
@@ -127,14 +149,16 @@ def test_the_any_depth_delete_rule_reaches_the_new_home_without_being_re_pointed
     from cpcommon.errors import TerminalError
     from focommon import delete
 
-    for key in ("alice/archive/r.txt", "alice/system_settings/archive/r.txt"):
-        try:
-            delete.assert_item_deletable([key], "alice/")
-        except TerminalError as exc:
-            assert exc.reason == "delete_refused", key
-            assert "archive" in exc.detail, key
-        else:
-            raise AssertionError(f"{key} was accepted for deletion")
+    try:
+        delete.assert_item_deletable(["alice/system_settings/archive/r.txt"], "alice/")
+    except TerminalError as exc:
+        assert exc.reason == "delete_refused"
+        assert "archive" in exc.detail
+    else:
+        raise AssertionError("the app-managed receipt key was accepted for deletion")
+
+    # And the home it left is deletable again, which is the half the narrowing added.
+    delete.assert_item_deletable(["alice/archive/r.txt"], "alice/")
 
 
 def test_a_file_named_like_a_folder_under_the_new_prefix_is_still_deletable():
@@ -163,6 +187,5 @@ def test_which_rule_answers_first_in_a_SHARED_space_changed_and_is_pinned_here()
     assert source is not None and source.reason == "source_folder_undeletable"
     assert destination is not None and destination.reason == "destination_folder_locked"
 
-    # The DEPTH-ONE home is untouched: it was named by the root-anchored rules before and still is.
-    old_home = source_refusal("finance/", "finance/archive/", "delete", "shared")
-    assert old_home is not None and old_home.reason == "source_folder_undeletable"
+    # The DEPTH-ONE home is ordinary now — the narrowing removed the last rule that named it.
+    assert source_refusal("finance/", "finance/archive/", "delete", "shared") is None

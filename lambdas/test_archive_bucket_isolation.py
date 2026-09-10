@@ -127,8 +127,12 @@ def test_the_archive_bucket_policy_denies_every_principal_but_this_plane_and_dep
 @pytest.mark.parametrize(
     "deny_of",
     [
-        lambda: next(s for s in _statements(PORTAL_PERSONAL) if s["Sid"] == "ArchiveReceiptsAreNotUserWritable"),
-        lambda: _shared_space_statement("SharedArchiveReceiptsAreNotUserWritable"),
+        lambda: next(
+            s
+            for s in _statements(PORTAL_PERSONAL)
+            if s["Sid"] == "ArchiveReceiptsAreNotUserWritableSystemSettings"
+        ),
+        lambda: _shared_space_statement("SharedArchiveReceiptsAreNotUserWritableSystemSettings"),
     ],
     ids=["personal", "shared"],
 )
@@ -139,7 +143,7 @@ def test_each_space_bucket_denies_the_browser_writing_under_archive(deny_of):
 
     assert deny["Effect"] == "Deny"
     assert set(deny["Action"]) == {"s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"}
-    assert deny["Resource"].endswith("/archive/*")
+    assert deny["Resource"].endswith("/system_settings/archive/*")
 
 
 # ── SPEC-139 parity: no new Resource "*" anywhere in this plane ──────────────

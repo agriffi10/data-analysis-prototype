@@ -1,9 +1,10 @@
-"""Both homes of the results folder are unsendable, and only the results folder gains a second one.
+"""The results folder is unsendable at its one home, and the name it left is a user's folder.
 
-The send plane excludes exactly two folders from an expansion, and the two are treated differently
-on purpose: the results folder is the one that moves, so it has two locations, while
-``user_settings/`` keeps the one it has. A rule that gave every excluded folder a second home would
-make a receipt under the new prefix unsendable, which is a narrowing this spec does not make.
+The send plane excludes exactly two folders from an expansion, and the two sit at different depths
+on purpose: the results folder moved under ``system_settings/``, while ``user_settings/`` did not.
+A rule that gave every excluded folder the new prefix would make a receipt unsendable, and one
+still keyed on the old depth makes a user's own ``athenaresults/`` unsendable — the narrowing can
+go wrong in both directions, so both are asserted.
 """
 
 import pytest
@@ -11,12 +12,20 @@ from cpcommon.errors import TerminalError
 from fscommon.authz import assert_not_results_folder
 from fscommon.expand import _excluder
 
-BOTH_HOMES = pytest.mark.parametrize("home", ["alice/{}/", "alice/system_settings/{}/"])
+BOTH_HOMES = pytest.mark.parametrize(
+    ("home", "refused"),
+    [("alice/{}/", False), ("alice/system_settings/{}/", True)],
+    ids=["the-home-it-left", "the-app-managed-home"],
+)
 
 
 @BOTH_HOMES
-def test_either_home_of_the_results_folder_is_refused_as_a_source(home):
-    """The folder itself and anything beneath it, at both locations, with the same reason."""
+def test_the_results_folder_is_refused_as_a_source_at_its_home_only(home, refused):
+    """The folder itself and anything beneath it — and neither, at the name it vacated."""
+    if not refused:
+        assert_not_results_folder("alice/", home.format("athenaresults"))
+        assert_not_results_folder("alice/", f"{home.format('athenaresults')}q.csv")
+        return
     with pytest.raises(TerminalError) as folder:
         assert_not_results_folder("alice/", home.format("athenaresults"))
     with pytest.raises(TerminalError) as inside:
@@ -49,14 +58,14 @@ def test_a_users_own_nested_results_folder_still_sends():
 def test_the_expansion_excludes_both_results_homes_and_one_settings_home():
     """The Out of Scope promise, executable, and the asymmetry is the whole assertion.
 
-    Three prefixes, not four: the results folder moves and has two, ``user_settings`` does not and
-    keeps one. Giving every excluded name a second home would make a receipt unsendable after the
-    move, which is a narrowing.
+    Two prefixes, at different depths: the results folder moved and ``user_settings`` did not.
+    Giving every excluded name the new prefix would make a receipt unsendable; leaving the results
+    folder at the old one makes a user's own ``athenaresults/`` unsendable. Both are asserted.
     """
     ignore = _excluder("alice/")
 
-    assert ignore("alice/athenaresults/q.csv", 1, "alice/") is True
     assert ignore("alice/system_settings/athenaresults/q.csv", 1, "alice/") is True
+    assert ignore("alice/athenaresults/q.csv", 1, "alice/") is False
     assert ignore("alice/user_settings/inbox.json", 1, "alice/") is True
     assert ignore("alice/system_settings/user_settings/inbox.json", 1, "alice/") is False
     assert ignore("alice/system_settings/archive/receipt.txt", 1, "alice/") is False

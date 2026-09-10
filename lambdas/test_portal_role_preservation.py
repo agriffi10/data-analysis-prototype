@@ -65,13 +65,13 @@ TRUST = "infra/modules/data/policies/portal-role-trust.json.tftpl"
 EDITED = "infra/modules/shared-spaces/policies/portal-role-shared-space.json.tftpl"
 
 #: The user-space permission template, exempted for the same reason and asserted by content in
-#: ``test_the_user_space_template_gained_ONLY_the_shared_document_listing``. Its edit adds a
+#: ``test_the_user_space_template_TRADED_its_depth_one_receipt_deny``. Its edit adds a
 #: ``ListBucket`` for the two documents that belong to no user, without which their absence
 #: branches answer ``AccessDenied`` instead of the empty list and the ``NotFound`` they promise.
 LISTING_EDITED = "infra/modules/data/policies/portal-role-permissions.json.tftpl"
 
 #: The analytics permission template, exempted for the same reason and asserted by content in
-#: ``test_the_analytics_template_gained_ONLY_its_system_settings_siblings``. Its edit admits the
+#: ``test_the_analytics_template_TRADED_its_depth_one_statements_for_the_siblings``. Its edit admits the
 #: results folder at a second location under ``system_settings/`` — an Allow and a Deny, each the
 #: twin of the statement above it — ahead of the folder moving there. A byte comparison can say
 #: only that it changed, and the whole question is whether the twins grant what their originals do.
@@ -82,9 +82,9 @@ ANALYTICS_EDITED = "infra/modules/analytics/policies/portal-role-analytics.json.
 #: absorbed unread** — so the mapping is asserted rather than described, and the byte comparison's
 #: population is now EMPTY, which is what makes that assertion load-bearing rather than tidy.
 CONTENT_TESTS = {
-    EDITED: "test_the_shared_space_template_lost_ONLY_its_enqueue_statement",
-    LISTING_EDITED: "test_the_user_space_template_gained_ONLY_the_shared_document_listing",
-    ANALYTICS_EDITED: "test_the_analytics_template_gained_ONLY_its_system_settings_siblings",
+    EDITED: "test_the_shared_space_template_lost_ONLY_the_enqueue_and_the_depth_one_denies",
+    LISTING_EDITED: "test_the_user_space_template_TRADED_its_depth_one_receipt_deny",
+    ANALYTICS_EDITED: "test_the_analytics_template_TRADED_its_depth_one_statements_for_the_siblings",
 }
 
 CONTENT_ASSERTED = frozenset(CONTENT_TESTS)
@@ -571,8 +571,12 @@ def test_the_trust_policy_has_exactly_one_statement() -> None:
     assert "Federated" not in statements[0]["Principal"]
 
 
-def test_the_shared_space_template_lost_ONLY_its_enqueue_statement() -> None:
+def test_the_shared_space_template_lost_ONLY_the_enqueue_and_the_depth_one_denies() -> None:
     """The one edited permission template, checked by content because bytes cannot say how.
+
+    The two depth-one Denies joined the enqueue statement in the removed set at the narrowing.
+    They are named rather than folded into a looser assertion because a Deny leaving a policy is
+    the change this file exists to make someone read.
 
     Its other statements are the membership grants — the per-slot S3 allows, the list condition,
     the Glue grants and the three denies — and they are what a member's access to a shared space
@@ -603,9 +607,13 @@ def test_the_shared_space_template_lost_ONLY_its_enqueue_statement() -> None:
         "narrowed or widened one would be the same diff as removing the enqueue."
     )
 
-    assert set(before) - set(after) == {"SharedSpaceEnqueue"}, (
-        f"this change should remove exactly the enqueue statement; it removed "
-        f"{set(before) - set(after)}"
+    assert set(before) - set(after) == {
+        "SharedSpaceEnqueue",
+        "SharedResultsNoDelete",
+        "SharedArchiveReceiptsAreNotUserWritable",
+    }, (
+        f"this change should remove the enqueue statement and the two depth-one Denies; it "
+        f"removed {set(before) - set(after)}"
     )
     assert set(after) - set(before) == {
         "SharedResultsNoDeleteSystemSettings",
@@ -614,7 +622,7 @@ def test_the_shared_space_template_lost_ONLY_its_enqueue_statement() -> None:
     assert "sqs:SendMessage" not in (REPO / EDITED).read_text()
 
 
-def test_the_user_space_template_gained_ONLY_the_shared_document_listing() -> None:
+def test_the_user_space_template_TRADED_its_depth_one_receipt_deny() -> None:
     """The user-space permission template, checked by content because bytes cannot say how.
 
     Its other statements are what personal-file access IS — the prefix-scoped object grant, the
@@ -651,8 +659,9 @@ def test_the_user_space_template_gained_ONLY_the_shared_document_listing() -> No
         "one user's isolation from another's prefix, and widening it would be this same diff."
     )
 
-    assert set(before) - set(after) == set(), (
-        f"this change should remove nothing; it removed {set(before) - set(after)}"
+    assert set(before) - set(after) == {"ArchiveReceiptsAreNotUserWritable"}, (
+        f"this change should remove exactly the depth-one receipt Deny; it removed "
+        f"{set(before) - set(after)}"
     )
     assert set(after) - set(before) == {
         "ListTheSharedDocuments",
@@ -660,15 +669,17 @@ def test_the_user_space_template_gained_ONLY_the_shared_document_listing() -> No
     }, f"it should add exactly the listing and the receipt Deny's twin; it added {set(after) - set(before)}"
 
     twin = after["ArchiveReceiptsAreNotUserWritableSystemSettings"]
-    original = after["ArchiveReceiptsAreNotUserWritable"]
+    # Read from the BASELINE: the depth-one form it replaced no longer exists in the working tree,
+    # and comparing the survivor against nothing is how a narrowing becomes a widening unnoticed.
+    original = before["ArchiveReceiptsAreNotUserWritable"]
 
     assert '"Effect": "Deny"' in twin, "the receipt folder's second home must be DENIED, not allowed"
     for action in ("s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"):
         assert action in twin, f"the twin Deny drops {action}, so it refuses less than the one it twins"
     assert "system_settings/archive/*" in twin, "the twin must name the receipt folder's new home"
     assert "PrincipalTag/username" in twin, (
-        "the twin must stay anchored at the caller's own prefix, exactly as the statement it twins "
-        "is — unanchored it would deny every user's receipts to everyone"
+        "the twin must stay anchored at the caller's own prefix, exactly as the statement it "
+        "replaced was — unanchored it would deny every user's receipts to everyone"
     )
     assert original.replace("/archive/", "/system_settings/archive/") == twin.replace(
         "ArchiveReceiptsAreNotUserWritableSystemSettings", "ArchiveReceiptsAreNotUserWritable"
@@ -692,15 +703,20 @@ def test_the_user_space_template_gained_ONLY_the_shared_document_listing() -> No
     )
 
 
-def test_the_analytics_template_gained_ONLY_its_system_settings_siblings() -> None:
+def test_the_analytics_template_TRADED_its_depth_one_statements_for_the_siblings() -> None:
     """The third edited permission template, checked by content because bytes cannot say how.
 
     Its other statements are what analytics access IS — the Glue grants scoped to the caller's own
     database, the workgroup grant, the results read/write and the two Denies. The pair added here
-    is the results folder's second home: an Allow so Athena can still write results once they live
-    a segment deeper, and a Deny so the user cannot delete them there, which is the whole point of
-    admitting the location before anything is written to it. An edit that widened the Glue grants
-    at the same time would be the same diff.
+    is the results folder's home: an Allow so Athena can write results a segment deeper, and a
+    Deny so the user cannot delete them there. An edit that widened the Glue grants at the same
+    time would be the same diff.
+
+    **Against the baseline this is now a trade, not a gain, and the name says so.** The siblings
+    were added first and the depth-one pair removed at the narrowing, so a reader diffing the
+    baseline sees two statements out and two in. Asserting only the gain — which is what this
+    test did while both halves stood — would now pass with the depth-one pair still rendering,
+    since a surviving statement is not an added one.
 
     **The Allow grants the role nothing it did not already hold**, and it is worth being exact
     about that rather than describing it as a widening. ``UserPrefixObjects`` in the user-space
@@ -737,22 +753,26 @@ def test_the_analytics_template_gained_ONLY_its_system_settings_siblings() -> No
         "to the caller's own database and the workgroup grant — widening one would be this same diff."
     )
 
-    assert set(before) - set(after) == set(), (
-        f"this change should remove nothing; it removed {set(before) - set(after)}"
+    assert set(before) - set(after) == {"ResultsReadWrite", "ResultsNoDelete"}, (
+        f"this change should remove exactly the two depth-one statements; it removed "
+        f"{set(before) - set(after)}"
     )
     assert set(after) - set(before) == {
         "ResultsReadWriteSystemSettings",
         "ResultsNoDeleteSystemSettings",
     }, f"it should add exactly the two results siblings; it added {set(after) - set(before)}"
 
+    # The survivor is compared against the statement it REPLACED, read from the baseline — the
+    # only place the depth-one form still exists. Comparing it against the working tree would
+    # compare it against nothing, which is how a narrowing quietly becomes a widening.
     for sid in ("ResultsReadWrite", "ResultsNoDelete"):
         twin = after[f"{sid}SystemSettings"]
         assert "system_settings/athenaresults/*" in twin, f"{sid}'s twin does not name the new home"
         assert "PrincipalTag" in twin, (
             f"{sid}'s twin is not tag-scoped, so it would reach every user's results rather than "
-            "the caller's own — the isolation the statement it twins provides"
+            "the caller's own — the isolation the statement it replaced provided"
         )
-        assert after[sid].replace("/athenaresults/", "/system_settings/athenaresults/") == twin.replace(
+        assert before[sid].replace("/athenaresults/", "/system_settings/athenaresults/") == twin.replace(
             f"{sid}SystemSettings", sid
         ), f"{sid}'s twin must differ from it by the prefix and the Sid, and by nothing else"
 

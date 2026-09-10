@@ -155,7 +155,7 @@ def test_the_spaces_own_results_folder_is_not_sendable():
     _setup()
 
     _expect_reason(
-        _event(items=[{"kind": "folder", "key": "alice/athenaresults/"}]), "results_not_sendable"
+        _event(items=[{"kind": "folder", "key": "alice/system_settings/athenaresults/"}]), "results_not_sendable"
     )
 
 

@@ -234,13 +234,21 @@ def _any_of(*matchers: "Callable[[str], bool]") -> "Callable[[str], bool]":
 _PERSONAL_BODY = PERSONAL_TEMPLATE.read_text()
 _SHARED_BODY = SHARED_TEMPLATE.read_text()
 
+# One Sid per bucket again. The narrowing deleted the depth-one statement of each pair, and the
+# survivor keeps its `…SystemSettings` name — so `_any_of` now wraps one matcher rather than two.
+# It is kept rather than inlined because what it expresses is "every Deny that names this folder",
+# and a second statement returning would otherwise be silently unmeasured.
 PERSONAL_DENY = _any_of(
-    _key_matcher(_deny_resource_of(_PERSONAL_BODY, "ArchiveReceiptsAreNotUserWritable"), "alice"),
-    _key_matcher(_deny_resource_of(_PERSONAL_BODY, "ArchiveReceiptsAreNotUserWritableSystemSettings"), "alice"),
+    _key_matcher(
+        _deny_resource_of(_PERSONAL_BODY, "ArchiveReceiptsAreNotUserWritableSystemSettings"),
+        "alice",
+    ),
 )
 SHARED_DENY = _any_of(
-    _key_matcher(_deny_resource_of(_SHARED_BODY, "SharedArchiveReceiptsAreNotUserWritable"), "finance"),
-    _key_matcher(_deny_resource_of(_SHARED_BODY, "SharedArchiveReceiptsAreNotUserWritableSystemSettings"), "finance"),
+    _key_matcher(
+        _deny_resource_of(_SHARED_BODY, "SharedArchiveReceiptsAreNotUserWritableSystemSettings"),
+        "finance",
+    ),
 )
 
 KEY_SUFFIXES = (
@@ -317,11 +325,9 @@ def test_the_union_names_every_archive_deny_in_each_template():
     legitimate new Deny landed, the fix is to union it above, not to widen the sets here.
     """
     assert _archive_deny_sids(_PERSONAL_BODY) == {
-        "ArchiveReceiptsAreNotUserWritable",
         "ArchiveReceiptsAreNotUserWritableSystemSettings",
     }
     assert _archive_deny_sids(_SHARED_BODY) == {
-        "SharedArchiveReceiptsAreNotUserWritable",
         "SharedArchiveReceiptsAreNotUserWritableSystemSettings",
     }
 
@@ -341,7 +347,7 @@ def test_the_table_can_tell_an_ANCHORED_personal_deny_from_a_widened_one():
     ``/archive/*`` — and the table must hold a key that tells the two apart. A row count would pin
     the table's size and say nothing about what it can see.
     """
-    for sid in ("ArchiveReceiptsAreNotUserWritable", "ArchiveReceiptsAreNotUserWritableSystemSettings"):
+    for sid in ("ArchiveReceiptsAreNotUserWritableSystemSettings",):
         resource = _deny_resource_of(_PERSONAL_BODY, sid)
         widened_resource = resource.replace("$${aws:PrincipalTag/username}", "*")
         assert widened_resource != resource, f"{sid} is not anchored at the principal tag any more"
@@ -362,7 +368,7 @@ def test_the_table_can_tell_the_SHARED_wildcard_from_a_space_anchored_one():
     unnoticed is the reverse: narrowing that slot to one literal space still refuses every
     ``finance/`` key the table asks about, while quietly ceasing to cover any other space.
     """
-    for sid in ("SharedArchiveReceiptsAreNotUserWritable", "SharedArchiveReceiptsAreNotUserWritableSystemSettings"):
+    for sid in ("SharedArchiveReceiptsAreNotUserWritableSystemSettings",):
         resource = _deny_resource_of(_SHARED_BODY, sid)
         narrowed_resource = resource.replace("}/*/", "}/finance/", 1)
         assert narrowed_resource != resource, f"{sid} has no wildcard space slot to narrow"
@@ -385,8 +391,8 @@ def test_the_two_denies_really_do_differ_so_the_asymmetry_is_not_an_artefact():
     buckets never disagree would let a predicate that averaged them pass every row above while
     this test still passed on its own hard-coded pair.
     """
-    assert PERSONAL_DENY("alice/backups/archive/x.csv") is False
-    assert SHARED_DENY("finance/backups/archive/x.csv") is True
+    assert PERSONAL_DENY("alice/backups/system_settings/archive/x.csv") is False
+    assert SHARED_DENY("finance/backups/system_settings/archive/x.csv") is True
 
     assert any(PERSONAL_DENY(f"alice/{s}") != SHARED_DENY(f"finance/{s}") for s in KEY_SUFFIXES), (
         "no key in the table is answered differently by the two buckets, so the asymmetry this "
@@ -400,29 +406,29 @@ def test_the_wildcard_matches_a_slash_which_is_the_trap_in_reading_these_resourc
     A matcher that stopped at ``/`` would make every shared row above agree with a root-anchored
     predicate, and both tests would pass while the planes permitted writes IAM refuses.
     """
-    assert SHARED_DENY("finance/a/b/c/archive/x.csv") is True
+    assert SHARED_DENY("finance/a/b/c/system_settings/archive/x.csv") is True
 
 
-def test_the_settings_sibling_is_what_covers_the_personal_second_home():
-    """Without this the union could be carried by either half, and the sibling could be deleted
-    with every row still green — the shape that makes a union matcher vacuous.
+def test_the_surviving_deny_covers_the_home_and_NOT_the_one_it_left():
+    """What the narrowing did, read off the rendered policy rather than off the diff.
+
+    This replaces the pair that discriminated the two halves of the old union. There is one half
+    now, so the question it answers changes: not "which of the two carries the new home", but
+    "does the survivor still refuse where the receipts are, and stop refusing where they no longer
+    are". The second clause is the whole narrowing — if it is False, the depth-one statement is
+    somehow still rendering and a user's own ``archive/`` folder is unwritable.
     """
-    original = _key_matcher(_deny_resource_of(_PERSONAL_BODY, "ArchiveReceiptsAreNotUserWritable"), "alice")
-    sibling = _key_matcher(
-        _deny_resource_of(_PERSONAL_BODY, "ArchiveReceiptsAreNotUserWritableSystemSettings"), "alice"
+    personal = _key_matcher(
+        _deny_resource_of(_PERSONAL_BODY, "ArchiveReceiptsAreNotUserWritableSystemSettings"),
+        "alice",
+    )
+    shared = _key_matcher(
+        _deny_resource_of(_SHARED_BODY, "SharedArchiveReceiptsAreNotUserWritableSystemSettings"),
+        "finance",
     )
 
-    assert original("alice/system_settings/archive/x.csv") is False
-    assert sibling("alice/system_settings/archive/x.csv") is True
-    assert sibling("alice/archive/x.csv") is False
+    assert personal("alice/system_settings/archive/x.csv") is True
+    assert personal("alice/archive/x.csv") is False
 
-
-def test_the_shared_siblings_redundancy_is_real_rather_than_assumed():
-    """The shared wildcard already reached the second home before the sibling landed.
-
-    The browser test says so in prose and the narrowing depends on it — removing the old form has
-    to leave the second home covered — so it is asserted rather than believed.
-    """
-    original = _key_matcher(_deny_resource_of(_SHARED_BODY, "SharedArchiveReceiptsAreNotUserWritable"), "finance")
-
-    assert original("finance/system_settings/archive/x.csv") is True
+    assert shared("finance/system_settings/archive/x.csv") is True
+    assert shared("finance/archive/x.csv") is False

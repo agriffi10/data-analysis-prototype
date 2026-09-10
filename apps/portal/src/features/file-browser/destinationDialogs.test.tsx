@@ -62,7 +62,7 @@ describe('CopyDialog', () => {
       mock.listFiles.mockResolvedValue(
         ok(
           pageOf([
-            folder('alice/athenaresults/', 'athenaresults'),
+            folder('alice/system_settings/athenaresults/', 'athenaresults'),
             folder('alice/photos/', 'photos'),
             folder('alice/docs2/', 'docs2')
           ])
@@ -164,7 +164,9 @@ describe('DestinationPicker', () => {
 
   describe('DestinationPicker', () => {
     it('excludes the protected athenaresults folder from the listing', async () => {
-      listing({'alice/': pageOf([folder('alice/athenaresults/', 'athenaresults'), folder('alice/x/', 'x')])});
+      listing({
+        'alice/': pageOf([folder('alice/system_settings/athenaresults/', 'athenaresults'), folder('alice/x/', 'x')])
+      });
       renderPicker();
       expect(await screen.findByRole('button', {name: /open folder x/i})).toBeInTheDocument();
       expect(screen.queryByRole('button', {name: /open folder athenaresults/i})).not.toBeInTheDocument();
