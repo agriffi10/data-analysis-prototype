@@ -316,8 +316,8 @@ for either**, other than presigned S3 bytes on an upload or a download.
 
 | Do | Expect |
 |---|---|
-| Move a folder, then navigate away and back | The in-progress card is still there — it lives at the app shell, not on the page. |
-| While it runs, try Copy / Move / Delete / **Archive** in that space | All four `aria-disabled` with a reason naming the in-progress list. **Check data quality** and **Send to…** stay enabled — they read, and this lock does not cover them. |
+| Move a folder, then navigate away and back **while it is still running** | The in-progress card is still there — it lives at the app shell, not on the page. **Fails as of 2026-09-10**: `RootLayout`'s keyed error boundary remounts the shell on every route change — see `owed.md`'s SPEC-190 row. Leave the page only after the card shows, or the check measures a registration race instead. |
+| While it runs, select a **folder** (or several items) and try Copy / Move / Delete / **Archive** in that space | All four `aria-disabled` with a reason naming the in-progress list. **Check data quality** and **Send to…** stay enabled — they read, and this lock does not cover them. With a **single file** selected only Archive is gated, because single-file copy, move and delete are the synchronous path, which takes no lock. |
 | Wait for the notification | The card reads *Finished*; the space accepts operations again. |
 | Press **Refresh this folder** (or leave the tab and come back) | The listing now matches. It does **not** update on the notification — that is deliberate, and §4.12's poll is why. |
 | Dismiss a card by hand | It goes, and the space is free again immediately. |
@@ -422,7 +422,9 @@ central claim.
 | **The load-bearing negative**, after exercising this section and §4.5 end to end | **Zero** requests to `athena.*.amazonaws.com` and `glue.*.amazonaws.com`. |
 | The **first** invocation after a deploy | Succeeds. Cold start is where an import that cannot resolve fails, and it is silent everywhere else. The layer-attachment form of that is gone — one image carries every shared package — but the class is not: a module missing from the image, or an environment variable read at import, still surfaces only here. |
 
-**Safari**, since that is the browser in use; a Chromium pass corroborates and cannot discharge.
+~~**Safari**, since that is the browser in use; a Chromium pass corroborates and cannot discharge.~~
+**A Chromium pass discharges this section.** The deployment's audience has no Safari (Andrew,
+2026-09-01), so Andrew's own Safari use corroborates and never gates.
 
 ### 4.4 Tables — build and refresh
 
@@ -926,10 +928,12 @@ and nothing else. It takes nobody's access away: the enqueue route is live and u
 
 ### 4.15 Responsive, and the Safari pass
 
-**Corroborated in Chrome ≠ discharged.** Behavioural checks (execution counts, SQL text, refusals)
+~~**Corroborated in Chrome ≠ discharged.** Behavioural checks (execution counts, SQL text, refusals)
 are waived to Chrome by user decision. **Rendering is not** — sticky columns, menu clipping,
 sheet-vs-panel and toolbar wrap are exactly where Safari differs. The list below is owed in Safari,
-at **400px via DevTools device toolbar**.
+at **400px via DevTools device toolbar**.~~ **Superseded 2026-09-01 (user decision):** the
+deployment's audience has no Safari, so a Chromium pass discharges rendering too. The list below
+is still owed at **400px via the DevTools device toolbar** — the width is the gap, not the engine.
 
 **The Save-results modal is checked across a BAND, not at one width (SPEC-223).** A responsive fix
 has a band rather than a width — hiding something at `tablet:` has fixed 375 and broken 900–1023

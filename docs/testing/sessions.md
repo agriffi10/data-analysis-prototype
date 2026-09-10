@@ -10,6 +10,414 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-10 (every owed row one signed-in session and the read-only CLI could reach, archive excluded)
+
+**Scope.** Andrew asked for every owed live check except the archive plane's, which he has
+verified end to end. This session ran what a signed-in browser and a read-only CLI can reach and
+recorded the rest with the reason it could not run. **Five defects were found and are listed at the
+end**, each handed to its own follow-up task rather than fixed here.
+
+**Browser and CLI.** `origin/main` at **`13bb7a30`**; the Lambda image in service stamped
+`version: d9d8ce8e90c7…` on every record read today. Signed in as **agriffith** in Andrew's own
+Chrome through the Claude-in-Chrome extension, at **1512 px** for most checks and at **900, 899, 768
+and 700 px** for the width checks — the tab was foregrounded with `Control_Chrome`'s `switch_to_tab`
+after every resize, per `e2e.md` §1's stale-viewport trap, and every width reading below was taken
+foregrounded. CLI identity `arn:aws:iam::696000197480:user/tofu-deploy-user`, **reads only**:
+`simulate-principal-policy`, admin-bucket `get-object`/`ls`, CloudWatch `filter-log-events`,
+Step Functions history, SQS attributes, and `gh`. **No AWS write was issued from the CLI.** The
+portal's own routes wrote plenty — see *Left behind*.
+
+**Instruments, each a way this run differed from a user's.** `e2e.md` §1's `visibilityState`
+override after every full load; a `fetch`/XHR recorder (method, path, status, part sizes,
+`xhr.upload` progress, `ETag` readability); a capture of every `/v1/enqueue/*` request and response;
+an in-page helper that calls the API with **the page's own bearer, read inside the page and never
+returned**; `window.open`/anchor capture for download URLs, read back in-page; a
+`securitypolicyviolation` listener; an in-page `.xlsx` reader (zip central directory plus
+`DecompressionStream`), so no file was downloaded; a 100 ms progress-bar sampler; and **one
+client-side fault injection**, stated where it was used. Andrew approved writing into
+`another_shared_space` through the question tool. The harness's classifier refused two actions: a
+bulk read of `shared-spaces/*.json`, which holds other users' membership, and corrupting
+`query-history.json`.
+
+### Sign-in and the deep link — a cold-cookie fresh sign-in, NOT a private window
+
+A new tab arrived signed out (tokens are tab-scoped). Opening `/query?db=agriffith` bounced to the
+landing page and stored `portal.returnPath = /query?db=agriffith`. **The Hosted UI cookie was cold,
+so Sign in reached the password screen** — unlike 2026-08-31. Cognito's `/login` rendered with
+`redirect_uri=https://portal.dataquarry.app` and no `redirect_mismatch`, which is the narrowed
+callback list accepting the container origin. Andrew clicked Sign in on the autofilled form; the
+page made **one** `fetch` to the Hosted UI's `oauth2/` endpoint (**200**) and landed on
+**`/query?db=agriffith`**, with `portal.returnPath` consumed. Console capture started after that
+load, so this run says nothing about CSP reports during sign-in. **What a private window adds is a
+cold HTTP cache and empty storage, and that part stays owed.**
+
+### Presigned bytes against the narrowed bucket CORS — both buckets, Chromium
+
+- **User space.** Uploading `cors_check_20260910.csv` (1,788,890 B) through the drawer's own
+  `<input type=file>`: `POST /v1/objects/upload` 200, then an XHR `PUT` to
+  `dat-prod-user-space.s3.us-east-1.amazonaws.com` **200** with the **`ETag` header readable
+  cross-origin**, progress `[55, 100]`, no CSP violation. Download: `POST /v1/objects/download-url`
+  200 gave a SigV4 URL (`X-Amz-Algorithm` present), and an in-page `fetch` of it returned
+  `type: "cors"`, **200, 1,788,890 bytes, 60,000 lines**, first and last lines matching the upload.
+- **Shared space**, after Andrew's go-ahead: the same pair against `another_shared_space` on
+  `dat-prod-shared-space`, **200** and ETag readable on the `PUT`; the read-back was the same
+  1,788,890 bytes.
+- The drawer states **"Up to 5 GB per file"**, so the `>5 GiB` metadata row cannot be staged by a
+  browser upload at all.
+
+### Results conversion — SPEC-221, -222 and -223
+
+**Fixture.** `docs/testing/fixtures/explorer-fixture-150.csv` was uploaded to `agriffith/explorer150/`
+and built into table `agriffith.explorer150` (`table-build` 200, "Table "explorer150" is ready to
+query in "agriffith".").
+
+- **The dialog.** It offers Format `CSV`, `Parquet`, `JSON`, `Excel` in that order with CSV as the
+  default, the button reads **Save here** for CSV and **Convert and save** otherwise, and Save to
+  lists My files plus nine spaces. **The Data Explorer's dialog is identical** in title, intro,
+  labels, options, default name pattern and buttons, whether opened from Options or from the button
+  under the grid.
+- **The front door.** `GET /v1/objects/exists` 200 is followed by `POST /v1/enqueue/results-conversion`
+  **200**, which echoes the request id. The body carries a root-relative `prefix`, `onConflict:
+  refuse`, and no actor or identity. The dialog closes and the toast reads *"Converting to Parquet —
+  you’ll get a notification when explorer150_conv.parquet is ready."* (curly apostrophe). CSV
+  instead goes through `POST /v1/objects/copy` from `system_settings/athenaresults/<exec>.csv`, with
+  no enqueue; its toast is *"Saved to agriffith/conv0910_other/explorer150_conv.csv"* plus a *View
+  in Files* link.
+- **One notification per conversion**, reading *"Saved 150 rows as Parquet to
+  "explorer150_conv.parquet"."* and the same for JSON and Excel. The message itself is the link.
+  Following the Parquet one landed on `/files?prefix=agriffith/conv0910_parquet/` with the file
+  **already listed**, after one fresh listing call.
+- **Read back.** Tables built over the Parquet and JSON folders both return **`count(*)` = 150**,
+  with 9 `O'Brien` rows in the Parquet one. The JSON is **150 lines, each of which parses on its
+  own**, and it is not an array. The `.xlsx` parsed in-page to **151 rows, `A1:D151`**, 0 formula
+  cells, every cell a shared string. The Explorer's three conversions reported 150 rows too, not the
+  page's 100, and started **zero** queries; its `.xlsx` likewise had 151 rows.
+- **Formula probe**, which is the discriminating one. The values `'=1+1'`, `'+2'`, `'-3'`,
+  `'@SUM(1)'`, `'=HYPERLINK(…)'`, a leading tab and a leading CR were converted to `.xlsx`. The
+  workbook has **0 `<f>` elements** and every value is a string cell; the CR is stored as
+  `_x000D_`.
+- **Shared-space destination**, the highest-value row. A Parquet save into
+  `another_shared_space/reports0910/` sent `prefix: "reports0910/"` and landed at
+  `another_shared_space/reports0910/explorer150_shared.parquet`. The space root lists only
+  `reports0910/` and the CORS fixture, so **no doubled folder exists**. The notification link begins
+  `?space=another_shared_space&prefix=…` and lands in that space with the file listed.
+- **Overwrite confirm.** A second Parquet save to the same name raised *"Overwrite
+  “explorer150_conv.parquet”? — A file named “explorer150_conv.parquet” already exists in that
+  folder. Saving will replace it."* after the exists pre-flight, with **zero** enqueues. Confirming
+  sent exactly one enqueue with `onConflict: "overwrite"` (200). **Cancel returns to a dialog that
+  has reset to its defaults**: name `query-results-…`, CSV, and the My Files root. That is
+  `useSaveResults.cancelOverwrite`'s `setOpen(true)` remounting the dialog, which holds that state.
+- **`destination_occupied` as a real race**, sent through the API so the browser's pre-flight was
+  skipped. `validate-authorize` validated the request, `describe-results` ran, and `convert` logged
+  *"downloading 4185 byte(s)"* and then **"refused destination_occupied"**. So the refusal came from
+  the conditional write, not from an up-front check. The inbox read *"…a file called
+  "explorer150_conv.parquet" is already in that folder, so nothing was saved. Please choose another
+  name, or save again and choose to replace it."* and the object's `lastModified` stayed at
+  19:10:18Z. The `overwrite` twin converted and moved it to **19:30:19Z**.
+- **`validate-authorize`'s five refusals against real Athena.** Each got a 200 at the door and
+  **one** notification in the actor's inbox:
+  - `forbidden` (destination: another user's personal space) → *"You don't have access to save
+    results there."*
+  - `protected_location` (`system_settings/athenaresults/`)
+  - `execution_not_found` (a made-up id)
+  - `execution_not_finished` (a real one-billion-row count, *"execution is RUNNING"*)
+  - `no_result_set` (`SHOW TABLES`, *"statement type is 'UTILITY'"*)
+- **The existence-oracle half, via the operator's workgroup list.** The ledger names this as a
+  valid vehicle. A SUCCEEDED execution whose results sit under **another user's** prefix got
+  `execution_not_found` (*"the execution's output is not under the actor's results"*).
+  `describe-results` and `convert` were never invoked. The user-facing sentence is
+  **byte-identical** to the made-up id's.
+- **Decimal `Precision`/`Scale`.** The portal's results route types all four columns of
+  `CAST(… AS DECIMAL(10,3))`, `DECIMAL(5,1)`, `DECIMAL(38,2)` and `DECIMAL(4,0)` as bare `decimal`.
+  The Parquet conversion succeeded, which `athena_type_of` would refuse without a scale, and a table
+  built over the file reads **`decimal(10,3)`, `decimal(5,1)`, `decimal(38,2)`, `decimal(4,0)`**
+  exactly.
+- **The Excel row limit, with no fixture.** `UNNEST(sequence(1,1049)) CROSS JOIN
+  UNNEST(sequence(1,1000))` generates 1,049,000 rows while scanning 0 bytes. Its `.xlsx` refusal
+  read *"Couldn't save the query results as Excel: the results have 1049000 rows, which is more than
+  a spreadsheet can hold, so "rowlimit_1049k.xlsx" was not written. Please save them as Parquet
+  instead, or narrow the query."*, and the same result saved as Parquet (*"Saved 1,049,000 rows…"*),
+  so the suggestion is honest. **The refusal prints the count without a thousands separator; the
+  success message prints it with one.**
+- **Converter throughput on amd64.** A 490,000 × 4 result took 19,566 ms with a peak of 933 MB. The
+  input was 16,119,678 B, computed on the same model that later matched `describe-results` exactly
+  at 62,914,590 B. That is about **0.82 MB/s and ~49 bytes of peak memory per CSV byte**, against
+  the 32.45 that `EXCEL_MEMORY_EXPANSION` assumes. Timing is safe: 600 s leaves 540 s usable, and
+  64 MiB would take about 82 s. **Memory is not — see the first defect.** Earlier small conversions:
+  Parquet cold 4,764 ms (init 1,235 ms), JSON 199 ms, `.xlsx` 908 ms and 191 ms.
+
+### Feedback — SPEC-211's CLI half, all six rows
+
+**The ledger's blocker was false.** The laptop identity reads `dat-prod-athena-admin`, which
+`sessions.md` already recorded on 2026-08-15.
+- `feedback/2026/09/01.json` has keys `{date, entries, version}` with `version: 1`, and holds **3
+  entries in one object**, in `submittedAt` order: 20:21:12, 20:22:16, 20:22:52. Each has `username:
+  agriffith`, which came from the token because the browser sent none.
+- The writer's records show `entries` going 1 → 2 → 3 on the same key.
+- The API's span carries `message_group_id: "2026-09-01"` and the writer's key is
+  `feedback/2026/09/01.json`: two languages, one date.
+- The writer records carry `message_chars` 97, 98 and 120, and **no message text**. A grep for
+  `live check` finds 0 hits in both day-01 logs and 3 in the object itself, as a positive control.
+- `POST /v1/feedback` with 4,001 characters → **400 `InvalidRequest`**, *"the feedback message is
+  4001 characters, over the 4000-character limit"*. `feedback/2026/09/10.json` already existed at
+  19:00:17Z, written by someone else, and the refused probe did not touch it.
+- The feedback DLQ reads 0/0/0 with 14-day retention, so the zero covers 09-01.
+
+### The enqueue paths — SPEC-200 §G.1–§G.4
+
+- **§G.1.** Row 2: a UI mark-read sent `markRead` (200), and the row stayed read after a full page
+  load. Row 3: tables appeared in the rail. Row 4: a UI refresh produced *"Table "explorer150" is
+  already up to date - no schema changes were found."* Row 5: `another_shared_space`'s catalog
+  gained `explorer150_g2`. Row 6: the data-quality notification's link opened the report
+  (`agriffith/explorer150`, 150 rows, *No issues found*). Row 7: a UI send landed at
+  `another_shared_space/shared_files/agriffith/cors_check_20260910.csv`. Row 10: folder copies
+  landed (below). **Row 1, creating a shared space, was not run**: Andrew chose not to create a
+  throwaway space.
+- **§G.2.** Sending the same `requestId` twice produced **one** execution on results-conversion and
+  on file-ops, with the SQS dedup id equal to the body's id.
+  - **Table-share, which has no request id, across a genuine token refresh.** Submit 1 went at
+    20:55:02.002Z on the old token, which expired at 20:55:10. A Files refresh gesture made Amplify
+    issue a new token at 20:55:14. Submit 2 went at 20:55:25.071Z on the new token. Both fell in
+    epoch-minute bucket 29817895, and **one** execution resulted.
+  - A first attempt 2.7 minutes apart produced two executions. That is designed:
+    `fifo._dedup_table_share` hashes a clock-aligned 60-second bucket, so a genuine double-submit
+    that straddles a minute boundary also becomes two.
+- **§G.3.** The first `span.end` per route in `logs/service=api/` covers `sharedSpace`,
+  `dataQuality`, `fileSend` and `notifications` on day 10 and `fileOps` on day 08. Each carries
+  `route_id`, `queue`, `actor`, `message_group_id`, `body_request_id`, `dedup_id`, and `env`/`version`
+  at the top level. `body_request_id` is absent on `notifications` by design, because that body has
+  no id. None contains a JWT shape, an email, any of the six presigned-URL tokens, a path-like value
+  or a recipient field. **Table-builder, table-share and results-conversion are pending**, because
+  the log sweep is two hours behind (see the observations).
+- **§G.4.** No `Authorization` → **401 `SessionExpired`**. A body with `actor`, `identity` and
+  `idToken` → **400 `InvalidRequest`**. A 4,000-item, 380,302-byte file-ops body → **413
+  `PayloadTooLarge`**, *"the request is too large to enqueue"*, which is the whole-message bound.
+  **Zero sends**: no results-conversion or file-ops execution carries any of those three body ids,
+  and the same listing over a wider window returns the six executions known to be in it, as a
+  positive control. The Pipes start one execution per message, so zero executions means zero sends.
+
+### File operations and file-send — SPEC-165, -187, -188, -189, -191
+
+`fixtures/file-ops-plane.sh` cannot run as written: it reads the token from `localStorage` and uses
+`aws sqs send-message`. Every body below went through a signed-in `POST /v1/enqueue/{plane}`
+instead.
+- **Fixture.** `agriffith/fileops_big0910/` holds **1,200** one-line files, handed to the portal's own
+  file input as in-page `File` objects. That made 1,200 `PUT`s, all 200, in about 2 minutes 55
+  seconds, and the API lists 1,200 over 49 pages.
+- **SPEC-165, with zero writes.** A file-send of the folder to a nonexistent space gave
+  **`InspectSource` `objectCount` 1200** and `totalBytes` 4,893, the exact byte sum. The copy plan
+  holds 1,200 unique keys and no marker. The unknown-space refusal alone came back `SUCCEEDED`, with
+  the recipient annotated **`invalid: "unknown_space"`** and no `AccessDenied` traceback.
+- **SPEC-188.** Copying the folder produced a `plan.json` with **`objectCount` 1201**: 1,200 files
+  plus the zero-byte folder object, which is what the prefix really holds. It lists 1,201 unique
+  `srcKey`s, and `transfer-results` reports `failed: 0`.
+- **SPEC-187 FR-009.** The large copy (A) and a one-file copy (B) were sent in one `Promise.all` and
+  started 127 ms apart. A held the lock from 16:03:17 to 16:03:56 local and moved 1,201 objects in a
+  17-second Map run. B's history reads **`WaitForLock → AcquireLock` twice**, and it operated only
+  after A released. `acquire-lock` logged *"holding 1 space lock(s) after 1 attempt(s)"* for A and
+  *"after 3 attempt(s)"* for B, with no steal.
+- **SPEC-189, the source modified between copy and delete.** An in-page loop polled the
+  *destination* `f0001.txt` until it existed (T0+15.4 s), then overwrote the *source* `f0001.txt`
+  through the no-lock upload route (T0+15.7 s). The item ended **`duplicate` / `source_changed`**.
+  The source kept only `f0001.txt`, with the new bytes; the destination holds all 1,200 files with
+  the old `"1\n"`; and the other 1,199 source objects were deleted.
+- **A clean move of more than 1,000 objects** ended `moved`, with 1,201 handled and 0 failed. The
+  source and its parent are empty, and 151 Map batches all `SUCCEEDED`, covering 1,201 items, equal
+  to the manifest.
+- **SPEC-187 §3–5.** §3, another user's source: `forbidden`, execution `FAILED`, and **one**
+  notification in the **actor's** inbox, *"You don't have access to delete those files."* §4, four
+  protected folders plus one ordinary folder in a single delete: each protected folder refused **per
+  item** (`source_folder_undeletable` ×3, `settings_folder_not_a_source`), the ordinary one deleted,
+  and the run `SUCCEEDED`. §5, a delete of the whole space: aimed at `another_shared_space/`, not
+  the personal root, so a broken guard would have cost only test files; it was refused
+  `space_root_not_an_item` with *"a whole space can't be worked on in one go"*.
+- **SPEC-187 §8 and §8b.** A cross-space copy logged *"holding 2 space lock(s)"*. The shared lock
+  sorts first (`114a…` before `c781…`). A background CLI loop read both lock objects about once a
+  second while a large copy held the personal lock. During that 30-second wait **the shared lock was
+  free in every sample**, then both were held by the waiter at 20:17:54, and both were free at
+  20:17:57.
+- **SPEC-191, notifications, from `notifications.json`.**
+  - **One notification per request**, e.g. *"Moved 1 item to "fileops_clean0910"."* and *"Copied 1
+    item to …"*, linking to the destination. The payload carries `requestId`, `operation`, `source`
+    and `destination`.
+  - The partial copy: *"Copied 1 of 2 items to "conv0910_json". 1 needs your attention:
+    "explorer150_conv.csv" - something is already in the way there. … Sending it again with
+    overwrite turned on replaces what is there, and that cannot be undone."* Its payload includes
+    `conflicts`.
+  - The capped message: *"Deleted 1 of 5 items. 4 need your attention: … And 1 other not listed
+    here."*
+  - The delete links to its parent, `?prefix=agriffith/`.
+  - **`?space=` comes first** on a shared destination, and clicking it lands in that space.
+  - A folder named **`q?a&b=c#0910`** gets a link with `%3F`, `%26`, `%3D` and `%23`, and clicking
+    it lands in exactly that folder.
+  - **§22 fails**: both whole-request refusals carry **`payload: null`**. See the second defect.
+- **§13 cannot be staged through the portal.** Uploading a nested `DO_NOT_DELETE.txt` gets **403**,
+  *"folder markers may not be removed or replaced"*, and a copy of `saved_queries/` planned only
+  `arcb.sql`, because copies skip markers.
+
+### Table builder and data quality — SPEC-157, SPEC-108
+
+- **SPEC-157.** Two `table-refresh` POSTs were sent in one `Promise.all`. A took the lock at 04.124
+  and released it at 05.854. B was refused 44 ms behind: *"refresh_already_running: a refresh of
+  table 'explorer150' in database 'agriffith' is already running"*. B's no-etag release was a no-op,
+  and A's compare-and-swap release logged no lost-CAS warning.
+- **SPEC-108.** The 150-row check looped only once, so it proved nothing. A check on
+  `agriffith/dq_big0910.csv` (10,000,000 rows, about 1 GB) did the job: `StartProfileQuery` was
+  followed by **`WaitForQuery CheckQuery` three times**, then `ByteScan AssembleReport
+  DropTempTables`, and the run `SUCCEEDED`.
+- **The data-quality cap, observed live.** A check on the 1,200-file folder was refused with
+  **`too_many_files: 1200 objects exceeds DQ_MAX_OBJECTS=1000`**.
+
+### IAM simulations — the deployed roles, one resource per call
+
+- **The file-ops execution role**, identically on both buckets:
+  - denied (`explicitDeny`): deleting under `system_settings/athenaresults/`, deleting a nested
+    `DO_NOT_DELETE.txt`, putting under `user_settings/`, and putting under `system_settings/archive/`;
+  - allowed: the ordinary controls.
+  - **The script's `{root}athenaresults/` deny row is stale**. That path is an ordinary folder since
+    SPEC-220's narrowing, so `allowed` is correct.
+- **Cross-user isolation on the portal role, as `alice`.** Put, delete and get on `bob/` are
+  `implicitDeny`, and on `alice/` are `allowed`. List is `allowed` only for `alice/`; `bob/`, `bo`,
+  no prefix and an empty prefix are all `implicitDeny`.
+- **The API role's membership-index grant.** `memberships/*` get and list are `allowed`, with
+  `s3:prefix` supplied as context. `feedback/` and a prefix-less list are `implicitDeny`.
+- **The shared-space catalog, IAM half.** With the `marketing` slot tag: `GetDatabase` and
+  `GetTables` on `marketing` are `allowed` and on `finance` `implicitDeny`. `DeleteDatabase` and
+  `UpdateDatabase` are `implicitDeny` on both `marketing` and `alice`. `DeleteTable` on
+  `marketing/t1` is `allowed` and on `finance/t1` `implicitDeny`.
+- **The notifications queue.** The portal role gets `implicitDeny`, against an `allowed` control on
+  its own prefix; the API role gets `allowed`. The API route refuses `{action: "create"}` with
+  **400** and accepts a `markRead` control with **200**.
+
+### Observability
+
+- **The error-size reservation.** Every real `Cause` from today's nine failed results-conversion
+  executions is **ASCII**. The `TerminalError` causes run 749–926 characters and JSON-escape at a
+  ratio of **1.070–1.075**; the timeout's cause is 140 characters. The fleet reserves **2.0**.
+- **The Pipes record model.** Real records carry **`AWSTraceHeader`** (95 characters:
+  `Root;Parent;Sampled;Lineage`), which `test_request_size_chain.py::_record` omits. Real
+  `eventSourceARN` runs to 76 characters, where the model allows 57. The model's over-sized other
+  fields still net out above today's records.
+- All 56 of today's results-conversion records carry `env: prod` and a real `version`.
+- **Cold starts on real messages**: `convert` (init 1,076 ms), `notify-failure` ×5 (635–780 ms) and
+  `describe-results` (899 ms) all imported and ran.
+- **The CORS preflight.** Your origin gets exactly one `access-control-allow-origin`, methods
+  without `HEAD`, and no credentials header. A foreign origin gets 200 with **no**
+  `access-control-allow-origin`.
+- **ZAP against the container origin**, from the scheduled Security run 34121971677 on 2026-09-07:
+  FAIL-NEW 0, WARN-NEW 9, PASS 61. Every warning's alert ID matches a disposition in
+  `security-baseline.md`, and 10036 (`Server` version) passes. 10050 and the Sec-Fetch
+  Mode/Site/User variants have cleared.
+- **The log sweep is saturated.** Every run since at least 19:35Z *"stopped on wave-cap; 1102–1627
+  message(s) over 50 wave(s), the queue may still be yielding"*. `dat-prod-logs.fifo` held 17,134
+  messages at 20:43Z. `logs/service=api/` was written at 20:35Z but covers only up to **18:46Z**.
+  Retention is 14 days, so nothing is lost, and nothing alarms. That is a drain ceiling of roughly
+  6,600–9,600 messages an hour.
+
+### Width and target geometry — the live app, Chromium
+
+- **The save-results dialog across the band.** At 900 px and at 1512 px the three fields are equal
+  widths and stacked, and the button is **31.5 px** tall for both labels. At 899 and 768 px the
+  dialog was opened from the Explorer, because below 900 px the Query page shows only Saved and
+  History; it is stacked there too, at 31.5 px, with no page overflow. **375 px was not run.**
+- **The top bar overflows** from 900 px to about 946 px. At 900 px the page is 945 px wide in an 885
+  px viewport, and the header in a 925 px viewport at 940 px; it clears at 960 px. The account
+  button's username label turns on at the `tablet:` breakpoint and nothing shrinks, so longer
+  usernames widen the band.
+- **The undersized-target register.**
+  - **`StripingControl`** (the Colours dialog's *Band rows by*): with 20 columns its 13×13 boxes wrap
+    at **19.5 px**, so **it fails (−4.5 px)**, like CalcPanel. With 4 columns it sits on one row with
+    +18.51 px slack.
+  - `AdvancedCopyDialog` (opened, so the positive control held): three 13×13 boxes 25 px apart, **+1
+    px**, exempt by one pixel.
+  - `TableShareDialog`: radios at +30.75 px, exempt.
+  - `RefreshTableDialog`: a 14×14 checkbox at +175.74 px, exempt.
+  - `FileListRowMobile` at 700 px: +7.25 px, exempt. Two apparent failures were rows **behind** the
+    fixed mobile action bar, which a hit-test confirmed; scrolled to the end, the last row is
+    reachable.
+  - **A wrapped breadcrumb** (seven levels at 700 px): two lines at 27.5 px, every crumb 24 px tall,
+    long crumbs capped at 160 px. It conforms.
+  - The Explorer's tab strip: each close ✕ is exactly 24×24, 111.6 px apart, and the tabs are 24.5
+    px tall.
+
+### Uploads and the in-progress surface — SPEC-216, SPEC-190
+
+- **Multipart.** The part size is **112,500,000 B**, which is also the threshold. A 240,000,000-byte
+  file was uploaded in 3 parts:
+  - Each part was **minted just before its own `PUT`**, never all up front.
+  - Every successful part had a readable `ETag`, and one `COMPLETE` returned 200.
+  - **Fault injection**, client-side: part 2's first `PUT` was stopped at 25.2% and the app's own
+    `'error'` listeners fired. An abort alone would have taken the cancel path. The part was
+    **re-minted and re-sent once**, 112,500,000 B, not the whole file.
+  - The **aggregate bar** was sampled 223 times: 100 distinct values from 0 to 100 and **zero
+    decreases**.
+  - The object is 240,000,000 B, uploaded in about 17 s. At about 14 MB/s the 5 GB cap takes roughly
+    6 minutes, so **"past the 900 s window" cannot be reached on this uplink**.
+- **SPEC-190, a UI folder move.**
+  - **One** API call and zero AWS calls, the card *"Moving fileops_holdlock0910 · Started just now ·
+    Running in the background…"*, and the listing unchanged.
+  - While it ran, a **folder** selection disabled Copy, Move, Delete and Archive with *"Another file
+    operation is still running here…"*. A single-**file** selection disabled only Archive, which is
+    the synchronous no-lock path.
+  - The card settled to *"Finished — see your notifications…"*.
+  - **The card does not survive navigation.** See the fifth defect.
+
+### Defects found, each handed to its own task
+
+1. **The Excel cap admits inputs the converter cannot finish.** A 60 MiB result of 1,048,575 rows ×
+   15 one-character columns passed both the size cap and the row limit. `convert` ran **600,000 ms,
+   `Max Memory Used: 3008 MB`, `Status: timeout`**, and the user got *"Couldn't save the query
+   results as Excel: something went wrong."* ten minutes later.
+2. **File-ops refusals at validation carry no `requestId`.** `request_payload` reads a dict, but
+   `validate-authorize` receives the raw Pipes batch, which is a list. The test for it passes a dict,
+   so it can't see this. Results-conversion has the complementary gap: `destination_occupied` and
+   the timeout arrive with no payload at all.
+3. **The Query workspace's row-count walk is unbounded.** The code assumes *"GetQueryResults calls
+   are free"*, but each page is now a billed API call. A 10-million-row result walked at about 1.6
+   calls a second, which would be roughly 10,000 calls; it stopped at 124 when I left the page.
+4. **A top-bar overflow band at 900–946 px**, widening with username length.
+5. **Navigation remounts the signed-in shell.** `RootLayout`'s `<ErrorBoundary key={pathname}>`
+   remounts everything beneath it on every route change. The shell's wrapper node is new after a
+   route change, and both providers reset.
+   - **Leaving Files aborts uploads in progress.** Two part `PUT`s at 13% and 37% were aborted
+     126 ms after a Query click, with the drawer already closed; Escape alone was shown not to
+     abort. `POST /v1/objects/upload/abort` returned 200, which is SPEC-216 FR-004's navigation
+     variant.
+   - **The in-progress card and the space's submit gate are lost.**
+
+Smaller: the save dialog resets when an overwrite is cancelled; the row-limit count has no thousands
+separator; a relative listing prefix equal to the space name reads as the root
+(`protected.contained_prefix`); and the Pipes record model is incomplete.
+
+### Not run, and why
+
+- **Needs your hands.** The private-window sign-in; 375 and 400 px, which need the device toolbar;
+  the no-flash theme check, which needs a foreground tab; and a real token with a flipped bit.
+- **Needs a second account.** Every row in that section.
+- **Needs a shared space created or deleted.** SPEC-205 FR-004/006, SPEC-053/054, SPEC-061, the
+  catalog-unsafe name, and §G.1 row 1. Andrew chose to use the existing space instead.
+- **The classifier refused.** Corrupting `query-history.json` (SPEC-159).
+- **Production writes, which need CI or an operator.** Every row in that group.
+- **Pending the log-sweep lag.** §G.3's last three planes.
+
+### Left behind — created by this session, not deleted
+
+Permanently deleting data is left to Andrew. Keep `agriffith/explorer150/`, the table
+`agriffith.explorer150` and `agriffith/fileops_big0910/` as reusable fixtures. Delete these:
+- **In `agriffith/`:** `cors_check_20260910.csv`, `conv0910_parquet/`, `conv0910_json/`,
+  `conv0910_other/` (which includes `fileops_holdlock0910/`), `fileops_clean0910/`,
+  `fileops_moved0910/`, `marked0910/`, `decimal0910/`, `q?a&b=c#0910/`, `mp_240MB_0910.bin`,
+  `navprobe_0910b.bin`, `dq_big0910.csv` (about 1 GB), and the `sub0910/level_…` chain inside the
+  long `aaaa…` folder.
+- **Tables and views:** `agriffith.conv0910_parquet`, `agriffith.conv0910_json`,
+  `agriffith.decimal0910`, and the view `agriffith.wide0910`.
+- **In `another_shared_space`:** `cors_check_20260910.csv`, `reports0910/`,
+  `shared_files/agriffith/`, and the tables `explorer150_g2` and `explorer150_g2b`.
+
+The checks' own moves and deletes touched only copies this session had made.
+
+---
+
 ## Live-check session — 2026-09-09, second sitting (SPEC-227 FR-002 half (b), and §4.11's read-only rows at both widths)
 
 **Browser and CLI.** `main` at **`d49ba809`**, green — `Deploy SPA image` and `Deploy Lambda image`
