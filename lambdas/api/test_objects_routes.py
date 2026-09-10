@@ -766,7 +766,7 @@ class TestMutations:
             _body(
                 {
                     "source": {"kind": "personal", "name": "alice"},
-                    "sourceKey": "alice/archive/receipt.json",
+                    "sourceKey": "alice/system_settings/archive/receipt.json",
                     "destination": {"kind": "personal", "name": "alice"},
                     "destinationKey": "alice/receipt.json",
                     "overwrite": True,

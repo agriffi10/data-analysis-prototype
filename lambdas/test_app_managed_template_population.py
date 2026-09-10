@@ -40,51 +40,56 @@ Attributes:
 import pathlib
 import re
 
+from cpcommon.app_managed import ATHENA_RESULTS_FOLDER, RECEIPT_FOLDER
+
 INFRA = pathlib.Path(__file__).resolve().parent.parent / "infra"
 
 SEGMENT = re.compile(r"(?<=[\"/])([^/\"\s]+)/((?:system_settings/)?)(athenaresults|archive|shared_tables)/")
 
 ADMIN_BUCKET = "admin_bucket_arn"
 
+SYSTEM_SETTINGS = "system_settings"
+
+# The folders that actually went under the prefix. `shared_tables` was in this tuple while three
+# folders were expected to move; it never did, and its `system_settings/` anchors came out with
+# the narrowing, so listing it here would let one back in unnoticed.
+MOVING = (ATHENA_RESULTS_FOLDER, RECEIPT_FOLDER)
+
 SPACE_BUCKET_POPULATION = {
     "modules/analytics/policies/portal-role-analytics.json.tftpl": frozenset(
-        {"${principal_tag_key}}/athenaresults", "${principal_tag_key}}/system_settings/athenaresults"}
+        {"${principal_tag_key}}/system_settings/athenaresults"}
     ),
     "modules/archive/policies/execution.json.tftpl": frozenset(
-        {"*/athenaresults", "*/archive", "*/system_settings/athenaresults", "*/system_settings/archive"}
+        {"*/system_settings/athenaresults", "*/system_settings/archive"}
     ),
     "modules/data-quality/policies/execution.json.tftpl": frozenset(
-        {"*/athenaresults", "*/system_settings/athenaresults"}
+        {"*/system_settings/athenaresults"}
     ),
     "modules/data/policies/portal-role-permissions.json.tftpl": frozenset(
-        {"username}/archive", "username}/system_settings/archive"}
+        {"username}/system_settings/archive"}
     ),
     "modules/file-ops/policies/execution.json.tftpl": frozenset(
-        {"*/athenaresults", "*/archive", "*/system_settings/athenaresults", "*/system_settings/archive"}
+        {"*/system_settings/athenaresults", "*/system_settings/archive"}
     ),
+    # `*/shared_tables` is NOT an oversight here or in table-share below. That folder never
+    # moved — its tables were sent to the space and are the user's to edit — so its anchor stays
+    # at depth one and the `system_settings/shared_tables` anchor SPEC-219 added additively came
+    # out instead. Two depth-one entries survive the narrowing, and they are these.
     "modules/results-conversion/policies/execution.json.tftpl": frozenset(
         {
-            "*/athenaresults",
-            "*/archive",
             "*/shared_tables",
             "*/system_settings/athenaresults",
             "*/system_settings/archive",
-            "*/system_settings/shared_tables",
         }
     ),
     "modules/shared-spaces/policies/portal-role-shared-space.json.tftpl": frozenset(
-        {"*/athenaresults", "*/archive", "*/system_settings/athenaresults", "*/system_settings/archive"}
+        {"*/system_settings/athenaresults", "*/system_settings/archive"}
     ),
     "modules/table-builder/policies/execution.json.tftpl": frozenset(
-        {"*/athenaresults", "*/system_settings/athenaresults"}
+        {"*/system_settings/athenaresults"}
     ),
     "modules/table-share/policies/execution.json.tftpl": frozenset(
-        {
-            "*/athenaresults",
-            "*/shared_tables",
-            "*/system_settings/athenaresults",
-            "*/system_settings/shared_tables",
-        }
+        {"*/shared_tables", "*/system_settings/athenaresults"}
     ),
 }
 
@@ -144,3 +149,87 @@ def test_the_admin_bucket_archive_prefix_is_exactly_these_and_must_not_move():
     """Fact 3 of ``archive``. A sibling statement added here would be a grant onto a prefix nobody writes."""
     _, admin, _ = _measure()
     assert admin == ADMIN_BUCKET_POPULATION
+
+
+def test_only_the_MOVING_folders_appear_under_system_settings() -> None:
+    """Nothing lives under ``system_settings/`` but the folders that moved there.
+
+    **It outlived the narrowing, which is why it is here rather than deleted with the file it came
+    from.** The rest of that file compared each old anchor against its new sibling, and with the
+    old anchors gone it could only ever have passed on an empty population. This one never read an
+    old anchor at all: it asks what is under the new prefix, and the answer still has to be the
+    two folders that went there.
+
+    The gap it fills is unchanged. The population test's pattern matches only the moving names, so
+    a ``system_settings/user_settings/*`` grant in one of the EXECUTION templates is read by
+    nothing else in the suite.
+
+    Written over the whole tree rather than over the five, because the rule is about the prefix and
+    not about a file: whatever ends up under ``system_settings/`` is one of these three.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the scan reaches nothing, or a path names anything else beneath the new
+        prefix.
+    """
+    seen = 0
+    offenders = []
+    for path in sorted(INFRA.rglob("*.tftpl")):
+        for number, line in enumerate(path.read_text().splitlines(), start=1):
+            for match in re.finditer(rf"/{SYSTEM_SETTINGS}/([^/\"\s]+)/", line):
+                seen += 1
+                if match.group(1) not in MOVING:
+                    offenders.append(
+                        f"{path.relative_to(INFRA).as_posix()}:{number}: {match.group(1)!r} is not one "
+                        f"of the folders that move, so it gets no second home"
+                    )
+
+    # Re-derived after the narrowing rather than carried across it: the merge that removed the
+    # old anchors also removed four `system_settings/shared_tables` ones, taking the population
+    # from 34 to 30. A floor is invalidated by a shrink the way a cap is by a cut, so it was
+    # re-measured — 30 against 20 leaves room for a further legitimate reduction of a third
+    # before the floor starts reporting the tree instead of the glob.
+    assert seen >= 20, (
+        f"only {seen} paths sit under {SYSTEM_SETTINGS}/, so this absence is about an empty scan "
+        "rather than about the tree"
+    )
+    assert offenders == [], offenders
+
+
+def test_the_admin_bucket_archive_prefix_gained_no_sibling() -> None:
+    """Fact 3 of ``archive``: the control-plane scratch prefix does not move and must not be twinned.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the scan reaches nothing, or any Resource names the admin bucket beneath
+        ``system_settings/``.
+    """
+    offenders = []
+    marked = 0
+    for path in sorted(INFRA.rglob("*.tftpl")):
+        for line in path.read_text().splitlines():
+            if ADMIN_BUCKET not in line:
+                continue
+            marked += 1
+            if f"/{SYSTEM_SETTINGS}/" in line:
+                offenders.append(f"{path.relative_to(INFRA).as_posix()}: {line.strip()}")
+
+    # Re-derived when this test moved here, because a floor 4.5x below its population stops being
+    # a positive control: the tree holds 45 such lines and the floor was 10, so the glob could lose
+    # three quarters of the file set and the check would still read as healthy. 30 leaves room for
+    # the plane deletions this repo actually does while still reporting a broken scan.
+    assert marked >= 30, (
+        f"only {marked} lines name the admin bucket, so the absence below is about an empty scan "
+        "rather than about the tree — the glob or the marker has stopped matching"
+    )
+    assert offenders == [], offenders

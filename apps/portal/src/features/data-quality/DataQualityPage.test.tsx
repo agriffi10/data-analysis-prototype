@@ -377,7 +377,7 @@ describe('DataQualityPage', () => {
         data: page({
           folders: [
             {type: 'folder', prefix: 'alice/_data-quality-reports/', name: '_data-quality-reports'},
-            {type: 'folder', prefix: 'alice/athenaresults/', name: 'athenaresults'},
+            {type: 'folder', prefix: 'alice/system_settings/athenaresults/', name: 'athenaresults'},
             {type: 'folder', prefix: 'alice/user_settings/', name: 'user_settings'},
             {type: 'folder', prefix: 'alice/sales/', name: 'sales'}
           ]

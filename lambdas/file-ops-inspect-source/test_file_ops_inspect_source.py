@@ -161,7 +161,7 @@ def test_the_portal_managed_folders_are_swept_out_of_an_expansion_that_reaches_t
         {
             "alice/reports/a.csv": 1,
             "alice/user_settings/inbox.json": 1,
-            "alice/athenaresults/r.csv": 1,
+            "alice/system_settings/athenaresults/r.csv": 1,
         }
     )
 
@@ -279,13 +279,18 @@ def test_the_portal_managed_folders_swept_from_an_expansion_are_exactly_these_tw
 # ── both homes of a managed folder (SPEC-219 FR-002) ─────────────────────────
 
 
-def test_the_excluder_sweeps_both_homes_of_the_results_folder():
-    """An expansion reaching a space root drops the results folder at either location."""
+def test_the_excluder_sweeps_the_results_folder_at_its_one_home():
+    """An expansion reaching a space root drops the results folder — and nothing else.
+
+    The retired row is the one worth having. ``alice/athenaresults/`` is a folder the user may
+    now make, and an excluder still sweeping it would drop their own files out of a copy that
+    reported success — a silent loss, in the direction nothing else here would notice.
+    """
     ignore = m._excluder("alice/", "alice/")
 
-    assert ignore("alice/athenaresults/q.csv", 1, "alice/") is True
     assert ignore("alice/system_settings/athenaresults/q.csv", 1, "alice/") is True
     assert ignore("alice/reports/mine.csv", 1, "alice/") is False
+    assert ignore("alice/athenaresults/q.csv", 1, "alice/") is False
 
 
 def test_selecting_the_NEW_home_keeps_its_own_contents_listable():
@@ -293,9 +298,8 @@ def test_selecting_the_NEW_home_keeps_its_own_contents_listable():
 
     A root-anchored exclusion applied to a legally selected folder would list its every object,
     exclude every one of them, and report the item as empty — the failure the carve-out exists to
-    prevent, now owed at two locations rather than one.
+    prevent.
     """
     ignore = m._excluder("alice/", "alice/system_settings/athenaresults/")
 
     assert ignore("alice/system_settings/athenaresults/q.csv", 1, "alice/system_settings/athenaresults/") is False
-    assert ignore("alice/athenaresults/q.csv", 1, "alice/system_settings/athenaresults/") is True

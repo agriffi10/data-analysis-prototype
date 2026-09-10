@@ -92,14 +92,36 @@ def test_the_protection_marker_refuses_at_ANY_depth():
     assert caught.value.reason == "marker_not_deletable"
 
 
-@pytest.mark.parametrize("folder", ["athenaresults", "user_settings", "archive"])
-def test_a_portal_managed_folder_refuses_at_any_depth_MIRRORING_IAM(folder):
+@pytest.mark.parametrize(
+    ("path", "folder"),
+    [
+        ("system_settings/athenaresults", "athenaresults"),
+        ("user_settings", "user_settings"),
+        ("system_settings/archive", "archive"),
+    ],
+)
+def test_a_portal_managed_folder_refuses_at_any_depth_MIRRORING_IAM(path, folder):
     """Any-depth because the role's Deny is any-depth — it cannot be root-anchored, since an IAM
     Resource wildcard matches "/" and this role carries no principal tag. Mirroring the browser's
-    root-anchored rule instead would let the batch reach S3 and fail part way through."""
+    root-anchored rule instead would let the batch reach S3 and fail part way through.
+
+    The path is now the folder's SEGMENTS rather than its name, because two of the three moved and
+    the Deny moved with them. ``user_settings`` did not, which is why it is still one segment and
+    why the two columns differ."""
     with pytest.raises(TerminalError) as caught:
-        delete.assert_item_deletable([f"alice/reports/{folder}/r.csv"], "alice/")
+        delete.assert_item_deletable([f"alice/reports/{path}/r.csv"], "alice/")
     assert caught.value.reason == "delete_refused"
+
+
+@pytest.mark.parametrize("folder", ["athenaresults", "archive"])
+def test_the_name_a_moving_folder_LEFT_is_deletable_at_any_depth(folder):
+    """The other half of the narrowing, and the half nothing else in this file would catch.
+
+    Before the move the Deny read ``*/archive/*`` and this rule matched the bare name. It now
+    reads ``*/system_settings/archive/*``, so a folder the user made and called ``archive`` is
+    theirs to delete — and a rule still keyed on the name would refuse a deletion IAM permits,
+    silently, on a path no other test in this file visits."""
+    delete.assert_item_deletable([f"alice/reports/{folder}/r.csv"], "alice/")
 
 
 def test_a_folder_NAME_that_merely_contains_a_managed_name_is_fine():

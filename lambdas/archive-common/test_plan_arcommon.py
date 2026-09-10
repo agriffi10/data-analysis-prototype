@@ -371,7 +371,9 @@ def test_the_same_name_deeper_down_archives_like_any_other_file():
 def test_a_portal_managed_folder_at_the_space_root_is_excluded():
     """Defence in depth over the validator, anchored at the SPACE ROOT, which is where
     `assert_not_reserved` refuses it first."""
-    _install({"alice/athenaresults/q.csv": 9, "alice/reports/mine.csv": 4})
+    _install(
+        {"alice/system_settings/athenaresults/q.csv": 9, "alice/reports/mine.csv": 4}
+    )
 
     objects, total = plan.expand(_source([{"kind": "folder", "key": "alice/"}]))
 
@@ -379,8 +381,15 @@ def test_a_portal_managed_folder_at_the_space_root_is_excluded():
     assert total == 4
 
 
-@pytest.mark.parametrize("folder", ["archive", "athenaresults", "user_settings"])
-def test_an_undeletable_folder_at_any_depth_refuses_the_whole_request(folder):
+@pytest.mark.parametrize(
+    ("path", "folder"),
+    [
+        ("system_settings/archive", "archive"),
+        ("system_settings/athenaresults", "athenaresults"),
+        ("user_settings", "user_settings"),
+    ],
+)
+def test_an_undeletable_folder_at_any_depth_refuses_the_whole_request(path, folder):
     """**Found in review, and it is the one place two correct rules disagreed.** The code's
     reserved-folder rule is anchored at the space root on purpose — `alice/projects/archive/` is
     an ordinary folder the user made. The IAM Deny protecting the same names cannot be anchored
@@ -390,14 +399,40 @@ def test_an_undeletable_folder_at_any_depth_refuses_the_whole_request(folder):
     written, and then failed PART WAY THROUGH the deletion with "contact an administrator". It is
     refused up front instead, and refused WHOLE rather than excluded, because a silent exclusion
     drops the user's own data out of an archive that reports success.
+
+    The path column carries the folder's SEGMENTS since the narrowing: two of the three moved and
+    the Deny moved with them, so what has to appear mid-key is ``system_settings/archive`` rather
+    than ``archive``. ``user_settings`` did not move, which is why the two columns differ — and the
+    name a moving folder LEFT is covered by the test below.
     """
-    _install({f"alice/projects/{folder}/notes.txt": 4, "alice/projects/keep.csv": 1})
+    _install({f"alice/projects/{path}/notes.txt": 4, "alice/projects/keep.csv": 1})
 
     with pytest.raises(TerminalError) as err:
         plan.expand(_source([{"kind": "folder", "key": "alice/projects/"}]))
 
     assert err.value.reason == "undeletable_folder"
     assert err.value.tokens == {"folderName": folder}
+
+
+@pytest.mark.parametrize("folder", ["archive", "athenaresults"])
+def test_the_name_a_moving_folder_LEFT_is_archivable_at_any_depth(folder):
+    """The other side of the narrowing: a nested folder the user named after a retired home.
+
+    ``alice/projects/archive/`` was refused while the IAM Deny read ``*/archive/*``. That Deny is
+    gone, the prefix is proved empty and the objects moved, so the folder is the user's — and an
+    archive of its parent has to include it rather than refuse the whole request. Nothing else in
+    this file visits that path, and the rule fails in the SAFE direction, so without this row it
+    could stay wrong indefinitely and look like caution.
+    """
+    _install({f"alice/projects/{folder}/notes.txt": 4, "alice/projects/keep.csv": 1})
+
+    objects, total = plan.expand(_source([{"kind": "folder", "key": "alice/projects/"}]))
+
+    assert sorted(entry["relKey"] for entry in objects) == [
+        f"projects/{folder}/notes.txt",
+        "projects/keep.csv",
+    ]
+    assert total == 5
 
 
 def test_a_FILE_named_after_an_undeletable_folder_is_still_archivable():

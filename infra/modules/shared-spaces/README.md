@@ -43,8 +43,8 @@ shared delete-denies, and the **single privileged grant the browser receives** �
 the request queue. **An unset slot stamps no tag, so the statement matches nothing** — verified with
 `aws iam simulate-custom-policy`.
 
-**`SharedArchiveReceiptsAreNotUserWritable` uses the wildcard space segment**
-(`${shared_space_bucket_arn}/*/archive/*`) rather than a per-slot loop, **and that is not a
+**`SharedArchiveReceiptsAreNotUserWritableSystemSettings` uses the wildcard space segment**
+(`${shared_space_bucket_arn}/*/system_settings/archive/*`) rather than a per-slot loop, **and that is not a
 shortcut**: a **Deny needs no tag to be correct**, so one wildcard statement covers every membership
 slot including ones the user does not hold — where the per-slot **Allows** must be tag-scoped or they
 would grant access to spaces the user is not in. `GetObject`/`ListBucket` are untouched: a member can

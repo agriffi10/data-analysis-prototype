@@ -86,11 +86,12 @@ function keyMatcher(resource: string, principal: string): (key: string) => boole
 }
 
 /**
- * The union of a Sid and its `…SystemSettings` sibling, because the folder now has two homes and
- * IAM refuses each with its own statement.
+ * The union of every Deny naming the receipt folder in one template.
  *
- * A matcher built from one of them would agree with the browser only where that one reaches, and
- * the row that would catch it is the one the sibling exists for.
+ * It wrapped two matchers while the folder had two homes and IAM refused each with its own
+ * statement. One home, one statement, one matcher — and it stays a union because what it expresses
+ * is "every Deny naming this folder", so a second statement returning would otherwise go
+ * unmeasured by every row below.
  */
 function anyOf(...matchers: ((key: string) => boolean)[]): (key: string) => boolean {
   return (key) => matchers.some((matches) => matches(key));
@@ -130,12 +131,14 @@ function archiveDenySids(body: string): Set<string> {
   return found;
 }
 
+// One Sid per bucket again. The narrowing deleted the depth-one statement of each pair and the
+// survivor kept its `…SystemSettings` name, so each union now wraps one matcher. `anyOf` stays:
+// what it expresses is "every Deny naming this folder", and a second statement returning would
+// otherwise be unmeasured by the rows below.
 const PERSONAL_DENY = anyOf(
-  keyMatcher(resourceOf(portalRolePolicy, 'ArchiveReceiptsAreNotUserWritable'), 'alice'),
   keyMatcher(resourceOf(portalRolePolicy, 'ArchiveReceiptsAreNotUserWritableSystemSettings'), 'alice')
 );
 const SHARED_DENY = anyOf(
-  keyMatcher(resourceOf(sharedSpacePolicy, 'SharedArchiveReceiptsAreNotUserWritable'), 'finance'),
   keyMatcher(resourceOf(sharedSpacePolicy, 'SharedArchiveReceiptsAreNotUserWritableSystemSettings'), 'finance')
 );
 
@@ -152,8 +155,11 @@ describe('the UI write gate and the IAM Deny agree on the same prefixes', () => 
     // the root, so IAM PERMITS a write here — and the browser must not refuse it.
     'alice/backups/archive/',
     'alice/archived-notes/',
-    // The second home, refused by the sibling statement rather than by the original. The bare
-    // settings prefix is NOT denied — no statement names it — so the browser must still offer it.
+    // A nested copy of the PAIR. IAM still permits it here — the personal Deny is root-anchored,
+    // so depth is what refuses, not the name — and it is the row that tells the two arms apart.
+    'alice/backups/system_settings/archive/',
+    // The home, refused by the surviving statement. The bare settings prefix is NOT denied — no
+    // statement names it — so the browser must still offer it.
     'alice/system_settings/',
     'alice/system_settings/archive/',
     'alice/system_settings/archive/3f8a1c2e-9b4d-4a17-8c65-2e0d7b1f4a93/'
@@ -168,13 +174,14 @@ describe('the UI write gate and the IAM Deny agree on the same prefixes', () => 
     'finance/archive/',
     'finance/archive/3f8a1c2e-9b4d-4a17-8c65-2e0d7b1f4a93/',
     'finance/reports/',
-    // The wildcard is the SPACE slot and matches `/`, so IAM refuses a nested one here where it
-    // permits the personal twin above. Averaging the two rules gets one of these wrong.
+    // A user's own folder called `archive` in a SHARED space. The Deny that used to reach it at
+    // any depth is gone, so IAM permits a write here now — the row that catches an arm still
+    // keyed on the bare folder name, which is how this rule was written until the narrowing.
     'finance/backups/archive/',
     'finance/archived-notes/',
-    // The shared wildcard already reached these before the sibling landed, which is why the
-    // sibling is redundant here and explicit anyway — the narrowing has to be able to remove the
-    // old form without re-deriving what it covered.
+    // The wildcard is the SPACE slot and matches `/`, so IAM refuses the PAIR at any depth here
+    // where it permits the personal twin above. Averaging the two rules gets one of these wrong.
+    'finance/backups/system_settings/archive/',
     'finance/system_settings/',
     'finance/system_settings/archive/',
     'finance/system_settings/archive/3f8a1c2e-9b4d-4a17-8c65-2e0d7b1f4a93/'
@@ -187,33 +194,37 @@ describe('the UI write gate and the IAM Deny agree on the same prefixes', () => 
   it('proves the two Denies really do differ, so the asymmetry above is not an artefact', () => {
     // If this ever fails, one of the policies changed shape and the predicate should follow it
     // rather than the table above being edited to agree with a rule nobody re-read.
-    expect(PERSONAL_DENY('alice/backups/archive/x.csv')).toBe(false);
-    expect(SHARED_DENY('finance/backups/archive/x.csv')).toBe(true);
+    expect(PERSONAL_DENY('alice/backups/system_settings/archive/x.csv')).toBe(false);
+    expect(SHARED_DENY('finance/backups/system_settings/archive/x.csv')).toBe(true);
   });
 
-  it('proves the SystemSettings sibling is what covers the second home, not the original', () => {
-    // Without this the union above could be carried by either half and the sibling could be
-    // deleted with every row still green — the shape that makes a union matcher vacuous.
-    const original = keyMatcher(resourceOf(portalRolePolicy, 'ArchiveReceiptsAreNotUserWritable'), 'alice');
-    const sibling = keyMatcher(
+  it('proves the surviving Deny covers the home and NOT the name it left', () => {
+    // This replaces the pair that discriminated the two halves of the old union. With one half
+    // left the question changes: not which of the two carries the home, but whether the survivor
+    // refuses where the receipts are and stops refusing where they no longer are. The second
+    // clause IS the narrowing — false, and a user's own `archive/` is still unwritable.
+    const personal = keyMatcher(
       resourceOf(portalRolePolicy, 'ArchiveReceiptsAreNotUserWritableSystemSettings'),
       'alice'
     );
+    const shared = keyMatcher(
+      resourceOf(sharedSpacePolicy, 'SharedArchiveReceiptsAreNotUserWritableSystemSettings'),
+      'finance'
+    );
 
-    expect(original('alice/system_settings/archive/x.csv')).toBe(false);
-    expect(sibling('alice/system_settings/archive/x.csv')).toBe(true);
-    expect(sibling('alice/archive/x.csv')).toBe(false);
+    expect(personal('alice/system_settings/archive/x.csv')).toBe(true);
+    expect(personal('alice/archive/x.csv')).toBe(false);
+    expect(shared('finance/system_settings/archive/x.csv')).toBe(true);
+    expect(shared('finance/archive/x.csv')).toBe(false);
   });
 
   it('names every archive Deny the Sid slicing can see, so a third one is not unioned by nothing', () => {
     // If this fails because a legitimate new Deny landed, union it into the matchers above rather
     // than widening the sets here — the point is that the enumeration cannot fall behind the
     // templates while every row above goes on passing.
-    expect(archiveDenySids(portalRolePolicy)).toEqual(
-      new Set(['ArchiveReceiptsAreNotUserWritable', 'ArchiveReceiptsAreNotUserWritableSystemSettings'])
-    );
+    expect(archiveDenySids(portalRolePolicy)).toEqual(new Set(['ArchiveReceiptsAreNotUserWritableSystemSettings']));
     expect(archiveDenySids(sharedSpacePolicy)).toEqual(
-      new Set(['SharedArchiveReceiptsAreNotUserWritable', 'SharedArchiveReceiptsAreNotUserWritableSystemSettings'])
+      new Set(['SharedArchiveReceiptsAreNotUserWritableSystemSettings'])
     );
   });
 
@@ -221,33 +232,41 @@ describe('the UI write gate and the IAM Deny agree on the same prefixes', () => 
     // `*` in an S3 resource ARN is not a shell glob. A matcher that stopped at `/` would make
     // every shared row above agree with a root-anchored predicate, and the test would pass while
     // the browser offered writes IAM refuses.
-    expect(SHARED_DENY('finance/a/b/c/archive/x.csv')).toBe(true);
+    expect(SHARED_DENY('finance/a/b/c/system_settings/archive/x.csv')).toBe(true);
   });
 });
 
 describe('the refusal explains itself rather than just disappearing', () => {
   it('gives a reason exactly where it locks, and none where it does not', () => {
-    expect(writeLockRefusal('alice/archive/', 'alice/', 'personal')).toMatch(/read-only/i);
+    expect(writeLockRefusal('alice/system_settings/archive/', 'alice/', 'personal')).toMatch(/read-only/i);
     expect(writeLockRefusal('alice/reports/', 'alice/', 'personal')).toBeNull();
+    // The name it left, which the narrowing handed back to the user.
+    expect(writeLockRefusal('alice/archive/', 'alice/', 'personal')).toBeNull();
   });
 
   it('says what the folder is FOR, because a bare "not allowed" invites a support ticket', () => {
-    expect(writeLockRefusal('alice/archive/', 'alice/', 'personal')).toMatch(/receipts/i);
+    expect(writeLockRefusal('alice/system_settings/archive/', 'alice/', 'personal')).toMatch(/receipts/i);
   });
 });
 
 describe('the folder-name lists archive joined, and the two it did not', () => {
   it('is never a paste destination', () => {
     expect(PICKER_LOCKED_FOLDERS).toContain('archive');
-    expect(isRootFolderNamed('alice/archive/', 'alice/', PICKER_LOCKED_FOLDERS)).toBe(true);
+    // The list is still keyed on the folder NAME; what changed is where that name resolves to,
+    // because `isRootFolderNamed` builds its prefix from `appManagedPrefixes`.
+    expect(isRootFolderNamed('alice/system_settings/archive/', 'alice/', PICKER_LOCKED_FOLDERS)).toBe(true);
+    expect(isRootFolderNamed('alice/archive/', 'alice/', PICKER_LOCKED_FOLDERS)).toBe(false);
   });
 
-  it('is undeletable and unrenameable AT THE SPACE ROOT ONLY', () => {
-    expect(undeletableRootFolderRefusal('alice/archive/', 'alice/', 'delete')).toMatch(/receipts/i);
-    expect(undeletableRootFolderRefusal('alice/archive/', 'alice/', 'move')).toMatch(/receipts/i);
+  it('is undeletable and unrenameable AT ITS OWN LOCATION ONLY', () => {
+    expect(undeletableRootFolderRefusal('alice/system_settings/archive/', 'alice/', 'delete')).toMatch(/receipts/i);
+    expect(undeletableRootFolderRefusal('alice/system_settings/archive/', 'alice/', 'move')).toMatch(/receipts/i);
     // A user's own nested folder of the same name is an ordinary folder for these two lists —
     // which is a different question from whether it can be WRITTEN into, answered above.
     expect(undeletableRootFolderRefusal('alice/backups/archive/', 'alice/', 'delete')).toBeNull();
+    // And so is the depth-one name the folder vacated: the receipts are not there any more, and
+    // a user who makes a folder called `archive` at their space root owns it.
+    expect(undeletableRootFolderRefusal('alice/archive/', 'alice/', 'delete')).toBeNull();
   });
 
   it('stays VISIBLE, because the folder names are the archive ids', () => {

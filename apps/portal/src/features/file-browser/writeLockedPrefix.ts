@@ -1,4 +1,4 @@
-import {appManagedPrefixes, ARCHIVE_FOLDER} from '../../lib/appManagedPaths';
+import {appManagedPrefixes, segmentsHoldAppManaged, ARCHIVE_FOLDER} from '../../lib/appManagedPaths';
 import type {FileSpaceKind} from './useFileSpace';
 
 /**
@@ -9,19 +9,26 @@ import type {FileSpaceKind} from './useFileSpace';
  * where the user is STANDING, and it is built as a predicate rather than an `if` inside the
  * toolbar because the next read-only prefix will want it.
  *
- * IAM denies `PutObject` / `DeleteObject` / `AbortMultipartUpload` under `archive/` in both space
- * buckets, so without this every attempt produces a bare `AccessDenied` for a
+ * IAM denies `PutObject` / `DeleteObject` / `AbortMultipartUpload` under the receipt folder in both
+ * space buckets, so without this every attempt produces a bare `AccessDenied` for a
  * rule this application wrote — the situation the undeletable-root refusal exists to prevent for
- * `athenaresults/`.
+ * the results folder.
  *
  * **THE TWO SPACE KINDS ARE DENIED DIFFERENTLY, AND THIS MIRRORS EACH ONE RATHER THAN AVERAGING
- * THEM.** The personal Deny names the caller's own root — `{bucket}/{principalTag}/archive/…` —
- * because in that bucket the prefix IS the principal tag. The shared Deny puts a wildcard where
- * the space name goes, and an S3 resource wildcard matches `/` as well, so it reaches an
- * `archive` folder at ANY depth below the space root. Anchoring both at the root would offer
- * writes into a nested shared `archive/` that IAM refuses; applying the any-depth rule to both
- * would refuse writes into a user's own `alice/backups/archive/` that IAM permits.
+ * THEM.** The personal Deny names the caller's own root — `{bucket}/{principalTag}/system_settings/archive/…`
+ * — because in that bucket the prefix IS the principal tag. The shared Deny puts a wildcard where
+ * the space name goes, and an S3 resource wildcard matches `/` as well, so it reaches a
+ * `system_settings/archive` folder at ANY depth below the space root. Anchoring both at the root
+ * would offer writes into a nested shared one that IAM refuses; applying the any-depth rule to both
+ * would refuse writes into a user's own `alice/backups/system_settings/archive/` that IAM permits.
  * `archiveWriteLock.test.ts` holds this against the rendered policies, from the other side.
+ *
+ * **THE SEGMENT MATCHED IS THE PAIR, NOT THE BARE FOLDER NAME.** Until the receipt folder moved,
+ * the shared branch below looked for `archive` alone, mirroring a Deny anchored at depth one. That
+ * Deny is gone: a depth-one `finance/archive/` is now an ordinary user folder IAM permits writing
+ * to, and a branch still keyed on the bare name would refuse it — the over-refusal this docstring
+ * names two paragraphs up, arriving through the rule that warned about it. The pair is what the
+ * surviving Deny anchors on, so the pair is what this looks for.
  *
  * @param prefix - The folder currently being viewed, trailing slash (or '' at the root).
  * @param rootPrefix - The space root, trailing slash.
@@ -32,9 +39,10 @@ export function isWriteLockedPrefix(prefix: string, rootPrefix: string, spaceKin
   const lockedRoots = appManagedPrefixes(rootPrefix, ARCHIVE_FOLDER);
   if (lockedRoots.some((lockedRoot) => prefix === lockedRoot || prefix.startsWith(lockedRoot))) return true;
   if (spaceKind !== 'shared') return false;
-  // The shared bucket's wildcard segment matches `/` too, so any `archive` folder below the
-  // space root is covered by the same Deny.
-  return prefix.startsWith(rootPrefix) && prefix.slice(rootPrefix.length).split('/').includes(ARCHIVE_FOLDER);
+  // The shared bucket's wildcard segment matches `/` too, so a `system_settings/archive` pair at
+  // any depth below the space root is covered by the same Deny.
+  if (!prefix.startsWith(rootPrefix)) return false;
+  return segmentsHoldAppManaged(prefix.slice(rootPrefix.length).split('/'), ARCHIVE_FOLDER);
 }
 
 /**

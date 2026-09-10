@@ -64,11 +64,15 @@ Attributes:
     Deliberately not ``RESULTS_FOLDER``: an archive and a restore of it are two different runs
     with two different request ids, so they could not collide, but naming them apart means an
     operator reading the admin bucket can tell which direction a run was going.
-  _UNDELETABLE_FOLDERS: Folder names this plane may not delete AT ANY DEPTH, because the two
+  _UNDELETABLE_FOLDERS: Folders this plane may not delete AT ANY DEPTH, because the two
     bucket policies and the execution role's own Deny refuse ``s3:DeleteObject`` beneath them
     with a wildcard that matches ``/``. They are NOT the same rule as
     ``config.RESERVED_SOURCE_ROOTS``, which is anchored at the space root and answers a
-    different question — see ``_assert_deletable_folder``.
+    different question — see ``_assert_deletable_folder``. **The scan asks
+    ``segments_hold_app_managed`` rather than testing the names directly**, because two of the
+    three moved: since the move the Deny reads ``*/system_settings/archive/*``, so a user's own
+    folder called ``archive`` at any depth is deletable and the third, ``user_settings``, is still
+    matched on its bare name. Testing membership directly would refuse all three at the old depth.
 """
 
 import json
@@ -79,6 +83,7 @@ from cpcommon.app_managed import (
     ATHENA_RESULTS_FOLDER,
     RECEIPT_FOLDER,
     app_managed_prefixes,
+    segments_hold_app_managed,
 )
 from cpcommon.errors import TerminalError
 from cpcommon.paths import assert_inside_root, normalize_root
@@ -482,12 +487,13 @@ def _assert_deletable_folder(root: str, key: str) -> None:
       TerminalError: ``undeletable_folder``, naming the folder so the message can tell the user
         which one to deal with.
     """
-    for segment in key[len(root) :].split("/")[:-1]:
-        if segment in _UNDELETABLE_FOLDERS:
+    segments = key[len(root) :].split("/")[:-1]
+    for folder in _UNDELETABLE_FOLDERS:
+        if segments_hold_app_managed(segments, folder):
             raise TerminalError(
                 "undeletable_folder",
-                f"{key!r} sits inside a folder named {segment!r}, which cannot be deleted",
-                tokens={"folderName": segment},
+                f"{key!r} sits inside a folder named {folder!r}, which cannot be deleted",
+                tokens={"folderName": folder},
             )
 
 

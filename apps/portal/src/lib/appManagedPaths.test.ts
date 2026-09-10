@@ -5,6 +5,8 @@ import ownerSource from './appManagedPaths?raw';
 import {
   appManagedPrefix,
   appManagedPrefixes,
+  appManagedSegments,
+  segmentsHoldAppManaged,
   ARCHIVE_FOLDER,
   ATHENA_RESULTS_FOLDER,
   MOVING_FOLDERS,
@@ -32,58 +34,83 @@ describe('appManagedPaths', () => {
 });
 
 describe('appManagedPrefixes', () => {
-  it('gives a moving folder two homes and everything else one', () => {
-    // Spelled out as literals. A non-moving name acquiring a phantom second home is the thing
-    // the Out of Scope clause forbids, and it would be invisible in every rule that loops a list.
-    expect(appManagedPrefixes('alice/', ARCHIVE_FOLDER)).toEqual(['alice/archive/', 'alice/system_settings/archive/']);
+  it('gives every folder exactly one home', () => {
+    // Spelled out as literals. The old homes are gone — their objects were copied under
+    // `system_settings/` and the sources deleted — so no name has a second location left.
+    expect(appManagedPrefixes('alice/', ARCHIVE_FOLDER)).toEqual(['alice/system_settings/archive/']);
     expect(appManagedPrefixes('alice/', 'user_settings')).toEqual(['alice/user_settings/']);
     expect(appManagedPrefixes('alice/', SYSTEM_SETTINGS_FOLDER)).toEqual(['alice/system_settings/']);
-    // shared_tables does NOT move — those tables were sent to the space and are the user's to
-    // edit — so it has one home, like any folder whose location the app does not manage.
+    // shared_tables never moved — those tables were sent to the space and are the user's to
+    // edit — so it keeps the depth-one home it always had.
     expect(appManagedPrefixes('alice/', SHARED_TABLES_FOLDER)).toEqual(['alice/shared_tables/']);
     expect(MOVING_FOLDERS).toEqual([ATHENA_RESULTS_FOLDER, ARCHIVE_FOLDER]);
   });
 
   it('normalizes nothing, exactly as the singular does not', () => {
-    expect(appManagedPrefixes('', ARCHIVE_FOLDER)).toEqual(['archive/', 'system_settings/archive/']);
-    expect(appManagedPrefixes('alice//', ARCHIVE_FOLDER)).toEqual([
-      'alice//archive/',
-      'alice//system_settings/archive/'
-    ]);
+    expect(appManagedPrefixes('', ARCHIVE_FOLDER)).toEqual(['system_settings/archive/']);
+    expect(appManagedPrefixes('alice//', ARCHIVE_FOLDER)).toEqual(['alice//system_settings/archive/']);
   });
 
-  it('does not BUILD either home by calling the singular', () => {
-    // The duplication is the point, and the value-level tests above cannot enforce it: a derived
-    // second home and a literal one agree exactly while the singular is still depth-one, which is
-    // every day until the migration moves it. Derived, it would become
-    // `${root}system_settings/system_settings/${folder}/` the moment that happens.
+  it('now DOES build its one home by calling the singular', () => {
+    // The inverse of what this asserted before the narrowing. While both homes were admitted the
+    // plural spelled its elements out, so that moving the singular could not drag every rule's
+    // second home to a third location. With one home left, two literals a few characters apart
+    // is a rule written twice — the shape where one copy drifts and nothing notices.
     //
-    // A spy cannot see this — the call would be internal to the module, not through its exports —
-    // so the guard reads the function's own body instead.
+    // A spy cannot see the call — it is internal to the module, not through its exports — so the
+    // guard reads the function's own body, exactly as its predecessor did.
     const body = /export function appManagedPrefixes\([^)]*\)[^{]*\{([\s\S]*?)\n\}/.exec(ownerSource);
     expect(body, 'appManagedPrefixes is no longer a plain function declaration').not.toBeNull();
-    expect(body![1]).not.toMatch(/\bappManagedPrefix\s*\(/);
-    // Guard the guard: the body must be non-trivial, or a regex that matched nothing would pass.
-    expect(body![1]).toContain('system_settings/');
+    expect(body![1]).toMatch(/\bappManagedPrefix\s*\(/);
+    // Guard the guard: a body that no longer built anything would satisfy a `toMatch` on its own.
+    expect(body![1]).toContain('return');
   });
 
-  it('still answers the OLD home the singular has left', () => {
-    // This replaces the equality assertion that held the two together while the write was still
-    // at depth one. Re-pointing that one would have restored exactly the coupling the literals
-    // exist to avoid; what matters now is the opposite property. The first element is still the
-    // depth-one path, which is where the objects written before the switch actually are, so every
-    // rule built on the plural keeps refusing there until the migration has moved them.
-    for (const root of ['', 'alice/', 'finance/']) {
-      for (const folder of [ATHENA_RESULTS_FOLDER, ARCHIVE_FOLDER]) {
-        const homes = appManagedPrefixes(root, folder);
-        expect(homes[0]).toBe(`${root}${folder}/`);
-        expect(homes[1]).toBe(appManagedPrefix(root, folder));
-        expect(homes[0]).not.toBe(homes[1]);
-      }
-      // shared_tables never moved, so it never gained a second home to answer for.
-      for (const stays of ['user_settings', SHARED_TABLES_FOLDER]) {
-        expect(appManagedPrefixes(root, stays)).toEqual([appManagedPrefix(root, stays)]);
-      }
-    }
+  it('answers the one literal location, for every name and every root', () => {
+    // Spelled out rather than compared against `appManagedPrefix`. The plural's body IS
+    // `[appManagedPrefix(...)]`, so an equality against it cannot fail for ANY implementation of
+    // the singular — it would go green with the singular returning the empty string. The
+    // delegation is guarded by the body-reading test above; what this asserts is the VALUE.
+    expect(appManagedPrefixes('', ARCHIVE_FOLDER)).toEqual(['system_settings/archive/']);
+    expect(appManagedPrefixes('alice/', ATHENA_RESULTS_FOLDER)).toEqual(['alice/system_settings/athenaresults/']);
+    expect(appManagedPrefixes('finance/', ARCHIVE_FOLDER)).toEqual(['finance/system_settings/archive/']);
+    expect(appManagedPrefixes('finance/', SHARED_TABLES_FOLDER)).toEqual(['finance/shared_tables/']);
+    expect(appManagedPrefixes('alice/', 'user_settings')).toEqual(['alice/user_settings/']);
+    expect(appManagedPrefixes('alice/', SYSTEM_SETTINGS_FOLDER)).toEqual(['alice/system_settings/']);
+  });
+
+  // ─── the segment builder, which five rules across two trees delegate to ───
+
+  it('pairs only the folders that moved', () => {
+    expect(appManagedSegments(ARCHIVE_FOLDER)).toEqual([SYSTEM_SETTINGS_FOLDER, 'archive']);
+    expect(appManagedSegments(ATHENA_RESULTS_FOLDER)).toEqual([SYSTEM_SETTINGS_FOLDER, 'athenaresults']);
+    expect(appManagedSegments(SHARED_TABLES_FOLDER)).toEqual(['shared_tables']);
+    expect(appManagedSegments('user_settings')).toEqual(['user_settings']);
+  });
+
+  it.each([
+    // [segments, folder, held, why this row is here]
+    [[], ARCHIVE_FOLDER, false, 'an empty list — the scan must not read past the end'],
+    [['system_settings', 'archive'], ARCHIVE_FOLDER, true, 'the pair, exactly'],
+    [['a', 'system_settings', 'archive'], ARCHIVE_FOLDER, true, 'the pair, below a user folder'],
+    [['system_settings', 'archive', 'b'], ARCHIVE_FOLDER, true, 'the pair, above a user folder'],
+    [['archive'], ARCHIVE_FOLDER, false, 'the NAME the folder left — the whole narrowing'],
+    [['a', 'archive', 'b'], ARCHIVE_FOLDER, false, 'the name it left, nested'],
+    [['system_settings'], ARCHIVE_FOLDER, false, 'the parent alone is not the folder'],
+    [['system_settings', 'x', 'archive'], ARCHIVE_FOLDER, false, 'a SPLIT pair is not the folder'],
+    [['archive', 'system_settings'], ARCHIVE_FOLDER, false, 'the pair reversed is not the pair'],
+    [['system_settings', 'system_settings', 'archive'], ARCHIVE_FOLDER, true, 'a doubled parent'],
+    [['archived'], ARCHIVE_FOLDER, false, 'segment equality, never a substring'],
+    [['user_settings'], 'user_settings', true, 'a folder that did not move, at depth one'],
+    [
+      ['system_settings', 'user_settings'],
+      'user_settings',
+      true,
+      'and at any depth, since its Deny did not move either'
+    ]
+  ])('segmentsHoldAppManaged(%j, %s) === %s — %s', (segments, folder, held) => {
+    // This twin had NO test when it landed, and no key anywhere in the app exercised a split
+    // pair. Five rules across the two trees delegate here; a caller's suite tests the caller.
+    expect(segmentsHoldAppManaged(segments as string[], folder as string)).toBe(held);
   });
 });

@@ -53,12 +53,22 @@ describe('archiveRefusal', () => {
   });
 
   it('refuses the reserved folder itself, named in the message', () => {
-    expect(archiveRefusal([folder('alice/athenaresults/')], 'alice/')).toContain('athenaresults');
-    expect(archiveRefusal([folder('alice/archive/')], 'alice/')).toContain('archive');
+    expect(archiveRefusal([folder('alice/system_settings/athenaresults/')], 'alice/')).toContain('athenaresults');
+    expect(archiveRefusal([folder('alice/system_settings/archive/')], 'alice/')).toContain('archive');
   });
 
   it('refuses anything BENEATH a reserved folder', () => {
-    expect(archiveRefusal([file('alice/athenaresults/q1.csv')], 'alice/')).not.toBeNull();
+    expect(archiveRefusal([file('alice/system_settings/athenaresults/q1.csv')], 'alice/')).not.toBeNull();
+  });
+
+  it('leaves the depth-one names the moving folders vacated alone', () => {
+    // The receipts and results moved under `system_settings/`, the old prefixes were proved empty
+    // and their fences removed, so these are folders a user may make — and archiving one is a
+    // reasonable thing to want. The rule reads `appManagedPrefixes`, so it followed on its own;
+    // this is what would catch it if a literal ever crept back in.
+    expect(archiveRefusal([folder('alice/archive/')], 'alice/')).toBeNull();
+    expect(archiveRefusal([folder('alice/athenaresults/')], 'alice/')).toBeNull();
+    expect(archiveRefusal([file('alice/athenaresults/q1.csv')], 'alice/')).toBeNull();
   });
 
   it('refuses an ANCESTOR that contains one — the third case, and the one authors miss', () => {
@@ -83,11 +93,13 @@ describe('archiveRefusal', () => {
   it('refuses the WHOLE selection when one item is reserved', () => {
     // Archiving deletes the source, so a selection with one bad row in it must not become a
     // partial archive whose refused row was silently dropped — the plane's own rule.
-    expect(archiveRefusal([folder('alice/reports/'), folder('alice/archive/')], 'alice/')).not.toBeNull();
+    expect(
+      archiveRefusal([folder('alice/reports/'), folder('alice/system_settings/archive/')], 'alice/')
+    ).not.toBeNull();
   });
 
   it('holds identically in a shared space', () => {
-    expect(archiveRefusal([folder('finance/athenaresults/')], 'finance/')).not.toBeNull();
+    expect(archiveRefusal([folder('finance/system_settings/athenaresults/')], 'finance/')).not.toBeNull();
     expect(archiveRefusal([folder('finance/reports/')], 'finance/')).toBeNull();
   });
 });

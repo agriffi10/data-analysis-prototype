@@ -191,7 +191,9 @@ describe('SaveResultsDialog (SPEC-049 FR-002)', () => {
 
   it('excludes the protected athenaresults folder from the picker', async () => {
     mock.listFiles.mockResolvedValue(
-      ok(listing([folder('athenaresults', 'alice/athenaresults/'), folder('reports', 'alice/reports/')]))
+      ok(
+        listing([folder('athenaresults', 'alice/system_settings/athenaresults/'), folder('reports', 'alice/reports/')])
+      )
     );
     renderDialog();
     expect(await screen.findByRole('button', {name: /open folder reports/i})).toBeInTheDocument();

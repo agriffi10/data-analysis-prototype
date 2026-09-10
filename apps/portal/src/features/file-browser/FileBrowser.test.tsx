@@ -421,11 +421,13 @@ describe('FileBrowser — selection + delete', () => {
 
     it('refuses when EVERY selected folder is protected, and names one of them', async () => {
       mock.listFiles.mockResolvedValue(
-        ok(page({files: [], folders: [folder('saved_queries'), folder('athenaresults')], isTruncated: false}))
+        ok(page({files: [], folders: [folder('saved_queries'), folder('system_settings')], isTruncated: false}))
       );
       const {user} = renderBrowser();
       await user.click(await screen.findByRole('checkbox', {name: 'Select folder saved_queries'}));
-      await user.click(screen.getByRole('checkbox', {name: 'Select folder athenaresults'}));
+      // `system_settings` rather than `athenaresults`: the results folder moved inside it, so the
+      // depth-one name is an ordinary folder now and would not make the selection wholly protected.
+      await user.click(screen.getByRole('checkbox', {name: 'Select folder system_settings'}));
 
       const del = screen.getByRole('button', {name: 'Delete selected items'});
       expect(del).toHaveAttribute('aria-disabled', 'true');

@@ -579,7 +579,7 @@ class TestNothingIsCreatedForAnOccupiedKey:
         # `assert_replaceable` refuses TWO things, and a guard driven on one of them is a guard
         # that survives being swapped for the weaker `assert_writable` — measured: it did.
         "key",
-        ["alice/archive/secret.bin", "alice/reports/DO_NOT_DELETE.txt"],
+        ["alice/system_settings/archive/secret.bin", "alice/reports/DO_NOT_DELETE.txt"],
     )
     @pytest.mark.parametrize(
         ("path", "body"),

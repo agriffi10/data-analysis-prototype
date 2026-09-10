@@ -65,8 +65,11 @@ Attributes:
   _ALREADY_GONE: The object is not there. On the unconditional path S3 never says this; on the
     conditional path it is what a replayed batch answers, and it means the deletion succeeded.
   _DENIED_CODES: The bucket policy or the role's own Deny refused it.
-  _UNDELETABLE_FOLDERS: Folder names this plane may not delete AT ANY DEPTH, because the execution
-    role Denies ``s3:DeleteObject`` beneath them with a wildcard that matches ``/``.
+  _UNDELETABLE_FOLDERS: Folders this plane may not delete AT ANY DEPTH, because the execution
+    role Denies ``s3:DeleteObject`` beneath them with a wildcard that matches ``/``. The scan goes
+    through ``segments_hold_app_managed``, not a membership test, because two of the three moved:
+    the Deny now reads ``*/system_settings/athenaresults/*``, so a folder the user made and called
+    ``athenaresults`` is deletable and only ``user_settings`` is still matched on its bare name.
 
     **This list mirrors the IAM POLICY, deliberately NOT the browser's own rule.** The browser
     refuses ``athenaresults/`` root-anchored in a personal space and at any depth in a shared one,
@@ -83,6 +86,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from cpcommon import clients, errors
+from cpcommon.app_managed import segments_hold_app_managed
 from cpcommon.errors import TerminalError, TransientError
 from cpcommon.paths import has_dot_segment
 
@@ -228,7 +232,10 @@ def assert_item_deletable(keys: list, allowed_prefix: str) -> None:
                 f"{key!r} is undeletable, so the deletion was not attempted",
                 tokens={"itemName": MARKER_BASENAME},
             )
-        if any(segment in _UNDELETABLE_FOLDERS for segment in segments[:-1]):
+        if any(
+            segments_hold_app_managed(segments[:-1], folder)
+            for folder in _UNDELETABLE_FOLDERS
+        ):
             raise TerminalError(
                 DELETE_REFUSED,
                 f"{key!r} sits under a folder this plane may not delete from",

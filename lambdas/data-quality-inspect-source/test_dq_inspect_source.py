@@ -171,7 +171,7 @@ def test_user_settings_is_excluded_at_a_space_root_scan():
         "Contents": [
             {"Key": "alice/data.csv", "Size": 10},
             {"Key": "alice/user_settings/notifications.json", "Size": 10},
-            {"Key": "alice/athenaresults/q.csv", "Size": 10},
+            {"Key": "alice/system_settings/athenaresults/q.csv", "Size": 10},
         ]
     }
     fake = _FakeS3()

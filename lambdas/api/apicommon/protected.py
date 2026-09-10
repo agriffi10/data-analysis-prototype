@@ -21,7 +21,11 @@ a test asserting "no AWS call happened" passes over it — the assertions here a
 code.
 """
 
-from cpcommon.app_managed import RECEIPT_FOLDER, app_managed_prefixes
+from cpcommon.app_managed import (
+    RECEIPT_FOLDER,
+    app_managed_prefixes,
+    segments_hold_app_managed,
+)
 from cpcommon.errors import TerminalError
 from cpcommon.paths import assert_inside_root, has_dot_segment, normalize_root
 from cpcommon.s3_listing import MARKER_BASENAME
@@ -106,10 +110,10 @@ def is_write_locked(space: ResolvedSpace, key: str) -> bool:
     Mirrors ``isWriteLockedPrefix`` in the browser, including its asymmetry — see the module
     docstring for why the two buckets differ.
 
-    The comparison is against every home the receipt folder occupies — ``{root}archive/`` and
-    ``{root}system_settings/archive/`` — **each with its slash**, which is what the rendered Deny
-    says. Both are named because objects live at both until the migration finishes, and the builder
-    is what supplies them rather than a literal here. Matching the slashless form would refuse a
+    The comparison is against every home the receipt folder occupies — since the move, the one
+    home ``{root}system_settings/archive/`` — **with its slash**, which is what the rendered Deny
+    says. The builder is what supplies it rather than a literal here, which is why this arm followed
+    the folder without being edited. Matching the slashless form would refuse a
     *file* literally named ``archive`` at a space root, which IAM permits and the browser's
     predicate allows — a bare 403 for an upload that would have worked.
 
@@ -119,6 +123,11 @@ def is_write_locked(space: ResolvedSpace, key: str) -> bool:
     in a key's LAST segment too, so ``finance/reports/archive`` — a file *called* ``archive``, not
     a file *inside* one — matched a Deny whose Resource requires ``/archive/``.
     ``focommon.protected._is_at_or_below`` already made this distinction; this copy did not.
+
+    Both copies then made the same second mistake, and it took the move to expose it: each looked
+    for the bare folder NAME, which was right only while the Deny was anchored one segment deep.
+    The scan now goes through ``segments_hold_app_managed``, so the pair the Deny actually names
+    is what either copy looks for.
 
     Args:
       space: The resolved space.
@@ -137,7 +146,9 @@ def is_write_locked(space: ResolvedSpace, key: str) -> bool:
     if not key.startswith(space.root):
         return False
     segments = key[len(space.root) :].split("/")
-    return RECEIPT_FOLDER in (segments if key.endswith("/") else segments[:-1])
+    return segments_hold_app_managed(
+        segments if key.endswith("/") else segments[:-1], RECEIPT_FOLDER
+    )
 
 
 def assert_writable(space: ResolvedSpace, key: str) -> None:

@@ -144,7 +144,18 @@ class FakeAthena:
 
 @pytest.fixture
 def switched(monkeypatch):
-    """Puts the checkout in its post-FR-001 state, where the singular builder has moved.
+    """Puts the checkout in the state the migration actually ran in: after FR-001, before FR-005.
+
+    Both builders are patched, and the PLURAL one is the reason this fixture still exists. The
+    narrowing shrank it to a single element, and ``old_prefix`` refuses outright when it returns
+    fewer than two — a guard that fires for every mode. Patching only the singular would leave
+    every test below asserting ``narrowing_already_merged`` instead of the behaviour it was
+    written for, which is a suite that has stopped testing the module while still going green on
+    the day the refusal was removed.
+
+    The window this restores is closed for good, so these tests are a record of what the one-shot
+    did rather than a description of what the checkout can still do. The refusal itself is pinned
+    separately, against the real builders.
 
     Args:
       monkeypatch: pytest's patcher.
@@ -159,6 +170,11 @@ def switched(monkeypatch):
         migrate,
         "app_managed_prefix",
         lambda root, folder: f"{root}system_settings/{folder}/",
+    )
+    monkeypatch.setattr(
+        migrate,
+        "app_managed_prefixes",
+        lambda root, folder: (f"{root}{folder}/", f"{root}system_settings/{folder}/"),
     )
 
 
@@ -225,11 +241,16 @@ def rid(key, bucket=USER_BUCKET):
     return migrate.recorded_id(bucket, key)
 
 
-def test_a_key_outside_the_three_folders_is_refused_by_name():
+def test_a_key_outside_the_three_folders_is_refused_by_name(switched):
     """A key under a folder the migration does not move is refused, and the code says which rule.
 
+    It gained the fixture at the narrowing. ``folder_of`` reaches ``old_prefix``, which now refuses
+    first with ``narrowing_already_merged``, so without the restored window this asserts the
+    shrink rather than the scope rule. Both refusals are real; this test is about the second, and
+    saying so is cheaper than a reader later reading a green run as evidence for either.
+
     Args:
-      None.
+      switched: The window the migration ran in — after the write switch, before the narrowing.
 
     Returns:
       None.
@@ -248,11 +269,15 @@ def test_copy_refuses_while_the_switch_has_not_landed(monkeypatch):
     This is the guard that turns "merge the migration two merges early" from a data-loss window
     into a refusal. It used to need no fixture, because the checkout itself still wrote to depth
     one; now that the switch has landed, the pre-switch builder is what has to be simulated. The
-    guard is what the assertion is about either way — and it is now the ONLY thing standing between
-    a dispatch and a copy that races live writes, since the tree no longer provides that state.
+    guard is what the assertion is about either way.
+
+    The narrowing put a second refusal in front of it: ``old_prefix`` reads the plural, so every
+    mode now stops at ``narrowing_already_merged`` before any of this is reached. The plural is
+    restored here for the same reason the singular is — to hold open the window this guard
+    describes — and the assertion still discriminates, because the two codes differ.
 
     Args:
-      monkeypatch: Used to restore the pre-switch builder.
+      monkeypatch: Used to restore the pre-switch singular and the pre-narrowing plural.
 
     Returns:
       None.
@@ -261,20 +286,30 @@ def test_copy_refuses_while_the_switch_has_not_landed(monkeypatch):
       AssertionError: When the refusal is missing or carries another code.
     """
     monkeypatch.setattr(migrate, "app_managed_prefix", lambda root, folder: f"{root}{folder}/")
+    monkeypatch.setattr(
+        migrate,
+        "app_managed_prefixes",
+        lambda root, folder: (f"{root}{folder}/", f"{root}system_settings/{folder}/"),
+    )
     with pytest.raises(migrate.Refusal) as caught:
         migrate.mode_copy(clients(), CONFIG, "run-1")
     assert caught.value.code == "switch_not_landed"
 
 
-def test_prove_empty_refuses_once_the_narrowing_has_shrunk_the_plural(monkeypatch):
-    """After PR 4 the old home is unaddressable, so proving it empty would answer the wrong question.
+def test_prove_empty_refuses_now_that_the_narrowing_has_shrunk_the_plural():
+    """The old home is unaddressable, so proving it empty would answer the wrong question.
 
-    ``old_prefix`` reads the plural builder's first element; the narrowing deletes that element.
+    ``old_prefix`` reads the plural builder's first element; the narrowing deleted that element.
     Without this refusal the mode would enumerate the NEW home and report "empty" about a prefix
     nobody asked about — a guard that cannot see its own shrink.
 
+    It takes no fixture on purpose. Every other test here patches the builders back to the window
+    the migration ran in; this one runs against the checkout as it now is, which is what makes it
+    the pin on the real end state rather than on a simulation of it. It fails the moment the
+    refusal is removed, and it is the only test here that would.
+
     Args:
-      monkeypatch: pytest's patcher, used to simulate the narrowed builder.
+      None.
 
     Returns:
       None.
@@ -282,9 +317,6 @@ def test_prove_empty_refuses_once_the_narrowing_has_shrunk_the_plural(monkeypatc
     Raises:
       AssertionError: When the refusal is missing or carries another code.
     """
-    monkeypatch.setattr(
-        migrate, "app_managed_prefixes", lambda root, folder: (f"{root}{folder}/",)
-    )
     s3 = FakeS3()
     s3.store[(USER_BUCKET, "alice/x")] = b""
     with pytest.raises(migrate.Refusal) as caught:

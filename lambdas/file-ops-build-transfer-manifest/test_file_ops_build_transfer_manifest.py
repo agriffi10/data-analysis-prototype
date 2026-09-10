@@ -149,14 +149,18 @@ def test_an_item_with_ANY_other_outcome_contributes_ZERO_lines():
 
 
 def test_an_UNDELETABLE_item_is_refused_HERE_having_copied_nothing():
-    """THE placement finding. A personal folder holding a nested ``athenaresults/`` passes the front
+    """THE placement finding. A personal folder holding a nested app-managed folder passes the front
     door — the browser's rule is root-anchored there — and expands with those objects in the plan.
 
     Refused after the copy instead, the item would be fully duplicated in the destination and
     undeletable at the source: a state the user cannot resolve through this plane at all. Refused
     here, it contributes no lines and nothing moved.
+
+    The nested folder is the ``system_settings/athenaresults`` PAIR since the narrowing: the
+    execution role's Deny moved with the folder, so a bare nested ``athenaresults/`` is a folder
+    the user made and this plane may move it.
     """
-    items = [_item("alice/a/", "a", ["alice/a/athenaresults/r.csv"])]
+    items = [_item("alice/a/", "a", ["alice/a/system_settings/athenaresults/r.csv"])]
     fake = _install(items)
 
     result = m.handler(_event(items), None)

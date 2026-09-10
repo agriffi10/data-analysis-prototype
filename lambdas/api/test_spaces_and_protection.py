@@ -114,32 +114,52 @@ class TestKeyContainment:
 class TestTheArchiveWriteLockMirrorsEachBucket:
     """FR-009 AC4 — each bucket's own Deny, never the average of the two."""
 
-    def test_personal_locks_the_root_archive_folder(self) -> None:
+    def test_personal_locks_the_root_receipt_folder(self) -> None:
         """Root-anchored, matching the user-space bucket's Deny."""
-        assert protected.is_write_locked(PERSONAL, "alice/archive/receipt.json") is True
+        assert (
+            protected.is_write_locked(PERSONAL, "alice/system_settings/archive/receipt.json")
+            is True
+        )
 
-    def test_personal_does_NOT_lock_a_nested_archive_folder(self) -> None:
+    def test_personal_does_NOT_lock_a_nested_receipt_folder(self) -> None:
         """The asymmetry: the personal Deny is root-anchored, so this one is writable."""
-        assert protected.is_write_locked(PERSONAL, "alice/reports/archive/old.csv") is False
+        assert (
+            protected.is_write_locked(PERSONAL, "alice/reports/system_settings/archive/old.csv")
+            is False
+        )
 
-    def test_shared_locks_an_archive_folder_at_ANY_depth(self) -> None:
+    def test_shared_locks_the_receipt_folder_at_ANY_depth(self) -> None:
         """The shared bucket's wildcard segment matches `/`, so the rule reaches deeper."""
-        assert protected.is_write_locked(SHARED, "finance/reports/archive/old.csv") is True
+        assert (
+            protected.is_write_locked(SHARED, "finance/reports/system_settings/archive/old.csv")
+            is True
+        )
 
     def test_the_two_buckets_disagree_on_the_same_key(self) -> None:
         """The asymmetry stated as a single assertion, so averaging the rules reddens here."""
-        key_personal = "alice/reports/archive/x"
-        key_shared = "finance/reports/archive/x"
+        key_personal = "alice/reports/system_settings/archive/x"
+        key_shared = "finance/reports/system_settings/archive/x"
         assert protected.is_write_locked(PERSONAL, key_personal) is False
         assert protected.is_write_locked(SHARED, key_shared) is True
 
-    def test_personal_locks_the_receipt_folders_SECOND_home_too(self) -> None:
-        """The anchored arm learned both locations, so the new home is refused before it exists."""
-        assert protected.is_write_locked(PERSONAL, "alice/system_settings/archive/receipt.json") is True
+    def test_neither_bucket_locks_the_NAME_the_receipt_folder_LEFT(self) -> None:
+        """The narrowing, from the side that fails safe and would therefore go unnoticed.
 
-    def test_shared_reaches_the_second_home_through_its_own_any_depth_arm(self) -> None:
-        """Not re-pointed: the segment scan already sees `archive` under any prefix."""
+        ``finance/archive/`` and ``alice/archive/`` are folders a user may now make: the Denies
+        that named them are gone, and both arms of this rule get their target from
+        ``app_managed_segments``. A rule still keyed on the bare name refuses an upload IAM
+        permits — no error anyone can act on, just a control the browser greys out.
+        """
+        assert protected.is_write_locked(PERSONAL, "alice/archive/receipt.json") is False
+        assert protected.is_write_locked(SHARED, "finance/reports/archive/old.csv") is False
+
+    def test_shared_reaches_the_folder_through_its_own_any_depth_arm(self) -> None:
+        """The segment scan looks for the PAIR, so it sees the folder under any prefix."""
         assert protected.is_write_locked(SHARED, "finance/x/system_settings/archive/y") is True
+
+    def test_a_split_pair_is_not_the_folder(self) -> None:
+        """Consecutiveness, which a membership test over the two names separately would miss."""
+        assert protected.is_write_locked(SHARED, "finance/system_settings/x/archive/y") is False
 
     def test_the_settings_prefix_itself_is_NOT_write_locked(self) -> None:
         """The Deny names the receipt folder, not the prefix above it — the rule must not widen.

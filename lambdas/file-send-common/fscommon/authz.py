@@ -114,8 +114,8 @@ def assert_not_results_folder(root: str, key: str) -> str:
     """Refuses the space's own Athena results folder as a send source.
 
     The refusal is anchored at the SPACE ROOT — every location the results folder may occupy,
-    which is ``{root}athenaresults/`` and, while both homes are admitted,
-    ``{root}system_settings/athenaresults/`` — leaving ``alice/reports/athenaresults/`` an
+    which since the move is ``{root}system_settings/athenaresults/`` alone — leaving both
+    ``alice/reports/athenaresults/`` and the depth-one ``alice/athenaresults/`` the folder left an
     ordinary folder the user made and may send, the same anchoring ``isUndeletableRootFolder``
     uses in the browser.
 

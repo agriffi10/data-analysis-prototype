@@ -1,8 +1,8 @@
 # Spec: Move the App-Managed Folders, Then Narrow
 
 **ID:** SPEC-220
-**Status:** Draft
-**Last Updated:** 2026-09-07
+**Status:** Completed
+**Last Updated:** 2026-09-09
 **Depends On:** SPEC-219
 
 ## Overview
@@ -409,12 +409,29 @@ which is a hard error (SPEC-202).
 
 #### Acceptance Criteria:
 
-- [ ] The population test's expected table has exactly one pair per file per folder, all anchored
-      `system_settings`, and the two admin-bucket entries unchanged; it fails if any old-anchor
-      Resource survives (plant one, watch it name the file, revert).
-- [ ] `app_managed_prefixes(root, f) == (app_managed_prefix(root, f),)` for a member and
-      `appManagedPrefixes` its twin; the diff of this merge touches the two owner modules, the
-      templates, the tests and the docs and **no rule module**; every SPEC-219 pair test is rewritten
+- [x] The population test's expected table has exactly one entry per file per folder and the two
+      admin-bucket entries unchanged; it fails if any old-anchor Resource survives (planted one,
+      watched it name the file, reverted).
+      **"all anchored `system_settings`" was wrong when this was written**, and the criterion four
+      bullets down says so: `shared_tables/` never moved, so `results-conversion` and `table-share`
+      each keep a depth-one `*/shared_tables` entry. Built to the sentence as first written, the
+      merge would have deleted two Denies the Out of Scope list protects.
+- [x] `app_managed_prefixes(root, f) == (app_managed_prefix(root, f),)` for a member and
+      `appManagedPrefixes` its twin.
+      **"and no rule module" was FALSE, and this is the finding the merge turned up.** SIX rules
+      mirror a shared-bucket Deny with a hand-written any-depth segment scan keyed on the bare
+      folder NAME, fed by no builder: `writeLockedPrefix.ts`,
+      `focommon.protected._is_at_or_below`, `focommon.delete.assert_item_deletable`,
+      `apicommon.protected._is_write_locked`, `arcommon.plan._assert_deletable_folder` and
+      `rccommon.paths.protected_refusal`. **The sixth was found by the security review, after the
+      first five had been fixed and the count written down** — which is the argument for enumerating
+      a rule's population from the tree rather than from the set of instances that happened to
+      redden a test. The Deny
+      now reads `*/system_settings/archive/*`, so each was refusing writes and deletes IAM permits
+      in a user's own folder — over-refusal, which fails safe and is therefore the kind nothing
+      reports. All six now go through a new builder, `app_managed_segments`, so the rule has one
+      home the way the prefixes do. The clause is replaced rather than struck because a reader
+      checking whether the narrowing was confined to the builders deserves the real answer. every SPEC-219 pair test is rewritten
       to the single location, and the archive/file-send/file-ops refusal tests for a depth-one
       `alice/archive/x` now expect the key to be treated as an **ordinary** user path;
       `_IGNORED_SUBTREES` is asserted as the two-tuple `("system_settings/athenaresults/", "user_settings/")`;

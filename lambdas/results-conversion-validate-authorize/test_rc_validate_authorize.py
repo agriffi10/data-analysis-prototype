@@ -235,13 +235,43 @@ def test_each_cap_refuses_exactly_one_byte_over_and_accepts_the_cap_itself():
 
 @pytest.mark.parametrize(
     "prefix",
-    ["athenaresults/", "archive/", "shared_tables/", "user_settings/", "_data-quality-reports/", "backups/archive/"],
+    [
+        "system_settings/athenaresults/",
+        "system_settings/archive/",
+        "shared_tables/",
+        "user_settings/",
+        "_data-quality-reports/",
+        "backups/system_settings/archive/",
+    ],
 )
 def test_an_app_managed_folder_is_refused_at_any_depth_with_the_file_named(prefix):
+    """The prefixes are the folders' SEGMENTS since the move, not their names.
+
+    Two of the six moved under ``system_settings/`` and this list mirrors the execution role's
+    DENY, which moved with them; the other four did not move and stay at depth one. The last row
+    is the any-depth case, and it carries the pair for the same reason.
+    """
     err, sent, athena = _refused(_body(destination={"space": {"kind": "personal", "name": "alice"}, "prefix": prefix, "filename": "q1.parquet"}))
     assert err.reason == "protected_location"
     assert athena.calls == []
     assert '"q1.parquet"' in sent[0][1] and "as Parquet" in sent[0][1]
+
+
+@pytest.mark.parametrize("prefix", ["athenaresults/", "archive/", "backups/archive/"])
+def test_the_name_a_moving_folder_LEFT_is_an_ordinary_destination(prefix):
+    """The half the narrowing added, and the half nothing else in this file would catch.
+
+    This verb refused these three until the Deny it mirrors moved. Over-refusal fails safe, so a
+    suite that only asserts refusals stays green through it — and here it was user-reachable: the
+    same change released these folders from the browser's picker, so *Save results* offered a
+    destination this verb rejected.
+    """
+    _setup()
+    validated = v.handler(
+        _event(_body(destination={"space": {"kind": "personal", "name": "alice"}, "prefix": prefix, "filename": "q1.parquet"})),
+        None,
+    )
+    assert validated["destination"]["key"] == f"alice/{prefix}q1.parquet"
 
 
 def test_a_file_merely_named_like_a_protected_folder_is_a_file():

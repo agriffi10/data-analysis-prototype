@@ -10,19 +10,31 @@ import {isWriteLockedPrefix, writeLockRefusal} from './writeLockedPrefix';
 import {appManagedPrefixes} from '../../lib/appManagedPaths';
 
 /**
- * Every browser rule that anchors at a space root, asserted at BOTH homes of a moving folder.
+ * Every browser rule that anchors at a space root, asserted at the folder's home AND at the name
+ * it left.
  *
- * The failure this guards against is a rule that learned one location and not the other: it reads
- * as working code, and it refuses nothing where the data will actually be. The pairs are written
- * over the two prefixes rather than as separate cases so they cannot drift apart.
+ * While both homes were admitted this file asked whether each rule had learned the second one.
+ * The narrowing removed the first, so it asks the mirrored question: does the rule follow the
+ * folder, and does it let go of the name the folder vacated? The table keeps two rows with
+ * opposite expectations rather than collapsing to one, because a single row would pass just as
+ * happily against a rule still anchored at depth one — which is the regression the narrowing can
+ * introduce, and it fails in the SAFE direction, so nothing else would report it.
  */
-const BOTH_HOMES = ['alice/{}/', 'alice/system_settings/{}/'];
+const HOMES: ReadonlyArray<readonly [string, boolean]> = [
+  ['alice/{}/', false],
+  ['alice/system_settings/{}/', true]
+];
 const at = (template: string, folder: string) => template.replace('{}', folder);
 
 describe('the write lock covers both homes of the receipt folder', () => {
-  it.each(BOTH_HOMES)('%s archive/ is write-locked in a personal space', (home) => {
-    expect(isWriteLockedPrefix(at(home, 'archive'), 'alice/', 'personal')).toBe(true);
-    expect(writeLockRefusal(at(home, 'archive'), 'alice/', 'personal')).toMatch(/read-only/i);
+  it.each(HOMES)('%s archive/ is write-locked only where the receipts are', (home, locked) => {
+    expect(isWriteLockedPrefix(at(home, 'archive'), 'alice/', 'personal')).toBe(locked);
+    const refusal = writeLockRefusal(at(home, 'archive'), 'alice/', 'personal');
+    if (locked) {
+      expect(refusal).toMatch(/read-only/i);
+    } else {
+      expect(refusal).toBeNull();
+    }
   });
 
   it('does NOT lock the settings prefix itself, because no Deny names it', () => {
@@ -38,12 +50,18 @@ describe('the write lock covers both homes of the receipt folder', () => {
 });
 
 describe('the undeletable rule names the folder, at either home', () => {
-  it.each(BOTH_HOMES)('%s archive/ refuses with the archive wording', (home) => {
+  it.each(HOMES)('%s archive/ refuses with the archive wording only at its home', (home, refused) => {
     // The DETAIL matters, not just that something refused: `system_settings` is itself in this
     // list, so a rule that learned only depth one still refuses the nested key — as the settings
     // prefix. Matching on the wording is what tells the two apart.
-    expect(undeletableRootFolderRefusal(at(home, 'archive'), 'alice/', 'delete')).toMatch(/receipts/i);
-    expect(undeletableRootFolderRefusal(at(home, 'archive'), 'alice/', 'move')).toMatch(/receipts/i);
+    for (const action of ['delete', 'move'] as const) {
+      const refusal = undeletableRootFolderRefusal(at(home, 'archive'), 'alice/', action);
+      if (refused) {
+        expect(refusal).toMatch(/receipts/i);
+      } else {
+        expect(refusal).toBeNull();
+      }
+    }
   });
 
   it('gives the settings prefix its own wording rather than borrowing one', () => {
@@ -60,13 +78,14 @@ describe('a folder that is not moving gains no phantom home', () => {
     expect(isRootFolderNamed('alice/user_settings/', 'alice/', HIDDEN_BROWSER_FOLDERS)).toBe(true);
   });
 
-  it('locks both homes of a moving folder out of the picker, and the prefix itself', () => {
-    // athenaresults is the subject because it is one of the two folders that MOVE, so it has both
-    // homes to lock. shared_tables stays at the space root and is locked there — a separate fact,
-    // asserted below, and for a different reason: the share pipeline owns that folder's layout.
-    expect(isRootFolderNamed('alice/athenaresults/', 'alice/', PICKER_LOCKED_FOLDERS)).toBe(true);
+  it('locks a moving folder at its home and the prefix itself, and releases the old name', () => {
+    // athenaresults is the subject because it is one of the two folders that MOVED. shared_tables
+    // stays at the space root and is locked there — a separate fact, asserted below, and for a
+    // different reason: the share pipeline owns that folder's layout.
     expect(isRootFolderNamed('alice/system_settings/athenaresults/', 'alice/', PICKER_LOCKED_FOLDERS)).toBe(true);
     expect(isRootFolderNamed('alice/system_settings/', 'alice/', PICKER_LOCKED_FOLDERS)).toBe(true);
+    // A user may now make and paste into their own `athenaresults/` at the space root.
+    expect(isRootFolderNamed('alice/athenaresults/', 'alice/', PICKER_LOCKED_FOLDERS)).toBe(false);
   });
 
   it('locks shared_tables at its one home, which is the space root', () => {
@@ -81,10 +100,16 @@ describe('archiveRefusal names the folder the selection is actually in', () => {
     ['alice/system_settings/archive/', 'archive'],
     ['alice/system_settings/athenaresults/', 'athenaresults'],
     ['alice/system_settings/', 'system_settings'],
-    ['alice/system_settings/user_settings/', 'system_settings'],
-    ['alice/archive/', 'archive']
+    ['alice/system_settings/user_settings/', 'system_settings']
   ])('%s is refused naming %s', (key, named) => {
     expect(archiveRefusal([{kind: 'folder', key}], 'alice/')).toContain(named);
+  });
+
+  it('does not refuse the depth-one names the moving folders left', () => {
+    // These are ordinary user folders now, and archiving them is exactly what a user would want:
+    // the objects that made them reserved were moved out and the fences removed.
+    expect(archiveRefusal([{kind: 'folder', key: 'alice/archive/'}], 'alice/')).toBeNull();
+    expect(archiveRefusal([{kind: 'folder', key: 'alice/athenaresults/'}], 'alice/')).toBeNull();
   });
 
   it('runs both passes PER ITEM, so a mixed selection answers as it always did', () => {
@@ -97,7 +122,7 @@ describe('archiveRefusal names the folder the selection is actually in', () => {
     const refusal = archiveRefusal(
       [
         {kind: 'folder', key: 'alice/'},
-        {kind: 'folder', key: 'alice/athenaresults/'}
+        {kind: 'folder', key: 'alice/system_settings/athenaresults/'}
       ],
       'alice/'
     );

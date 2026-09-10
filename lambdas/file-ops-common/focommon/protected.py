@@ -33,7 +33,7 @@ Every refusal names the folder in operator text and carries its own reason code,
 can word it without re-deriving which rule fired.
 """
 
-from cpcommon.app_managed import app_managed_prefixes
+from cpcommon.app_managed import app_managed_prefixes, segments_hold_app_managed
 
 from .config import (
     ARCHIVE_FOLDER,
@@ -105,6 +105,12 @@ def _is_at_or_below(key: str, root: str, name: str, *, space_kind: str) -> bool:
     Root-anchored in a personal space and any-depth in a shared one, mirroring each bucket's Deny
     rather than averaging the two.
 
+    **The any-depth arm scans for the folder's SEGMENTS, not its name.** Since the move, the
+    shared Deny reads ``*/system_settings/archive/*``, so a folder a user calls ``archive`` inside
+    a shared space is ordinary and refusing it would be a refusal IAM does not make.
+    ``segments_hold_app_managed`` is what supplies the pair, for the same reason
+    ``app_managed_prefixes`` supplies the anchored form: a literal here went stale at the move.
+
     **Compared on the RAW key, never a slash-appended form.** ``alice/archive`` is an
     extension-less FILE, matched by no Deny and offered for deletion by the browser; appending a
     slash to compare would make it indistinguishable from the folder. For the same reason the
@@ -129,7 +135,9 @@ def _is_at_or_below(key: str, root: str, name: str, *, space_kind: str) -> bool:
     if space_kind != "shared" or not key.startswith(root):
         return False
     segments = key[len(root) :].split("/")
-    return name in (segments if key.endswith("/") else segments[:-1])
+    return segments_hold_app_managed(
+        segments if key.endswith("/") else segments[:-1], name
+    )
 
 
 def destination_refusal(root: str, prefix: str, space_kind: str) -> Refusal | None:

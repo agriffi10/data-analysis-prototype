@@ -1,5 +1,6 @@
 """The app-managed folder names and the builders every anchored rule goes through."""
 
+import pytest
 from cpcommon import app_managed, s3_listing
 
 
@@ -33,73 +34,64 @@ def test_a_moving_folder_anchors_under_system_settings_and_nothing_else_does():
     assert app_managed.vault_archive_prefix("personal", "alice/", "abc") == "personal/alice/archive/abc/"
 
 
-def test_the_plural_builder_gives_a_moving_folder_two_homes_and_everything_else_one():
-    """Spelled out as literals: a non-moving name must never acquire a phantom second home."""
+def test_the_plural_builder_gives_every_folder_exactly_one_home():
+    """Spelled out as literals: the second home is gone, and no name kept a phantom one."""
     assert app_managed.app_managed_prefixes("alice/", "archive") == (
-        "alice/archive/",
         "alice/system_settings/archive/",
     )
     assert app_managed.app_managed_prefixes("alice/", "user_settings") == ("alice/user_settings/",)
     assert app_managed.app_managed_prefixes("alice/", "system_settings") == ("alice/system_settings/",)
     # Two, not three. SPACE_FOLDERS still holds all three app-managed folders; this asks which of
-    # them MOVE, and shared_tables does not — which is why the two are separate tuples rather than
-    # one aliased to the other, and the difference is now observable rather than coincidental.
+    # them MOVED, and shared_tables did not — which is why the two are separate tuples rather than
+    # one aliased to the other, and the difference is observable rather than coincidental.
     assert app_managed.MOVING_FOLDERS == ("athenaresults", "archive")
     assert app_managed.SPACE_FOLDERS == ("athenaresults", "archive", "shared_tables")
     # Two separate declarations on purpose — one asks which folders the app manages in a space
-    # bucket, the other which of them relocate — but a folder cannot relocate under a space's own
+    # bucket, the other which of them relocated — but a folder cannot relocate under a space's own
     # prefix without living in one, and nothing else states that direction.
     assert set(app_managed.MOVING_FOLDERS) <= set(app_managed.SPACE_FOLDERS)
 
 
 def test_the_plural_builder_normalizes_nothing_either():
-    """A caller's bytes come back unchanged, at both homes, exactly as the singular's do."""
-    assert app_managed.app_managed_prefixes("", "archive") == ("archive/", "system_settings/archive/")
+    """A caller's bytes come back unchanged, exactly as the singular's do."""
+    assert app_managed.app_managed_prefixes("", "archive") == ("system_settings/archive/",)
     assert app_managed.app_managed_prefixes("alice//", "archive") == (
-        "alice//archive/",
         "alice//system_settings/archive/",
     )
 
 
-def test_the_plural_builder_does_not_CALL_the_singular_one(monkeypatch):
-    """The duplication is the point, and until now nothing enforced it.
+def test_the_plural_builder_now_DOES_call_the_singular_one(monkeypatch):
+    """The inverse of what this asserted before the narrowing, and it is asserted for one reason.
 
-    Both docstrings state in bold that neither element is derived from ``app_managed_prefix``,
-    because the singular is where a write goes and the migration moves it: derived, the second home
-    would become ``{root}system_settings/system_settings/{folder}/`` the moment it does. The
-    literals-spelled-out test above cannot see the difference, since a derived value and a literal
-    one agree exactly while the singular is still depth-one — which is every day until the move.
+    While both homes were admitted the plural spelled its elements out, because deriving them from
+    the singular would have dragged every rule's second home to a third location the moment the
+    write moved. With one home left, the duplication would be a rule written twice — the shape
+    where one copy drifts and nothing notices — so the plural delegates, and this is what holds
+    the delegation in place.
 
-    Replacing the singular with something recognisable is what tells them apart. Python resolves a
-    module global at CALL time, so a plural that reached for it would return the sentinel.
+    Spelled-out equality cannot see the difference: a derived value and a literal one agree
+    exactly. Replacing the singular with something recognisable is what tells them apart, and
+    Python resolves a module global at CALL time, so a plural that had kept its literals would
+    return the real prefix instead of the sentinel.
     """
     monkeypatch.setattr(app_managed, "app_managed_prefix", lambda root, folder: "SENTINEL/")
 
-    assert app_managed.app_managed_prefixes("alice/", "archive") == (
-        "alice/archive/",
-        "alice/system_settings/archive/",
-    )
-    assert app_managed.app_managed_prefixes("alice/", "user_settings") == ("alice/user_settings/",)
+    assert app_managed.app_managed_prefixes("alice/", "archive") == ("SENTINEL/",)
+    assert app_managed.app_managed_prefixes("alice/", "user_settings") == ("SENTINEL/",)
 
 
-def test_the_plural_still_answers_the_old_home_the_singular_has_left():
-    """The two now legitimately differ, and the old home is where the data still IS.
+def test_the_plural_and_the_singular_now_answer_the_same_thing():
+    """One home each, for every name — the property the narrowing was for.
 
-    This replaces the equality assertion that pinned them together while the write was still at
-    depth one. Re-pointing that one to the new value would have been the wrong repair — it would
-    restore exactly the coupling the plural's literals exist to avoid. What matters after the
-    switch is the opposite property: the plural's FIRST element is still the depth-one path, so
-    every rule built on it keeps refusing where the objects have not moved from yet.
+    This replaces the assertion that pinned the plural's FIRST element to the depth-one path while
+    the objects were still there. They have moved, the old prefixes are proved empty and their
+    fences are gone, so a depth-one ``alice/archive/`` is an ordinary user folder and the two
+    builders agree everywhere.
     """
     for root in ("", "alice/", "finance/"):
-        for folder in ("athenaresults", "archive"):
-            homes = app_managed.app_managed_prefixes(root, folder)
-            assert homes[0] == f"{root}{folder}/"
-            assert homes[1] == app_managed.app_managed_prefix(root, folder)
-            assert homes[0] != homes[1]
-        for stays in ("shared_tables", "user_settings", "system_settings"):
-            assert app_managed.app_managed_prefixes(root, stays) == (
-                app_managed.app_managed_prefix(root, stays),
+        for folder in ("athenaresults", "archive", "shared_tables", "user_settings", "system_settings"):
+            assert app_managed.app_managed_prefixes(root, folder) == (
+                app_managed.app_managed_prefix(root, folder),
             )
 
 
@@ -110,10 +102,64 @@ def test_the_builders_normalize_nothing():
     assert app_managed.vault_archive_prefix("personal", "alice//", "x") == "personal/alice//archive/x/"
 
 
-def test_the_listing_ignores_exactly_these_three_subtrees():
-    """The listing's own first-segment rule, spelled out; the results folder has two homes now."""
+def test_the_listing_ignores_exactly_these_two_subtrees():
+    """The listing's own first-segment rule, spelled out; the results folder has one home again."""
     assert s3_listing._IGNORED_SUBTREES == (
-        "athenaresults/",
         "system_settings/athenaresults/",
         "user_settings/",
     )
+
+
+SEGMENT_CASES = [
+    # (segments, folder, held, why this row is in the table)
+    ([], "archive", False, "an empty list — the loop must not read past the end"),
+    (["system_settings", "archive"], "archive", True, "the pair, exactly"),
+    (["a", "system_settings", "archive"], "archive", True, "the pair, below a user folder"),
+    (["system_settings", "archive", "b"], "archive", True, "the pair, above a user folder"),
+    (["archive"], "archive", False, "the NAME the folder left — the whole narrowing"),
+    (["a", "archive", "b"], "archive", False, "the name it left, nested"),
+    (["system_settings"], "archive", False, "the parent alone is not the folder"),
+    (["system_settings", "x", "archive"], "archive", False, "a SPLIT pair is not the folder"),
+    (["archive", "system_settings"], "archive", False, "the pair reversed is not the pair"),
+    (["system_settings", "system_settings", "archive"], "archive", True, "a doubled parent"),
+    (["user_settings"], "user_settings", True, "a folder that did NOT move, at depth one"),
+    # TRUE, and this row was written expecting False. A non-moving folder's Deny did not move
+    # either: the shared one is still `*/user_settings/*`, and an S3 wildcard matches `/`, so it
+    # reaches that name at ANY depth including under the new prefix. The mirror has to answer what
+    # the Deny answers, not what the browser's root-anchored rule answers — those are different
+    # questions, and `_is_under_root_folder` is the one that asks the other.
+    (["system_settings", "user_settings"], "user_settings", True, "a non-moving name, at any depth"),
+    (["archived"], "archive", False, "segment equality, never a substring"),
+]
+
+
+@pytest.mark.parametrize(("segments", "folder", "held", "why"), SEGMENT_CASES)
+def test_the_segment_predicate_answers_each_boundary_case(segments, folder, held, why):
+    """``segments_hold_app_managed``'s own table, rather than one borrowed from a caller.
+
+    It had none when it landed: four of its five call sites' suites reddened when it was broken,
+    but only ONE assertion anywhere discriminated a SPLIT pair, and it lived in an API test. A
+    predicate that five rules delegate to owes its own boundary table, because a caller's suite
+    tests the caller.
+
+    Args:
+      segments: The key's segments below the space root.
+      folder: The folder name asked about.
+      held: What the predicate must answer.
+      why: The property this row is here for, so a deleted row is a visible loss.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the predicate disagrees.
+    """
+    assert app_managed.segments_hold_app_managed(segments, folder) is held, why
+
+
+def test_the_segments_builder_pairs_only_the_folders_that_moved():
+    """The two tuples the predicate is built on, spelled out."""
+    assert app_managed.app_managed_segments("archive") == ("system_settings", "archive")
+    assert app_managed.app_managed_segments("athenaresults") == ("system_settings", "athenaresults")
+    assert app_managed.app_managed_segments("user_settings") == ("user_settings",)
+    assert app_managed.app_managed_segments("shared_tables") == ("shared_tables",)
