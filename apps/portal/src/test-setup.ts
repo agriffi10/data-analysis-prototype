@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest';
 // `expect.extend` registers `toHaveNoViolations` at runtime so every test can
 // assert axe results without a per-file import; its TypeScript types are
 // declared in `src/vitest-axe.d.ts`.
-import {beforeEach, expect} from 'vitest';
+import {beforeEach, expect, onTestFinished} from 'vitest';
 import * as axeMatchers from 'vitest-axe/matchers';
 import {memoryStorage} from './test/storage';
 import {addSchemeListener, prefersDarkScheme, removeSchemeListener, resetColorScheme} from './test/colorScheme';
@@ -72,4 +72,38 @@ beforeEach(() => {
   } catch {
     // A spec that stubbed a throwing localStorage — nothing to clear.
   }
+});
+
+/**
+ * `setTimeout` as it stood before any test could install a fake clock.
+ *
+ * The drain below has to be a REAL macrotask. A test that leaves `vi.useFakeTimers()` installed
+ * would otherwise park the hook on a clock nothing ever advances, and it would fail on its own
+ * timeout instead of draining. Nothing is lost by stepping around the fake clock: a fake timer
+ * still pending when `vi.useRealTimers()` runs is discarded and never fires at all, so it can
+ * never reach a torn-down environment either way.
+ */
+const realSetTimeout = globalThis.setTimeout.bind(globalThis);
+
+/**
+ * Let TanStack's queued notifications run before this file's jsdom is taken away.
+ *
+ * TanStack batches every notification through a `setTimeout(0)`. A batch still queued when
+ * vitest tears down the environment fires into a world with no `window`, and react-dom reads
+ * `window.event` unconditionally when an update is scheduled — an uncaught `ReferenceError`
+ * that fails a run whose every test passed, blaming whichever file was last. Yielding one real
+ * macrotask after each test empties the queue while the environment is still standing.
+ *
+ * Registered HERE rather than in `renderWithProviders`, and that placement is the point: the
+ * queue belongs to the worker, not to any one client, so a test that builds its own
+ * `QueryClientProvider` needs draining just as much as one that goes through the harness — and
+ * some do, with a client created at module scope where a per-render hook could never reach it.
+ * `onTestFinished` runs after every `afterEach`, so this lands once Testing Library has
+ * unmounted; registered from `beforeEach`, it is also the FIRST such hook, and they run in
+ * reverse, so the harness's own cache teardown still goes before this drain.
+ */
+beforeEach(() => {
+  onTestFinished(async () => {
+    await new Promise((resolve) => realSetTimeout(resolve, 0));
+  });
 });
