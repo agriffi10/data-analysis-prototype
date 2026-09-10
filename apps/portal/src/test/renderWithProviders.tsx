@@ -1,4 +1,5 @@
 import {useState} from 'react';
+import {onTestFinished} from 'vitest';
 import {render, renderHook} from '@testing-library/react';
 import type {RenderOptions, RenderHookOptions} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -26,6 +27,46 @@ export function createTestQueryClient(): QueryClient {
       queries: {retry: false, staleTime: 0, gcTime: 0},
       mutations: {retry: false}
     }
+  });
+}
+
+/**
+ * `setTimeout` as it stood before any test could install a fake clock.
+ *
+ * The drain in `disposeAfterTest` has to be a REAL macrotask. A test that leaves
+ * `vi.useFakeTimers()` installed would otherwise park the cleanup on a clock nothing ever
+ * advances, and the hook would fail on its own timeout rather than tear the client down. The
+ * notifications that can outlive the environment are the ones on the real clock anyway: a fake
+ * timer still pending when `vi.useRealTimers()` runs is discarded and never fires at all.
+ */
+const realSetTimeout = globalThis.setTimeout.bind(globalThis);
+
+/**
+ * Drop everything on `client` once the test that adopted it finishes.
+ *
+ * `onTestFinished` runs after every `afterEach`, so this lands once Testing Library has already
+ * unmounted the tree — the only point where tearing the cache down is both safe and complete.
+ *
+ * `clear()` destroys every query, and destroying one cancels its in-flight fetch, so a request
+ * the test never waited for cannot settle into an environment that no longer exists. The drain
+ * that follows is the half that fixes the flake: TanStack batches every notification through a
+ * `setTimeout(0)`, and a batch still queued when vitest tears down this file's jsdom fires into
+ * a world with no `window`. react-dom reads `window.event` unconditionally on its update path,
+ * so that surfaces as an uncaught `ReferenceError` which fails a run whose every test passed,
+ * blaming whichever file was unlucky. Yielding one real macrotask here lets the queue empty
+ * while the environment is still standing.
+ *
+ * Both steps answer something observed rather than imagined: files in this suite do reach
+ * teardown with a notification still queued, and tests do reach it with a fetch still in flight.
+ * To re-measure either, wrap `notifyManager.setScheduler` in a counter and report it from an
+ * `afterAll`, or count `fetchStatus === 'fetching'` here before clearing. `cancelQueries()` is
+ * deliberately NOT called — `clear()` already cancels, silently, and a second cancel only
+ * schedules more notifications to drain.
+ */
+function disposeAfterTest(client: QueryClient): void {
+  onTestFinished(async () => {
+    client.clear();
+    await new Promise((resolve) => realSetTimeout(resolve, 0));
   });
 }
 
@@ -94,6 +135,9 @@ export function TestProviders({
   const [client] = useState(() => {
     const created = queryClient ?? createTestQueryClient();
     if (seedFeatureFlags) seedFlags(created);
+    // Only when this component owns the client: one passed in was already registered by the
+    // `renderWithProviders`/`renderHookWithProviders` call that built it.
+    if (!queryClient) disposeAfterTest(created);
     return created;
   });
   const tree = (
@@ -124,6 +168,7 @@ export function renderWithProviders(
 ): RenderWithProvidersResult {
   const client = queryClient ?? createTestQueryClient();
   if (seedFeatureFlags) seedFlags(client);
+  disposeAfterTest(client);
   const result = render(ui, {
     wrapper: ({children}) => (
       <TestProviders
@@ -156,6 +201,7 @@ export function renderHookWithProviders<Result, Props>(
 ) {
   const client = queryClient ?? createTestQueryClient();
   if (seedFeatureFlags) seedFlags(client);
+  disposeAfterTest(client);
   const result = renderHook(hook, {
     wrapper: ({children}) => (
       <TestProviders
