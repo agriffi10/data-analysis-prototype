@@ -15,7 +15,7 @@ from a user's.
 **Scope.** Andrew asked for every owed live check except the archive plane's, which he has
 verified end to end. This session ran what a signed-in browser and a read-only CLI can reach and
 recorded the rest with the reason it could not run. **Five defects were found and are listed at the
-end**, each handed to its own follow-up task rather than fixed here.
+end**, with where each one went; none was fixed in this session.
 
 **Browser and CLI.** `origin/main` at **`13bb7a30`**; the Lambda image in service stamped
 `version: d9d8ce8e90c7…` on every record read today. Signed in as **agriffith** in Andrew's own
@@ -65,6 +65,14 @@ cold HTTP cache and empty storage, and that part stays owed.**
 - The drawer states **"Up to 5 GB per file"**, so the `>5 GiB` metadata row cannot be staged by a
   browser upload at all.
 
+### Per-user isolation through the API — SPEC-197 FR-014, re-confirmed
+
+`GET /v1/objects` on the caller's own personal space returned **200** (23 items). Another real
+user's personal space and a nonexistent user's both returned **403 `AccessDenied`** with the same
+detail, *"personal space is not the caller's"*, so the refusal is no existence oracle. A nonexistent
+shared space returned **403**, *"no membership for that space"*, which the route raises before any
+S3 call.
+
 ### Results conversion — SPEC-221, -222 and -223
 
 **Fixture.** `docs/testing/fixtures/explorer-fixture-150.csv` was uploaded to `agriffith/explorer150/`
@@ -91,7 +99,10 @@ query in "agriffith".").
   with 9 `O'Brien` rows in the Parquet one. The JSON is **150 lines, each of which parses on its
   own**, and it is not an array. The `.xlsx` parsed in-page to **151 rows, `A1:D151`**, 0 formula
   cells, every cell a shared string. The Explorer's three conversions reported 150 rows too, not the
-  page's 100, and started **zero** queries; its `.xlsx` likewise had 151 rows.
+  page's 100, and started **zero** queries; its `.xlsx` likewise had 151 rows. Its CSV save went
+  through `POST /v1/objects/copy` from its own execution's result file, with the same *Saved to …*
+  toast and zero query starts. The `.xlsx` files were read by that in-page parser, not opened in a
+  spreadsheet application, which can refuse what a zip reader accepts.
 - **Formula probe**, which is the discriminating one. The values `'=1+1'`, `'+2'`, `'-3'`,
   `'@SUM(1)'`, `'=HYPERLINK(…)'`, a leading tab and a leading CR were converted to `.xlsx`. The
   workbook has **0 `<f>` elements** and every value is a string cell; the CR is stored as
@@ -129,9 +140,10 @@ query in "agriffith".").
   **byte-identical** to the made-up id's.
 - **Decimal `Precision`/`Scale`.** The portal's results route types all four columns of
   `CAST(… AS DECIMAL(10,3))`, `DECIMAL(5,1)`, `DECIMAL(38,2)` and `DECIMAL(4,0)` as bare `decimal`.
-  The Parquet conversion succeeded, which `athena_type_of` would refuse without a scale, and a table
-  built over the file reads **`decimal(10,3)`, `decimal(5,1)`, `decimal(38,2)`, `decimal(4,0)`**
-  exactly.
+  The Parquet conversion succeeded, which `athena_type_of` would refuse without a precision, and a
+  table built over the file reads **`decimal(10,3)`, `decimal(5,1)`, `decimal(38,2)`, `decimal(4,0)`**
+  exactly. The first three prove the scale was populated; `decimal(4,0)` alone could not, because
+  the function reads a missing scale as 0.
 - **The Excel row limit, with no fixture.** `UNNEST(sequence(1,1049)) CROSS JOIN
   UNNEST(sequence(1,1000))` generates 1,049,000 rows while scanning 0 bytes. Its `.xlsx` refusal
   read *"Couldn't save the query results as Excel: the results have 1049000 rows, which is more than
@@ -141,10 +153,13 @@ query in "agriffith".").
   success message prints it with one.**
 - **Converter throughput on amd64.** A 490,000 × 4 result took 19,566 ms with a peak of 933 MB. The
   input was 16,119,678 B, computed on the same model that later matched `describe-results` exactly
-  at 62,914,590 B. That is about **0.82 MB/s and ~49 bytes of peak memory per CSV byte**, against
-  the 32.45 that `EXCEL_MEMORY_EXPANSION` assumes. Timing is safe: 600 s leaves 540 s usable, and
-  64 MiB would take about 82 s. **Memory is not — see the first defect.** Earlier small conversions:
-  Parquet cold 4,764 ms (init 1,235 ms), JSON 199 ms, `.xlsx` 908 ms and 191 ms.
+  at 62,914,590 B. That is about **0.82 MB/s**. For memory, the function's earlier high-water mark
+  was 147 MB, so the conversion added about 786 MB: **~49 bytes of peak memory per CSV byte with that
+  baseline subtracted, and 57.9 without it**, against the 32.45 that `EXCEL_MEMORY_EXPANSION`
+  assumes. Both read Lambda's MB as 10⁶ bytes; if it means MiB, each is about 5% higher. 0.82 MB/s is below the ledger's own "roughly 1 MB/s" trigger for bringing the cap down,
+  but timing on its own is safe: 600 s leaves 540 s usable, and 64 MiB would take about 82 s.
+  **Memory is not — see the first defect.** Earlier small conversions: Parquet cold 4,764 ms (init
+  1,235 ms), JSON 199 ms, `.xlsx` 908 ms and 191 ms.
 
 ### Feedback — SPEC-211's CLI half, all six rows
 
@@ -213,8 +228,8 @@ instead.
   `srcKey`s, and `transfer-results` reports `failed: 0`.
 - **SPEC-187 FR-009.** The large copy (A) and a one-file copy (B) were sent in one `Promise.all` and
   started 127 ms apart. A held the lock from 16:03:17 to 16:03:56 local and moved 1,201 objects in a
-  17-second Map run. B's history reads **`WaitForLock → AcquireLock` twice**, and it operated only
-  after A released. `acquire-lock` logged *"holding 1 space lock(s) after 1 attempt(s)"* for A and
+  17-second Map run. B's history reads **`WaitForLock → AcquireLock` twice**, it operated only
+  after A released, and both executions `SUCCEEDED`. `acquire-lock` logged *"holding 1 space lock(s) after 1 attempt(s)"* for A and
   *"after 3 attempt(s)"* for B, with no steal.
 - **SPEC-189, the source modified between copy and delete.** An in-page loop polled the
   *destination* `f0001.txt` until it existed (T0+15.4 s), then overwrote the *source* `f0001.txt`
@@ -257,8 +272,8 @@ instead.
 
 ### Table builder and data quality — SPEC-157, SPEC-108
 
-- **SPEC-157.** Two `table-refresh` POSTs were sent in one `Promise.all`. A took the lock at 04.124
-  and released it at 05.854. B was refused 44 ms behind: *"refresh_already_running: a refresh of
+- **SPEC-157.** Two `table-refresh` POSTs were sent in one `Promise.all`. A took the lock at 04.124,
+  released it at 05.854 and `SUCCEEDED`. B was refused 44 ms behind: *"refresh_already_running: a refresh of
   table 'explorer150' in database 'agriffith' is already running"*. B's no-etag release was a no-op,
   and A's compare-and-swap release logged no lost-CAS warning.
 - **SPEC-108.** The 150-row check looped only once, so it proved nothing. A check on
@@ -293,7 +308,8 @@ instead.
 
 - **The error-size reservation.** Every real `Cause` from today's nine failed results-conversion
   executions is **ASCII**. The `TerminalError` causes run 749–926 characters and JSON-escape at a
-  ratio of **1.070–1.075**; the timeout's cause is 140 characters. The fleet reserves **2.0**.
+  ratio of **1.070–1.075**; the timeout's cause is 140 characters at **1.071**. The fleet reserves
+  **2.0**.
 - **The Pipes record model.** Real records carry **`AWSTraceHeader`** (95 characters:
   `Root;Parent;Sampled;Lineage`), which `test_request_size_chain.py::_record` omits. Real
   `eventSourceARN` runs to 76 characters, where the model allows 57. The model's over-sized other
@@ -301,18 +317,19 @@ instead.
 - All 56 of today's results-conversion records carry `env: prod` and a real `version`.
 - **Cold starts on real messages**: `convert` (init 1,076 ms), `notify-failure` ×5 (635–780 ms) and
   `describe-results` (899 ms) all imported and ran.
-- **The CORS preflight.** Your origin gets exactly one `access-control-allow-origin`, methods
+- **The CORS preflight.** The portal's origin gets exactly one `access-control-allow-origin`, methods
   without `HEAD`, and no credentials header. A foreign origin gets 200 with **no**
   `access-control-allow-origin`.
 - **ZAP against the container origin**, from the scheduled Security run 34121971677 on 2026-09-07:
   FAIL-NEW 0, WARN-NEW 9, PASS 61. Every warning's alert ID matches a disposition in
-  `security-baseline.md`, and 10036 (`Server` version) passes. 10050 and the Sec-Fetch
+  `security-baseline.md` — among them 10055 (CSP `style-src 'unsafe-inline'`) and 90004 (COEP),
+  both accepted by decision — and 10036 (`Server` version) passes. 10050 and the Sec-Fetch
   Mode/Site/User variants have cleared.
 - **The log sweep is saturated.** Every run since at least 19:35Z *"stopped on wave-cap; 1102–1627
   message(s) over 50 wave(s), the queue may still be yielding"*. `dat-prod-logs.fifo` held 17,134
   messages at 20:43Z. `logs/service=api/` was written at 20:35Z but covers only up to **18:46Z**.
-  Retention is 14 days, so nothing is lost, and nothing alarms. That is a drain ceiling of roughly
-  6,600–9,600 messages an hour.
+  Retention is 14 days, so nothing is lost, and nothing alarms. The sweep runs every 10 minutes, so
+  that is a drain ceiling of 6,612–9,762 messages an hour.
 
 ### Width and target geometry — the live app, Chromium
 
@@ -326,19 +343,20 @@ instead.
   usernames widen the band.
 - **The undersized-target register.**
   - **`StripingControl`** (the Colours dialog's *Band rows by*): with 20 columns its 13×13 boxes wrap
-    at **19.5 px**, so **it fails (−4.5 px)**, like CalcPanel. With 4 columns it sits on one row with
+    into four rows at **19.5 px**, so **it fails (−4.5 px)**, like CalcPanel. With 4 columns it sits on one row with
     +18.51 px slack.
   - `AdvancedCopyDialog` (opened, so the positive control held): three 13×13 boxes 25 px apart, **+1
     px**, exempt by one pixel.
   - `TableShareDialog`: radios at +30.75 px, exempt.
   - `RefreshTableDialog`: a 14×14 checkbox at +175.74 px, exempt.
-  - `FileListRowMobile` at 700 px: +7.25 px, exempt. Two apparent failures were rows **behind** the
+  - `FileListRowMobile` at 700 px: 14×14 row checkboxes at a 49 px pitch, worst slack +7.25 px,
+    exempt. Two apparent failures were rows **behind** the
     fixed mobile action bar, which a hit-test confirmed; scrolled to the end, the last row is
     reachable.
   - **A wrapped breadcrumb** (seven levels at 700 px): two lines at 27.5 px, every crumb 24 px tall,
     long crumbs capped at 160 px. It conforms.
-  - The Explorer's tab strip: each close ✕ is exactly 24×24, 111.6 px apart, and the tabs are 24.5
-    px tall.
+  - The Explorer's tab strip, with two tabs open: each close ✕ is exactly 24×24, 111.6 px apart,
+    and the tabs are 24.5 px tall with a 3.5 px gap. `QueryTabStrip` was not measured.
 
 ### Uploads and the in-progress surface — SPEC-216, SPEC-190
 
@@ -357,25 +375,29 @@ instead.
   - **One** API call and zero AWS calls, the card *"Moving fileops_holdlock0910 · Started just now ·
     Running in the background…"*, and the listing unchanged.
   - While it ran, a **folder** selection disabled Copy, Move, Delete and Archive with *"Another file
-    operation is still running here…"*. A single-**file** selection disabled only Archive, which is
-    the synchronous no-lock path.
+    operation is still running here…"*. A single-**file** selection disabled only Archive, because a
+    single file's copy, move and delete take the synchronous no-lock path.
   - The card settled to *"Finished — see your notifications…"*.
   - **The card does not survive navigation.** See the fifth defect.
 
-### Defects found, each handed to its own task
+### Defects found, and where each went
 
 1. **The Excel cap admits inputs the converter cannot finish.** A 60 MiB result of 1,048,575 rows ×
    15 one-character columns passed both the size cap and the row limit. `convert` ran **600,000 ms,
    `Max Memory Used: 3008 MB`, `Status: timeout`**, and the user got *"Couldn't save the query
-   results as Excel: something went wrong."* ten minutes later.
-2. **File-ops refusals at validation carry no `requestId`.** `request_payload` reads a dict, but
-   `validate-authorize` receives the raw Pipes batch, which is a list. The test for it passes a dict,
-   so it can't see this. Results-conversion has the complementary gap: `destination_occupied` and
-   the timeout arrive with no payload at all.
+   results as Excel: something went wrong."* ten minutes later. Handed to a follow-up session.
+2. **File-ops refusals at validation carried no `requestId`.** `validate-authorize`'s failure
+   handler built its notification event by hand, as `{actor, operation}`, and left the request id
+   out, so both whole-request refusals (`forbidden` and `space_root_not_an_item`) arrived with
+   `payload: null`. The emitter's own test handed it an event that had the id, so it could not see
+   what its caller omitted. Results-conversion had the complementary gap: `destination_occupied`
+   and the timeout arrived with no payload at all. **Both were fixed the same day in #716**; the
+   live re-run of script §22 is owed once that deploys.
 3. **The Query workspace's row-count walk is unbounded.** The code assumes *"GetQueryResults calls
    are free"*, but each page is now a billed API call. A 10-million-row result walked at about 1.6
-   calls a second, which would be roughly 10,000 calls; it stopped at 124 when I left the page.
-4. **A top-bar overflow band at 900–946 px**, widening with username length.
+   calls a second, which would be roughly 10,000 calls; it stopped at 124 when the page was left.
+   Handed to a follow-up session.
+4. **A top-bar overflow band at 900–946 px**, widening with username length. Not yet handed off.
 5. **Navigation remounts the signed-in shell.** `RootLayout`'s `<ErrorBoundary key={pathname}>`
    remounts everything beneath it on every route change. The shell's wrapper node is new after a
    route change, and both providers reset.
@@ -384,6 +406,7 @@ instead.
      abort. `POST /v1/objects/upload/abort` returned 200, which is SPEC-216 FR-004's navigation
      variant.
    - **The in-progress card and the space's submit gate are lost.**
+   - Handed to a follow-up session.
 
 Smaller: the save dialog resets when an overwrite is cancelled; the row-limit count has no thousands
 separator; a relative listing prefix equal to the space name reads as the root
@@ -391,8 +414,11 @@ separator; a relative listing prefix equal to the space name reads as the root
 
 ### Not run, and why
 
-- **Needs your hands.** The private-window sign-in; 375 and 400 px, which need the device toolbar;
-  the no-flash theme check, which needs a foreground tab; and a real token with a flipped bit.
+- **Excluded by Andrew's scope: every archive and restore row**, including SPEC-168's `PutObject`
+  into one's own `archive/` prefix, which a read-only simulation could have reached.
+- **Needs Andrew's hands.** The private-window sign-in; 375 and 400 px, which need the device
+  toolbar; the no-flash theme check, which needs a foreground tab; and a real token with a flipped
+  bit.
 - **Needs a second account.** Every row in that section.
 - **Needs a shared space created or deleted.** SPEC-205 FR-004/006, SPEC-053/054, SPEC-061, the
   catalog-unsafe name, and §G.1 row 1. Andrew chose to use the existing space instead.

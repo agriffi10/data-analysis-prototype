@@ -2,7 +2,7 @@
 
 **One signed-in account, one browser, one pass.** This is the only script for validating the
 deployed app end to end. Everything a signed-in session *cannot* settle — a second account, the
-CLI, Safari, 400px, a real Glacier retrieval — lives in [`owed.md`](owed.md), which is the ledger
+CLI, 400px, a real Glacier retrieval — lives in [`owed.md`](owed.md), which is the ledger
 you update when a check moves.
 
 > **This file replaced sixteen.** The per-arc and per-spec scripts (`table-builder-e2e.md`,
@@ -395,7 +395,7 @@ two-lock path and the pagination boundary are not reachable from the UI. They li
 | **Save results in each format** — run `SELECT * FROM explorer150`, then **Save results to my files** → **Format** | The select offers **CSV**, **Parquet**, **JSON**, **Excel** in that order, defaulting to **CSV**. With CSV the button reads **Save here** and the file appears immediately; with any other it reads **Convert and save**, the dialog closes, and a toast says *"Converting to Parquet — you’ll get a notification when {name}.parquet is ready."* (a curly apostrophe — this is the portal's own authored wording, not the plane's). Nothing is written yet, so the destination folder does **not** gain a row until the notification arrives. |
 | **Read each converted file back** | Parquet and JSON through **Create table** on their folder — each table builds and `SELECT count(*)` returns **150**, the fixture's full row count, not the page's 100. Excel opens in a spreadsheet with 150 data rows plus a header. JSON is **one object per line**, not a JSON array — open it and check the first two lines each parse alone. |
 | **The notification, and its link** | One notification per conversion: *"Saved 150 rows as Parquet to "{name}.parquet"."* The **message itself** is the link — there is no separate "Open folder" control, deliberately. Following it lands on the destination folder **with the file already listed**; that is the check, since the listing is invalidated on the way. Neither the notification nor the toast names a column or any SQL. |
-| **The overwrite confirm on a conversion** — save Parquet twice to the same name | The second save raises **Overwrite "{name}.parquet"?** *before* anything is enqueued, and confirming re-submits. Cancelling returns to the dialog with the name editable. The plane still decides: it writes conditionally, so a name taken between the question and the write comes back as a failure notification, not a silent replacement. |
+| **The overwrite confirm on a conversion** — save Parquet twice to the same name | The second save raises **Overwrite "{name}.parquet"?** *before* anything is enqueued, and confirming re-submits. Cancelling returns to the dialog, **reset to its defaults** — name, format and destination — as of 2026-09-10; `owed.md`'s SPEC-223 overwrite row records it. The plane still decides: it writes conditionally, so a name taken between the question and the write comes back as a failure notification, not a silent replacement. |
 | **A shared-space destination** — the highest-value row here | Save Parquet into a shared space. The file lands under that space's root — `teamspace/reports/…`, **never** `teamspace/teamspace/reports/…`. That doubling is refused by nothing on the plane, and a personal-space save cannot tell the two apart, which is why this row is worth running even if you run no other. The notification's link carries `?space=` and lands in that space's browser. |
 | **`resultsConversion` off** (§4.14 carries the method) | The **Format** select is **absent**, not disabled; the button reads **Save here**; saving still writes a CSV exactly as before. Notifications from conversions already run keep working links — the record outlives the surface. |
 | **The Excel row limit** — needs a fixture no §2 table reaches, and it must be **narrow**; see the `owed.md` row | A **failure** notification naming the count and suggesting Parquet: *"Couldn't save the query results as Excel: the results have N rows, which is more than a spreadsheet can hold, so "{name}.xlsx" was not written. Please save them as Parquet instead, or narrow the query."* (ASCII apostrophe — the plane's wording, pinned in both languages.) **Select ONE short column.** The ceiling is **1,048,575 data rows** (Excel's 1,048,576 less the header), but `describe-results` refuses on the object's **size** first — 64 MB for xlsx — so a wide million-row result comes back `results_too_large` and this check never fires. Nothing is written, and the same query as **Parquet** succeeds, which is what makes the suggestion honest. |
@@ -424,7 +424,8 @@ central claim.
 
 ~~**Safari**, since that is the browser in use; a Chromium pass corroborates and cannot discharge.~~
 **A Chromium pass discharges this section.** The deployment's audience has no Safari (Andrew,
-2026-09-01), so Andrew's own Safari use corroborates and never gates.
+2026-09-01, recorded in SPEC-202's §9 criterion), so Andrew's own Safari use corroborates and never
+gates.
 
 ### 4.4 Tables — build and refresh
 
@@ -926,14 +927,15 @@ and nothing else. It takes nobody's access away: the enqueue route is live and u
    surface that would show it.
 4. Set it back to `{}`, publish, hard-reload, and confirm the select returns on both surfaces.
 
-### 4.15 Responsive, and the Safari pass
+### 4.15 Responsive, and the 400px pass
 
 ~~**Corroborated in Chrome ≠ discharged.** Behavioural checks (execution counts, SQL text, refusals)
 are waived to Chrome by user decision. **Rendering is not** — sticky columns, menu clipping,
 sheet-vs-panel and toolbar wrap are exactly where Safari differs. The list below is owed in Safari,
 at **400px via DevTools device toolbar**.~~ **Superseded 2026-09-01 (user decision):** the
-deployment's audience has no Safari, so a Chromium pass discharges rendering too. The list below
-is still owed at **400px via the DevTools device toolbar** — the width is the gap, not the engine.
+deployment's audience has no Safari, so a Chromium pass discharges rendering too (SPEC-202's §9
+criterion records the decision). The list below is still owed at **400px via the DevTools device
+toolbar** — the width is the gap, not the engine.
 
 **The Save-results modal is checked across a BAND, not at one width (SPEC-223).** A responsive fix
 has a band rather than a width — hiding something at `tablet:` has fixed 375 and broken 900–1023
