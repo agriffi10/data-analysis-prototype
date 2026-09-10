@@ -15,7 +15,7 @@ true.
 - **The migration** (`98524132`, #683, with its grants in `dbb3f18d`, #678) — a runner script under
   the deploy role, dispatched by `workflow_dispatch`, with a persisted copy record, preconditions on
   in-flight work and a `resolve` mode.
-- **The narrowing** (this merge) — the old-anchor statements out, the builders shrunk, and the five
+- **The narrowing** (this merge) — the old-anchor statements out, the builders shrunk, and the six
   rules that did not shrink with them.
 
 ## The two points of no return, named
@@ -35,17 +35,18 @@ Run order, all from `main`: `report` `34415568703` → `copy` `34234219110` (788
 ("every old prefix is empty across every space") → this merge. `prove-empty` had to run **before**
 the merge: it reads the plural builder's first element, and the merge deletes it.
 
-## The finding: five rules the builders did not carry
+## The finding: six rules the builders did not carry
 
 The spec's FR-005 said this merge would touch "no rule module", and that was wrong — the criterion
 is corrected in the spec itself rather than struck.
 
-Five rules mirror a **shared-bucket** Deny. Those Denies put a wildcard where the space name goes,
+Six rules mirror a **shared-bucket** Deny. Those Denies put a wildcard where the space name goes,
 and an S3 resource wildcard matches `/`, so they reach the folder at any depth below a space root —
 which is why the mirrors scan segments instead of comparing a prefix. Every one of them scanned for
 the bare folder **name**, fed by no builder: `writeLockedPrefix.ts`,
 `focommon.protected._is_at_or_below`, `focommon.delete.assert_item_deletable`,
-`apicommon.protected._is_write_locked` and `arcommon.plan._assert_deletable_folder`.
+`apicommon.protected._is_write_locked`, `arcommon.plan._assert_deletable_folder` and
+`rccommon.paths.protected_refusal`.
 
 Once the Deny read `*/system_settings/archive/*`, each was refusing writes, deletes and archives
 that IAM permits, inside a folder the user made and named `archive` — **over-refusal, which fails
@@ -53,8 +54,15 @@ safe**, which is exactly why nothing reported it. A pair test that only asserts 
 see it. The pair tests therefore kept two rows with opposite expectations rather than collapsing to
 one, and the retired row is the one that catches this class.
 
-All five now read a new builder, `app_managed_segments`, so the segment form has one home the way
+All six now read a new builder, `app_managed_segments`, so the segment form has one home the way
 the prefix form does.
+
+**Five of the six were found by chasing one plan-review finding through the tree. The sixth was
+found by the security review, after the count "five" had been written into the commit message, the
+delivery doc and the register.** It was also the worst: `results-conversion` refused a destination
+the browser had just started offering, so *Save results* could send a user to a folder the plane
+would reject. The lesson is the one the register now carries — enumerate a rule's population from
+the tree, not from the instances that redden a test, because the safe-failing ones redden nothing.
 
 ## The other widening this closed
 

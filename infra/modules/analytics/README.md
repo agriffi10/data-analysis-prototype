@@ -19,7 +19,7 @@ scoped by the `username` principal tag**, plus the per-user results prefix.
 
 **Athena has no built-in per-user result location**, so `enforce_workgroup_configuration` is **off on
 purpose** and the app sets a per-user `OutputLocation`
-(`s3://<user-space-bucket>/{username}/athenaresults/`) on every `StartQueryExecution`. **IAM is what
+(`s3://<user-space-bucket>/{username}/system_settings/athenaresults/`) on every `StartQueryExecution`. **IAM is what
 actually confines each caller.** Do not "harden" this to `true` — it breaks per-user result routing.
 
 The workgroup's **default/fallback** output goes to the admin bucket under `fallback-results/`, not
@@ -174,7 +174,7 @@ cannot reach `logs/`**.
 ## The admin bucket has no end-user access and no CORS
 
 The portal role is **never** granted anything on it. **User-facing query results and history do not
-live here** — they go to `{username}/athenaresults/` in the user-space bucket, readable by the user
+live here** — they go to `{username}/system_settings/athenaresults/` in the user-space bucket, readable by the user
 and delete-protected. This bucket only ever receives a write when a query omits an explicit
 `OutputLocation`. **No CORS, because the browser never reads it.**
 

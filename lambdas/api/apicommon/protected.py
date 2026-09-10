@@ -110,10 +110,10 @@ def is_write_locked(space: ResolvedSpace, key: str) -> bool:
     Mirrors ``isWriteLockedPrefix`` in the browser, including its asymmetry — see the module
     docstring for why the two buckets differ.
 
-    The comparison is against every home the receipt folder occupies — ``{root}archive/`` and
-    ``{root}system_settings/archive/`` — **each with its slash**, which is what the rendered Deny
-    says. Both are named because objects live at both until the migration finishes, and the builder
-    is what supplies them rather than a literal here. Matching the slashless form would refuse a
+    The comparison is against every home the receipt folder occupies — since the move, the one
+    home ``{root}system_settings/archive/`` — **with its slash**, which is what the rendered Deny
+    says. The builder is what supplies it rather than a literal here, which is why this arm followed
+    the folder without being edited. Matching the slashless form would refuse a
     *file* literally named ``archive`` at a space root, which IAM permits and the browser's
     predicate allows — a bare 403 for an upload that would have worked.
 

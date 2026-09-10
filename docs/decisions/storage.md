@@ -37,7 +37,7 @@ entry you need, not the file.**
 - [The free-name probe moved to the API, not to the plane (SPEC-198, amends SPEC-187)](#the-free-name-probe-moved-to-the-api-not-to-the-plane-spec-198-amends-spec-187)
 - [An app-managed path is built by one function per tree, and a sweep refuses a second (SPEC-218, superseded in part by SPEC-219)](#an-app-managed-path-is-built-by-one-function-per-tree-and-a-sweep-refuses-a-second-spec-218-superseded-in-part-by-spec-219)
 - [Both homes of a moving folder are admitted before either is written to (SPEC-219)](#both-homes-of-a-moving-folder-are-admitted-before-either-is-written-to-spec-219)
-- [The folders moved, and five Deny mirrors did not move with them (SPEC-220)](#the-folders-moved-and-five-deny-mirrors-did-not-move-with-them-spec-220)
+- [The folders moved, and six Deny mirrors did not move with them (SPEC-220)](#the-folders-moved-and-six-deny-mirrors-did-not-move-with-them-spec-220)
 
 ## Fences
 
@@ -82,7 +82,7 @@ unrecoverable — revisit before real user data lands.
 - **A rule that mirrors a SHARED-bucket Deny scans segments, and it must scan for the folder's
   segments rather than its NAME.** The shared Denies put a wildcard where the space name goes and an
   S3 resource wildcard matches `/`, so they reach the folder at any depth — which is why these rules
-  exist. Five of them were written as `name in segments`, fed by no builder, and every one silently
+  exist. Six of them were written as `name in segments`, fed by no builder, and every one silently
   outlived the move: the Deny became `*/system_settings/archive/*` while they went on refusing
   `finance/archive/`, a folder that is now the user's. **This class fails SAFE**, which is what let
   it sit unnoticed behind a green suite — a pair test that only asserts the refusal cannot see it,
@@ -1195,7 +1195,7 @@ What shipped, module by module: `docs/spec-delivery/SPEC-218-one-builder-per-app
 > objects moved, the old prefixes are proved empty and their statements are gone, so nothing below
 > describes the current tree. It is kept because the SHAPE is the reusable part — admit additively,
 > move, then narrow — and because the narrowing found what admitting additively could not: the
-> builders carried every root-anchored rule and none of the five that scan segments. Read the
+> builders carried every root-anchored rule and none of the six that scan segments. Read the
 > entry below this one for what is true now.
 
 Relocating an app-managed folder relocates two things at once: the IAM Deny keyed on its literal
@@ -1235,7 +1235,7 @@ prove the re-pointing. And adding the parent to a list gives every rule a neighb
 same fixture with the same reason code, so a pair test must assert which folder the refusal NAMES.
 
 
-## The folders moved, and five Deny mirrors did not move with them (SPEC-220)
+## The folders moved, and six Deny mirrors did not move with them (SPEC-220)
 
 `athenaresults/` and the receipt folder now sit under `system_settings/`; their objects were copied
 and the sources deleted (`finish` run `34415666578`, 788 deleted, 0 refused; `prove-empty`
@@ -1248,11 +1248,18 @@ the narrowing makes ordinary rather than a de-restriction.
 
 **The builders carried the anchored rules; they did not carry the any-depth ones.** A rule mirroring
 a SHARED-bucket Deny cannot compare a prefix — the Deny's wildcard sits where the space name goes and
-matches `/`, so it reaches the folder at any depth — so it scans segments instead. Five did, and all
-five scanned for the bare folder NAME, fed by no builder: `writeLockedPrefix.ts`,
+matches `/`, so it reaches the folder at any depth — so it scans segments instead. Six did, and all
+six scanned for the bare folder NAME, fed by no builder: `writeLockedPrefix.ts`,
 `focommon.protected._is_at_or_below`, `focommon.delete.assert_item_deletable`,
-`apicommon.protected._is_write_locked`, `arcommon.plan._assert_deletable_folder`. After the move each
-refused writes, deletes and archives IAM permits, in a folder the user made and called `archive`.
+`apicommon.protected._is_write_locked`, `arcommon.plan._assert_deletable_folder` and
+`rccommon.paths.protected_refusal`. After the move each refused writes, deletes and archives IAM
+permits, in a folder the user made and called `archive`.
+
+**Five were found by chasing one reviewer finding through the tree; the sixth was found by a
+security review AFTER the count had been written down.** It was the worst of them: `results-conversion`
+refused a destination the browser's picker had just started offering, so *Save results* could send a
+user to a folder the plane would reject. Enumerate such a population from the tree, never from the
+instances that happen to redden a test — the safe-failing ones redden nothing.
 
 **The reason it survived a green suite is the direction it fails in.** Over-refusal produces no
 error anyone reports — a control greys out — and every pair test asserted only that the refusal

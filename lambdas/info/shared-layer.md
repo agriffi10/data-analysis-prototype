@@ -353,14 +353,20 @@ spelling but the **depth**: nearly every rule across the fleet was anchored at d
 in this one module and every anchored construction calls a builder, and a CI sweep
 (`scripts/validate_app_managed_paths.py`) refuses a new declaration or construction anywhere else.
 
-**There are TWO builders, and which one a caller takes is the whole design.** `app_managed_prefix`
-is the singular — where a WRITE goes, and the one the move edits. `app_managed_prefixes` is the
-plural: every root-anchored COMPARISON calls it, and it returns every location a folder may occupy,
-which is two for a member of `MOVING_FOLDERS` while both homes are admitted and one for anything
-else. **Its two elements are literals, never derived from the singular** — derived, moving the write
-would drag every rule's second home to a third location that holds nothing — so the move edits both
-functions, not one. A test in each tree guards the non-derivation directly, because no value can
-show it while the singular is still depth-one.
+**There are THREE builders, and which one a caller takes is the whole design.** `app_managed_prefix`
+is the singular — where a WRITE goes. `app_managed_prefixes` is the plural: every root-anchored
+COMPARISON calls it, and it returns every location a folder may occupy, which since the move is one
+per folder. It spelled its elements out as literals while a moving folder had two homes, because
+deriving them would have dragged every rule's second home to a third location that held nothing;
+with one home left it delegates to the singular, and a test in each tree guards the delegation
+directly, since no value can tell a derived prefix from a literal one.
+
+`app_managed_segments` is the third, and it serves the rules that are NOT root-anchored. A SHARED-
+bucket Deny puts its wildcard where the space name goes, and an S3 resource wildcard matches `/`, so
+it reaches the folder at any depth — a rule mirroring one scans segments instead of comparing a
+prefix, and this returns the segments to scan FOR. Six such rules existed and every one was written
+against the bare folder NAME, so every one kept refusing at the old depth after the move: over-
+refusal, which fails safe and is therefore the class a green suite never reports.
 
 **Nothing in it normalizes.** Every builder is a pure f-string over what it is handed, so each
 caller keeps its own `normalize_root` and produces the bytes it always produced. The reason is the
@@ -373,7 +379,8 @@ moves) and the vault key segment (`VAULT_ARCHIVE_SEGMENT`, archive bucket, hashe
 live here because two packages each need them. The third — the admin bucket's control-plane scratch
 prefix — has one consumer and stays in `arcommon.plan.PREFIX`, because a domain layer owns its
 constants; the sweep names that file as a second owner. A tripwire in `archive-common` pins all
-three equal today and asks to be revisited, not deleted, when the receipt folder moves.
+three equal and asked to be revisited, not deleted, when the receipt folder moved. It was: the
+folder's PARENT changed and its name did not, so the tripwire still holds.
 
 **What this does not touch:** `user_settings/`, `saved_queries/`, `_data-quality-reports/` and the
 other non-moving folders keep the owners they have and gain no second home, which is what keeps
@@ -384,7 +391,7 @@ being caught. What covers the new location is `system_settings` itself joining `
 which is a list change rather than a re-pointing, and it makes the whole prefix unreachable as a
 check target. `s3_listing._IGNORED_SUBTREES` looked
 like a second — it prefix-matches a listing-relative remainder — and is built through the PLURAL
-with an EMPTY root, so it carries both homes and does **not** follow the singular when that moves.
+with an EMPTY root, so it shrank with the plural at the narrowing rather than being edited.
 
 The domain lists no longer keep the membership they had: `system_settings` joined five of the
 fleet's — `arcommon.RESERVED_SOURCE_ROOTS`, `focommon.PICKER_LOCKED_FOLDERS` and

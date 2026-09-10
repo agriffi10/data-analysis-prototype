@@ -107,8 +107,7 @@ def assert_not_reserved(root: str, key: str) -> str:
     archive, which is why the key is compared in its trailing-slash form rather than raw.
 
     **The first two arms run over every folder before the ancestor arm runs over any**, and that
-    ordering is what lets the refusal name the folder the key is actually IN. Each reserved folder
-    now has more than one location while both homes are admitted, so a key inside
+    ordering is what lets the refusal name the folder the key is actually IN. A key inside
     ``{root}system_settings/archive/`` is the receipt folder and says so, while the bare
     ``{root}system_settings/`` matches no direct arm until the loop reaches ``system_settings``
     itself and is named for what it is. One combined loop would report whichever folder came

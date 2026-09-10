@@ -18,7 +18,7 @@ Attributes:
     and a key reaches an operator's plain-text log, where a newline forges a line.
 """
 
-from cpcommon.app_managed import app_managed_prefix
+from cpcommon.app_managed import app_managed_prefix, segments_hold_app_managed
 from cpcommon.errors import TerminalError
 from cpcommon.paths import assert_inside_root, normalize_root
 
@@ -118,6 +118,13 @@ def protected_refusal(root: str, key: str) -> str | None:
     Compared on the key's FOLDER segments only: a file merely named like a protected folder is
     a file, matched by no Deny.
 
+    **The any-depth arm asks ``segments_hold_app_managed`` rather than testing the name.** This
+    list mirrors the execution role's DENY, and two of its members moved under ``system_settings/``;
+    a bare-name scan went on refusing ``alice/archive/`` and ``finance/reports/archive/`` after the
+    Deny stopped naming them. That is over-refusal, so it fails safe — and it was user-reachable,
+    because the same change released those folders from the browser's picker, leaving *Save results*
+    offering a destination this plane refused.
+
     Args:
       root: The authorized space root.
       key: The contained destination key.
@@ -131,6 +138,8 @@ def protected_refusal(root: str, key: str) -> str | None:
     normalized = normalize_root(root)
     folders = key[len(normalized) :].split("/")[:-1]
     for name in PROTECTED_DESTINATIONS:
-        if key.startswith(app_managed_prefix(normalized, name)) or name in folders:
+        if key.startswith(app_managed_prefix(normalized, name)) or segments_hold_app_managed(
+            folders, name
+        ):
             return name
     return None

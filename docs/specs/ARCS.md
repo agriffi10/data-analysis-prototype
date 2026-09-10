@@ -2825,13 +2825,14 @@ loss of protection.
   > grant that was issued for the re-point and never called once.
   >
   > **The trap the arc did not name is the one it shipped.** The builders carried every
-  > root-anchored rule, and carried none of the five that mirror a SHARED-bucket Deny by scanning
+  > root-anchored rule, and carried none of the six that mirror a SHARED-bucket Deny by scanning
   > segments — those were hand-written against the bare folder NAME, and went on refusing
   > `finance/archive/` after the Deny moved. It fails in the SAFE direction, so a green suite says
   > nothing: every pair test asserted the refusal and none asserted its absence. The fix was a
   > third builder, `app_managed_segments`, and pair tests **inverted rather than collapsed**.
-  > Entry: `decisions/storage.md` (*The folders moved, and five Deny mirrors did not move with
-  > them*).
+  > Five were found by chasing the plan review's finding; the SIXTH was found by the security
+  > review after the count had been written down, and it was the one a user could reach. Entry:
+  > `decisions/storage.md` (*The folders moved, and six Deny mirrors did not move with them*).
 
 **Four traps this arc is most likely to ship green.**
 

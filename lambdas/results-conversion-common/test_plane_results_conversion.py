@@ -240,20 +240,29 @@ def test_the_refused_set_is_a_superset_of_the_pickers_and_of_the_shared_enumerat
     }
 
 
-def test_both_homes_of_a_protected_folder_are_refused_as_destinations():
-    """The plane's rule is not re-pointed, and this is what says so rather than assuming it.
+def test_a_protected_folder_is_refused_at_its_home_and_the_name_it_left_is_not():
+    """This list mirrors the execution role's DENY, so it follows the folder and lets go of the name.
 
-    ``protected_refusal``'s second arm is a segment test, so it already reaches a moving folder's
-    new home; its first arm is root-anchored and does not. The pair holds either way, and the
-    folder each key is IN is what gets named — which is the reason ``system_settings`` is appended
-    last rather than first.
+    **It was the last bare-name mirror in the fleet, and it was missed.** Its second arm tested
+    ``name in folders``, which kept refusing ``alice/athenaresults/`` after the Deny stopped naming
+    it — over-refusal, so it failed safe and nothing reported it. Worse than the usual case,
+    because the same change released those folders from the browser's picker: *Save results* offered
+    a destination this plane then refused. Both arms now resolve through the builders.
+
+    ``user_settings`` did NOT move, so its row stays at depth one — which is what stops a repair
+    from over-correcting and handing the whole list the new prefix.
     """
     from rccommon.paths import protected_refusal
 
-    assert protected_refusal("alice", "alice/athenaresults/x.csv") == "athenaresults"
     assert protected_refusal("alice", "alice/system_settings/athenaresults/x.csv") == "athenaresults"
     assert protected_refusal("alice", "alice/system_settings/notes.csv") == "system_settings"
+    assert protected_refusal("alice", "alice/user_settings/x.json") == "user_settings"
     assert protected_refusal("alice", "alice/reports/mine.csv") is None
+
+    # The names the two moving folders left — ordinary destinations now, at any depth.
+    assert protected_refusal("alice", "alice/athenaresults/x.csv") is None
+    assert protected_refusal("alice", "alice/archive/x.csv") is None
+    assert protected_refusal("finance", "finance/reports/archive/out.xlsx") is None
 
 
 def test_every_reason_is_worded_and_every_wording_is_a_reason():
