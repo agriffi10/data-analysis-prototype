@@ -1,4 +1,5 @@
 import {useState} from 'react';
+import {onTestFinished} from 'vitest';
 import {render, renderHook} from '@testing-library/react';
 import type {RenderOptions, RenderHookOptions} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -26,6 +27,27 @@ export function createTestQueryClient(): QueryClient {
       queries: {retry: false, staleTime: 0, gcTime: 0},
       mutations: {retry: false}
     }
+  });
+}
+
+/**
+ * Drop the cache on `client` once the test that adopted it finishes.
+ *
+ * `onTestFinished` runs after every `afterEach`, so this lands once Testing Library has already
+ * unmounted the tree — the only point where tearing the cache down is both safe and complete.
+ *
+ * `clear()` destroys every query, and destroying one cancels its in-flight fetch, so a request
+ * the test never waited for cannot settle into an environment that is on its way out. Tests DO
+ * end that way: to count them, filter this client's cache for `fetchStatus === 'fetching'` here
+ * before clearing. `cancelQueries()` is deliberately not called first — `clear()` already
+ * cancels, silently, and a second cancel only schedules more notifications.
+ *
+ * What this does NOT do is fix the teardown flake TanStack's batched notifications cause; that
+ * needs a drain every test gets, harness or not, and it lives in `src/test-setup.ts`.
+ */
+function clearAfterTest(client: QueryClient): void {
+  onTestFinished(() => {
+    client.clear();
   });
 }
 
@@ -94,6 +116,9 @@ export function TestProviders({
   const [client] = useState(() => {
     const created = queryClient ?? createTestQueryClient();
     if (seedFeatureFlags) seedFlags(created);
+    // Only when this component owns the client: one passed in was already registered by the
+    // `renderWithProviders`/`renderHookWithProviders` call that built it.
+    if (!queryClient) clearAfterTest(created);
     return created;
   });
   const tree = (
@@ -124,6 +149,7 @@ export function renderWithProviders(
 ): RenderWithProvidersResult {
   const client = queryClient ?? createTestQueryClient();
   if (seedFeatureFlags) seedFlags(client);
+  clearAfterTest(client);
   const result = render(ui, {
     wrapper: ({children}) => (
       <TestProviders
@@ -156,6 +182,7 @@ export function renderHookWithProviders<Result, Props>(
 ) {
   const client = queryClient ?? createTestQueryClient();
   if (seedFeatureFlags) seedFlags(client);
+  clearAfterTest(client);
   const result = renderHook(hook, {
     wrapper: ({children}) => (
       <TestProviders
