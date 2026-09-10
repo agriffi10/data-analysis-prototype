@@ -862,13 +862,14 @@ def test_every_link_of_the_chain_fits_the_state_limit(route):
 def _realistic_cause() -> str:
     """A Lambda error ``Cause`` in the shape this fleet actually produces.
 
-    **Constructed, not captured.** FR-003 asks for a captured Cause and nothing in this repository
-    holds one — capturing one needs a production failure, which no session can cause — so this is
-    written from the shape Lambda documents and the fleet's own ``TerminalError`` detail cap. The
-    assertions below are chosen to be falsifiable anyway: they measure the ESCAPE RATIO and the
-    bytes per character, which are properties of the encoding rather than of this particular
-    string, so a real capture would have to disagree about JSON escaping to disagree with them.
-    ``docs/testing/owed.md`` carries the capture as owed.
+    **Constructed, not captured**, written from the shape Lambda documents and the fleet's own
+    ``TerminalError`` detail cap. The assertions below are chosen to be falsifiable anyway: they
+    measure the ESCAPE RATIO and the bytes per character, which are properties of the encoding
+    rather than of this particular string, so a real capture would have to disagree about JSON
+    escaping to disagree with them. Real Causes have since been captured from failed production
+    executions, refusals and a timeout — any signed-in session can provoke one through the API —
+    and they are all ASCII and escape at under 1.08, inside the reservation;
+    ``docs/testing/sessions.md`` holds the reading.
 
     Args:
       None.

@@ -2,7 +2,7 @@
 
 **One signed-in account, one browser, one pass.** This is the only script for validating the
 deployed app end to end. Everything a signed-in session *cannot* settle — a second account, the
-CLI, Safari, 400px, a real Glacier retrieval — lives in [`owed.md`](owed.md), which is the ledger
+CLI, 400px, a real Glacier retrieval — lives in [`owed.md`](owed.md), which is the ledger
 you update when a check moves.
 
 > **This file replaced sixteen.** The per-arc and per-spec scripts (`table-builder-e2e.md`,
@@ -311,13 +311,14 @@ and its confirm **does** open. Without it a generic failure reads as the guard w
 above are the whole of it, and getting the boundary wrong is invisible from the UI, so check the
 Network tab (instrument 2): a single-file gesture issues **one call to the API** —
 `POST /v1/objects/copy`, `POST /v1/objects/move` or `DELETE /v1/objects` — and everything else
-issues **one** `SendMessage` to the file-ops queue and nothing more. **Zero direct AWS calls appear
-for either**, other than presigned S3 bytes on an upload or a download.
+issues **one** `POST /v1/enqueue/file-ops`, which the API turns into the queue's `SendMessage`, and
+nothing more. **Zero direct AWS calls appear for either**, other than presigned S3 bytes on an
+upload or a download.
 
 | Do | Expect |
 |---|---|
-| Move a folder, then navigate away and back | The in-progress card is still there — it lives at the app shell, not on the page. |
-| While it runs, try Copy / Move / Delete / **Archive** in that space | All four `aria-disabled` with a reason naming the in-progress list. **Check data quality** and **Send to…** stay enabled — they read, and this lock does not cover them. |
+| Move a folder, then navigate away and back **while it is still running** | The in-progress card is still there — it lives at the app shell, not on the page. **Fails as of 2026-09-10**: `RootLayout`'s keyed error boundary remounts the shell on every route change — see `owed.md`'s SPEC-190 row. Leave the page only after the card shows, or the check measures a registration race instead. |
+| While it runs, select a **folder** (or several items) and try Copy / Move / Delete / **Archive** in that space | All four `aria-disabled` with a reason naming the in-progress list. **Check data quality** and **Send to…** stay enabled — they read, and this lock does not cover them. With a **single file** selected only Archive is gated, because single-file copy, move and delete are the synchronous path, which takes no lock. |
 | Wait for the notification | The card reads *Finished*; the space accepts operations again. |
 | Press **Refresh this folder** (or leave the tab and come back) | The listing now matches. It does **not** update on the notification — that is deliberate, and §4.12's poll is why. |
 | Dismiss a card by hand | It goes, and the space is free again immediately. |
@@ -395,7 +396,7 @@ two-lock path and the pagination boundary are not reachable from the UI. They li
 | **Save results in each format** — run `SELECT * FROM explorer150`, then **Save results to my files** → **Format** | The select offers **CSV**, **Parquet**, **JSON**, **Excel** in that order, defaulting to **CSV**. With CSV the button reads **Save here** and the file appears immediately; with any other it reads **Convert and save**, the dialog closes, and a toast says *"Converting to Parquet — you’ll get a notification when {name}.parquet is ready."* (a curly apostrophe — this is the portal's own authored wording, not the plane's). Nothing is written yet, so the destination folder does **not** gain a row until the notification arrives. |
 | **Read each converted file back** | Parquet and JSON through **Create table** on their folder — each table builds and `SELECT count(*)` returns **150**, the fixture's full row count, not the page's 100. Excel opens in a spreadsheet with 150 data rows plus a header. JSON is **one object per line**, not a JSON array — open it and check the first two lines each parse alone. |
 | **The notification, and its link** | One notification per conversion: *"Saved 150 rows as Parquet to "{name}.parquet"."* The **message itself** is the link — there is no separate "Open folder" control, deliberately. Following it lands on the destination folder **with the file already listed**; that is the check, since the listing is invalidated on the way. Neither the notification nor the toast names a column or any SQL. |
-| **The overwrite confirm on a conversion** — save Parquet twice to the same name | The second save raises **Overwrite "{name}.parquet"?** *before* anything is enqueued, and confirming re-submits. Cancelling returns to the dialog with the name editable. The plane still decides: it writes conditionally, so a name taken between the question and the write comes back as a failure notification, not a silent replacement. |
+| **The overwrite confirm on a conversion** — save Parquet twice to the same name | The second save raises **Overwrite "{name}.parquet"?** *before* anything is enqueued, and confirming re-submits. Cancelling returns to the dialog with the name editable, and the name, format and folder as the user left them. **Fails as of 2026-09-10**: the dialog comes back reset to its defaults — see `owed.md`'s defects table. The plane still decides: it writes conditionally, so a name taken between the question and the write comes back as a failure notification, not a silent replacement. |
 | **A shared-space destination** — the highest-value row here | Save Parquet into a shared space. The file lands under that space's root — `teamspace/reports/…`, **never** `teamspace/teamspace/reports/…`. That doubling is refused by nothing on the plane, and a personal-space save cannot tell the two apart, which is why this row is worth running even if you run no other. The notification's link carries `?space=` and lands in that space's browser. |
 | **`resultsConversion` off** (§4.14 carries the method) | The **Format** select is **absent**, not disabled; the button reads **Save here**; saving still writes a CSV exactly as before. Notifications from conversions already run keep working links — the record outlives the surface. |
 | **The Excel row limit** — needs a fixture no §2 table reaches, and it must be **narrow**; see the `owed.md` row | A **failure** notification naming the count and suggesting Parquet: *"Couldn't save the query results as Excel: the results have N rows, which is more than a spreadsheet can hold, so "{name}.xlsx" was not written. Please save them as Parquet instead, or narrow the query."* (ASCII apostrophe — the plane's wording, pinned in both languages.) **Select ONE short column.** The ceiling is **1,048,575 data rows** (Excel's 1,048,576 less the header), but `describe-results` refuses on the object's **size** first — 64 MB for xlsx — so a wide million-row result comes back `results_too_large` and this check never fires. Nothing is written, and the same query as **Parquet** succeeds, which is what makes the suggestion honest. |
@@ -422,7 +423,10 @@ central claim.
 | **The load-bearing negative**, after exercising this section and §4.5 end to end | **Zero** requests to `athena.*.amazonaws.com` and `glue.*.amazonaws.com`. |
 | The **first** invocation after a deploy | Succeeds. Cold start is where an import that cannot resolve fails, and it is silent everywhere else. The layer-attachment form of that is gone — one image carries every shared package — but the class is not: a module missing from the image, or an environment variable read at import, still surfaces only here. |
 
-**Safari**, since that is the browser in use; a Chromium pass corroborates and cannot discharge.
+~~**Safari**, since that is the browser in use; a Chromium pass corroborates and cannot discharge.~~
+**A Chromium pass discharges this section.** The deployment's audience has no Safari (Andrew,
+2026-09-01, recorded in SPEC-202's §9 criterion), so Andrew's own Safari use corroborates and never
+gates.
 
 ### 4.4 Tables — build and refresh
 
@@ -924,12 +928,15 @@ and nothing else. It takes nobody's access away: the enqueue route is live and u
    surface that would show it.
 4. Set it back to `{}`, publish, hard-reload, and confirm the select returns on both surfaces.
 
-### 4.15 Responsive, and the Safari pass
+### 4.15 Responsive, and the 400px pass
 
-**Corroborated in Chrome ≠ discharged.** Behavioural checks (execution counts, SQL text, refusals)
+~~**Corroborated in Chrome ≠ discharged.** Behavioural checks (execution counts, SQL text, refusals)
 are waived to Chrome by user decision. **Rendering is not** — sticky columns, menu clipping,
 sheet-vs-panel and toolbar wrap are exactly where Safari differs. The list below is owed in Safari,
-at **400px via DevTools device toolbar**.
+at **400px via DevTools device toolbar**.~~ **Superseded 2026-09-01 (user decision):** the
+deployment's audience has no Safari, so a Chromium pass discharges rendering too (SPEC-202's §9
+criterion records the decision). The list below is still owed at **400px via the DevTools device
+toolbar** — the width is the gap, not the engine.
 
 **The Save-results modal is checked across a BAND, not at one width (SPEC-223).** A responsive fix
 has a band rather than a width — hiding something at `tablet:` has fixed 375 and broken 900–1023
