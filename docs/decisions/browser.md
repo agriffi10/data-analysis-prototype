@@ -54,6 +54,7 @@ entry you need, not the file.**
 - [The divider needs a click path, because a drag is not an alternative to itself (SPEC-209)](#the-divider-needs-a-click-path-because-a-drag-is-not-an-alternative-to-itself-spec-209)
 - [The `@aws-sdk/*` ban is a lint rule AND a manifest sweep, because Amplify vendors the SDK (SPEC-202)](#the-aws-sdk-ban-is-a-lint-rule-and-a-manifest-sweep-because-amplify-vendors-the-sdk-spec-202)
 - [Building a table is desktop-only, and that was decided rather than discovered (2026-09-04)](#building-a-table-is-desktop-only-and-that-was-decided-rather-than-discovered-2026-09-04)
+- [At `tablet` the words stay and the decoration waits — the top bar and the selection toolbar (2026-09-10)](#at-tablet-the-words-stay-and-the-decoration-waits--the-top-bar-and-the-selection-toolbar-2026-09-10)
 
 ## Fences
 
