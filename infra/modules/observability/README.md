@@ -7,6 +7,7 @@ per service per day in the admin bucket under `logs/`.
 |---|---|
 | `sqs.tf` | the logs queue |
 | `lambda.tf` | the sweep function, its log group, and the 10-minute schedule |
+| `alarm.tf` | the backlog alarm, on the age of the queue's oldest message |
 | `iam.tf` | the sweep's role, and the reusable **producer** policy document |
 | `locals.tf` | names, and the `logs` prefix both the grant and the env read |
 | `outputs.tf` | queue URL/ARN and the producer policy JSON |
@@ -30,6 +31,11 @@ the single apply that performs the swap needs both.
 fresh UUID `MessageDeduplicationId` per event, so every message is already unique — and two
 identical events inside the 5-minute dedup window are a real thing for a retry-heavy control plane,
 which SQS would then silently drop.
+
+**One message group per event, set by the producer, not here.** A FIFO group gives up ten messages
+until they are deleted, so the group is the sweep's ceiling: grouped by service, one session's API
+traffic outran it for four hours on 2026-09-10. `cpcommon.observability` groups by each event's
+`log_id`, so this queue's definition did not change. Sizing: `lambdas/info/planes/standalone.md`.
 
 **No DLQ, deliberately.** The only failure the sweep can suffer on a message is a failed S3 write,
 which is not the message's fault — a `maxReceiveCount` would move perfectly good events onto a
@@ -56,6 +62,25 @@ The schedule is **10 minutes**, matching the DLQ drain (user decision, 2026-07-2
 produced it, which halves both the invocation count and the number of read-modify-write cycles over
 each day's growing object. Not 1 minute — ~43k mostly-empty invocations a month would dominate this
 function's own log group, which is itself something you have to read when the pipe misbehaves.
+
+## The backlog alarm reads the queue's age, and tells nobody
+
+`logs-backlog` fires when `ApproximateAgeOfOldestMessage` exceeds **1,800 s** for two consecutive
+five-minute periods. Age rather than the sweep's stop reason, because age is the lag itself
+whatever caused it — a wave cap, the time reserve, a blocked group, or a sweep not running — while
+a caught-up sweep can still stop on its wave cap during an active session, chasing arrivals.
+Healthy, the oldest message waits for the next tick and no longer (574–586 s measured across an
+idle day), and each missed tick adds about 600 s, so two in a row stay just under the threshold
+and three in a row cross it — about 40 minutes after the last good sweep. Missing data
+reads as `INSUFFICIENT_DATA`, not as healthy: the sweep logs here every tick, so silence is itself
+wrong.
+
+**It has no action, by decision** (2026-09-10): its state is read in the console and by a session's
+`aws cloudwatch describe-alarms --alarm-names dat-prod-logs-backlog`. Nothing enforces the
+absence: the deploy role cannot create an SNS topic, but a Lambda is also a valid alarm action and
+the role can already grant one an invoke permission — so adding an action is a decision to re-make,
+not a gap to fill. Its name is a local, and the deploy grant names the same
+`${project_name}-*-logs-backlog` pattern.
 
 ## The sweep reads back what it wrote, and that reversed a shipped property
 
