@@ -72,6 +72,13 @@ Things a reader would reasonably assume travel with "the catalog moved behind th
   exactly: the API adds no ownership check and removes none. It is recorded as a **pre-existing
   exposure owed a spec** (Premise 5), not fixed here, because a real fix needs an execution→owner
   record that does not exist.
+
+  > **Superseded by SPEC-232 (2026-09-10): the premise was false, and the exposure is closed.** The
+  > output location Athena records on every execution the API starts is under the caller's own
+  > results prefix, so it IS an execution→owner record, and results-conversion already proved
+  > ownership from it. Status, results and stop now prove the execution is the caller's before
+  > they answer or act, and give an unknown id and someone else's one identical 404:
+  > [`decisions/identity-and-access.md`](../decisions/identity-and-access.md#an-execution-id-is-a-claim-and-every-route-that-names-one-proves-it-first-spec-232).
 - **`glue:GetTableVersions` and `glue:GetTable`.** The browser calls neither today; the refresh
   plane's read-backs are Python and the verification role's are CLI. No route is added for a caller
   that does not exist.
@@ -117,6 +124,11 @@ Things a reader would reasonably assume travel with "the catalog moved behind th
 5. **Execution-id ownership is owed.** Any later spec that adds an execution→owner record should close
    the Out-of-Scope exposure above; until then `logs/service=api/` carrying `actor` on every catalog
    span is the only attribution that exists.
+
+   > **Superseded by SPEC-232 (2026-09-10):** closed without adding a record, because the output
+   > location already is one; see the Out-of-Scope marker above. A refused cross-user attempt is
+   > still attributable: the span carries `actor`, `execution_id`, and `execution_ownership`
+   > (`unknown` or `foreign`).
 
 **AMENDED 2026-08-18 — FR-002's server-side derivation has a known successor, and the results
 location is the part that moves.** Moving the workgroup, the results location and the caller's
@@ -381,6 +393,13 @@ caller-side guard is **kept**, not replaced.
 
 `POST /v1/queries/{id}/stop`. One call, no body, no ownership check — because there is none today and
 inventing one here would need a record that does not exist.
+
+> **Superseded by SPEC-232 (2026-09-10):** stop now makes two calls. The first is a
+> `GetQueryExecution` proving the execution is the caller's, and an unknown or foreign id answers
+> 404 without anything being stopped. The body and the already-terminal 200 are unchanged. The
+> third criterion's claim that a check "would break `getTableDdl`" does not hold for this proof:
+> a `SHOW CREATE TABLE` records its output under the caller's own prefix, as every statement shape
+> the API starts does (measured in SPEC-232).
 
 #### Acceptance Criteria:
 
@@ -885,6 +904,9 @@ after a JSON round trip; and that the browser has genuinely stopped talking to A
 - **Recorded as OWED, not discharged:** an execution-ownership check (Out of Scope / Premise 5), and a
   429 mid-walk observed live — account throttling cannot be staged, so FR-007's degradation stays
   unit-tested only.
+
+  > **Superseded in part by SPEC-232 (2026-09-10):** the execution-ownership check is no longer
+  > owed; SPEC-232 built it. The 429 mid-walk stays as written.
 
 ### Phase 6: Completion ritual
 

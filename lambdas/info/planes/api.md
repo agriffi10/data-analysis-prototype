@@ -32,6 +32,17 @@ between the browser and S3.
   second copy of that state to go stale. The cost of that choice is that no route can bound a part
   number by the plan's count or check what was actually sent, so the upload ceiling is a refusal on
   a **declared** number rather than enforcement.
+- **An execution id is a CLAIM, not an authorization.** Athena authorizes status, results and stop
+  by **workgroup**, and there is one, so the caller's role reaches any execution whose id it
+  holds. Every route that names one proves it is the caller's **first** — the output
+  location Athena recorded must sit under the caller's own `user_results_prefix`
+  (`_owned_execution`, over `cpcommon.results.owned_results_key`) — and an unknown id and a foreign
+  one get **one 404 body**, with `execution_ownership` on the span saying which. Results takes the
+  proof too, although S3 guards its rows: without it a foreign query still running answers 409
+  where an unknown id answers 400. A route added under `/v1/queries/{queryExecutionId}` is covered
+  by a guard derived from the contract; a route that skipped the proof would pass every test that
+  drives only the caller's own execution. **A workgroup that enforces its own result location**
+  refuses every one of them, for every user's own queries — the proof must move with the location.
 - **S3's multipart faults are mapped per route, never by the classifier.** `errors` maps its denial
   set to 403 unconditionally, so teaching it `NoSuchUpload` would tell a user they lack a
   permission for an upload that merely expired. Unmapped, a fault becomes the deliberately generic

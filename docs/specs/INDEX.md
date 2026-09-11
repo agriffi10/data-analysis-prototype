@@ -236,6 +236,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 228 — The Pre-Identity Failure Joins the Trace, from the Envelope the State Already Carries | Completed |
 | 229 — Bound the Fields Nothing Bounds, and Measure the Cap Against the Limit That Binds | Completed |
 | 230 — Bound Excel by Cells, Because the Converter's Memory Binds per Cell and Not per Byte | Completed |
+| 232 — Every Query Route Proves the Execution Is the Caller's, Because an Execution Id Is a Claim | In Progress |
 
 ## Arcs
 

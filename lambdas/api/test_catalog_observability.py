@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import handler as api_handler
 from apicommon import identity
 from conftest import bearer
-from test_athena_routes import StubAthena
+from test_athena_routes import OWNED_LOCATION, StubAthena, _ServiceError
 
 API_DIR = pathlib.Path(__file__).parent
 ROUTE_MODULES = sorted((API_DIR / "routes").glob("*.py"))
@@ -165,13 +165,17 @@ def test_the_engine_reason_is_never_a_field_value(monkeypatch, captured_events) 
         "user_client",
         lambda service, acting_as: StubAthena(
             get_query_execution={
-                "QueryExecution": {"Status": {"State": "FAILED", "StateChangeReason": reason}}
+                "QueryExecution": {
+                    "Status": {"State": "FAILED", "StateChangeReason": reason},
+                    "ResultConfiguration": {"OutputLocation": OWNED_LOCATION},
+                }
             }
         ),
     )
 
     answer = api_handler.handler(_event("GET", "/v1/queries/e-1"), None)
 
+    assert answer["statusCode"] == 200
     assert CELL_SENTINEL in answer["body"]
     serialised = json.dumps(captured_events.events)
     assert CELL_SENTINEL not in serialised
@@ -197,17 +201,24 @@ def test_result_cells_and_column_names_are_never_field_values(
         identity,
         "user_client",
         lambda service, acting_as: StubAthena(
+            get_query_execution={
+                "QueryExecution": {
+                    "Status": {"State": "SUCCEEDED"},
+                    "ResultConfiguration": {"OutputLocation": OWNED_LOCATION},
+                }
+            },
             get_query_results={
                 "ResultSet": {
                     "ResultSetMetadata": {"ColumnInfo": [{"Name": SQL_SENTINEL, "Type": "varchar"}]},
                     "Rows": [{"Data": [{"VarCharValue": CELL_SENTINEL}]}],
                 }
-            }
+            },
         ),
     )
 
-    api_handler.handler(_event("GET", "/v1/queries/e-1/results", query={}), None)
+    answer = api_handler.handler(_event("GET", "/v1/queries/e-1/results", query={}), None)
 
+    assert answer["statusCode"] == 200
     serialised = json.dumps(captured_events.events)
     assert CELL_SENTINEL not in serialised
     assert SQL_SENTINEL not in serialised
@@ -218,12 +229,12 @@ def test_result_cells_and_column_names_are_never_field_values(
 def test_each_catalog_request_stamps_the_actor_the_route_and_its_execution(
     monkeypatch, captured_events
 ) -> None:
-    """The attribution that IS the mitigation for the preserved ownership exposure.
+    """A REFUSED request is attributable too, which is the case that matters now.
 
-    Athena authorizes by workgroup and this deployment has one, so a caller holding another
-    user's execution id can read it. No ownership check is added here — a real one needs a record
-    that does not exist — so a cross-user read being attributable in the log store is the entire
-    mitigation this ships, and saying so is the point.
+    Every route naming an execution proves it is the caller's before answering, so a cross-user
+    attempt ends in a 404 rather than a read. The stub answers the read with an empty document, so
+    there is no recorded location and the stop is refused at the proof — and the record still
+    says who asked, on which route, for which id.
 
     Args:
       monkeypatch: Pytest's patcher.
@@ -233,18 +244,73 @@ def test_each_catalog_request_stamps_the_actor_the_route_and_its_execution(
       None.
 
     Raises:
-      AssertionError: If any of the three fields is missing.
+      AssertionError: If the request is not refused, or any of the three fields is missing.
     """
     monkeypatch.setattr(
         identity, "user_client", lambda service, acting_as: StubAthena(stop_query_execution={})
     )
 
-    api_handler.handler(_event("POST", "/v1/queries/e-42/stop"), None)
+    answer = api_handler.handler(_event("POST", "/v1/queries/e-42/stop"), None)
 
+    assert answer["statusCode"] == 404
     fields = [event.get("fields", {}) for event in captured_events.events]
     assert any(field.get("actor") == "alice" for field in fields)
     assert any(field.get("route_id") == "athena.stop" for field in fields)
     assert any(field.get("execution_id") == "e-42" for field in fields)
+
+
+@pytest.mark.parametrize(
+    ("answer_to_get", "ownership"),
+    [
+        (
+            {
+                "QueryExecution": {
+                    "Status": {"State": "FAILED", "StateChangeReason": "reason"},
+                    "ResultConfiguration": {
+                        "OutputLocation": "s3://dat-prod-user-space/bob/system_settings/athenaresults/e-5.csv"
+                    },
+                }
+            },
+            "foreign",
+        ),
+        (_ServiceError("InvalidRequestException", "QueryExecution e-5 was not found"), "unknown"),
+    ],
+    ids=["someone else's execution", "an id athena does not know"],
+)
+def test_a_refused_status_keeps_the_probe_attributable_and_out_of_the_body(
+    monkeypatch, captured_events, answer_to_get, ownership
+) -> None:
+    """The route the browser polls, refused at the proof like every route that names an execution.
+
+    The discriminator is for the operator: the caller's body is one 404 for both, so the record is
+    the only place that says which it was.
+
+    Args:
+      monkeypatch: Pytest's patcher.
+      captured_events: The capturing sink.
+      answer_to_get: What ``GetQueryExecution`` answers.
+      ownership: The discriminator the record must carry.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the refusal is not a 404, the record misses a field, or the body names
+        which refusal it was.
+    """
+    monkeypatch.setattr(
+        identity,
+        "user_client",
+        lambda service, acting_as: StubAthena(get_query_execution=answer_to_get),
+    )
+
+    answer = api_handler.handler(_event("GET", "/v1/queries/e-5"), None)
+
+    assert answer["statusCode"] == 404
+    assert ownership not in answer["body"]
+    fields = [event.get("fields", {}) for event in captured_events.events]
+    assert any(field.get("execution_id") == "e-5" for field in fields), fields
+    assert any(field.get("execution_ownership") == ownership for field in fields), fields
 
 
 def test_no_record_carries_an_email_address(monkeypatch, captured_events) -> None:
@@ -524,7 +590,12 @@ def test_every_catalog_response_forbids_a_cache(monkeypatch) -> None:
         "user_client",
         lambda service, acting_as: StubAthena(
             start_query_execution={"QueryExecutionId": "e-1"},
-            get_query_execution={"QueryExecution": {}},
+            get_query_execution={
+                "QueryExecution": {
+                    "Status": {"State": "SUCCEEDED"},
+                    "ResultConfiguration": {"OutputLocation": OWNED_LOCATION},
+                }
+            },
             get_query_results={"ResultSet": {}},
             stop_query_execution={},
         ),
@@ -538,4 +609,5 @@ def test_every_catalog_response_forbids_a_cache(monkeypatch) -> None:
 
     for event in requests:
         answer = api_handler.handler(event, None)
+        assert answer["statusCode"] == 200, event["requestContext"]["http"]
         assert answer["headers"]["cache-control"] == "no-store", event["requestContext"]["http"]

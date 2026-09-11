@@ -32,7 +32,7 @@ not need the rest. Where a claim is a settled project decision, the authority is
 | `observability` | structured logging — the one door to `log-foundry` |
 | `paths` | key containment: is this key inside the root I authorized? |
 | `registry` | shared-space registry reads |
-| `results` | where a plane's Athena statements write their output |
+| `results` | where a plane's Athena statements write their output, and the proof an execution's output is the caller's own |
 | `s3_listing` | listing past the 1,000-key pagination boundary |
 | `transfer` | the bulk-copy engine: manifest writer, batch copier, Map Run result reader |
 | `type_mapping` | the one polars→Hive type mapping |
