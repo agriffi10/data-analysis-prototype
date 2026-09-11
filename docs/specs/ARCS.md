@@ -2910,6 +2910,12 @@ transport refuses a wide result set two to three times before Excel's own ceilin
 check at 16,384 would be a fence that stops nobody. The refusal that exists is the transport's,
 it lives in describe-results, and it applies to every format.
 
+> **Extended by SPEC-230 (2026-09-10):** Excel has a third fence, a **cell** limit of 4,100,000,
+> counted with the row limit before the workbook is built. The converter's memory is spent per
+> cell, so the size cap alone admitted a 1,048,575 × 15 one-character result that ran it out of
+> time at its full memory. Full entry: `docs/decisions/control-planes.md` → *Excel is bounded by
+> cells, because the converter's memory is spent per cell*.
+
 **Considered and rejected (2026-09-05, user decision): a lazy frame over the SOURCE files, with the
 exploration's filters re-applied in polars.** It reads as more robust and is less so here, for four
 reasons that come from this repo. It cannot serve half the surface: the Query workspace runs

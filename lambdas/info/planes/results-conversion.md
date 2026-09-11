@@ -55,6 +55,16 @@ username; `MessageDeduplicationId` is the `requestId`.
   measured model that a corpus in the plane suite holds them to — and
   `scripts/measure_excel_peak.py` re-measures it — so quoting them here is how this line was wrong
   within an hour of being written, when the account's real memory ceiling moved all three.
+- **The Excel model and its corpus guard are local, and a green guard is not production
+  headroom.** The guard charges each measured shape the baseline plus its local per-cell cost at
+  the largest input the caps admit. The model peaks at the fewest columns that reach the cell
+  cap, which is `docs/testing/e2e.md` §4.3's at-cap row and the one input read in production at
+  scale. There the guard's figure came in 125 MiB under the `REPORT` line and the model's 108
+  over it. The model held only because that shape sets none of its terms. The shape that sets the
+  per-cell term has about 25 MiB of slack over its own guard figure, though its admitted inputs
+  model far below the budget. So a re-derivation, or any change to a cap, is validated by
+  converting the new model-peak input live and reading its `REPORT` line against the model's
+  figure. Regenerate that row's input for the new cap, keeping it under the byte cap.
 - **polars' fast count (`select(pl.len())` on a CSV scan) miscounts a quoted newline once the file
   is split across threads**, in either direction — 65,104 rows for 100,000 at the converter's two
   threads. The Excel path counts through one projected column with the real reader instead, and

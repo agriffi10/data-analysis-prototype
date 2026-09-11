@@ -1,7 +1,7 @@
 # Spec: Bound Excel by Cells, Because the Converter's Memory Binds per Cell and Not per Byte
 
 **ID:** SPEC-230
-**Status:** In Progress
+**Status:** Completed
 **Last Updated:** 2026-09-10
 **Depends On:** SPEC-222
 
@@ -87,6 +87,12 @@ Three production figures anchor the table, all read from the converter's own `RE
   baseline accounts for, where RSS would land some 190 MiB short. The largest local fixed cost of any shape,
   plus its own run's offset, is 249.2 MiB. The same write takes 4.91 s locally, so production (whose
   Duration also includes the download and the upload) is **4.0 times** slower.
+
+  > **Corrected when the spec closed:** "production's fixed cost" here assumes production spends
+  > per cell what a local run does, and the offset is not only the runtime's baseline. The live
+  > conversion at the cap sat 247 to 332 MiB over its local peak (FR-005's note), so two
+  > production readings cannot separate a fixed cost from a per-cell one. What that means for a
+  > re-derivation is under Traps in `lambdas/info/planes/results-conversion.md`.
 - **The failing 1,048,575 × 15 result**, rebuilt byte-for-byte (the generator reproduces
   62,914,590 bytes exactly): **3,851 MiB peak RSS and 4,496 MiB cgroup** on amd64, against a
   3,008 MiB function. Memory binds, not time: the same write completes in 61 s under emulation when
@@ -261,6 +267,9 @@ width is the measured width itself. `_MB` in a name means MiB, as it does in
   - `EXCEL_BASELINE_MB = 250`. The production fixed cost is 165 to 209 MiB across the runs, and
     the largest local fixed cost of any shape, plus its own run's local-to-production offset, is
     249.2 (unique 20-character text, in the second arm64 harness run).
+
+    > **Corrected when the spec closed:** "the production fixed cost" is an inference, not a
+    > measurement. See the note under the 490,000 × 4 run above.
   - `EXCEL_PEAK_BYTES_PER_CELL = 480`. The envelope needs at least 471: unique 20-character text at
     15 columns measures 498, less its 27-byte row share.
   - `EXCEL_PEAK_BYTES_PER_ROW = 400`. One against fifteen columns of one-character text, in the
@@ -379,6 +388,15 @@ production validation.
     input; locally it peaks at 2,078 to 2,163 MiB across runs, so about 2,150 to 2,250 is expected in
     production. Its Duration must be under 120 s. Both figures go into `sessions.md`. Anything
     over the model is a finding against the constants, not a pass.
+
+    > **Run after deploy: 2,410 MiB in 61.4 s.** It is inside the model and the time bound, and
+    > **above the expected band**, which was wrong. Production's gap over the local peak was 247 to
+    > 332 MiB here against 65 to 84 at the 490,000 × 4 shape, so the gap is not a fixed offset, and
+    > an offset measured on one input does not predict another. The model's own figure is the only
+    > memory prediction that held, 108 MiB above the reading, because this shape sets none of the
+    > model's terms. The run is in `sessions.md`; the model's figure replaced the band in `e2e.md`,
+    > and what this means for a re-derivation is under Traps in
+    > `lambdas/info/planes/results-conversion.md`.
 - [ ] The existing §4.3 row-limit row's note that "a wide million-row result comes back
   `results_too_large`" is corrected: under 64 MiB it now comes back as `excel_row_limit` (over
   1,048,575 rows) or `excel_cell_limit` (under that). Over 64 MiB it is still `results_too_large`.

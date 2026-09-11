@@ -44,6 +44,13 @@ is SPEC-223 — so the route is live and unflagged and no UI enqueues into it.
   measured 23–32× the CSV because it cannot stream, so one number would either starve Parquet or
   promise an Excel conversion that runs out of memory two thirds of the way through.
 
+  > **Superseded in part by SPEC-230 (2026-09-10):** the per-format cap stands, but Excel's memory
+  > is not a multiple of the CSV. It is spent per cell, and a narrow result costs far more than
+  > 32× — a 1,048,575 × 15 one-character result under the 64 MB cap ran the converter out of time
+  > at its full memory. Excel is now bounded by 4,100,000 cells, counted before the workbook is
+  > built. Full entry: `docs/decisions/control-planes.md` → *Excel is bounded by cells, because
+  > the converter's memory is spent per cell*.
+
 ## What changed from earlier specs?
 
 - **`describe-results` carries `precision` and `scale`.** Athena reports a decimal's type as bare

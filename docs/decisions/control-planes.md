@@ -1761,13 +1761,17 @@ it admitting a result over Excel's ceiling whose rows xlsxwriter then dropped, r
 Each refusal names its code where it is raised, because the plane's vocabulary sweep reads a
 literal first argument.
 
-**The cap is derived from a measured model held to a corpus, and three things were learned
+**The cap is derived from a measured model held to a corpus, and four things were learned
 measuring it.** Units: Lambda's MB is MiB, and one anchor subtracted a decimal figure from a binary
 one, which only a review caught. The anchor: the production run it rests on was rebuilt from
-Athena's own history, to the byte, rather than approximated by a shape that looked similar. And the
+Athena's own history, to the byte, rather than approximated by a shape that looked similar. The
 cgroup slope moves by several percent run to run, so every constant is rounded up above the worst
-run and the 15% reserve stays. The guard scales every measured shape to the largest input the caps
-admit, through the production predicate; under the byte cap alone the production shape fails it.
+run and the 15% reserve stays. And one anchor does not transfer: the live conversion at the cap
+came in well above both the band predicted from the anchor and the corpus guard's own figure, and
+inside the model, so a re-derivation is validated by a live conversion as the plane page's Traps
+say, not by the anchor or by a green guard. The guard scales every measured shape to
+the largest input the caps admit, through the production predicate; under the byte cap alone the
+production shape fails it.
 
 **An Excel conversion that runs out of time or memory is named**, because neither can raise and
 the notifier otherwise words the Lambda's error as the fallback. The streamed formats keep the
