@@ -1,8 +1,7 @@
 # The backlog alarm: the age of the logs queue's oldest message. README.md.
 #
 # AGE, not the sweep's stop reason, because age is the lag itself and holds whatever the cause —
-# a wave cap, the time reserve, a blocked group, or a sweep that is not running at all. A sweep
-# can also stop on its wave cap while caught up, chasing what arrives during an active session.
+# a wave cap, the time reserve, a blocked group, or a sweep that is not running at all.
 #
 # 1800s is three missed ticks. A healthy queue's oldest message waits for the next tick and no
 # longer, measured at 574-586s across a whole idle day, and each missed tick adds ~600s to that

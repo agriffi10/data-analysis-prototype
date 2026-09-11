@@ -67,13 +67,12 @@ function's own log group, which is itself something you have to read when the pi
 
 `logs-backlog` fires when `ApproximateAgeOfOldestMessage` exceeds **1,800 s** for two consecutive
 five-minute periods. Age rather than the sweep's stop reason, because age is the lag itself
-whatever caused it — a wave cap, the time reserve, a blocked group, or a sweep not running — while
-a caught-up sweep can still stop on its wave cap during an active session, chasing arrivals.
-Healthy, the oldest message waits for the next tick and no longer (574–586 s measured across an
-idle day), and each missed tick adds about 600 s, so two in a row stay just under the threshold
-and three in a row cross it — about 40 minutes after the last good sweep. Missing data
-reads as `INSUFFICIENT_DATA`, not as healthy: the sweep logs here every tick, so silence is itself
-wrong.
+whatever caused it — a wave cap, the time reserve, a blocked group, or a sweep not running, which
+reports no stop reason at all. Healthy, the oldest message waits for the next tick and no longer
+(574–586 s measured across an idle day), and each missed tick adds about 600 s, so two in a row
+stay just under the threshold and three in a row cross it — about 40 minutes after the last good
+sweep. Missing data reads as `INSUFFICIENT_DATA`, not as healthy: the sweep logs here every tick,
+so silence is itself wrong.
 
 **It has no action, by decision** (2026-09-10): its state is read in the console and by a session's
 `aws cloudwatch describe-alarms --alarm-names dat-prod-logs-backlog`. Nothing enforces the

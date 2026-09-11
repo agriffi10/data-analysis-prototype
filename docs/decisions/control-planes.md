@@ -1832,11 +1832,18 @@ partition's newest record no longer proves the older ones have landed, so while 
 the queue's age is the only completeness check.
 
 **Do NOT group by trace**, `log-foundry`'s default: a large run's trace, and the sweep's own (one
-per sweep), would still each be a ten-a-wave group. **Do NOT read a `wave-cap` stop as a backlog**:
-during an active session each wave finds what arrived during the last, so a caught-up sweep can
-take every wave it is allowed. The backlog signal is the `logs-backlog` alarm on the age of the
-queue's oldest message, which has **no action by decision** — its state is read in the console and
-by a session's `describe-alarms`. Sizing evidence: `lambdas/info/planes/standalone.md`.
+per sweep), would still each be a ten-a-wave group. **A caught-up sweep finishes on the first wave
+of arrivals alone**: during an active session each wave finds what arrived during the last, so a
+sweep that waited for an empty receive would run to its wave cap over a drained queue for as long
+as arrivals kept landing in every wave — reasoned, not observed: in its first two days grouped per
+event every sweep finished in one to three waves with no stop reason, so the finish is a bound
+rather than a response to anything seen. It reads each message's `SentTimestamp` and finishes, as
+a normal sweep, after a wave whose every message was stamped at or after the sweep's start and
+whose receive ended on an empty round rather than a cap. An undated message and a capped receive
+both mean run on, because stopping early is the costly direction and SQS does not order messages
+across groups. The backlog signal is still the `logs-backlog` alarm on the age of the queue's
+oldest message, which has **no action by decision** — its state is read in the console and by a
+session's `describe-alarms`. Sizing evidence: `lambdas/info/planes/standalone.md`.
 
 ## The notification sender bounds every dedup id, by digest rather than by dropping it (control-plane-wide)
 
