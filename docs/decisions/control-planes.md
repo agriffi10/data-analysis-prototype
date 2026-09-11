@@ -54,6 +54,7 @@ entry you need, not the file.**
 - [The destination prefix is relative, and the doubling it invites is refused by nothing (SPEC-223)](#the-destination-prefix-is-relative-and-the-doubling-it-invites-is-refused-by-nothing-spec-223)
 - [A closed vocabulary is type-checked before it is looked up (PR #662, control-plane-wide)](#a-closed-vocabulary-is-type-checked-before-it-is-looked-up-pr-662-control-plane-wide)
 - [Excel is bounded by cells, because the converter's memory is spent per cell (SPEC-230)](#excel-is-bounded-by-cells-because-the-converters-memory-is-spent-per-cell-spec-230)
+- [The logs queue is grouped per event, because a FIFO group is the sweep's ceiling (2026-09-11)](#the-logs-queue-is-grouped-per-event-because-a-fifo-group-is-the-sweeps-ceiling-2026-09-11)
 
 ## Fences
 
@@ -207,7 +208,9 @@ DLQ lets one malformed request dead-letter someone else's work.
   library's **private names**, which no module outside it and the two named test harnesses may
   reach: one such reach survived as a silent no-op after the name behind it was deleted upstream.
   **No `@traced`/`@step` function may be a generator** — the library refuses one at decoration, so it
-  is a cold start that never completes rather than a bad span. The logs queue is FIFO, swept on
+  is a cold start that never completes rather than a bad span. The logs queue is FIFO with **one
+  message group per EVENT** — a FIFO group gives up ten messages until they are deleted, so the
+  group is the sweep's ceiling, and one per service saturated under a single session — swept on
   a schedule, appended under ETag CAS, retained forever. `@traced` outermost — **except the API**, where one decorator sits
   outside it to turn an unpredicted fault into a declared code: a catch INSIDE the span ends every
   failed request successfully and the fault is recorded nowhere. Messages are literals.
@@ -349,7 +352,7 @@ The **notifications DLQ is deliberately undrained** and is the one hole this can
 
 ## Structured-logging pipe (SPEC-127→129)
 
-The pipe every control-plane function logs through; it carried **boundaries only** until SPEC-130 added the narrative half (next entry). `log-foundry` (pinned **exactly**, core not `[aws]`) ships in the `cpcommon` layer. `LOGS_QUEUE_URL` is **optional** (`environ.get`, never `_require`) so a function missing it logs to stdout instead of crashing a whole plane at cold start. The logs queue is **FIFO** with `message_group_id` = the **service** (SPEC-129; it was standard until `log-foundry` gained the ability to set `MessageGroupId`), with **no** content-based dedup (the library mints UUID dedup ids), and it is **swept** on a 10-min schedule, never long-polled (#270/#271). `service` = the **control plane**, and it is untrusted input on an S3 key: anything failing `^[a-z][a-z0-9-]{2,62}$` goes to `logs/_unrouted/`. Layout is `logs/service={s}/year=/month=/day=/data.jsonl` — **one appended object per service-day**, so every write is an **ETag-CAS read-modify-write** (a failed read must never overwrite a day) and the sweep role can **read** `logs/*`, reversing SPEC-127 FR-006. Delivery is put-then-delete (at-least-once; duplicates collapse on `log_id`). Partitions come from the **event's** timestamp. `logs/` is retained **forever**. `@traced` goes **outermost, above `@notifies_on_failure`**, or failed invocations close their span as `ok`. One run = **one trace** since SPEC-225 on the success path and SPEC-227 on the failure path (the API mints the traceparent and `traced` adopts it over five event shapes). The exception SPEC-227 recorded is **closed by SPEC-228 and is no longer a limit**: a failure whose error replaced the state has no traceparent on the state, and none an ASL intrinsic may reach — that much was and is true — but the forwarded envelope is on the state as `raw`, so `notify-failure` reads both the traceparent and the caller's `requestId` out of it in Python. Before that it **correlated on nothing at all**, because the seed supplies `requestId: null` on seven of the eight planes and none at all on the eighth; that was measured on archive 2026-09-09 and is what the repair was derived from. The `request_id` join stated everywhere else in this file now holds on every path. "Pre-identity" names the CATCH shape rather than the absence of an identity: all eight validators Catch `States.ALL` to that seed, so every failure raised **in the validator** lands there whatever the verb knew by then — an authorized actor's refused space included. (A failure raised downstream has its own plane's post-identity seed; archive alone has eighteen such Catches.) A refusal RETURNED as a value does not land there either: shared-spaces' `Route` sends `$.refusal` to `RefusedSeed`, one of **six** returned-refusal seeds across the fleet, and all six carry `traceparent.$`.
+The pipe every control-plane function logs through; it carried **boundaries only** until SPEC-130 added the narrative half (next entry). `log-foundry` (pinned **exactly**, core not `[aws]`) ships in the `cpcommon` layer. `LOGS_QUEUE_URL` is **optional** (`environ.get`, never `_require`) so a function missing it logs to stdout instead of crashing a whole plane at cold start. The logs queue is **FIFO** (SPEC-129; it was standard until `log-foundry` gained the ability to set `MessageGroupId`), with `message_group_id` = the **event's own `log_id`** — **not the service**, which SPEC-129 chose and which saturated the sweep on 2026-09-10 (*The logs queue is grouped per event*, below) — with **no** content-based dedup (the library mints UUID dedup ids), and it is **swept** on a 10-min schedule, never long-polled (#270/#271). `service` = the **control plane**, and it is untrusted input on an S3 key: anything failing `^[a-z][a-z0-9-]{2,62}$` goes to `logs/_unrouted/`. Layout is `logs/service={s}/year=/month=/day=/data.jsonl` — **one appended object per service-day**, so every write is an **ETag-CAS read-modify-write** (a failed read must never overwrite a day) and the sweep role can **read** `logs/*`, reversing SPEC-127 FR-006. Delivery is put-then-delete (at-least-once; duplicates collapse on `log_id`). Partitions come from the **event's** timestamp. `logs/` is retained **forever**. `@traced` goes **outermost, above `@notifies_on_failure`**, or failed invocations close their span as `ok`. One run = **one trace** since SPEC-225 on the success path and SPEC-227 on the failure path (the API mints the traceparent and `traced` adopts it over five event shapes). The exception SPEC-227 recorded is **closed by SPEC-228 and is no longer a limit**: a failure whose error replaced the state has no traceparent on the state, and none an ASL intrinsic may reach — that much was and is true — but the forwarded envelope is on the state as `raw`, so `notify-failure` reads both the traceparent and the caller's `requestId` out of it in Python. Before that it **correlated on nothing at all**, because the seed supplies `requestId: null` on seven of the eight planes and none at all on the eighth; that was measured on archive 2026-09-09 and is what the repair was derived from. The `request_id` join stated everywhere else in this file now holds on every path. "Pre-identity" names the CATCH shape rather than the absence of an identity: all eight validators Catch `States.ALL` to that seed, so every failure raised **in the validator** lands there whatever the verb knew by then — an authorized actor's refused space included. (A failure raised downstream has its own plane's post-identity seed; archive alone has eighteen such Catches.) A refusal RETURNED as a value does not land there either: shared-spaces' `Route` sends `$.refusal` to `RefusedSeed`, one of **six** returned-refusal seeds across the fleet, and all six carry `traceparent.$`.
 
 ## Structured-logging narrative primitives & the one-door rule (SPEC-130/131)
 
@@ -1795,3 +1798,41 @@ production shape fails it.
 **An Excel conversion that runs out of time or memory is named**, because neither can raise and
 the notifier otherwise words the Lambda's error as the fallback. The streamed formats keep the
 fallback — pointing a Parquet request at Parquet would be wrong.
+
+## The logs queue is grouped per event, because a FIFO group is the sweep's ceiling (2026-09-11)
+
+**A FIFO message group gives up at most ten messages until they are deleted, and the sweep may
+delete only once the append is durable — so each group drains ten per wave, whatever `MAX_WAVES`
+says.** SPEC-129 grouped the logs queue by **service**, overriding `log-foundry`'s per-trace
+default on the premise that "a single-consumer sweep cannot use [parallel delivery] anyway". The
+premise was false: one receive batch spans groups, and the sweep's receive loop takes up to
+`MAX_MESSAGES` a wave across them. So the real ceiling was ten per service per wave — 500 a tick,
+3,000 an hour — and on 2026-09-10 one working session's `service=api` produced 10,371 events in its
+busiest hour. The API partition fell four hours behind while every sweep stopped on its wave cap
+having used 22–50 s of its 300 s timeout, and nothing alarmed.
+
+**The sweep also fed its own backlog, and the convergence argument could not see it.** Each wave
+puts three events plus four per day-group into the `observability` group — measured 11.2 a wave
+with two day-groups — against a drain of ten, so its own group grew whenever another was behind.
+The recorded proof of convergence was a ratio of events to messages below one across the queue
+(0.58), which guaranteed nothing, because the drain is per group.
+
+**Raising `MAX_WAVES` or the cadence could not fix it**, which is why neither was the change. A
+day-object rewrite costs ~123 ms + 22 ms per MB, so a wave slows as the day grows: ~220 waves fit
+in the timeout at that day's sizes and ~135 at 32 MB — 13,200 and 8,200 an hour per service, the
+second below one session's peak. A faster schedule buys at most 1.5x, erodes the same way, and
+reverses the 10-minute decision. **Grouped per event** (`log_id`, which is also the dedup id), no
+group holds a second message, a wave takes up to 1,000 from any mix of services for about the same
+rewrites as a wave of twenty, and the sweep's own output drains alongside everything else.
+`MAX_WAVES = 50` stands, re-derived: 35–48 full waves fit in the 240 s after the reserve, so it
+sits where the wave cap and the reserve meet. What is given up is delivery order, which no code
+reads — the sweep partitions by each event's own timestamp — and one operator inference with it: a
+partition's newest record no longer proves the older ones have landed, so while any backlog exists
+the queue's age is the only completeness check.
+
+**Do NOT group by trace**, `log-foundry`'s default: a large run's trace, and the sweep's own (one
+per sweep), would still each be a ten-a-wave group. **Do NOT read a `wave-cap` stop as a backlog**:
+during an active session each wave finds what arrived during the last, so a caught-up sweep can
+take every wave it is allowed. The backlog signal is the `logs-backlog` alarm on the age of the
+queue's oldest message, which has **no action by decision** — its state is read in the console and
+by a session's `describe-alarms`. Sizing evidence: `lambdas/info/planes/standalone.md`.

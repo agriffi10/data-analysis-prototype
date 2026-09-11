@@ -32,13 +32,22 @@ the delete have to repeat together rather than run once each. Before this was un
 sweep took exactly ``10 x backlogged groups`` messages per invocation and reported itself
 drained, and the queue fell six days behind on a fourteen-day retention.
 
-The emitters that ride the receive and the write now run once per wave rather than once per
-sweep, which for a function that logs into the queue it drains is a volume decision rather than
-a detail. It was taken deliberately: both the emitters and the messages drained scale with waves
-x groups, so the ratio of telemetry to work is what it always was, and the ratio is the only
-thing convergence depends on. The counters the handler keeps — waves, messages, day-groups — are
-summed across the sweep and reported once, so the summary stays one event however deep the
-backlog.
+The same rule made the message group the sweep's real ceiling: each group gives up ten a wave,
+however many waves run. The producers therefore put every event in its own group, so a wave
+takes up to ``MAX_MESSAGES`` from any mix of services; grouped by service, one working
+session's API traffic outran ten a wave for hours. The wave loop still earns its place — a
+wave can fill its cap, and a message left behind by an older producer is still in a shared
+group.
+
+The emitters that ride the receive and the write run once per wave rather than once per sweep,
+which for a function that logs into the queue it drains is a volume decision rather than a
+detail. What convergence needs is that the sweep puts back less than it takes from every group
+its own output lands in. Grouped by service, that was one group giving up ten a wave while
+each wave put three events plus four per day-group into it, so the sweep's own group grew
+whenever another group was behind. Grouped per event, its output drains alongside everything
+else, and the ratio across the whole queue is the one that matters. The counters the handler
+keeps — waves, messages, day-groups — are summed across the sweep and reported once, so the
+summary stays one event however deep the backlog.
 
 Attributes:
   _sweep_id: Set once per invocation and prepended to every CloudWatch line by the filter below.
@@ -54,10 +63,12 @@ Attributes:
   MAX_ROUNDS: Receive rounds per wave.
   MAX_MESSAGES: Message cap per wave. The next wave, or the next schedule tick, picks up any
     remainder, so the cap costs latency on a backlog, never data.
-  MAX_WAVES: Receive-write-delete cycles per sweep. A wave yields at most ten messages per
-    unblocked message group, so this is the multiplier that separates the sweep's ceiling from
-    one group-round; sized against the queue's arrival rate rather than its depth, since a
-    backlog is drained over several sweeps and only the rate has to be beaten.
+  MAX_WAVES: Receive-write-delete cycles per sweep. With every event in its own group a full
+    wave is ``MAX_MESSAGES``, and about this many full waves fit in the timeout after the
+    reserve, so this is where the wave cap and the time reserve meet rather than a number the
+    arrival rate is divided by. While a session is active a caught-up sweep can still reach it,
+    because each wave finds what arrived during the last; the queue's age, not this stop, is the
+    backlog signal.
   SWEEP_RESERVE_MS: Invocation time held back for the final wave's write and delete. The wave
     cost is a function of the day object's size, which grows all day, so the wave count alone
     cannot bound the sweep's duration.
@@ -402,16 +413,18 @@ def _append_day(key, new_lines):
 def _receive_all():
     """Short-polls the queue until a round comes back empty or the cap is hit.
 
-    One wave's receive, not the sweep's. An empty round here does not mean the queue is empty:
-    on a FIFO queue it usually means every group this wave has touched is blocked behind the
-    messages the wave is still holding, which is why the caller writes and deletes and comes
-    back rather than treating the empty round as the end of the sweep.
+    One wave's receive, not the sweep's. An empty round here does not have to mean the queue is
+    empty: on a FIFO queue a group this wave has touched yields nothing more until the wave's
+    delete lands, which is why the caller writes and deletes and comes back rather than treating
+    the empty round as the end of the sweep. With every event in its own group no group holds a
+    second message, so the loop runs until the queue or the cap is exhausted — and a message
+    from an older producer, still in a shared group, is what the coming back is still for.
 
     Its own child span because the poll loop and the writes have completely different failure
-    modes, and this is the half that is billed per round. That the span now opens once per wave
-    rather than once per sweep is a volume decision taken deliberately: this function emits into
-    the queue it drains, but its emitters and its throughput both scale with waves x groups, so
-    the ratio of telemetry to drained messages is what it always was.
+    modes, and this is the half that is billed per round. The span opens once per wave rather
+    than once per sweep, a volume decision taken deliberately: this function emits into the
+    queue it drains, and its events land in groups of their own, so they drain alongside the
+    messages they describe rather than queueing behind them.
 
     Args:
       None.
@@ -519,9 +532,13 @@ def handler(event, context):
     """Drains the logs queue into the day's objects.
 
     The sweep instruments itself, which is what makes the pipe verifiable end to end without
-    instrumenting a control plane. The self-reference is safe: this invocation's own events go
-    through the same queue and are collected by the next scheduled sweep, never recursively
-    within this one.
+    instrumenting a control plane. Its own events go through the same queue, and a later wave of
+    the same invocation can receive them — the library sends every ten finished spans or every
+    second, not only at the end — so the sweep partly drains itself, and while a session is active the
+    arrivals and its own events can keep every wave finding something until the wave cap. That
+    is bounded rather than recursive: the cap and the reserve end it, and at idle a wave whose
+    only work is the sweep's own output usually finishes before the library sends that wave's
+    events, so the next receive is empty and the sweep ends.
 
     That self-reference is also why the emitters are placed the way they are. No emitter is per
     message: this function emits into the queue it drains, so an event per message consumed
@@ -529,14 +546,16 @@ def handler(event, context):
     could never get below — permanently busy carrying its own telemetry, with the day objects
     growing to match.
 
-    What bounds it is a ratio rather than a constant, and the wave loop is why. The receive and
-    the per-destination events fire once per wave and once per (wave, day-group), so a sweep's
-    events grow with the work it does — measured at roughly 0.58 events per message drained.
-    Any ratio below one converges, because each sweep puts back strictly less than it takes;
-    what keeps this one constant rather than growing with the backlog is that the emitters and
-    the drain scale together, per wave and per (wave, day-group). The summary below is the only
-    part aggregated to one event per sweep, because it is the only part genuinely per sweep.
-    The property to preserve when adding an emitter here is the ratio, not a count.
+    What bounds the volume is a ratio rather than a constant, and the wave loop is why. The
+    receive and the per-destination events fire once per wave and once per (wave, day-group) —
+    three, plus four per day-group — so a sweep's events grow with the work it does. The ratio
+    has to hold in every message group that output lands in, not merely across the queue:
+    grouped by service, all of it landed in one group that gave up ten a wave, and a wave
+    touching two day-groups put eleven back, so that group grew whenever another was behind.
+    Grouped per event, the output drains alongside everything else and the queue-wide ratio is
+    the one that governs. The summary below is the only part aggregated to one event per sweep,
+    because it is the only part genuinely per sweep. The property to preserve when adding an
+    emitter here is the ratio, not a count.
 
     The plain logging calls stay alongside the structured events deliberately, and this is the
     one function where that is not duplication to copy into a verb. The sink is the queue only,

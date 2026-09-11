@@ -5,7 +5,9 @@
 - **Sweep cadence 5 → 10 minutes.**
 - **`logs/service={service}/year=YYYY/month=MM/day=DD/data.jsonl`** — one object per service-day,
   each sweep **appending** to it.
-- **FIFO logs queue** (`dat-prod-logs.fifo`) with `message_group_id` = the **service**.
+- **FIFO logs queue** (`dat-prod-logs.fifo`) with `message_group_id` = the **service** — **reversed
+  2026-09-11**: a group per service was the sweep's ceiling, and the queue is now grouped per event
+  (`docs/decisions/control-planes.md`, *The logs queue is grouped per event*).
 - `log-foundry` 0.4.0 → **0.5.0** (log-forge SPEC-016 added FIFO support to `SQSSink`).
 
 ## What changed from SPEC-127/128

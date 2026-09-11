@@ -182,6 +182,36 @@ def build_version() -> str:
 _initialized = False
 
 
+def _message_group(event: dict[str, object]) -> str:
+    """Names the logs-queue message group one event travels in: the event's own ``log_id``.
+
+    A FIFO group hands out at most ten messages and then nothing more until those are deleted,
+    and the sweep may delete only once the events are durable in S3 — so every group drains at
+    ten messages per receive-write-delete cycle, however many cycles a sweep runs. Grouped by
+    service, that capped each service at ten a cycle, and one working session's API traffic
+    outran it for hours. The sweep also logs into this queue, so a group it shared with its own
+    output grew whenever another group was behind. One group per event gives no group more than
+    one message, so a cycle takes whatever the receive loop can hold, from any service.
+
+    What that gives up is delivery order, which no code reads: the sweep partitions by each
+    event's own timestamp, and a reader orders by it. An operator loses one inference — a
+    partition's newest record no longer shows that the older ones have landed. The fallback for an event without a
+    ``log_id`` is the library's own constant group, so an unexpected shape degrades to one slow
+    group rather than failing the send.
+
+    Args:
+      event: The event the sink is about to send.
+
+    Returns:
+      The event's ``log_id``, or an empty string, which the sink replaces with its constant.
+
+    Raises:
+      None.
+    """
+    log_id = event.get("log_id")
+    return log_id if isinstance(log_id, str) else ""
+
+
 def init(service: str, max_stack_bytes: int | None = None, **defaults: object) -> None:
     """Configures log-foundry for this container, once per process.
 
@@ -190,10 +220,9 @@ def init(service: str, max_stack_bytes: int | None = None, **defaults: object) -
     is the sink's own stderr write. The existing ``logging.getLogger()`` call sites are
     untouched, so CloudWatch still receives every one of them. Its client comes from
     ``clients.sqs()`` so a warm container holds one boto3 SQS client across this path and the
-    notifications path, and its message group is the service rather than log-foundry's default
-    of one group per trace — a simpler ordering story, and the sweep is a single consumer
-    anyway. The sink infers FIFO from the queue URL and mints a UUID deduplication id per
-    event, which is why the queue must not enable content-based deduplication.
+    notifications path. Its message group is the EVENT — ``_message_group`` says why. The sink
+    infers FIFO from the queue URL and mints a UUID deduplication id per event, which is why the
+    queue must not enable content-based deduplication.
 
     Without a queue URL, events go to stdout, and stdout in Lambda is CloudWatch. That is the
     one named exposure to the "narrative never reaches the console" rule, and the fallback
@@ -237,7 +266,7 @@ def init(service: str, max_stack_bytes: int | None = None, **defaults: object) -
         from log_foundry.sinks.sqs import SQSSink
 
         sink: object = SQSSink(
-            LOGS_QUEUE_URL, client=clients.sqs(), message_group_id=service
+            LOGS_QUEUE_URL, client=clients.sqs(), message_group_id=_message_group
         )
     else:
         from log_foundry.sinks.stdout import StdoutSink
