@@ -2,7 +2,9 @@
 
 The Excel caps in ``rccommon.config`` are derived from what this prints, and the plane suite's
 ``MEASURED_EXCEL_SHAPES`` corpus is its output. Re-run it whenever polars or xlsxwriter moves, or
-the image does: the constants are only as true as the library that produced them.
+the image does: the constants are only as true as the library that produced them. What it prints
+is local, and a re-derivation from it is validated by a live conversion, not by the plane suite;
+the Traps in ``lambdas/info/planes/results-conversion.md`` say which one.
 
 Each shape is a generated Athena-shaped result — every field quoted, NULL as an unquoted blank —
 run through the converter's own ``_frame`` and ``_write_excel`` in ONE container per run, so the

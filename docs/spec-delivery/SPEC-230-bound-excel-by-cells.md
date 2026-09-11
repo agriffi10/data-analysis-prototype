@@ -46,9 +46,11 @@ checks ran after deploy and were recorded when the spec closed.
 - **The spec's predicted production reading was wrong.** FR-005 expected 2,150 to 2,250 MB at the
   cap, from the local peak plus the offset another shape had measured. Production read 2,410,
   which is inside the model's 2,518. The gap between local and production is not a fixed offset,
-  and one shape's does not transfer to another, so the `e2e.md` row now states that principle
-  instead of a band. The closing PR corrected `rccommon.config`'s baseline docstring, which had
-  called that gap a fixed cost, and made the live row the test of any re-derivation.
+  and an offset measured on one input does not predict another, so the `e2e.md` row now states the
+  model's figure as the bound instead of a band. The closing PR also corrected `rccommon.config`'s
+  baseline docstring, which had called that gap a fixed cost, and put what validates a
+  re-derivation under Traps in `lambdas/info/planes/results-conversion.md`: a live conversion,
+  because the corpus guard's own figure fell 125 MiB short of production at the cap.
 - **No streaming writer.** xlsxwriter refuses `add_table()` in `constant_memory` mode, so that
   route means writing a writer by hand, and it would still need a cell cap, because time is spent
   per cell too. It is the follow-up if 4,100,000 cells proves too few.

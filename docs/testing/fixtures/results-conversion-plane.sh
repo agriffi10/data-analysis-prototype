@@ -140,7 +140,7 @@ cat <<'EYES'
   derived in rccommon.config from a measured model; the plane suite scales every measured shape
   to the largest input the caps admit, slowing its local rate by 5 (a measured 4.0). Compare
   Max Memory Used with that model for the input you converted — e2e.md section 4.3 carries the
-  one input worth converting for this, the largest the caps admit, with its expected figure. A
+  one input worth converting for this, the largest the caps admit, with the model's bound. A
   reading above the model is a finding against the constants, not a pass.
 EYES
 

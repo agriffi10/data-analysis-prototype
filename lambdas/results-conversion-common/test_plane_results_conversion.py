@@ -801,6 +801,10 @@ def test_every_measured_shape_fits_the_converter_at_the_largest_size_the_caps_ad
     This is the check the 1,048,575 x 15 one-character result would have failed: under a byte
     cap alone it scales to every row Excel holds and to 4.5 GB. Every failing shape is collected
     before the assertion, so the message names all of them.
+
+    Its figures are local, and at the one shape read in production they fell short of the
+    ``REPORT`` line, so passing here is not production headroom. The plane page's Traps say what
+    is.
     """
     failures = []
     for name, columns, csv, peak, rate in MEASURED_EXCEL_SHAPES:

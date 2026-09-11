@@ -1767,9 +1767,9 @@ one, which only a review caught. The anchor: the production run it rests on was 
 Athena's own history, to the byte, rather than approximated by a shape that looked similar. The
 cgroup slope moves by several percent run to run, so every constant is rounded up above the worst
 run and the 15% reserve stays. And one anchor does not transfer: the live conversion at the cap
-sat several times further above its local peak than the anchor had, well above the band predicted
-from it and inside the model, so the gap is not a fixed offset, and a re-derivation is validated
-by reading that live row again rather than by the anchor. The guard scales every measured shape to
+came in well above both the band predicted from the anchor and the corpus guard's own figure, and
+inside the model, so a re-derivation is validated by a live conversion as the plane page's Traps
+say, not by the anchor or by a green guard. The guard scales every measured shape to
 the largest input the caps admit, through the production predicate; under the byte cap alone the
 production shape fails it.
 

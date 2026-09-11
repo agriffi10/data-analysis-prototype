@@ -30,12 +30,10 @@ Attributes:
     header takes one. Declared here rather than in the converter because the cell cap below is
     derived from it: the per-row cost is paid on every admitted row.
   EXCEL_BASELINE_MB: The Excel path's fixed cost, in MiB as every ``_MB`` here is: the peak a
-    conversion of no cells would reach. It is the largest local fixed cost of any shape plus the
-    gap one production run showed over the same input run locally — the 490,000-row run's own
-    query, rebuilt to the byte — which comes to 249.2, rounded up to the next ten. That gap is not
-    a constant, so this is not a production measurement: the conversion at the cell cap sat
-    several times further above its local peak, and two production readings of different shapes
-    cannot say how much of a gap is fixed and how much is spent per cell.
+    conversion of no cells would reach. It is built from parts: the largest local fixed cost of
+    any shape, plus the gap in that same run between the 490,000-row production conversion and
+    its input rebuilt locally to the byte. That comes to 249.2, rounded up to the next ten. It is
+    therefore not a production measurement, and the gap it carries is not a fixed offset.
   EXCEL_PEAK_BYTES_PER_CELL: MEASURED peak bytes per cell for the Excel path, net of the per-row
     term. Excel's peak is set by CELLS, not bytes: polars hands xlsxwriter a Python copy of
     every cell and xlsxwriter stores every cell again before it writes, so a NULL — one byte of
@@ -79,11 +77,8 @@ Attributes:
     memory was measured on both architectures and agrees within 5% at matched sizes, while time
     under emulation is not used for anything. The cgroup slope moves by several percent from run
     to run, which is why the corpus is the maximum over every run and each constant sits above it.
-    The corpus is local, and production's peak sat further above its local twin at the cell cap
-    than at the 490,000-row shape, so no one offset fits both; the model bounded it there because
-    each term is an envelope over every shape, not a fit to one. So a re-derivation is not validated by the budget test
-    alone, but by reading the live conversion at the new cell cap in ``docs/testing/e2e.md``
-    against the model's figure.
+    The corpus is local, so a green guard over it is not production headroom; what validates a
+    re-derivation is under Traps in ``lambdas/info/planes/results-conversion.md``.
   MACHINE_TIMEOUT_SECONDS: The state machine's own ceiling, mirrored from the module's
     ``locals.tf`` because ASL cannot import Python. A test holds the two equal, and the timeout
     notification words this number rather than a sentence that can drift from it.

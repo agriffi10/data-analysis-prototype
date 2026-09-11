@@ -37,8 +37,10 @@ file was written was read from the Files listing, because of that refusal.
 expected 2,150 to 2,250, from the local peak of 2,078 to 2,163 MiB plus the 65 to 84 MiB gap
 measured at the 490,000 × 4 shape. Production read 2,410, which is 247 to 332 MiB over the local
 peak: production's peak was 11 to 16% above the local one here, against 7 to 10% there. So the gap
-is not a fixed runtime cost, and one shape's offset does not transfer to another. The two readings
-differ in shape as well as size, so they cannot say which of the two moved it.
+is not a fixed runtime cost, and an offset measured on one input does not predict another. The two
+readings differ in shape as well as size, so they cannot say which of the two moved it. The corpus
+guard's own figure for this input — the baseline plus the local per-cell cost — is 2,284.8, which
+is 125 MiB under the reading, so a green guard is not production headroom.
 
 The model held because each of its terms is an envelope over all 23 shapes, set by shapes other
 than this one. It charges this shape 580 bytes a cell (480, plus a quarter of the 400-byte row)
@@ -48,8 +50,9 @@ here — 8 to 10% over local and only 1 to 3% under the model's 580 — and the 
 rest of the 108 MiB margin. Two readings cannot separate the fixed cost from the per-cell one, so
 that split is an inference, not a measurement. The 15% reserve below 3,008 MB is untouched. This
 input is where the model peaks, so it is the reading that bears on the cap; how production scales
-the other shapes' cost is unmeasured. `rccommon.config`'s baseline and `MEASURED_ON` now say so,
-since they had described the gap as a fixed cost. The time agreed with the spec: 61.4 s is 3.8
+the other shapes' cost is unmeasured. `rccommon.config`'s baseline had described the gap as a fixed
+cost and now does not, and what this means for a re-derivation is under Traps in
+`lambdas/info/planes/results-conversion.md`. The time agreed with the spec: 61.4 s is 3.8
 times the local 16 s, against the 4.0 measured at 490,000 × 4.
 
 **Where this went.** `owed.md`'s two defects-table rows for the Excel cap and the missing separator
