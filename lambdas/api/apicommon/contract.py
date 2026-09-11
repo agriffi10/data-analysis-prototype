@@ -309,7 +309,8 @@ class ListObjectsQuery(TypedDict):
     Attributes:
       spaceKind: Which sort of space.
       spaceName: The space's name.
-      prefix: The folder to list, relative to the space root. Absent means the root.
+      prefix: The folder to list, as a full prefix starting with the space root. Absent means the
+        root; a prefix that does not start with it is refused.
       nextToken: A continuation token from a previous page.
     """
 
@@ -584,7 +585,7 @@ class FreeNameRequest(TypedDict):
 
     Attributes:
       space: The space.
-      prefix: The folder to search, relative to the space root.
+      prefix: The folder to search, as a full prefix starting with the space root.
       baseName: The original leaf name a copy is being made of.
       kind: Whether the name is for a file or a folder — a folder has no extension to preserve.
     """

@@ -115,7 +115,8 @@ def _prefix_exists(context: RequestContext, space: ResolvedSpace) -> dict[str, A
       ``{"exists": bool}``.
 
     Raises:
-      ApiError: ``AccessDenied`` when the prefix escapes the space root.
+      ApiError: ``AccessDenied`` when the prefix is not inside the space root, a relative prefix
+        included.
       IdentityUnavailableError: If the caller's role cannot be assumed.
     """
     prefix = protected.contained_prefix(space, context.query.get("key", ""))

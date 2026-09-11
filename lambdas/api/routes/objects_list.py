@@ -34,8 +34,8 @@ def list_objects(context: RequestContext) -> dict[str, Any]:
       The page's rows and a continuation token, or None on the last page.
 
     Raises:
-      ApiError: ``AccessDenied`` when the claims do not authorize the space, or the prefix
-        escapes its root.
+      ApiError: ``AccessDenied`` when the claims do not authorize the space, or the prefix is
+        not inside its root, a relative prefix included.
       IdentityUnavailableError: If the caller's role cannot be assumed.
     """
     space = _objects.space_from_query(context)

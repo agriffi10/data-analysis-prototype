@@ -35,9 +35,9 @@ def free_name(context: RequestContext) -> dict[str, Any]:
       The free name, without its prefix.
 
     Raises:
-      ApiError: ``AccessDenied`` on an unauthorized space, an escaping prefix, or a base name that
-        would compose a key outside the space; ``Conflict`` carrying ``attempts`` when every
-        candidate is taken.
+      ApiError: ``AccessDenied`` on an unauthorized space, a prefix not inside the space root (a
+        relative one included), or a base name that would compose a key outside the space;
+        ``Conflict`` carrying ``attempts`` when every candidate is taken.
       IdentityUnavailableError: If the caller's role cannot be assumed.
     """
     body = context.body if isinstance(context.body, dict) else {}

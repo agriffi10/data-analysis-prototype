@@ -6,14 +6,15 @@ import {SpaceSelect} from '../../components/SpaceSelect';
 import {useFeature} from '../feature-flags';
 import {normalizeResultsName, RESULTS_FORMATS} from './catalog.format';
 import type {QuerySpace, ResultsFormat} from './catalog.types';
+import type {SaveResultsInitial} from './useSaveResults';
 import {FIELD_LABEL, SECTION_CAPTION} from '../../components/fieldStyles';
 import {DIALOG_PANEL, DIALOG_TITLE} from '../../components/dialogChrome';
 
 type Props = {
   /** The destination spaces the user can save into (personal first, then shared). */
   spaces: QuerySpace[];
-  /** Suggested base name (without extension). */
-  defaultName: string;
+  /** What the fields open with, read once at mount: the suggested name, or a cancelled overwrite's. */
+  initial: SaveResultsInitial;
   isBusy?: boolean;
   /**
    * `destPrefix` is a full in-space key prefix (ends with "/"); `filename` is the leaf, normalized
@@ -30,6 +31,15 @@ type Props = {
 const FORMAT_ORDER = Object.keys(RESULTS_FORMATS) as ResultsFormat[];
 
 /**
+ * The space a restored destination sits in, found by bucket and root because the destination
+ * carries no space id. Roots end in `/`, so `finance/` cannot claim a key under `finance2/`.
+ */
+function spaceHolding(spaces: QuerySpace[], destination: SaveResultsInitial['destination']): QuerySpace | undefined {
+  if (!destination) return undefined;
+  return spaces.find((s) => s.bucket === destination.bucket && destination.prefix.startsWith(s.rootPrefix));
+}
+
+/**
  * Destination-folder picker, a validated file-name field and a format choice, for saving a
  * result set into a space.
  *
@@ -40,11 +50,16 @@ const FORMAT_ORDER = Object.keys(RESULTS_FORMATS) as ResultsFormat[];
  * When the user belongs to shared spaces, a space selector chooses which space to browse; the
  * picker remounts per space (keyed) so its breadcrumb/browse state resets cleanly. Save is
  * disabled until a destination is chosen and the name is valid.
+ *
+ * Reopened after a cancelled overwrite question, it starts from that question's name, format,
+ * space and folder rather than its defaults, and the picker opens at that folder whenever that
+ * space is the one selected.
  */
-export function SaveResultsDialog({spaces, defaultName, isBusy = false, onSave, onCancel}: Props) {
-  const [name, setName] = useState(defaultName);
-  const [format, setFormat] = useState<ResultsFormat>('csv');
-  const [spaceId, setSpaceId] = useState(spaces[0]?.id ?? '');
+export function SaveResultsDialog({spaces, initial, isBusy = false, onSave, onCancel}: Props) {
+  const [name, setName] = useState(initial.name);
+  const [format, setFormat] = useState<ResultsFormat>(initial.format);
+  const restored = spaceHolding(spaces, initial.destination);
+  const [spaceId, setSpaceId] = useState(restored?.id ?? spaces[0]?.id ?? '');
   const inputRef = useRef<HTMLInputElement>(null);
   // Off, the field is ABSENT rather than disabled, and the dialog is the one it was before this
   // spec: `format` stays 'csv' and the hook takes the copy path it always took.
@@ -145,6 +160,7 @@ export function SaveResultsDialog({spaces, defaultName, isBusy = false, onSave, 
         rootPrefix={space.rootPrefix}
         rootLabel={space.rootLabel}
         currentPrefix={space.rootPrefix}
+        startPrefix={space.id === restored?.id ? initial.destination?.prefix : undefined}
         isBusy={isBusy}
         allowCurrentParent
         confirmDisabled={!nameValid}

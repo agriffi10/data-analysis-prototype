@@ -17,6 +17,7 @@ type BaseProps = {
   rootPrefix: string; // navigation floor (source space root)
   rootLabel?: string; // label for the root crumb (hides the username segment)
   currentPrefix: string; // the items' current parent
+  startPrefix?: string; // the folder to open at, inside `rootPrefix`; the root when omitted
   isBusy?: boolean;
   // Connections the user can target (feedback 2026-06-30). When more than one is
   // given, a connection selector is shown and the destination can be another
@@ -108,6 +109,7 @@ export function DestinationPicker({
   rootPrefix,
   rootLabel,
   currentPrefix,
+  startPrefix,
   isBusy = false,
   destinations,
   allowCurrentParent = false,
@@ -145,7 +147,7 @@ export function DestinationPicker({
   const queryEnabled = useFeature('query');
   const lockedFolders = queryEnabled ? PICKER_LOCKED_FOLDERS : [...PICKER_LOCKED_FOLDERS, SAVED_QUERIES_FOLDER];
 
-  const [browsePrefix, setBrowsePrefix] = useState(initial.rootPrefix);
+  const [browsePrefix, setBrowsePrefix] = useState(startPrefix ?? initial.rootPrefix);
   // Selectable-files mode only. Null = the browsed folder is the target.
   const [selectedFileKey, setSelectedFileKey] = useState<string | null>(null);
   const {folders, files, isLoading, error, hasMore, loadMore, isLoadingMore} = useFileBrowser(
