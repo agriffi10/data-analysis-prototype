@@ -1,7 +1,7 @@
 # Spec: Bound Excel by Cells, Because the Converter's Memory Binds per Cell and Not per Byte
 
 **ID:** SPEC-230
-**Status:** In Progress
+**Status:** Completed
 **Last Updated:** 2026-09-10
 **Depends On:** SPEC-222
 
@@ -379,6 +379,13 @@ production validation.
     input; locally it peaks at 2,078 to 2,163 MiB across runs, so about 2,150 to 2,250 is expected in
     production. Its Duration must be under 120 s. Both figures go into `sessions.md`. Anything
     over the model is a finding against the constants, not a pass.
+
+    > **Run after deploy: 2,410 MiB in 61.4 s.** It is inside the model and the time bound, and
+    > **above the expected band**, which was wrong. Production's gap over the local peak was 247 to
+    > 332 MiB here against 65 to 84 at the 490,000 × 4 shape, so it grows with the input and a small
+    > shape's offset cannot predict a large one. The model's own figure is the only prediction that
+    > held, 108 MiB above the reading. The run is in `sessions.md`, and the principle replaced the
+    > band in `e2e.md`.
 - [ ] The existing §4.3 row-limit row's note that "a wide million-row result comes back
   `results_too_large`" is corrected: under 64 MiB it now comes back as `excel_row_limit` (over
   1,048,575 rows) or `excel_cell_limit` (under that). Over 64 MiB it is still `results_too_large`.

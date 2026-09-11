@@ -10,6 +10,53 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-10, second sitting (SPEC-230's three Excel rows in `e2e.md` §4.3)
+
+**Browser and CLI.** `origin/main` at **`c4ea4413`** (#718), and the converter running the image
+tagged with that commit. Signed in as **agriffith** in Andrew's own Chrome through the
+Claude-in-Chrome extension, at 900 px, which none of these checks depends on. CLI identity
+`arn:aws:iam::696000197480:user/tofu-deploy-user`, **reads only**: `filter-log-events` on the
+converter's and notify-failure's log groups, and `get-function`. **No AWS write was issued from the
+CLI**; the portal's own routes wrote two files (see *Left behind*). Log times are UTC, which was
+already 11 September.
+
+**Instruments.** `e2e.md` §1's `visibilityState` override after every full load. Each query was
+typed through the extension and read back from the editor's rendered lines before it ran. Whether a
+file was written was read from the Files listing, because this CLI identity is refused `HeadObject`
+in the user-space bucket.
+
+| Row | Result |
+|---|---|
+| **The Excel cell limit**, the query that ran the converter out of time, saved as Excel | **PASS.** Submitted 01:04:44; the converter downloaded 62,914,590 bytes and logged `refused excel_cell_limit` at 01:04:55, eleven seconds after the submit. `REPORT`: **3,093 ms, 251 MB**, on a cold start. The notification, verbatim: *"Couldn't save the query results as Excel: the results have 1,048,575 rows and 15 columns (15,728,625 cells), which is more than the 4,100,000 cells an Excel file can be made from here, so "spec230-cell-limit.xlsx" was not written. Please save them as Parquet instead, or narrow the query."* notify-failure logged `reason=excel_cell_limit`, and no `.xlsx` was written. |
+| **The same query saved as Parquet** | **PASS.** *"Saved 1,048,575 rows as Parquet to "spec230-cell-limit.parquet"."* `REPORT`: 2,152 ms, 521 MB, and 13,492 bytes written. |
+| **The largest Excel conversion the cell cap admits** | **PASS on both bounds.** *"Saved 1,025,000 rows as Excel to "spec230-at-cap.xlsx"."* The download was 65,600,020 bytes, the fixture's figure to the byte. `REPORT`: **Duration 61,412 ms** against 120 s, and **Max Memory Used 2,410 MB** against the model's 2,518. The workbook is 28,374,149 bytes, listed as 27.1 MB. |
+| **The Excel row limit** | **PASS.** *"Couldn't save the query results as Excel: the results have 1,100,000 rows, which is more than a spreadsheet can hold, so "spec230-row-limit.xlsx" was not written. Please save them as Parquet instead, or narrow the query."* — with the separators the sweep above found missing. The converter downloaded 4,400,004 bytes and refused in **305 ms at 159 MB**, on a second instance, because the at-cap conversion still held the first. No `.xlsx` was written. |
+
+**The at-cap reading was above the band the spec predicted, and inside the model.** The spec
+expected 2,150 to 2,250, from the local peak of 2,078 to 2,163 MiB plus the 65 to 84 MiB gap
+measured at the 490,000 × 4 shape. Production read 2,410, which is 247 to 332 MiB over the local
+peak. So the gap grows with the input rather than being a fixed runtime cost, and a small shape's
+offset cannot predict a large one: production's peak was 11 to 16% above the local one here,
+against 7 to 10% at 490,000 × 4. The model absorbed that because its per-cell and per-row figures are the highest of
+five runs, rounded up. It sits 108 MiB above the reading, and the 15% reserve below 3,008 MB is
+untouched. This input is where the model peaks, so it is the reading that bears on the cap. Other
+shapes sit further below the budget in the model, but how production scales their cost is
+unmeasured. The time agreed with the spec: 61.4 s is 3.8 times the local 16 s, against the 4.0
+measured at 490,000 × 4.
+
+**Where this went.** `owed.md`'s two defects-table rows for the Excel cap and the missing separator
+are closed. The SPEC-222 throughput row names this `REPORT` line as the reading that closes it, but
+that row belongs to the session recording the throughput measurements, so it is left open for that
+session, with the reading here. The `Runtime.OutOfMemory` row stays owed, because the cap exists to
+make that case unreachable.
+
+### Left behind — created by this session, not deleted
+
+Permanently deleting data is left to Andrew: `agriffith/spec230-at-cap.xlsx` (27.1 MB) and
+`agriffith/spec230-cell-limit.parquet` (13.2 KB). Neither refusal wrote anything.
+
+---
+
 ## Live-check session — 2026-09-10 (every owed row one signed-in session and the read-only CLI could reach, archive excluded)
 
 **Scope.** Andrew asked for every owed live check except the archive plane's, which he has
