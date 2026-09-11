@@ -107,6 +107,14 @@ all_prs() {
 # main_green  0 green · 1 RED · 2 building or unsettled · 3 the check could not run.
 #             Only 0 lets the queue move, so a check that could not run is never read as
 #             evidence that it passed.
+#
+# ONLY THE RUNS A PUSH TO MAIN TRIGGERED ARE MAIN'S BUILD. Dependabot's own jobs (event
+# `dynamic`), a manual `workflow_dispatch` and a `schedule` run all record main's head sha too,
+# and none of them is main's build. Counting them turned one failed Dependabot job into a RED
+# main that only a merge could clear — the head moves on nothing else — while every agent that
+# obeys this queue waited for a merge the queue itself was refusing. The API filters by event,
+# not the `--jq`, so the limit counts push runs alone and a burst of Dependabot jobs cannot push
+# main's own runs out of the window.
 main_green() {
   [ -x "$Q/main-green" ] && { "$Q/main-green"; return $?; }
   local sha runs rsha status conclusion any=0 building=0 red=0
@@ -114,7 +122,7 @@ main_green() {
   # several worktrees hitting FETCH_HEAD at once would race on.
   sha="$( cd "$REPO" && git ls-remote origin "refs/heads/$MAIN" 2>/dev/null | cut -f1 )" || return 3
   [ -n "$sha" ] || return 3
-  runs="$( cd "$REPO" && gh run list --branch "$MAIN" --limit 30 \
+  runs="$( cd "$REPO" && gh run list --branch "$MAIN" --event push --limit 30 \
              --json headSha,status,conclusion \
              --jq '.[] | "\(.headSha) \(.status) \(.conclusion)"' )" || return 3
   while read -r rsha status conclusion; do
@@ -124,8 +132,9 @@ main_green() {
     case "$conclusion" in success|skipped|neutral) ;; *) red=1 ;; esac
   done <<< "$runs"
   if [ "$any" -eq 0 ]; then
-    # No run yet for main's head. Either CI has not started, or this repo has none — and those
-    # need opposite answers, so ask which it is rather than guessing. One `ls` per extension:
+    # No push run yet for main's head — a Dependabot job beside it does not count, so a head with
+    # only those still waits for its own. Either CI has not started, or this repo has none — and
+    # those need opposite answers, so ask which it is rather than guessing. One `ls` per extension:
     # `ls a b` exits non-zero when EITHER operand is missing, so a single call testing both
     # would answer "no workflows" for the repo that has only one of them.
     ls "$REPO"/.github/workflows/*.yml  >/dev/null 2>&1 && return 2

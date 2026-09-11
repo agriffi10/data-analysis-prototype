@@ -303,9 +303,9 @@ jobs:
       # tofu download it has no supply-chain surface and no network dependency, so a yanked
       # wheel or a registry outage cannot redden it.
       #
-      # The PR-queue corpus is hermetic in the Python sense and needs `git` and `sh` besides,
-      # which are on the runner rather than installed here. That is a weaker claim than the other
-      # four make, so it is stated rather than folded in.
+      # The PR-queue corpus is hermetic in the Python sense and needs `git`, `sh`, `bash` and `jq`
+      # besides, which are on the runner rather than installed here. That is a weaker claim than
+      # the other four make, so it is stated rather than folded in.
       #
       # RESTORING THE SIX DISABLED STEPS MEANS RESTORING THESE TWO AS WELL. `Lint (ruff)`,
       # `Typecheck (mypy)` and `Test (pytest)` all need the install; the Terraform tests inside
@@ -360,6 +360,8 @@ jobs:
       # writes, in both directions, then breaks each of the hook's checks in turn -- every plant
       # naming the cases it must break -- to prove no fixture is vacuous. It cannot cover one
       # thing: CI is GNU grep, sed and awk, and the hook only ever runs on a developer's machine.
+      # The queue's main-green check is corpused here too, through a fake `gh` that runs the
+      # queue's real `--jq` with the runner's `jq` -- which is why that tool is named above.
       - name: Prove the PR queue's pre-push hook still refuses
         run: python3 scripts/pr-queue/pre_push_test.py
 

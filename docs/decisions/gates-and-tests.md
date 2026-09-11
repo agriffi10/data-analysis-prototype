@@ -20,6 +20,7 @@ entry you need, not the file.**
 - [A parity fixture becomes a floor once the cutover it guarded is closed (2026-09-05)](#a-parity-fixture-becomes-a-floor-once-the-cutover-it-guarded-is-closed-2026-09-05)
 - [A citation is a promise, and the ratchet is exact in both directions (2026-09-08)](#a-citation-is-a-promise-and-the-ratchet-is-exact-in-both-directions-2026-09-08)
 - [The hook refuses a stale base, and the doc gate a spec without the template's shape (2026-09-08)](#the-hook-refuses-a-stale-base-and-the-doc-gate-a-spec-without-the-templates-shape-2026-09-08)
+- [The queue reads `main`'s build from its push runs, and nothing else that records its sha (2026-09-10)](#the-queue-reads-mains-build-from-its-push-runs-and-nothing-else-that-records-its-sha-2026-09-10)
 
 ## Fences
 
@@ -562,3 +563,27 @@ same hook through real `git push` invocations, and `install-test.sh` the install
 in CI. Planting the unanchored-date mutation reddened nothing, because an `_ok` case looked only for
 "problem(s)" and a warning prints "warning(s)": the harness now reads either as broken silence.
 
+
+## The queue reads `main`'s build from its push runs, and nothing else that records its sha (2026-09-10)
+
+**What happened.** After a merge, Dependabot's security-update job ran against `main`'s head, and
+failed: the update was not possible, because another package pinned the vulnerable version. Every
+deploy of that head was green. The queue's `main-green` counted every Actions run on the head sha,
+so it answered `main IS RED` to every session — and the only thing that moves the head is a merge,
+which the queue refuses while `main` is red. No re-run could succeed while the conflict stood. The
+next PR had to be pushed past the hook with `--no-verify` to break it.
+
+**The rule.** `main`'s build is the runs a push to `main` triggers. A Dependabot job (event
+`dynamic`), a manual `workflow_dispatch` and a scheduled scan record the same sha and are not it.
+The filter is the API's `--event push`, not the `--jq`: filtered client-side, `--limit 30` counts
+the Dependabot jobs too, and a burst of them after a merge pushes the head's own runs out of the
+window, which reads as "not built yet" for ever. A head with only non-push runs still waits — even
+a manual dispatch that recovers a push event GitHub dropped, which is the rule's cost: that head
+waits until a human installs a temporary `main-green` override (`PROTOCOL.md` says how).
+
+**What generalises.** A gate that blocks until X is a deadlock when X can only be reached through
+the gate, so a verdict the gate itself makes permanent has to be ruled out, not waited out. And a
+check keyed on a commit sha inherits every bot that records a run against that sha — the
+population (the fence above) is defined by the trigger, never by the sha. `pre_push_test.py`
+carries the incident as a case beside one where a failed push run still reads RED, drives the
+check through a fake `gh` that runs the queue's real `--jq`, and plants each of its checks.
