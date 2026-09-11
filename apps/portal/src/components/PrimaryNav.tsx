@@ -98,6 +98,11 @@ export type PrimaryNavProps = {
  * `hidden` tab is still in the accessibility tree, so it would remain announced and focusable
  * for a feature the environment says is not there.
  *
+ * **The words are the navigation; the icons wait for `desktop`.** Between `tablet` and `desktop`
+ * the bar cannot hold every tab's icon beside the named controls, and a label never wraps — a
+ * two-line tab in a one-line bar is the failure, so a bar that is short of room should overflow
+ * where a width sweep will see it rather than wrap where it looks almost right.
+ *
  * @example
  * <PrimaryNav isPathEnabled={(to) => !hidden.has(to)} />
  */
@@ -112,7 +117,7 @@ export function PrimaryNav({isPathEnabled}: PrimaryNavProps) {
           to={tab.to}
           className={({isActive}) =>
             cx(
-              'flex h-full items-center gap-2 border-b-2 px-3 text-base font-medium',
+              'flex h-full items-center gap-2 whitespace-nowrap border-b-2 px-3 text-base font-medium',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
               isActive ? 'border-accent text-accent-text' : 'border-transparent text-text-2 hover:text-text'
             )
@@ -122,7 +127,7 @@ export function PrimaryNav({isPathEnabled}: PrimaryNavProps) {
             fill="none"
             stroke="currentColor"
             strokeWidth="2"
-            className="h-4 w-4 flex-none"
+            className="hidden h-4 w-4 flex-none desktop:block"
             aria-hidden="true">
             {tab.icon}
           </svg>

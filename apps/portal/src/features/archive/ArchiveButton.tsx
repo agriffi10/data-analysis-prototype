@@ -1,7 +1,8 @@
 import {Button} from '../../components/Button';
+import {TOOLBAR_ACTION_ICON, TOOLBAR_ACTION_LABEL} from '../../components/toolbarAction';
 
 /** A box being closed and put away — stored, not thrown out. Deliberately not the trash glyph. */
-function ArchiveIcon() {
+function ArchiveIcon({className = 'h-[15px] w-[15px]'}: {className?: string}) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -10,7 +11,7 @@ function ArchiveIcon() {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="h-[15px] w-[15px]"
+      className={className}
       aria-hidden="true">
       <rect
         x="3"
@@ -36,7 +37,8 @@ type Props = {
   /** In flight, or another operation is running. A busy control is not a refusal. */
   disabled?: boolean;
   /**
-   * `toolbar` — icon plus a label from tablet up, like Copy / Move / Delete beside it.
+   * `toolbar` — icon-only on mobile, the label alone at tablet and both at desktop, like
+   * Copy / Move / Delete beside it.
    * `panel` — full width and always labelled, like the details panels' Rename.
    */
   placement?: 'toolbar' | 'panel';
@@ -75,13 +77,13 @@ export function ArchiveButton({onClick, disabledReason, disabled = false, placem
     <Button
       variant="ghost"
       size="sm"
-      className="gap-1.5 !h-9 !px-2.5 tablet:!h-8 tablet:!px-3"
+      className="gap-1.5 !h-9 !px-2.5 tablet:!h-8 tablet:!px-2 desktop:!px-3"
       onClick={onClick}
       disabled={disabled}
       disabledReason={disabledReason}
       aria-label={label}>
-      <ArchiveIcon />
-      <span className="hidden tablet:inline">Archive</span>
+      <ArchiveIcon className={TOOLBAR_ACTION_ICON} />
+      <span className={TOOLBAR_ACTION_LABEL}>Archive</span>
     </Button>
   );
 }

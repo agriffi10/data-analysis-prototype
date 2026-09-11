@@ -81,16 +81,11 @@ export function Header() {
           </button>
         )}
 
-        {/* THE WORDS ARE THE FIRST THING TO GO, and they go until `desktop`. Measured in a
-            browser rather than reasoned about: the signed-in control row is 361px against
-            main's 151, and between 900 and 1023 the wordmark wrapped to a second line inside a
-            one-line bar — a `tablet:` threshold fixed the phone and left that band broken,
-            which is the width an ordinary laptop and a half-screen window sit at. The tab
-            strip outranks the words (it is the navigation) and so do the control labels (they
-            are the point of the change), so the words wait for the width that holds all three.
-            The square still identifies the app and the nav drawer names it in full below
-            `tablet`. Signed out there is no hamburger, no tab strip and no user zone, so they
-            stay at every width. */}
+        {/* The words wait for `desktop`: at `tablet` the tab strip and the three control labels
+            switch on together, so the band just above it is the tightest in the layout, not the
+            loosest. The username and the tab icons wait with them, for the same reason. The
+            square still identifies the app, and the nav drawer names it below `tablet`. Signed
+            out there is no tab strip and no user zone, so the words stay at every width. */}
         <BrandMark wordmarkClassName={authed ? 'hidden desktop:inline' : undefined} />
 
         {authed && (

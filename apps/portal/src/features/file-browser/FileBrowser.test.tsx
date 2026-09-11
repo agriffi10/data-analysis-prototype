@@ -948,3 +948,45 @@ describe('FileBrowser — send to… (SPEC-167)', () => {
     expect(screen.getByRole('checkbox', {name: 'Select report.csv'})).toBeChecked();
   });
 });
+
+// The toolbar's actions are written out once per button across two features, and at `tablet`
+// their padding, the bar's gap and the missing glyphs are the band's whole budget — a copy that
+// drifts spends it where nothing shows. jsdom loads no Tailwind, so the classes are what can be
+// asserted, and exactly, since an added class is as able to undo the band as a removed one.
+describe('the selection toolbar across the tablet band', () => {
+  const WORDS: Record<string, string> = {
+    'Check data quality of the selected item': 'Check data quality',
+    'Send to another user': 'Send to…',
+    'Archive selected items': 'Archive',
+    'Copy selected items': 'Copy',
+    'Move selected items': 'Move',
+    'Delete selected items': 'Delete'
+  };
+
+  it('gives every action one shape, and truncates the count only from tablet up', async () => {
+    renderBrowser();
+    const bar = (await screen.findByRole('button', {name: 'Delete selected items'})).parentElement as HTMLElement;
+
+    const actions = within(bar).getAllByRole('button');
+    expect(actions.map((a) => a.getAttribute('aria-label'))).toEqual(Object.keys(WORDS));
+    for (const action of actions) {
+      expect([...action.classList].filter((c) => /^(tablet|desktop):!px-/.test(c))).toEqual([
+        'tablet:!px-2',
+        'desktop:!px-3'
+      ]);
+      // The glyph is the whole control below `tablet`, so a `hidden` here empties it on a phone.
+      expect(action.querySelector('svg')).toHaveAttribute('class', 'h-[15px] w-[15px] tablet:hidden desktop:block');
+      expect(within(action).getByText(WORDS[action.getAttribute('aria-label') ?? ''])).toHaveAttribute(
+        'class',
+        'hidden whitespace-nowrap tablet:inline'
+      );
+    }
+    expect([...bar.classList].filter((c) => /^(tablet:|desktop:)?gap-/.test(c))).toEqual(['gap-2', 'desktop:gap-3']);
+
+    // Below `tablet` a truncated "128 selected" reads as "12…", so the count wraps there instead.
+    expect(within(bar).getByText('Select all')).toHaveAttribute(
+      'class',
+      'text-sm font-semibold tablet:min-w-0 tablet:truncate text-text-3'
+    );
+  });
+});

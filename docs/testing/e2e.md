@@ -949,6 +949,22 @@ the name field, and the primary button (**Save here** / **Convert and save**) ke
 Start-quality-check dialogs, since the button is `DestinationPicker`'s. jsdom measures no geometry
 at all, so this is the only place the layout is checked.
 
+**The top bar and the Files selection toolbar, across the `tablet` band.** Both switch their words
+on at 900 px, which makes the band just above it the tightest in the layout. On `/files`, signed
+in and foregrounded, with a classic scrollbar showing (it takes 15 px of `clientWidth`, and an
+overlay one hides the worst case), at `innerWidth` **900, 930, 959, 1024 and 1299**:
+`document.documentElement.scrollWidth` equals `clientWidth`; the **account button's** right edge is
+within `clientWidth`; no tab label and no toolbar label sits on two lines; and **Delete** ends inside
+the toolbar's border. Then at **1300**: the tab icons, the toolbar glyphs and the username are back.
+And at **375** (the device toolbar — Chrome's window stops near 606) with a three-digit selection:
+the toolbar is glyph-only and the count reads whole, on two lines if it must, never as "12…".
+Checking only the page's `scrollWidth` is not enough — a row that clips passes it. *Quicker, and
+not a discharge:* a same-origin `srcdoc` iframe of the page's own `#root` and stylesheets, set to
+each width inside one signed-in tab, answers the same questions without a resize or a foreground —
+its media queries follow the iframe's width — and it reproduced the 2026-09-10 sweep's 945 px page in
+an 885 px `clientWidth` exactly. Mount-gated markup is whatever the tab rendered, so below 900 it
+shows the desktop file table where the app mounts a card list.
+
 - The **sticky pinned column block** — pin, scroll right, confirm it stays put and its background is
   opaque over the scrolling cells.
 - A column **⌄** menu near the grid's right edge is **not clipped**.
@@ -1020,7 +1036,7 @@ split is why most of this is owed rather than run — see `owed.md`.
 
 | Do | Expect |
 |---|---|
-| At desktop width, signed in | Open the **kebab** beside your name: **Give feedback** is the first item, with an icon, above a separator and **Sign out**. Help and the theme are on the bar, not in here. |
+| At 1300 px or wider, signed in | Open the **kebab** beside your name (below 1300 the name is withheld and the kebab sits beside the avatar): **Give feedback** is the first item, with an icon, above a separator and **Sign out**. Help and the theme are on the bar, not in here. |
 | Narrow to 375px | The bar's three words (Help, Notifications, Theme) go and their icons stay; the menu is unchanged — **Give feedback** is in the same place. The ☰ drawer carries no copy of it. |
 | Open it | A dialog with **no category preselected**, an empty message, and a line naming the page you were on. **Send** is disabled. |
 | Choose a category, leave the message empty | **Send** stays disabled. Type a space or two — still disabled. |
