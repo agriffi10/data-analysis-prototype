@@ -216,6 +216,13 @@ resource "aws_iam_role_policy_attachment" "deploy_control_plane_dlq_drain" {
 # The SQS statement names BOTH `-logs` and `-logs.fifo`: a FIFO queue's name MUST end in
 # `.fifo`, so that rename was a DESTROY-AND-CREATE and one apply needed both. The old ARN stays
 # — re-adding it is exactly the grant a rollback would need. README.md.
+#
+# The backlog alarm's six CloudWatch actions all scope to the ALARM resource type — measured
+# allowed under a service-wide ARN and read off the Service Reference — so its statement names
+# the alarm's name pattern and no wildcard is forced.
+#
+# The description below is stale (the queue is FIFO) and stays stale: `description` is ForceNew
+# on aws_iam_policy, so editing it REPLACES the policy the deploy role is applying with.
 resource "aws_iam_policy" "deploy_observability" {
   name        = "${var.project_name}-deploy-observability"
   description = "Deploy-role grants for the structured-logging foundation (one standard SQS logs queue + one scheduled sweep Lambda, its execution role, log group and EventBridge rule), kept off the role's inline-policy aggregate limit."

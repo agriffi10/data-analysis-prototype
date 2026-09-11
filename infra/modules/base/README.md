@@ -116,6 +116,9 @@ The recurring non-scopable actions, each isolated in its own wildcard statement:
 - **An IAM policy document must be printable ASCII.** The verification policy's first version carried
   `"//"` comment keys containing em dashes and **the apply rejected it at `CreatePolicy`** — not
   something `tofu validate` or the plan can see. **Rationale goes in the `.tf`, never the `.tftpl`.**
+- **A managed policy's `description` is ForceNew.** Editing it plans a **replacement** of the
+  policy the deploy role is applying with, so a stale description is left stale rather than
+  corrected in passing — observability's still calls the logs queue "standard".
 - **The archive bucket is scoped by EXACT NAME, not by the plane's name pattern.**
   `{project}-prod-archive` has no trailing segment, so it does **not** match `{project}-*-archive-*`
   at all — **a pattern-scoped grant would render, apply, and then fail the bucket create with an
@@ -156,6 +159,14 @@ The recurring non-scopable actions, each isolated in its own wildcard statement:
   **schedule**, not a managed poll loop — **idle long-polling was the bulk of this account's SQS
   request volume** — and the absence of the grant is what keeps a future "just add an event-source
   mapping" from applying cleanly **without a deliberate decision**.
+- **No SNS grant beside the logs backlog alarm.** The alarm carries **no action** by decision: its
+  state is read in the console and by a session's `describe-alarms`, not pushed anywhere. The
+  absence stops this role creating a topic; it does **not** stop an action pointed at something
+  that already exists — a Lambda is a valid alarm action, and this policy already holds
+  `lambda:AddPermission` on the sweep, so "invoke the sweep on a backlog" would apply with no new
+  grant. So the absence is a decision recorded here, not a fence. The alarm's own six actions scope
+  to the `alarm` resource type, measured and checked against the Service Reference, so the
+  statement names the backlog alarm's name pattern rather than a wildcard.
 - **No SQS resource grants on the DLQ-drain policy.** The drain **creates no queue** — it reads the
   four request DLQs the plane modules already own, whose ARNs reach it through Terraform state, so the
   deploy role makes no SQS API call for them. The drain's **runtime** access is a grant on its

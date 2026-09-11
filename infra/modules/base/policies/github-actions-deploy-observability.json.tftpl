@@ -104,6 +104,19 @@
         "events:UntagResource"
       ],
       "Resource": "arn:aws:events:${aws_region}:${account_id}:rule/${project_name}-*-log-sweep-schedule"
+    },
+    {
+      "Sid": "LogsBacklogAlarmManage",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:PutMetricAlarm",
+        "cloudwatch:DescribeAlarms",
+        "cloudwatch:DeleteAlarms",
+        "cloudwatch:ListTagsForResource",
+        "cloudwatch:TagResource",
+        "cloudwatch:UntagResource"
+      ],
+      "Resource": "arn:aws:cloudwatch:${aws_region}:${account_id}:alarm:${project_name}-*-logs-backlog"
     }
   ]
 }
