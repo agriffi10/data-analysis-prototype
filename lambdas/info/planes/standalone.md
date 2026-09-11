@@ -86,7 +86,12 @@ Grouped by service a wave took ten per backlogged service for two rewrites of ob
 all day: about 220 waves fit in the 240 s left after the reserve at that day's 16 MB, ~135 at
 32 MB — **13,200 and 8,200 an hour per service**, the second below one session's peak. So no
 `MAX_WAVES`, and no faster schedule (at most 1.5x from the timeout-to-interval ratio, eroding the
-same way, and reversing a user decision), keeps up with two sessions a day.
+same way, and reversing a user decision), keeps up with two sessions a day. The per-wave spans
+those costs came from are gone (*The emitter question*, below); a re-fit reads the summary's
+`rounds`, `receive_ms`, `delete_ms` and `waves` and each destination's `append_ms`, `appends` and
+`bytes` instead — a sum per sweep rather than a duration per call, which is enough to fit cost
+against size across sweeps, and gives every sweep's whole-wave time as the three timers over
+`waves`.
 
 **The producers now put every event in its own group** (`cpcommon.observability._message_group`),
 so a wave takes up to `MAX_MESSAGES` = 1,000 from any mix of services for about the same few
@@ -120,9 +125,8 @@ the first version of that hedge reached only the CloudWatch line while the struc
 the account that carries `reason` and gets filtered on — still asserted the claim it softened.
 
 **A caught-up sweep finishes on the first wave of arrivals alone, so a session cannot run it to
-the cap.** Each wave finds what arrived during the one before — the session's traffic, and the
-sweep's own events, which the library sends every ten finished spans or every second rather than
-at the end — so a sweep that waited for an empty receive would take every wave it was allowed for
+the cap.** Each wave finds what arrived during the one before — the session's traffic — so a
+sweep that waited for an empty receive would take every wave it was allowed for
 as long as something arrived during each one, rewriting multi-MB day objects once a wave with no
 backlog behind them and reporting `wave-cap` over a queue it had already drained. That is reasoned
 from a session's arrival rate rather than observed: the only `wave-cap` stops on record were over a
@@ -172,7 +176,7 @@ failed **delete** does the same, and `DeleteMessageBatch` reports a partial fail
 with a `Failed` array** — so the try/except around it saw nothing at all on the most realistic
 fault, and the append-side guard could not cover it because `failed` was 0 for the whole sweep.
 That is the shape SPEC-151 closed on `delete_objects`; this had it too. The reason token also
-deliberately avoids `write-failed`, which `_append_day` already emits on its own event for a
+deliberately avoids `write-failed`, which a destination's account already carries for a
 different thing.
 
 **A message not deleted is a message still in flight.** Messages that were not deleted —
@@ -186,32 +190,74 @@ per-key fault that drains the group at ten messages per tick, which is the arith
 opens with. A fault-specific event cannot stand in for the stop reason here: it reports its own
 cause, not that the queue is behind.
 
-**The emitter question, and why the answer is "no change".** This function logs into the queue it
-drains, so its own telemetry is a real cost — the `observability` group is itself one of the two
-that had backlogged. The receive span and the per-destination `appending`/`appended` events now
-fire once per wave rather than once per sweep, and the first instinct was to aggregate them.
-That is wrong: emitters and drained messages **both** scale with `waves x groups`, so what has to
-hold is a **ratio below one**, not a constant — measured at **0.58 events per message drained**
-(115 events for 200 messages over two groups). Aggregating would have cost the FR-002
-entry-and-outcome-per-destination property for nothing. Only the sweep summary is aggregated,
-because it is genuinely per sweep.
+**The emitter question, and why "no change" was the wrong answer.** This function logs into the
+queue it drains, so its own telemetry is a real cost. When the wave loop landed, the receive span
+and the per-destination `appending`/`appended` events began firing once per wave, and aggregating
+them was rejected on a ratio: emitters and drained messages both scale with `waves x groups`,
+measured at 0.58 events per message drained, so aggregating would have cost FR-002's
+entry-and-outcome-per-destination property for nothing.
 
-**That ratio was taken across the wrong population, and 2026-09-10 showed it.** The drain is per
-message group, so what had to stay below one was the sweep's output INTO its own group against the
-ten that group gave up a wave. Each wave puts three events plus four per day-group into it —
-measured **11.2 a wave with two day-groups** — so with a group per service the `observability`
-group grew whenever any other group was behind, however low the queue-wide ratio. That day's
-`service=observability` object passed 15 MB. The ordinary figure is 4–10 MB a day, and has been
+**The ratio was the wrong property, and 2026-09-10 showed it twice.** It was taken across the
+wrong population: the drain was per message group, and each wave put three events plus four per
+day-group into the `observability` group — **11.2 a wave with two day-groups** — against the ten
+that group gave up, so it grew whenever another group was behind. That day's
+`service=observability` object passed 15 MB; the ordinary figure is 4–10 MB a day, and has been
 since the wave loop landed on 2026-08-14 — under 1 MB a day before it, and 17.5 MB the day after
-it. Grouping per
-event is what retired the per-group condition, and it left the queue-wide ratio as the one that
-governs; the emitters still need no change.
+it. That afternoon, still grouped by service, the sweep's own records were 12,772 of the queue's
+42,714 sends, **about 640 a sweep** across twenty sweeps, eighteen of them capped. Grouping per
+event retired the per-group condition and not the volume, since the emitters still fired every
+wave and a busy session still fills every wave. Nor was it clean where it converged: the
+`receive` step sat on a function the loop calls once per wave, and the `append-day` step on one
+it calls once per destination per wave, which the child-span fence forbids — and each closed step
+handed its events to the library's sender mid-run, so a later wave of the same sweep could
+receive the sweep's own output.
 
-The old guard asserted the strict `O(1)` form and stayed green through all of this, because it
-ran on `FakeSQS` — which never blocks, so it never produced a second wave and would have passed
-at any wave count. It was scoped to the single wave it measured, and a ratio test was added on
-`FifoSQS`; **neither survives** — both left the suite when it was cut to how a caller drives the
-code — so nothing now holds the ratio, and a per-message emitter would ship green.
+**So no emitter runs inside the loop.** Each destination's account is tallied across the waves
+and emitted once after the last: events landed, with the writes and appends they took, the size
+left behind and `append_ms`, on the success event; events left queued, on one failure event per
+reason; lost races, with the worst attempt beside the count, on one contention warning; and the
+largest size read, on one warning when it crosses the threshold. The summary carries `rounds`,
+`receive_ms`, `append_ms` and `delete_ms`, and the undeleted messages are one sweep-wide warning.
+A sweep emits **one event per destination plus three**, plus at most one for each condition it
+reports once per sweep (a filled wave, a stop, undated or unrouted bodies, undeleted messages)
+and a few for each destination that degraded — whatever its waves or messages. FR-002's *entry*
+event went with the loop: the library releases a span's events when the span closes or on an
+explicit flush, and with every event on the handler's span — whose only flush runs after it
+closes — an entry would leave at the same moment as its outcome and say nothing the outcome does
+not. The same fact means nothing the sweep emits reaches the queue before it returns, so it
+cannot receive its own output mid-run; a flush inside the loop would undo that. The accounts are
+emitted from a `finally`, so a receive fault on a later wave still reports what the earlier
+waves wrote; a sweep killed by its timeout reports nothing structured, since its only span never
+closed, and its CloudWatch lines are the record.
+
+**The guard tests the property, not a ratio, and it drives every path.** A ratio test passes a
+per-wave emitter for as long as waves stay full, which is the regression it exists to catch.
+`test_a_sweep_emits_the_same_events_however_many_waves_it_takes` holds three things at once: **no
+emitter is called between the sweep's first receive and its last** — counted at the library's
+level functions, so it holds however rarely an emitter would fire and whatever name reaches it;
+two waves and six over the same destinations emit the same events, message for message, which
+also holds the child spans a call count cannot see; and nothing reaches the sink before the sweep
+returns. Each pair of sweeps takes clean appends and deletes, lost races, exhaustion, a write
+fault, large objects, rejected and raising deletes, and bodies that are not JSON, not an object,
+badly named or undated; ends on a wave its receive finished on an empty round, holding a message
+stamped after the sweep began and one it cannot date; and runs once with the receive stopping on
+its message cap and once on its round cap. A runtime guard holds only the paths it drives, so it
+also proves it drove them all: it records every line of the sweep that ran — read from the
+compiled source, so properties and classmethods count — and fails on any it did not, bar the
+handler's blocks that end the loop or the sweep without continuing it. A branch added to the
+sweep therefore fails it until the guard drives that branch too, which is the point and the cost;
+only compared pairs may be driven, or a sweep run just to reach a line would satisfy the check
+while nothing held that line. That completeness check is a gate, with a corpus proving each thing
+it reports and its silence. It replaced a check on where an emitter is *written*, which review
+evaded five ordinary ways (a stored alias, a nested function, a `for` loop, the report called in
+the loop, a local import): a guard over spellings guards a spelling. Planted and reddened: a
+per-message emitter, a per-wave emitter, either step put back, a flush inside the loop, a
+per-attempt, per-read, per-delete or per-body warning in the old shape, an emitter on the
+round-cap path by each of those routes, a new branch no sweep takes, a heartbeat throttled by
+time, an emitter chosen by whether the wave was capped, a `continue` inside a block that ends the
+loop, and an emitter in a property nothing reads. The two guards before this — the strict `O(1)`
+form on `FakeSQS`, which never produced a second wave, and a ratio test on `FifoSQS` — both left
+the suite when it was cut to how a caller drives the code.
 
 **The test that could not fail.** `FakeSQS` served rounds and then emptied — which quietly
 asserts that an empty receive means an empty queue, the exact premise that is false. It ran out

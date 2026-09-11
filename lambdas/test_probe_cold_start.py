@@ -198,9 +198,9 @@ def test_a_clean_return_passes_and_says_so(tmp_path) -> None:
 def test_a_chatty_healthy_function_is_not_failed_by_a_truncated_log(tmp_path) -> None:
     """The false-positive direction, and why the signal had to move to the end of the log.
 
-    `--log-type Tail` returns the LAST 4 KB. `log-sweep` is probed and emits per-wave events, so
-    its preamble — and with it `START RequestId` — is gone by the time the tail is taken. `REPORT`
-    is the final line and survives, which is the whole reason it is the signal.
+    `--log-type Tail` returns the LAST 4 KB, so a probed function that logs more than that has lost
+    its preamble — and with it `START RequestId` — by the time the tail is taken. `REPORT` is the
+    final line and survives, which is the whole reason it is the signal.
     """
     binary = _stub(
         tmp_path,

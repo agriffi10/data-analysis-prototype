@@ -39,15 +39,16 @@ session's API traffic outran ten a wave for hours. The wave loop still earns its
 wave can fill its cap, and a message left behind by an older producer is still in a shared
 group.
 
-The emitters that ride the receive and the write run once per wave rather than once per sweep,
-which for a function that logs into the queue it drains is a volume decision rather than a
-detail. What convergence needs is that the sweep puts back less than it takes from every group
-its own output lands in. Grouped by service, that was one group giving up ten a wave while
-each wave put three events plus four per day-group into it, so the sweep's own group grew
-whenever another group was behind. Grouped per event, its output drains alongside everything
-else, and the ratio across the whole queue is the one that matters. The counters the handler
-keeps — waves, messages, day-groups — are summed across the sweep and reported once, so the
-summary stays one event however deep the backlog.
+No emitter runs inside the wave loop, which for a function that logs into the queue it drains
+is a volume decision rather than a detail. Emitters that rode each wave once put three events
+plus four per day-group back for every wave taken, so a sweep kept busy by a session was kept
+busy with its own telemetry too — about 640 events a sweep across one afternoon's twenty,
+eighteen of them capped, while the queue was still grouped by service. Each destination's
+account is instead tallied across the waves and emitted once after the last, beside one summary
+for the sweep, so what a sweep emits is set by the destinations it touched and the conditions
+it reports once, never by the waves or messages it took. None of it can come back to the same
+invocation: the library releases a span's events when the span closes or on an explicit flush,
+the only span is the handler's own, and the only flush runs after it closes.
 
 Attributes:
   _sweep_id: Set once per invocation and prepended to every CloudWatch line by the filter below.
@@ -78,10 +79,11 @@ Attributes:
     opposite responses — more waves, a longer timeout, and a look at whatever is leaving
     messages in flight — and a reason you can filter on is worth more than a message you can
     read once. ``group-blocked`` names the condition rather than either cause, because an
-    undeleted message blocks its group exactly as an unwritten one does, and because
-    ``_append_day`` already emits ``reason="write-failed"`` for a different thing entirely. It
-    qualifies either way a sweep finishes on its own, an empty receive or a wave of arrivals,
-    since a blocked group can hide older messages from both; the clock and the cap outrank it.
+    undeleted message blocks its group exactly as an unwritten one does, and because a
+    destination's account already carries ``reason="write-failed"`` for a different thing
+    entirely. It qualifies either way a sweep finishes on its own, an empty receive or a wave of
+    arrivals, since a blocked group can hide older messages from both; the clock and the cap
+    outrank it.
   MAX_CAS_ATTEMPTS: Conditional-write attempts per day object before giving up and leaving the
     messages queued. ``cpcommon.cas.MAX_ATTEMPTS`` — this was one of three
     copies of the loop, and the caps had drifted.
@@ -97,6 +99,7 @@ import re
 import time
 import uuid
 from collections import defaultdict
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from cpcommon import cas, clients, observability
@@ -160,6 +163,56 @@ STOP_GROUP_BLOCKED = "group-blocked"
 MAX_CAS_ATTEMPTS = cas.MAX_ATTEMPTS
 
 LARGE_OBJECT_WARN_BYTES = 64 * 1024 * 1024
+
+
+@dataclass
+class _Tally:
+    """One destination's account across every wave of a sweep, emitted once after the last.
+
+    A destination appears in every wave that holds one of its events, so anything recorded per
+    append would be emitted per wave — back into the queue this function drains. Summing here
+    keeps the account whole while the event count stays one per destination.
+
+    Attributes:
+      appends: Append attempts, one per wave the destination appeared in.
+      writes: Appends that landed.
+      events: Events that landed.
+      failed: Events left queued, keyed by the stable failure reason.
+      conflicts: Lost compare-and-swap races, summed over every append.
+      worst_attempt: The highest attempt number that lost a race. A sum cannot tell five
+        harmless single retries from one write that nearly ran out; this can.
+      largest: The largest size read, in bytes.
+      size: The object's size after the last landed write, in bytes.
+      append_ms: Time spent appending, in milliseconds, summed unrounded.
+    """
+
+    appends: int = 0
+    writes: int = 0
+    events: int = 0
+    failed: dict[str, int] = field(default_factory=dict)
+    conflicts: int = 0
+    worst_attempt: int = 0
+    largest: int = 0
+    size: int = 0
+    append_ms: float = 0.0
+
+
+def _ms_since(started):
+    """Converts a monotonic start into elapsed milliseconds, unrounded.
+
+    Unrounded because the callers sum it over every wave: truncating each call first would lose
+    up to a millisecond a call, and the error accumulates over the hundreds of calls a sweep makes.
+
+    Args:
+      started: A ``time.monotonic()`` reading.
+
+    Returns:
+      The milliseconds since that reading, as a float.
+
+    Raises:
+      None.
+    """
+    return (time.monotonic() - started) * 1000
 
 
 def _partition(event):
@@ -265,17 +318,17 @@ def _read_day(key):
         return b"", None
 
 
-@observability.step("append-day")
-def _append_day(key, new_lines):
-    """Appends lines to a day's object under a compare-and-swap loop.
+def _append_day(key, new_lines, tally):
+    """Appends lines to a day's object under a compare-and-swap loop, recording into its tally.
 
     Re-reads and re-applies on a precondition failure rather than retrying the same write: the
     whole point is that the object changed underneath, so the new content has to be rebuilt on
-    top of what the winner wrote. Contention is recorded once per retry, because the retry count
-    is the signal — a sweep that succeeds on the fourth attempt is a sweep that nearly did not.
+    top of what the winner wrote. Contention is counted per retry, with the worst attempt kept
+    beside the count — a sweep that succeeds on the fourth attempt is a sweep that nearly did not.
 
-    One destination, one child span, and every event here is per destination, never per message.
-    The failure reason is a stable token rather than a stringified exception: a reason you can
+    It emits nothing and is not a child span. It runs once per wave its destination appears in,
+    so an event or a span here would be per wave; the handler emits the tally once instead. The
+    failure reason is still a stable token rather than a stringified exception: a reason you can
     filter on is worth more than a message you can read once. Exhaustion and a write fault are
     two reasons, which is why the shared loop raises a distinct type for the first rather than
     leaving them to be told apart by message text.
@@ -287,6 +340,7 @@ def _append_day(key, new_lines):
     Args:
       key: The day object's key.
       new_lines: The message bodies to append.
+      tally: This destination's account for the sweep, updated in place.
 
     Returns:
       True only if the lines landed. On False the messages stay on the queue and redeliver.
@@ -295,7 +349,7 @@ def _append_day(key, new_lines):
       None.
     """
     payload = ("\n".join(new_lines) + "\n").encode("utf-8")
-    observability.info("appending", key=key, events=len(new_lines))
+    tally.appends += 1
 
     def _read():
         """Reads the day object, warning when it has grown expensive to rewrite in full.
@@ -310,13 +364,13 @@ def _append_day(key, new_lines):
           None.
         """
         existing, etag = _read_day(key)
+        tally.largest = max(tally.largest, len(existing))
         if len(existing) > LARGE_OBJECT_WARN_BYTES:
             logger.warning(
                 "log-sweep: %s is %.1f MB; read-modify-write moves it in full every sweep",
                 key,
                 len(existing) / 1024 / 1024,
             )
-            observability.warning("day object is large", key=key, bytes=len(existing))
         return existing, etag
 
     def _apply(existing):
@@ -361,7 +415,7 @@ def _append_day(key, new_lines):
         clients.s3().put_object(**kwargs)
 
     def _on_conflict(attempt):
-        """Records one lost race, in both accounts of the sweep.
+        """Records one lost race, in CloudWatch now and in the tally for the sweep's account.
 
         Args:
           attempt: The 1-based attempt that lost.
@@ -378,9 +432,8 @@ def _append_day(key, new_lines):
             attempt,
             MAX_CAS_ATTEMPTS,
         )
-        observability.warning(
-            "day object changed under us", key=key, attempt=attempt, attempts=MAX_CAS_ATTEMPTS
-        )
+        tally.conflicts += 1
+        tally.worst_attempt = max(tally.worst_attempt, attempt)
 
     try:
         written = cas.cas_mutate(
@@ -400,20 +453,84 @@ def _append_day(key, new_lines):
             MAX_CAS_ATTEMPTS,
             len(new_lines),
         )
-        observability.error(
-            "append failed", key=key, events=len(new_lines), reason="precondition-exhausted"
-        )
+        _count_failed(tally, "precondition-exhausted", len(new_lines))
         return False
     except Exception:
         logger.exception("log-sweep: failed to write %s (%d events left queued)", key, len(new_lines))
-        observability.error("append failed", key=key, events=len(new_lines), reason="write-failed")
+        _count_failed(tally, "write-failed", len(new_lines))
         return False
 
-    observability.info("appended", key=key, events=len(new_lines), bytes=len(written))
+    tally.writes += 1
+    tally.events += len(new_lines)
+    tally.size = len(written)
     return True
 
 
-@observability.step("receive")
+def _count_failed(tally, reason, events):
+    """Adds events left queued to a destination's tally under their failure reason.
+
+    Args:
+      tally: The destination's account for the sweep.
+      reason: The stable failure token.
+      events: How many events the failed append left on the queue.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    tally.failed[reason] = tally.failed.get(reason, 0) + events
+
+
+def _report_destinations(tallies):
+    """Emits each destination's account for the sweep, once, after the last wave.
+
+    One success event per destination that took a write, carrying what landed, how many appends
+    it took and the size it left behind; one failure event per reason that left events queued,
+    so a destination that failed on one wave and landed on a later one reports both; and a
+    warning for contention and for size, each once. The count is set by the destinations and
+    never by the waves, which is the whole point for a function that emits into the queue it
+    drains.
+
+    Args:
+      tallies: Each destination's tally, keyed by its day object's key.
+
+    Returns:
+      None.
+
+    Raises:
+      None. The emitters never raise.
+    """
+    for key in sorted(tallies):
+        tally = tallies[key]
+        if tally.writes:
+            observability.info(
+                "appended",
+                key=key,
+                events=tally.events,
+                writes=tally.writes,
+                appends=tally.appends,
+                bytes=tally.size,
+                append_ms=round(tally.append_ms),
+            )
+        for reason in sorted(tally.failed):
+            observability.error(
+                "append failed", key=key, events=tally.failed[reason], reason=reason
+            )
+        if tally.conflicts:
+            observability.warning(
+                "day object changed under us",
+                key=key,
+                conflicts=tally.conflicts,
+                worst_attempt=tally.worst_attempt,
+                appends=tally.appends,
+                limit=MAX_CAS_ATTEMPTS,
+            )
+        if tally.largest > LARGE_OBJECT_WARN_BYTES:
+            observability.warning("day object is large", key=key, bytes=tally.largest)
+
+
 def _receive_all():
     """Short-polls the queue until a round comes back empty or the cap is hit.
 
@@ -425,11 +542,10 @@ def _receive_all():
     runs until the queue or the cap is exhausted — and a message from an older producer, still
     in a shared group, is what the coming back is still for.
 
-    Its own child span because the poll loop and the writes have completely different failure
-    modes, and this is the half that is billed per round. The span opens once per wave rather
-    than once per sweep, a volume decision taken deliberately: this function emits into the
-    queue it drains, and its events land in groups of their own, so they drain alongside the
-    messages they describe rather than queueing behind them.
+    Not a child span, because it runs once per wave and this function emits into the queue it
+    drains. The poll loop and the writes still have completely different failure modes, and this
+    is the half billed per round, so the caller times it and reports the total and the round
+    count once per sweep instead.
 
     Each message comes back with its ``SentTimestamp``, which is how the caller tells a wave of
     backlog from a wave of arrivals.
@@ -438,17 +554,18 @@ def _receive_all():
       None.
 
     Returns:
-      A ``(messages, truncated)`` tuple. The caller surfaces the truncation rather than
-      swallowing it: a silent cap reads as "swept everything" when it did not.
+      A ``(messages, truncated, rounds)`` tuple. The caller surfaces the truncation rather than
+      swallowing it: a silent cap reads as "swept everything" when it did not. ``rounds`` is the
+      number of receive calls made, each one billed.
 
     Raises:
       ClientError: On any SQS receive fault.
     """
     sqs = clients.sqs()
     messages = []
-    for _ in range(MAX_ROUNDS):
+    for rounds in range(MAX_ROUNDS):
         if len(messages) >= MAX_MESSAGES:
-            return messages, True
+            return messages, True, rounds
         batch = sqs.receive_message(
             QueueUrl=LOGS_QUEUE_URL,
             MaxNumberOfMessages=10,
@@ -457,9 +574,9 @@ def _receive_all():
             MessageSystemAttributeNames=["SentTimestamp"],
         ).get("Messages", [])
         if not batch:
-            return messages, False
+            return messages, False, rounds + 1
         messages.extend(batch)
-    return messages, True
+    return messages, True, MAX_ROUNDS
 
 
 def _time_is_short(context):
@@ -512,10 +629,10 @@ def _delete(receipts):
     """Deletes a group's messages in the batch size SQS accepts.
 
     A failed delete only means those events will be appended again next sweep, producing
-    duplicate ids that a reader collapses — the events are already durable in S3. One event is
-    emitted per group rather than per failed chunk, because a chunk is ten messages and a
-    per-chunk emitter would scale with the message count on exactly the path where the queue is
-    already unhappy.
+    duplicate ids that a reader collapses — the events are already durable in S3. It emits
+    nothing: it runs once per destination per wave, so the handler sums what it returns and
+    reports the total once, rather than emitting on exactly the path where the queue is already
+    unhappy.
 
     It is the count that matters to the caller, not just the log line. An undeleted message stays
     in flight and its group stays blocked, so the sweep's next receive can come back empty with
@@ -553,12 +670,6 @@ def _delete(receipts):
         if rejected:
             logger.warning("log-sweep: the queue rejected %d delete(s)", rejected)
             undeleted += rejected
-    if undeleted:
-        observability.warning(
-            "delete failed; events will be appended again next sweep",
-            events=undeleted,
-            lost=False,
-        )
     return undeleted
 
 
@@ -567,37 +678,44 @@ def handler(event, context):
     """Drains the logs queue into the day's objects.
 
     The sweep instruments itself, which is what makes the pipe verifiable end to end without
-    instrumenting a control plane. Its own events go through the same queue, and a later wave of
-    the same invocation can receive them — the library sends every ten finished spans or every
-    second, not only at the end — so the sweep partly drains itself, and while a session is
-    active every wave finds what arrived during the one before. Waiting for an empty receive
-    would therefore chase arrivals to the wave cap for as long as they kept landing in every
-    wave, rewriting the day objects once a wave with no backlog behind them. So the sweep also
-    finishes after the first wave that held only messages the queue stamped after the sweep
-    began: the backlog it was started for has been taken, as far as a short poll can tell, and
-    what arrives next waits one tick. Two kinds of wave keep it going instead: one holding a
-    message it cannot date, and one whose receive stopped at a cap rather than an empty round,
-    because SQS does not order messages across groups, so a full wave of new messages says
-    nothing about what is still queued behind it. A legacy group keeps it going until the group
-    is empty or the cap or the clock stops it, since a group never yields a new message ahead of
-    an older one of its own.
+    instrumenting a control plane. Its own events go through the same queue and are collected by
+    the next scheduled sweep, never by this one: every event here sits on this handler's span,
+    and the library releases a span's events when the span closes or on an explicit flush — the
+    decorator's, which runs after it closes. A flush inside the loop would hand them to the
+    queue mid-run, where a later wave could receive them.
 
-    That self-reference is also why the emitters are placed the way they are. No emitter is per
-    message: this function emits into the queue it drains, so an event per message consumed
-    would mean draining a batch produced about as many more, and the queue would have a floor it
-    could never get below — permanently busy carrying its own telemetry, with the day objects
-    growing to match.
+    While a session is active, though, every wave finds what arrived during the one before.
+    Waiting for an empty receive would therefore chase arrivals to the wave cap for as long as
+    they kept landing in every wave, rewriting the day objects once a wave with no backlog behind
+    them. So the sweep also finishes after the first wave that held only messages the queue
+    stamped after the sweep began: the backlog it was started for has been taken, as far as a
+    short poll can tell, and what arrives next waits one tick. Two kinds of wave keep it going
+    instead: one holding a message it cannot date, and one whose receive stopped at a cap rather
+    than an empty round, because SQS does not order messages across groups, so a full wave of new
+    messages says nothing about what is still queued behind it. A legacy group keeps it going
+    until the group is empty or the cap or the clock stops it, since a group never yields a new
+    message ahead of an older one of its own.
 
-    What bounds the volume is a ratio rather than a constant, and the wave loop is why. The
-    receive and the per-destination events fire once per wave and once per (wave, day-group) —
-    three, plus four per day-group — so a sweep's events grow with the work it does. The ratio
-    has to hold in every message group that output lands in, not merely across the queue:
-    grouped by service, all of it landed in one group that gave up ten a wave, and a wave
-    touching two day-groups put eleven back, so that group grew whenever another was behind.
-    Grouped per event, the output drains alongside everything else and the queue-wide ratio is
-    the one that governs. The summary below is the only part aggregated to one event per sweep,
-    because it is the only part genuinely per sweep. The property to preserve when adding an
-    emitter here is the ratio, not a count.
+    That self-reference is also why the emitters are placed the way they are, and none is inside
+    the wave loop. An event per message consumed would give the queue a floor it could never get
+    below — permanently busy carrying its own telemetry, with the day objects growing to match —
+    and an event per wave makes its own volume grow with the waves a busy queue forces on it.
+    The receive and the destinations once emitted three events plus four per day-group every
+    wave, so a session that kept the sweep busy kept it busy with its own output: about 640
+    events a sweep across one afternoon, and a group of its own that grew whenever another fell
+    behind, while the queue was grouped by service.
+
+    Each destination's account is therefore tallied across the waves and emitted once after the
+    last, and the summary is one event. A sweep emits one event per destination plus three — this
+    span's two and the summary — plus at most one for each condition it reports once per sweep (a
+    filled wave, a stop, undated or unrouted bodies, undeleted messages) and a few for each
+    destination that degraded, however many waves or messages it took. The property to preserve
+    when adding an emitter here is that count: an emitter inside the loop, or a child span on
+    anything the loop calls, breaks it. The accounts are emitted from a ``finally``, so a receive
+    fault on a later wave still reports what the earlier waves wrote before the exception leaves.
+    A sweep killed outright — the timeout, not an exception — delivers no structured account at
+    all, because its only span never closes; its CloudWatch lines are the record, which is one
+    more reason the reserve exists.
 
     The plain logging calls stay alongside the structured events deliberately, and this is the
     one function where that is not duplication to copy into a verb. The sink is the queue only,
@@ -618,7 +736,7 @@ def handler(event, context):
 
     Args:
       event: Ignored; the schedule carries no payload.
-      context: The Lambda context, unused.
+      context: The Lambda context, read for the time remaining.
 
     Returns:
       A dict of the messages swept and events written, plus the day-groups touched and the waves
@@ -626,7 +744,8 @@ def handler(event, context):
       on the queue — report zeroes and omit the group and wave counts.
 
     Raises:
-      None. Total by design: no message can make this raise.
+      ClientError: On an SQS receive fault, after every destination's account is emitted. No
+        message can make this raise.
     """
     global _sweep_id
     _sweep_id = sweep_id = uuid.uuid4().hex
@@ -648,49 +767,67 @@ def handler(event, context):
     undated = 0
     unrouted = 0
     waves = 0
+    rounds = 0
+    receive_ms = 0.0
+    delete_ms = 0.0
     capped = False
     stuck = 0
     stop_reason = ""
-    touched = set()
+    tallies = {}
 
-    while True:
-        if waves and _time_is_short(context):
-            stop_reason = STOP_TIME_RESERVE
-            break
-        if waves >= MAX_WAVES:
-            stop_reason = STOP_WAVE_CAP
-            break
-        messages, truncated = _receive_all()
-        if not messages:
-            break
-        waves += 1
-        swept += len(messages)
-        capped = capped or truncated
+    try:
+        while True:
+            if waves and _time_is_short(context):
+                stop_reason = STOP_TIME_RESERVE
+                break
+            if waves >= MAX_WAVES:
+                stop_reason = STOP_WAVE_CAP
+                break
+            started = time.monotonic()
+            messages, truncated, taken = _receive_all()
+            receive_ms += _ms_since(started)
+            rounds += taken
+            if not messages:
+                break
+            waves += 1
+            swept += len(messages)
+            capped = capped or truncated
 
-        groups = defaultdict(list)
-        for message in messages:
-            body = message.get("Body", "")
-            service, parsed = _route(body)
-            year, month, day, fell_back = _partition(parsed)
-            undated += 1 if fell_back else 0
-            unrouted += 1 if service == UNROUTED else 0
-            groups[(service, year, month, day)].append(
-                (body, message.get("ReceiptHandle", ""))
+            groups = defaultdict(list)
+            for message in messages:
+                body = message.get("Body", "")
+                service, parsed = _route(body)
+                year, month, day, fell_back = _partition(parsed)
+                undated += 1 if fell_back else 0
+                unrouted += 1 if service == UNROUTED else 0
+                groups[(service, year, month, day)].append(
+                    (body, message.get("ReceiptHandle", ""))
+                )
+
+            for (service, year, month, day), items in sorted(groups.items()):
+                key = _day_key(service, year, month, day)
+                tally = tallies.setdefault(key, _Tally())
+                started = time.monotonic()
+                landed = _append_day(key, [b for b, _ in items], tally)
+                tally.append_ms += _ms_since(started)
+                if landed:
+                    written += len(items)
+                    started = time.monotonic()
+                    stuck += _delete([r for _, r in items if r])
+                    delete_ms += _ms_since(started)
+                else:
+                    failed += len(items)
+
+            if not truncated and all(_sent_since(m, started_ms) for m in messages):
+                break
+    finally:
+        _report_destinations(tallies)
+        if stuck:
+            observability.warning(
+                "delete failed; events will be appended again next sweep",
+                events=stuck,
+                lost=False,
             )
-
-        observability.info("received", messages=len(messages), groups=len(groups))
-
-        for (service, year, month, day), items in sorted(groups.items()):
-            key = _day_key(service, year, month, day)
-            touched.add(key)
-            if _append_day(key, [b for b, _ in items]):
-                written += len(items)
-                stuck += _delete([r for _, r in items if r])
-            else:
-                failed += len(items)
-
-        if not truncated and all(_sent_since(m, started_ms) for m in messages):
-            break
 
     if not stop_reason and (failed or stuck):
         stop_reason = STOP_GROUP_BLOCKED
@@ -733,7 +870,7 @@ def handler(event, context):
         "log-sweep %s: %d message(s) in %d day-group(s) over %d wave(s), %d written",
         sweep_id,
         swept,
-        len(touched),
+        len(tallies),
         waves,
         written,
     )
@@ -741,9 +878,13 @@ def handler(event, context):
     outcome(
         "swept",
         messages=swept,
-        groups=len(touched),
+        groups=len(tallies),
         waves=waves,
         written=written,
         failed=failed,
+        rounds=rounds,
+        receive_ms=round(receive_ms),
+        append_ms=round(sum(tally.append_ms for tally in tallies.values())),
+        delete_ms=round(delete_ms),
     )
-    return {"swept": swept, "written": written, "groups": len(touched), "waves": waves}
+    return {"swept": swept, "written": written, "groups": len(tallies), "waves": waves}

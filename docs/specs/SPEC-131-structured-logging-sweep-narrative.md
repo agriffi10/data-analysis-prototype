@@ -5,6 +5,19 @@
 **Last Updated:** 2026-07-23
 **Depends On:** SPEC-130 (the emitters and `step`), SPEC-127/129 (the sweep itself)
 
+> **Superseded in part, 2026-09-11.** A later wave loop made FR-001's `receive` span and
+> `received` event, FR-002's `append-day` span and per-destination events, and FR-003's per-retry,
+> per-read and failed-delete warnings fire once per wave, in a function that emits into the queue
+> it drains. None of them is in the loop now. FR-001's `received` event is gone, its counts on the
+> summary beside the poll and write times; FR-002's entry event is gone, and its success and
+> failure events are one per destination and one per destination and reason; FR-003's CAS and
+> large-object warnings are one per destination, and the failed-delete warning one per sweep; and
+> FR-005's `6 + 4G` is one event per destination plus three and the once-per-sweep warnings, O(1)
+> in waves as well as messages. FR-004, FR-006 and FR-007's behaviour is unchanged by this, though
+> the tests FR-004 and FR-007 name left the suite in a41bda69, and `_reset_baggage` is now
+> `_reset_context`.
+> Live text: `lambdas/info/planes/standalone.md`, *The emitter question*.
+
 ## Overview
 
 The sweep is the one function in the fleet that already says everything an operator would want —
