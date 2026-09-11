@@ -164,8 +164,10 @@ export function SelectionToolbar({
 
   // A focused bulk-action bar: whole-selection Copy / Move / Delete
   // only (Download + Rename live in the details panel). Icon-only on
-  // mobile, words alone at tablet, both at desktop — the gap and the
-  // buttons' padding tighten between the two for the same reason.
+  // mobile, words alone at tablet, both at desktop. At tablet the six
+  // words fit only once the glyphs, some gap and some padding give their
+  // room back, and the count truncates rather than push an action out —
+  // at tablet only: below it a truncated "128 selected" reads as "12…".
   return (
     <div
       className={`mb-4 flex h-11 items-center gap-2 rounded-lg border px-3 tablet:px-4 desktop:gap-3 ${
@@ -188,7 +190,7 @@ export function SelectionToolbar({
 
       <span
         aria-live="polite"
-        className={`min-w-0 truncate text-sm font-semibold ${active ? 'text-accent-text' : 'text-text-3'}`}>
+        className={`text-sm font-semibold tablet:min-w-0 tablet:truncate ${active ? 'text-accent-text' : 'text-text-3'}`}>
         {active ? `${count} selected` : 'Select all'}
       </span>
 

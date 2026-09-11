@@ -956,6 +956,8 @@ overlay one hides the worst case), at `innerWidth` **900, 930, 959, 1024 and 129
 `document.documentElement.scrollWidth` equals `clientWidth`; the **account button's** right edge is
 within `clientWidth`; no tab label and no toolbar label sits on two lines; and **Delete** ends inside
 the toolbar's border. Then at **1300**: the tab icons, the toolbar glyphs and the username are back.
+And at **375** (the device toolbar — Chrome's window stops near 606) with a three-digit selection:
+the toolbar is glyph-only and the count reads whole, on two lines if it must, never as "12…".
 Checking only the page's `scrollWidth` is not enough — a row that clips passes it. *Quicker, and
 not a discharge:* a same-origin `srcdoc` iframe of the page's own `#root` and stylesheets, set to
 each width inside one signed-in tab, answers the same questions without a resize or a foreground —

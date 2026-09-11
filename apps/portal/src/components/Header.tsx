@@ -81,16 +81,11 @@ export function Header() {
           </button>
         )}
 
-        {/* WHAT NOTHING ELSE DEPENDS ON WAITS FOR `desktop`: this wordmark, the username beside
-            the avatar and the tab icons. The tab strip outranks them (it is the navigation) and
-            so do the control labels (they are the point), and `tablet` is where all of those
-            switch ON — so the band just above it is the tightest in the layout, not the
-            loosest, and it is the width an ordinary laptop and a half-screen window sit at. It
-            is measured, never reasoned about: sweep the whole band with a classic scrollbar
-            showing, since a `tablet:` threshold that fixes the phone ships looking correct.
-            The square still identifies the app and the nav drawer names it in full below
-            `tablet`. Signed out there is no hamburger, no tab strip and no user zone, so the
-            words stay at every width. */}
+        {/* The words wait for `desktop`: at `tablet` the tab strip and the three control labels
+            switch on together, so the band just above it is the tightest in the layout, not the
+            loosest. The username and the tab icons wait with them, for the same reason. The
+            square still identifies the app, and the nav drawer names it below `tablet`. Signed
+            out there is no tab strip and no user zone, so the words stay at every width. */}
         <BrandMark wordmarkClassName={authed ? 'hidden desktop:inline' : undefined} />
 
         {authed && (

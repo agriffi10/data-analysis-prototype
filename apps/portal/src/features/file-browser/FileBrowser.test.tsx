@@ -948,3 +948,39 @@ describe('FileBrowser — send to… (SPEC-167)', () => {
     expect(screen.getByRole('checkbox', {name: 'Select report.csv'})).toBeChecked();
   });
 });
+
+// The toolbar's actions are written out once per button across two features, and at `tablet`
+// their padding is part of what makes the row fit: one copy left at the old padding is enough to
+// push Delete out of the bar. jsdom loads no Tailwind, so the classes are what can be asserted.
+describe('the selection toolbar across the tablet band', () => {
+  const WORDS: Record<string, string> = {
+    'Check data quality of the selected item': 'Check data quality',
+    'Send to another user': 'Send to…',
+    'Archive selected items': 'Archive',
+    'Copy selected items': 'Copy',
+    'Move selected items': 'Move',
+    'Delete selected items': 'Delete'
+  };
+
+  it('gives every action one shape, and truncates the count only from tablet up', async () => {
+    renderBrowser();
+    const bar = (await screen.findByRole('button', {name: 'Delete selected items'})).parentElement as HTMLElement;
+
+    const actions = within(bar).getAllByRole('button');
+    expect(actions.map((a) => a.getAttribute('aria-label'))).toEqual(Object.keys(WORDS));
+    for (const action of actions) {
+      expect(action).toHaveClass('tablet:!px-2', 'desktop:!px-3');
+      expect(action.querySelector('svg')).toHaveClass('tablet:hidden', 'desktop:block');
+      expect(within(action).getByText(WORDS[action.getAttribute('aria-label') ?? ''])).toHaveClass(
+        'hidden',
+        'whitespace-nowrap',
+        'tablet:inline'
+      );
+    }
+
+    // Below `tablet` a truncated "128 selected" reads as "12…", so the count wraps there instead.
+    const count = within(bar).getByText('Select all');
+    expect(count).toHaveClass('tablet:truncate');
+    expect(count).not.toHaveClass('truncate');
+  });
+});

@@ -76,6 +76,26 @@ describe('Header', () => {
       expect(screen.getByText('Data Quarry')).not.toHaveClass('hidden');
     });
 
+    // AND WHAT WAITS WITH IT. At `tablet` the bar overflowed until the username and the tab icons
+    // joined the wordmark, and a tab label on two lines is the other face of the same shortfall.
+    // Pinned to the exact classes for the wordmark's reason: `hidden` alone passes on the
+    // threshold that overflowed. The tab count is pinned too, because a sixth tab spends the
+    // band's headroom and owes the width sweep in `docs/testing/e2e.md` §4.15.
+    it('holds the username and the tab icons back to desktop, and never wraps a tab', () => {
+      renderHeader(authenticated('alice'));
+
+      const name = screen.getByText('alice');
+      expect(name).toHaveClass('hidden', 'desktop:inline', 'max-w-40', 'truncate');
+      expect(name).not.toHaveClass('tablet:inline');
+
+      const tabs = within(screen.getByRole('navigation', {name: 'Primary'})).getAllByRole('link');
+      expect(tabs, 'a new tab owes the band sweep before this count moves').toHaveLength(5);
+      for (const tab of tabs) {
+        expect(tab).toHaveClass('whitespace-nowrap');
+        expect(tab.querySelector('svg')).toHaveClass('hidden', 'desktop:block');
+      }
+    });
+
     // The name has to be SOMEWHERE below `tablet`, and this is the only place left. Driven to
     // the open drawer rather than asserted against the closed tree, so it cannot pass on a
     // drawer that never mounted.
