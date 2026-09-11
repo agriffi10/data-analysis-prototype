@@ -37,11 +37,11 @@ export type Notification = {
  * What a payload carries. Owned by the WRITER's wire contract rather than by any one
  * feature — a notification row must never import from the feature its producer belongs to.
  *
- * Today one plane sends one: file operations, whose runs are asynchronous and whose result
- * a user has to be able to act on after the submitting tab is gone. Every field beyond
- * `requestId` is what rebuilding that request needs, and `requestId` itself is on EVERY row
- * that plane writes — including a wholly successful run's, which has nothing to re-submit
- * but which a reader still has to settle against its own record of the request.
+ * `requestId` is the one field every producer's payload carries, a wholly successful run's
+ * included, because a reader settles its own record of a request by matching it — so a
+ * payload without one is read as no payload. Every field beyond it belongs to file
+ * operations, whose runs are asynchronous and whose result a user has to be able to act on
+ * after the submitting tab is gone: it is what rebuilding that request needs.
  */
 export type NotificationPayload = {
   /** The run this notification is about. Always present. */

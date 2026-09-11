@@ -1107,10 +1107,11 @@ until the card's three-hour expiry. It was left out at first because the drain's
 value from the untrusted body reaches the message, and this takes one into the row. The rule still
 governs the message. The id is admitted to the payload, alone, on three grounds. The recipient is
 the actor the API stamped, and a delegated one is refused, so the id lands only in the inbox of the
-caller who chose it. The other two are particular to the id: on every plane whose body carries
-one, it was also the message's deduplication key, so SQS has already held it to 128 printable
-ASCII characters; and no reader renders it as text — the browser keeps a payload only when its id
-cannot change a URL, and matches on it. A `{requestId}`-only row reads to the file-ops card as a
+caller who chose it. The other two are particular to the id: only the API writes the block a
+recipient is read from, and it also made the id the message's deduplication key, so SQS has
+already held it to 128 printable ASCII characters — the operator reader's `requestId` is not its
+dedup key, but its messages carry no block and notify nobody; and no reader renders the id as
+text — the browser keeps a payload only when its id cannot change a URL, and matches on it. A `{requestId}`-only row reads to the file-ops card as a
 refusal, which is what a request that never started is.
 
 ## The outcome link: destination, source, or the common folder of the items' PARENTS (SPEC-191)

@@ -292,11 +292,11 @@ def _notify_one(record: dict) -> None:
     holds its record, and whatever that record gates, until the reader's own expiry. It does not
     reopen the channel the rule above closes, for three reasons. The recipient is the actor the
     API stamped, and a delegated one is refused, so the id lands only in the inbox of the caller
-    who chose it. On every plane whose body carries an id, the id was also the message's
-    deduplication key, so SQS has already held it to 128 printable ASCII characters — which is
-    the payload's whole size bound, far under the writer's ceiling. And no reader renders it as
-    text: the browser keeps it only when it cannot change a URL, and uses it to match a record
-    and, beside a conflict list this row never carries, to build a link.
+    who chose it. Only the API writes the block a recipient is read from, and it also made the
+    id the message's deduplication key, so SQS has already held it to 128 printable ASCII
+    characters — which is the payload's whole size bound, far under the writer's ceiling. And no
+    reader renders it as text: the browser keeps it only when it cannot change a URL, and uses
+    it to match a record and, beside a conflict list this row never carries, to build a link.
 
     The body is logged before the emit, because the event source deletes the message on success.
     An unparseable body cannot be redacted and cannot be notified about, so it is recorded as a

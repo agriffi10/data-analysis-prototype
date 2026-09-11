@@ -167,6 +167,7 @@ def test_the_row_carries_the_request_id_and_nothing_else_from_the_body():
     )
 
     assert _bodies(sqs)[0]["payload"] == {"requestId": "r-1"}
+    assert sqs.sent[0]["MessageDeduplicationId"] == "dlq:r-1"
     assert "secret-plans" not in sqs.sent[0]["MessageBody"]
 
 
