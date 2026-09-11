@@ -5,8 +5,8 @@ rejects, or a message that exhausts its receives. When that happens no verb runs
 execution starts, so nothing in the arc's own failure machinery fires. The request simply
 disappears and the person who made it is left watching for a result that will never come.
 
-This one function sits on all four request DLQs and turns each dead-lettered message into one
-sentence in the actor's inbox: your request couldn't be started, nothing was created or
+This one function sits on every request DLQ in ``SOURCES`` and turns each dead-lettered message
+into one sentence in the actor's inbox: your request couldn't be started, nothing was created or
 changed, try again.
 
 Three things shape the whole handler. The body is untrusted — by definition it is a message the
@@ -19,10 +19,10 @@ is watching — the exact invisibility this exists to end. Every per-message pat
 
 The drain used to hang off four SQS event-source mappings — four managed poll loops on queues
 that are, by design, almost always empty, and that idle polling was the bulk of the account's
-SQS request volume. It now runs on one schedule and sweeps all four queues itself. Everything a
+SQS request volume. It now runs on one schedule and polls each of its queues itself. Everything a
 notification depends on is unchanged; only the driver moved from push to pull.
 
-The service name is not a control-plane name: this function spans all four planes and is
+The service name is not a control-plane name: this function spans every plane and is
 nobody's verb, so it gets its own queryable set. That name is load-bearing in a quiet way — it
 becomes an S3 key, and the sweep routes anything failing its pattern to the unrouted partition
 without erroring, so a name that missed the pattern would file every one of these events
@@ -152,7 +152,7 @@ def _source_for(event_source_arn: str) -> Source | None:
       event_source_arn: The queue ARN the record came from.
 
     Returns:
-      The matching descriptor, or None when the queue is not one of the four.
+      The matching descriptor, or None when the queue is not one ``SOURCES`` names.
 
     Raises:
       None.
@@ -308,7 +308,9 @@ def _notify_one(record: dict) -> None:
 
     Deduplication uses the request's own id when it has one, so a message that somehow
     dead-letters twice collapses to one notification. A body without a usable id falls back to
-    the queue's content-based dedup rather than inventing an id, which would defeat it.
+    the queue's content-based dedup rather than inventing an id, which would defeat it. The
+    prefix carries an id near the API's 128-character limit past what the queue accepts as a
+    key, and the sender sends such a key as its digest; the payload keeps the id as it is.
 
     The recipient is recorded: the username is already the S3 prefix, the principal tag and the
     Glue database name, and which user was affected is the first question anyone asks about a
@@ -541,9 +543,9 @@ def handler(event, context):
     ``@traced`` is the only decorator here: there is no failure notifier, because this function
     is the failure handler and has no upstream to notify through.
 
-    On its schedule the event carries no records, so the handler sweeps all four request DLQs
-    itself. Handed an SQS event instead — a captured record replayed by hand — it processes those
-    records directly; the per-record path is shared.
+    On its schedule the event carries no records, so the handler sweeps every DLQ in
+    ``DLQ_ARNS`` itself. Handed an SQS event instead — a captured record replayed by hand — it
+    processes those records directly; the per-record path is shared.
 
     Args:
       event: Either an SQS event or the schedule's empty payload.

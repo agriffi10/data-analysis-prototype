@@ -6,7 +6,7 @@ output "function_name" {
 }
 
 output "role_arn" {
-  description = "ARN of the drain's execution role (four DLQ reads + one notifications send + logs, nothing else)."
+  description = "ARN of the drain's execution role (receive and delete on each drained DLQ + one notifications send + logs, nothing else)."
   value       = aws_iam_role.drain.arn
 }
 

@@ -16,12 +16,14 @@ directly — by Cognito, by a schedule, or by its own queue. They still use `cpc
 
 - **The notifications `create` boundary is a RUNTIME check**, because no SQS condition key reaches a
   message body. It compares the **role-id half** of the `SenderId`, and a refusal **logs and drops,
-  never raises** — dead-lettering per forged request would drown the one undrained DLQ.
-- **The DLQ drain notifies from the VERIFIED token, never the untrusted body.** The notifications
-  DLQ itself stays undrained, deliberately: draining it is circular.
-- **The request envelope is FLAT** — `actor` is the raw token at the top level — because the drain
-  reads and **redacts** that field flatly. Nested, a dead-lettered request notifies nobody *and*
-  writes the JWT to CloudWatch.
+  never raises** — dead-lettering per forged request would drown its undrained DLQ.
+- **The DLQ drain notifies the API-stamped `identity.actor`, never anything the body asserts.** A
+  body with no usable identity block notifies nobody. Two DLQs stay undrained, deliberately:
+  notifications, because draining it is circular, and feedback, whose body carries no identity
+  block.
+- **The flat `actor` is never read, but the drain still blanks the two legacy token fields** before
+  it logs a parsed body, because a message from before the cutover can still arrive carrying a raw
+  token.
 - **The username directory is built from S3, not Cognito.** Today Cognito is complete and S3 is not,
   and the client transition reverses exactly that. It is readable by every authenticated user,
   accepted deliberately: usernames only, never emails.

@@ -1,6 +1,6 @@
 # ── Drain execution role ───────────────────────────────────
-# Four queue reads, one send, logs. NO access to any REQUEST queue — a drain that could enqueue
-# into a control plane would be a way to inject work. README.md.
+# Receive and delete on each drained DLQ, one send, logs. NO access to any REQUEST queue — a drain
+# that could enqueue into a control plane would be a way to inject work. README.md.
 resource "aws_iam_role" "drain" {
   name               = local.role_name
   assume_role_policy = templatefile("${path.module}/policies/drain-trust.json.tftpl", {})
