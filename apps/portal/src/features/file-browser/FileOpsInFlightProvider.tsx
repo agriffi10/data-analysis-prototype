@@ -24,14 +24,17 @@ import type {FileOpSpace, InFlightOperation} from './fileOps.types';
  *
  * **Whether the run succeeded is read off the payload's shape, not asserted by the producer.**
  * `focommon.notify.outcome_payload` always carries `operation`; the whole-request failure path's
- * `request_payload` carries `requestId` alone. Both states behave identically here — dismissible,
- * gate released — so a mis-inference costs a word on a card and nothing else, which is what makes
- * reading another module's payload shape an acceptable coupling.
+ * `request_payload`, and the shared DLQ drain's row for a request that never started, carry
+ * `requestId` alone. Both states behave identically here — dismissible, gate released — so a
+ * mis-inference costs a word on a card and nothing else, which is what makes reading another
+ * module's payload shape an acceptable coupling.
  *
  * **Some runs settle by neither route.** A request whose identity block cannot be verified is
- * told nothing at all, having no inbox to be told in, and the shared DLQ drain writes its row with
- * no payload — so neither is ever correlated. That is what the two belt-and-braces bounds are for:
- * every entry is dismissible, and every entry expires at the machine's `TimeoutSeconds`.
+ * told nothing at all, having no inbox to be told in, and a notification can be lost on its way to
+ * the inbox — a send that fails is only logged, and a create the writer refuses lands in a
+ * dead-letter queue nothing drains — so neither is ever correlated. That is what the two
+ * belt-and-braces bounds are for: every entry is dismissible, and every entry expires at the
+ * machine's `TimeoutSeconds`.
  */
 export function FileOpsInFlightProvider({children}: {children: ReactNode}) {
   const {status, user} = useAuth();

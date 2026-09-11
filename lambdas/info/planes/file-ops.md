@@ -101,8 +101,8 @@ plane's own that sends one. A verb's decorator reads it off the running state. T
 its emitter's event by hand, so it names the id there. Both doors of `notify-failure` read it through
 `observability.request_id_of`, because a seed that replaced the state nulls it and only the
 forwarded request under `raw` still carries it. The browser reads a row with an id and no
-`operation` as a refusal, and settles the card on it. The shared DLQ drain is the exception: it
-writes its row with no payload, so a request that dead-letters settles only at the card's expiry.
+`operation` as a refusal, and settles the card on it. The shared DLQ drain writes the same
+`{requestId}` for a request that dead-letters, so that request's card settles as a refusal too.
 
 The link is the destination when anything landed, the source otherwise, and for a `delete` the common
 folder of the items' **parents**. Its prefix is **percent-encoded**, which no other plane's link
