@@ -82,6 +82,18 @@ The review found one real defect and four tightenings, all fixed before merge:
   in a route `element` and unmount on navigation. Note the first attempt at that test passed against
   the bug — re-rendering a second `MemoryRouter` does not change the route, because `initialEntries`
   applies at mount only. It now drives a real in-router navigation.
+
+  > **Superseded 2026-09-10 — the fix and two of the sentences above are wrong.** `key={pathname}`
+  > reset the boundary by remounting everything beneath it, which included the signed-in shell, so
+  > every route change aborted the uploads in progress and dropped the in-flight file operations. It
+  > is now a `resetKey` prop that clears the error without remounting, and a signed-in page's throw
+  > is caught by a second boundary inside the shell. The pinning test had been deleted in #540, so
+  > from then on nothing failed without the key; it is restored beside a test against the real route
+  > table. And "they unmount on navigation" does not hold for the `App.tsx` boundaries: sibling lazy
+  > routes render the same element shape into the same slot, so React reuses one boundary instance
+  > across them — measured on the three lazy routes of 2026-09-10, once the key no longer remounted
+  > everything above them. Each now carries its own key. Reasoning: `decisions/browser.md`, *Layout
+  > boundaries reset by prop, never by `key`*.
 - **FR-006's scan could be fooled by a `code:` in a comment or a string.** This codebase writes
   explanatory comments *inside* the returned object, so that was a live hole. Comments and string
   bodies are now blanked before scanning, the property match is position-anchored, `success : false`

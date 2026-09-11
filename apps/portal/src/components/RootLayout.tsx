@@ -16,8 +16,8 @@ import {ErrorBoundary} from './ErrorBoundary';
  * </Route>
  */
 export function RootLayout() {
-  const {pathname} = useLocation();
-  const isLanding = pathname === '/';
+  const location = useLocation();
+  const isLanding = location.pathname === '/';
 
   return (
     <NavRailProvider>
@@ -32,14 +32,19 @@ export function RootLayout() {
         {!isLanding && <Header />}
         {/* Scoped BELOW the Header on purpose: a page that throws leaves the user
             with working navigation to somewhere else, rather than a bare panel.
-            `key={pathname}` is what makes that true. This is a LAYOUT route, so the
-            boundary instance outlives child-route changes — without the key, one
-            throwing page would keep showing the fallback after the user navigated
-            away, leaving the nav visible but inert. Remounting per path resets it.
-            The two route-level boundaries in App.tsx need no key: they live in a
-            route `element` and unmount on navigation already. */}
+            This is a LAYOUT route, so the boundary instance outlives child-route
+            changes — without a reset, one throwing page would keep showing the
+            fallback after the user navigated away, leaving the nav visible but inert.
+
+            `resetKey`, NEVER a React `key`. A key remounts everything beneath it on
+            every navigation, and beneath it is the signed-in shell: the upload queue
+            and the in-flight file operations would be torn down by a click on a nav
+            tab, aborting the uploads. The reset clears the fallback and leaves the
+            shell mounted. A signed-in page's own throw is caught inside the shell, by
+            ProtectedLayout's boundary; this one is for the public routes and for the
+            shell itself. */}
         <div className="flex flex-1 flex-col">
-          <ErrorBoundary key={pathname}>
+          <ErrorBoundary resetKey={location.pathname + location.search}>
             <Outlet />
           </ErrorBoundary>
         </div>

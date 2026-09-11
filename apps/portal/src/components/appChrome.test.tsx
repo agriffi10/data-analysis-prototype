@@ -3,7 +3,7 @@ import {cleanup, fireEvent, screen, within} from '@testing-library/react';
 import {Header} from './Header';
 import {renderWithProviders} from '../test/renderWithProviders';
 import {authenticated, unauthenticated} from '../test/authFixtures';
-import {Route, Routes} from 'react-router';
+import {Route, Routes, useNavigate} from 'react-router';
 import {RootLayout} from './RootLayout';
 import type {AuthContextValue} from '../features/auth';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../test/axe';
@@ -260,31 +260,54 @@ describe('RootLayout', () => {
   });
 
   describe('RootLayout', () => {
-    // SPEC-150 FR-008. The boundary is scoped below the Header so a throwing page
-    // leaves working navigation — but RootLayout is a LAYOUT route, so the boundary
-    // instance outlives child-route changes. Without `key={pathname}` the fallback
-    // would persist after navigating away: nav visible, content region stuck, and the
-    // only escape a reload. That is the failure this pins.
+    // The boundary is scoped below the Header so a throwing page leaves working
+    // navigation — but RootLayout is a LAYOUT route, so the boundary instance outlives
+    // child-route changes. Without a reset the fallback would persist after navigating
+    // away: nav visible, content region stuck, and the only escape a reload. The reset
+    // is a prop and not a `key`; what a key would cost the signed-in shell is pinned in
+    // `App.navigation.test.tsx`, against the real route table.
     describe('the error boundary around the Outlet', () => {
       function Boom(): never {
         throw new Error('render failed');
       }
 
+      // A real in-router navigation. Rendering a second MemoryRouter would NOT do:
+      // `initialEntries` applies at mount only, so a rerender leaves the route where it
+      // was and a recovery test would pass against the very bug it exists to catch.
+      function GoTo({path}: {path: string}) {
+        const navigate = useNavigate();
+        return <button onClick={() => navigate(path)}>{`go to ${path}`}</button>;
+      }
+
+      /** What the boundary caught, read off its dev-only log — the one trace a catch leaves. */
+      const catches = (consoleWarn: {mock: {calls: unknown[][]}}) =>
+        consoleWarn.mock.calls.filter(([message]) => message === '[ErrorBoundary] caught a render error:');
+
       function renderBoomAt(initialEntry: string) {
         return renderAt(
           initialEntry,
-          <Routes>
-            <Route element={<RootLayout />}>
-              <Route
-                path="/files"
-                element={<Boom />}
-              />
-              <Route
-                path="/help"
-                element={<div>HELP CONTENT</div>}
-              />
-            </Route>
-          </Routes>
+          <>
+            {/* Outside the layout, so it survives the throw the way real nav does. */}
+            <GoTo path="/help" />
+            <GoTo path="/files" />
+            <GoTo path="/query" />
+            <Routes>
+              <Route element={<RootLayout />}>
+                <Route
+                  path="/files"
+                  element={<Boom />}
+                />
+                <Route
+                  path="/query"
+                  element={<Boom />}
+                />
+                <Route
+                  path="/help"
+                  element={<div>HELP CONTENT</div>}
+                />
+              </Route>
+            </Routes>
+          </>
         );
       }
 
@@ -295,6 +318,51 @@ describe('RootLayout', () => {
         expect(screen.getByRole('alert')).toBeInTheDocument();
         expect(screen.getByText('Data Quarry')).toBeInTheDocument();
         consoleError.mockRestore();
+      });
+
+      it('recovers on the next route, rather than pinning the fallback until a reload', async () => {
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const {user} = renderBoomAt('/files');
+        expect(screen.getByRole('alert')).toBeInTheDocument();
+
+        await user.click(screen.getByRole('button', {name: 'go to /help'}));
+
+        expect(screen.getByText('HELP CONTENT')).toBeInTheDocument();
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        consoleError.mockRestore();
+      });
+
+      // The route change that renders a broken page is also a change of reset key. Resetting on
+      // THAT update would render the page straight into a second throw — the fallback still
+      // shows either way, so the only thing that tells the two apart is how often it caught.
+      it('catches a page it navigates INTO once, and keeps the fallback', async () => {
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const {user} = renderBoomAt('/help');
+
+        await user.click(screen.getByRole('button', {name: 'go to /files'}));
+
+        expect(screen.getByRole('alert')).toBeInTheDocument();
+        expect(catches(consoleWarn)).toHaveLength(1);
+        consoleError.mockRestore();
+        consoleWarn.mockRestore();
+      });
+
+      // A reset that renders ANOTHER broken page never commits, so the catch after it still finds
+      // the error in the previous state, and only the unchanged key stops a second reset. Without
+      // that the boundary resets into the throw until React gives up and the error escapes it.
+      it('catches a second broken page once, rather than resetting back into it', async () => {
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const {user} = renderBoomAt('/files');
+
+        await user.click(screen.getByRole('button', {name: 'go to /query'}));
+
+        expect(screen.getByRole('alert')).toBeInTheDocument();
+        // One for the page it opened on, one for the page it went to.
+        expect(catches(consoleWarn)).toHaveLength(2);
+        consoleError.mockRestore();
+        consoleWarn.mockRestore();
       });
     });
   });

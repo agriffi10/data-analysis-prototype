@@ -25,7 +25,8 @@ import {
  * The provider is mounted once at the authenticated app shell (ProtectedLayout),
  * so the queue is SESSION-scoped: uploads keep running across folder navigation,
  * connection (bucket) switches, route changes, and drawer open/close — they are
- * only aborted when the session ends (the provider unmounts on sign-out). Each
+ * only aborted when the provider unmounts: on sign-out, or on leaving the
+ * protected routes altogether. Each
  * item therefore carries its own destination bucket + key, captured at enqueue
  * time, so navigating elsewhere mid-upload never re-targets an in-flight upload.
  *
@@ -104,8 +105,8 @@ export function UploadQueueProvider({children}: {children: ReactNode}) {
   }, [state.items, launch]);
 
   // Abort everything in flight when the provider unmounts. Mounted at the app shell, that happens
-  // only when the session ends (sign-out) — so in-flight uploads survive navigation and run for the
-  // whole session. A single `PUT` leaves nothing behind when aborted, because S3 materialises an
+  // on sign-out or on leaving the protected routes altogether — so in-flight uploads survive
+  // navigation between signed-in pages and run for the whole session. A single `PUT` leaves nothing behind when aborted, because S3 materialises an
   // object only once it completes. A MULTIPART upload does leave parts, so aborting fires an API
   // request to discard them — best effort, and deliberately NOT carrying the aborted signal, or it
   // would cancel its own discard. Whether that request lands while the session is being torn down
