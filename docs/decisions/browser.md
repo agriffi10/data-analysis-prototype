@@ -953,8 +953,8 @@ would be a second writer to state the plane owns, and it would outlive the only 
 settle it. Three bounds keep it from wedging the per-space submit gate: an entry settles when a
 notification carrying its `requestId` arrives, every entry is user-dismissible, and every entry
 expires at the machine's own `TimeoutSeconds` (mirrored in the browser and pinned to `locals.tf` by
-a test). The dismiss is load-bearing rather than tidy — a request that dead-letters produces a
-notification with no payload to correlate against, so it is the only thing that frees that space.
+a test). The dismiss is load-bearing rather than tidy — a request whose notification never reaches
+the inbox has nothing to correlate against, so it is the only thing that frees that space.
 
 ## There is no progress percentage, and there cannot be one (SPEC-190)
 

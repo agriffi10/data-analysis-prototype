@@ -340,6 +340,10 @@ Replaces SPEC-114 FR-005. Every control plane dead-letters a request it cannot p
 > still carries one and is exactly what this drain surfaces. It must not be pointed at `identity` —
 > top-level replacement would blank the block the recipient was just read from. Points (3) and (4),
 > and the undrained notifications DLQ, are unchanged.
+>
+> **Narrowed (2026-09-10):** point (3) governs the MESSAGE and still holds. The row's `payload`
+> now carries the body's `requestId` and nothing else from it — see *`requestId` rides on every
+> row*.
 
 The **notifications DLQ is deliberately undrained** and is the one hole this cannot close — the drain's only delivery channel is the queue that DLQ implies is broken; the honest answer there is operator-facing. **No redrive, no replay, no CloudWatch alarms** (an alarm with no target told the user nothing — the user decision that killed SPEC-114 FR-005). **Follow-up (2026-07-22): the four SQS event-source mappings became one EventBridge scheduled sweep** (`rate(10 minutes)`) — the mappings idle-long-polled four almost-always-empty DLQs around the clock, and that was the bulk of the account's SQS request volume (it was tripping the 1M/month free tier). The handler now polls all four DLQs itself (`DLQ_ARNS`, the same ARNs as an env JSON list) and **deletes every message it reads whether or not it could notify**, so "total by construction" now means *never redeliver* rather than *safe to be redelivered* — the redelivery-loop hazard in (4) is moot because nothing redelivers (the `_guarded_notify` belt stays, so one bad message can't abort the sweep). A resource-based `lambda:AddPermission` lets the rule invoke the function, so **no invoke role** is needed (unlike EventBridge Scheduler); the execution role is unchanged (it already held the four DLQ read/delete grants the mappings polled with). Cost fell from ~10⁵–10⁶ idle receives/month to a few thousand; the price is that a dead-lettered request surfaces within one interval (~10 min) rather than seconds, immaterial for a queue nothing watches live. Detail: `spec-delivery/SPEC-126`.
 
@@ -1095,8 +1099,19 @@ cannot see what its caller leaves out. Results-conversion had the same two gaps:
 no payload, and its validator named the id only once the contract passed. Both took the same fix,
 though no reader tracks a conversion in flight yet: every row the plane's own Lambdas write now
 carries the id, and the first reader built would otherwise miss exactly the failures nobody
-exercises. The shared DLQ drain still writes its row with no payload on either plane, so a
-dead-lettered request settles only at a reader's own expiry.
+exercises.
+
+**The shared DLQ drain writes the id too, on every plane it drains**, which closed the last row
+that settled nothing: a dead-lettered file operation held its card, and the space's submit gate,
+until the card's three-hour expiry. It was left out at first because the drain's rule is that no
+value from the untrusted body reaches the message, and this takes one into the row. The rule still
+governs the message. The id is admitted to the payload, alone, on three grounds. The recipient is
+the actor the API stamped, and a delegated one is refused, so the id lands only in the inbox of the
+caller who chose it. The other two are particular to the id: on every plane whose body carries
+one, it was also the message's deduplication key, so SQS has already held it to 128 printable
+ASCII characters; and no reader renders it as text — the browser keeps a payload only when its id
+cannot change a URL, and matches on it. A `{requestId}`-only row reads to the file-ops card as a
+refusal, which is what a request that never started is.
 
 ## The outcome link: destination, source, or the common folder of the items' PARENTS (SPEC-191)
 

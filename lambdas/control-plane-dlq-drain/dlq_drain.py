@@ -195,6 +195,27 @@ def _redacted(body: dict) -> dict:
     return redacted
 
 
+def _request_id(body: dict) -> str | None:
+    """Reads the request id a dead-lettered body names, or nothing when it names no usable one.
+
+    One predicate for the three things the id becomes here — an event field, a deduplication key
+    and the payload a reader settles on — so they cannot disagree about which bodies have one.
+    Usable means a non-empty string, the test every plane's own emitters apply through
+    ``observability.request_id_of``; ``_notify_one`` says why no stricter shape is owed.
+
+    Args:
+      body: The parsed message body.
+
+    Returns:
+      The id, or None.
+
+    Raises:
+      None.
+    """
+    request_id = body.get("requestId")
+    return request_id if isinstance(request_id, str) and request_id else None
+
+
 def _request_id_field(body: dict) -> dict:
     """Returns the request id as an event field, or nothing when the body has no usable one.
 
@@ -218,8 +239,8 @@ def _request_id_field(body: dict) -> dict:
     Raises:
       None.
     """
-    request_id = body.get("requestId")
-    return {"request_id": request_id} if isinstance(request_id, str) and request_id else {}
+    request_id = _request_id(body)
+    return {"request_id": request_id} if request_id else {}
 
 
 def _forensic(body: dict) -> dict:
@@ -262,16 +283,27 @@ def _notify_one(record: dict) -> None:
     No value from the body reaches the message — not a path, not a table name, not a space name.
     Every other producer interpolates values a verb already authorized; nothing here has
     authorized anything, so echoing an attacker-supplied string back into a victim's inbox would
-    turn the notification pipeline into a text-injection channel. The domain noun is ours; the
-    token is the only thing taken from the body, and only to name a recipient. No link is set,
-    because the request never ran and there is nothing to link to.
+    turn the notification pipeline into a text-injection channel. The domain noun is ours, and
+    the identity block names the recipient. No link is set, because the request never ran and
+    there is nothing to link to.
+
+    **The row's payload carries one body value, the request id, and nothing else**, because a
+    reader settles its in-flight record by matching it: without the id a dead-lettered request
+    holds its record, and whatever that record gates, until the reader's own expiry. It does not
+    reopen the channel the rule above closes, for three reasons. The recipient is the actor the
+    API stamped, and a delegated one is refused, so the id lands only in the inbox of the caller
+    who chose it. On every plane whose body carries an id, the id was also the message's
+    deduplication key, so SQS has already held it to 128 printable ASCII characters — which is
+    the payload's whole size bound, far under the writer's ceiling. And no reader renders it as
+    text: the browser keeps it only when it cannot change a URL, and uses it to match a record
+    and, beside a conflict list this row never carries, to build a link.
 
     The body is logged before the emit, because the event source deletes the message on success.
     An unparseable body cannot be redacted and cannot be notified about, so it is recorded as a
     bounded repr — which escapes newlines and control characters, so an attacker-supplied body
-    cannot forge a second record — and the message is dropped. A body whose token cannot be
-    verified is likewise only recorded: guessing a recipient from the body would be worse than
-    silence, because it would route a notification wherever an attacker asked.
+    cannot forge a second record — and the message is dropped. A body whose identity block names
+    no usable actor is likewise only recorded: guessing a recipient from the body would be worse
+    than silence, because it would route a notification wherever an attacker asked.
 
     Deduplication uses the request's own id when it has one, so a message that somehow
     dead-letters twice collapses to one notification. A body without a usable id falls back to
@@ -339,10 +371,11 @@ def _notify_one(record: dict) -> None:
     clause = _MESSAGES.body(COULD_NOT_START, noun=noun)
     message = clause[0].upper() + clause[1:]
 
-    request_id = body.get("requestId")
-    dedup_id = f"dlq:{request_id}" if isinstance(request_id, str) and request_id else None
+    request_id = _request_id(body)
+    dedup_id = f"dlq:{request_id}" if request_id else None
+    payload = {"requestId": request_id} if request_id else None
 
-    emit_notification(username, message, dedup_id=dedup_id)
+    emit_notification(username, message, dedup_id=dedup_id, payload=payload)
 
     observability.info(
         "notified a dead-lettered request",

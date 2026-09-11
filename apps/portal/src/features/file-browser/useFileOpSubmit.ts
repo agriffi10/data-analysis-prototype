@@ -69,8 +69,9 @@ export function useFileOpSubmit(): UseFileOpSubmitResult {
 
   function busyReason(space: FileOpSpace | undefined): string | undefined {
     if (!space || !inFlight.busySpace(space)) return undefined;
-    // Names the dismiss affordance, because a run that dead-letters is never correlated and this
-    // sentence would otherwise be the whole explanation for a gate the user cannot clear.
+    // Names the dismiss affordance, because a run whose notification never arrives is never
+    // correlated and this sentence would otherwise be the whole explanation for a gate the user
+    // cannot clear.
     return 'Another file operation is still running here. Wait for its notification, or dismiss it from the in-progress list.';
   }
 

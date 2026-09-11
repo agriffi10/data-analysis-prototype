@@ -41,8 +41,8 @@ function status(operation: InFlightOperation): string {
  * the plane reports outcomes only at the end. This says what is running and since when.
  *
  * **Every entry is dismissible**, and that is load-bearing rather than tidy: an entry settles
- * when a notification carrying its `requestId` arrives, and a request that dead-letters produces
- * a notification with no payload to match. Dismiss is what releases the per-space submit gate
+ * when a notification carrying its `requestId` arrives, and a request whose notification never
+ * reaches the inbox has nothing to match. Dismiss is what releases the per-space submit gate
  * when correlation never comes.
  */
 export function InFlightOperations() {

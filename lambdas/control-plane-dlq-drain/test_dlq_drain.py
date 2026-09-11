@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "control-plane-common"))
 
 import dlq_drain
+import pytest
 from cpcommon import clients, config
 from token_shapes import JWT_SHAPED
 
@@ -146,6 +147,40 @@ def test_a_pre_cutover_message_with_no_identity_block_notifies_nobody():
     dlq_drain.handler({"Records": [_record({"actor": JWT, "requestId": "r-1"})]}, None)
 
     assert sqs.sent == []
+
+
+# ── The payload: the one body value the row carries ─────────────────────────
+
+
+def test_the_row_carries_the_request_id_and_nothing_else_from_the_body():
+    """A reader settles its in-flight record on this id; without it the record holds to expiry.
+
+    The whole payload is compared rather than one key read out of it, and the location is looked
+    for in the entire sent envelope: the id is the one body value the row may carry, and the
+    message beside it may carry none.
+    """
+    sqs = _install()
+
+    dlq_drain.handler(
+        {"Records": [_record({"requestId": "r-1", "location": "alice/secret-plans/", **_identity()}, segment="file-ops")]},
+        None,
+    )
+
+    assert _bodies(sqs)[0]["payload"] == {"requestId": "r-1"}
+    assert "secret-plans" not in sqs.sent[0]["MessageBody"]
+
+
+@pytest.mark.parametrize("request_id", [None, "", 7], ids=["absent", "empty", "not-a-string"])
+def test_a_body_without_a_usable_id_still_notifies_but_carries_no_payload(request_id):
+    """The same predicate decides the dedup key, so the two cannot disagree about a body."""
+    sqs = _install()
+    body = _identity() if request_id is None else {"requestId": request_id, **_identity()}
+
+    dlq_drain.handler({"Records": [_record(body, segment="file-ops")]}, None)
+
+    assert [b["username"] for b in _bodies(sqs)] == ["alice"]
+    assert "payload" not in _bodies(sqs)[0]
+    assert "MessageDeduplicationId" not in sqs.sent[0]
 
 
 # ── FR-004: the body survives consumption, the token does not ────────────────
