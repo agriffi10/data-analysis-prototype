@@ -44,6 +44,22 @@ function pendingOverwrite(args: OverwritePrompt & {overwrite: boolean}): Overwri
   };
 }
 
+/**
+ * What the save dialog opens with.
+ *
+ * A fresh open is the suggested name, as CSV, at the first space's root. After the overwrite
+ * question is cancelled it is the name, format and folder that question was about: the dialog is
+ * unmounted while the question is up, so without this it would come back at its defaults. The
+ * name carries the extension the question showed, which is harmless — the dialog's normalizer
+ * swaps a known extension, so choosing another format still saves under the right one.
+ */
+export type SaveResultsInitial = {
+  name: string;
+  format: ResultsFormat;
+  /** The folder to open at, with its bucket. Absent on a fresh open. */
+  destination?: {bucket: string; prefix: string};
+};
+
 export type UseSaveResultsResult = {
   /** The destinations offered by the picker; the dialog is suppressed when empty. */
   spaces: QuerySpace[];
@@ -52,8 +68,8 @@ export type UseSaveResultsResult = {
   closeDialog: () => void;
   /** A copy is in flight; drives both the dialog's and the overwrite prompt's busy state. */
   busy: boolean;
-  /** Sanitized default file name for the picker. */
-  defaultName: string;
+  /** What the dialog's fields open with. */
+  initial: SaveResultsInitial;
   overwritePrompt: OverwritePrompt | null;
   /** Save the currently displayed result into the chosen destination, in the chosen format. */
   save: (args: {destBucket: string; destPrefix: string; filename: string; format: ResultsFormat}) => void;
@@ -114,6 +130,7 @@ export function useSaveResults({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [overwritePrompt, setOverwritePrompt] = useState<OverwritePrompt | null>(null);
+  const [declined, setDeclined] = useState<OverwritePrompt | null>(null);
 
   // The spaces a result can be saved into — the user's own space
   // first, then every shared space they currently belong to (usable). The picker
@@ -134,6 +151,14 @@ export function useSaveResults({
       : 'query-results';
     return `${base}-${stamp}`;
   })();
+
+  const initial: SaveResultsInitial = declined
+    ? {
+        name: declined.filename,
+        format: declined.format,
+        destination: {bucket: declined.destBucket, prefix: declined.destPrefix}
+      }
+    : {name: defaultName, format: 'csv'};
 
   const doSaveCopy = (args: OverwritePrompt & {overwrite: boolean}) => {
     const destKey = `${args.destPrefix}${args.filename}`;
@@ -274,10 +299,13 @@ export function useSaveResults({
   return {
     spaces,
     open,
-    openDialog: () => setOpen(true),
+    openDialog: () => {
+      setDeclined(null);
+      setOpen(true);
+    },
     closeDialog: () => setOpen(false),
     busy,
-    defaultName,
+    initial,
     overwritePrompt,
     save,
     confirmOverwrite: () => {
@@ -289,8 +317,10 @@ export function useSaveResults({
       else doConvert({...overwritePrompt, overwrite: true});
     },
     cancelOverwrite: () => {
+      // Back to the dialog with the name editable, reopened where the question was asked.
+      setDeclined(overwritePrompt);
       setOverwritePrompt(null);
-      setOpen(true); // return to the dialog with the name editable
+      setOpen(true);
     }
   };
 }

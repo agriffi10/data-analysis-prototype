@@ -30,7 +30,7 @@ export function ExportExplorationDialog({saveResults}: ExportExplorationDialogPr
       {saveResults.open && saveResults.spaces.length > 0 && (
         <SaveResultsDialog
           spaces={saveResults.spaces}
-          defaultName={saveResults.defaultName}
+          initial={saveResults.initial}
           isBusy={saveResults.busy}
           onSave={saveResults.save}
           onCancel={saveResults.closeDialog}

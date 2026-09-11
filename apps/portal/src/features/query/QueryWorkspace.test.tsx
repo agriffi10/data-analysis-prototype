@@ -13,6 +13,7 @@ import {
   mockEnqueueShare,
   mockGetHistory,
   mockGetResults,
+  mockListFiles,
   mockListSaved,
   mockReadCache,
   mockReadSaved,
@@ -48,6 +49,7 @@ import {
   savedQueryName
 } from '../saved-queries/savedQueries.service';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
+import {objectExists} from '../file-browser/fileBrowser.service';
 import {QueryWorkspace} from './QueryWorkspace';
 import {ROUTE_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import {ToastProvider} from '../../components/ToastProvider';
@@ -108,7 +110,8 @@ vi.mock('../shared-spaces/sharedSpaces.service', async (importOriginal) => ({
 vi.mock('../file-browser/fileBrowser.service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../file-browser/fileBrowser.service')>()),
   copyObject: vi.fn(),
-  listFiles: vi.fn()
+  listFiles: vi.fn(),
+  objectExists: vi.fn()
 }));
 
 vi.mock('../table-share/tableShare.service', async (importOriginal) => ({
@@ -791,6 +794,41 @@ describe('QueryWorkspace', () => {
       expect(mockCopyObject).toHaveBeenLastCalledWith(expect.objectContaining({overwrite: true}));
       expect(await screen.findByText(/Saved to alice\/out\.csv/)).toBeInTheDocument();
     });
+
+    // The dialog is unmounted while the overwrite question is up, so it came back at its
+    // defaults: a stamped name, CSV and the space root. Parquet and a subfolder are chosen
+    // because both differ from those defaults, and the second save's probe is the effect —
+    // it names the key the user is about to write, which is where the folder shows.
+    it('cancelling the overwrite question returns to the dialog with the name, format and folder kept', async () => {
+      seedSingle('SELECT 1');
+      mockListFiles.mockImplementation(async (_bucket, prefix) =>
+        ok({
+          files: [],
+          folders: prefix === 'alice/' ? [{type: 'folder' as const, prefix: 'alice/reports/', name: 'reports'}] : [],
+          isTruncated: false
+        })
+      );
+      vi.mocked(objectExists).mockResolvedValue(ok(true));
+      const {user} = renderWorkspace();
+      await runToSucceeded(user);
+
+      const dialog = await saveInto(user, 'out');
+      await user.selectOptions(within(dialog).getByLabelText('Format'), 'parquet');
+      await user.click(await within(dialog).findByRole('button', {name: /open folder reports/i}));
+      await user.click(within(dialog).getByRole('button', {name: 'Convert and save'}));
+      await user.click(
+        within(await screen.findByRole('alertdialog', {name: /confirm overwrite/i})).getByRole('button', {
+          name: 'Cancel'
+        })
+      );
+
+      const reopened = await screen.findByRole('dialog', {name: 'Save results to my files'});
+      expect(within(reopened).getByLabelText('File name')).toHaveValue('out.parquet');
+      expect(within(reopened).getByLabelText('Format')).toHaveValue('parquet');
+      await user.click(within(reopened).getByRole('button', {name: 'Convert and save'}));
+      await waitFor(() => expect(objectExists).toHaveBeenCalledTimes(2));
+      expect(objectExists).toHaveBeenLastCalledWith({bucket: 'user-bucket', key: 'alice/reports/out.parquet'});
+    });
   });
 
   describe('QueryWorkspace — multi-statement batches (SPEC-078)', () => {
@@ -1118,6 +1156,59 @@ describe('QueryWorkspace', () => {
       expect(await screen.findByText(/Saved to salesdata\/out\.csv/)).toBeInTheDocument();
       // The Files browser can't render shared spaces → no deep-link.
       expect(screen.queryByRole('button', {name: 'View in Files'})).not.toBeInTheDocument();
+    });
+
+    // The space half of a cancelled overwrite's restore, which the one-space test cannot see — the
+    // selector renders nothing below two options — and the lifecycle's other half: a fresh open
+    // forgets what a cancel restored.
+    it('a cancelled overwrite reopens in the shared space and folder, and a fresh open forgets them', async () => {
+      mockReadCache.mockResolvedValue(
+        ok({version: 1, connections: [{name: 'salesdata', role: 'member', status: 'active'}]})
+      );
+      seedSingle('SELECT 1');
+      mockListFiles.mockImplementation(async (_bucket, prefix) =>
+        ok({
+          files: [],
+          folders:
+            prefix === 'salesdata/' ? [{type: 'folder' as const, prefix: 'salesdata/reports/', name: 'reports'}] : [],
+          isTruncated: false
+        })
+      );
+      mockCopyObject.mockResolvedValue(fail('exists', 'Collision'));
+      const {user} = renderWorkspace();
+      await screen.findByRole('button', {name: 'sales_2026'});
+      await user.click(screen.getByRole('button', {name: 'Run statement'}));
+      await screen.findByText('Succeeded');
+      const cancelOverwrite = async () =>
+        user.click(
+          within(await screen.findByRole('alertdialog', {name: /confirm overwrite/i})).getByRole('button', {
+            name: 'Cancel'
+          })
+        );
+
+      await user.click(await screen.findByRole('button', {name: 'Save results to my files'}));
+      const dialog = await screen.findByRole('dialog', {name: 'Save results to my files'});
+      await user.selectOptions(within(dialog).getByLabelText('Save to'), 'salesdata');
+      await user.clear(within(dialog).getByLabelText('File name'));
+      await user.type(within(dialog).getByLabelText('File name'), 'out');
+      await user.click(await within(dialog).findByRole('button', {name: /open folder reports/i}));
+      await user.click(within(dialog).getByRole('button', {name: 'Save here'}));
+      await cancelOverwrite();
+
+      const reopened = await screen.findByRole('dialog', {name: 'Save results to my files'});
+      expect(within(reopened).getByLabelText('Save to')).toHaveValue('salesdata');
+      await user.click(within(reopened).getByRole('button', {name: 'Save here'}));
+      expect(mockCopyObject).toHaveBeenLastCalledWith(
+        expect.objectContaining({destBucket: 'shared-bucket', destKey: 'salesdata/reports/out.csv'})
+      );
+
+      await cancelOverwrite();
+      const again = await screen.findByRole('dialog', {name: 'Save results to my files'});
+      await user.click(within(again).getByRole('button', {name: 'Cancel'}));
+      await user.click(screen.getByRole('button', {name: 'Save results to my files'}));
+      const fresh = await screen.findByRole('dialog', {name: 'Save results to my files'});
+      expect(within(fresh).getByLabelText('Save to')).toHaveValue('personal');
+      expect((within(fresh).getByLabelText('File name') as HTMLInputElement).value).toMatch(/^query-results-/);
     });
   });
 

@@ -27,7 +27,7 @@ from cpcommon.app_managed import (
     segments_hold_app_managed,
 )
 from cpcommon.errors import TerminalError
-from cpcommon.paths import assert_inside_root, has_dot_segment, normalize_root
+from cpcommon.paths import assert_inside_root, has_dot_segment
 from cpcommon.s3_listing import MARKER_BASENAME
 
 from .envelope import ApiError
@@ -58,31 +58,39 @@ def contained_key(space: ResolvedSpace, key: str) -> str:
 
 
 def contained_prefix(space: ResolvedSpace, prefix: str) -> str:
-    """Returns a listing prefix, having refused one that escapes the space root.
+    """Returns a listing prefix, having refused one that is not inside the space root.
 
     **A prefix is not a key, and the difference is load-bearing.**
     ``assert_inside_root(root, "")`` raises — an empty key is meaningless — but an empty prefix is
     the file browser's very first listing request. So the empty case is admitted here and the
     containment rule is otherwise identical.
 
+    **A prefix is absolute, like every key the API takes, and it has no second reading.** Accepting
+    a prefix relative to the root as well means guessing the form from the value, and the guess is
+    ambiguous whenever a folder shares its space's name: ``alice/`` is both the root of ``alice``'s
+    space and, relatively, the folder ``alice/alice/``. So a prefix outside the root is refused
+    rather than re-rooted, and ``alice/alice/`` is the one way to name that folder. The listing's
+    rows carry absolute keys, so a caller that feeds a row back as the next prefix already sends
+    this form.
+
     Args:
       space: The resolved space.
-      prefix: The caller-supplied listing prefix, possibly empty.
+      prefix: The caller-supplied listing prefix, absolute or empty.
 
     Returns:
-      The absolute prefix to list, always inside the root.
+      The prefix to list, always inside the root.
 
     Raises:
-      ApiError: ``AccessDenied`` when the prefix carries a dot segment or escapes the root.
+      ApiError: ``AccessDenied`` when the prefix carries a dot segment or does not start with the
+        root, a relative prefix included.
     """
     if not prefix:
         return space.root
     if has_dot_segment(prefix):
         raise ApiError("AccessDenied", "prefix contains a path segment that is not allowed")
-    absolute = prefix if prefix.startswith(space.root) else f"{normalize_root(space.root)}{prefix}"
-    if not absolute.startswith(space.root):
+    if not prefix.startswith(space.root):
         raise ApiError("AccessDenied", "prefix is not inside the space root")
-    return absolute
+    return prefix
 
 
 def is_marker(key: str) -> bool:

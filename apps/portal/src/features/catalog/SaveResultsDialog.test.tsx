@@ -54,7 +54,7 @@ function renderDialog(props?: Partial<React.ComponentProps<typeof SaveResultsDia
   const result = renderWithProviders(
     <SaveResultsDialog
       spaces={[personalSpace]}
-      defaultName="query-results-20260622-1430"
+      initial={{name: 'query-results-20260622-1430', format: 'csv'}}
       onSave={onSave}
       onCancel={onCancel}
       {...props}

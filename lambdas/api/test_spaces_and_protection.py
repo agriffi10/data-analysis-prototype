@@ -110,6 +110,23 @@ class TestKeyContainment:
             protected.contained_prefix(PERSONAL, "alice/../bob/")
         assert raised.value.code == "AccessDenied"
 
+    def test_a_prefix_has_ONE_reading_so_a_relative_one_is_refused_not_re_rooted(self) -> None:
+        """Absolute only, because ``alice/`` cannot mean both the root and the folder ``alice/alice/``.
+
+        Each assertion fails under one of the other two contracts. Re-rooting a prefix that does
+        not start with the root would list ``alice/reports/`` for ``reports/``, and reading every
+        prefix relatively would list ``alice/alice/`` for ``alice/``. The detail is asserted as well
+        as the code, because the dot-segment refusal answers ``AccessDenied`` too.
+        """
+        assert protected.contained_prefix(PERSONAL, "alice/") == "alice/"
+        assert protected.contained_prefix(PERSONAL, "alice/alice/") == "alice/alice/"
+        with pytest.raises(ApiError) as raised:
+            protected.contained_prefix(PERSONAL, "reports/")
+        assert (raised.value.code, raised.value.detail) == (
+            "AccessDenied",
+            "prefix is not inside the space root",
+        )
+
 
 class TestTheArchiveWriteLockMirrorsEachBucket:
     """FR-009 AC4 — each bucket's own Deny, never the average of the two."""
