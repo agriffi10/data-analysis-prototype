@@ -1,5 +1,6 @@
 import {Button} from '../../components/Button';
 import {TrashIcon} from '../../components/icons';
+import {TOOLBAR_ACTION_ICON, TOOLBAR_ACTION_LABEL} from '../../components/toolbarAction';
 import {ArchiveButton} from '../archive';
 import {useSelection, itemId, type SelectableItem} from './selectionContext';
 
@@ -11,7 +12,7 @@ function BulkCopyIcon() {
       fill="none"
       stroke="currentColor"
       strokeWidth="2"
-      className="h-[15px] w-[15px]"
+      className={TOOLBAR_ACTION_ICON}
       aria-hidden="true">
       <rect
         x="9"
@@ -32,7 +33,7 @@ function QualityCheckIcon() {
       fill="none"
       stroke="currentColor"
       strokeWidth="2"
-      className="h-[15px] w-[15px]"
+      className={TOOLBAR_ACTION_ICON}
       aria-hidden="true">
       {/* A magnifier over a document — inspecting, not changing. */}
       <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6" />
@@ -55,7 +56,7 @@ function SendIcon() {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="h-[15px] w-[15px]"
+      className={TOOLBAR_ACTION_ICON}
       aria-hidden="true">
       {/* An arrow leaving a tray — handing something over, not moving it away. */}
       <path d="M12 3v11" />
@@ -74,7 +75,7 @@ function BulkMoveIcon() {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="h-[15px] w-[15px]"
+      className={TOOLBAR_ACTION_ICON}
       aria-hidden="true">
       <path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4" />
       <path d="M10 8l4 4-4 4" />
@@ -162,11 +163,12 @@ export function SelectionToolbar({
   const active = count > 0;
 
   // A focused bulk-action bar: whole-selection Copy / Move / Delete
-  // only (Download + Rename live in the details panel). Labelled at
-  // ≥ tablet, icon-only on mobile.
+  // only (Download + Rename live in the details panel). Icon-only on
+  // mobile, words alone at tablet, both at desktop — the gap and the
+  // buttons' padding tighten between the two for the same reason.
   return (
     <div
-      className={`mb-4 flex h-11 items-center gap-2 rounded-lg border px-3 tablet:gap-3 tablet:px-4 ${
+      className={`mb-4 flex h-11 items-center gap-2 rounded-lg border px-3 tablet:px-4 desktop:gap-3 ${
         active ? 'border-accent bg-accent-soft' : 'border-border bg-surface'
       }`}>
       <input
@@ -186,7 +188,7 @@ export function SelectionToolbar({
 
       <span
         aria-live="polite"
-        className={`text-sm font-semibold ${active ? 'text-accent-text' : 'text-text-3'}`}>
+        className={`min-w-0 truncate text-sm font-semibold ${active ? 'text-accent-text' : 'text-text-3'}`}>
         {active ? `${count} selected` : 'Select all'}
       </span>
 
@@ -202,12 +204,12 @@ export function SelectionToolbar({
         <Button
           variant="ghost"
           size="sm"
-          className="gap-1.5 !h-9 !px-2.5 tablet:!h-8 tablet:!px-3"
+          className="gap-1.5 !h-9 !px-2.5 tablet:!h-8 tablet:!px-2 desktop:!px-3"
           onClick={onRequestQualityCheck}
           disabled={count !== 1 || isBusy}
           aria-label="Check data quality of the selected item">
           <QualityCheckIcon />
-          <span className="hidden tablet:inline">Check data quality</span>
+          <span className={TOOLBAR_ACTION_LABEL}>Check data quality</span>
         </Button>
       )}
 
@@ -218,12 +220,12 @@ export function SelectionToolbar({
         <Button
           variant="ghost"
           size="sm"
-          className="gap-1.5 !h-9 !px-2.5 tablet:!h-8 tablet:!px-3"
+          className="gap-1.5 !h-9 !px-2.5 tablet:!h-8 tablet:!px-2 desktop:!px-3"
           onClick={onRequestSend}
           disabled={count === 0 || isBusy}
           aria-label="Send to another user">
           <SendIcon />
-          <span className="hidden tablet:inline">Send to…</span>
+          <span className={TOOLBAR_ACTION_LABEL}>Send to…</span>
         </Button>
       )}
 
@@ -242,37 +244,37 @@ export function SelectionToolbar({
       <Button
         variant="ghost"
         size="sm"
-        className="gap-1.5 !h-9 !px-2.5 tablet:!h-8 tablet:!px-3"
+        className="gap-1.5 !h-9 !px-2.5 tablet:!h-8 tablet:!px-2 desktop:!px-3"
         onClick={onRequestCopy}
         disabled={count === 0 || isBusy}
         disabledReason={count > 0 ? spaceBusyReason : undefined}
         aria-label="Copy selected items">
         <BulkCopyIcon />
-        <span className="hidden tablet:inline">Copy</span>
+        <span className={TOOLBAR_ACTION_LABEL}>Copy</span>
       </Button>
 
       <Button
         variant="ghost"
         size="sm"
-        className="gap-1.5 !h-9 !px-2.5 tablet:!h-8 tablet:!px-3"
+        className="gap-1.5 !h-9 !px-2.5 tablet:!h-8 tablet:!px-2 desktop:!px-3"
         onClick={onRequestMove}
         disabled={count === 0 || isBusy}
         disabledReason={count > 0 ? (writeLockReason ?? moveDisabledReason ?? spaceBusyReason) : undefined}
         aria-label="Move selected items">
         <BulkMoveIcon />
-        <span className="hidden tablet:inline">Move</span>
+        <span className={TOOLBAR_ACTION_LABEL}>Move</span>
       </Button>
 
       <Button
         variant="ghost"
         size="sm"
-        className="gap-1.5 !h-9 !px-2.5 !text-danger hover:!bg-danger-soft hover:!text-danger tablet:!h-8 tablet:!px-3"
+        className="gap-1.5 !h-9 !px-2.5 !text-danger hover:!bg-danger-soft hover:!text-danger tablet:!h-8 tablet:!px-2 desktop:!px-3"
         onClick={onRequestDelete}
         disabled={count === 0 || isBusy}
         disabledReason={count > 0 ? (writeLockReason ?? deleteDisabledReason ?? spaceBusyReason) : undefined}
         aria-label="Delete selected items">
-        <TrashIcon />
-        <span className="hidden tablet:inline">Delete</span>
+        <TrashIcon className={TOOLBAR_ACTION_ICON} />
+        <span className={TOOLBAR_ACTION_LABEL}>Delete</span>
       </Button>
     </div>
   );

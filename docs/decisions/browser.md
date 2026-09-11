@@ -1172,3 +1172,35 @@ wording sent a phone user to a button that is not rendered — a guide pointing 
 is the same failure the gated-surface registry exists to prevent, arriving through prose. If a
 mobile create path is ever wanted, the selection toolbar is where it goes, and the `!isMobile` gate
 on the Files toolbar is the thing to delete rather than duplicate.
+
+## At `tablet` the words stay and the decoration waits — the top bar and the selection toolbar (2026-09-10)
+
+`tablet` is where the top bar's tab strip, its three control labels and the username switch on, and
+where the Files selection toolbar's six action labels do; neither row had anything that could
+shrink. Squeezed, each wrapped first and overflowed second. On `c4ea4413`, in Chromium with a
+classic 15px scrollbar, the bar needed 1029px of `clientWidth` against 885 at an `innerWidth` of
+900: it wrapped *Data Explorer* and *Data quality* onto two lines up to about 1044 and overflowed
+the page below 960. The toolbar was about 164px short at 900: it wrapped three labels up to about
+1064, pushed Delete out of its own border below about 944 and widened the page below about 915.
+The header's overflow hid the toolbar's, which is why the 2026-09-10 sweep reported one defect.
+
+**The user chose, from three options for each row, the one that keeps every word and drops what
+nothing depends on.** The username text and the tab icons wait for `desktop` beside the wordmark
+(the entry above ranks the tab strip and the labels as what stays); the toolbar's glyphs go at
+`tablet` and come back at `desktop`, mobile staying glyph-only, and its gap and button padding
+tighten between the two. Declined: making Help, Notifications and Theme icon-only below `desktop`,
+which reverses that ranking; tightening the toolbar's spacing alone, which fits at 900 only because
+the wrapping absorbs it; and withholding every toolbar label until `desktop`, which loses the words
+at 1024 and 1280.
+
+**No label wraps in either row any more** (`whitespace-nowrap`), so a row that is short of room
+overflows where a width sweep sees it rather than wrapping where it looks almost right. The two
+terms that grow with data are bounded instead: the username is capped with an ellipsis at `desktop`,
+and the selection count truncates. What is left in the band is static, so its headroom is a property
+of the layout rather than of the user. On the commit that added this entry, at 900 with the
+scrollbar showing, that was 14px in the bar (21 under the `system-ui` fallback) and 38px in the
+toolbar with *Select all*. A new tab, control or toolbar action spends it, and owes the band sweep
+in `docs/testing/e2e.md` §4.15.
+
+**The cost, stated as the wordmark's is above:** between 900 and 1299 the signed-in user's own name
+is on the bar only as the avatar's two letters, and in the account trigger's `aria-label`.

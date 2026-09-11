@@ -363,7 +363,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         intro:
           'A long session with the editor is easier on the eyes in the dark. Choose Light or Dark to fix it, or System to let Data Quarry follow whatever your computer or phone is set to — so it turns dark in the evening if your device does.',
         steps: [
-          'Open the menu on your name in the top bar and choose <b>Light</b>, <b>Dark</b>, or <b>System</b>. It is the same menu that holds <b>Help &amp; guides</b>, <b>Give feedback</b> and <b>Sign out</b>.',
+          'Click <b>Theme</b> in the top bar and choose <b>Light</b>, <b>Dark</b>, or <b>System</b>. In a narrow window the word goes and its half-filled circle stays.',
           'It is in the same place at every screen size, phone included — there is no separate control to find on a small screen.',
           'The change applies straight away, and the editor, the results grid and every other screen follow it.'
         ],
@@ -715,7 +715,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         intro:
           'Everything else in Data Quarry tells us what you <b>clicked</b>. This is the only place that tells us what you <b>wanted</b> — so if something is awkward, missing, or just wrong, this is the fastest way to say so.',
         steps: [
-          'Open the menu on your name in the top bar and choose <b>Give feedback</b> — the same place as <b>Help &amp; guides</b>, your theme and <b>Sign out</b>. It is there at every screen size.',
+          'Open the account menu — the round badge with the first letters of your username, at the right-hand end of the top bar — and choose <b>Give feedback</b>. <b>Sign out</b> is in the same menu, and it is there at every screen size.',
           'Pick <b>What is this about?</b> — <b>Something is broken</b> for a problem, <b>An idea or a request</b> for something you would like, <b>A question</b> when you are unsure how something works, and <b>Something else</b> for anything that fits none of those.',
           'Write your feedback. The more specific the better — what you were doing, what you expected, and what happened instead.',
           'Click <b>Send</b>. The page you were on when you opened the dialog is included automatically, so you do not need to describe where you were.'

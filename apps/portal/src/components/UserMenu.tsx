@@ -21,9 +21,14 @@ export type UserMenuProps = {
  * width they take. What stays here is what a user reaches for rarely and by intent.
  *
  * THE TRIGGER NEEDS ITS OWN NAME. The avatar is `aria-hidden` (initials are not a label), the
- * kebab is decorative, and the username is CSS-hidden below `tablet`, so none of the three can
+ * kebab is decorative, and the username is CSS-hidden below `desktop`, so none of the three can
  * supply one — an `aria-label` names the user explicitly. `Menu` renders no trigger ARIA of
  * its own; the four attributes it hands back are wired here.
+ *
+ * THE USERNAME WAITS FOR `desktop`, with the wordmark, and is capped when it shows. Between
+ * `tablet` and `desktop` the bar has no room left once the tab strip and the named controls are
+ * drawn, and a name is the one term in its width that grows with the user — so it is withheld
+ * there, and truncated past the cap rather than allowed to widen the bar above it.
  *
  * @example
  * <UserMenu username="alice" onGiveFeedback={open} onSignOut={signOut} />
@@ -61,7 +66,11 @@ export function UserMenu({username, onGiveFeedback, onSignOut}: UserMenuProps) {
             aria-hidden="true">
             {username.slice(0, 2).toUpperCase()}
           </span>
-          <span className="hidden text-sm text-text-2 tablet:inline">{username}</span>
+          <span
+            title={username}
+            className="hidden max-w-40 truncate text-sm text-text-2 desktop:inline">
+            {username}
+          </span>
           {/* The whole point of the trigger's redesign: an avatar alone looks like a status
               badge, so nothing on it said a menu was there to open. */}
           <KebabIcon className="h-4 w-4 flex-none text-text-3" />
