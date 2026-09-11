@@ -144,7 +144,7 @@ def is_valid(name: object) -> bool:
     Raises:
       None.
     """
-    return isinstance(name, str) and name.isascii() and COLUMN_NAME_RE.match(name.lower()) is not None
+    return isinstance(name, str) and name.isascii() and COLUMN_NAME_RE.fullmatch(name.lower()) is not None
 
 
 def invalid_names(names: Iterable[object]) -> list[str]:

@@ -122,9 +122,9 @@ def _detect_date_type(series):
     values = [v for v in series.to_list() if v is not None]
     if not values:
         return None
-    if all(isinstance(v, str) and _DATE_RE.match(v) for v in values):
+    if all(isinstance(v, str) and _DATE_RE.fullmatch(v) for v in values):
         return "date"
-    if all(isinstance(v, str) and _DATETIME_RE.match(v) for v in values):
+    if all(isinstance(v, str) and _DATETIME_RE.fullmatch(v) for v in values):
         return "timestamp"
     return None
 

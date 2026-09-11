@@ -17,7 +17,9 @@ Attributes:
     request inside one window collapse; a deliberate re-share later goes through.
   MAX_FIFO_KEY_CHARS: What SQS accepts for a group id or a dedup id.
   _FIFO_KEY_RE: What SQS accepts in one — printable ASCII with no space, which is its
-    "alphanumeric characters and punctuation" rule written as a pattern.
+    "alphanumeric characters and punctuation" rule written as a pattern. Applied with
+    ``fullmatch``: its ``$`` also matches before a trailing newline, so ``match`` would wave
+    through a caller's ``"abc\\n"`` request id and SQS would refuse the send.
 """
 
 import hashlib
@@ -417,7 +419,7 @@ def _checked(key: str, field: str) -> str:
     Raises:
       ApiError: ``InvalidRequest`` if it is too long or carries a character the queue refuses.
     """
-    if not _FIFO_KEY_RE.match(key):
+    if not _FIFO_KEY_RE.fullmatch(key):
         raise ApiError(
             "InvalidRequest",
             f"the derived {field} is longer than {MAX_FIFO_KEY_CHARS} characters "

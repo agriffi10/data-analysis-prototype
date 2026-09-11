@@ -163,7 +163,7 @@ def _plain(value) -> bool:
     Raises:
       None.
     """
-    return isinstance(value, str) and bool(_SEGMENT.match(value))
+    return isinstance(value, str) and bool(_SEGMENT.fullmatch(value))
 
 
 def _space_query(kind: str, name: str) -> str:

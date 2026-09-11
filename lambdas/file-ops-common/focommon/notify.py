@@ -186,7 +186,7 @@ def _space_root(space: dict) -> str:
       None.
     """
     name = (space or {}).get("name")
-    return f"{name}/" if isinstance(name, str) and _SEGMENT.match(name) else ""
+    return f"{name}/" if isinstance(name, str) and _SEGMENT.fullmatch(name) else ""
 
 
 def _folder_of(key: str) -> str:

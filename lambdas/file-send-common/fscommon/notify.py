@@ -112,7 +112,7 @@ def _plain(value) -> bool:
     Raises:
       None.
     """
-    return isinstance(value, str) and bool(_SEGMENT.match(value))
+    return isinstance(value, str) and bool(_SEGMENT.fullmatch(value))
 
 
 def emit_failure(event, err: TerminalError, step: str) -> None:

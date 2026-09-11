@@ -160,7 +160,7 @@ def _from_index(caller: Principal) -> Mapping[int, str]:
     from . import identity
 
     cap = config.max_shared_memberships()
-    if not CATALOG_IDENTIFIER_RE.match(caller.username):
+    if not CATALOG_IDENTIFIER_RE.fullmatch(caller.username):
         raise identity.IdentityUnavailableError(identity.REASON_UNREPRESENTABLE_USERNAME)
 
     document = identity.membership_index_document(caller.username)
@@ -178,7 +178,7 @@ def _from_index(caller: Principal) -> Mapping[int, str]:
         name, status = entry.get("name"), entry.get("status")
         if not isinstance(name, str) or not name:
             raise identity.IdentityUnavailableError(REASON_INDEX_UNREADABLE)
-        if not CATALOG_IDENTIFIER_RE.match(name):
+        if not CATALOG_IDENTIFIER_RE.fullmatch(name):
             raise identity.IdentityUnavailableError(REASON_INDEX_UNSAFE_NAME)
         if status != ACTIVE_STATUS:
             observability.info(

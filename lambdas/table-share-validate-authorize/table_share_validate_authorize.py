@@ -72,7 +72,7 @@ def _validate_table_name(name):
     Raises:
       TerminalError: ``invalid_table_name`` when it is not a catalog-safe identifier.
     """
-    if not isinstance(name, str) or not config.CATALOG_IDENTIFIER_RE.match(name):
+    if not isinstance(name, str) or not config.CATALOG_IDENTIFIER_RE.fullmatch(name):
         raise TerminalError("invalid_table_name", f"{name!r}")
 
 

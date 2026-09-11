@@ -69,7 +69,7 @@ def validated_request_id(request_id) -> str:
     Raises:
       TerminalError: ``invalid_request`` when the id is missing or is not a UUID v4.
     """
-    if not isinstance(request_id, str) or not _UUID_V4.match(request_id):
+    if not isinstance(request_id, str) or not _UUID_V4.fullmatch(request_id):
         raise TerminalError("invalid_request", f"request id {request_id!r} is not a UUID v4")
     return request_id.lower()
 
@@ -98,7 +98,7 @@ def validated_archive_id(archive_id) -> str:
     Raises:
       TerminalError: ``invalid_request`` when the id is missing or is not a UUID v4.
     """
-    if not isinstance(archive_id, str) or not _UUID_V4.match(archive_id):
+    if not isinstance(archive_id, str) or not _UUID_V4.fullmatch(archive_id):
         raise TerminalError("invalid_request", f"archive id {archive_id!r} is not a UUID v4")
     return archive_id.lower()
 
