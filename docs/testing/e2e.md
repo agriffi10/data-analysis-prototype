@@ -1036,7 +1036,7 @@ split is why most of this is owed rather than run — see `owed.md`.
 
 | Do | Expect |
 |---|---|
-| At desktop width, signed in | Open the **kebab** beside your name: **Give feedback** is the first item, with an icon, above a separator and **Sign out**. Help and the theme are on the bar, not in here. |
+| At 1300 px or wider, signed in | Open the **kebab** beside your name (below 1300 the name is withheld and the kebab sits beside the avatar): **Give feedback** is the first item, with an icon, above a separator and **Sign out**. Help and the theme are on the bar, not in here. |
 | Narrow to 375px | The bar's three words (Help, Notifications, Theme) go and their icons stay; the menu is unchanged — **Give feedback** is in the same place. The ☰ drawer carries no copy of it. |
 | Open it | A dialog with **no category preselected**, an empty message, and a line naming the page you were on. **Send** is disabled. |
 | Choose a category, leave the message empty | **Send** stays disabled. Type a space or two — still disabled. |

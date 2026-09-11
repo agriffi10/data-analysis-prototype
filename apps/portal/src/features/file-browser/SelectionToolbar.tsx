@@ -198,8 +198,8 @@ export function SelectionToolbar({
 
       {/* a read-only diagnostic on ONE file or folder. It lives here rather
           than on the top toolbar because it is scoped to the SELECTION, like its
-          neighbours — and here it is already reachable at every breakpoint (labelled
-          at ≥ tablet, icon-only on mobile) without a second mount. `user_settings` and
+          neighbours — and here it is already reachable at every breakpoint (a glyph
+          on mobile, a word from tablet up) without a second mount. `user_settings` and
           `_data-quality-reports` need no guard: they are filtered out of the listing
           entirely, so they can never be selected. */}
       {onRequestQualityCheck && (
@@ -216,8 +216,8 @@ export function SelectionToolbar({
       )}
 
       {/* a send is a copy INTO SOMEONE ELSE'S space, so it sits beside Copy rather
-          than anywhere new — one or many items, files and folders alike. Labelled at ≥ tablet,
-          icon-only on mobile, exactly like its neighbours. */}
+          than anywhere new — one or many items, files and folders alike. Shaped exactly like
+          its neighbours at every width. */}
       {onRequestSend && (
         <Button
           variant="ghost"

@@ -950,8 +950,9 @@ describe('FileBrowser — send to… (SPEC-167)', () => {
 });
 
 // The toolbar's actions are written out once per button across two features, and at `tablet`
-// their padding is part of what makes the row fit: one copy left at the old padding is enough to
-// push Delete out of the bar. jsdom loads no Tailwind, so the classes are what can be asserted.
+// their padding, the bar's gap and the missing glyphs are the band's whole budget — a copy that
+// drifts spends it where nothing shows. jsdom loads no Tailwind, so the classes are what can be
+// asserted, and exactly, since an added class is as able to undo the band as a removed one.
 describe('the selection toolbar across the tablet band', () => {
   const WORDS: Record<string, string> = {
     'Check data quality of the selected item': 'Check data quality',
@@ -969,18 +970,23 @@ describe('the selection toolbar across the tablet band', () => {
     const actions = within(bar).getAllByRole('button');
     expect(actions.map((a) => a.getAttribute('aria-label'))).toEqual(Object.keys(WORDS));
     for (const action of actions) {
-      expect(action).toHaveClass('tablet:!px-2', 'desktop:!px-3');
-      expect(action.querySelector('svg')).toHaveClass('tablet:hidden', 'desktop:block');
-      expect(within(action).getByText(WORDS[action.getAttribute('aria-label') ?? ''])).toHaveClass(
-        'hidden',
-        'whitespace-nowrap',
-        'tablet:inline'
+      expect([...action.classList].filter((c) => /^(tablet|desktop):!px-/.test(c))).toEqual([
+        'tablet:!px-2',
+        'desktop:!px-3'
+      ]);
+      // The glyph is the whole control below `tablet`, so a `hidden` here empties it on a phone.
+      expect(action.querySelector('svg')).toHaveAttribute('class', 'h-[15px] w-[15px] tablet:hidden desktop:block');
+      expect(within(action).getByText(WORDS[action.getAttribute('aria-label') ?? ''])).toHaveAttribute(
+        'class',
+        'hidden whitespace-nowrap tablet:inline'
       );
     }
+    expect([...bar.classList].filter((c) => /^(tablet:|desktop:)?gap-/.test(c))).toEqual(['gap-2', 'desktop:gap-3']);
 
     // Below `tablet` a truncated "128 selected" reads as "12…", so the count wraps there instead.
-    const count = within(bar).getByText('Select all');
-    expect(count).toHaveClass('tablet:truncate');
-    expect(count).not.toHaveClass('truncate');
+    expect(within(bar).getByText('Select all')).toHaveAttribute(
+      'class',
+      'text-sm font-semibold tablet:min-w-0 tablet:truncate text-text-3'
+    );
   });
 });

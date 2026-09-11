@@ -9,7 +9,7 @@ export type UserMenuProps = {
 };
 
 /**
- * The account menu behind the kebab beside the username: Give feedback, and Sign out last.
+ * The account menu behind the kebab beside the avatar: Give feedback, and Sign out last.
  *
  * PRESENTATIONAL BY REQUIREMENT, not by taste. `components/` may not import `features/`
  * (`eslint.config.js`), and its exemption list is two files long — so feedback and sign out

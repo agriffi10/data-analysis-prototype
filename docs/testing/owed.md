@@ -334,7 +334,7 @@ enclosing-target reading. The third was added on 2026-09-10, in the live app.
 | `TransformersDialog` | **Zero** undersized targets in its default state | — |
 | Columns drawer | Move-earlier / move-later **32.16 × 28**, close **28 × 28** | — |
 | `FileListTable` header + rows | Row checkboxes **14 × 14** at **42px** pitch; *Select all* **14 × 14**. The binding neighbour is the **adjacent row's checkbox**, not the enclosing row link — the half previously computed rather than measured | +18 / +34.5  **One open disagreement, recorded rather than resolved:** the enclosing `<li>` carries `onDoubleClick` to download and measures 876 × 42, so under the enclosing-target reading the row checkbox has centre-to-box 0 and fails. This pass deliberately does not lean on that reading, calling it contested, and settles the entry on the adjacent-row pitch instead. Both are written down because the register should not look settled while the reading it turns on is not. Either way the static sweep is blind to the row: `POINTER_HANDLER` matches `onClick`/`onPointerDown`/`onMouseDown`, not `onDoubleClick`. |
-| `SelectionToolbar` | All buttons **28px** tall, ≥75 wide | — |
+| `SelectionToolbar` | All buttons **28px** tall, ≥75 wide at desktop widths; between 900 and 1299, where the glyphs give their room to the words, the narrowest is Copy at **46.7** wide | — |
 | `SendFilesDialog` | Two **14 × 14** radios **69.1px** apart, confirmed by direct measurement as well as by the sweep | — |
 | `Chip` remove ✕ | **Exactly 24 × 24**, **153.71px** apart on a row; with the earlier 31.75px wrapped figure, both axes are now measured | pin holding |
 | Divider ▲/▼ (SPEC-209) | **Exactly 24 × 24** each — the absolute pin, not the 24.5 a `h-7` restyle would give | — |
