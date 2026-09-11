@@ -200,8 +200,8 @@ def _request_id(body: dict) -> str | None:
 
     One predicate for the three things the id becomes here — an event field, a deduplication key
     and the payload a reader settles on — so they cannot disagree about which bodies have one.
-    Usable means a non-empty string, the test every plane's own emitters apply through
-    ``observability.request_id_of``; ``_notify_one`` says why no stricter shape is owed.
+    Usable means a non-empty string, the same test ``observability.request_id_of`` applies for
+    the failure payloads other planes send; ``_notify_one`` says why no stricter shape is owed.
 
     Args:
       body: The parsed message body.
@@ -289,7 +289,7 @@ def _notify_one(record: dict) -> None:
 
     **The row's payload carries one body value, the request id, and nothing else**, because a
     reader settles its in-flight record by matching it: without the id a dead-lettered request
-    holds its record, and whatever that record gates, until the reader's own expiry. It does not
+    holds its record, and whatever that record gates, until it expires or is dismissed. It does not
     reopen the channel the rule above closes, for three reasons. The recipient is the actor the
     API stamped, and a delegated one is refused, so the id lands only in the inbox of the caller
     who chose it. Only the API writes the block a recipient is read from, and it also made the
@@ -301,9 +301,10 @@ def _notify_one(record: dict) -> None:
     The body is logged before the emit, because the event source deletes the message on success.
     An unparseable body cannot be redacted and cannot be notified about, so it is recorded as a
     bounded repr — which escapes newlines and control characters, so an attacker-supplied body
-    cannot forge a second record — and the message is dropped. A body whose identity block names
-    no usable actor is likewise only recorded: guessing a recipient from the body would be worse
-    than silence, because it would route a notification wherever an attacker asked.
+    cannot forge a second record — and the message is dropped. A body the actor reader refuses —
+    no identity block, no usable actor in it, a delegated actor or an unaccepted assurance — is
+    likewise only recorded: guessing a recipient from the body would be worse than silence,
+    because it would route a notification wherever an attacker asked.
 
     Deduplication uses the request's own id when it has one, so a message that somehow
     dead-letters twice collapses to one notification. A body without a usable id falls back to

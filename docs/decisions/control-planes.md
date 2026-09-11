@@ -1101,18 +1101,21 @@ though no reader tracks a conversion in flight yet: every row the plane's own La
 carries the id, and the first reader built would otherwise miss exactly the failures nobody
 exercises.
 
-**The shared DLQ drain writes the id too, on every plane it drains**, which closed the last row
-that settled nothing: a dead-lettered file operation held its card, and the space's submit gate,
-until the card's three-hour expiry. It was left out at first because the drain's rule is that no
-value from the untrusted body reaches the message, and this takes one into the row. The rule still
-governs the message. The id is admitted to the payload, alone, on three grounds. The recipient is
-the actor the API stamped, and a delegated one is refused, so the id lands only in the inbox of the
-caller who chose it. The other two are particular to the id: only the API writes the block a
-recipient is read from, and it also made the id the message's deduplication key, so SQS has
-already held it to 128 printable ASCII characters — the operator reader's `requestId` is not its
-dedup key, but its messages carry no block and notify nobody; and no reader renders the id as
-text — the browser keeps a payload only when its id cannot change a URL, and matches on it. A `{requestId}`-only row reads to the file-ops card as a
-refusal, which is what a request that never started is.
+**The shared DLQ drain writes the id too, on every plane it drains whose request names one** —
+all but table-share, which has no request id. That closed the last row that settled nothing: a
+dead-lettered file operation held its card, and the space's submit gate, until the card's
+three-hour expiry unless the user dismissed it. The drain predates the payload field, and adding
+one took an argument, because the drain's rule is that no value from the untrusted body reaches
+the message and this takes one into the row. The rule still governs the message. The id is
+admitted to the payload, alone, on three grounds. The recipient is the actor the API stamped, and
+a delegated one is refused, so the id lands only in the inbox of the caller who chose it. The
+other two are particular to the id: only the API writes the block a recipient is read from, and
+it also made the id the message's deduplication key, so SQS has already held it to 128 printable
+ASCII characters — the operator reader's `requestId` is not its dedup key, but its messages carry
+no block and notify nobody; and no reader renders the id as text — the browser keeps a payload
+only when its id cannot change a URL, and matches on it. A `{requestId}`-only row reads to the
+file-ops card as a refusal, the word it uses for every run that failed before an outcome, and the
+notification beside it says the request never started.
 
 ## The outcome link: destination, source, or the common folder of the items' PARENTS (SPEC-191)
 

@@ -954,7 +954,8 @@ settle it. Three bounds keep it from wedging the per-space submit gate: an entry
 notification carrying its `requestId` arrives, every entry is user-dismissible, and every entry
 expires at the machine's own `TimeoutSeconds` (mirrored in the browser and pinned to `locals.tf` by
 a test). The dismiss is load-bearing rather than tidy — a request whose notification never reaches
-the inbox has nothing to correlate against, so it is the only thing that frees that space.
+the inbox has nothing to correlate against, so short of the three-hour expiry it is the only thing
+that frees that space.
 
 ## There is no progress percentage, and there cannot be one (SPEC-190)
 

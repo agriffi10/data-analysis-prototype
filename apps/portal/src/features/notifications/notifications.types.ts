@@ -39,9 +39,11 @@ export type Notification = {
  *
  * `requestId` is the one field every producer's payload carries, a wholly successful run's
  * included, because a reader settles its own record of a request by matching it — so a
- * payload without one is read as no payload. Every field beyond it belongs to file
- * operations, whose runs are asynchronous and whose result a user has to be able to act on
- * after the submitting tab is gone: it is what rebuilding that request needs.
+ * payload without one is read as no payload. Every other field this type declares belongs to
+ * file operations, whose runs are asynchronous and whose result a user has to be able to act
+ * on after the submitting tab is gone: it is what rebuilding that request needs. A results
+ * conversion's payload also carries `format`, which nothing here reads, so the normaliser
+ * drops it.
  */
 export type NotificationPayload = {
   /** The run this notification is about. Always present. */

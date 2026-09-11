@@ -30,10 +30,11 @@ import type {FileOpSpace, InFlightOperation} from './fileOps.types';
  * module's payload shape an acceptable coupling.
  *
  * **Some runs settle by neither route.** A request whose identity block cannot be verified is
- * told nothing at all, having no inbox to be told in, and a notification lost on its way to the
- * inbox lands in a dead-letter queue nothing drains — so neither is ever correlated. That is what
- * the two belt-and-braces bounds are for: every entry is dismissible, and every entry expires at
- * the machine's `TimeoutSeconds`.
+ * told nothing at all, having no inbox to be told in, and a notification can be lost on its way to
+ * the inbox — a send that fails is only logged, and a create the writer refuses lands in a
+ * dead-letter queue nothing drains — so neither is ever correlated. That is what the two
+ * belt-and-braces bounds are for: every entry is dismissible, and every entry expires at the
+ * machine's `TimeoutSeconds`.
  */
 export function FileOpsInFlightProvider({children}: {children: ReactNode}) {
   const {status, user} = useAuth();
