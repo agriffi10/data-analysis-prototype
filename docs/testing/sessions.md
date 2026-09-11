@@ -10,6 +10,51 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-10, third sitting (two sweep defects re-run after #719, and the row-limit separator)
+
+**Scope.** The re-runs owed by the two sweep defects #719 fixed — the overwrite cancel and the
+relative listing prefix — and, as corroboration at the sweep's exact shape, the Excel row-limit
+separator #718 fixed. That last row was closed by SPEC-230's own re-run, the second sitting below.
+
+**Browser.** `origin/main` at **`04c9c481`**. `Deploy SPA image` was green, and the served bundle
+carries `startPrefix`, an identifier that exists at `04c9c481` and nowhere at `c4ea4413`, so the
+page under test was #719's. `Deploy Lambdas` was still rolling during the API probes and finished
+green at 02:02Z; that the API function had already switched is shown by the probes themselves (see
+the relative prefix below). Signed in as **agriffith** in Andrew's Chrome through the
+Claude-in-Chrome extension, in a new tab which the warm Hosted UI cookie signed in with one click —
+no credential form was shown. `innerWidth` read 900.
+
+**Instruments.** `e2e.md` §1's `visibilityState` override before every wait. The API probes were
+in-page `fetch`es carrying the tab's own idToken, returning statuses, codes and keys only.
+
+- **The overwrite cancel — PASS.** A Parquet save named `explorer150_conv` into
+  `conv0910_parquet/`, which already holds `explorer150_conv.parquet`, raised *Overwrite
+  "explorer150_conv.parquet"?*. Cancel reopened the dialog with the name
+  `explorer150_conv.parquet`, format Parquet, Save to *My files* and the picker at
+  `My Files / conv0910_parquet` — where the sweep got `query-results-…`, CSV and the root. The
+  dialog was then cancelled; the file's `lastModified` stayed at 19:37:54Z. *My files* is also the
+  dialog's default, so this sitting does not show the space restore; that half rests on #719's
+  shared-space integration test.
+- **The row-limit separator — PASS.** `SELECT a, b FROM UNNEST(sequence(1, 1049)) AS t(a) CROSS
+  JOIN UNNEST(sequence(1, 1000)) AS u(b)` (0 B scanned), saved as Excel to `rowlimit0910`, was
+  refused with *"…the results have 1,049,000 rows, which is more than a spreadsheet can hold, so
+  "rowlimit0910.xlsx" was not written…"*. #719 did not change the results-conversion code.
+- **The relative prefix — PASS.** A fixture folder `agriffith/agriffith/inner/` was made with the
+  portal's *New folder*, which navigated into the self-named folder without trouble. Straight to
+  `GET /v1/objects`: `prefix=agriffith/agriffith/` answered **200** listing exactly
+  `agriffith/agriffith/inner/`; `prefix=agriffith/` answered **200** with the root, which holds
+  `agriffith/agriffith/` and not `inner/`; the relative `arcb_files/` and `inner/` both answered
+  **403 `AccessDenied`**, *"prefix is not inside the space root"*. The two 200s would pass on the
+  old code too; the 403s are what tell the two apart, because the code at `c4ea4413` re-rooted a
+  relative prefix and answered 200. The function had already switched when the first probe ran, so
+  there is no before-picture from this session — the sweep's reading of the code is the before.
+
+**Left behind.** The fixture folder `agriffith/agriffith/inner/`, kept rather than deleted, since a
+delete here is permanent. One failure notification for `rowlimit0910.xlsx`, for which nothing was
+written; the overwrite check wrote nothing.
+
+---
+
 ## Live-check session — 2026-09-10, second sitting (SPEC-230's three Excel rows in `e2e.md` §4.3)
 
 The day's sweep is the next section; a pointer elsewhere to "the 2026-09-10 section" means that one.
