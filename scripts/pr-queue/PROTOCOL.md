@@ -236,12 +236,29 @@ is not GitHub Actions, or whose repo is not on GitHub:
 > the same PR `DRAFT (ignored by the queue)` while `turn` refuses because of it. The queue does not
 > and cannot detect this: an override is opaque by design.
 
-The built-in `main-green` reads the GitHub Actions runs recorded for `main`'s head sha. It waits
-while any is incomplete, and while the repo has workflows but no run for that sha yet; a run that
-concluded anything other than success/skipped/neutral is **RED**, which stops the agent rather than
-making it wait. Its known limit: it can only judge the runs that **exist**, so
-in the seconds between one workflow being created and another it can see a green subset. A project
-with its own CI watcher should install it here rather than rely on that.
+The built-in `main-green` reads the GitHub Actions runs that **a push to `main` triggered** for its
+head sha, and no others. It waits while any is incomplete, and while the repo has workflows but no
+push run for that sha yet; a run that concluded anything other than success/skipped/neutral is
+**RED**, which stops the agent rather than making it wait.
+
+**Only push runs are `main`'s build.** Dependabot's own jobs (event `dynamic`), a manual
+`workflow_dispatch` and a `schedule` run all record the same head sha. Counting them once turned a
+Dependabot security update that could not be applied into a RED `main` for every session, and
+nothing could clear it: no re-run could succeed while the conflict that failed it stood, only a
+merge moves the head, and the queue was refusing every merge. The API does the filtering
+(`--event push`) rather than the `--jq`, so `--limit` counts push runs alone and a burst of
+Dependabot jobs cannot crowd `main`'s own runs out of the window.
+
+Its known limits: it can only judge the runs that **exist**, so in the seconds between one workflow
+being created and another it can see a green subset; and a head with **no push run at all** waits
+for ever. That is a repo whose workflows never run on a push to the trunk, a head whose push
+workflows were all path-filtered out, or a push event GitHub dropped — which has happened here, and
+a manual `workflow_dispatch` run that recovers the deploy does not count. The way out is a human's
+call: a temporary `main-green` override in the queue directory, removed once the next merge has
+push runs of its own. A project with its own CI watcher, or one whose trunk is built some other
+way, should install it here rather than rely on the built-in.
+`pre_push_test.py` beside this file drives it through a fake `gh` that answers the way the API
+does, and plants each of its checks.
 
 ## Changing the protocol mid-flight
 
