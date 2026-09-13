@@ -28,6 +28,7 @@ export {useFileOpsInFlight} from './fileOpsInFlightContext';
 export type {FileOpsInFlightContextValue} from './fileOpsInFlightContext';
 export type {FileOpItemResult, FileOpOutcome, InFlightOperation} from './fileOps.types';
 export {UploadList} from './UploadList';
+export {UploadsAtRiskNotice} from './UploadsAtRiskNotice';
 export {useUploadQueue} from './uploadQueueContext';
 export type {UploadQueueContextValue, UploadDestination} from './uploadQueueContext';
 export type {UploadItem, UploadStatus} from './upload.types';

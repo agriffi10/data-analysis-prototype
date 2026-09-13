@@ -55,13 +55,20 @@ export default function App() {
           />
           {/* Each lazy route's Suspense is wrapped: Suspense has NO error path, so
               a chunk-load rejection (the accepted rollover race) would otherwise
-              unmount the tree. Both lazy routes are exposed, so both are
-              wrapped — a fix scoped to Monaco would miss /connections. */}
+              unmount the tree. Every lazy route is exposed, so every one is
+              wrapped — a fix scoped to Monaco would miss /connections.
+
+              Each boundary carries its OWN key. React Router renders a sibling route's
+              element into the same slot, and these three elements have the same shape
+              down to the page, so without distinct keys React reuses ONE boundary
+              instance across all three: a chunk that failed on /query would pin the
+              fallback on /explore, and a reused Suspense shows no loading state on the
+              way in. Keyed per route, only the page's own subtree remounts. */}
           <Route
             path="/query"
             element={
               <FeatureRoute flag="query">
-                <ErrorBoundary>
+                <ErrorBoundary key="query">
                   <Suspense fallback={<LoadingState />}>
                     <QueryPage />
                   </Suspense>
@@ -73,7 +80,7 @@ export default function App() {
             path="/explore"
             element={
               <FeatureRoute flag="dataExplorer">
-                <ErrorBoundary>
+                <ErrorBoundary key="explore">
                   <Suspense fallback={<LoadingState />}>
                     <ExplorePage />
                   </Suspense>
@@ -85,7 +92,7 @@ export default function App() {
             path="/connections"
             element={
               <FeatureRoute flag="sharedWorkspaces">
-                <ErrorBoundary>
+                <ErrorBoundary key="connections">
                   <Suspense fallback={<LoadingState />}>
                     <ConnectionsPage />
                   </Suspense>

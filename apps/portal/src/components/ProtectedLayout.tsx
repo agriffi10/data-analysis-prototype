@@ -5,9 +5,15 @@ import {useAuth} from '../features/auth';
 import {useExplorationEviction} from '../features/data-explorer';
 import {useFeatureSet} from '../features/feature-flags';
 import {useCatalogCatchUp} from '../features/table-builder';
-import {FileOpsInFlightProvider, InFlightOperations, UploadQueueProvider} from '../features/file-browser';
+import {
+  FileOpsInFlightProvider,
+  InFlightOperations,
+  UploadQueueProvider,
+  UploadsAtRiskNotice
+} from '../features/file-browser';
 import {prefetchNotifications} from '../features/notifications';
 import {setReturnPath} from '../lib/returnPath';
+import {ErrorBoundary} from './ErrorBoundary';
 import {LoadingState} from './LoadingState';
 
 // Authenticated app shell. The left rail is owned by each route's page (the file
@@ -17,16 +23,33 @@ import {LoadingState} from './LoadingState';
 // The upload queue is mounted here (not inside the file browser) so it is
 // session-scoped: in-flight uploads survive folder navigation, connection
 // switches, route changes, and the file browser remounting on a `?space=`
-// change. It only tears down on sign-out, when this shell unmounts.
+// change. It tears down only when this shell unmounts: on sign-out, or on
+// leaving the protected routes altogether.
 //
 // The file-operations record is here for the same reason and one more: what it tracks runs on a
 // control plane for minutes after the gesture, so it has to outlive not just the folder but the
 // page — and its surface has to be visible from wherever the user went next.
-function AppShell({children}: {children: ReactNode}) {
+//
+// All of that holds only while nothing ABOVE this shell remounts it on navigation. A React `key`
+// that changes per route on any ancestor — an error boundary keyed on the path is the easy way to
+// write one — tears the shell down on every nav-tab click and aborts the uploads with it.
+//
+// A page's error boundary is INSIDE the shell for the same reason: caught above it, a throwing
+// page would replace the shell with the fallback and unmount both providers. `RootLayout`'s
+// boundary still catches what this one cannot — a throw from the shell itself, or from this
+// layout's own hooks. The shell's panel also says what a reload would cancel: its one button
+// reloads, and the uploads the boundary kept alive would go with the page.
+function AppShell({children, resetKey}: {children: ReactNode; resetKey: string}) {
   return (
     <UploadQueueProvider>
       <FileOpsInFlightProvider>
-        <div className="flex flex-1">{children}</div>
+        <div className="flex flex-1">
+          <ErrorBoundary
+            resetKey={resetKey}
+            notice={<UploadsAtRiskNotice />}>
+            {children}
+          </ErrorBoundary>
+        </div>
         <InFlightOperations />
       </FileOpsInFlightProvider>
     </UploadQueueProvider>
@@ -104,7 +127,7 @@ export function ProtectedLayout() {
   }
 
   return (
-    <AppShell>
+    <AppShell resetKey={location.pathname + location.search}>
       <Outlet />
     </AppShell>
   );
