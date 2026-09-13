@@ -10,6 +10,88 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-13 (the shell remount, re-run after #732)
+
+**Scope.** The re-run owed by the sweep's fifth defect: `RootLayout`'s `<ErrorBoundary
+key={pathname}>` remounted the signed-in shell on every route change, aborting uploads and dropping
+the in-flight file operations. #732 made the boundary reset by a `resetKey` prop, added a second
+boundary inside the shell, and gave its crash panel a notice. What ran is `e2e.md` §4.2's
+navigate-away row and its neighbours in the async switchover, and the new row for an upload that
+survives a route change.
+
+**Browser.** `origin/main` at **`3d1a7450`**, #732's merge, with `Deploy SPA image` green. The served
+chunk `schema.partition-B3SkIsga.js` carries the notice's copy, *"Reloading cancels the"*, which exists
+only after #732, so the page under test was #732's. Signed in as **agriffith** in Andrew's Chrome, in
+the tab that was already signed in, driven through `Control_Chrome` (AppleScript `execute
+javascript`). The Claude-in-Chrome extension could not reach that tab, since it now drives only
+tabs in its own group, and a new tab would have opened signed out: Amplify's tokens are kept in
+tab-scoped `sessionStorage` (`src/lib/amplify.ts`, `setKeyValueStorage`).
+
+**Instruments — three ways this run differed from a user's, each stated.**
+- **`Control_Chrome`'s JavaScript runs in an isolated world.** Patches on `XMLHttpRequest` and
+  `fetch` recorded **nothing** while the upload plainly ran. Resource Timing and the DOM are shared
+  across worlds, so every claim below rests on those two. An aborted request leaves no resource
+  entry, so the upload's evidence is positive: parts still minted after the navigation, `PUT`s that
+  finished 200, a `complete` that returned 200, and no `/upload/abort` entry at all.
+- **Not foregrounded.** `visibilityState` read `hidden`. An override set from the isolated world
+  never reached the page, so the app's notification poll stayed paused. The notification that
+  settled the card was therefore brought in by **visiting `/notifications` by its header link**,
+  not by the background poll. That visit was also a real route change, and the shell survived it.
+- **A synthetic file and synthetic events.** A 524,288,000-byte zero-filled `File` was built in the
+  page and handed to the app's own `input[aria-label="Choose files"]` through a `DataTransfer` and a
+  `change` event, because the extension's `file_upload` caps a call at 10 MB. Clicks were `.click()`
+  on the real controls; Escape was a synthetic `keydown`.
+
+**The upload survives a route change — PASSES.** Times are page time.
+- The upload reached **63%**, the drawer was closed with Escape, and the **Query** tab was clicked
+  at **102.3 s**.
+- **Two part `PUT`s were in flight then** — two run at once — and **both finished 200**: part 3
+  (85.3 → 115.7 s) and part 4 (90.6 → 123.2 s). The fifth part was **minted at 115.7 s**, 13 s after
+  leaving Files, and its `PUT` finished 200 at 130.1 s. `POST /v1/objects/upload/complete` returned
+  **200** at 130.5 s. **No `/upload/abort` was sent.**
+- On `/query`, read after the script's 4 s wait, the shell's wrapper (`div.flex.flex-1` under
+  `RootLayout`'s column) was **the same DOM node** as before the click. On 2026-09-10 it was a new
+  node.
+- The upload **finished while the page was still on `/query`**. Back on `/files` by its tab, the
+  queue listed `shellnav0913.bin`, **Uploaded**, 500.0 MB — so the row's *come back while it is still
+  running* half, the drawer picking up a live upload again, was not observed.
+
+**A folder move survives a route change — PASSES.** Two empty folders, `shellnav0913_src` and
+`shellnav0913_dst`, were made for it.
+- The move showed its card at once: *"Moving shellnav0913_src · Started just now · Running in the
+  background"*. Move was ungated before it.
+- On **`/query`** the card still read *Running in the background* — its own label said *Started 14
+  sec ago* — and the shell was the same node.
+- Back on **`/files`** the card was still there (*Started 18 sec ago*). About **19 s** after the move
+  by the instrument's clock, selecting the folder `arcb_files` gave
+  **Copy, Move, Delete and Archive all `aria-disabled="true"`**, each titled *"Another file operation
+  is still running here. Wait for its notification, or dismiss it…"*. On 2026-09-10 all four were
+  enabled after the round trip.
+- On **`/notifications`, 104 s after the move**, the card read *"Finished — see your notifications
+  for what happened"*, beside the row *"Moved 1 item to "shellnav0913_dst""*. That row read *1 min
+  ago*, so the move had finished before this visit: only the Query round trip happened while it ran.
+- Back on `/files`, the same selection had all four **enabled**, so the space was free again.
+  *Refresh this folder*, pressed, showed `shellnav0913_src` gone from the root, with
+  `shellnav0913_dst` still there. **Dismiss** removed the card.
+- The shell's wrapper was the same DOM node through all four route changes.
+
+**Left behind, for Andrew to delete by hand.** `shellnav0913.bin` (500 MB of zeros, at the root)
+finished before it could be cancelled, and `shellnav0913_dst/` sits at the root with the empty
+`shellnav0913_src/` inside it. Nothing was deleted from this session.
+
+**Not run.**
+- **400 px.** It needs the device toolbar, and the window was hidden.
+- **Returning to Files while the upload is still running.** It finished on `/query`, so the drawer
+  was never seen picking a live upload back up.
+- **The listing after a real focus return.** Only the button half of *Refresh this folder* ran.
+- **Whether *Check data quality* and *Send to…* stay enabled while the space is gated.**
+- **The rest of the async-switchover table.** *Copy a folder into its own folder* and *Details on a
+  folder the plane has just deleted* were untouched by this defect, and the second needs a delete.
+- **The shell's crash panel and its notice.** No page can be made to throw in production; the
+  suite drives them.
+
+---
+
 ## Live-check session — 2026-09-13 (the log-sweep re-run, CLI only)
 
 **Scope.** `owed.md`'s *log sweep is saturated* row, after #720 (the alarm's deploy grant) and #724
