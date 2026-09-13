@@ -18,7 +18,9 @@ These pass locally and fail later — check them as part of the work, not as an 
   decisions are unit-tested in `lambdas/test_watch_ci.py`. Exit 0 means settled **and** green, so it
   composes with `&&`; anything unfinished, unknown or absent exits non-zero. **A commit on `main` is
   judged by its push runs only**: Dependabot's jobs record `main`'s head too, and a failed one beside
-  green deploys is not a red `main`, though an unfiltered `gh run list` shows it as one.
+  green deploys is not a red `main`, though an unfiltered `gh run list` shows it as one. The filter
+  hides the weekly scheduled Security scan too; its result is
+  `gh run list --workflow security.yml --event schedule --limit 1`.
 - **Vitest needs the Vite config for jsdom.** Running vitest with an explicit file path *from the repo
   root* uses no Vite config → `document is not defined`. Run from `apps/portal` or via
   `npm run test -w apps/portal`.

@@ -25,6 +25,7 @@ Attributes:
   OLDER: A commit ``main`` has moved past, which the comparison calls ``behind``.
   BRANCH: A pull request's head, which the comparison calls ``diverged`` from ``main``.
   AHEAD: A commit built on ``main``'s head, which the comparison calls ``ahead`` of it.
+  UNPUSHED: A commit GitHub has never seen, which the comparison answers Not Found.
   DEPLOYS: The workflows a push to ``main`` triggers.
   PUSH_ONLY: What the watcher's first line says when it judges push runs only.
   EVERY: What it says when it judges every run.
@@ -53,6 +54,7 @@ TIP = "a" * 40
 OLDER = "b" * 40
 BRANCH = "c" * 40
 AHEAD = "d" * 40
+UNPUSHED = "e" * 40
 DEPLOYS = ("Deploy Infrastructure", "Deploy Lambdas", "Deploy Lambda image", "Deploy SPA image")
 PUSH_ONLY = "on main, so its push runs only"
 EVERY = "every run on it"
@@ -61,7 +63,8 @@ VERDICTS = (
     "RED on ",
     "no verdict on ",
     "for this commit yet",
-    " — nothing was triggered",
+    " triggered nothing",
+    " nothing was triggered",
     "gave up after ",
     "the ref moved to ",
     "watch failed: ",
@@ -363,7 +366,7 @@ CASES: tuple[Case, ...] = (
             api_run(TIP, "schedule", "Security", "failure"),
             pushed(sha=OLDER),
         ),
-        f"no push runs exist for {TIP} after -1s — nothing was triggered",
+        f"no push runs exist for {TIP} after -1s — the push triggered nothing",
         2,
         PUSH_ONLY,
     ),
@@ -431,10 +434,18 @@ CASES: tuple[Case, ...] = (
         "a_comparison_github_does_not_answer_is_no_verdict",
         ("--branch", "main"),
         (dependabot(), *(pushed(name) for name in DEPLOYS)),
-        f"watch failed: gh api repos/{{owner}}/{{repo}}/compare/main...{TIP}",
+        f"watch failed: could not ask GitHub whether {TIP} is on main",
         2,
         None,
         compare="fails",
+    ),
+    Case(
+        "a_commit_github_has_never_seen_is_no_verdict",
+        ("--sha", UNPUSHED),
+        (),
+        f"watch failed: could not ask GitHub whether {UNPUSHED} is on main",
+        2,
+        None,
     ),
     Case(
         "a_comparison_status_it_does_not_know_is_no_verdict",
@@ -497,21 +508,47 @@ class FakeGitHub:
             does not know.
           AssertionError: For a call this fake does not recognise.
         """
-        document: dict[str, Any] | None = None
-        path, _, query = args[1].partition("?") if len(args) > 1 else ("", "", "")
-        if args[:2] == ("pr", "view"):
-            document = {"headRefOid": BRANCH}
-        elif args[0] == "api" and path == "repos/{owner}/{repo}/commits/main":
-            document = {"sha": TIP}
-        elif args[0] == "api" and path.startswith("repos/{owner}/{repo}/compare/main..."):
-            document = {"status": self.status(path.rsplit("...", 1)[1], args)}
-        elif args[0] == "api" and path == "repos/{owner}/{repo}/actions/runs":
-            document = self.runs(urllib.parse.parse_qs(query))
-        if document is None or "--jq" not in args:
+        kind = self.kind(args)
+        if kind is None or "--jq" not in args:
             self.unfaked.append(args)
             raise AssertionError(f"the fake GitHub does not answer {args}")
         self.reads.append(args)
+        path, _, query = args[1].partition("?")
+        if kind == "pr":
+            document: dict[str, Any] = {"headRefOid": BRANCH}
+        elif kind == "tip":
+            document = {"sha": TIP}
+        elif kind == "compare":
+            document = {"status": self.status(path.rsplit("...", 1)[1], args)}
+        else:
+            document = self.runs(urllib.parse.parse_qs(query))
         return self.jq(document, args[args.index("--jq") + 1], args)
+
+    @staticmethod
+    def kind(args: tuple[str, ...]) -> str | None:
+        """Name which of the four reads one ``gh`` call is.
+
+        Args:
+          args: The arguments ``gh`` was called with.
+
+        Returns:
+          ``pr``, ``tip``, ``compare`` or ``runs``, or None for a call this fake does not answer.
+
+        Raises:
+          None.
+        """
+        if args[:2] == ("pr", "view"):
+            return "pr"
+        if len(args) < 2 or args[0] != "api":
+            return None
+        path = args[1].partition("?")[0]
+        if path == "repos/{owner}/{repo}/commits/main":
+            return "tip"
+        if path.startswith("repos/{owner}/{repo}/compare/main..."):
+            return "compare"
+        if path == "repos/{owner}/{repo}/actions/runs":
+            return "runs"
+        return None
 
     def status(self, sha: str, args: tuple[str, ...]) -> str:
         """Compare a commit with ``main``, as ``compare/main...<sha>`` reports it.
@@ -736,8 +773,8 @@ PLANTS: tuple[Plant, ...] = (
     ),
     Plant(
         "a_pull_request_is_judged_without_the_comparison",
-        "    if pr is not None:\n        return None\n    status = _gh(",
-        "    status = _gh(",
+        "    if pr is not None:\n        return None\n    try:\n",
+        "    try:\n",
         ("a_pull_request_watch_never_asks_where_its_head_sits",),
     ),
     Plant(
@@ -751,12 +788,12 @@ PLANTS: tuple[Plant, ...] = (
     ),
     Plant(
         "a_comparison_github_refuses_is_no_verdict",
-        '    status = _gh("api", f"repos/{{owner}}/{{repo}}/compare/{TRUNK}...{sha}", "--jq", ".status")\n',
-        "    try:\n"
-        '        status = _gh("api", f"repos/{{owner}}/{{repo}}/compare/{TRUNK}...{sha}", "--jq", ".status")\n'
-        "    except WatchError:\n"
-        "        return None\n",
-        ("a_comparison_github_does_not_answer_is_no_verdict",),
+        "    except WatchError as exc:\n        raise WatchError(\n",
+        "    except WatchError as exc:\n        return None\n        raise WatchError(\n",
+        (
+            "a_comparison_github_does_not_answer_is_no_verdict",
+            "a_commit_github_has_never_seen_is_no_verdict",
+        ),
     ),
     Plant(
         "a_page_that_cannot_hold_every_run_is_no_verdict",
@@ -772,8 +809,8 @@ PLANTS: tuple[Plant, ...] = (
     ),
     Plant(
         "no_run_after_the_grace_is_no_verdict",
-        "— nothing was triggered\")\n            return 2",
-        "— nothing was triggered\")\n            return 0",
+        '— {cause}")\n            return 2',
+        '— {cause}")\n            return 0',
         ("only_non_push_runs_on_main_are_no_verdict_once_the_grace_runs_out",),
     ),
 )

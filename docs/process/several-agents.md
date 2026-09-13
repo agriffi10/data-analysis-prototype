@@ -32,7 +32,10 @@ PR open at a time, taken in the order agents asked, with `main` settled and gree
 - **The lock covers the whole PR lifecycle** — fetch, rebase, re-run your gates, push, open, watch
   to green with `scripts/watch_ci.py --pr <n>`, merge, confirm `main` with `--branch main` — not
   just the push. The fetch is inside the lock because the wait is when peers merge. One ticket per
-  PR, released between them, so a multi-PR spec does not hold the line for its whole duration.
+  PR, released between them, so a multi-PR spec does not hold the line for its whole duration. If
+  that confirmation says the push triggered nothing, GitHub dropped the push event and `main` was
+  never deployed: a human's call, not a wait — a manual dispatch recovers the deploy, but neither
+  the watcher nor `turn` counts it, and `PROTOCOL.md` says how the line moves on.
 - **The queue is not a review.** It is the last thing between an already-reviewed branch and the
   remote. The local gates and both diff reviews still come first, in that order.
 - **Every remote check fails closed; enforcement fails open on CONSENT and closed on EVIDENCE.**

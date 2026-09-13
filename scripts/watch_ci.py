@@ -196,7 +196,8 @@ def build_event(sha: str, pr: int | None) -> str | None:
     PR watch neither depends on the comparison nor changes population if its head reaches the
     trunk. Anything else asks GitHub, because a local ``origin/main`` can be stale enough to
     call a merged commit off the trunk, and a status outside both allowlists raises rather than
-    guessing — either guess can turn a failure into a green.
+    guessing: guessed off the trunk, a head whose push event GitHub dropped would pass on a
+    manual dispatch alone; guessed on it, a branch's runs would never be read.
 
     Args:
       sha: The commit being watched.
@@ -210,7 +211,13 @@ def build_event(sha: str, pr: int | None) -> str | None:
     """
     if pr is not None:
         return None
-    status = _gh("api", f"repos/{{owner}}/{{repo}}/compare/{TRUNK}...{sha}", "--jq", ".status")
+    try:
+        status = _gh("api", f"repos/{{owner}}/{{repo}}/compare/{TRUNK}...{sha}", "--jq", ".status")
+    except WatchError as exc:
+        raise WatchError(
+            f"could not ask GitHub whether {sha} is on {TRUNK}, so which runs count is unknown "
+            f"(a commit that was never pushed reads as Not Found): {exc}"
+        ) from exc
     if status in ON_TRUNK:
         return TRUNK_EVENT
     if status in OFF_TRUNK:
@@ -357,6 +364,7 @@ def watch(
     """
     scope = f"on {TRUNK}, so its {event} runs only" if event else "every run on it"
     what = f"{event} runs" if event else "workflow runs"
+    cause = f"the {event} triggered nothing" if event else "nothing was triggered"
     print(f"watching {sha} — {scope}")
     deadline = time.monotonic() + timeout
     first_seen = time.monotonic()
@@ -376,7 +384,7 @@ def watch(
             _report(sha, runs, settled=False)
             return 2
         if not runs and time.monotonic() - first_seen > STARTUP_GRACE:
-            print(f"no {what} exist for {sha} after {STARTUP_GRACE}s — nothing was triggered")
+            print(f"no {what} exist for {sha} after {STARTUP_GRACE}s — {cause}")
             return 2
         if time.monotonic() > deadline:
             print(f"gave up after {timeout}s with runs still going — this is NOT a pass")
