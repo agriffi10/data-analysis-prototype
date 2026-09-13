@@ -32,7 +32,8 @@ vi.mock('../catalog/athena.service', async (importOriginal) => ({
   getTableDdl: vi.fn(),
   runStatementToCompletion: vi.fn(),
   getQueryStatus: vi.fn(),
-  getQueryResults: vi.fn()
+  getQueryResults: vi.fn(),
+  getQueryRowCount: vi.fn()
 }));
 
 vi.mock('../catalog/glue.service', async (importOriginal) => ({

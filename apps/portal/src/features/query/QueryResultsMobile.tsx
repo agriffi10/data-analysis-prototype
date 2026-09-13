@@ -154,9 +154,9 @@ export function QueryResultsMobile({
           label={
             <>
               Rows {results.rangeStart}–{results.rangeEnd}
-              {/* The exact background total first — the paging-derived one is null until
-                  the last page is loaded, so it showed no total on a first run. */}
-              {(totalRowCount ?? results.totalRowCount) !== null && ` of ${totalRowCount ?? results.totalRowCount}`}
+              {/* The workspace's one total, the same number the status strip shows — it
+                  already prefers the pager's own count once the last page is loaded. */}
+              {totalRowCount !== null && ` of ${totalRowCount}`}
             </>
           }
         />

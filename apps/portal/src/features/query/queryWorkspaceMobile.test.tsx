@@ -10,6 +10,7 @@ import {
   fail,
   installWorkspaceMocks,
   mockGetResults,
+  mockGetRowCount,
   mockGetStatus,
   mockListSaved,
   mockReadSaved,
@@ -22,6 +23,7 @@ import {
   seedSingle,
   statusMap
 } from '../../test/queryWorkspaceSupport';
+import {catalogKeys} from '../catalog/catalogKeys';
 
 // The below-`tablet` surface, driven through the workspace: the browse-first home, the results
 // view and the crossing back up.
@@ -35,7 +37,8 @@ vi.mock('../catalog/athena.service', async (importOriginal) => ({
   getTableDdl: vi.fn(),
   runStatementToCompletion: vi.fn(),
   getQueryStatus: vi.fn(),
-  getQueryResults: vi.fn()
+  getQueryResults: vi.fn(),
+  getQueryRowCount: vi.fn()
 }));
 
 vi.mock('../catalog/glue.service', async (importOriginal) => ({
@@ -152,6 +155,23 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
     // Back returns to the browse-first home.
     await user.click(screen.getByRole('button', {name: 'Back to queries'}));
     expect(await screen.findByRole('button', {name: 'Run saved query Revenue'})).toBeInTheDocument();
+  });
+
+  // The mobile view is handed the workspace's one total, and its pager no longer combines a second
+  // one of its own — so this wiring is the only thing keeping its strip and pager on the grid. The
+  // default page is the last page (two rows, no token), so its own count must win over Athena's 5.
+  it('shows the pager’s own total over a disagreeing count, as the desktop does', async () => {
+    mockListSaved.mockResolvedValue(savedListing('Revenue'));
+    mockReadSaved.mockResolvedValue(ok('SELECT region FROM alice.sales'));
+    mockGetRowCount.mockResolvedValue(ok({rowCount: 5, pending: false}));
+    const {user, queryClient} = renderMobileWorkspace();
+
+    await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
+
+    await waitFor(() => expect(queryClient.getQueryData(catalogKeys.rowCount('q-1'))).toBe(5));
+    expect(await screen.findByText(/2 rows ·/)).toBeInTheDocument();
+    expect(screen.getByText(/Rows 1–2 of 2/)).toBeInTheDocument();
+    expect(screen.queryByText(/5 rows/)).not.toBeInTheDocument();
   });
 
   // The mobile surface submits the WHOLE buffer at `script-single`, so a saved query holding

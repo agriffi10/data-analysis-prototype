@@ -115,15 +115,16 @@ carried the location.
   today.
 - **A pending count is asked again, never walked.** If a `SELECT` has `SUCCEEDED` but its statistics
   have not landed, the browser asks again after 1, 2, 4, 8, 15 and 30 seconds, which is seven calls
-  across about a minute. The one reading so far found the count present about 2 seconds after
-  completion, and FR-003 measures the window properly. Only if Athena still has not answered after
-  the last ask does the browser walk, which the documented "may not be returned" case needs for the
-  total to stay exact.
+  across about a minute. FR-003 found the count already present on the first read after
+  `SUCCEEDED` in every run, so the schedule is the margin for the lag AWS documents rather than for
+  one that was seen. Only if Athena still has not answered after the last ask does the browser walk,
+  which the documented "may not be returned" case needs for the total to stay exact.
 - **The first number after `SUCCEEDED` is measured to be final before the browser trusts it.**
-  Only the `RUNNING` refusal and one reading at +2 s have been observed, so the 0–2 s window after
-  completion, where the browser's first request lands, is unmeasured. The browser caches the count
-  for the session, so a partial count there would stay on screen with nothing to correct it. FR-003
-  polls the deployed route every 200 ms through that window before any browser code calls it.
+  The browser caches the count for the session, so a partial count in the moments after completion
+  would stay on screen with nothing to correct it. FR-003 polled the deployed route through that
+  window on 2026-09-13, before any browser code called it: 10,000,000, 2,000,000 and 1,763 rows,
+  each present on the first poll that saw `SUCCEEDED`, never changed, and never anything but a
+  `200` afterwards (`docs/testing/sessions.md`).
 - **The total shown never contradicts the grid.** Two invariants cost nothing to enforce in the
   browser, and they hold whatever Athena does. Once the pager has loaded the last page, its own count
   is the total, because it counts the rows the grid actually has. A count smaller than the rows
@@ -346,12 +347,21 @@ First, the pager's own total wins once it is known, meaning the last page is loa
 failing that, Athena's count is shown only if it is at least the number of rows already loaded.
 Otherwise the bar keeps the loaded-count form.
 
+**Its limit, stated.** Both rules read the pager's current pages, which are keyed by execution and
+page size. After a page-size change, or once the pager's cache expires, the guard starts again from
+the rows loaded since. A count it had ruled out can then show again, until the new pages rule it
+out. That only matters if Athena's count is wrong, which FR-003 measured not to happen. Keeping a
+per-execution high-water mark would close it, at the cost of state for a case never observed.
+
 #### Acceptance Criteria:
 
 - [ ] With the pager's last page loaded (3 rows) and the hook answering 5, the status bar and the
-  pager both read 3.
-- [ ] With 100 rows loaded, more pages pending, and the hook answering 40, the bar reads "100+ rows"
-  and the pager shows no total. With the hook answering 10,000,000, both read 10,000,000.
+  pager both read 3. The mobile view does the same.
+- [ ] With 100 rows loaded and more pages pending:
+  - The hook answers 40: the bar reads "100+ rows" and the pager shows no total.
+  - The hook answers 100, equal to the rows loaded: both read 100.
+  - The hook answers 10,000,000: the bar reads "10,000,000 rows" and the pager "of 10000000". The
+    pager has never formatted its number.
 
 ### FR-006: The premise is corrected where it is written, and the change is checked live
 

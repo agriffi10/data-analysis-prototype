@@ -280,22 +280,31 @@ export function QueryWorkspace() {
   const resultsPageSize = useResultsPageSize(username || null);
   const results = useQueryResults(displayExecutionId, resultsPageSize.pageSize);
 
-  // Exact total row count via a background page-walk, scoped to the execution id so a new
-  // run / result-tab switch recomputes.
+  // Exact total row count — Athena's own count, or a page walk where Athena does not count —
+  // scoped to the execution id so a new run / result-tab switch recomputes.
   //
   // Opened by the BATCH's verdict, not by the arrival of the first page. A result tab is
   // only ever created for a statement that produces rows, so its presence says so before
-  // any page comes back — and the walk is a separate request that never needed the display
+  // any page comes back — and the count is a separate request that never needed the display
   // fetch. Waiting for `columns` made the total two chained round-trips late on a first run
   // and made it vanish and re-count on every flip between statements, because the newly
   // selected execution has no columns yet.
   //
   // `columns.length > 0` stays as a second opener rather than being replaced: a statement
   // the batch did not classify as row-returning, but which returned columns anyway, counted
-  // before and still does. DDL opens neither, so it still walks nothing.
+  // before and still does. DDL opens neither, so nothing is asked for it.
   const hasResultSet = displayExecutionId !== null && results.columns.length > 0;
   const producesRows = displayedResultTab !== null || results.columns.length > 0;
   const rowCount = useResultRowCount(displayExecutionId !== null && producesRows ? displayExecutionId : null);
+
+  // The one total the status bar and both pagers show, and it never contradicts the grid.
+  // The pager's own count wins once it holds the last page, because it counts the rows the
+  // grid actually has; it is read only with a result set present, since before the first page
+  // it reads 0. Otherwise the count is shown only while it is at least the rows already
+  // loaded: a smaller number is not a total, whatever produced it.
+  const pagerTotal = hasResultSet ? results.totalRowCount : null;
+  const shownTotal =
+    pagerTotal ?? (rowCount.total !== null && rowCount.total >= results.loadedRowCount ? rowCount.total : null);
 
   // Result-column widths, keyed by execution id. Lives here (not in
   // QueryResultsTable, which unmounts when the active tab has no results) so a
@@ -515,7 +524,7 @@ export function QueryWorkspace() {
               isInFlight={mobile.pending || (mobile.ownsRun && activeIsInFlight)}
               startedAt={mobile.ownsRun ? (activeRun?.startedAt ?? null) : null}
               hasResultSet={mobile.ownsRun && hasResultSet}
-              totalRowCount={mobile.ownsRun ? rowCount.total : null}
+              totalRowCount={mobile.ownsRun ? shownTotal : null}
               hasRun={mobile.ownsRun || mobile.pending}
               batchFailed={mobile.ownsRun && !!activeRun?.failure}
               errorMessage={
@@ -609,7 +618,7 @@ export function QueryWorkspace() {
                     editorDisplayExecutionId={editorDisplayExecutionId}
                     displayExecutionId={displayExecutionId}
                     hasResultSet={hasResultSet}
-                    totalRowCount={rowCount.total}
+                    totalRowCount={shownTotal}
                     results={results}
                     pageSize={resultsPageSize}
                     colWidths={colWidths}

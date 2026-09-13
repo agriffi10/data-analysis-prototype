@@ -3,6 +3,7 @@ import {mockApi, apiFailure} from '../../test/apiMock';
 import type {ApiMock} from '../../test/apiMock';
 import {
   getQueryResults,
+  getQueryRowCount,
   getQueryStatus,
   getTableDdl,
   runQuery,
@@ -262,6 +263,34 @@ describe('the catalog services over the API', () => {
       const result = await getQueryResults({queryExecutionId: 'q-1'});
 
       expect(result).toEqual({success: false, error: {message: '', code: 'QueryNotFinished'}});
+    });
+  });
+
+  describe('getQueryRowCount', () => {
+    it('names the execution and passes Athena’s count through, zero included', async () => {
+      api.onEach('athena.rowCount', [
+        {success: true, data: {rowCount: 10_000_000, pending: false}},
+        {success: true, data: {rowCount: 0, pending: false}},
+        {success: true, data: {rowCount: null, pending: true}}
+      ]);
+
+      const counted = await getQueryRowCount('q-1');
+      const empty = await getQueryRowCount('q-1');
+      const pending = await getQueryRowCount('q-1');
+
+      expect(api.paramsFor('athena.rowCount')).toEqual({queryExecutionId: 'q-1'});
+      expect(counted).toEqual({success: true, data: {rowCount: 10_000_000, pending: false}});
+      expect(empty).toEqual({success: true, data: {rowCount: 0, pending: false}});
+      expect(pending).toEqual({success: true, data: {rowCount: null, pending: true}});
+    });
+
+    it('maps a refusal to a ServiceResult error (never throws)', async () => {
+      api.on('athena.rowCount', apiFailure('NotFound'));
+
+      await expect(getQueryRowCount('q-1')).resolves.toEqual({
+        success: false,
+        error: {message: '', code: 'NotFound'}
+      });
     });
   });
 

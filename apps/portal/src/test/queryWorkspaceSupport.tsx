@@ -6,6 +6,7 @@ import {authenticated} from './authFixtures';
 import {useNavRailContent} from '../components/navRailContext';
 import {
   getQueryResults,
+  getQueryRowCount,
   getQueryStatus,
   getTableDdl,
   runQuery,
@@ -67,6 +68,7 @@ export const mockGetTableDdl = vi.mocked(getTableDdl);
 export const mockRunToCompletion = vi.mocked(runStatementToCompletion);
 export const mockGetStatus = vi.mocked(getQueryStatus);
 export const mockGetResults = vi.mocked(getQueryResults);
+export const mockGetRowCount = vi.mocked(getQueryRowCount);
 export const mockListTables = vi.mocked(listTables);
 export const mockGetHistory = vi.mocked(getQueryHistory);
 export const mockAppend = vi.mocked(appendQueryHistory);
@@ -210,6 +212,9 @@ export function installWorkspaceMocks() {
   mockStopQuery.mockResolvedValue(ok(undefined));
   mockGetStatus.mockImplementation(async (id: string) => ok(succeeded(id, statusMap[id] ?? {})));
   mockGetResults.mockResolvedValue(ok(rowsPage));
+  // "Athena does not count this" — the suites' walk assertions keep their subject; a case about
+  // Athena's own count answers a number itself.
+  mockGetRowCount.mockResolvedValue(ok({rowCount: null, pending: false}));
   mockRunToCompletion.mockResolvedValue(ok(succeeded('q-run')));
   mockGetTableDdl.mockResolvedValue(ok('CREATE EXTERNAL TABLE ...'));
   mockCopyObject.mockResolvedValue(ok({destKey: 'alice/out.csv'}));
