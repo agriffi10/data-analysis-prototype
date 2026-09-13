@@ -158,7 +158,7 @@ describe('Header', () => {
     });
 
     // The trigger has to name the user itself: the avatar's initials are aria-hidden, the kebab
-    // is decorative, and the username text is CSS-hidden below `tablet`, so none of the three
+    // is decorative, and the username text is CSS-hidden below `desktop`, so none of the three
     // can supply the accessible name.
     it('names the signed-in user on the trigger, and reports its own expanded state', async () => {
       const {user} = renderHeader(authenticated('alice'));

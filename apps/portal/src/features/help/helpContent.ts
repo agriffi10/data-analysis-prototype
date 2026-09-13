@@ -352,7 +352,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Tap <b>Run</b> on any card to run that query, or <b>View</b> to read its SQL without running it.',
           'Results show one card per row — each card lists every column and its value — with <b>Prev</b> and <b>Next</b> at the bottom to page through them.',
           'Tap <b>Run</b> at the top of the results to run it again, or the back arrow to return to your lists.',
-          'Need the schema? Open the menu in the header — your databases and their tables are in the drawer.',
+          'Need the schema? Tap the <b>☰</b> at the left-hand end of the top bar — your databases and their tables are in the drawer it opens.',
           'From a table’s <b>⋮</b> menu in that drawer, <b>View data</b> opens the table’s rows in the results view, and <b>View DDL</b> shows how the table was defined.'
         ]
       },
@@ -715,7 +715,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         intro:
           'Everything else in Data Quarry tells us what you <b>clicked</b>. This is the only place that tells us what you <b>wanted</b> — so if something is awkward, missing, or just wrong, this is the fastest way to say so.',
         steps: [
-          'Open the account menu — the round badge with the first letters of your username, at the right-hand end of the top bar — and choose <b>Give feedback</b>. <b>Sign out</b> is in the same menu, and it is there at every screen size.',
+          'Open the account menu — the round badge with the first letters of your username, followed by a <b>⋮</b>, at the right-hand end of the top bar — and choose <b>Give feedback</b>. <b>Sign out</b> is in the same menu, which is there at every screen size.',
           'Pick <b>What is this about?</b> — <b>Something is broken</b> for a problem, <b>An idea or a request</b> for something you would like, <b>A question</b> when you are unsure how something works, and <b>Something else</b> for anything that fits none of those.',
           'Write your feedback. The more specific the better — what you were doing, what you expected, and what happened instead.',
           'Click <b>Send</b>. The page you were on when you opened the dialog is included automatically, so you do not need to describe where you were.'
