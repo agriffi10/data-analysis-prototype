@@ -747,6 +747,15 @@ def test_the_analytics_template_TRADED_its_depth_one_statements_for_the_siblings
     twins, and that is asserted rather than assumed — an unanchored twin would be a widening even
     though this one is not.
 
+    **One survivor changes, by exactly one action.** The workgroup grant gains
+    ``athena:GetQueryRuntimeStatistics``, which the row-count route calls as the caller: Athena's
+    own count of the rows a query returned, in one call that scans nothing, where the browser used
+    to fetch every page of a result to count it. Same statement, same workgroup resource, so it
+    reaches no execution the role could not already read. It is asserted by content because this
+    test's Sid comparison is the only guard that sees an action moved INTO this statement —
+    ``test_catalog_grants_unchanged`` reads the template's combined action set, so an action the
+    template already held elsewhere is invisible to it.
+
     Args:
       None.
 
@@ -754,8 +763,8 @@ def test_the_analytics_template_TRADED_its_depth_one_statements_for_the_siblings
       None.
 
     Raises:
-      AssertionError: If anything but the two siblings changed, or a sibling does not mirror the
-        statement it twins.
+      AssertionError: If anything but the two siblings and the one admitted action changed, or a
+        sibling does not mirror the statement it twins.
     """
     before = _statements_by_sid(_git("show", f"{BASELINE_COMMIT}:{ANALYTICS_EDITED}"))
     after = _statements_by_sid((REPO / ANALYTICS_EDITED).read_text())
@@ -764,10 +773,23 @@ def test_the_analytics_template_TRADED_its_depth_one_statements_for_the_siblings
 
     survived = set(before) & set(after)
     changed = [name for name in sorted(survived) if before[name] != after[name]]
-    assert changed == [], (
+    assert changed == ["AthenaQueryExecution"], (
         f"a statement that should be untouched changed: {changed}. These are the Glue grants scoped "
-        "to the caller's own database and the workgroup grant — widening one would be this same diff."
+        "to the caller's own database and the workgroup grant — widening one would be this same "
+        "diff. The workgroup grant's one admitted change is asserted by content just below."
     )
+
+    athena_before = json.loads(before["AthenaQueryExecution"])
+    athena_after = json.loads(after["AthenaQueryExecution"])
+    assert sorted(athena_after["Action"]) == sorted(
+        [*athena_before["Action"], "athena:GetQueryRuntimeStatistics"]
+    ), (
+        "the workgroup grant may gain exactly athena:GetQueryRuntimeStatistics and nothing else — "
+        f"it now names {athena_after['Action']}"
+    )
+    assert {key: value for key, value in athena_after.items() if key != "Action"} == {
+        key: value for key, value in athena_before.items() if key != "Action"
+    }, "the workgroup grant's Effect, Resource and Sid must be exactly what they were"
 
     assert set(before) - set(after) == {"ResultsReadWrite", "ResultsNoDelete"}, (
         f"this change should remove exactly the two depth-one statements; it removed "

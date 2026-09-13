@@ -1310,7 +1310,7 @@ from it (SPEC-221). The location IS the record.
 
 **The proof is one predicate and one helper.** `cpcommon.results.owned_results_key` (the prefix,
 plus no dot segment) is shared by results-conversion and the API. `_owned_execution` wraps it with
-one `GetQueryExecution` on the route's own client, and status, results and stop call it before any
+one `GetQueryExecution` on the route's own client, and status, results, stop and the row count call it before any
 other Athena call; a later route that names an execution is held to the same by the guard. An unknown id and a foreign execution get **one 404 body**. The unknown
 case is Athena's `InvalidRequestException`, which a malformed id raises too. `detail` reaches the
 body, so there is exactly one string, and the span records which case it was in

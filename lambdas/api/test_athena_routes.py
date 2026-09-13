@@ -131,6 +131,20 @@ class StubAthena:
         """
         return self._answer("get_query_results", kwargs)
 
+    def get_query_runtime_statistics(self, **kwargs):
+        """Reads an execution's runtime statistics.
+
+        Args:
+          **kwargs: The call's arguments.
+
+        Returns:
+          The programmed response.
+
+        Raises:
+          Exception: If the programmed answer is an exception.
+        """
+        return self._answer("get_query_runtime_statistics", kwargs)
+
     def stop_query_execution(self, **kwargs):
         """Stops an execution.
 
@@ -909,6 +923,21 @@ def _execution(state="SUCCEEDED", statement="DML", substatement="SELECT", locati
     }
 
 
+def _statistics(output_rows):
+    """One ``GetQueryRuntimeStatistics`` answer, nested exactly as botocore returns it.
+
+    Args:
+      output_rows: The ``Rows.OutputRows`` figure.
+
+    Returns:
+      The response Athena would give.
+
+    Raises:
+      None.
+    """
+    return {"QueryRuntimeStatistics": {"Rows": {"InputRows": 0, "OutputRows": output_rows}}}
+
+
 def _operations(stub):
     """The operations a stub was asked for, in order.
 
@@ -961,6 +990,153 @@ def _unknown_id():
       None.
     """
     return _ServiceError("InvalidRequestException", "QueryExecution e-1 was not found")
+
+
+class TestRowCount:
+    """A succeeded SELECT's count is Athena's own; anything else says so, or is refused."""
+
+    @pytest.mark.parametrize("output_rows", [10_000_000, 0])
+    def test_a_succeeded_select_answers_athenas_own_count(self, athena, output_rows) -> None:
+        """Zero is a count, not an absence — a truthiness test would turn it into pending.
+
+        The stub is reachable only as ``identity.user_client``, so the calls on it are the proof
+        the statistics were read as the caller rather than as the function.
+        """
+        stub = athena(
+            StubAthena(
+                get_query_execution=_execution(),
+                get_query_runtime_statistics=_statistics(output_rows),
+            )
+        )
+
+        answer = router.route("GET", "/v1/queries/e-1/row-count", bearer(), "rq")
+
+        assert answer["statusCode"] == 200
+        assert _body(answer) == {"rowCount": output_rows, "pending": False}
+        assert stub.calls == [
+            ("get_query_execution", {"QueryExecutionId": "e-1"}),
+            ("get_query_runtime_statistics", {"QueryExecutionId": "e-1"}),
+        ]
+
+    @pytest.mark.parametrize(
+        "statistics",
+        [
+            {"QueryRuntimeStatistics": {"Timeline": {"TotalExecutionTimeInMillis": 8242}}},
+            _ServiceError(
+                "InvalidRequestException", "Query has not yet finished. Current state: RUNNING"
+            ),
+        ],
+        ids=["the rows block has not landed", "athena still calls it unfinished"],
+    )
+    def test_a_select_whose_count_has_not_landed_is_pending(self, athena, statistics) -> None:
+        """Pending means ask again — never a number that might be partial."""
+        athena(StubAthena(get_query_execution=_execution(), get_query_runtime_statistics=statistics))
+
+        answer = router.route("GET", "/v1/queries/e-1/row-count", bearer(), "rq")
+
+        assert answer["statusCode"] == 200
+        assert _body(answer) == {"rowCount": None, "pending": True}
+
+    @pytest.mark.parametrize(
+        ("statement", "substatement"),
+        [
+            ("DML", "EXPLAIN"),
+            ("UTILITY", "SHOW_TABLES"),
+            ("DDL", "CREATE_TABLE"),
+            ("UTILITY", "SELECT"),
+        ],
+    )
+    def test_anything_but_a_select_is_not_counted_and_athena_is_not_asked(
+        self, athena, statement, substatement
+    ) -> None:
+        """EXPLAIN is the measured case: its statistics say 1 over a plan the grid shows as 20.
+
+        The statistics stub carries that 1, so a route that keyed on ``StatementType`` alone, or
+        asked anyway, would answer it.
+        """
+        stub = athena(
+            StubAthena(
+                get_query_execution=_execution(statement=statement, substatement=substatement),
+                get_query_runtime_statistics=_statistics(1),
+            )
+        )
+
+        answer = router.route("GET", "/v1/queries/e-1/row-count", bearer(), "rq")
+
+        assert answer["statusCode"] == 200
+        assert _body(answer) == {"rowCount": None, "pending": False}
+        assert _operations(stub) == ["get_query_execution"]
+
+    @pytest.mark.parametrize(
+        ("error", "status", "code"),
+        [
+            (_ServiceError("AccessDeniedException", "no"), 403, "AccessDenied"),
+            (_ServiceError("InvalidRequestException", "Rate exceeded"), 400, "InvalidRequest"),
+        ],
+        ids=["a denied statistics call", "an unrelated refusal"],
+    )
+    def test_a_statistics_refusal_other_than_unfinished_is_an_error_not_pending(
+        self, athena, error, status, code
+    ) -> None:
+        """Pending is asked again and then walked, so a lost grant read as pending is a silent cost."""
+        athena(StubAthena(get_query_execution=_execution(), get_query_runtime_statistics=error))
+
+        answer = router.route("GET", "/v1/queries/e-1/row-count", bearer(), "rq")
+
+        assert answer["statusCode"] == status
+        assert _body(answer)["error"]["code"] == code
+
+    @pytest.mark.parametrize("state", ["QUEUED", "RUNNING", "FAILED", "CANCELLED"])
+    def test_an_execution_that_has_not_succeeded_is_a_409_and_athena_is_not_asked(
+        self, athena, state
+    ) -> None:
+        """Only a SUCCEEDED count is whole: a running one is partial, a stopped one is truncated."""
+        stub = athena(
+            StubAthena(
+                get_query_execution=_execution(state=state),
+                get_query_runtime_statistics=_statistics(5),
+            )
+        )
+
+        answer = router.route("GET", "/v1/queries/e-1/row-count", bearer(), "rq")
+
+        assert answer["statusCode"] == 409
+        assert _body(answer)["error"]["code"] == "QueryNotFinished"
+        assert _operations(stub) == ["get_query_execution"]
+
+    def test_someone_elses_execution_is_indistinguishable_from_an_unknown_one(self, athena) -> None:
+        """The workgroup lets the caller read any execution by id, so the prefix is the proof.
+
+        The foreign RUNNING and EXPLAIN executions pin the ORDER: the proof runs before the state
+        check and the statement check, so neither can tell the caller that bob's query is still
+        running or what kind it is. With the proof moved below either check, those two answer 409
+        and 200 and this test fails.
+        """
+        bob = "s3://dat-prod-user-space/bob/system_settings/athenaresults/e-1.csv"
+        bodies = []
+        for answer_to_get in (
+            _execution(location=bob),
+            _execution(state="RUNNING", location=bob),
+            _execution(substatement="EXPLAIN", location=bob),
+            _execution(
+                location="s3://dat-prod-user-space/alice/system_settings/athenaresults/../../bob/e-1.csv"
+            ),
+            _ServiceError("InvalidRequestException", "QueryExecution e-1 was not found"),
+        ):
+            stub = athena(
+                StubAthena(
+                    get_query_execution=answer_to_get,
+                    get_query_runtime_statistics=_statistics(5),
+                )
+            )
+
+            answer = router.route("GET", "/v1/queries/e-1/row-count", bearer(), "rq")
+
+            assert answer["statusCode"] == 404
+            assert _operations(stub) == ["get_query_execution"]
+            bodies.append(answer["body"])
+
+        assert len(set(bodies)) == 1, bodies
 
 
 class TestStop:

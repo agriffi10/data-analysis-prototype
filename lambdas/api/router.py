@@ -123,6 +123,7 @@ HANDLERS: dict[str, Callable[[RequestContext], dict[str, Any]]] = {
     "athena.start": athena.start,
     "athena.status": athena.status,
     "athena.results": athena.results,
+    "athena.rowCount": athena.row_count,
     "athena.stop": athena.stop,
     "catalog.database.get": catalog.get_database,
     "catalog.tables.list": catalog.list_tables,

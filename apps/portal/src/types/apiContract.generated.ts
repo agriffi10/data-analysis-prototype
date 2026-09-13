@@ -32,6 +32,7 @@ export type QueryStatusResponse = {queryExecutionId: string; state: 'QUEUED' | '
 export type QueryResultsQuery = {nextToken?: string; maxRows?: string};
 export type QueryColumnWire = {name: string; type: string};
 export type QueryResultsResponse = {columns: QueryColumnWire[]; rows: (string | null)[][]; nextToken: string | null};
+export type QueryRowCountResponse = {rowCount: number | null; pending: boolean};
 export type StopQueryResponse = Record<string, never>;
 export type DatabaseResponse = {name: string};
 export type TablesQuery = {nextToken?: string};
@@ -91,6 +92,7 @@ export const API_ROUTES = {
   'athena.start': {method: 'POST', path: '/v1/queries', idempotent: false, params: []},
   'athena.status': {method: 'GET', path: '/v1/queries/{queryExecutionId}', idempotent: true, params: ['queryExecutionId']},
   'athena.results': {method: 'GET', path: '/v1/queries/{queryExecutionId}/results', idempotent: true, params: ['queryExecutionId']},
+  'athena.rowCount': {method: 'GET', path: '/v1/queries/{queryExecutionId}/row-count', idempotent: true, params: ['queryExecutionId']},
   'athena.stop': {method: 'POST', path: '/v1/queries/{queryExecutionId}/stop', idempotent: true, params: ['queryExecutionId']},
   'catalog.database.get': {method: 'GET', path: '/v1/catalog/databases/{database}', idempotent: true, params: ['database']},
   'catalog.tables.list': {method: 'GET', path: '/v1/catalog/databases/{database}/tables', idempotent: true, params: ['database']},
@@ -132,6 +134,7 @@ type RouteBodies = {
   'athena.start': {request: StartQueryRequest; query: null; response: StartQueryResponse};
   'athena.status': {request: null; query: null; response: QueryStatusResponse};
   'athena.results': {request: null; query: QueryResultsQuery; response: QueryResultsResponse};
+  'athena.rowCount': {request: null; query: null; response: QueryRowCountResponse};
   'athena.stop': {request: null; query: null; response: StopQueryResponse};
   'catalog.database.get': {request: null; query: null; response: DatabaseResponse};
   'catalog.tables.list': {request: null; query: TablesQuery; response: TablesResponse};
