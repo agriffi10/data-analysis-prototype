@@ -6,7 +6,7 @@ Function, no verb fan-out. It verifies a bearer token and serves routes directly
 Arc B ported the browser's direct AWS calls behind it and is complete. It serves `/healthz`, the
 username directory, the feature-flag document, the whole **object surface** (list, metadata, exists,
 content read and write, copy, move, delete, free-name, the download presign and the four upload
-routes) and the **catalog surface** — Athena start, status, results and stop, plus Glue get-database
+routes) and the **catalog surface** — Athena start, status, results, row count and stop, plus Glue get-database
 and list-tables. It is the only thing that turns a token into AWS credentials: the Identity Pool is
 retired, and the container behind `spa_origin` is the only front door.
 
@@ -32,8 +32,8 @@ between the browser and S3.
   second copy of that state to go stale. The cost of that choice is that no route can bound a part
   number by the plan's count or check what was actually sent, so the upload ceiling is a refusal on
   a **declared** number rather than enforcement.
-- **An execution id is a CLAIM, not an authorization.** Athena authorizes status, results and stop
-  by **workgroup**, and there is one, so the caller's role reaches any execution whose id it
+- **An execution id is a CLAIM, not an authorization.** Athena authorizes status, results, stop and
+  the row count's statistics read by **workgroup**, and there is one, so the caller's role reaches any execution whose id it
   holds. Every route that names one proves it is the caller's **first** — the output
   location Athena recorded must sit under the caller's own `user_results_prefix`
   (`_owned_execution`, over `cpcommon.results.owned_results_key`) — and an unknown id and a foreign

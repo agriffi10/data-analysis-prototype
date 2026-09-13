@@ -260,6 +260,76 @@ def test_each_catalog_request_stamps_the_actor_the_route_and_its_execution(
 
 
 @pytest.mark.parametrize(
+    ("substatement", "statistics", "expected", "absent"),
+    [
+        (
+            "SELECT",
+            {"QueryRuntimeStatistics": {"Rows": {"OutputRows": 1763}}},
+            {"row_count": 1763},
+            "row_count_pending",
+        ),
+        ("SELECT", {"QueryRuntimeStatistics": {}}, {"row_count_pending": True}, "row_count"),
+        (
+            "EXPLAIN",
+            {"QueryRuntimeStatistics": {"Rows": {"OutputRows": 1}}},
+            {"row_count_pending": False},
+            "row_count",
+        ),
+    ],
+    ids=["counted", "not landed yet", "not a SELECT"],
+)
+def test_a_row_count_request_records_which_answer_it_gave(
+    monkeypatch, captured_events, substatement, statistics, expected, absent
+) -> None:
+    """The record says which of the three answers a row-count request got, and what kind of statement.
+
+    Without it, "the browser walked this result" and "Athena counted it" look the same in the log
+    store, and the cost this route exists to remove could return unseen. Each answer stamps one of
+    the two fields and never the other, so a record cannot claim both.
+
+    Args:
+      monkeypatch: Pytest's patcher.
+      captured_events: The capturing sink.
+      substatement: Athena's ``SubstatementType`` for the execution.
+      statistics: The runtime statistics Athena answers.
+      expected: The fields the record must carry.
+      absent: The field no record may carry for this answer.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a field is missing, carries the wrong value, or the other one is present.
+    """
+    monkeypatch.setattr(
+        identity,
+        "user_client",
+        lambda service, acting_as: StubAthena(
+            get_query_execution={
+                "QueryExecution": {
+                    "Status": {"State": "SUCCEEDED"},
+                    "StatementType": "DML",
+                    "SubstatementType": substatement,
+                    "ResultConfiguration": {
+                        "OutputLocation": "s3://dat-prod-user-space/alice/system_settings/athenaresults/e-9.csv"
+                    },
+                }
+            },
+            get_query_runtime_statistics=statistics,
+        ),
+    )
+
+    api_handler.handler(_event("GET", "/v1/queries/e-9/row-count"), None)
+
+    fields = [event.get("fields", {}) for event in captured_events.events]
+    assert any(field.get("execution_id") == "e-9" for field in fields)
+    assert any(field.get("substatement_type") == substatement for field in fields)
+    for name, value in expected.items():
+        assert any(field.get(name) == value for field in fields), (name, value)
+    assert not any(absent in field for field in fields), (absent, fields)
+
+
+@pytest.mark.parametrize(
     ("answer_to_get", "ownership"),
     [
         (
@@ -366,6 +436,62 @@ def _docstrings(tree: ast.AST) -> set[int]:
     return found
 
 
+def _classification_literals(tree: ast.AST) -> set[int]:
+    """Every string constant compared directly with Athena's own classification of a statement.
+
+    **Reading ``SubstatementType`` is the opposite of parsing SQL.** Athena parsed the statement
+    and wrote down what kind it was; comparing that field with ``"SELECT"`` reads Athena's answer
+    and looks at no SQL at all. The row-count route needs exactly that comparison, because only a
+    SELECT's statistics count the rows the grid shows.
+
+    So exactly one shape is admitted: a string constant that is a direct operand of an equality
+    or inequality whose other operand is a ``<something>.get("SubstatementType")`` call. The same
+    literal anywhere else — returned, stored, compared with the statement or with any other field
+    — is still reported, and a fixture below holds that.
+
+    Args:
+      tree: The parsed module.
+
+    Returns:
+      The ids of the admitted constants.
+
+    Raises:
+      None.
+    """
+
+    def _reads_classification(node: ast.AST) -> bool:
+        """Whether an expression is a ``.get("SubstatementType")`` call.
+
+        Args:
+          node: The expression to inspect.
+
+        Returns:
+          True if it reads Athena's classification field.
+
+        Raises:
+          None.
+        """
+        return (
+            isinstance(node, ast.Call)
+            and getattr(node.func, "attr", None) == "get"
+            and len(node.args) == 1
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value == "SubstatementType"
+        )
+
+    found = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Compare) or len(node.ops) != 1:
+            continue
+        if not isinstance(node.ops[0], (ast.Eq, ast.NotEq)):
+            continue
+        left, right = node.left, node.comparators[0]
+        for literal, other in ((left, right), (right, left)):
+            if isinstance(literal, ast.Constant) and isinstance(literal.value, str) and _reads_classification(other):
+                found.add(id(literal))
+    return found
+
+
 def _statement_names(tree: ast.AST) -> set[str]:
     """Every local name a module binds the request's SQL to.
 
@@ -422,7 +548,7 @@ def sql_inspection_offenders(source: str, name: str) -> list[str]:
       SyntaxError: If the source does not parse.
     """
     tree = ast.parse(source)
-    skip = _docstrings(tree)
+    skip = _docstrings(tree) | _classification_literals(tree)
     held_in = _statement_names(tree)
     offenders: list[str] = []
 
@@ -546,6 +672,38 @@ def test_the_sql_sweep_catches_every_shape_it_claims_to(source) -> None:
     assert sql_inspection_offenders(source, "planted.py") != []
 
 
+def test_the_sweep_admits_athenas_classification_and_nothing_beside_it() -> None:
+    """The one admission, and the three near-misses that must stay reported beside it.
+
+    Asserts the exact lines rather than "something was found": with all four shapes in one module,
+    a non-empty result is true with the admission deleted and with two of the three offenders
+    gone, which is a fixture that cannot fail.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the admitted comparison is reported, or any near-miss is not.
+    """
+    planted = (
+        "def h(execution, c):\n"
+        '    kind = execution.get("SubstatementType") == "SELECT"\n'
+        '    returned = "SELECT 1"\n'
+        '    against_statement = c.body["sql"] == "SELECT 1"\n'
+        '    against_another_field = execution.get("Query") == "SELECT 1"\n'
+        "    return kind, returned, against_statement, against_another_field\n"
+    )
+
+    assert sorted(sql_inspection_offenders(planted, "planted.py")) == [
+        "planted.py:3 names SQL",
+        "planted.py:4 names SQL",
+        "planted.py:5 names SQL",
+    ]
+
+
 def test_the_sweep_does_not_fire_on_prose_or_on_classifying_an_aws_message() -> None:
     """The other half: a sweep that fires on a comment is one somebody loosens.
 
@@ -593,10 +751,13 @@ def test_every_catalog_response_forbids_a_cache(monkeypatch) -> None:
             get_query_execution={
                 "QueryExecution": {
                     "Status": {"State": "SUCCEEDED"},
+                    "StatementType": "DML",
+                    "SubstatementType": "SELECT",
                     "ResultConfiguration": {"OutputLocation": OWNED_LOCATION},
                 }
             },
             get_query_results={"ResultSet": {}},
+            get_query_runtime_statistics={"QueryRuntimeStatistics": {"Rows": {"OutputRows": 3}}},
             stop_query_execution={},
         ),
     )
@@ -604,6 +765,7 @@ def test_every_catalog_response_forbids_a_cache(monkeypatch) -> None:
         _event("POST", "/v1/queries", {"sql": "SELECT 1"}),
         _event("GET", "/v1/queries/e-1"),
         _event("GET", "/v1/queries/e-1/results", query={}),
+        _event("GET", "/v1/queries/e-1/row-count"),
         _event("POST", "/v1/queries/e-1/stop"),
     ]
 
@@ -611,3 +773,9 @@ def test_every_catalog_response_forbids_a_cache(monkeypatch) -> None:
         answer = api_handler.handler(event, None)
         assert answer["statusCode"] == 200, event["requestContext"]["http"]
         assert answer["headers"]["cache-control"] == "no-store", event["requestContext"]["http"]
+
+    row_count = api_handler.handler(_event("GET", "/v1/queries/e-1/row-count"), None)
+    assert row_count["statusCode"] == 200, (
+        "the envelope stamps no-store on every answer, a refusal and an unrouted path included, so "
+        "the header alone would pass for a route that 404s"
+    )

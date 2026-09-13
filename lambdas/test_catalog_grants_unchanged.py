@@ -31,6 +31,14 @@ Attributes:
   MOVING_FOLDERS: The three folders that get a second home, read from the module that OWNS those
     names rather than spelled again here — a folder list written twice is a rule that can be wrong
     in one copy.
+  ADMITTED_ACTIONS: The catalog actions a template may gain on purpose, by template, each argued
+    where it is admitted. One so far: ``athena:GetQueryRuntimeStatistics`` on the analytics
+    template, which the row-count route calls as the caller. The status bar used to count a
+    result by fetching every page of it, each page a billed API call, and Athena's runtime
+    statistics hold the same count in one call that scans nothing. It is workgroup-scoped like
+    every other Athena action in that statement, so it reaches no execution the role could not
+    already read. Once the change adding it merges, the base holds the action and this entry
+    admits nothing; it stays as the record of the decision rather than being deleted.
 """
 
 import pathlib
@@ -51,6 +59,11 @@ POLICY_PATTERN = re.compile(r"infra/modules/[^/]+/policies/portal-role-.*\.json\
 CATALOG_PREFIXES = ("athena:", "glue:", "lakeformation:")
 SYSTEM_SETTINGS = "system_settings"
 MOVING_FOLDERS = frozenset({ATHENA_RESULTS_FOLDER, RECEIPT_FOLDER, SHARED_TABLES_FOLDER})
+ADMITTED_ACTIONS: dict[str, frozenset[str]] = {
+    "infra/modules/analytics/policies/portal-role-analytics.json.tftpl": frozenset(
+        {"athena:GetQueryRuntimeStatistics"}
+    ),
+}
 
 _ACTION_BLOCK_RE = re.compile(r'"Action"\s*:\s*(\[[^\]]*\]|"[^"]*")', re.DOTALL)
 _RESOURCE_BLOCK_RE = re.compile(r'"Resource"\s*:\s*(\[[^\]]*\]|"[^"]*")', re.DOTALL)
@@ -305,11 +318,13 @@ def test_this_branch_names_no_new_catalog_ACTION() -> None:
 
     Raises:
       AssertionError: If any template gains an ``athena:``, ``glue:`` or ``lakeformation:``
-        action it did not have at the branch's base.
+        action it did not have at the branch's base, beyond what ``ADMITTED_ACTIONS`` names for
+        that template.
     """
     added: dict[str, set[str]] = {}
     for path in _templates():
         gained = _actions((REPO / path).read_text()) - _actions(_at_base(path))
+        gained -= ADMITTED_ACTIONS.get(path, frozenset())
         if gained:
             added[path] = gained
 

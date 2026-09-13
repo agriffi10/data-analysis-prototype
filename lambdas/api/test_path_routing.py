@@ -339,7 +339,7 @@ def test_every_catalog_route_is_declared_on_the_USER_plane() -> None:
     """
     found = _catalog_routes()
 
-    assert len(found) == 6, [route.id for route in found]
+    assert len(found) == 7, [route.id for route in found]
     for route in found:
         assert route.plane == "user", route.id
         assert planes.planes_for(route.id) == frozenset(), route.id

@@ -718,6 +718,27 @@ class QueryResultsResponse(TypedDict):
     nextToken: str | None
 
 
+class QueryRowCountResponse(TypedDict):
+    """A succeeded execution's total row count, as Athena counted it.
+
+    **A number is only ever Athena's own count of the rows a SELECT returned**, read from its
+    runtime statistics, which scan nothing and ship no row. The browser used to count by fetching
+    every page of the result; each page is now a billed call, and a ten-million-row result is ten
+    thousand of them. ``rowCount`` is None in two different situations, and ``pending`` says
+    which: the statistics have not landed yet (ask again), or Athena does not count this kind of
+    statement at all (count it some other way). A statement Athena labels ``EXPLAIN`` is the
+    reason the second case exists — it reports one output row over a plan the grid shows as many.
+
+    Attributes:
+      rowCount: The rows a succeeded SELECT returned, or None when Athena reports no count.
+      pending: True when the statement is a SELECT whose statistics have not landed, so the
+        caller should ask again rather than count another way; False otherwise.
+    """
+
+    rowCount: int | None
+    pending: bool
+
+
 class StopQueryResponse(TypedDict):
     """What stopping an execution answers.
 
@@ -1544,6 +1565,16 @@ ROUTES: Final[tuple[Route, ...]] = (
         request=None,
         query=QueryResultsQuery,
         response=QueryResultsResponse,
+    ),
+    Route(
+        id="athena.rowCount",
+        method="GET",
+        path="/v1/queries/{queryExecutionId}/row-count",
+        idempotent=True,
+        plane="user",
+        request=None,
+        query=None,
+        response=QueryRowCountResponse,
     ),
     Route(
         id="athena.stop",

@@ -1,4 +1,4 @@
-"""Start, status, results and stop — the four Athena calls the workspace rides on.
+"""Start, status, results, row count and stop — the Athena calls the workspace rides on.
 
 **The SQL is opaque here.** It is not parsed, split, normalised, trimmed, lower-cased, validated
 or logged, and it reaches ``QueryString`` byte-identical. The Data Explorer discloses the
@@ -335,6 +335,70 @@ def results(context: RequestContext) -> dict[str, Any]:
     return {"columns": columns, "rows": rows, "nextToken": response.get("NextToken")}
 
 
+def row_count(context: RequestContext) -> dict[str, Any]:
+    """Reports a succeeded SELECT's total row count, from Athena's own statistics.
+
+    **The count is Athena's, and it is exact.** ``GetQueryRuntimeStatistics`` reports the rows a
+    query returned, scanning nothing and shipping no row, where the browser used to fetch every
+    page of a result only to count it — each page a billed call, ten thousand of them for a
+    ten-million-row result. Athena refuses the statistics while an execution is still running
+    rather than report a partial count, and this route refuses before it asks.
+
+    **Only a SELECT's count is the grid's count.** A statement Athena labels ``EXPLAIN`` is DML
+    too, and its statistics report one output row over a plan the grid shows as many; a ``SHOW``
+    or a ``DESCRIBE`` has no row statistics at all. For anything but a SELECT the route says Athena
+    does not count it, without asking, and the browser counts it the old way. Comparing Athena's
+    own classification of the statement is reading a field, not parsing SQL.
+
+    **No wait here, and no loop.** Statistics can land a moment after completion, so a SELECT that
+    has none yet answers ``pending`` and the browser asks again; a route may neither wait nor walk.
+    Only "not finished" means pending: any other refusal of the statistics call is an error, so a
+    lost grant shows up as one rather than as a count that never arrives.
+
+    Args:
+      context: The authenticated request.
+
+    Returns:
+      ``rowCount`` and ``pending``, as ``QueryRowCountResponse`` describes them.
+
+    Raises:
+      ApiError: ``NotFound`` for an unknown execution or someone else's, ``QueryNotFinished`` for
+        one that has not SUCCEEDED, and ``InvalidRequest`` when Athena refuses the statistics call
+        for any reason but the execution being unfinished.
+      IdentityUnavailableError: If the caller's role cannot be assumed.
+      ConfigError: If the user-space bucket is unset.
+      Exception: Whatever else Athena raised, for the classifier above.
+    """
+    execution_id = _execution_id(context)
+    observability.stamp(execution_id=execution_id)
+
+    client = _client(context)
+    execution = _owned_execution(context, client)
+    if (execution.get("Status") or {}).get("State") != "SUCCEEDED":
+        raise ApiError("QueryNotFinished", "the execution has not reached SUCCEEDED")
+
+    observability.stamp(substatement_type=str(execution.get("SubstatementType") or ""))
+    counted = execution.get("StatementType") == "DML" and execution.get("SubstatementType") == "SELECT"
+    if not counted:
+        observability.stamp(row_count_pending=False)
+        return {"rowCount": None, "pending": False}
+
+    try:
+        response = client.get_query_runtime_statistics(QueryExecutionId=execution_id)
+    except Exception as exc:
+        if _is_not_finished(exc):
+            observability.stamp(row_count_pending=True)
+            return {"rowCount": None, "pending": True}
+        if identity.aws_error_code(exc) == INVALID_REQUEST_CODE:
+            raise ApiError("InvalidRequest", "athena refused the statistics request") from exc
+        raise
+
+    output = ((response.get("QueryRuntimeStatistics") or {}).get("Rows") or {}).get("OutputRows")
+    if isinstance(output, int) and not isinstance(output, bool) and output >= 0:
+        observability.stamp(row_count=output)
+        return {"rowCount": output, "pending": False}
+    observability.stamp(row_count_pending=True)
+    return {"rowCount": None, "pending": True}
 
 
 def _page_size(raw: str | None) -> int:
