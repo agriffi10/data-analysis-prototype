@@ -1825,8 +1825,10 @@ second below one session's peak. A faster schedule buys at most 1.5x, erodes the
 reverses the 10-minute decision. **Grouped per event** (`log_id`, which is also the dedup id), no
 group holds a second message, a wave takes up to 1,000 from any mix of services for about the same
 rewrites as a wave of twenty, and the sweep's own output drains alongside everything else.
-`MAX_WAVES = 50` stands, re-derived: 35–48 full waves fit in the 240 s after the reserve, so it
-sits where the wave cap and the reserve meet. What is given up is delivery order, which no code
+`MAX_WAVES = 50` stands. The first full wave in production took about 2.5 s for 1,000 messages,
+so about 95 fit in the 240 s after the reserve. The wave cap binds first, at 50,000 a tick, against
+a measured worst tick of 6,594 — a pre-deploy estimate of 5–7 s had put the cap where the reserve
+binds, and the run corrected it. What is given up is delivery order, which no code
 reads — the sweep partitions by each event's own timestamp — and one operator inference with it: a
 partition's newest record no longer proves the older ones have landed, so while any backlog exists
 the queue's age is the only completeness check.
@@ -1836,7 +1838,8 @@ per sweep), would still each be a ten-a-wave group. **A caught-up sweep finishes
 of arrivals alone**: during an active session each wave finds what arrived during the last, so a
 sweep that waited for an empty receive would run to its wave cap over a drained queue for as long
 as arrivals kept landing in every wave — reasoned, not observed: in its first two days grouped per
-event every sweep finished in one to three waves with no stop reason, so the finish is a bound
+event every sweep finished in one to three waves with no stop reason (`docs/testing/sessions.md`,
+2026-09-13), so the finish is a bound
 rather than a response to anything seen. It reads each message's `SentTimestamp` and finishes, as
 a normal sweep, after a wave whose every message was stamped at or after the sweep's start and
 whose receive ended on an empty round rather than a cap. An undated message and a capped receive

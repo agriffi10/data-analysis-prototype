@@ -90,16 +90,18 @@ same way, and reversing a user decision), keeps up with two sessions a day.
 
 **The producers now put every event in its own group** (`cpcommon.observability._message_group`),
 so a wave takes up to `MAX_MESSAGES` = 1,000 from any mix of services for about the same few
-rewrites as a wave of twenty — the bytes moved per message fall by the same factor. A full wave
-is then its 100 receive and 100 delete calls plus a handful of rewrites, **~5–7 s derived from the
-per-call costs above, not yet measured whole** — and it assumes a round returns about ten
-messages, which SQS does not promise on a queue holding fewer than a thousand; a short round costs
-waves, never data, and the re-run records messages per wave. On that estimate 35–48 fit in the
-budget. `MAX_WAVES = 50` stands
-at the top of that range, where the wave cap and the reserve meet, for a ceiling of roughly
-35,000–48,000 a tick against a measured worst tick of 6,594 (every service, the sweep's own events
-included). `SWEEP_RESERVE_MS = 60_000` exists because `MAX_WAVES` bounds the wave count and not
-the duration: a wave rewrites each day object in full, that object grows all day, and the 300s
+rewrites as a wave of twenty — the bytes moved per message fall by the same factor. **The first
+full wave in production, measured (2026-09-12 01:24Z), took about 2.5 s for 1,000 messages**: 100
+receive rounds at 10.7 ms each, which is faster than the 25 ms derived above and shows a round does
+return about ten on a busy queue; about 9 ms a delete batch; and 0.33 s and 0.09 s for its two
+rewrites. Before that run, the pre-deploy estimate here was 5–7 s. So about 95 full waves fit in
+the budget, and **the wave cap binds first, at about half of it**: `MAX_WAVES = 50` stands, and the
+ceiling is simply 50 × 1,000 = 50,000 a tick, against a measured worst tick of 6,594 (every service,
+the sweep's own events included). Raising it would buy nothing the measured traffic needs, and the
+cap stays a backstop behind the caught-up finish below. The day objects in that run were small, and
+every MB of every object a wave rewrites adds ~22 ms — but with the API and observability objects
+both at a heavy day's 16–17 MB a wave is about 3.2 s, and 50 of them still fit in 160 s of the 240.
+`SWEEP_RESERVE_MS = 60_000` exists because `MAX_WAVES` bounds the wave count and not the duration: a wave rewrites each day object in full, that object grows all day, and the 300s
 timeout is the real ceiling. Peak memory is one wave (`MAX_MESSAGES`), not the sweep.
 
 **Stopping is three different things and they want opposite responses.** A sweep that stops with
@@ -125,7 +127,8 @@ as long as something arrived during each one, rewriting multi-MB day objects onc
 backlog behind them and reporting `wave-cap` over a queue it had already drained. That is reasoned
 from a session's arrival rate rather than observed: the only `wave-cap` stops on record were over a
 real backlog, before the queue was grouped per event, and in its first two days grouped per event
-every sweep finished in one to three waves with no stop reason. So the finish below is a bound —
+every sweep finished in one to three waves with no stop reason (`docs/testing/sessions.md`,
+2026-09-13). So the finish below is a bound —
 it makes the end of a sweep independent of arrival timing — not a fix for a run anyone saw. The
 receive now asks for each message's
 `SentTimestamp`, and after writing and deleting a wave the sweep finishes as a normal sweep, with

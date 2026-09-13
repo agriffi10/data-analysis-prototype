@@ -10,6 +10,53 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-13 (the log-sweep re-run, CLI only)
+
+**Scope.** `owed.md`'s *log sweep is saturated* row, after #720 (the alarm's deploy grant) and #724
+(the logs queue grouped per event, and the `logs-backlog` alarm). Deploy Lambdas pointed the fleet
+at `1043d59f` on 2026-09-11 at 03:33Z. **Instruments:** read-only CLI alone — `AWS/SQS` metrics and
+`describe-alarm-history` for `dat-prod-logs.fifo`, and the `service=observability` and `service=api`
+day objects for 2026-09-11 to 2026-09-13. **No browser and no driven load:** the one portal tab was
+signed out, so everything below is organic traffic.
+
+- **The pre-deploy backlog drained in two hours.** It was still in the old per-service groups, so it
+  drained at ten a wave: 5,398 messages at 03:34Z, 20 at 05:37Z. The alarm was created at 03:28Z
+  and went `INSUFFICIENT_DATA` → `ALARM` on that backlog → `OK` at 05:31Z. It has not changed state
+  since. The first scheduled sweep after the deploy (03:34Z) took **116** messages in its first wave,
+  **86 of them from `service=observability` alone**, where the old grouping capped a wave at ten
+  per service.
+- **The load that could tell the fix from the defect was a scanner, not a person.** The working
+  sessions since the deploy were light: the busiest ran 400–486 messages an hour against an idle
+  floor of 211. The one burst above the old ceiling came on 2026-09-12: a probe request at
+  01:13:59Z, then 431 more in the minute from 01:17:08Z (`GET /wp/v2/posts/999999` and its
+  variants). Together they put **1,296 `service=api` events** on the queue, about 1,330 messages in
+  that ten-minute tick. That is a fifth of 2026-09-10's worst tick of 6,594. Grouped by service, the
+  API group could give up at most 500 a sweep, so the first sweep after it would have stopped on
+  `wave-cap`. The first request's three events went in the 01:14Z sweep. The 01:24Z sweep took the
+  1,293 left in **one run of three waves** (1,000, 337 and 10) in 3.6 s, with no stop reason, 980 of
+  them API events appended in a single write.
+- **The first full wave, measured.** 1,000 messages took about 2.5 s from one receive to the next
+  (2,484 ms): 100 receive rounds in 1,071 ms (10.7 ms each), the 980-event API rewrite in 328 ms,
+  98 delete batches in about 0.9 s, and a 90 ms observability rewrite. The plane page had derived
+  5–7 s. So about 95 full waves fit in the budget, and the wave cap binds first, at about half of
+  it, not where the reserve does.
+- **Every run since has ended clean.** 356 sweeps found messages between 2026-09-11 05:40Z and
+  2026-09-13 16:54Z, all on `1043d59f`. **None stopped with a reason**: 287 took one wave, 66 took
+  two and 3 took three. So the chase a live session can drive, where each wave finds the last one's
+  arrivals, has not happened on real traffic yet. `ApproximateAgeOfOldestMessage` peaked at 591 s
+  in its worst hour, which is one tick. The scanner's last event (01:18:10Z) was written by the
+  second wave at 01:24:37Z.
+- **Idle volume fell.** Idle arrival is now 211 messages an hour, about 35 a tick, down from 73–80 a
+  tick. `service=observability` wrote 1.19 MB on 2026-09-12, against 4–10 MB on an ordinary day
+  since 2026-08-14 (16.0 MB on 2026-09-10). The sweep now drains its own events in one wave, not
+  six.
+- **Not run:** a tick at 2026-09-10's intensity. No sweep has taken a second full wave or chased a
+  live session's arrivals. That day's session hours carried 10,371, 6,490 and 5,089 API events,
+  and its worst tick queued 6,594 messages, five times the scanner's. `owed.md` carries it as its
+  own row under *Needs the CLI*.
+
+---
+
 ## Live-check session — 2026-09-11 (the top-bar band, re-run after #725)
 
 **Scope.** The re-run owed by the sweep's top-bar defect, which #725 fixed together with the Files

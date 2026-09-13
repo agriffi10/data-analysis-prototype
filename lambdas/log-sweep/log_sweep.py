@@ -64,11 +64,12 @@ Attributes:
   MAX_MESSAGES: Message cap per wave. The next wave, or the next schedule tick, picks up any
     remainder, so the cap costs latency on a backlog, never data.
   MAX_WAVES: Receive-write-delete cycles per sweep. With every event in its own group a full
-    wave is ``MAX_MESSAGES``, and about this many full waves fit in the timeout after the
-    reserve, so this is where the wave cap and the time reserve meet rather than a number the
-    arrival rate is divided by. A caught-up sweep stops well short of it during an active
-    session, on the first wave that held only what arrived after the sweep started and whose
-    receive ended on an empty round. The queue's age, not this stop, is the backlog signal.
+    wave is ``MAX_MESSAGES``, and one measured in production took about 2.5 s, so this many full
+    waves spend about half the timeout after the reserve: the cap binds before the clock, and
+    the sweep's ceiling is this times ``MAX_MESSAGES`` a tick, several times the busiest tick
+    measured. A caught-up sweep stops well short of it during an active session, on the first
+    wave that held only what arrived after the sweep started and whose receive ended on an empty
+    round. The queue's age, not this stop, is the backlog signal.
   SWEEP_RESERVE_MS: Invocation time held back for the final wave's write and delete. The wave
     cost is a function of the day object's size, which grows all day, so the wave count alone
     cannot bound the sweep's duration.
