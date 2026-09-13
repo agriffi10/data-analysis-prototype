@@ -1,8 +1,8 @@
 # Spec: Count a Result's Rows from Athena's Own Statistics, Not by Walking Every Page
 
 **ID:** SPEC-231
-**Status:** In Progress
-**Last Updated:** 2026-09-10
+**Status:** Completed
+**Last Updated:** 2026-09-13
 **Depends On:** SPEC-080, SPEC-199
 
 ## Overview
@@ -154,7 +154,7 @@ carried the location.
   > helper. This spec's route calls `_owned_execution` like the others and adds none of those
   > pieces; `TestEveryRouteNamingAnExecutionProvesItFirst` covers it by its path.
 - **The row count stays on the user plane.** The route calls Athena as the caller, like every
-  `/v1/queries` route, so the per-user role gains `athena:GetQueryRuntimeStatistics` on the
+  `/v1/queries` route, so the portal role gains `athena:GetQueryRuntimeStatistics` on the
   workgroup. That is AWS's documented resource for the action. It is the first catalog action added
   to that role since SPEC-199, so the two guards that freeze it admit exactly this one action
   (FR-002).
@@ -169,7 +169,7 @@ carried the location.
 
 - A `GET /v1/queries/{queryExecutionId}/row-count` route, its contract entry, the regenerated
   browser contract, and the no-SQL sweep's one admission.
-- `athena:GetQueryRuntimeStatistics` on the per-user analytics role, and the two IAM guards
+- `athena:GetQueryRuntimeStatistics` on the portal role's analytics policy, and the two IAM guards
   admitting it.
 - A measurement of the route through the window after `SUCCEEDED`, before the browser uses it.
 - `useResultRowCount` asks the route and walks only where Athena does not count. The workspace
@@ -251,7 +251,7 @@ carried the location.
   shape stays silent. Another shows three things still redden in the same module: a SQL literal
   returned, a literal compared with the statement, and a literal compared with any other field.
 
-### FR-002: The per-user role may read runtime statistics, and nothing else widens
+### FR-002: The portal role may read runtime statistics, and nothing else widens
 
 #### Description:
 
