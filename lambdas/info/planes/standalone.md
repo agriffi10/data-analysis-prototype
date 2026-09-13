@@ -103,11 +103,13 @@ the duration: a wave rewrites each day object in full, that object grows all day
 timeout is the real ceiling. Peak memory is one wave (`MAX_MESSAGES`), not the sweep.
 
 **Stopping is three different things and they want opposite responses.** A sweep that stops with
-the queue possibly still yielding reports *why*: `wave-cap` (the sweep took every wave it was
-allowed — read the next paragraph before raising anything), `time-reserve`
+the queue possibly still yielding reports *why*: `wave-cap` (every wave the sweep was allowed
+stopped its receive at a cap, or held a message older than the sweep or one it could not date —
+read the next paragraph before raising anything), `time-reserve`
 (the day objects have grown enough that a wave no longer fits — raise the timeout, or look at
 the growth), `group-blocked` (see below). The clock is checked before the wave cap, so when both
-hold the harder constraint is the one reported. One flag reporting `limit=MAX_WAVES` for all three
+hold the harder constraint is the one reported, and either outranks `group-blocked`, which only
+qualifies a sweep that finished on its own. One flag reporting `limit=MAX_WAVES` for all three
 reads as "plenty of budget, the queue just kept yielding" when the cause was the clock. Note the
 `wave-cap` reason cannot distinguish "the cap bound me" from "I drained the queue on exactly the
 last allowed wave" — only one more receive could, and the event says the queue *may* still be
@@ -115,15 +117,42 @@ yielding rather than buying certainty with an API call on every capped sweep. Re
 the first version of that hedge reached only the CloudWatch line while the structured event —
 the account that carries `reason` and gets filtered on — still asserted the claim it softened.
 
-**A `wave-cap` stop is not a backlog while a session is active, so the alarm reads the queue's
-age instead.** Each wave finds what arrived during the one before — the session's traffic, and the
+**A caught-up sweep finishes on the first wave of arrivals alone, so a session cannot run it to
+the cap.** Each wave finds what arrived during the one before — the session's traffic, and the
 sweep's own events, which the library sends every ten finished spans or every second rather than
-at the end — so a caught-up sweep can take every wave it is allowed, every tick, for as long as
-the session lasts. The backlog signal is the `logs-backlog` alarm on the age of the queue's oldest
-message (`infra/modules/observability/alarm.tf`): age is the lag itself, whatever stopped the
-sweep, and it also sees a sweep that is not running at all. Healthy, the oldest message waits for
-the next tick and no longer — 574–586 s all through 2026-09-10 until the session — so each missed
-tick adds about 600 s to the peak: two in a row reach ~1,780 s and stay under the 1,800 s
+at the end — so a sweep that waited for an empty receive would take every wave it was allowed for
+as long as something arrived during each one, rewriting multi-MB day objects once a wave with no
+backlog behind them and reporting `wave-cap` over a queue it had already drained. That is reasoned
+from a session's arrival rate rather than observed: the only `wave-cap` stops on record were over a
+real backlog, before the queue was grouped per event, and in its first two days grouped per event
+every sweep finished in one to three waves with no stop reason. So the finish below is a bound —
+it makes the end of a sweep independent of arrival timing — not a fix for a run anyone saw. The
+receive now asks for each message's
+`SentTimestamp`, and after writing and deleting a wave the sweep finishes as a normal sweep, with
+no stop reason, when every message in the wave was stamped at or after the sweep's start and the
+wave's receive ended on an empty round rather than a cap. Each qualifier leans toward running on,
+because stopping early is the costly direction and running on is only the old behaviour:
+
+- **A message it cannot date** — no attribute, or one that does not parse — counts as old.
+- **A wave whose receive stopped at a cap** keeps it going, arrivals or not: SQS does not order
+  messages across groups ([FIFO delivery logic][fifo]), so a full wave says nothing about what
+  is queued behind it.
+- **A legacy per-service backlog keeps it running until the backlog is gone or the cap or the
+  clock stops it**: a group never yields a new message ahead of an older one of its own, so its
+  waves hold old messages until then. A message redelivered from an earlier sweep keeps its
+  original stamp, so it reads as old too.
+
+The finish is also qualified exactly as an empty receive is: with a message left in flight it
+reports `group-blocked`, since a group blocked behind an unwritten or undeleted message can hide
+older messages from both. The start is the Lambda's clock and the stamp is SQS's, so a skew only
+moves which wave ends the sweep; nothing is lost either way, because whatever a sweep does not
+delete stays queued for the next tick. The stop is no stronger than the empty receive beside it —
+a short poll can come back empty spuriously, end a wave early, and this can then finish on it —
+and neither is the backlog signal. That is the `logs-backlog` alarm on the age of the queue's
+oldest message (`infra/modules/observability/alarm.tf`): age is the lag itself, whatever stopped
+the sweep, and it also sees a sweep that is not running at all. Healthy, the oldest message waits
+for the next tick and no longer — 574–586 s all through 2026-09-10 until the session — so each
+missed tick adds about 600 s to the peak: two in a row reach ~1,780 s and stay under the 1,800 s
 threshold, and **three in a row fire it**, about 40 minutes after the last good sweep. It has no
 action, by decision: its state is read in the console and by a session's `describe-alarms`.
 
@@ -191,10 +220,25 @@ a delete), and `test_a_backlog_across_groups_drains_in_one_sweep` fails against 
 Review caught a second one of the same kind in the fix's own tests: an "it went back after
 deleting" test asserted `receives > 1` and an empty in-flight set, and **both hold for the
 single-wave code** — the inner round loop receives a second time to get the empty round that
-ends it, and one wave still deletes what it wrote. It now records the receive/delete order and
-asserts a receive after a delete, which is the only thing that can unblock a group. Each guard
+ends it, and one wave still deletes what it wrote. It was rewritten to assert a receive after a
+delete, the only thing that can unblock a group; that test left the suite when it was cut to how
+a caller drives the code, and `test_a_backlog_across_groups_drains_in_one_sweep` holds the
+property now, since three waves over blocked groups need a receive after each delete. Each guard
 here was checked against its own mutation (`MAX_WAVES = 1`; the reserve forced to `False`; the
 `group-blocked` reason removed), and each fails alone.
+
+**The caught-up stop's tests move the clock rather than read it.** The fake sweep runs inside a
+millisecond, so on a real clock every arrival is stamped at the sweep's start and "sent since the
+sweep started" cannot be told from "sent since this wave started". Review planted the second,
+which brings the chase back, and the suite stayed green. `FifoSQS` now moves a patched clock a
+second on each delete call that lets a message arrive, and returns `SentTimestamp` only to a
+receive that asks for it. Each part
+of the stop was planted and fails alone: the stop removed, checked before the write, or checked
+after the cap; the start re-taken per wave; the attribute not requested; an undated message read
+as new; a full wave allowed to stop, or the sweep-long `capped` read for the wave's `truncated`;
+the comparison inverted; `group-blocked` outranking the clock or the cap, or not qualifying the
+caught-up finish. Review found the `capped`, cap-order and cap-precedence plants surviving the
+first version of these tests.
 
 [fifo]: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/FIFO-queues-understanding-logic.html
 

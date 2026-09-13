@@ -91,8 +91,11 @@ class _ClientError(Exception):
         self.response = {"Error": {"Code": code}}
 
 
-def _message(body, receipt="r1"):
-    return {"Body": body if isinstance(body, str) else json.dumps(body), "ReceiptHandle": receipt}
+def _message(body, receipt="r1", sent=None):
+    message = {"Body": body if isinstance(body, str) else json.dumps(body), "ReceiptHandle": receipt}
+    if sent is not None:
+        message["Attributes"] = {"SentTimestamp": str(sent)}
+    return message
 
 
 def _event(service="data-quality", ts="2026-07-22T14:03:11.482Z", **extra):
@@ -109,14 +112,21 @@ class FifoSQS:
     ten messages per backlogged group per invocation and reported itself drained, and no test
     could see it, because the fake ran out of rounds at exactly the moment the real queue would
     have blocked.
+
+    A message's ``Attributes`` come back only when the receive asks for ``SentTimestamp``, as on
+    the real queue, so a sweep that stopped asking would find every message undated. ``arrive``
+    models an active session: it is called with the clock's time on every delete, the write half
+    of a wave, and each message it returns queues in a group of its own, as producers send them.
     """
 
-    def __init__(self, per_group, reject_deletes=False):
+    def __init__(self, per_group, reject_deletes=False, arrive=None, clock=None):
         self.pending = {g: list(ms) for g, ms in per_group.items()}
         self.inflight = {}
         self.deleted = []
         self.receives = 0
         self.reject_deletes = reject_deletes
+        self.arrive = arrive
+        self.clock = clock
 
     def receive_message(self, **kwargs):
         assert kwargs["WaitTimeSeconds"] == 0, (
@@ -124,6 +134,7 @@ class FifoSQS:
         )
         self.receives += 1
         limit = kwargs["MaxNumberOfMessages"]
+        dated = bool({"SentTimestamp", "All"} & set(kwargs.get("MessageSystemAttributeNames", ())))
         blocked = set(self.inflight.values())
         taken = []
         for group, queued in self.pending.items():
@@ -137,9 +148,15 @@ class FifoSQS:
                 self.inflight[message["ReceiptHandle"]] = group
             self.pending[group] = queued[len(batch) :]
             taken.extend(batch)
+        if not dated:
+            taken = [{k: v for k, v in m.items() if k != "Attributes"} for m in taken]
         return {"Messages": taken} if taken else {}
 
     def delete_message_batch(self, QueueUrl, Entries):
+        if self.arrive:
+            self.clock.ms += 1000
+            for message in self.arrive(self.clock.ms):
+                self.pending[message["ReceiptHandle"]] = [message]
         if self.reject_deletes:
             # SQS reports a rejected delete as HTTP 200 with a Failed array, and the message
             # stays in flight — so the group it belongs to keeps yielding nothing.
@@ -149,6 +166,61 @@ class FifoSQS:
             self.inflight.pop(handle, None)
             self.deleted.append(handle)
         return {}
+
+
+START_MS = 1_800_000_000_000
+BACKLOG_SENT_MS = START_MS - 3_600_000
+
+
+class Clock:
+    """The sweep's wall clock, moved by the fake queue rather than by time passing.
+
+    A real clock cannot tell "sent since the sweep started" from "sent since this wave started":
+    the fake sweep runs inside a millisecond, so every stamp lands on the start and both readings
+    agree. A second per delete call is what separates them.
+    """
+
+    def __init__(self, ms):
+        self.ms = ms
+
+    def time_ns(self):
+        return self.ms * 1_000_000
+
+
+@pytest.fixture
+def fifo(monkeypatch):
+    """Wire a FIFO queue, S3 and a stopped clock into the sweep, and hand the queue back."""
+
+    def _wire(per_group, **kwargs):
+        clock = Clock(START_MS)
+        sqs, s3 = FifoSQS(per_group, clock=clock, **kwargs), FakeS3()
+        monkeypatch.setattr(log_sweep, "time", clock)
+        monkeypatch.setattr(log_sweep.clients, "sqs", lambda: sqs)
+        monkeypatch.setattr(log_sweep.clients, "s3", lambda: s3)
+        return sqs
+
+    return _wire
+
+
+def _arrival(now):
+    """One message a session sends while a wave is being written, stamped when it arrived."""
+    return [_message(_event(service="api"), f"new-{now}", sent=now)]
+
+
+def _per_event_backlog(count):
+    return {
+        f"old-{n}": [_message(_event(), f"old-{n}", sent=BACKLOG_SENT_MS)] for n in range(count)
+    }
+
+
+def _per_service_backlog(count):
+    return {
+        service: [
+            _message(_event(service=service), f"{service}-{n}", sent=BACKLOG_SENT_MS)
+            for n in range(count)
+        ]
+        for service in ("data-quality", "table-share", "archive")
+    }
 
 
 @pytest.fixture
@@ -337,18 +409,28 @@ def test_sweep_short_polls_and_loops_until_a_round_is_empty(wired):
     assert sorted(sqs.deleted) == ["a", "b"]
 
 
-def test_the_wave_cap_bounds_a_sweep_and_says_so(monkeypatch, captured):
+@pytest.mark.parametrize(
+    ("backlog", "message_cap", "reject_deletes"),
+    [
+        ({"data-quality": [_message(_event(), f"m-{n}") for n in range(50)]}, None, False),
+        (_per_event_backlog(30), 10, True),
+    ],
+    ids=["deleted", "delete-rejected"],
+)
+def test_the_wave_cap_bounds_a_sweep_and_says_so(
+    fifo, captured, monkeypatch, backlog, message_cap, reject_deletes
+):
     """A backlog deeper than the cap is left for the next tick rather than taken in one
     invocation, and it is reported — a bounded sweep that read as a drained queue is the exact
     shape of the defect this replaced.
+
+    The cap also outranks a blocked group. The rejected-delete row leaves its first wave in
+    flight, and the reason must still be the cap that stopped the sweep.
     """
     monkeypatch.setattr(log_sweep, "MAX_WAVES", 2)
-    per_group = {
-        "data-quality": [_message(_event(), f"m-{n}") for n in range(50)],
-    }
-    sqs, s3 = FifoSQS(per_group), FakeS3()
-    monkeypatch.setattr(log_sweep.clients, "sqs", lambda: sqs)
-    monkeypatch.setattr(log_sweep.clients, "s3", lambda: s3)
+    if message_cap:
+        monkeypatch.setattr(log_sweep, "MAX_MESSAGES", message_cap)
+    fifo(backlog, reject_deletes=reject_deletes)
 
     result = log_sweep.handler({}, None)
 
@@ -391,41 +473,126 @@ def test_a_backlog_across_groups_drains_in_one_sweep(monkeypatch, captured):
     assert not _by_message(captured, "stopped with the queue possibly still yielding")
 
 
-def test_a_rejected_delete_stops_the_sweep_on_its_own_reason(monkeypatch, captured):
+@pytest.mark.parametrize(
+    ("backlog", "message_cap", "waves"),
+    [
+        (_per_event_backlog(30), None, 2),
+        (_per_service_backlog(25), None, 4),
+        (_per_event_backlog(30), 10, 4),
+    ],
+    ids=["grouped-per-event", "grouped-per-service", "after-full-waves"],
+)
+def test_a_caught_up_sweep_finishes_on_a_wave_of_arrivals_alone(
+    fifo, captured, monkeypatch, backlog, message_cap, waves
+):
+    """A session's arrivals end the sweep once the backlog is gone, not the wave cap.
+
+    Every delete lets a message arrive, so each wave finds what arrived during the one before,
+    and a sweep that waited for an empty receive ran to ``MAX_WAVES`` on every tick. It must take
+    the backlog, then one wave holding only arrivals, and finish as a normal sweep. The
+    per-service row is a legacy backlog: its waves still hold ten old messages per group, so it
+    drains in full before the stop can fire. The last row's backlog fills its first waves, and a
+    wave that filled the cap earlier must not keep a later wave of arrivals from finishing it.
+
+    The wave cap is set to the wave the sweep should finish on, so a finish that let the cap
+    speak first would report ``wave-cap`` over a drained queue.
+    """
+    monkeypatch.setattr(log_sweep, "MAX_WAVES", waves)
+    if message_cap:
+        monkeypatch.setattr(log_sweep, "MAX_MESSAGES", message_cap)
+    sqs = fifo(backlog, arrive=_arrival)
+
+    result = log_sweep.handler({}, None)
+
+    assert result["waves"] == waves
+    backlog_receipts = {m["ReceiptHandle"] for queued in backlog.values() for m in queued}
+    assert backlog_receipts <= set(sqs.deleted), "the stop cut the backlog short"
+    assert not sqs.inflight, "the last wave must be written and deleted before the sweep ends"
+    assert not _by_message(captured, "stopped with the queue possibly still yielding")
+    assert _by_message(captured, "swept")[0]["level"] == "INFO"
+
+
+@pytest.mark.parametrize(
+    ("arrive", "message_cap"),
+    [
+        (lambda now: [_message(_event(service="api"), f"new-{now}")], None),
+        (lambda now: [_message(_event(service="api"), f"new-{now}", sent="soon")], None),
+        (
+            lambda now: [
+                _message(_event(service="api"), f"new-{now}-{n}", sent=now) for n in range(10)
+            ],
+            5,
+        ),
+    ],
+    ids=["undated", "unparseable", "a-full-wave-of-arrivals"],
+)
+def test_a_wave_the_sweep_cannot_vouch_for_keeps_it_going(
+    fifo, captured, monkeypatch, arrive, message_cap
+):
+    """Stopping early is the costly direction, so every doubt reads as more backlog.
+
+    A message the sweep cannot date might be old. A wave that filled the message cap might have
+    older messages behind it, because SQS does not order messages across groups. Either way the
+    sweep runs on — here to a wave cap of four — rather than finishing on the arrivals.
+    """
+    monkeypatch.setattr(log_sweep, "MAX_WAVES", 4)
+    if message_cap:
+        monkeypatch.setattr(log_sweep, "MAX_MESSAGES", message_cap)
+    fifo(_per_event_backlog(3), arrive=arrive)
+
+    result = log_sweep.handler({}, None)
+
+    assert result["waves"] == 4
+    stopped = _by_message(captured, "stopped with the queue possibly still yielding")
+    assert stopped and stopped[0]["fields"]["reason"] == log_sweep.STOP_WAVE_CAP
+
+
+@pytest.mark.parametrize(
+    ("backlog", "arrive", "swept", "waves"),
+    [
+        ({"data-quality": [_message(_event(), f"m-{n}") for n in range(30)]}, None, 10, 1),
+        (_per_event_backlog(30), _arrival, 33, 2),
+    ],
+    ids=["finished-on-an-empty-receive", "finished-on-a-wave-of-arrivals"],
+)
+def test_a_rejected_delete_stops_the_sweep_on_its_own_reason(
+    fifo, captured, backlog, arrive, swept, waves
+):
     """``group-blocked`` is reported, and it is not the wave cap or the time reserve.
 
     A rejected delete leaves the message in flight, so its group keeps yielding nothing and the
     very next receive comes back empty with the queue nowhere near drained. That empty round is
     indistinguishable from a drained queue at the receive, which is why the sweep has to reach
-    for what it knows about its own deletes to name it.
+    for what it knows about its own deletes to name it. A wave of arrivals alone is the same
+    inference by another route, and a blocked group can hide older messages from it too.
 
     The reason is asserted rather than the warning alone: all three stop reasons travel on the
     same event, and the operator response to each is a different one.
     """
-    per_group = {"data-quality": [_message(_event(), f"m-{n}") for n in range(30)]}
-    sqs, s3 = FifoSQS(per_group, reject_deletes=True), FakeS3()
-    monkeypatch.setattr(log_sweep.clients, "sqs", lambda: sqs)
-    monkeypatch.setattr(log_sweep.clients, "s3", lambda: s3)
+    fifo(backlog, reject_deletes=True, arrive=arrive)
 
     result = log_sweep.handler({}, None)
 
-    assert result["swept"] == 10 and result["waves"] == 1
+    assert result["swept"] == swept and result["waves"] == waves
     stopped = _by_message(captured, "stopped with the queue possibly still yielding")
     assert stopped and stopped[0]["fields"]["reason"] == log_sweep.STOP_GROUP_BLOCKED
 
 
-def test_a_sweep_running_out_of_time_stops_on_the_reserve(monkeypatch, captured):
+@pytest.mark.parametrize("reject_deletes", [False, True], ids=["deleted", "delete-rejected"])
+def test_a_sweep_running_out_of_time_stops_on_the_reserve(fifo, captured, reject_deletes):
     """The reserve is checked BETWEEN waves and never before the first one.
 
     A wave's cost tracks the day object, which grows all day, so the wave cap bounds the count
     and not the duration. Forcing the reserve to bite after one wave separates the two: the
     sweep must still take that wave, then stop and say the reserve is why — a sweep that
     reported the wave cap here would send an operator to raise a limit that was not reached.
+    The clock also outranks a blocked group, which is why the rejected-delete row still reads
+    ``time-reserve``: the reserve is the harder constraint, and it is the one that stopped it.
     """
-    per_group = {"data-quality": [_message(_event(), f"m-{n}") for n in range(30)]}
-    sqs, s3 = FifoSQS(per_group), FakeS3()
-    monkeypatch.setattr(log_sweep.clients, "sqs", lambda: sqs)
-    monkeypatch.setattr(log_sweep.clients, "s3", lambda: s3)
+    fifo(
+        {"data-quality": [_message(_event(), f"m-{n}") for n in range(30)]},
+        reject_deletes=reject_deletes,
+    )
 
     class _Context:
         def get_remaining_time_in_millis(self):

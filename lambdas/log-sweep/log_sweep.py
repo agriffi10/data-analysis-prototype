@@ -66,9 +66,9 @@ Attributes:
   MAX_WAVES: Receive-write-delete cycles per sweep. With every event in its own group a full
     wave is ``MAX_MESSAGES``, and about this many full waves fit in the timeout after the
     reserve, so this is where the wave cap and the time reserve meet rather than a number the
-    arrival rate is divided by. While a session is active a caught-up sweep can still reach it,
-    because each wave finds what arrived during the last; the queue's age, not this stop, is the
-    backlog signal.
+    arrival rate is divided by. A caught-up sweep stops well short of it during an active
+    session, on the first wave that held only what arrived after the sweep started and whose
+    receive ended on an empty round. The queue's age, not this stop, is the backlog signal.
   SWEEP_RESERVE_MS: Invocation time held back for the final wave's write and delete. The wave
     cost is a function of the day object's size, which grows all day, so the wave count alone
     cannot bound the sweep's duration.
@@ -78,7 +78,9 @@ Attributes:
     messages in flight — and a reason you can filter on is worth more than a message you can
     read once. ``group-blocked`` names the condition rather than either cause, because an
     undeleted message blocks its group exactly as an unwritten one does, and because
-    ``_append_day`` already emits ``reason="write-failed"`` for a different thing entirely.
+    ``_append_day`` already emits ``reason="write-failed"`` for a different thing entirely. It
+    qualifies either way a sweep finishes on its own, an empty receive or a wave of arrivals,
+    since a blocked group can hide older messages from both; the clock and the cap outrank it.
   MAX_CAS_ATTEMPTS: Conditional-write attempts per day object before giving up and leaving the
     messages queued. ``cpcommon.cas.MAX_ATTEMPTS`` — this was one of three
     copies of the loop, and the caps had drifted.
@@ -91,6 +93,7 @@ import json
 import logging
 import os
 import re
+import time
 import uuid
 from collections import defaultdict
 from datetime import UTC, datetime
@@ -416,15 +419,19 @@ def _receive_all():
     One wave's receive, not the sweep's. An empty round here does not have to mean the queue is
     empty: on a FIFO queue a group this wave has touched yields nothing more until the wave's
     delete lands, which is why the caller writes and deletes and comes back rather than treating
-    the empty round as the end of the sweep. With every event in its own group no group holds a
-    second message, so the loop runs until the queue or the cap is exhausted — and a message
-    from an older producer, still in a shared group, is what the coming back is still for.
+    the empty round as the end of the sweep, unless everything the wave took arrived after the
+    sweep began. With every event in its own group no group holds a second message, so the loop
+    runs until the queue or the cap is exhausted — and a message from an older producer, still
+    in a shared group, is what the coming back is still for.
 
     Its own child span because the poll loop and the writes have completely different failure
     modes, and this is the half that is billed per round. The span opens once per wave rather
     than once per sweep, a volume decision taken deliberately: this function emits into the
     queue it drains, and its events land in groups of their own, so they drain alongside the
     messages they describe rather than queueing behind them.
+
+    Each message comes back with its ``SentTimestamp``, which is how the caller tells a wave of
+    backlog from a wave of arrivals.
 
     Args:
       None.
@@ -446,6 +453,7 @@ def _receive_all():
             MaxNumberOfMessages=10,
             WaitTimeSeconds=0,
             MessageAttributeNames=[],
+            MessageSystemAttributeNames=["SentTimestamp"],
         ).get("Messages", [])
         if not batch:
             return messages, False
@@ -471,6 +479,32 @@ def _time_is_short(context):
     """
     remaining = getattr(context, "get_remaining_time_in_millis", None)
     return bool(remaining) and remaining() < SWEEP_RESERVE_MS
+
+
+def _sent_since(message, started_ms):
+    """Reports whether the queue stamped one message at or after the sweep began.
+
+    A message the sweep cannot date reads as older, because the two wrong answers are not
+    symmetric: calling an old message new can end a sweep with backlog still queued, while
+    calling a new one old only costs the wave the sweep would have run anyway.
+
+    Args:
+      message: One message as ``receive_message`` returned it.
+      started_ms: The sweep's start, in epoch milliseconds.
+
+    Returns:
+      True only when the message carries a ``SentTimestamp`` that parses as an integer no
+      earlier than ``started_ms``.
+
+    Raises:
+      None.
+    """
+    attributes = message.get("Attributes")
+    sent = attributes.get("SentTimestamp") if isinstance(attributes, dict) else None
+    try:
+        return int(sent) >= started_ms
+    except (TypeError, ValueError):
+        return False
 
 
 def _delete(receipts):
@@ -534,11 +568,18 @@ def handler(event, context):
     The sweep instruments itself, which is what makes the pipe verifiable end to end without
     instrumenting a control plane. Its own events go through the same queue, and a later wave of
     the same invocation can receive them — the library sends every ten finished spans or every
-    second, not only at the end — so the sweep partly drains itself, and while a session is active the
-    arrivals and its own events can keep every wave finding something until the wave cap. That
-    is bounded rather than recursive: the cap and the reserve end it, and at idle a wave whose
-    only work is the sweep's own output usually finishes before the library sends that wave's
-    events, so the next receive is empty and the sweep ends.
+    second, not only at the end — so the sweep partly drains itself, and while a session is
+    active every wave finds what arrived during the one before. Waiting for an empty receive
+    would therefore chase arrivals to the wave cap for as long as they kept landing in every
+    wave, rewriting the day objects once a wave with no backlog behind them. So the sweep also
+    finishes after the first wave that held only messages the queue stamped after the sweep
+    began: the backlog it was started for has been taken, as far as a short poll can tell, and
+    what arrives next waits one tick. Two kinds of wave keep it going instead: one holding a
+    message it cannot date, and one whose receive stopped at a cap rather than an empty round,
+    because SQS does not order messages across groups, so a full wave of new messages says
+    nothing about what is still queued behind it. A legacy group keeps it going until the group
+    is empty or the cap or the clock stops it, since a group never yields a new message ahead of
+    an older one of its own.
 
     That self-reference is also why the emitters are placed the way they are. No emitter is per
     message: this function emits into the queue it drains, so an event per message consumed
@@ -588,6 +629,7 @@ def handler(event, context):
     """
     global _sweep_id
     _sweep_id = sweep_id = uuid.uuid4().hex
+    started_ms = time.time_ns() // 1_000_000
     observability.stamp(sweep_id=sweep_id)
 
     if not LOGS_QUEUE_URL or not ADMIN_BUCKET:
@@ -619,8 +661,6 @@ def handler(event, context):
             break
         messages, truncated = _receive_all()
         if not messages:
-            if failed or stuck:
-                stop_reason = STOP_GROUP_BLOCKED
             break
         waves += 1
         swept += len(messages)
@@ -647,6 +687,12 @@ def handler(event, context):
                 stuck += _delete([r for _, r in items if r])
             else:
                 failed += len(items)
+
+        if not truncated and all(_sent_since(m, started_ms) for m in messages):
+            break
+
+    if not stop_reason and (failed or stuck):
+        stop_reason = STOP_GROUP_BLOCKED
 
     if not swept:
         return {"swept": 0, "written": 0}
