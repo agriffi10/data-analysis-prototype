@@ -85,14 +85,15 @@ describe('useQueryExecution', () => {
         await act(async () => {
           await vi.waitFor(() => expect(result.current.isError).toBe(true));
         });
+        // Counted from the error, not the first request, because the retry alone makes a second.
+        const atError = mockGetStatus.mock.calls.length;
 
         await act(async () => {
           await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS + 250);
         });
 
-        // Counted from the error, not the first request, because the retry alone makes a
-        // second one: two before the error, then the interval's request and its own retry.
-        expect(mockGetStatus).toHaveBeenCalledTimes(4);
+        // The interval's request, and its own retry.
+        expect(mockGetStatus).toHaveBeenCalledTimes(atError + 2);
       } finally {
         vi.useRealTimers();
       }

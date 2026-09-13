@@ -92,7 +92,9 @@ is a smell.
   **zero** executions, and says which page it counted.
 - **A display page is not a listing page.** A pager over filtered rows keeps fetching while the
   listing is truncated — and **stops on error**, because a failed fetch leaves "has more" true, which
-  is the fill's own trigger: without the guard one failure spins forever.
+  is the fill's own trigger: without the guard one failure spins forever. **A poll's stop is
+  `enabled` resolving `false`**, never only an interval returning `false`: a failed query is stale
+  whatever its `staleTime`, so a reconnect refetches it.
 - **Help & guides document only what is shipped and wired end to end.**
 - **Column geometry is keyed by NAME**, so geometry for a column the result no longer has is
   discarded by construction.
@@ -1285,9 +1287,9 @@ distinct, since a block copied with its key is the likely way two of them come t
 The Query tab followed its statement by polling status and read only the poll's data, so a status
 request that failed left the tab on "Running…" for the hook's five-minute ceiling and then in
 flight for good, with no message. The Data Explorer, on the same hook, already routed the error to
-its banner. It mattered once SPEC-232 made the status route answer 404 for an execution whose results
-location is not under the caller's own prefix: a prefix moved under a held id, or a workgroup that
-enforces its own result location, would have spun every open tab in silence.
+its banner. It matters more because SPEC-232 makes the status route answer 404 for an execution
+whose results location is not under the caller's own prefix: a prefix moved under a held id, or a
+workgroup that enforces its own result location, would spin every open tab in silence.
 
 **A failed poll is final for the tab, after one retry.** The run settles as a failure would:
 `done`, with `toUserText(error)` as the reason in the existing banner, and a batch stops at that
@@ -1317,8 +1319,8 @@ question.
 
 **The test client carries `retryDelay: 0`.** A hook's own positive `retry` fires under the harness,
 and at once. TanStack's one-second backoff is exactly `waitFor`'s window, so without it a retried
-failure times out in a way that looks like a flake. Nothing else in the suite sets a positive
-`retry` on a query.
+failure times out in a way that looks like a flake. No other query hook sets a positive `retry`,
+so no other test moved.
 
 **Not done:** a query that outlives the five-minute ceiling while every poll succeeds still leaves
 the tab in flight. No request fails in that case, and fixing it means deciding how long the browser
