@@ -112,6 +112,10 @@ Read from the code at `a5ef2b9c`.
   existing rules in `lib/errorMessages.ts`.
 - **Stopping the execution, or recording a verdict in history,** on a poll failure. See the
   decisions above.
+- **A run whose FIRST statement fails to start, over an earlier run's results.** No run is
+  installed, so the earlier run's bar ("Succeeded") and rows stay on screen under the "Query
+  failed." banner. FR-005's rule holds, because the bar describes the run it shows. Whether a
+  failed resubmit should clear the previous results is a separate question.
 - **`runStatementToCompletion`** (View DDL, Drop, Create view). It already returns a failed status
   to its caller, which shows it as a toast.
 - **Any API, contract or server change.**
@@ -218,6 +222,8 @@ status says. The mobile strip follows the same rule.
 - [ ] Below `tablet`, a run whose status request fails shows "Failed" on the mobile strip.
 - [ ] A run that ends without a failure keeps today's verdicts. The existing status-bar tests pass
   unchanged, including the resubmit gap, where no status has arrived and there is no failure.
+  After a run that *failed*, the gap keeps showing that run's "Failed", which the banner is still
+  showing too, until the new run is installed.
 
 ---
 

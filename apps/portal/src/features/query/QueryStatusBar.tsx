@@ -91,7 +91,8 @@ export function QueryStatusBar({
   // A settled verdict must be on screen for anything that hangs off the result to have
   // something to sit beside. Two ways there isn't one, and both leave a lone button on an
   // otherwise empty bar: a resubmit clears the status a history round-trip before the new run
-  // is marked in flight, leaving the previous run `done` with no status at all; and
+  // is marked in flight, leaving the previous run `done` with no status at all — unless that run
+  // failed, whose verdict holds until the new one is installed; and
   // `isInFlight` tracks the BATCH, so it is not by itself proof the statement settled.
   const hasVerdict = !isInFlight && (verdict === 'SUCCEEDED' || verdict === 'FAILED' || verdict === 'CANCELLED');
 
