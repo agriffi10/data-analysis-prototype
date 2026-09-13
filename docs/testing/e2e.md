@@ -389,6 +389,7 @@ two-lock path and the pagination boundary are not reachable from the UI. They li
 |---|---|
 | Run a query | Results, paging **without re-running**, the cost line. |
 | Run a multi-statement script | Runs in order, stops at the first failure, earlier statements stay done. |
+| **A status poll that fails** (SPEC-233) — in DevTools → Network, block the URL pattern `*/v1/queries/*` (it matches the status, results and stop routes, not the start at `/v1/queries`), then run any query | Within about two seconds the banner reads **Query failed.** *"Can’t reach the server. Check your connection and try again."*, "Running…" is gone and **Run** is free. The network panel shows exactly **two** blocked status requests (the first and its one retry) and no more — then set DevTools to **Offline** and back to **No throttling**, and there is still no third. History shows the entry as **Unknown**. Unblock and run again: it succeeds. In a three-statement script the banner names statement 1 and says the other two did not run. |
 | Broken SQL / missing table / a permission failure | Three distinct readable messages, editor intact, **no raw AWS/Athena text anywhere**. |
 | Open the schema rail | Your own database plus every shared space; expand shows columns; the per-table **⋮** offers source files, DDL, refresh, share, drop, **Explore data**. |
 | History | Records and re-runs. |

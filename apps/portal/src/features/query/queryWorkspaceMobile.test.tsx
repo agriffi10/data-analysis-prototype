@@ -10,6 +10,7 @@ import {
   fail,
   installWorkspaceMocks,
   mockGetResults,
+  mockGetStatus,
   mockListSaved,
   mockReadSaved,
   mockRunQuery,
@@ -208,6 +209,19 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
     expect(screen.queryByLabelText('Row 1')).not.toBeInTheDocument();
     expect(screen.queryByText('Succeeded')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', {name: 'Prev'})).not.toBeInTheDocument();
+  });
+
+  it('says why in the results view when a run’s status cannot be read', async () => {
+    mockListSaved.mockResolvedValue(savedListing('Revenue'));
+    queueRuns('q-1');
+    mockGetStatus.mockResolvedValue(fail('raw: execution q-1 is outside alice/', 'NotFound'));
+    const {user} = renderMobileWorkspace();
+
+    await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
+
+    expect(await screen.findByRole('heading', {name: 'Revenue'})).toBeInTheDocument();
+    expect(await screen.findByText('That item no longer exists. Refresh and try again.')).toBeInTheDocument();
+    expect(screen.queryByText(/is outside alice/)).not.toBeInTheDocument();
   });
 
   it('runs a table’s data from the drawer into the mobile results view', async () => {

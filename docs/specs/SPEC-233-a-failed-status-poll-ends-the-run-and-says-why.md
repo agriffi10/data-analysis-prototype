@@ -1,7 +1,7 @@
 # Spec: A Failed Status Poll Ends the Query Tab's Run, and Says Why
 
 **ID:** SPEC-233
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-09-13
 **Depends On:** SPEC-078, SPEC-106
 
@@ -94,10 +94,10 @@ Read from the code at `a5ef2b9c`.
   settles the run on it, with the error code's wording as the failure reason.
 - Integration tests on `QueryWorkspace`, and hook tests on `useQueryExecution`.
 - The existing hook test "surfaces a service failure as an error state" is updated. The hook's own
-  retry and TanStack's 1 s first-retry delay would otherwise outlast `waitFor`'s 1 s window. Every
-  test that fails a status request uses a test client whose defaults are `retry: false` with
-  `retryDelay: 0`. The hook sets `retry` but not `retryDelay`, so only the hook's own retry can
-  fire, and it fires at once.
+  retry and TanStack's 1 s first-retry delay would otherwise outlast `waitFor`'s 1 s window. The
+  shared test client (`createTestQueryClient`) gains `retryDelay: 0` beside its `retry: false`.
+  The hook sets `retry` but not `retryDelay`, so only the hook's own retry can fire, and it fires
+  at once. No other query hook sets a positive `retry`, so no other test changes.
 
 ### Out of Scope
 
@@ -222,11 +222,13 @@ cur.currentIndex, reason: toUserText(error)}`.
 
 ```
 apps/portal/src/features/catalog/useQueryExecution.ts        # retry + stopOnError
-apps/portal/src/features/catalog/queryExecutionHooks.test.ts # FR-004
+apps/portal/src/features/catalog/queryExecutionHooks.test.ts # FR-003 count, FR-004 interval + control
 apps/portal/src/features/query/TabExecutionPoller.tsx        # reads the error, reports it once
 apps/portal/src/features/query/useTabRuns.tsx                # settles the run
-apps/portal/src/features/query/QueryWorkspace.test.tsx       # FR-001–FR-003
+apps/portal/src/features/query/QueryWorkspace.test.tsx       # FR-001–FR-003, FR-004 reconnect
 apps/portal/src/features/query/queryWorkspaceMobile.test.tsx # FR-002 mobile criterion
+apps/portal/src/test/renderWithProviders.tsx                 # retryDelay: 0 on the test client
+apps/portal/info/best-practices/react/react.md               # §21: a hook's own retry is visible
 ```
 
 ## Implementation Phases

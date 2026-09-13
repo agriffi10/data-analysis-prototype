@@ -20,11 +20,15 @@ import {configValue} from '../lib/runtimeConfig';
  * (`staleTime`/`gcTime` 0) so each test starts from a cold cache. Prefer the
  * shared instance via `renderWithProviders`; construct one directly only when a
  * test needs to inspect the cache.
+ *
+ * `retryDelay: 0` matters only to a hook that sets its own `retry`: that retry still
+ * fires, and fires at once, rather than after TanStack's one-second backoff, which is
+ * exactly as long as `waitFor`'s window.
  */
 export function createTestQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {
-      queries: {retry: false, staleTime: 0, gcTime: 0},
+      queries: {retry: false, retryDelay: 0, staleTime: 0, gcTime: 0},
       mutations: {retry: false}
     }
   });

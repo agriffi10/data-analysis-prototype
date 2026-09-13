@@ -27,7 +27,7 @@ throw.
 
 | Symbol | File | Purpose |
 |---|---|---|
-| `useQueryExecution(id \| null)` | `useQueryExecution.ts` | Polls `getQueryStatus` via `refetchInterval` until terminal or `MAX_POLL_DURATION_MS`; disabled when null. |
+| `useQueryExecution(id \| null, {stopOnError?})` | `useQueryExecution.ts` | Polls `getQueryStatus` via `refetchInterval` until terminal or `MAX_POLL_DURATION_MS`; disabled when null. Retries a failed request per `apiRetryPolicy('athena.status')`; `stopOnError` disables the query once it has failed, so neither the interval nor a reconnect asks again. |
 | `useQueryResults(id \| null, maxRows?)` | `useQueryResults.ts` | Prev/Next pager over results via `useInfiniteQuery`: the current page's `columns`/`rows`, `pageIndex`/range, `hasPrev`/`hasNext`, `goPrev`/`goNext` (Next fetches forward, Prev from cache), loaded/total counts (SPEC-038). The remembered per-execution page is **clamped to the pages actually cached** (SPEC-180): an unobserved execution loses its pages at `gcTime` and refetches from page 1, and an absent page is indistinguishable from an empty one — a result WITH rows rendered as "No rows returned". |
 | `useResultRowCount(id \| null)` | `useResultRowCount.ts` | Background page-walk counting a succeeded query's exact total rows via `GetQueryResults` (free, no extra scan) at `ROW_COUNT_PAGE_SIZE`, on a key separate from the visible pager's so it never perturbs it; `{total, isCounting, atCeiling}`, degrades to `null` on a failed page (SPEC-080). |
 | `useColumnWidths(executionId, columnCount)` | `useColumnWidths.ts` | In-memory `Record<executionId, number[]>` width store keyed by execution id, so widths survive paging **and** tab switches; `widths`/`setWidth` (clamped ≥ `MIN_COLUMN_WIDTH`)/`resetColumn` (SPEC-064). |
