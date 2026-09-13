@@ -517,6 +517,7 @@ export function QueryWorkspace() {
               hasResultSet={mobile.ownsRun && hasResultSet}
               totalRowCount={mobile.ownsRun ? rowCount.total : null}
               hasRun={mobile.ownsRun || mobile.pending}
+              batchFailed={mobile.ownsRun && !!activeRun?.failure}
               errorMessage={
                 mobile.failedToStart ? (mobile.run?.error ?? null) : mobile.ownsRun && showError ? errorMessage : null
               }

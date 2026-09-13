@@ -32,7 +32,7 @@ export type TabRun = {
   done: boolean;
   /** Stop was pressed — the finalizer must not start the next statement. */
   halted?: boolean;
-  /** Set when a statement failed (or failed to start); drives the banner. */
+  /** Set when a statement failed, failed to start, or its status could not be read; drives the banner. */
   failure?: {statementIndex: number; reason: string};
   /** Saved-query link captured at submit, recorded on every statement's history entry. */
   savedQuery?: {key: string; name: string};
@@ -230,6 +230,23 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
     [updateEntry, queryClient, username, appendEntry, updateRuns]
   );
 
+  // The statement's status could not be read, so the batch ends there, as it would on
+  // a failure. History is left without a verdict — the execution's real state is
+  // unknown, and it may still be running.
+  const handlePollFailure = useCallback(
+    (tabId: string, executionId: string, error: unknown) => {
+      updateRuns((r) => {
+        const cur = r[tabId];
+        if (!cur || cur.done || cur.executionId !== executionId) return r;
+        return {
+          ...r,
+          [tabId]: {...cur, done: true, failure: {statementIndex: cur.currentIndex, reason: toUserText(error)}}
+        };
+      });
+    },
+    [updateRuns]
+  );
+
   // Submit a batch of statements into a tab (defaults to the active tab),
   // starting the FIRST statement; the finalizer advances through the rest
   // sequentially. An explicit tabId lets a just-opened tab
@@ -384,6 +401,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
       submittedSql={run.submittedSql}
       onStatus={handleStatus}
       onFinalize={handleFinalize}
+      onPollFailure={handlePollFailure}
     />
   ));
 

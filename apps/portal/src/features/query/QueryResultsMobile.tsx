@@ -23,6 +23,8 @@ type QueryResultsMobileProps = {
   totalRowCount: number | null;
   /** True while this view's own run is in flight or settled — drives the status strip. */
   hasRun: boolean;
+  /** This view's run ended on a failure, which owns the strip's verdict whatever `status` says. */
+  batchFailed: boolean;
   /** Friendly, already-mapped failure text; null when there's nothing to show. */
   errorMessage: string | null;
   onDismissError: () => void;
@@ -52,6 +54,7 @@ export function QueryResultsMobile({
   hasResultSet,
   totalRowCount,
   hasRun,
+  batchFailed,
   errorMessage,
   onDismissError,
   results,
@@ -84,7 +87,7 @@ export function QueryResultsMobile({
 
       {/* Only when there is something to report — a submit that never reached
           Athena has its failure in the banner below, not an empty strip. */}
-      {hasRun && (isInFlight || status) && (
+      {hasRun && (isInFlight || status || batchFailed) && (
         <QueryStatusBar
           status={status}
           isInFlight={isInFlight}
@@ -95,6 +98,7 @@ export function QueryResultsMobile({
           totalRowCount={totalRowCount}
           canSaveResults={false}
           onSaveResults={() => {}}
+          batchFailed={batchFailed}
         />
       )}
 

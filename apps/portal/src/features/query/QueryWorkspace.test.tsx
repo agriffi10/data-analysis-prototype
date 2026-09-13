@@ -1,5 +1,5 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {cleanup, render, screen, waitFor, within} from '@testing-library/react';
+import {act, cleanup, render, screen, waitFor, within} from '@testing-library/react';
 import {DEFAULT_RESULTS_PAGE_SIZE} from './query.constants';
 import {ROW_COUNT_PAGE_SIZE} from '../catalog/catalog.constants';
 import {
@@ -13,12 +13,15 @@ import {
   mockEnqueueShare,
   mockGetHistory,
   mockGetResults,
+  mockGetStatus,
   mockListFiles,
   mockListSaved,
   mockReadCache,
   mockReadSaved,
   mockRunQuery,
   mockRunToCompletion,
+  mockStopQuery,
+  mockUpdate,
   mockWriteSaved,
   ok,
   openTableMenu,
@@ -37,7 +40,7 @@ import {
 } from '../../test/queryWorkspaceSupport';
 import {MemoryRouter} from 'react-router';
 import {createTestQueryClient} from '../../test/renderWithProviders';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import {QueryClient, QueryClientProvider, onlineManager} from '@tanstack/react-query';
 import {authValue} from '../../test/authFixtures';
 import {getDatabase, listTables} from '../catalog/glue.service';
 import {runQuery} from '../catalog/athena.service';
@@ -879,6 +882,22 @@ describe('QueryWorkspace', () => {
       expect(mockAppend).toHaveBeenCalledTimes(2);
     });
 
+    // The statement that never started leaves the one before it as the latest status, so
+    // a bar reading the status alone called a failed script a success under its own banner.
+    it('says Failed on the bar when a later statement fails to start, not the earlier one’s Succeeded', async () => {
+      queueRuns('q-1');
+      mockRunQuery.mockResolvedValueOnce(fail('Rate exceeded', 'ThrottlingException'));
+      seedScript('SELECT 1; SELECT 2;');
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await runScriptSingle(user);
+
+      expect(await screen.findByText(/Statement 2 of 2 failed\. The service is busy/)).toBeInTheDocument();
+      expect(screen.getByText('Failed')).toBeInTheDocument();
+      expect(screen.queryByText('Succeeded')).not.toBeInTheDocument();
+    });
+
     it('Run Script (tab per statement) yields one result tab per result-producing statement, and a new run clears them (FR-007)', async () => {
       queueRuns('q-1', 'q-2', 'q-3');
       seedScript();
@@ -1111,6 +1130,137 @@ describe('QueryWorkspace', () => {
       await user.click(screen.getByRole('button', {name: 'Run statement'}));
       await waitFor(() => expect(mockRunQuery).toHaveBeenCalledTimes(2));
       expect(mockRunQuery.mock.calls[1][0].sql).toBe('SELECT 2');
+    });
+  });
+
+  describe('QueryWorkspace — a failed status poll', () => {
+    const NOT_FOUND = 'That item no longer exists. Refresh and try again.';
+    const UNREACHABLE = 'Can’t reach the server. Check your connection and try again.';
+
+    /** Every status request for `id` fails — both the first and the hook's own retry. */
+    function refuseStatus(id: string, code: string, message = `raw: execution ${id} is outside alice/`) {
+      mockGetStatus.mockImplementation(async (queryExecutionId: string) =>
+        queryExecutionId === id
+          ? fail(message, code)
+          : ok(succeeded(queryExecutionId, statusMap[queryExecutionId] ?? {}))
+      );
+    }
+    const statusRequestsFor = (id: string) => mockGetStatus.mock.calls.filter(([requested]) => requested === id).length;
+
+    it('ends the run and says why in the code’s wording, writing no verdict and stopping nothing', async () => {
+      queueRuns('q-1');
+      refuseStatus('q-1', 'NotFound');
+      seedSingle('SELECT 1');
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await user.click(screen.getByRole('button', {name: 'Run statement'}));
+
+      expect(await screen.findByText(NOT_FOUND)).toBeInTheDocument();
+      expect(screen.queryByText(/is outside alice/)).not.toBeInTheDocument();
+      expect(screen.queryByText('Running…')).not.toBeInTheDocument();
+      expect(statusRequestsFor('q-1')).toBe(2);
+      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(mockStopQuery).not.toHaveBeenCalled();
+    });
+
+    it('frees the tab, so Run starts a new execution', async () => {
+      queueRuns('q-1', 'q-2');
+      refuseStatus('q-1', 'NetworkUnavailable');
+      seedSingle('SELECT 1');
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      await user.click(screen.getByRole('button', {name: 'Run statement'}));
+      await screen.findByText(UNREACHABLE);
+
+      await user.click(screen.getByRole('button', {name: 'Run statement'}));
+
+      expect(await screen.findByText('Succeeded')).toBeInTheDocument();
+      expect(mockRunQuery).toHaveBeenCalledTimes(2);
+    });
+
+    it('stops a batch at the statement whose status cannot be read', async () => {
+      queueRuns('q-1', 'q-2', 'q-3');
+      refuseStatus('q-2', 'NotFound');
+      seedTabs({
+        version: 1,
+        tabs: [{id: 'a', label: 'Query 1', sql: 'SELECT 1; SELECT 2; SELECT 3;'}],
+        activeTabId: 'a',
+        nextQueryNumber: 2
+      });
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await runScriptSingle(user);
+
+      expect(
+        await screen.findByText(`Statement 2 of 3 failed. ${NOT_FOUND} Statement 3 did not run.`)
+      ).toBeInTheDocument();
+      expect(mockRunQuery).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps an earlier statement’s rows savable, beside a Failed verdict', async () => {
+      queueRuns('q-1', 'q-2');
+      refuseStatus('q-2', 'NotFound');
+      seedTabs({
+        version: 1,
+        tabs: [{id: 'a', label: 'Query 1', sql: 'SELECT 1; SELECT 2;'}],
+        activeTabId: 'a',
+        nextQueryNumber: 2
+      });
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      await runScriptTabs(user);
+      expect(await screen.findByText('Failed')).toBeInTheDocument();
+
+      await user.click(await screen.findByRole('button', {name: 'Save results to my files'}));
+      const dialog = await screen.findByRole('dialog', {name: 'Save results to my files'});
+      const nameInput = within(dialog).getByLabelText('File name');
+      await user.clear(nameInput);
+      await user.type(nameInput, 'out');
+      await user.click(within(dialog).getByRole('button', {name: 'Save here'}));
+
+      expect(mockCopyObject).toHaveBeenCalledWith(
+        expect.objectContaining({sourceKey: 'alice/athenaresults/q-1.csv', destKey: 'alice/out.csv'})
+      );
+    });
+
+    it('retries a failed status request once, and a run whose retry answers carries on', async () => {
+      queueRuns('q-1');
+      mockGetStatus.mockResolvedValueOnce(fail('fetch failed', 'NetworkUnavailable'));
+      seedSingle('SELECT 1');
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await user.click(screen.getByRole('button', {name: 'Run statement'}));
+
+      expect(await screen.findByText('Succeeded')).toBeInTheDocument();
+      expect(screen.queryByText('Query failed.')).not.toBeInTheDocument();
+      expect(statusRequestsFor('q-1')).toBe(2);
+    });
+
+    it('asks nothing more once the run has settled, even when the network comes back', async () => {
+      queueRuns('q-1');
+      refuseStatus('q-1', 'NetworkUnavailable');
+      seedSingle('SELECT 1');
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      await user.click(screen.getByRole('button', {name: 'Run statement'}));
+      await screen.findByText(UNREACHABLE);
+
+      try {
+        // A failed query is stale, so a reconnect refetches it unless the poll is disabled.
+        await act(async () => {
+          onlineManager.setOnline(false);
+          onlineManager.setOnline(true);
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        });
+      } finally {
+        onlineManager.setOnline(true);
+      }
+
+      expect(statusRequestsFor('q-1')).toBe(2);
+      expect(screen.getByText(UNREACHABLE)).toBeInTheDocument();
     });
   });
 

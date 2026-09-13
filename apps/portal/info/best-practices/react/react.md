@@ -274,7 +274,9 @@ Vitest + React Testing Library, jsdom. Tests describe **user-observable behavior
   query that must not be retried — a billed or stateful call — passes identically with the option
   and without it, so deleting the line is green. Assert that one by passing a `queryClient` that
   *would* retry (`{retry: 1, retryDelay: 0}`) and counting the calls. The same caution applies to
-  any behaviour the harness normalises away.
+  any behaviour the harness normalises away. The converse is visible: a hook that sets its OWN
+  positive `retry` retries under the harness, at once, because its client carries `retryDelay: 0`
+  — TanStack's one-second backoff is exactly `waitFor`'s window.
 - ✅ Interact with `userEvent` (`await user.click(...)`), not `fireEvent`, in new/reworked tests — it models real focus/typing.
 - ✅ Query by role/label/text (`getByRole`, `findByRole`); assert what the user sees. 🔴 No `data-testid` unless there's no accessible handle.
 

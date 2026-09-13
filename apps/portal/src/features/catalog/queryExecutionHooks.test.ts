@@ -5,7 +5,7 @@ import {getQueryResults, getQueryStatus} from './athena.service';
 import {useQueryExecution} from './useQueryExecution';
 import {useQueryResults} from './useQueryResults';
 import {useResultRowCount} from './useResultRowCount';
-import {ROW_COUNT_PAGE_SIZE} from './catalog.constants';
+import {POLL_INTERVAL_MS, ROW_COUNT_PAGE_SIZE} from './catalog.constants';
 import type {QueryResultPage, QueryStatus} from './catalog.types';
 
 // One boundary for all three hook suites. `isTerminalState` and friends stay real
@@ -48,12 +48,55 @@ describe('useQueryExecution', () => {
       expect(mockGetStatus).toHaveBeenCalledWith('q-1');
     });
 
-    it('surfaces a service failure as an error state (queryFn throws)', async () => {
+    it('surfaces a service failure as an error state after its one retry (queryFn throws)', async () => {
       mockGetStatus.mockResolvedValue({success: false, error: {message: 'boom'}});
       const {result} = renderHookWithProviders(() => useQueryExecution('q-1'));
 
       await waitFor(() => expect(result.current.isError).toBe(true));
       expect(result.current.error).toEqual(expect.objectContaining({message: 'boom'}));
+      // The harness retries nothing, so the second request is the hook's own retry.
+      expect(mockGetStatus).toHaveBeenCalledTimes(2);
+    });
+
+    it('asks nothing more on the poll interval once a failed request has spent its retry, with stopOnError', async () => {
+      vi.useFakeTimers();
+      try {
+        mockGetStatus.mockResolvedValue({success: false, error: {message: 'refused', code: 'NotFound'}});
+        const {result} = renderHookWithProviders(() => useQueryExecution('q-1', {stopOnError: true}));
+        await act(async () => {
+          await vi.waitFor(() => expect(result.current.isError).toBe(true));
+        });
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 2);
+        });
+
+        expect(mockGetStatus).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('keeps polling after a failed request without stopOnError', async () => {
+      vi.useFakeTimers();
+      try {
+        mockGetStatus.mockResolvedValue({success: false, error: {message: 'refused', code: 'NotFound'}});
+        const {result} = renderHookWithProviders(() => useQueryExecution('q-1'));
+        await act(async () => {
+          await vi.waitFor(() => expect(result.current.isError).toBe(true));
+        });
+        // Counted from the error, not the first request, because the retry alone makes a second.
+        const atError = mockGetStatus.mock.calls.length;
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS + 250);
+        });
+
+        // The interval's request, and its own retry.
+        expect(mockGetStatus).toHaveBeenCalledTimes(atError + 2);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });
