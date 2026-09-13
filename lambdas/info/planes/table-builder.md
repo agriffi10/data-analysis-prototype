@@ -46,6 +46,20 @@ plus comma separator is assumed, via OpenCSVSerde. Parquet and JSON infer types 
 comes from **one sample file**, so fields present only in other files are silently dropped. A
 multi-file schema union is deferred. Both limits are user-guide material.
 
+**A JSON string column is typed `date` or `timestamp` only when every sampled value parses as one,
+in a shape Athena reads.** Athena's OpenX reader fails in two different ways. It is *lenient* with
+a well-shaped impossible value and rolls it over silently, with no error and no NULL:
+`2024-13-45` reads back as 2025-02-14, `0000-00-00` as -0001-11-30, and an hour of 25 as the next
+day. It *refuses* other values and fails every query that reads the column with `BAD_DATA`:
+non-ASCII digits such as Arabic-Indic, a zone or missing seconds after a space separator, a tenth
+fraction digit, an offset minute past 59, or an offset wider than ±18:00. What it reads as the same
+instant is a space separator with seconds and no zone, or a `T` separator with optional seconds
+and an optional `Z` or offset, which it converts to UTC; a fraction is truncated to milliseconds,
+Athena's timestamp precision. Only the sample is checked, so a bad value past it, or in another file,
+still rolls over or fails. To re-measure, build a two-row NDJSON table through the portal with one
+column per shape, then query one column at a time, since a bad value fails only the queries that
+read its column.
+
 **Partitions are user-declared keys plus Athena partition projection, never `MSCK REPAIR`.** Keys are
 declared in granularity order, each with a projection type and range — `integer`, `date`, or
 `enum`-string, not `injected` — and `inspect-source` validates that the declared `key=value/` segments

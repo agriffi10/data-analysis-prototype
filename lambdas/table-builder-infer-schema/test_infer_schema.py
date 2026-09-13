@@ -14,6 +14,7 @@ conftest.py.
 """
 
 import datetime as dt
+import json
 import os
 import sys
 import tempfile
@@ -34,6 +35,7 @@ _REAL_CHECK = i._check_access
 # stub, and passes alone while failing (or worse, asserting nothing) in the full suite.
 _REAL_PARQUET_SOURCE = i._parquet_source
 _TMP = tempfile.mkdtemp()
+_ARABIC_INDIC_DIGITS = str.maketrans("0123456789", "".join(chr(0x0660 + n) for n in range(10)))
 
 
 def _use_fixture(path):
@@ -102,6 +104,10 @@ def _types(out):
     return {c["name"]: c["type"] for c in out["columns"]}
 
 
+def _ndjson(*rows):
+    return "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows).encode()
+
+
 def test_parquet_preserves_native_types():
     path = os.path.join(_TMP, "s.parquet")
     pl.DataFrame({
@@ -168,6 +174,60 @@ def test_json_types_are_inferred_from_rows_beyond_a_wide_first_record():
     _use_s3_fixture(wide + b"".join(b'{"a": %d, "pad": "y"}\n' % n for n in range(500)))
     out = i.handler(_event("json"), None)
     assert _types(out) == {"a": "bigint", "pad": "string"}
+
+
+def test_json_strings_in_every_shape_athena_reads_are_typed_date_and_timestamp():
+    """The positive control for the two refusals below: both timestamp branches at their widest
+    fraction and offset, each a value Athena was run against and read back as the same date or
+    instant."""
+    _use_s3_fixture(_ndjson({
+        "day": "2024-02-29",
+        "nine_digits": "2024-01-01 10:00:00.123456789",
+        "t_no_seconds": "2024-01-01T10:00+02:00",
+        "t_zulu": "2024-01-01T10:00:00.1234567Z",
+        "t_compact": "2024-01-01T10:00:00+0200",
+        "t_widest": "2024-01-01T10:00:00-18:00",
+    }))
+    out = i.handler(_event("json"), None)
+    assert _types(out) == {
+        "day": "date", "nine_digits": "timestamp", "t_no_seconds": "timestamp",
+        "t_zulu": "timestamp", "t_compact": "timestamp", "t_widest": "timestamp",
+    }
+
+
+def test_one_value_athena_would_roll_over_leaves_its_column_a_string():
+    """Athena reads ``2024-13-45`` back as 2025-02-14 and an hour of 25 as the next day, with no
+    error and no NULL, so a well-shaped impossible value must keep its column a string. ``ok``
+    shares the sample, so a string elsewhere is not the detector failing to run."""
+    _use_s3_fixture(_ndjson(
+        {"ok": "2024-01-01", "month13": "2024-01-01", "zero": "2024-01-01", "feb30": "2024-01-01",
+         "hour25": "2024-01-01 10:00:00"},
+        {"ok": "2024-12-31", "month13": "2024-13-45", "zero": "0000-00-00", "feb30": "2024-02-30",
+         "hour25": "2024-01-01 25:00:00"},
+    ))
+    out = i.handler(_event("json"), None)
+    assert _types(out) == {"ok": "date", "month13": "string", "zero": "string", "feb30": "string", "hour25": "string"}
+
+
+def test_a_value_athena_refuses_to_read_leaves_its_column_a_string():
+    """Each of these fails every query that reads its column, so none may be promised as a date
+    or timestamp: a non-ASCII digit, a zone or missing seconds after a space, a tenth fraction
+    digit, an offset minute past 59, and an offset wider than eighteen hours."""
+    _use_s3_fixture(_ndjson({
+        "ok": "2024-01-01T10:00:00Z",
+        "arabic_digits": "2024-01-01".translate(_ARABIC_INDIC_DIGITS),
+        "space_zulu": "2024-01-01 10:00:00Z",
+        "space_no_seconds": "2024-01-01 10:00",
+        "space_ten_digits": "2024-01-01 10:00:00.1234567891",
+        "t_ten_digits": "2024-01-01T10:00:00.1234567891Z",
+        "minute_75": "2024-01-01T10:00:00+02:75",
+        "past_18h": "2024-01-01T10:00:00-18:30",
+    }))
+    out = i.handler(_event("json"), None)
+    assert _types(out) == {
+        "ok": "timestamp", "arabic_digits": "string", "space_zulu": "string", "space_no_seconds": "string",
+        "space_ten_digits": "string", "t_ten_digits": "string", "minute_75": "string", "past_18h": "string",
+    }
 
 
 def test_ddl_is_generated_and_carried():
