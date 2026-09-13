@@ -138,7 +138,10 @@ class StubAthenaFailure:
         self._reason = reason
 
     def get_query_execution(self, **kwargs):
-        """Reports the failed execution.
+        """Reports the failed execution, written under the bearer's own results prefix.
+
+        The location is the root conftest's user-space bucket, because the route proves the
+        execution is the caller's before it answers, and this suite sets no bucket of its own.
 
         Args:
           **kwargs: The call's arguments.
@@ -149,7 +152,14 @@ class StubAthenaFailure:
         Raises:
           None.
         """
-        return {"QueryExecution": {"Status": {"State": "FAILED", "StateChangeReason": self._reason}}}
+        return {
+            "QueryExecution": {
+                "Status": {"State": "FAILED", "StateChangeReason": self._reason},
+                "ResultConfiguration": {
+                    "OutputLocation": "s3://user-bkt/alice/system_settings/athenaresults/e-1.csv"
+                },
+            }
+        }
 
 
 @pytest.fixture

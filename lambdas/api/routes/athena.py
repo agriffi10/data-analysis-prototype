@@ -21,6 +21,14 @@ Administrator" instead.
 mapper keyed on the name turns a syntax error into "still running" — and passes any test that
 exercises one of the two at a time, which is exactly how the original defect survived.
 
+**An execution id is a claim, not an authorization.** Athena authorizes status, results and stop by
+WORKGROUP, and there is one, so the caller's role reaches any execution whose id it holds. Every
+route that names one therefore proves it is the caller's first, from the output location Athena
+recorded, and only then answers or acts. That includes results, although S3 already keeps another
+user's rows from the caller: without the proof, a foreign execution still running answers 409 where
+an unknown id answers 400, which tells a holder of the id whether its owner's query is still going.
+Ownership is checked before state for the same reason.
+
 Attributes:
   ATHENA_MAX_RESULTS: Athena's own ceiling on ``MaxResults``, which the page size is clamped to.
   MIN_MAX_ROWS: The smallest page a caller may ask for.
@@ -40,9 +48,13 @@ Attributes:
     the user to go and look at their SQL, and the rule this serves is that neither says "contact
     the administrator" for something they can fix.
   INVALID_REQUEST_CODE: The one Athena exception name this module reads, and it is ambiguous by
-    itself — it covers a malformed query at submit, a results read before an execution finished,
-    and a stop against an execution that already has. Each site says which of those it means and
-    decides on the MESSAGE where the distinction matters.
+    itself — it covers a malformed query at submit, an execution id Athena does not know, a
+    results read before an execution finished, and a stop against an execution that already has.
+    Each site says which of those it means and decides on the MESSAGE where the distinction
+    matters.
+  EXECUTION_NOT_FOUND_DETAIL: The one detail an unknown execution and someone else's both carry.
+    It reaches the response body, so two strings would tell a caller which of the two it asked
+    about.
 """
 
 import re
@@ -53,7 +65,7 @@ from apicommon.config import athena_workgroup, user_space_bucket
 from apicommon.context import RequestContext
 from apicommon.envelope import ApiError
 from cpcommon import observability
-from cpcommon.results import user_results_prefix
+from cpcommon.results import owned_results_key, user_results_prefix
 
 ATHENA_MAX_RESULTS = 1000
 MIN_MAX_ROWS = 1
@@ -66,6 +78,8 @@ SYNTAX_MARKERS = ("syntax_error", "mismatched input", "parse error")
 _LINE_COLUMN_RE = re.compile(r"line \d+:\d+")
 
 INVALID_REQUEST_CODE = "InvalidRequestException"
+
+EXECUTION_NOT_FOUND_DETAIL = "no execution with this id belongs to the caller"
 
 
 def _client(context: RequestContext) -> Any:
@@ -100,6 +114,52 @@ def _execution_id(context: RequestContext) -> str:
       None. The matcher refuses an empty segment, so a route that dispatched has one.
     """
     return context.path_params["queryExecutionId"]
+
+
+def _owned_execution(context: RequestContext, client: Any) -> dict[str, Any]:
+    """Reads the named execution as the caller, and refuses it unless it is the caller's own.
+
+    **Athena authorizes these reads by WORKGROUP, and there is one**, so the caller's role can read
+    any execution whose id it holds. The output location Athena recorded is the only
+    execution-to-owner record there is, and ``owned_results_key`` is the proof built on it. An
+    unknown id and someone else's execution raise the same code with the same detail, so the
+    answer does not say which of the two was asked about. The record does: ``execution_ownership``
+    is stamped ``unknown`` or ``foreign`` before the raise, because a refusal's reason belongs in
+    the log, where a cross-user probe stays attributable to the operator and invisible to the
+    caller.
+
+    Args:
+      context: The authenticated request.
+      client: The caller's Athena client, handed in so a route that makes a second call builds one
+        client rather than two.
+
+    Returns:
+      The ``QueryExecution`` document.
+
+    Raises:
+      ApiError: ``NotFound`` for an id Athena does not know, and for an execution whose recorded
+        output is not under the caller's own results prefix.
+      ConfigError: If the user-space bucket is unset — read before Athena is asked, so a
+        misconfigured function answers one server fault for every id rather than a 404 for an
+        unknown one and a fault for a foreign one.
+      Exception: Whatever else Athena raised, for the classifier.
+    """
+    bucket = user_space_bucket()
+    try:
+        response = client.get_query_execution(QueryExecutionId=_execution_id(context))
+    except Exception as exc:
+        if identity.aws_error_code(exc) == INVALID_REQUEST_CODE:
+            observability.stamp(execution_ownership="unknown")
+            raise ApiError("NotFound", EXECUTION_NOT_FOUND_DETAIL) from exc
+        raise
+    execution = response.get("QueryExecution")
+    if not isinstance(execution, dict):
+        execution = {}
+    location = (execution.get("ResultConfiguration") or {}).get("OutputLocation")
+    if owned_results_key(location, bucket, context.acting_as.username) is None:
+        observability.stamp(execution_ownership="foreign")
+        raise ApiError("NotFound", EXECUTION_NOT_FOUND_DETAIL)
+    return execution
 
 
 def output_location(username: str) -> str:
@@ -181,6 +241,9 @@ def status(context: RequestContext) -> dict[str, Any]:
     engine quotes the offending value back, so the reason routinely carries a user's own cell
     contents.
 
+    The ownership proof IS this route's read — ``GetQueryExecution`` already carries the output
+    location — so proving the execution is the caller's costs no second call here.
+
     Args:
       context: The authenticated request.
 
@@ -188,14 +251,15 @@ def status(context: RequestContext) -> dict[str, Any]:
       The execution's state, reason, statistics and results location.
 
     Raises:
+      ApiError: ``NotFound`` for an id Athena does not know and for someone else's execution,
+        with one body for both.
       IdentityUnavailableError: If the caller's role cannot be assumed.
-      Exception: Whatever Athena raised, for the classifier above.
+      Exception: Whatever else Athena raised, for the classifier above.
     """
     execution_id = _execution_id(context)
     observability.stamp(execution_id=execution_id)
 
-    response = _client(context).get_query_execution(QueryExecutionId=execution_id)
-    execution = response.get("QueryExecution") or {}
+    execution = _owned_execution(context, _client(context))
     state = (execution.get("Status") or {}).get("State") or "QUEUED"
     statistics = execution.get("Statistics") or {}
 
@@ -213,6 +277,10 @@ def status(context: RequestContext) -> dict[str, Any]:
 def results(context: RequestContext) -> dict[str, Any]:
     """Returns one page of a succeeded query's results.
 
+    The page size is checked before anything reaches Athena, because it is about the request and
+    says nothing about the execution. The ownership proof comes next and before the page, so a
+    foreign execution still running is refused like an unknown one rather than answering 409.
+
     Args:
       context: The authenticated request, carrying an optional ``nextToken`` and ``maxRows``.
 
@@ -220,15 +288,20 @@ def results(context: RequestContext) -> dict[str, Any]:
       The page's columns, rows and continuation token.
 
     Raises:
-      ApiError: ``InvalidRequest`` for a page size outside its range; ``QueryNotFinished`` when
-        the execution has not finished, distinguished from a malformed query by the MESSAGE.
+      ApiError: ``InvalidRequest`` for a page size outside its range; ``NotFound`` for an id
+        Athena does not know and for someone else's execution, with one body for both;
+        ``QueryNotFinished`` when the caller's own execution has not finished, distinguished from
+        a malformed query by the MESSAGE.
       IdentityUnavailableError: If the caller's role cannot be assumed.
-      Exception: Whatever Athena raised, for the classifier above.
+      Exception: Whatever else Athena raised, for the classifier above.
     """
     execution_id = _execution_id(context)
     observability.stamp(execution_id=execution_id)
     token = context.query.get("nextToken")
     page_size = _page_size(context.query.get("maxRows"))
+
+    client = _client(context)
+    _owned_execution(context, client)
 
     request: dict[str, Any] = {
         "QueryExecutionId": execution_id,
@@ -238,7 +311,7 @@ def results(context: RequestContext) -> dict[str, Any]:
         request["NextToken"] = token
 
     try:
-        response = _client(context).get_query_results(**request)
+        response = client.get_query_results(**request)
     except Exception as exc:
         if _is_not_finished(exc):
             raise ApiError("QueryNotFinished", "the execution has not reached SUCCEEDED") from exc
@@ -260,6 +333,8 @@ def results(context: RequestContext) -> dict[str, Any]:
 
     observability.stamp(row_count=len(rows), column_count=len(columns))
     return {"columns": columns, "rows": rows, "nextToken": response.get("NextToken")}
+
+
 
 
 def _page_size(raw: str | None) -> int:
@@ -393,19 +468,18 @@ def _is_not_finished(exc: BaseException) -> bool:
 
 
 def stop(context: RequestContext) -> dict[str, Any]:
-    """Stops one execution.
+    """Stops one execution, and only one that is the caller's own.
 
-    **A refusal Athena raises for this call is reported as success**, and the whole family is
-    taken rather than the terminal case alone: ``InvalidRequestException`` covers an execution
-    that has already finished and an id Athena will not accept, and the caller cannot act on
-    either. Today's browser swallows every ``stopQuery`` failure at the call site, so answering
-    200 preserves what a user sees exactly; the poller reports the real state either way.
+    **The execution is proved the caller's before anything is stopped.** Athena authorizes the
+    stop by WORKGROUP and there is one, so without the proof a caller holding another user's
+    execution id could stop that user's query. The proof costs one ``GetQueryExecution``, a fixed
+    second call rather than a loop, and there is no race between it and the stop: an execution's
+    recorded output location is fixed when it starts. An unknown id and a foreign one are both
+    ``NotFound``, and today's browser discards every ``stopQuery`` result, so no screen changes.
 
-    **No ownership check, and none is removed.** Athena authorizes these calls by WORKGROUP and
-    this deployment has one, so a caller holding another user's execution id can already stop it.
-    That is a pre-existing exposure recorded against the spec, not something this route invents
-    or is free to close — a real fix needs an execution-to-owner record that does not exist. What
-    ships instead is attribution: the span carries the actor and the execution id.
+    **A refusal Athena raises for the stop itself is reported as success.** Past the proof,
+    ``InvalidRequestException`` means an execution of the caller's own that has already finished,
+    which the caller cannot act on; the poller reports the real state either way.
 
     Args:
       context: The authenticated request.
@@ -414,14 +488,18 @@ def stop(context: RequestContext) -> dict[str, Any]:
       An empty object.
 
     Raises:
+      ApiError: ``NotFound`` for an id Athena does not know and for someone else's execution,
+        with one body for both.
       IdentityUnavailableError: If the caller's role cannot be assumed.
-      Exception: Whatever Athena raised, for the classifier above.
+      Exception: Whatever else Athena raised, for the classifier above.
     """
     execution_id = _execution_id(context)
     observability.stamp(execution_id=execution_id)
 
+    client = _client(context)
+    _owned_execution(context, client)
     try:
-        _client(context).stop_query_execution(QueryExecutionId=execution_id)
+        client.stop_query_execution(QueryExecutionId=execution_id)
     except Exception as exc:
         if identity.aws_error_code(exc) == INVALID_REQUEST_CODE:
             return {}

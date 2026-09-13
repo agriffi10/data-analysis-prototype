@@ -11,11 +11,13 @@ comparison — never on "something failed" or on a call count alone.
 """
 
 import json
+import typing
 
 import pytest
 import router
-from apicommon import identity
+from apicommon import contract, identity
 from conftest import bearer
+from routes import athena as athena_routes
 
 
 class _ServiceError(Exception):
@@ -431,6 +433,33 @@ class TestStatus:
                     "QueryExecution": {
                         "Status": {"State": "FAILED", "StateChangeReason": reason},
                         "Statistics": {"DataScannedInBytes": 10, "EngineExecutionTimeInMillis": 5},
+                        "ResultConfiguration": {"OutputLocation": OWNED_LOCATION},
+                    }
+                }
+            )
+        )
+
+        answer = router.route("GET", "/v1/queries/e-1", bearer(), "rq")
+
+        assert answer["statusCode"] == 200
+        assert _body(answer) == {
+            "queryExecutionId": "e-1",
+            "state": "FAILED",
+            "stateChangeReason": reason,
+            "dataScannedBytes": 10,
+            "engineExecutionTimeMillis": 5,
+            "outputLocation": OWNED_LOCATION,
+        }
+
+    def test_the_reason_is_not_truncated_or_rewritten(self, athena) -> None:
+        """A reason truncated at 100 characters is present and still breaks the wording rules."""
+        reason = "SYNTAX_ERROR: line 1:8: Column 'foo' cannot be resolved" + " " + "x" * 200
+        athena(
+            StubAthena(
+                get_query_execution={
+                    "QueryExecution": {
+                        "Status": {"State": "FAILED", "StateChangeReason": reason},
+                        "ResultConfiguration": {"OutputLocation": OWNED_LOCATION},
                     }
                 }
             )
@@ -441,65 +470,142 @@ class TestStatus:
         assert answer["statusCode"] == 200
         assert _body(answer)["stateChangeReason"] == reason
 
-    def test_the_reason_is_not_truncated_or_rewritten(self, athena) -> None:
-        """A reason truncated at 100 characters is present and still breaks the wording rules."""
-        reason = "SYNTAX_ERROR: line 1:8: Column 'foo' cannot be resolved" + " " + "x" * 200
+    def test_a_non_terminal_execution_reports_NULL_statistics_never_zero(self, athena) -> None:
+        """A confident zero freezes the tab's cost figure at zero for the whole run.
+
+        QUEUED carries its output location already — measured, since the poll starts there and a
+        proof that refused a user's own queued query would fail the DDL helpers outright.
+        """
+        athena(StubAthena(get_query_execution=_execution(state="QUEUED")))
+
+        answer = router.route("GET", "/v1/queries/e-1", bearer(), "rq")
+
+        assert answer["statusCode"] == 200
+        assert _body(answer)["dataScannedBytes"] is None
+        assert _body(answer)["engineExecutionTimeMillis"] is None
+
+    def test_a_missing_state_defaults_to_QUEUED(self, athena) -> None:
+        """As the browser has always done."""
         athena(
             StubAthena(
                 get_query_execution={
-                    "QueryExecution": {"Status": {"State": "FAILED", "StateChangeReason": reason}}
+                    "QueryExecution": {"ResultConfiguration": {"OutputLocation": OWNED_LOCATION}}
                 }
             )
         )
 
         answer = router.route("GET", "/v1/queries/e-1", bearer(), "rq")
 
-        assert _body(answer)["stateChangeReason"] == reason
-
-    def test_a_non_terminal_execution_reports_NULL_statistics_never_zero(self, athena) -> None:
-        """A confident zero freezes the tab's cost figure at zero for the whole run."""
-        athena(StubAthena(get_query_execution={"QueryExecution": {"Status": {"State": "QUEUED"}}}))
-
-        body = _body(router.route("GET", "/v1/queries/e-1", bearer(), "rq"))
-
-        assert body["dataScannedBytes"] is None
-        assert body["engineExecutionTimeMillis"] is None
-
-    def test_a_missing_state_defaults_to_QUEUED(self, athena) -> None:
-        """As the browser has always done."""
-        athena(StubAthena(get_query_execution={"QueryExecution": {}}))
-
-        assert _body(router.route("GET", "/v1/queries/e-1", bearer(), "rq"))["state"] == "QUEUED"
+        assert answer["statusCode"] == 200
+        assert _body(answer)["state"] == "QUEUED"
 
     def test_the_output_location_survives_for_a_succeeded_execution(self, athena) -> None:
         """Export copies that object and Save results parses it."""
-        athena(
-            StubAthena(
-                get_query_execution={
-                    "QueryExecution": {
-                        "Status": {"State": "SUCCEEDED"},
-                        "ResultConfiguration": {"OutputLocation": "s3://b/alice/athenaresults/e.csv"},
-                    }
-                }
-            )
-        )
+        athena(StubAthena(get_query_execution=_execution()))
 
-        body = _body(router.route("GET", "/v1/queries/e-1", bearer(), "rq"))
+        answer = router.route("GET", "/v1/queries/e-1", bearer(), "rq")
 
-        assert body["outputLocation"] == "s3://b/alice/athenaresults/e.csv"
+        assert answer["statusCode"] == 200
+        assert _body(answer)["outputLocation"] == OWNED_LOCATION
 
     def test_the_execution_id_comes_from_the_path_and_costs_ONE_call(self, athena) -> None:
-        """Reaches botocore unchanged, and exactly once.
+        """Reaches botocore unchanged, and exactly once — the proof IS this read.
 
         The count is list equality rather than an index, because ``calls[0]`` is silent about a
         second call — and a second call here is a doubled bill on a route the browser polls
         every 1.5 seconds.
         """
-        stub = athena(StubAthena(get_query_execution={"QueryExecution": {}}))
+        stub = athena(
+            StubAthena(
+                get_query_execution=_execution(
+                    location="s3://dat-prod-user-space/alice/system_settings/athenaresults/e-99.csv"
+                )
+            )
+        )
 
-        router.route("GET", "/v1/queries/e-99", bearer(), "rq")
+        answer = router.route("GET", "/v1/queries/e-99", bearer(), "rq")
 
+        assert answer["statusCode"] == 200
         assert stub.calls == [("get_query_execution", {"QueryExecutionId": "e-99"})]
+
+    def test_someone_elses_execution_and_an_unknown_one_get_one_byte_identical_404(
+        self, athena
+    ) -> None:
+        """The workgroup lets the caller read any execution by id, so the prefix is the proof.
+
+        The foreign execution FAILED with a reason quoting its owner's cell, which is exactly
+        what this route used to hand any caller holding the id.
+        """
+        cell = "alice_would_never_see_bobs_cell"
+        foreign = {
+            "QueryExecution": {
+                "Status": {"State": "FAILED", "StateChangeReason": f"Cannot cast '{cell}'"},
+                "Statistics": {"DataScannedInBytes": 10},
+                "ResultConfiguration": {"OutputLocation": FOREIGN_LOCATION},
+            }
+        }
+        bodies = []
+        for answer_to_get in (foreign, _unknown_id()):
+            athena(StubAthena(get_query_execution=answer_to_get))
+
+            answer = router.route("GET", "/v1/queries/e-1", bearer(), "rq")
+
+            assert answer["statusCode"] == 404
+            assert _body(answer)["error"] == {
+                "code": "NotFound",
+                "requestId": "rq",
+                "detail": athena_routes.EXECUTION_NOT_FOUND_DETAIL,
+            }
+            bodies.append(answer["body"])
+
+        assert bodies[0] == bodies[1]
+        assert cell not in bodies[0]
+        assert "FAILED" not in bodies[0]
+
+    @pytest.mark.parametrize(
+        "result_configuration",
+        [{}, {"OutputLocation": "s3://dat-prod-athena-admin/fallback-results/e-1.csv"}],
+        ids=["no location recorded", "the workgroup's own fallback location"],
+    )
+    def test_an_execution_outside_every_users_prefix_is_not_found(
+        self, athena, result_configuration
+    ) -> None:
+        """A query started without a location lands in the admin bucket, which is nobody's."""
+        athena(
+            StubAthena(
+                get_query_execution={
+                    "QueryExecution": {
+                        "Status": {"State": "SUCCEEDED"},
+                        "ResultConfiguration": result_configuration,
+                    }
+                }
+            )
+        )
+
+        answer = router.route("GET", "/v1/queries/e-1", bearer(), "rq")
+
+        assert answer["statusCode"] == 404
+        assert _body(answer)["error"]["code"] == "NotFound"
+
+    def test_a_denied_read_is_still_a_403_and_never_a_404(self, athena) -> None:
+        """The proof's forgiving arm is one exception name wide.
+
+        Folding a denial into NotFound would make a broken grant read as "no such query" on
+        every poll.
+        """
+        athena(StubAthena(get_query_execution=_ServiceError("AccessDeniedException", "no")))
+
+        answer = router.route("GET", "/v1/queries/e-1", bearer(), "rq")
+
+        assert answer["statusCode"] == 403
+        assert _body(answer)["error"]["code"] == "AccessDenied"
+
+    def test_a_throttled_read_rises_to_the_outer_classifier(self, athena) -> None:
+        """A fault is not an answer about the execution, so it must not become a 404."""
+        athena(StubAthena(get_query_execution=_ServiceError("ThrottlingException", "slow down")))
+
+        with pytest.raises(_ServiceError, match="ThrottlingException"):
+            router.route("GET", "/v1/queries/e-1", bearer(), "rq")
 
 
 class TestResults:
@@ -514,6 +620,7 @@ class TestResults:
         """
         athena(
             StubAthena(
+                get_query_execution=_execution(),
                 get_query_results={
                     "ResultSet": {
                         "ResultSetMetadata": {
@@ -521,12 +628,13 @@ class TestResults:
                         },
                         "Rows": [{"Data": [{}, {"VarCharValue": ""}]}],
                     }
-                }
+                },
             )
         )
 
         answer = router.route("GET", "/v1/queries/e-1/results", bearer(), "rq", None, {})
 
+        assert answer["statusCode"] == 200
         assert '"rows": [[null, ""]]' in answer["body"]
 
     def test_the_first_page_overfetches_by_one_and_nets_999_at_the_maximum(self, athena) -> None:
@@ -536,21 +644,29 @@ class TestResults:
         Callers number rows from actual page lengths and must keep being allowed to see pages
         that are not uniform.
         """
-        stub = athena(StubAthena(get_query_results={"ResultSet": {}}))
+        stub = athena(
+            StubAthena(get_query_execution=_execution(), get_query_results={"ResultSet": {}})
+        )
 
-        router.route("GET", "/v1/queries/e-1/results", bearer(), "rq", None, {"maxRows": "1000"})
+        answer = router.route(
+            "GET", "/v1/queries/e-1/results", bearer(), "rq", None, {"maxRows": "1000"}
+        )
 
-        assert stub.calls[0][1]["MaxResults"] == 1000
+        assert answer["statusCode"] == 200
+        assert _call(stub, "get_query_results")["MaxResults"] == 1000
 
     def test_a_continuation_page_asks_for_exactly_the_page_size(self, athena) -> None:
         """Only the first page carries Athena's repeated header row."""
-        stub = athena(StubAthena(get_query_results={"ResultSet": {}}))
+        stub = athena(
+            StubAthena(get_query_execution=_execution(), get_query_results={"ResultSet": {}})
+        )
 
-        router.route(
+        answer = router.route(
             "GET", "/v1/queries/e-1/results", bearer(), "rq", None, {"maxRows": "20", "nextToken": "t"}
         )
 
-        assert stub.calls[0][1]["MaxResults"] == 20
+        assert answer["statusCode"] == 200
+        assert _call(stub, "get_query_results")["MaxResults"] == 20
 
     def test_the_header_row_is_dropped_on_the_first_page_only(self, athena) -> None:
         """Athena repeats the column names as row one of page one of a SELECT."""
@@ -558,15 +674,14 @@ class TestResults:
             "ResultSetMetadata": {"ColumnInfo": [{"Name": "a", "Type": "varchar"}]},
             "Rows": [{"Data": [{"VarCharValue": "a"}]}, {"Data": [{"VarCharValue": "1"}]}],
         }
-        athena(StubAthena(get_query_results={"ResultSet": result_set}))
+        athena(StubAthena(get_query_execution=_execution(), get_query_results={"ResultSet": result_set}))
 
-        first = _body(router.route("GET", "/v1/queries/e-1/results", bearer(), "rq", None, {}))
-        later = _body(
-            router.route("GET", "/v1/queries/e-1/results", bearer(), "rq", None, {"nextToken": "t"})
-        )
+        first = router.route("GET", "/v1/queries/e-1/results", bearer(), "rq", None, {})
+        later = router.route("GET", "/v1/queries/e-1/results", bearer(), "rq", None, {"nextToken": "t"})
 
-        assert first["rows"] == [["1"]]
-        assert later["rows"] == [["a"], ["1"]]
+        assert (first["statusCode"], later["statusCode"]) == (200, 200)
+        assert _body(first)["rows"] == [["1"]]
+        assert _body(later)["rows"] == [["a"], ["1"]]
 
     def test_a_first_data_row_equal_to_the_header_is_ALSO_dropped(self, athena) -> None:
         """Today's accepted foot-gun, preserved rather than quietly fixed.
@@ -575,22 +690,24 @@ class TestResults:
         """
         athena(
             StubAthena(
+                get_query_execution=_execution(),
                 get_query_results={
                     "ResultSet": {
                         "ResultSetMetadata": {"ColumnInfo": [{"Name": "a", "Type": "varchar"}]},
                         "Rows": [{"Data": [{"VarCharValue": "a"}]}],
                     }
-                }
+                },
             )
         )
 
-        body = _body(router.route("GET", "/v1/queries/e-1/results", bearer(), "rq", None, {}))
+        answer = router.route("GET", "/v1/queries/e-1/results", bearer(), "rq", None, {})
 
-        assert body["rows"] == []
+        assert answer["statusCode"] == 200
+        assert _body(answer)["rows"] == []
 
     def test_a_statement_with_no_result_set_is_an_empty_200(self, athena) -> None:
         """A DDL or CTAS statement produced no rows; that is not an error."""
-        athena(StubAthena(get_query_results={}))
+        athena(StubAthena(get_query_execution=_execution(), get_query_results={}))
 
         answer = router.route("GET", "/v1/queries/e-1/results", bearer(), "rq", None, {})
 
@@ -601,59 +718,76 @@ class TestResults:
         """Normalising it is the browser's job and stays there."""
         athena(
             StubAthena(
+                get_query_execution=_execution(),
                 get_query_results={
                     "ResultSet": {
                         "ResultSetMetadata": {"ColumnInfo": [{"Name": "a", "Type": "varchar(255)"}]}
                     }
-                }
+                },
             )
         )
 
-        body = _body(router.route("GET", "/v1/queries/e-1/results", bearer(), "rq", None, {}))
+        answer = router.route("GET", "/v1/queries/e-1/results", bearer(), "rq", None, {})
 
-        assert body["columns"] == [{"name": "a", "type": "varchar(255)"}]
+        assert answer["statusCode"] == 200
+        assert _body(answer)["columns"] == [{"name": "a", "type": "varchar(255)"}]
 
     def test_the_continuation_token_round_trips_unmodified(self, athena) -> None:
         """Over the three characters that break a re-encoder."""
         awkward = "a+b/c=="
         stub = athena(
-            StubAthena(get_query_results={"ResultSet": {}, "NextToken": awkward})
-        )
-
-        body = _body(
-            router.route(
-                "GET", "/v1/queries/e-1/results", bearer(), "rq", None, {"nextToken": awkward}
+            StubAthena(
+                get_query_execution=_execution(),
+                get_query_results={"ResultSet": {}, "NextToken": awkward},
             )
         )
 
-        assert stub.calls[0][1]["NextToken"] == awkward
-        assert body["nextToken"] == awkward
+        answer = router.route(
+            "GET", "/v1/queries/e-1/results", bearer(), "rq", None, {"nextToken": awkward}
+        )
 
-    def test_the_route_makes_exactly_ONE_call_and_a_denial_is_still_a_denial(self, athena) -> None:
+        assert answer["statusCode"] == 200
+        assert _call(stub, "get_query_results")["NextToken"] == awkward
+        assert _body(answer)["nextToken"] == awkward
+
+    def test_the_route_makes_exactly_TWO_calls_the_proof_then_the_page(self, athena) -> None:
         """Two properties the other tests here are silent about.
 
-        ``calls[0]`` indexing cannot see a second call, and this is the route the row-count walk
-        drives a thousand times over a large result. The denial arm matters because the
-        classifier this route adds sits in front of it: a Lake Formation refusal must fall
-        through to the 403, not be swallowed by the not-finished branch.
+        List equality rather than a count, because the order is the point: the proof reads the
+        execution before any page is asked for, and a fixed second call is what this costs. The
+        denial arm matters because the classifier this route adds sits in front of it: a Lake
+        Formation refusal must fall through to the 403, not be swallowed by the not-finished
+        branch.
         """
-        stub = athena(StubAthena(get_query_results={"ResultSet": {}}))
-        router.route("GET", "/v1/queries/e-1/results", bearer(), "rq", None, {})
-        assert len(stub.calls) == 1
+        stub = athena(
+            StubAthena(get_query_execution=_execution(), get_query_results={"ResultSet": {}})
+        )
+        answer = router.route("GET", "/v1/queries/e-1/results", bearer(), "rq", None, {})
+        assert answer["statusCode"] == 200
+        assert _operations(stub) == ["get_query_execution", "get_query_results"]
 
         denied = athena(
-            StubAthena(get_query_results=_ServiceError("AccessDeniedException", "no"))
+            StubAthena(
+                get_query_execution=_execution(),
+                get_query_results=_ServiceError("AccessDeniedException", "no"),
+            )
         )
         answer = router.route("GET", "/v1/queries/e-1/results", bearer(), "rq", None, {})
 
-        assert len(denied.calls) == 1
+        assert _operations(denied) == ["get_query_execution", "get_query_results"]
         assert answer["statusCode"] == 403
         assert _body(answer)["error"]["code"] == "AccessDenied"
 
     @pytest.mark.parametrize("value", ["0", "1001", "-1", "abc", "1.5"], ids=list("abcde"))
     def test_a_page_size_outside_its_range_is_refused(self, athena, value) -> None:
-        """The browser never sends one, which is exactly why the check must exist here."""
-        athena(StubAthena(get_query_results={"ResultSet": {}}))
+        """The browser never sends one, which is exactly why the check must exist here.
+
+        Refused before Athena is asked anything, the proof included: the size is about the
+        request and says nothing about the execution.
+        """
+        stub = athena(
+            StubAthena(get_query_execution=_execution(), get_query_results={"ResultSet": {}})
+        )
 
         answer = router.route(
             "GET", "/v1/queries/e-1/results", bearer(), "rq", None, {"maxRows": value}
@@ -661,15 +795,45 @@ class TestResults:
 
         assert answer["statusCode"] == 400
         assert _body(answer)["error"]["code"] == "InvalidRequest"
+        assert stub.calls == []
+
+    def test_someone_elses_execution_and_an_unknown_one_get_one_404_and_no_page(
+        self, athena
+    ) -> None:
+        """S3 keeps another user's rows from the caller already; this is about what else leaks.
+
+        The foreign execution's page is programmed to say "not yet finished", which is exactly
+        what a foreign query still running answered before the proof: a 409, where an unknown id
+        answered 400. Ownership before state is what makes the two indistinguishable.
+        """
+        bodies = []
+        for answer_to_get in (_execution(state="RUNNING", location=FOREIGN_LOCATION), _unknown_id()):
+            stub = athena(
+                StubAthena(
+                    get_query_execution=answer_to_get,
+                    get_query_results=_ServiceError(
+                        "InvalidRequestException", "Query has not yet finished. Current state: RUNNING"
+                    ),
+                )
+            )
+
+            answer = router.route("GET", "/v1/queries/e-1/results", bearer(), "rq", None, {})
+
+            assert answer["statusCode"] == 404
+            assert _operations(stub) == ["get_query_execution"]
+            bodies.append(answer["body"])
+
+        assert bodies[0] == bodies[1]
 
     def test_a_read_before_the_execution_finished_is_409_QueryNotFinished(self, athena) -> None:
         """The condition that reached users as "Contact the Administrator" on a first load."""
         athena(
             StubAthena(
+                get_query_execution=_execution(state="QUEUED"),
                 get_query_results=_ServiceError(
                     "InvalidRequestException",
                     "Query has not yet finished. Current state: QUEUED",
-                )
+                ),
             )
         )
 
@@ -687,9 +851,10 @@ class TestResults:
         """
         athena(
             StubAthena(
+                get_query_execution=_execution(state="FAILED"),
                 get_query_results=_ServiceError(
                     "InvalidRequestException", "line 1:8: mismatched input 'FROM'"
-                )
+                ),
             )
         )
 
@@ -702,44 +867,130 @@ class TestResults:
         """The route reads the engine's message to classify and hands on none of it."""
         athena(
             StubAthena(
+                get_query_execution=_execution(state="QUEUED"),
                 get_query_results=_ServiceError(
                     "InvalidRequestException",
                     "Query has not yet finished. Current state: QUEUED for alice_secret_table",
-                )
+                ),
             )
         )
 
         answer = router.route("GET", "/v1/queries/e-1/results", bearer(), "rq", None, {})
 
+        assert answer["statusCode"] == 409
         assert "alice_secret_table" not in answer["body"]
 
 
+OWNED_LOCATION = "s3://dat-prod-user-space/alice/system_settings/athenaresults/e-1.csv"
+
+
+def _execution(state="SUCCEEDED", statement="DML", substatement="SELECT", location=OWNED_LOCATION):
+    """One ``GetQueryExecution`` answer, owned by the bearer's user unless told otherwise.
+
+    Args:
+      state: The execution's state.
+      statement: Athena's ``StatementType``.
+      substatement: Athena's ``SubstatementType``.
+      location: The recorded output location.
+
+    Returns:
+      The response Athena would give.
+
+    Raises:
+      None.
+    """
+    return {
+        "QueryExecution": {
+            "Status": {"State": state},
+            "StatementType": statement,
+            "SubstatementType": substatement,
+            "ResultConfiguration": {"OutputLocation": location},
+        }
+    }
+
+
+def _operations(stub):
+    """The operations a stub was asked for, in order.
+
+    Args:
+      stub: The stub Athena client.
+
+    Returns:
+      The operation names.
+
+    Raises:
+      None.
+    """
+    return [operation for operation, _ in stub.calls]
+
+
+def _call(stub, operation):
+    """The arguments of the one call a stub received for an operation.
+
+    Picked by NAME rather than by position: the ownership proof now precedes every page and every
+    stop, so ``calls[0]`` is the proof's read and silently stops meaning the call under test.
+
+    Args:
+      stub: The stub Athena client.
+      operation: The botocore operation name.
+
+    Returns:
+      That call's keyword arguments.
+
+    Raises:
+      AssertionError: If the operation was called other than exactly once.
+    """
+    matching = [kwargs for name, kwargs in stub.calls if name == operation]
+    assert len(matching) == 1, stub.calls
+    return matching[0]
+
+
+FOREIGN_LOCATION = "s3://dat-prod-user-space/bob/system_settings/athenaresults/e-1.csv"
+
+
+def _unknown_id():
+    """What Athena raises for an execution id it does not know, measured against the live API.
+
+    Args:
+      None.
+
+    Returns:
+      A fresh exception, so no test raises an instance another test already raised.
+
+    Raises:
+      None.
+    """
+    return _ServiceError("InvalidRequestException", "QueryExecution e-1 was not found")
+
+
 class TestStop:
-    """FR-006 — one call, no body, and what it does not authorize."""
+    """The proof, then the stop — and nothing stopped that is not the caller's."""
 
-    def test_it_passes_only_the_path_id_and_consults_nothing_else(self, athena) -> None:
-        """The API adds no ownership check and removes none.
+    def test_the_caller_own_execution_is_proved_then_stopped_by_the_path_id(self, athena) -> None:
+        """Two calls, in this order, both carrying only the path's id.
 
-        Athena authorizes this by WORKGROUP and this deployment has one, so a caller holding
-        another user's execution id can already stop it. That is a preserved exposure recorded
-        against the spec — a real fix needs an execution-to-owner record that does not exist —
-        and what ships instead is attribution on the span.
+        Athena authorizes the stop by WORKGROUP and there is one, so without the read in front a
+        caller holding another user's execution id could stop that user's query.
         """
-        stub = athena(StubAthena(stop_query_execution={}))
+        stub = athena(StubAthena(get_query_execution=_execution(state="RUNNING"), stop_query_execution={}))
 
         answer = router.route("POST", "/v1/queries/e-7/stop", bearer(), "rq")
 
         assert answer["statusCode"] == 200
         assert _body(answer) == {}
-        assert stub.calls == [("stop_query_execution", {"QueryExecutionId": "e-7"})]
+        assert stub.calls == [
+            ("get_query_execution", {"QueryExecutionId": "e-7"}),
+            ("stop_query_execution", {"QueryExecutionId": "e-7"}),
+        ]
 
     def test_stopping_an_already_terminal_execution_is_a_success(self, athena) -> None:
         """The poller observes the terminal state either way, and today's caller swallows this."""
         athena(
             StubAthena(
+                get_query_execution=_execution(),
                 stop_query_execution=_ServiceError(
                     "InvalidRequestException", "Query has already completed"
-                )
+                ),
             )
         )
 
@@ -749,9 +1000,185 @@ class TestStop:
 
     def test_a_denial_is_still_a_denial(self, athena) -> None:
         """The forgiving arm is one exception name wide, not "any failure is fine"."""
-        athena(StubAthena(stop_query_execution=_ServiceError("AccessDeniedException", "no")))
+        athena(
+            StubAthena(
+                get_query_execution=_execution(state="RUNNING"),
+                stop_query_execution=_ServiceError("AccessDeniedException", "no"),
+            )
+        )
 
         answer = router.route("POST", "/v1/queries/e-7/stop", bearer(), "rq")
 
         assert answer["statusCode"] == 403
         assert _body(answer)["error"]["code"] == "AccessDenied"
+
+    def test_a_denied_proof_is_a_403_and_nothing_is_stopped(self, athena) -> None:
+        """A denial on the read is a denial, and it never reaches the stop."""
+        stub = athena(
+            StubAthena(
+                get_query_execution=_ServiceError("AccessDeniedException", "no"),
+                stop_query_execution={},
+            )
+        )
+
+        answer = router.route("POST", "/v1/queries/e-7/stop", bearer(), "rq")
+
+        assert answer["statusCode"] == 403
+        assert _operations(stub) == ["get_query_execution"]
+
+    def test_someone_elses_query_is_never_stopped_and_answers_like_an_unknown_one(
+        self, athena
+    ) -> None:
+        """The exposure this route carried: any holder of the id could cancel the owner's query."""
+        bodies = []
+        for answer_to_get in (_execution(state="RUNNING", location=FOREIGN_LOCATION), _unknown_id()):
+            stub = athena(StubAthena(get_query_execution=answer_to_get, stop_query_execution={}))
+
+            answer = router.route("POST", "/v1/queries/e-7/stop", bearer(), "rq")
+
+            assert answer["statusCode"] == 404
+            assert _operations(stub) == ["get_query_execution"]
+            bodies.append(answer["body"])
+
+        assert bodies[0] == bodies[1]
+
+
+EXECUTION_ROUTES = [route for route in contract.ROUTES if "{queryExecutionId}" in route.path]
+
+
+def _field_names(shape):
+    """Every field name a declared request or query shape carries, nested shapes included.
+
+    Args:
+      shape: A contract TypedDict, or None for a route that declares none.
+
+    Returns:
+      The field names, in no particular order.
+
+    Raises:
+      None.
+    """
+    names = []
+    seen = set()
+
+    def walk(hint):
+        """Collects one hint's field names and descends into its arguments.
+
+        Args:
+          hint: A type hint.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
+        if isinstance(hint, type) and hasattr(hint, "__required_keys__") and hint not in seen:
+            seen.add(hint)
+            for name, field_hint in typing.get_type_hints(hint).items():
+                names.append(name)
+                walk(field_hint)
+        for argument in typing.get_args(hint):
+            walk(argument)
+
+    if shape is not None:
+        walk(shape)
+    return names
+
+
+class TestEveryRouteNamingAnExecutionProvesItFirst:
+    """Derived from the contract, so a route added later is covered without anyone editing this."""
+
+    def test_the_population_is_the_one_the_guard_claims(self) -> None:
+        """A guard over an empty list passes, so the routes it must hold are named.
+
+        A superset rather than equality, so a new route joins by being declared.
+        """
+        assert {"athena.status", "athena.results", "athena.stop"} <= {
+            route.id for route in EXECUTION_ROUTES
+        }
+
+    def test_every_query_route_names_its_execution_with_the_one_placeholder(self) -> None:
+        """A route spelling it ``{executionId}`` would escape the list above with nothing red."""
+        for route in contract.ROUTES:
+            segments = route.path.split("/")
+            if route.path.startswith("/v1/queries/"):
+                placeholders = [segment for segment in segments if segment.startswith("{")]
+                assert placeholders in ([], ["{queryExecutionId}"]), route.id
+
+    def test_every_athena_route_but_start_is_in_the_guarded_list(self) -> None:
+        """Found by the handler's module, so a route whose PATH hides the execution still counts.
+
+        The list above is found by the placeholder. An Athena route that named its execution any
+        other way, or under another prefix, would sit outside it with nothing red; this finds it
+        from the other end. A new Athena route that names no execution fails here too, on
+        purpose: it is a decision to make, not a default to inherit.
+        """
+        served_here = {
+            route_id
+            for route_id, handler in router.HANDLERS.items()
+            if handler.__module__ == athena_routes.__name__
+        }
+
+        assert "athena.status" in served_here
+        assert served_here - {"athena.start"} == {route.id for route in EXECUTION_ROUTES}
+
+    def test_no_other_placeholder_query_or_body_field_names_an_execution(self) -> None:
+        """An execution id arriving any other way would reach no proof in this file.
+
+        The one such field is results-conversion's, in a request body; that plane proves the
+        execution is the caller's with the same predicate before it reads anything. Equality, so
+        a new field naming an execution fails here until someone decides where it is proved.
+        """
+        found = set()
+        for route in contract.ROUTES:
+            for segment in route.path.split("/"):
+                if segment.startswith("{") and "execution" in segment.lower():
+                    found.add((route.id, "path", segment))
+            for where, shape in (("query", route.query), ("body", route.request)):
+                for name in _field_names(shape):
+                    if "execution" in name.lower():
+                        found.add((route.id, where, name))
+
+        expected = {(route.id, "path", "{queryExecutionId}") for route in EXECUTION_ROUTES}
+        expected.add(("resultsConversion.enqueue", "body", "queryExecutionId"))
+        assert found == expected
+
+    @pytest.mark.parametrize(
+        "answer_to_get",
+        [_execution(location=FOREIGN_LOCATION), _unknown_id()],
+        ids=["someone else's execution", "an id athena does not know"],
+    )
+    def test_an_unset_bucket_is_one_server_fault_before_athena_is_asked(
+        self, athena, monkeypatch, answer_to_get
+    ) -> None:
+        """The same answer for both even when the deployment is broken.
+
+        The bucket is read before the execution, so a missing setting cannot answer an unknown id
+        with 404 and a foreign one with a server fault.
+        """
+        monkeypatch.setenv("USER_SPACE_BUCKET", "")
+        stub = athena(StubAthena(get_query_execution=answer_to_get))
+
+        answer = router.route("GET", "/v1/queries/e-1", bearer(), "rq")
+
+        assert answer["statusCode"] == 503
+        assert _body(answer)["error"]["code"] == "ApiUnavailable"
+        assert stub.calls == []
+
+    @pytest.mark.parametrize("route", EXECUTION_ROUTES, ids=lambda route: route.id)
+    def test_a_foreign_execution_is_refused_before_anything_else_is_asked(self, athena, route) -> None:
+        """One 404, one body, and no call past the proof — whatever the route goes on to do."""
+        path = route.path.replace("{queryExecutionId}", "e-1")
+        bodies = []
+        for answer_to_get in (_execution(location=FOREIGN_LOCATION), _unknown_id()):
+            stub = athena(StubAthena(get_query_execution=answer_to_get))
+
+            answer = router.route(route.method, path, bearer(), "rq", None, {})
+
+            assert answer["statusCode"] == 404, route.id
+            assert _body(answer)["error"]["detail"] == athena_routes.EXECUTION_NOT_FOUND_DETAIL
+            assert _operations(stub) == ["get_query_execution"], route.id
+            bodies.append(answer["body"])
+
+        assert bodies[0] == bodies[1]

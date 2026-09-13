@@ -33,7 +33,6 @@ from datetime import datetime
 from cpcommon import actor as cpactor
 from cpcommon import clients, config, errors, events, observability, results
 from cpcommon.errors import TerminalError
-from cpcommon.paths import has_dot_segment
 from rccommon import authz, notify, paths, reasons
 from rccommon.config import FORMATS, ON_CONFLICT
 
@@ -153,6 +152,11 @@ def _describe_execution(execution_id: str) -> dict:
 def _owned_results_key(execution: dict, username: str) -> str:
     """Proves the execution wrote its result under the actor's own results prefix.
 
+    The proof is ``cpcommon.results.owned_results_key``, the one the API's query routes use too,
+    so a location this verb accepts and one the API refuses cannot drift apart. This is the one
+    place an S3-supplied path becomes a key the converter will read, which is why the predicate's
+    refusal of a dot segment matters here most.
+
     Args:
       execution: Athena's ``QueryExecution`` document.
       username: The verified username.
@@ -164,22 +168,11 @@ def _owned_results_key(execution: dict, username: str) -> str:
       TerminalError: ``execution_not_found`` when the recorded output location is absent, sits
         anywhere else, or carries a dot segment — the same code as an unknown id, on purpose.
     """
-    bucket = config.USER_SPACE_BUCKET
     location = (execution.get("ResultConfiguration") or {}).get("OutputLocation")
-    prefix = results.user_results_prefix(bucket, username)
-    if not isinstance(location, str) or not location.startswith(prefix):
+    key = results.owned_results_key(location, config.USER_SPACE_BUCKET, username)
+    if key is None:
         raise TerminalError(
             reasons.EXECUTION_NOT_FOUND, "the execution's output is not under the actor's results"
-        )
-    key = location[len(f"s3://{bucket}/") :]
-    # The prefix check is a startswith, so a location Athena reported as
-    # `.../athenaresults/../../bob/x.csv` passes it while naming another user's object. Nothing
-    # writes such a location today — the API builds one from the verified username alone — but
-    # this is the one place an S3-supplied path becomes a key the converter will read, and a
-    # containment rule that holds only while every producer stays careful is not a rule.
-    if has_dot_segment(key):
-        raise TerminalError(
-            reasons.EXECUTION_NOT_FOUND, "the execution's output location carries a dot segment"
         )
     return key
 

@@ -119,6 +119,11 @@ this deployment has one, so a browser holding another user's execution id can re
 exactly as it could before. The span's `actor` and `execution_id` are the whole mitigation, and a real
 fix needs an execution→owner record that does not exist.
 
+> **Superseded by SPEC-232 (2026-09-10): closed.** The output location Athena records is that
+> record. Every route that names an execution proves it is the caller's first, and answers an
+> unknown id and someone else's with one 404:
+> [`decisions/identity-and-access.md`](../decisions/identity-and-access.md#an-execution-id-is-a-claim-and-every-route-that-names-one-proves-it-first-spec-232).
+
 ## Help & guides
 
 **Nothing user-facing changed.** Same workspaces, same wording; the one sentence that moved house
