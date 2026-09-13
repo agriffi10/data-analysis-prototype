@@ -17,6 +17,14 @@ and reported rather than silently followed.
 unit-tested** — including against the exact inversion that caused the second failure. A
 condition that lives in a tested function is a condition that stays correct.
 
+**A commit on the trunk is judged by the runs a push triggered, and nothing else that records
+its sha.** Dependabot's own jobs, a manual dispatch and a scheduled scan all record the trunk's
+head too, and a Dependabot job that failed beside four green deploys read as a red trunk. So
+``--branch main``, and a ``--sha`` or local HEAD that GitHub's comparison places on the trunk,
+count push runs only; ``--pr`` keeps every run on the head, because Dependabot and the scheduler
+run on the default branch alone, and filtering a pull request would only lose a dispatch someone
+ran against its branch.
+
 Usage::
 
     python3 scripts/watch_ci.py                 # local HEAD
@@ -24,8 +32,8 @@ Usage::
     python3 scripts/watch_ci.py --branch main   # a remote branch's tip
     python3 scripts/watch_ci.py --once          # one poll, no waiting
 
-Exit status is 0 only when every run for that sha has finished AND none of them failed,
-so it composes: ``python3 scripts/watch_ci.py --pr 538 && gh pr merge 538 --squash``.
+Exit status is 0 only when every run that counts for that sha has finished AND none of them
+failed, so it composes: ``python3 scripts/watch_ci.py --pr 538 && gh pr merge 538 --squash``.
 
 Attributes:
   GOOD_CONCLUSIONS: Conclusions that are not a failure. These are WORKFLOW-RUN conclusions,
@@ -49,6 +57,11 @@ Attributes:
     Zero runs is the shape a stale-sha report takes when the sha is real but nothing was
     triggered for it, so it is never treated as success — the wait covers the gap between
     a push and the first run appearing.
+  TRUNK: The branch whose commits are built by a push.
+  TRUNK_EVENT: The event whose runs are a trunk commit's build.
+  ON_TRUNK: The comparison statuses that place a commit on the trunk — its tip, or behind it.
+  OFF_TRUNK: The statuses that place a commit off it. Both sets are allowlists, so a status
+    GitHub adds is no verdict rather than a guess at which runs count.
 """
 
 from __future__ import annotations
@@ -69,6 +82,10 @@ FINISHED_STATUSES = frozenset({"completed"})
 DEFAULT_INTERVAL = 20
 DEFAULT_TIMEOUT = 2400
 STARTUP_GRACE = 120
+TRUNK = "main"
+TRUNK_EVENT = "push"
+ON_TRUNK = frozenset({"identical", "behind"})
+OFF_TRUNK = frozenset({"ahead", "diverged"})
 
 
 class WatchError(Exception):
@@ -172,18 +189,52 @@ def resolve_sha(pr: int | None, branch: str | None) -> str:
     return head.stdout.strip()
 
 
-def fetch_runs(sha: str) -> list[dict[str, Any]]:
-    """Fetch every workflow run GitHub associates with one commit.
+def build_event(sha: str, pr: int | None) -> str | None:
+    """Choose which runs are one commit's build: its push runs on the trunk, every run elsewhere.
+
+    A pull request is judged by every run on its head without asking where the head sits, so a
+    PR watch neither depends on the comparison nor changes population if its head reaches the
+    trunk. Anything else asks GitHub, because a local ``origin/main`` can be stale enough to
+    call a merged commit off the trunk, and a status outside both allowlists raises rather than
+    guessing — either guess can turn a failure into a green.
+
+    Args:
+      sha: The commit being watched.
+      pr: The pull-request selector this watch was started from, if any.
+
+    Returns:
+      ``TRUNK_EVENT`` when the commit is on the trunk, otherwise None, meaning every run.
+
+    Raises:
+      WatchError: If the comparison fails, or answers with a status in neither allowlist.
+    """
+    if pr is not None:
+        return None
+    status = _gh("api", f"repos/{{owner}}/{{repo}}/compare/{TRUNK}...{sha}", "--jq", ".status")
+    if status in ON_TRUNK:
+        return TRUNK_EVENT
+    if status in OFF_TRUNK:
+        return None
+    raise WatchError(f"could not tell whether {sha} is on {TRUNK}: the comparison said {status!r}")
+
+
+def fetch_runs(sha: str, event: str | None = None) -> list[dict[str, Any]]:
+    """Fetch the workflow runs GitHub associates with one commit, from one event or all.
 
     The endpoint takes the sha as a filter, which is what makes a stale-sha report
     impossible here rather than merely unlikely.
 
     One page is read, and ``total_count`` is checked against what came back rather than
     discarded — a watch that silently judged the first hundred of more would report a green
-    for a subset, which is this file's own failure mode wearing a different hat.
+    for a subset, which is this file's own failure mode wearing a different hat. That is why
+    the event is the API's filter and not the ``--jq``'s: filtered after the page, the total
+    still counts every Dependabot job on the sha, so the check would refuse any page with one
+    beside the push runs — and a check loosened to allow that would pass a page that a burst
+    of those jobs had crowded the push runs out of.
 
     Args:
       sha: The full commit sha.
+      event: The one event whose runs count, or None for every run.
 
     Returns:
       One record per workflow run, with ``name``, ``status``, ``conclusion`` and ``url``.
@@ -191,9 +242,10 @@ def fetch_runs(sha: str) -> list[dict[str, Any]]:
     Raises:
       WatchError: If the API call fails or returns something unparseable.
     """
+    only = f"&event={event}" if event else ""
     raw = _gh(
         "api",
-        f"repos/{{owner}}/{{repo}}/actions/runs?head_sha={sha}&per_page=100",
+        f"repos/{{owner}}/{{repo}}/actions/runs?head_sha={sha}&per_page=100{only}",
         "--jq",
         "{total: .total_count, runs: [.workflow_runs[] | {name, status, conclusion, url: .html_url}]}",
     )
@@ -281,8 +333,12 @@ def watch(
     once: bool,
     pr: int | None = None,
     branch: str | None = None,
+    event: str | None = None,
 ) -> int:
     """Poll one commit's runs until they settle, then report.
+
+    The first line names which runs are judged, since a filter that goes unsaid reads as
+    "every run was green" when the runs it dropped were never looked at.
 
     Args:
       sha: The commit to watch.
@@ -291,6 +347,7 @@ def watch(
       once: Poll a single time and report whatever is there, without waiting.
       pr: The pull-request selector, kept so a moved head can be detected.
       branch: The branch selector, kept for the same reason.
+      event: The one event whose runs count, or None for every run.
 
     Returns:
       A process exit status: 0 only when the runs settled and none failed.
@@ -298,11 +355,13 @@ def watch(
     Raises:
       WatchError: If the API cannot be reached.
     """
-    print(f"watching {sha}")
+    scope = f"on {TRUNK}, so its {event} runs only" if event else "every run on it"
+    what = f"{event} runs" if event else "workflow runs"
+    print(f"watching {sha} — {scope}")
     deadline = time.monotonic() + timeout
     first_seen = time.monotonic()
     while True:
-        runs = fetch_runs(sha)
+        runs = fetch_runs(sha, event)
         ahead = moved(sha, pr, branch)
         if ahead is not None:
             print(f"the ref moved to {ahead} while watching {sha} — re-run against the new head")
@@ -312,12 +371,12 @@ def watch(
             return 0 if verdict(runs)[0] else 1
         if once:
             if not runs:
-                print("  no runs for this commit yet")
+                print(f"  no {what} for this commit yet")
                 return 2
             _report(sha, runs, settled=False)
             return 2
         if not runs and time.monotonic() - first_seen > STARTUP_GRACE:
-            print(f"no workflow runs exist for {sha} after {STARTUP_GRACE}s — nothing was triggered")
+            print(f"no {what} exist for {sha} after {STARTUP_GRACE}s — nothing was triggered")
             return 2
         if time.monotonic() > deadline:
             print(f"gave up after {timeout}s with runs still going — this is NOT a pass")
@@ -350,7 +409,8 @@ def main() -> int:
         if args.sha and (args.pr is not None or args.branch is not None):
             raise WatchError("--sha pins a commit; --pr and --branch resolve one. Pass one of the three")
         sha = args.sha or resolve_sha(args.pr, args.branch)
-        return watch(sha, args.interval, args.timeout, args.once, args.pr, args.branch)
+        event = build_event(sha, args.pr)
+        return watch(sha, args.interval, args.timeout, args.once, args.pr, args.branch, event)
     except WatchError as exc:
         print(f"watch failed: {exc}", file=sys.stderr)
         return 2

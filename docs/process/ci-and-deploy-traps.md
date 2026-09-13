@@ -16,7 +16,9 @@ These pass locally and fail later — check them as part of the work, not as an 
   `python3 scripts/watch_ci.py --pr <n>` (or `--branch main` after a merge): every query is keyed to
   one resolved sha, so a stale-sha report is not expressible, and the "are we done" and "did it pass"
   decisions are unit-tested in `lambdas/test_watch_ci.py`. Exit 0 means settled **and** green, so it
-  composes with `&&`; anything unfinished, unknown or absent exits non-zero.
+  composes with `&&`; anything unfinished, unknown or absent exits non-zero. **A commit on `main` is
+  judged by its push runs only**: Dependabot's jobs record `main`'s head too, and a failed one beside
+  green deploys is not a red `main`, though an unfiltered `gh run list` shows it as one.
 - **Vitest needs the Vite config for jsdom.** Running vitest with an explicit file path *from the repo
   root* uses no Vite config → `document is not defined`. Run from `apps/portal` or via
   `npm run test -w apps/portal`.
