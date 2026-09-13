@@ -12,16 +12,25 @@ the flat ``actor`` envelope file-send introduced and archive inherited, where th
 field may be either the verified username or the token object it was verified from. The other
 four planes bind a plain string and read it directly, so this is a two-plane contract living
 here rather than a fleet-wide one.
+
+Attributes:
+  _FIFO_KEY_RE: What the notifications queue accepts as a deduplication id — one to 128 printable
+    ASCII characters with no space, SQS's "alphanumeric characters and punctuation" written as a
+    pattern. Matched whole, never with ``$``, which also matches before a final newline.
 """
 
 import functools
+import hashlib
 import json
 import logging
+import re
 
 from . import clients, config
 from .errors import TerminalError, TransientError
 
 logger = logging.getLogger()
+
+_FIFO_KEY_RE = re.compile("[\x21-\x7e]{1,128}")
 
 
 def dedup_id(request_id, step: str) -> str | None:
@@ -53,12 +62,43 @@ def dedup_id(request_id, step: str) -> str | None:
     Returns:
       ``{requestId}:{step}``, or None without a request id, which falls back to the queue's
       content-based dedup. None rather than an invented id, which would defeat that fallback
-      rather than replace it.
+      rather than replace it. Unbounded: a request id may already be 128 characters, and
+      ``emit_notification`` is what holds the result to a key the queue accepts.
 
     Raises:
       None.
     """
     return f"{request_id}:{step}" if request_id else None
+
+
+def _queue_key(dedup_id: str) -> str:
+    """Returns a deduplication id the notifications queue accepts, digesting one it would refuse.
+
+    A producer composes its id from a caller's request id, which the API admits at up to 128
+    characters on its own, so anything added to it — a step token, a username, the DLQ drain's
+    prefix — can carry it past the queue's limit. SQS then refuses the send, the sender logs and
+    swallows the refusal, and that caller's notification is lost.
+
+    A digest, never None: None hands the send to the queue's content-based deduplication, which
+    collapses only byte-identical bodies, so two emits a plane keys alike on purpose would
+    collapse only if they also happened to be worded alike. The same key always digests to the
+    same value, so every collapse a caller chose still happens. A key the queue accepts is sent
+    as it is.
+
+    Args:
+      dedup_id: The id a producer composed.
+
+    Returns:
+      The id unchanged when the queue accepts it, else the SHA-256 of its UTF-8 bytes in
+      lower-case hex. ``surrogatepass`` lets a lone surrogate, which a JSON body can decode to,
+      digest rather than raise.
+
+    Raises:
+      None.
+    """
+    if _FIFO_KEY_RE.fullmatch(dedup_id):
+        return dedup_id
+    return hashlib.sha256(dedup_id.encode("utf-8", "surrogatepass")).hexdigest()
 
 
 def actor_of(event) -> str:
@@ -102,8 +142,10 @@ def emit_notification(
       message: The rendered notification body.
       dedup_id: Optional FIFO deduplication token, built by this module's ``dedup_id`` —
         which is a different thing with the same name, and does not read this parameter.
-        Every plane but table-share passes one; table-share relies on the queue's
-        content-based dedup and passes nothing.
+        A producer that passes none relies on the queue's content-based dedup. One the
+        queue would refuse is sent as its
+        digest (``_queue_key``), so a long request id costs the key its readability rather
+        than the user their notification.
       link: Optional in-app path the notification deep-links to. Omitted from the body
         rather than sent as null, because the writer treats any non-empty string as a link
         to persist and an absent key is unambiguous in a way a null is not. Not validated
@@ -141,7 +183,7 @@ def emit_notification(
             "MessageGroupId": username,
         }
         if dedup_id:
-            kwargs["MessageDeduplicationId"] = dedup_id
+            kwargs["MessageDeduplicationId"] = _queue_key(dedup_id)
         clients.sqs().send_message(**kwargs)
     except Exception:
         logger.exception("emit_notification failed for %s", username)

@@ -1,5 +1,5 @@
 # ── The drain Lambda and its scheduled sweep ───────────────────────────────
-# ONE function over FOUR queues; the per-domain differences are a table in the handler. A fifth
+# ONE function over every plane's DLQ; the per-domain difference is a table in the handler. A new
 # plane is one map entry and one more ARN in DLQ_ARNS. README.md.
 
 module "drain" {
@@ -16,8 +16,8 @@ module "drain" {
   memory_mb       = 256
 
   environment = merge({
-    # The Cognito pair, the notifications URL and DLQ_ARNS are genuinely used; the buckets
-    # and workgroup are the shared code's union. Do not prune one — README.md.
+    # The notifications URL and DLQ_ARNS are genuinely used; the buckets and workgroup are
+    # the shared code's union. Do not prune one — README.md.
     NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
     DLQ_ARNS                = jsonencode(var.dlq_arns)
     USER_SPACE_BUCKET       = var.user_space_bucket_name
@@ -37,7 +37,7 @@ module "drain" {
 }
 
 # ── The scheduled sweep trigger ──────────────────────────────────────────────
-# ONE rule every 10 minutes; the handler polls all four DLQs itself. This replaced four
+# ONE rule every 10 minutes; the handler polls every DLQ in DLQ_ARNS itself. This replaced four
 # always-on event-source mappings whose idle long-polling dominated the account's SQS volume.
 #
 # NOTHING re-drives a message: the sweep deletes every message it reads, notified or not.

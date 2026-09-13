@@ -13,11 +13,11 @@ dead-lettered request into the notification the user already reads.
 
 Code: `lambdas/control-plane-dlq-drain/`.
 
-## One function over four queues
+## One function over every plane's DLQ
 
-The per-domain differences — the user-facing noun, the field the actor's token lives in — are a
-**table inside the handler keyed off the queue's ARN**. A fifth control plane is one map entry and
-one more ARN in `DLQ_ARNS`, not a fifth copy of this module.
+The one per-domain difference — the user-facing noun — is a **table inside the handler keyed off
+the queue's ARN**. A new control plane is one map entry and one more ARN in `DLQ_ARNS`, not another
+copy of this module.
 
 The DLQ ARNs arrive as **constructed strings** from the root module, not as other modules' outputs:
 known at plan time, no cycle, and IAM never validates that a queue exists. Same pattern as the
@@ -25,9 +25,10 @@ notifications queue ARN every producer already scopes to.
 
 ## The smallest role in the repo, deliberately
 
-Four queue reads, one send, and logs. No S3, no Glue, no Athena, no Cognito API (token verification
-is offline JWKS), and **no access to any request queue** — a drain that could enqueue into a control
-plane would be a way to inject work, and it has no reason to.
+A receive and a delete on each drained DLQ, one send, and logs. No S3, no Glue, no Athena, no
+Cognito (the recipient is read from the identity block the API stamped, not verified here), and
+**no access to any request queue** — a drain that could enqueue into a control plane would be a way
+to inject work, and it has no reason to.
 
 ## The log group is now the only copy of a dead-lettered body
 
@@ -37,10 +38,10 @@ failure at all. **Shortening this retention shortens the forensic window.**
 
 ## A schedule, not four event-source mappings
 
-One EventBridge rule invokes the drain every 10 minutes and the handler polls all four DLQs itself
-(receive → notify → delete, until empty). This replaced four always-on SQS event-source mappings —
-four managed poll loops on queues that are, by design, almost always empty — whose idle long-polling
-was the bulk of the account's SQS request volume.
+One EventBridge rule invokes the drain every 10 minutes and the handler polls every DLQ in
+`DLQ_ARNS` itself (receive → notify → delete, until empty). This replaced four always-on SQS
+event-source mappings — four managed poll loops on queues that are, by design, almost always empty —
+whose idle long-polling was the bulk of the account's SQS request volume.
 
 **Nothing re-drives a message.** There is still no DLQ on the drain, and the sweep deletes every
 message it reads whether or not it could notify about it: a redelivery would only re-run a decision
@@ -49,17 +50,21 @@ already made about a terminal message.
 The trade against the mappings is that a dead-lettered request now surfaces within one interval
 (~10 min) instead of seconds. Nothing watches these queues in real time, so that is immaterial.
 
-## The envelope must stay flat
+## The recipient is the identity block's actor
 
-`actor` is the raw token at the **top level** of the request envelope, because the drain reads and
-**redacts** that field flatly. Nested, a dead-lettered request notifies nobody *and* writes the JWT
-to CloudWatch. The drain notifies from the **verified token**, never the untrusted body.
+The drain notifies the **`identity.actor` the API stamped** on the request, never a username or
+token the body asserts. A body with no usable identity block notifies nobody and is only logged.
+The flat `actor` field is never read, but the drain still **blanks the two legacy token fields**
+before it logs a parsed body, because a message from before the cutover can still arrive carrying a
+raw token.
 
-The notifications DLQ itself is not swept, deliberately: draining it is circular.
+Two DLQs are not swept, deliberately: notifications, because draining it is circular, and feedback,
+whose body carries no identity block to name a recipient.
 
 ## The cpcommon required union
 
-`COGNITO_USER_POOL_ID`, `COGNITO_APP_CLIENT_ID`, `NOTIFICATIONS_QUEUE_URL` and `DLQ_ARNS` are
-genuinely used. The buckets and the workgroup are `cpcommon`'s required union — set because any
-code path in it may demand them, and "the drain does not use it" is not a reason to prune one. `LOGS_QUEUE_URL` is the exception: `cpcommon.observability` reads it with
-`os.environ.get`, so a drain that loses it logs to stdout and still drains.
+`NOTIFICATIONS_QUEUE_URL` and `DLQ_ARNS` are genuinely used. The buckets and the workgroup are
+`cpcommon`'s required union — set because any code path in it may demand them, and "the drain does
+not use it" is not a reason to prune one. `LOGS_QUEUE_URL` is the exception:
+`cpcommon.observability` reads it with `os.environ.get`, so a drain that loses it logs to stdout and
+still drains.

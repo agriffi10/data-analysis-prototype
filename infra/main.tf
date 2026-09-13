@@ -296,7 +296,7 @@ locals {
   # failed to deliver to deliver the news about itself. See the comment in
   # modules/notifications/sqs.tf; the honest answer there is operator-facing and out of
   # the drain's scope. Keep this list and dlq_drain.py's SOURCES table in step — a test in
-  # lambdas/control-plane-dlq-drain/ reads the module locals.tf files and fails if a fifth
+  # lambdas/control-plane-dlq-drain/ reads the module locals.tf files and fails if a new
   # control plane appears without being wired or explicitly excluded.
   drained_dlq_names = [
     "${var.project_name}-${var.environment}-data-quality-requests-dlq.fifo",
@@ -1278,7 +1278,7 @@ module "data_quality" {
 # Before this, a request the pipeline refused simply vanished: no verb ran, so no failure
 # notification fired, and the person who made it waited for a result that never came.
 #
-# The four DLQ ARNs are CONSTRUCTED STRINGS (locals below), not the arc modules' outputs —
+# The DLQ ARNs are CONSTRUCTED STRINGS (locals below), not the arc modules' outputs —
 # known at plan time, so the drain's IAM policy plans cleanly and no module→module edge is
 # created (the infra/info/deploy-role-iam.md "unknown ARN in list" discipline; the same reason every
 # producer scopes to a constructed notifications queue ARN).

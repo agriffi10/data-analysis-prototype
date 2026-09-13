@@ -12,6 +12,7 @@ as a signature and a great deal cheaper. What replaces the bad-signature case is
 rule — a body whose actor is not a catalog-safe username notifies nobody.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -40,6 +41,15 @@ class _FakeSqs:
         self.delete_error = False  # when True, every delete_message raises
 
     def send_message(self, **kwargs):
+        """Refuses a deduplication id SQS would refuse, so a lost notification is a missing send.
+
+        The sender swallows the refusal, so a fake that recorded every send could not tell a
+        delivered notification from a lost one. The rule is written out rather than borrowed from
+        the sender, so a change to the sender's pattern cannot move the fake with it.
+        """
+        key = kwargs.get("MessageDeduplicationId")
+        if key is not None and not (1 <= len(key) <= 128 and all("!" <= c <= "~" for c in key)):
+            raise ValueError("InvalidParameterValue: MessageDeduplicationId")
         self.sent.append(kwargs)
         return {"MessageId": "m-1"}
 
@@ -169,6 +179,22 @@ def test_the_row_carries_the_request_id_and_nothing_else_from_the_body():
     assert _bodies(sqs)[0]["payload"] == {"requestId": "r-1"}
     assert sqs.sent[0]["MessageDeduplicationId"] == "dlq:r-1"
     assert "secret-plans" not in sqs.sent[0]["MessageBody"]
+
+
+def test_a_128_character_request_id_still_notifies_under_a_key_the_queue_accepts():
+    """The API admits an id this long, and the ``dlq:`` prefix carries it past the queue's limit.
+
+    The fake refuses that key as SQS does, so without the sender's bound nothing is sent at all.
+    The payload keeps the id whole, because it is what a reader matches its record on.
+    """
+    sqs = _install()
+    request_id = "r" * 128
+
+    dlq_drain.handler({"Records": [_record({"requestId": request_id, **_identity()}, segment="file-ops")]}, None)
+
+    assert [b["username"] for b in _bodies(sqs)] == ["alice"]
+    assert _bodies(sqs)[0]["payload"] == {"requestId": request_id}
+    assert sqs.sent[0]["MessageDeduplicationId"] == hashlib.sha256(f"dlq:{request_id}".encode()).hexdigest()
 
 
 @pytest.mark.parametrize("request_id", [None, "", 7], ids=["absent", "empty", "not-a-string"])
