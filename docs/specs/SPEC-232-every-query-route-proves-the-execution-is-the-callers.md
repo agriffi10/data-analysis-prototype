@@ -159,6 +159,11 @@ All readings are from 2026-09-10.
   any status failure leaves a tab in flight for five minutes with no message. That is pre-existing
   and user-visible, and it is tracked as a separate task. It matters more after this spec only in the
   fail-closed cases under *Consequences*.
+
+  > **Closed by SPEC-233.** After one retry, a failed status poll now ends the tab's run, and the
+  > banner gives the error code's wording (a 404 reads "That item no longer exists. Refresh and
+  > try again."). Full entry: `docs/decisions/browser.md`, *A failed status poll ends the Query
+  > tab's run*.
 - **`start()`, the Glue routes, and the results-conversion enqueue route.** That route's execution
   id travels in the body, and the plane proves it (SPEC-221).
 - **A server-side shape check on the id.** Athena refuses a malformed one with the same
