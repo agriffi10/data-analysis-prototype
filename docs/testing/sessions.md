@@ -10,6 +10,59 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-11 (the top-bar band, re-run after #725)
+
+**Scope.** The re-run owed by the sweep's top-bar defect, which #725 fixed together with the Files
+selection toolbar's overflow that the header's had hidden. `/files` throughout, because the toolbar
+is there.
+
+**Browser.** `origin/main` at **`c02f7996`**. `Deploy SPA image` was green, and the served
+stylesheet `index-B285Y5xH.css` carries `.tablet\:truncate` and `.desktop\:\!px-3`, rules that
+exist only after #725, so the page under test was #725's. Signed in as **agriffith** in Andrew's
+Chrome through the Claude-in-Chrome extension, in a new tab, which the warm Hosted UI cookie signed
+in with one click — no credential form was shown. The listing held 33 rows.
+
+**Instruments — two ways this run differed from the row's wording, each stated.**
+- **Not foregrounded.** `visibilityState` read `hidden` throughout: `Control_Chrome` was not in this
+  session and a computer-use grant for Chrome could not be obtained. (`Control_Chrome` appeared when
+  the session resumed on 2026-09-13, by which time the Hosted UI cookie had expired and a new tab
+  reached the password form, which is Andrew's to submit.) Each width was instead set with
+  `resize_window` followed by a **reload**, and the viewport was proven at every width — `innerWidth`
+  equal to the requested width, `(min-width: W px)` true and `(min-width: W+1 px)` false. Without the
+  reload the hidden tab took two resizes and then stuck at 930 through four more, which is
+  `e2e.md` §1's stale-viewport trap in a new shape, caught only because every reading printed
+  `innerWidth`. That a hidden tab lays out on demand, so geometry reads true once the viewport does,
+  is inference — sound for this check, which reads only synchronous geometry, and none of the
+  components under test measures with a `ResizeObserver` or a frame callback. What waits on a frame
+  it cannot show: a screenshot of the tab timed out.
+- **The scrollbar was forced.** This Mac showed overlay scrollbars at the time — `clientWidth` equal
+  to `innerWidth` on a page that scrolls — where the sweep had a classic 15 px one. Each width in the
+  band was read with `html{overflow-y:scroll}` and `::-webkit-scrollbar{width:15px}` injected, which
+  gives the sweep's `innerWidth − 15`; 900, 930 and 959 were read natively as well.
+
+| `innerWidth` | `clientWidth` (forced / native) | `scrollWidth` | Account button's right edge | Tabs | Selection toolbar |
+|---|---|---|---|---|---|
+| **900** | 885 / 900 | equal, both | 871.0 / 886.0, no username | one line each, no icons | six labels on one line, no glyphs, Delete inside the bar |
+| **930** | 915 / 930 | equal, both | 901.0 / 916.0 | as above | as above |
+| **959** | 944 / 959 | equal, both | 930.0 / 945.0 | as above | as above |
+| 1024 | 1009 | equal | 995.0 | as above | as above |
+| 1299 | 1284 | equal | 1270.0 | as above | as above |
+| 1300 | 1285 | equal | 1271.0, username back at 47.7 px | five icons back | glyphs back beside the labels |
+| 1512 | 1497 | equal | 1483.0 | as at 1300 | as at 1300 |
+| 899 / 768 | 884 / 753 | equal | 870.0 / 739.0 | hamburger, tab strip hidden | glyph-only, Delete inside the bar |
+
+No element of the header reached past `clientWidth` at any width. The account button's edge sits
+14 px inside `clientWidth` at every width — the header's `px-4`, not spare room. The font in use was
+not recorded; the verdict holds under either, since the fallback leaves more room than Inter (21 px
+against 14, the register's `tablet` band entry). The before-picture is the sweep's own: 945 px of
+page in an 885 px `clientWidth` at 900. **375 was not run live** — it is below Chrome's minimum
+window width and needs the DevTools device toolbar; before #725's push it was measured in harnesses
+only, and it stays owed with the 400 px pass.
+
+**Left behind.** Nothing. The run resized, reloaded and read; nothing was selected or written.
+
+---
+
 ## Live-check session — 2026-09-10, third sitting (two sweep defects re-run after #719, and the row-limit separator)
 
 **Scope.** The re-runs owed by the two sweep defects #719 fixed — the overwrite cancel and the
