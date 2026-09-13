@@ -32,7 +32,10 @@ PR open at a time, taken in the order agents asked, with `main` settled and gree
 - **The lock covers the whole PR lifecycle** — fetch, rebase, re-run your gates, push, open, watch
   to green with `scripts/watch_ci.py --pr <n>`, merge, confirm `main` with `--branch main` — not
   just the push. The fetch is inside the lock because the wait is when peers merge. One ticket per
-  PR, released between them, so a multi-PR spec does not hold the line for its whole duration.
+  PR, released between them, so a multi-PR spec does not hold the line for its whole duration. If
+  that confirmation says the push triggered nothing, GitHub dropped the push event and `main` was
+  never deployed: a human's call, not a wait — a manual dispatch recovers the deploy, but neither
+  the watcher nor `turn` counts it, and `PROTOCOL.md` says how the line moves on.
 - **The queue is not a review.** It is the last thing between an already-reviewed branch and the
   remote. The local gates and both diff reviews still come first, in that order.
 - **Every remote check fails closed; enforcement fails open on CONSENT and closed on EVIDENCE.**
@@ -41,11 +44,10 @@ PR open at a time, taken in the order agents asked, with `main` settled and gree
   Consent is the opposite case: linked worktrees share `.git/hooks` through the common git dir, so
   the hook fires for sessions that never agreed to the queue, and blocking those would be worse than
   the problem it solves — a branch outside the pattern pushes freely. But for a branch the hook does
-  police, a remote it could not read is never read as "your base is current". **`turn` judges
-  `main` by the runs its own pushes trigger** — a Dependabot job, a manual dispatch or a scheduled
-  scan records the same head sha, and counting a failed one once deadlocked the queue, because only
-  a merge moves the head. `watch_ci.py --branch main` still counts every run on the sha, so a failed
-  Dependabot job beside green push runs is not a red `main` there either.
+  police, a remote it could not read is never read as "your base is current". **`turn` and
+  `watch_ci.py` judge `main` by the runs its own pushes trigger** — a Dependabot job, a manual
+  dispatch or a scheduled scan records the same head sha, and counting a failed one once deadlocked
+  the queue, because only a merge moves the head.
 - **The hook checks your base, not just your lock.** It refuses a push whose commits do not contain
   the remote's current `main`, because the queue *guarantees* a wait during which peers merge. Prose
   told sessions to rebase for a long time and nothing checked. It also refuses a non-holder deleting
