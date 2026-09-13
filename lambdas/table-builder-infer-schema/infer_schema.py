@@ -10,18 +10,27 @@ Nothing here uses polars' own cloud reader — it does not work in Lambda, which
 every real CSV build. CSV and JSON reach polars as an in-memory boto3-fetched head, Parquet
 through a boto3 ranged file object polars seeks to the footer of.
 
-Type rules: Parquet keeps native types; JSON infers, typing date- and datetime-looking strings
-accordingly; CSV is not type-inferred, so every column is a string, matching the OpenCSVSerde
-in the DDL.
+Type rules: Parquet keeps native types; JSON infers, typing a string column date or timestamp
+only when Athena reads every sampled value back as the same date or instant; CSV is not
+type-inferred, so every column is a string, matching the OpenCSVSerde in the DDL.
 
 Attributes:
   JSON_SAMPLE_ROWS: Bounded row count for JSON inference and date detection. Schema only,
     never the dataset.
-  _DATE_RE: Date-looking string pattern. polars' NDJSON scan has no date-parsing option, so
-    string columns are classified here deterministically.
-  _DATETIME_RE: Datetime-looking string pattern, same reason.
+  _DATE_RE: The date shape Athena's OpenX reader accepts, in ASCII digits only, since a ``str``
+    pattern's digit class matches any Unicode digit and Athena fails the query on one. The
+    flag is the guard that holds whichever ``datetime`` loads: CPython's C parser refuses
+    such digits too, but its pure-Python fallback parses them. polars' NDJSON scan has no
+    date-parsing option, so string columns are classified here deterministically.
+  _DATETIME_RE: The timestamp shapes Athena's OpenX reader accepts, ASCII-only for the same
+    reason: a space separator with seconds and no zone, or a ``T`` separator with optional
+    seconds and an optional ``Z`` or offset. A zone or missing seconds after a space, a tenth
+    fraction digit and an offset minute past 59 each fail the query.
+  _MAX_UTC_OFFSET: The widest offset Athena reads; a wider one fails the query, though Python
+    parses it.
 """
 
+import datetime
 import io
 import logging
 import re
@@ -41,8 +50,12 @@ observability.init(service="table-builder")
 
 JSON_SAMPLE_ROWS = 1000
 
-_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$")
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$", re.ASCII)
+_DATETIME_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2}:\d{2}(?:\.\d{1,9})?|T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?[0-5]\d)?)$",
+    re.ASCII,
+)
+_MAX_UTC_OFFSET = datetime.timedelta(hours=18)
 
 
 def _parquet_source(bucket, key):
@@ -107,8 +120,59 @@ def _hive(dtype, name):
         raise TerminalError("unmappable_type", f"column {name!r} has unmappable dtype {dtype}") from exc
 
 
+def _is_date(value):
+    """Whether one sampled value is a date Athena reads back as the same date.
+
+    The shape is not enough: Athena reads an impossible date such as ``2024-13-45`` by rolling
+    it over into a real one, 2025-02-14, with no error and no NULL, so the value must parse too.
+
+    Args:
+      value: One non-null sampled value.
+
+    Returns:
+      True when it is a string in the date shape that names a real calendar date.
+
+    Raises:
+      None.
+    """
+    if not isinstance(value, str) or not _DATE_RE.fullmatch(value):
+        return False
+    try:
+        datetime.date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _is_timestamp(value):
+    """Whether one sampled value is a timestamp Athena reads back as the same instant.
+
+    Parsed for the same reason as a date, since Athena rolls an hour of 25 into the next day,
+    and its offset bounded, since Python parses offsets Athena refuses. Athena reads a value
+    with an offset as its UTC equivalent, and truncates a fraction to its millisecond
+    precision, as it does for every timestamp.
+
+    Args:
+      value: One non-null sampled value.
+
+    Returns:
+      True when it is a string in a timestamp shape that parses, with an offset no wider than
+      ``_MAX_UTC_OFFSET``.
+
+    Raises:
+      None.
+    """
+    if not isinstance(value, str) or not _DATETIME_RE.fullmatch(value):
+        return False
+    try:
+        offset = datetime.datetime.fromisoformat(value).utcoffset()
+    except ValueError:
+        return False
+    return offset is None or abs(offset) <= _MAX_UTC_OFFSET
+
+
 def _detect_date_type(series):
-    """Classifies a string column as a date or timestamp when every value looks like one.
+    """Classifies a string column as a date or timestamp when every value is one Athena reads.
 
     Args:
       series: The sampled polars series.
@@ -122,9 +186,9 @@ def _detect_date_type(series):
     values = [v for v in series.to_list() if v is not None]
     if not values:
         return None
-    if all(isinstance(v, str) and _DATE_RE.fullmatch(v) for v in values):
+    if all(_is_date(v) for v in values):
         return "date"
-    if all(isinstance(v, str) and _DATETIME_RE.fullmatch(v) for v in values):
+    if all(_is_timestamp(v) for v in values):
         return "timestamp"
     return None
 
