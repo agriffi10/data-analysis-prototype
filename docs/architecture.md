@@ -322,8 +322,8 @@ Both data buckets are registered in Lake Formation **hybrid** access mode, which
 browser keep direct-IAM S3 access while Athena reads through LF. Flipping to enforced without first
 opting in every principal would break the file browser.
 
-The six calls the workspace and the Data Explorer ride on — Athena start, status, results and stop,
-and Glue get-database and list-tables — go **through the API**, which derives the workgroup, the
+The seven calls the workspace and the Data Explorer ride on — Athena start, status, results, row
+count and stop, and Glue get-database and list-tables — go **through the API**, which derives the workgroup, the
 results location and the caller's identity server-side. Lake Formation is unaffected by that move
 because its grants attach to a **principal**, and the principal is the same portal role, now assumed
 by the API instead of vended to the browser. Two properties are load-bearing and easy to lose in a

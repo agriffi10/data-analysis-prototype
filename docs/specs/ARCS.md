@@ -282,12 +282,12 @@ download it** via the existing presigned-URL flow (both authenticated + read-onl
 stay). 077→080 are query-workspace one-offs (077 is a dependency-of-none but reshapes the DB model the others build on);
 081 is independent. None add IAM/infra.
 
-> **Superseded in part by SPEC-231 (2026-09-10):** 080's "free calls" stopped being true when
+> **Superseded in part by SPEC-231 (2026-09-13):** 080's "free calls" stopped being true when
 > SPEC-199 put the catalog behind the API — every walked page became a billed call — and its
 > ceiling was already gone (#214). The status bar now reads Athena's own count of the rows a
 > SELECT returned, in one call, and walks every page only where Athena does not count. The
-> total is still exact and never capped. The measurements and the reasoning:
-> `SPEC-231-count-rows-from-athenas-statistics.md`.
+> total is still exact and never capped. Full entry: `docs/decisions/analytics.md` → *A result's
+> total is Athena's own count, and only a SELECT's count is the grid's*.
 
 ---
 
@@ -1470,6 +1470,12 @@ grouping do. Toggling a sort back is a cache hit rather than a second charge. Th
 **no client-side toggle**: DBeaver offers one, and here the client half cannot be made honest, since
 sorting whichever rows happened to be fetched is a lie a grid this Excel-like would tell
 convincingly.
+
+> **Superseded in part by SPEC-231 (2026-09-13):** paging is scan-free, not call-free. Since
+> SPEC-199 each page is a billed API invocation plus its CORS preflight, so Prev/Next still scans
+> nothing, but a page is not costless. `useResultRowCount` no longer relies on walking pages; it reads
+> Athena's own count. Full entry: `docs/decisions/analytics.md` → *A result's total is Athena's own
+> count, and only a SELECT's count is the grid's*.
 
 **Cost is the through-line, and it can only ever be reported, never predicted.** Athena will not say
 what a query will scan before running it, so a "this looks expensive, continue?" confirm is not

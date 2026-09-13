@@ -5,6 +5,11 @@
 The query status bar now reports a succeeded query's **exact total row count** ("1,384 rows") regardless of
 which result page is shown, instead of the loaded-count "N+" form. Frontend-only; no IAM/infra/data-layer change.
 
+> **Superseded in part by SPEC-231 (2026-09-13):** the walk's calls stopped being free when SPEC-199 put the
+> catalog behind the API, and the ceiling below was already gone (#214). The total now comes from Athena's own
+> count in one call, and the walk runs only where Athena does not count. Full entry: `docs/decisions/analytics.md`
+> → *A result's total is Athena's own count, and only a SELECT's count is the grid's*.
+
 - **Background page-walk counter (FR-001/FR-005):** new `useResultRowCount(queryExecutionId)` hook — a `useQuery`
   keyed on `queryKeys.rowCount(id)` (separate from the 20/page visible pager key, so counting never perturbs it),
   `staleTime/gcTime: Infinity` for free reuse on tab-switch-back. Its `queryFn` walks every `GetQueryResults` page

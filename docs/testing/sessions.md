@@ -10,6 +10,40 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-09-13, evening (SPEC-231's four row-count rows in `e2e.md` §4.3)
+
+**What was under test.** `origin/main` at **`430a1b7e`** (#741). `scripts/watch_ci.py --branch
+main` had settled green on it, `Deploy SPA image` included. The discriminating observation that the
+page was #741's: its first request after `SUCCEEDED` was `GET …/row-count`, which no earlier SPA
+sends.
+
+**Browser.** Andrew's Chrome through the Claude-in-Chrome extension, as **agriffith**, in a new tab.
+The Hosted UI cookie had expired again (Cognito's tokens live in `sessionStorage`, which is per
+tab). Andrew gave explicit permission in chat to click **Sign in** on the form Chrome's password
+manager had filled, and nothing was typed into it. Rows per page were at the default, **100**.
+
+**Instruments — each a way this run differed from a user's.**
+- **Visibility overridden.** The tab's real `visibilityState` was `hidden`: Control_Chrome
+  switched to it but cannot raise Chrome above other windows. TanStack pauses the workspace's status
+  poll on a hidden page, so the tab's `document.visibilityState` and `document.hidden` were
+  overridden to report visible, and a `visibilitychange` was dispatched. Monaco does not repaint on
+  a hidden page, so each statement was read back from the workspace's persisted tab state
+  (`sessionStorage`) before it was run, not from the editor's DOM.
+- **A logging `fetch` wrapper,** which blocked nothing, recorded every `/v1/queries` call and each
+  `…/row-count` answer. The status bar was read from `[role=status]`, and the pager label from the
+  page text.
+
+| `e2e.md` §4.3 row | Bar | Pager | `…/row-count` | `…/results?maxRows=1000` |
+|---|---|---|---|---|
+| The 10M-row `UNNEST` query | **"10,000,000 rows"** · 0 B · 7.9 s | `maxRows=100` only | 1 call → `{"rowCount": 10000000, "pending": false}` | **0** |
+| `SELECT x FROM UNNEST(sequence(1, 12345)) AS t(x) WHERE x % 7 = 0` | **"1,763 rows"** | "Rows 1–100 of 1763"; after 17 × **Next**, "Rows 1701–1763 of 1763", Next disabled | 1 call → `1763` | **0** |
+| `SHOW TABLES IN agriffith` | **"20 rows"** | "Rows 1–20 of 20" | 1 call → `{"rowCount": null, "pending": false}` | 1 (the walk) |
+| `EXPLAIN SELECT x FROM UNNEST(sequence(1, 10)) AS t(x)` | **"20 rows"**, never 1 | "Rows 1–20 of 20" | 1 call → `{"rowCount": null, "pending": false}` | 1 (the walk) |
+
+**Verdict: all four rows pass.** `owed.md`'s row-count defect is closed.
+
+---
+
 ## Live-check session — 2026-09-13 (the shell remount, re-run after #732)
 
 **Scope.** The re-run owed by the sweep's fifth defect: `RootLayout`'s `<ErrorBoundary
