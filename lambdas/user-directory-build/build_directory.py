@@ -71,7 +71,7 @@ def list_workspace_usernames(bucket: str) -> tuple[list[str], int, int]:
             raw = str(entry.get("Prefix", ""))
             prefix_count += 1
             name = raw.rstrip("/")
-            if not config.CATALOG_IDENTIFIER_RE.match(name):
+            if not config.CATALOG_IDENTIFIER_RE.fullmatch(name):
                 dropped += 1
                 continue
             seen.add(name)

@@ -97,7 +97,7 @@ def lock_key(database: str, table: str) -> str:
       ValueError: If either name is not a catalog-safe identifier.
     """
     for label, value in (("database", database), ("table", table)):
-        if not isinstance(value, str) or not config.CATALOG_IDENTIFIER_RE.match(value):
+        if not isinstance(value, str) or not config.CATALOG_IDENTIFIER_RE.fullmatch(value):
             raise ValueError(f"refresh lock {label} is not catalog-safe: {value!r}")
     return f"{LOCK_PREFIX}/{database}/{table}.json"
 

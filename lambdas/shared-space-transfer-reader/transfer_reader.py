@@ -351,7 +351,7 @@ def _rows(body, key):
                 f"{key} line {number} asks for {word!r}; action must be one of {sorted(ACTIONS)!r}"
             )
         for field, value in (("space", space), ("username", username)):
-            if not cpconfig.CATALOG_IDENTIFIER_RE.match(value):
+            if not cpconfig.CATALOG_IDENTIFIER_RE.fullmatch(value):
                 raise RejectedFile(
                     f"{key} line {number} has {field} {value!r}, which is not a valid name — "
                     "lowercase letters, digits and underscores, starting with a letter"

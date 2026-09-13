@@ -472,7 +472,7 @@ def test_the_request_id_bound_refuses_no_id_the_queue_would_take():
 
     worst = '"' * MAX_FIFO_KEY_CHARS
 
-    assert _FIFO_KEY_RE.match(worst), "the queue's own character class no longer admits a quote"
+    assert _FIFO_KEY_RE.fullmatch(worst), "the queue's own character class no longer admits a quote"
     assert len(json.dumps(worst).encode()) == bounds.MAX_REQUEST_ID_BYTES
 
 

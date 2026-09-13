@@ -95,7 +95,7 @@ def _check_contract(req) -> None:
             reasons.INVALID_REQUEST, f"unknown conflict answer {req.get('onConflict')!r}"
         )
     execution_id = req.get("queryExecutionId")
-    if not isinstance(execution_id, str) or not _UUID_RE.match(execution_id):
+    if not isinstance(execution_id, str) or not _UUID_RE.fullmatch(execution_id):
         raise TerminalError(reasons.INVALID_REQUEST, "queryExecutionId is not an execution id")
     _check_submitted_at(req.get("submittedAt"))
     if not isinstance(req.get("destination"), dict):

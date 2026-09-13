@@ -371,6 +371,33 @@ def test_a_derived_key_the_queue_would_refuse_is_a_400_rather_than_a_generic_fai
     assert unbounded_dedup.value.code == "InvalidRequest"
 
 
+def test_a_request_id_ending_in_a_newline_is_refused_rather_than_sent():
+    """A caller's own request id becomes the dedup id verbatim, and ``$`` matches before a newline.
+
+    So a check written with ``match`` waves ``"abc\\n"`` through — and a full-length id plus a
+    newline too, since the newline is never counted against the length — and SQS then refuses the
+    send with the generic failure this check exists to prevent. Each id's newline-less twin passes
+    the check, so the newline is what is refused, not the length.
+    """
+    alice = Principal(username="alice", claims={})
+    refusals = []
+
+    for request_id in ("abc", "r" * fifo.MAX_FIFO_KEY_CHARS):
+        assert fifo.dedup_id_for("fileSend.enqueue", alice, {"requestId": request_id}) == request_id
+        with pytest.raises(ApiError) as refused:
+            fifo.dedup_id_for("fileSend.enqueue", alice, {"requestId": request_id + "\n"})
+        refusals.append((refused.value.code, refused.value.detail))
+
+    expected = (
+        "InvalidRequest",
+        (
+            "the derived deduplication id is longer than 128 characters "
+            "or carries a character the queue refuses"
+        ),
+    )
+    assert refusals == [expected, expected]
+
+
 def test_a_non_ascii_value_digests_the_way_the_browser_digests_it():
     """`json.dumps` escapes non-ASCII by default and `JSON.stringify` does not.
 

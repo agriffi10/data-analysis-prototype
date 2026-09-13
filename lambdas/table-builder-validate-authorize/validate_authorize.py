@@ -137,7 +137,7 @@ def _validate_table_name(name):
     Raises:
       TerminalError: ``invalid_table_name`` when it is not a catalog-safe identifier.
     """
-    if not isinstance(name, str) or not config.CATALOG_IDENTIFIER_RE.match(name):
+    if not isinstance(name, str) or not config.CATALOG_IDENTIFIER_RE.fullmatch(name):
         raise TerminalError("invalid_table_name", f"{name!r}")
 
 
@@ -171,7 +171,7 @@ def _validate_partition_keys(keys):
         if not isinstance(key, dict):
             raise TerminalError("invalid_partition_keys", "each partition key must be an object")
         name = key.get("name")
-        if not isinstance(name, str) or not config.CATALOG_IDENTIFIER_RE.match(name):
+        if not isinstance(name, str) or not config.CATALOG_IDENTIFIER_RE.fullmatch(name):
             raise TerminalError("invalid_partition_keys", f"invalid key name {name!r}")
         if name in seen:
             raise TerminalError("invalid_partition_keys", f"duplicate key name {name!r}")

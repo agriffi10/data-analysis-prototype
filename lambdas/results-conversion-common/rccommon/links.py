@@ -55,7 +55,7 @@ def destination_link(space_kind: str, space_name: str, key: str) -> str | None:
     Raises:
       None.
     """
-    if not isinstance(space_name, str) or not _SEGMENT.match(space_name):
+    if not isinstance(space_name, str) or not _SEGMENT.fullmatch(space_name):
         logger.warning("refusing to build a link from an unexpected space name")
         return None
     root = f"{space_name}/"

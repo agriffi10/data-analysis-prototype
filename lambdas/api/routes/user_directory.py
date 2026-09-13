@@ -139,7 +139,7 @@ def _from_document(parsed: object) -> dict[str, Any]:
     valid = [
         name
         for name in usernames
-        if isinstance(name, str) and CATALOG_IDENTIFIER_RE.match(name)
+        if isinstance(name, str) and CATALOG_IDENTIFIER_RE.fullmatch(name)
     ]
     if not valid:
         return dict(_EMPTY)

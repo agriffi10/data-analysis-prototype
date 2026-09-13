@@ -210,7 +210,7 @@ def _route(body):
     if not isinstance(event, dict):
         return UNROUTED, None
     service = event.get("service")
-    if not isinstance(service, str) or not SERVICE_RE.match(service):
+    if not isinstance(service, str) or not SERVICE_RE.fullmatch(service):
         return UNROUTED, None
     return service, event
 

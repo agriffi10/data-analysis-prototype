@@ -195,7 +195,7 @@ def _stamp_correlation(headers: Mapping[str, str], request_id: str) -> None:
             supplied = value
             break
     observability.stamp(
-        client_request_id=supplied if supplied and UUID_RE.match(supplied) else None
+        client_request_id=supplied if supplied and UUID_RE.fullmatch(supplied) else None
     )
 
 

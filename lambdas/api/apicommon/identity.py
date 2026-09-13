@@ -268,7 +268,7 @@ def role_session_name(username: str) -> str:
       IdentityUnavailableError: If the username fails either rule. No role is assumed on that
         path.
     """
-    if not CATALOG_IDENTIFIER_RE.match(username) or not ROLE_SESSION_NAME_RE.match(
+    if not CATALOG_IDENTIFIER_RE.fullmatch(username) or not ROLE_SESSION_NAME_RE.fullmatch(
         username
     ):
         raise IdentityUnavailableError(REASON_UNREPRESENTABLE_USERNAME)
