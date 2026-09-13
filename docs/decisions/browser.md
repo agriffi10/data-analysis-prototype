@@ -1317,6 +1317,15 @@ else noticed.
 and a later successful poll clears its banner. Whether it should stop too is that screen's
 question.
 
+**The status bar takes its verdict from the batch, not from the last status.** A statement whose
+status could not be read has no terminal state. A bar that read only the status went blank and
+withheld Save results from an earlier statement's rows, which were complete and already billed.
+A later statement that failed to *start* left the earlier success as the latest status, so the bar
+read "Succeeded" under a "Statement 2 of 2 failed" banner, a defect that predates this spec.
+`QueryStatusBar`'s `batchFailed` makes a run that ended on a failure read "Failed" whatever the
+displayed status says. The resubmit gap is unchanged: no status and no failure still means no
+verdict, and so no lone button.
+
 **The test client carries `retryDelay: 0`.** A hook's own positive `retry` fires under the harness,
 and at once. TanStack's one-second backoff is exactly `waitFor`'s window, so without it a retried
 failure times out in a way that looks like a flake. No other query hook sets a positive `retry`,

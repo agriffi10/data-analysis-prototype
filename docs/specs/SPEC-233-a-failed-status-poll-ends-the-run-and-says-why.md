@@ -92,6 +92,8 @@ Read from the code at `a5ef2b9c`.
   opt-in `stopOnError` that disables the query once it has failed.
 - `TabExecutionPoller` reads the poll's error and reports it once per execution. `useTabRuns`
   settles the run on it, with the error code's wording as the failure reason.
+- `QueryStatusBar` takes a `batchFailed` prop, which `QueryResultsRegion` and `QueryResultsMobile`
+  pass from the run's `failure` (FR-005).
 - Integration tests on `QueryWorkspace`, and hook tests on `useQueryExecution`.
 - The existing hook test "surfaces a service failure as an error state" is updated. The hook's own
   retry and TanStack's 1 s first-retry delay would otherwise outlast `waitFor`'s 1 s window. The
@@ -194,6 +196,29 @@ overwrite the settled failure. Without the option, `useQueryExecution` behaves a
   request follows within `POLL_INTERVAL_MS` plus a margin. The count starts at the error, not at
   the first request, because the retry alone would supply a second request.
 
+### FR-005: The status bar gives the batch's verdict, not the last status
+
+#### Description:
+
+*Added during the build, from the execution-frame diff review.* A statement whose status could not
+be read has no terminal status, and the status bar used to draw its verdict only from a terminal
+status. So the bar went blank, and Save results disappeared for an earlier statement's complete,
+already-billed rows. Once the banner was dismissed, nothing on screen said the batch had failed.
+The same root showed "Succeeded" under a "Statement 2 of 2 failed" banner when a later statement
+failed to *start*: the earlier statement's success was still the latest status. The bar now takes
+the verdict from the batch. A run that ended on a failure reads "Failed", whatever the displayed
+status says. The mobile strip follows the same rule.
+
+#### Acceptance Criteria:
+
+- [ ] Under "Run Multiple Queries", when statement 1 returns rows and statement 2's status request
+  fails, the bar reads "Failed", and Save results writes statement 1's result
+  (`copyObject` from `q-1`'s output location).
+- [ ] When a script's second statement fails to start, the bar reads "Failed" and not "Succeeded".
+- [ ] Below `tablet`, a run whose status request fails shows "Failed" on the mobile strip.
+- [ ] A run that ends without a failure keeps today's verdicts. The existing status-bar tests pass
+  unchanged, including the resubmit gap, where no status has arrived and there is no failure.
+
 ---
 
 ## API / Interface Contract
@@ -225,6 +250,9 @@ apps/portal/src/features/catalog/useQueryExecution.ts        # retry + stopOnErr
 apps/portal/src/features/catalog/queryExecutionHooks.test.ts # FR-003 count, FR-004 interval + control
 apps/portal/src/features/query/TabExecutionPoller.tsx        # reads the error, reports it once
 apps/portal/src/features/query/useTabRuns.tsx                # settles the run
+apps/portal/src/features/query/QueryStatusBar.tsx            # batchFailed owns the verdict (FR-005)
+apps/portal/src/features/query/QueryResultsRegion.tsx        # passes the run's failure to the bar
+apps/portal/src/features/query/QueryResultsMobile.tsx        # the same, on the mobile strip
 apps/portal/src/features/query/QueryWorkspace.test.tsx       # FR-001–FR-003, FR-004 reconnect
 apps/portal/src/features/query/queryWorkspaceMobile.test.tsx # FR-002 mobile criterion
 apps/portal/src/test/renderWithProviders.tsx                 # retryDelay: 0 on the test client

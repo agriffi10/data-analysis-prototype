@@ -29,6 +29,12 @@ type QueryStatusBarProps = {
    */
   canSaveResults?: boolean;
   onSaveResults: () => void;
+  /**
+   * The batch ended on a failure. It owns the verdict even where `status` disagrees: a
+   * statement whose status could not be read has no terminal state to show, and one that
+   * never started leaves an earlier statement's success on display.
+   */
+  batchFailed?: boolean;
 };
 
 /**
@@ -61,7 +67,8 @@ export function QueryStatusBar({
   hasResultSet = true,
   totalRowCount = null,
   canSaveResults = false,
-  onSaveResults
+  onSaveResults,
+  batchFailed = false
 }: QueryStatusBarProps) {
   // Tick once a second while in flight so the elapsed time advances. The initial
   // tick is scheduled async (setTimeout) rather than set synchronously in the
@@ -80,12 +87,13 @@ export function QueryStatusBar({
 
   const elapsedMs = isInFlight && startedAt && nowTick ? nowTick - startedAt : undefined;
   const state = status?.state;
+  const verdict = !isInFlight && batchFailed ? 'FAILED' : state;
   // A settled verdict must be on screen for anything that hangs off the result to have
   // something to sit beside. Two ways there isn't one, and both leave a lone button on an
   // otherwise empty bar: a resubmit clears the status a history round-trip before the new run
   // is marked in flight, leaving the previous run `done` with no status at all; and
   // `isInFlight` tracks the BATCH, so it is not by itself proof the statement settled.
-  const hasVerdict = !isInFlight && (state === 'SUCCEEDED' || state === 'FAILED' || state === 'CANCELLED');
+  const hasVerdict = !isInFlight && (verdict === 'SUCCEEDED' || verdict === 'FAILED' || verdict === 'CANCELLED');
 
   // The bar wraps onto a second line on a phone; the shipped
   // single-row bar is restored from `tablet:` up.
@@ -116,7 +124,7 @@ export function QueryStatusBar({
         </>
       )}
 
-      {!isInFlight && state === 'SUCCEEDED' && (
+      {!isInFlight && verdict === 'SUCCEEDED' && (
         <>
           <span className="inline-flex items-center gap-2 font-semibold text-success">
             <span
@@ -133,7 +141,7 @@ export function QueryStatusBar({
         </>
       )}
 
-      {!isInFlight && state === 'FAILED' && (
+      {!isInFlight && verdict === 'FAILED' && (
         <span className="inline-flex items-center gap-2 font-semibold text-danger">
           <span
             className="h-2 w-2 rounded-full bg-danger"
@@ -143,7 +151,7 @@ export function QueryStatusBar({
         </span>
       )}
 
-      {!isInFlight && state === 'CANCELLED' && (
+      {!isInFlight && verdict === 'CANCELLED' && (
         <span className="inline-flex items-center gap-2 font-semibold text-text-2">
           <span
             className="h-2 w-2 rounded-full bg-text-3"
@@ -158,7 +166,7 @@ export function QueryStatusBar({
           strip naming it — so without this the file's contents are unidentifiable. The row
           count is the displayed execution's; the failed statement's bytes and duration stay
           off the bar, which is what keeps the two executions from reading as one. */}
-      {hasVerdict && state !== 'SUCCEEDED' && canSaveResults && (
+      {hasVerdict && verdict !== 'SUCCEEDED' && canSaveResults && (
         <span className="text-text-2">
           {rowCountLabel({rowCount, hasMoreRows, totalRowCount})} from an earlier statement
         </span>

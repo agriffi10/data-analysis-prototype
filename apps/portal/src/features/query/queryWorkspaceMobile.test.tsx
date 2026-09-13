@@ -221,6 +221,7 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
 
     expect(await screen.findByRole('heading', {name: 'Revenue'})).toBeInTheDocument();
     expect(await screen.findByText('That item no longer exists. Refresh and try again.')).toBeInTheDocument();
+    expect(screen.getByText('Failed')).toBeInTheDocument();
     expect(screen.queryByText(/is outside alice/)).not.toBeInTheDocument();
   });
 

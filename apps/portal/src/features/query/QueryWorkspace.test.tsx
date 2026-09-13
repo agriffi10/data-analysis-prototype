@@ -882,6 +882,22 @@ describe('QueryWorkspace', () => {
       expect(mockAppend).toHaveBeenCalledTimes(2);
     });
 
+    // The statement that never started leaves the one before it as the latest status, so
+    // a bar reading the status alone called a failed script a success under its own banner.
+    it('says Failed on the bar when a later statement fails to start, not the earlier one’s Succeeded', async () => {
+      queueRuns('q-1');
+      mockRunQuery.mockResolvedValueOnce(fail('Rate exceeded', 'ThrottlingException'));
+      seedScript('SELECT 1; SELECT 2;');
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await runScriptSingle(user);
+
+      expect(await screen.findByText(/Statement 2 of 2 failed\. The service is busy/)).toBeInTheDocument();
+      expect(screen.getByText('Failed')).toBeInTheDocument();
+      expect(screen.queryByText('Succeeded')).not.toBeInTheDocument();
+    });
+
     it('Run Script (tab per statement) yields one result tab per result-producing statement, and a new run clears them (FR-007)', async () => {
       queueRuns('q-1', 'q-2', 'q-3');
       seedScript();
@@ -1181,6 +1197,32 @@ describe('QueryWorkspace', () => {
         await screen.findByText(`Statement 2 of 3 failed. ${NOT_FOUND} Statement 3 did not run.`)
       ).toBeInTheDocument();
       expect(mockRunQuery).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps an earlier statement’s rows savable, beside a Failed verdict', async () => {
+      queueRuns('q-1', 'q-2');
+      refuseStatus('q-2', 'NotFound');
+      seedTabs({
+        version: 1,
+        tabs: [{id: 'a', label: 'Query 1', sql: 'SELECT 1; SELECT 2;'}],
+        activeTabId: 'a',
+        nextQueryNumber: 2
+      });
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      await runScriptTabs(user);
+      expect(await screen.findByText('Failed')).toBeInTheDocument();
+
+      await user.click(await screen.findByRole('button', {name: 'Save results to my files'}));
+      const dialog = await screen.findByRole('dialog', {name: 'Save results to my files'});
+      const nameInput = within(dialog).getByLabelText('File name');
+      await user.clear(nameInput);
+      await user.type(nameInput, 'out');
+      await user.click(within(dialog).getByRole('button', {name: 'Save here'}));
+
+      expect(mockCopyObject).toHaveBeenCalledWith(
+        expect.objectContaining({sourceKey: 'alice/athenaresults/q-1.csv', destKey: 'alice/out.csv'})
+      );
     });
 
     it('retries a failed status request once, and a run whose retry answers carries on', async () => {

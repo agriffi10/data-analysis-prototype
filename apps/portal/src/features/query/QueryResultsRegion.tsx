@@ -86,6 +86,7 @@ export function QueryResultsRegion({
           totalRowCount={totalRowCount}
           canSaveResults={canSaveResults}
           onSaveResults={onSaveResults}
+          batchFailed={!!run?.failure}
         />
       )}
 
