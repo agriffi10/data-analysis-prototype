@@ -36,12 +36,13 @@ Read from the code at `a5ef2b9c`.
   `apiRequest` retries nothing except a 401, once, after a forced token refresh. The status route is
   declared `idempotent: true` in the generated contract, so `apiRetryPolicy('athena.status')` is 1.
   The test harness's client sets `retry: false`, so today no test can observe the retry.
-- **When TanStack pauses a retry** (query-core 5.101, `retryer.ts` `canContinue`): while the page is
+- **When TanStack pauses a retry** (query-core 5.102.8, `retryer.ts` `canContinue`): while the page is
   unfocused, and while the browser reports itself offline. A retry therefore spends itself only on a
   failure the browser can actually see, such as a 5xx, a refused request, or a fetch that failed
   while the browser still reported being online.
 - **Reconnect refetches an errored query.** `refetchOnReconnect` defaults to `true`. A query in
-  error is stale, so an `online` event refetches it unless `enabled` resolves `false` for it
+  error is stale whatever its `staleTime`, because the error reducer marks it invalidated
+  (`query.ts`), so an `online` event refetches it unless `enabled` resolves `false` for it
   (`queryObserver.ts` `shouldFetchOn` and `isStale`). The poll interval is gated the same way
   (`#updateRefetchInterval`). TanStack v5 accepts `enabled` as a function of the query.
 - **The error banner already renders a settled failure.** `QueryWorkspace` builds the banner text
@@ -92,6 +93,11 @@ Read from the code at `a5ef2b9c`.
 - `TabExecutionPoller` reads the poll's error and reports it once per execution. `useTabRuns`
   settles the run on it, with the error code's wording as the failure reason.
 - Integration tests on `QueryWorkspace`, and hook tests on `useQueryExecution`.
+- The existing hook test "surfaces a service failure as an error state" is updated. The hook's own
+  retry and TanStack's 1 s first-retry delay would otherwise outlast `waitFor`'s 1 s window. Every
+  test that fails a status request uses a test client whose defaults are `retry: false` with
+  `retryDelay: 0`. The hook sets `retry` but not `retryDelay`, so only the hook's own retry can
+  fire, and it fires at once.
 
 ### Out of Scope
 
@@ -130,6 +136,9 @@ sent to stop the execution.
   `runQuery` is called exactly twice.
 - [ ] `updateQueryHistoryEntry` is never called with the failed execution's id.
 - [ ] `stopQuery` is not called.
+- [ ] The two criteria above, and FR-002's raw-message criterion, are asserted in the same test,
+  after the banner is visible. Each of them is also true of today's code, where nothing settles,
+  so on its own it proves nothing.
 
 ### FR-002: The tab says why, in the error code's wording
 
@@ -181,8 +190,9 @@ overwrite the settled failure. Without the option, `useQueryExecution` behaves a
   twice `POLL_INTERVAL_MS` makes no further status request.
 - [ ] With `stopOnError: true`, once the hook reports an error, going offline and back online
   makes no further status request.
-- [ ] Without the option, a failed status request is followed by another one once the poll
-  interval elapses.
+- [ ] Without the option, once the hook reports an error (both attempts spent), another status
+  request follows within `POLL_INTERVAL_MS` plus a margin. The count starts at the error, not at
+  the first request, because the retry alone would supply a second request.
 
 ---
 
@@ -203,9 +213,10 @@ export function useQueryExecution(
 onPollFailure: (tabId: string, executionId: string, error: unknown) => void;
 ```
 
-`useTabRuns` handles `onPollFailure` the same way `handleFinalize` handles a `FAILED` status. The
-handler applies only while the execution is still the tab's current, unfinished one, and sets
-`done: true, failure: {statementIndex: cur.currentIndex, reason: toUserText(error)}`.
+`useTabRuns` settles the run on `onPollFailure` the way `handleFinalize`'s `FAILED` branch patches
+it, and without that function's history write. The handler applies only while the execution is
+still the tab's current, unfinished one, and sets `done: true, failure: {statementIndex:
+cur.currentIndex, reason: toUserText(error)}`.
 
 ## File & Folder Structure
 
