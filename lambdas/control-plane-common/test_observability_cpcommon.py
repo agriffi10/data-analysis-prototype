@@ -1351,7 +1351,7 @@ def test_no_step_name_collides_with_a_verbs_own_span_name(step_scan):
       None.
     """
     traced, stepped = _span_names(step_scan)
-    # 58 verb names and 34 step names on this branch. The floors sit well under both so an
+    # The floors sit well under the fleet's verb and step counts so an
     # ordinary deletion does not redden them, and well over zero so a scan that stopped reading
     # the fleet does — the failure this is here to catch is a matcher that resolves nothing, not
     # a plane being retired.

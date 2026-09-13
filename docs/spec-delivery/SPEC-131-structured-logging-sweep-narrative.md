@@ -1,5 +1,14 @@
 # Completed Spec — SPEC-131: Narrate the Log Sweep
 
+> **Superseded in part, 2026-09-11.** The `receive` and `append-day` child spans, the `received`
+> intake event and the per-destination entry event below are gone. The destination events are one
+> success per destination and one failure per destination and reason; the CAS and large-object
+> warnings are one per destination, and the failed-delete warning one per sweep. A later wave loop
+> had made them all per wave, in a function that emits into the queue it drains. The count guard
+> described below left the suite; its successor is
+> `test_a_sweep_emits_the_same_events_however_many_waves_it_takes`. Live text:
+> `lambdas/info/planes/standalone.md`, *The emitter question*.
+
 ## What was completed?
 
 `lambdas/log-sweep/log_sweep.py` now writes its story to the store it feeds, not only to
