@@ -590,8 +590,8 @@ scheduler run on the default branch alone, so filtering a pull request would onl
 someone ran against its branch. A comparison that fails, or answers in neither allowlist, is no
 verdict. `test_watch_ci.py` drives `main` through a fake GitHub that filters before it pages and
 runs the real `--jq`, and plants each check that decides which runs count into a copy of the
-script. The two session-start `gh run list --branch main` reads gained `--event push` for the same
-reason.
+script. The `gh run list` reads of `main` that the session start and the live checks instruct
+gained `--event push` for the same reason.
 
 **What generalises.** A gate that blocks until X is a deadlock when X can only be reached through
 the gate, so a verdict the gate itself makes permanent has to be ruled out, not waited out. And a

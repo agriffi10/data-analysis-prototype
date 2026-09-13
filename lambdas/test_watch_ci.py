@@ -29,6 +29,8 @@ Attributes:
   PUSH_ONLY: What the watcher's first line says when it judges push runs only.
   EVERY: What it says when it judges every run.
   VERDICTS: Every line that ends a watch. A case may print only the one it expects.
+  TRUNK_SETS: The watcher's two comparison allowlists as written. A plant moves a status from
+    one to the other, since deleting it would only prove it sits in some allowlist, not which.
 """
 
 import importlib.util
@@ -59,9 +61,13 @@ VERDICTS = (
     "RED on ",
     "no verdict on ",
     "for this commit yet",
+    " — nothing was triggered",
+    "gave up after ",
+    "the ref moved to ",
     "watch failed: ",
     "the watch itself broke",
 )
+TRUNK_SETS = 'ON_TRUNK = frozenset({"identical", "behind"})\nOFF_TRUNK = frozenset({"ahead", "diverged"})'
 
 
 def load(path: pathlib.Path, name: str) -> ModuleType:
@@ -344,6 +350,20 @@ CASES: tuple[Case, ...] = (
             pushed(sha=OLDER),
         ),
         "no push runs for this commit yet",
+        2,
+        PUSH_ONLY,
+    ),
+    Case(
+        "only_non_push_runs_on_main_are_no_verdict_once_the_grace_runs_out",
+        ("--branch", "main"),
+        (
+            dependabot(),
+            api_run(TIP, "dynamic", "Dependency Graph"),
+            api_run(TIP, "workflow_dispatch", "Migrate system_settings"),
+            api_run(TIP, "schedule", "Security", "failure"),
+            pushed(sha=OLDER),
+        ),
+        f"no push runs exist for {TIP} after -1s — nothing was triggered",
         2,
         PUSH_ONLY,
     ),
@@ -649,6 +669,7 @@ PLANTS: tuple[Plant, ...] = (
         (
             "a_failed_dependabot_run_beside_green_push_runs_is_green",
             "only_non_push_runs_on_main_wait_for_the_push_runs",
+            "only_non_push_runs_on_main_are_no_verdict_once_the_grace_runs_out",
             "a_commit_main_has_moved_past_is_judged_by_its_push_runs",
             "a_burst_of_dependabot_jobs_cannot_push_main_past_one_page",
         ),
@@ -671,38 +692,40 @@ PLANTS: tuple[Plant, ...] = (
             "a_failed_dependabot_run_beside_green_push_runs_is_green",
             "a_failed_push_run_is_red_whatever_passed_beside_it",
             "only_non_push_runs_on_main_wait_for_the_push_runs",
+            "only_non_push_runs_on_main_are_no_verdict_once_the_grace_runs_out",
             "a_commit_main_has_moved_past_is_judged_by_its_push_runs",
             "a_burst_of_dependabot_jobs_cannot_push_main_past_one_page",
         ),
     ),
     Plant(
         "the_tip_of_main_is_on_main",
-        'ON_TRUNK = frozenset({"identical", "behind"})',
-        'ON_TRUNK = frozenset({"behind"})',
+        TRUNK_SETS,
+        'ON_TRUNK = frozenset({"behind"})\nOFF_TRUNK = frozenset({"ahead", "diverged", "identical"})',
         (
             "a_failed_dependabot_run_beside_green_push_runs_is_green",
             "a_failed_push_run_is_red_whatever_passed_beside_it",
             "only_non_push_runs_on_main_wait_for_the_push_runs",
+            "only_non_push_runs_on_main_are_no_verdict_once_the_grace_runs_out",
             "a_burst_of_dependabot_jobs_cannot_push_main_past_one_page",
             "more_push_runs_than_one_page_is_no_verdict",
         ),
     ),
     Plant(
         "a_commit_behind_main_is_on_main",
-        'ON_TRUNK = frozenset({"identical", "behind"})',
-        'ON_TRUNK = frozenset({"identical"})',
+        TRUNK_SETS,
+        'ON_TRUNK = frozenset({"identical"})\nOFF_TRUNK = frozenset({"ahead", "diverged", "behind"})',
         ("a_commit_main_has_moved_past_is_judged_by_its_push_runs",),
     ),
     Plant(
         "a_diverged_commit_is_off_main",
-        'OFF_TRUNK = frozenset({"ahead", "diverged"})',
-        'OFF_TRUNK = frozenset({"ahead"})',
+        TRUNK_SETS,
+        'ON_TRUNK = frozenset({"identical", "behind", "diverged"})\nOFF_TRUNK = frozenset({"ahead"})',
         ("a_commit_diverged_from_main_is_judged_by_every_run_on_it",),
     ),
     Plant(
         "a_commit_ahead_of_main_is_off_main",
-        'OFF_TRUNK = frozenset({"ahead", "diverged"})',
-        'OFF_TRUNK = frozenset({"diverged"})',
+        TRUNK_SETS,
+        'ON_TRUNK = frozenset({"identical", "behind", "ahead"})\nOFF_TRUNK = frozenset({"diverged"})',
         ("a_commit_ahead_of_main_is_judged_by_every_run_on_it",),
     ),
     Plant(
@@ -740,6 +763,18 @@ PLANTS: tuple[Plant, ...] = (
         "    if total > len(runs):",
         "    if False:",
         ("more_push_runs_than_one_page_is_no_verdict",),
+    ),
+    Plant(
+        "no_run_yet_is_no_verdict_in_one_poll",
+        'print(f"  no {what} for this commit yet")\n                return 2',
+        'print(f"  no {what} for this commit yet")\n                return 0',
+        ("only_non_push_runs_on_main_wait_for_the_push_runs",),
+    ),
+    Plant(
+        "no_run_after_the_grace_is_no_verdict",
+        "— nothing was triggered\")\n            return 2",
+        "— nothing was triggered\")\n            return 0",
+        ("only_non_push_runs_on_main_are_no_verdict_once_the_grace_runs_out",),
     ),
 )
 
