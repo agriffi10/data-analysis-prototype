@@ -2,7 +2,7 @@ import {apiRequest} from '../../lib/apiClient';
 import type {ServiceResult} from '../../types/service.types';
 import {DEFAULT_MAX_ROWS} from './catalog.constants';
 import {normalizeColumnType} from './catalog.format';
-import type {QueryColumn, QueryResultPage, QueryState, QueryStatus} from './catalog.types';
+import type {QueryColumn, QueryResultPage, QueryRowCount, QueryState, QueryStatus} from './catalog.types';
 
 // Athena terminal execution states — polling stops once one is reached.
 const TERMINAL_STATES: ReadonlySet<QueryState> = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED']);
@@ -115,6 +115,22 @@ export async function getQueryResults(p: {
     success: true,
     data: {columns, rows: result.data.rows, nextToken: result.data.nextToken ?? undefined}
   };
+}
+
+/**
+ * Ask the API for a succeeded execution's total row count, as Athena counted it.
+ *
+ * One call that scans nothing and ships no row. `rowCount` is a number only for a SELECT whose
+ * statistics have landed; `pending` says whether a null is worth asking again for, or means Athena
+ * does not count this kind of statement at all.
+ *
+ * @param queryExecutionId - The succeeded execution.
+ * @returns The count, or the machine code a surface maps to wording.
+ */
+export async function getQueryRowCount(queryExecutionId: string): Promise<ServiceResult<QueryRowCount>> {
+  const result = await apiRequest('athena.rowCount', {params: {queryExecutionId}});
+  if (!result.success) return result;
+  return {success: true, data: {rowCount: result.data.rowCount, pending: result.data.pending}};
 }
 
 const STMT_POLL_INTERVAL_MS = 400;

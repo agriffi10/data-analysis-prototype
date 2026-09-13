@@ -29,6 +29,14 @@ export type QueryResultPage = {
   nextToken?: string;
 };
 
+/** What the API says about a succeeded execution's total row count. */
+export type QueryRowCount = {
+  /** Athena's own count of the rows a succeeded SELECT returned; null when it reports none. */
+  rowCount: number | null;
+  /** A SELECT whose count has not landed yet: ask again rather than count another way. */
+  pending: boolean;
+};
+
 export type GlueColumn = {name: string; type: string};
 export type GlueTableSummary = {
   name: string;

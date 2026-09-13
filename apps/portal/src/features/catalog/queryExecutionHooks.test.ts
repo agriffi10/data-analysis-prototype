@@ -1,18 +1,19 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, waitFor} from '@testing-library/react';
 import {renderHookWithProviders} from '../../test/renderWithProviders';
-import {getQueryResults, getQueryStatus} from './athena.service';
+import {getQueryResults, getQueryRowCount, getQueryStatus} from './athena.service';
 import {useQueryExecution} from './useQueryExecution';
 import {useQueryResults} from './useQueryResults';
 import {useResultRowCount} from './useResultRowCount';
+import {catalogKeys} from './catalogKeys';
 import {POLL_INTERVAL_MS, ROW_COUNT_PAGE_SIZE} from './catalog.constants';
-import type {QueryResultPage, QueryStatus} from './catalog.types';
+import type {QueryResultPage, QueryRowCount, QueryStatus} from './catalog.types';
 
 // One boundary for all three hook suites. `isTerminalState` and friends stay real
 // (importActual) so the polling/stop logic runs exactly as in production.
 vi.mock('./athena.service', async (importActual) => {
   const actual = await importActual<typeof import('./athena.service')>();
-  return {...actual, getQueryStatus: vi.fn(), getQueryResults: vi.fn()};
+  return {...actual, getQueryStatus: vi.fn(), getQueryResults: vi.fn(), getQueryRowCount: vi.fn()};
 });
 
 // ─── from useQueryExecution.test.ts ───
@@ -297,6 +298,7 @@ describe('useQueryResults', () => {
 
 describe('useResultRowCount', () => {
   const mockGetQueryResults = vi.mocked(getQueryResults);
+  const mockGetRowCount = vi.mocked(getQueryRowCount);
 
   const cols = [{name: 'v', type: 'integer'}];
   function ok(rows: string[][], nextToken?: string) {
@@ -308,50 +310,149 @@ describe('useResultRowCount', () => {
       nextToken
     );
   }
+  function counted(answer: QueryRowCount) {
+    return {success: true as const, data: answer};
+  }
+  const PENDING = counted({rowCount: null, pending: true});
+  const NOT_COUNTED = counted({rowCount: null, pending: false});
+
+  /** Advances fake time inside `act`, so the re-render it causes is flushed before the next assertion. */
+  async function advance(ms: number) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  }
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // clearAllMocks keeps implementations, so one test's fake would answer the next test's call.
+    mockGetQueryResults.mockReset();
+    mockGetRowCount.mockReset();
+    // The default is a statement Athena does not count, so the walk tests below keep their subject.
+    mockGetRowCount.mockResolvedValue(NOT_COUNTED);
   });
 
-  describe('useResultRowCount', () => {
-    it('sums rows across every page for the exact total', async () => {
-      mockGetQueryResults.mockImplementation(async ({nextToken}) => {
-        if (!nextToken) return page(1000, 'T2');
-        if (nextToken === 'T2') return page(1000, 'T3');
-        if (nextToken === 'T3') return page(384);
-        throw new Error(`unexpected token ${nextToken}`);
+  describe('when Athena counts the result', () => {
+    // The test the old hook fails. Its pages never end, and the fake throws on the 101st so a walk
+    // fails by assertion here instead of spinning the worker on resolved promises until it dies.
+    it.each([10_000_000, 0])('takes Athena’s count of %i and walks no page', async (count) => {
+      let served = 0;
+      mockGetQueryResults.mockImplementation(async () => {
+        served += 1;
+        if (served > 100) throw new Error('an unbounded walk reached page 101');
+        return page(ROW_COUNT_PAGE_SIZE, `t-${served}`);
       });
+      mockGetRowCount.mockResolvedValue(counted({rowCount: count, pending: false}));
 
-      const {result} = renderHookWithProviders(() => useResultRowCount('q-1'));
+      const {result, queryClient} = renderHookWithProviders(() => useResultRowCount('q-1'));
 
-      expect(result.current.isCounting).toBe(true);
-      await waitFor(() => expect(result.current.isCounting).toBe(false));
-      expect(result.current.total).toBe(2384);
-      expect(mockGetQueryResults).toHaveBeenCalledWith(
-        expect.objectContaining({queryExecutionId: 'q-1', maxRows: ROW_COUNT_PAGE_SIZE})
-      );
+      await waitFor(() => expect(queryClient.getQueryData(catalogKeys.rowCount('q-1'))).toBe(count));
+      expect(result.current).toEqual({total: count, isCounting: false});
+      expect(mockGetRowCount).toHaveBeenCalledWith('q-1');
+      expect(mockGetQueryResults).not.toHaveBeenCalled();
     });
 
-    it('reports a single-page total immediately (no lingering pending)', async () => {
+    it('asks again for a pending count on the schedule, and never walks', async () => {
+      vi.useFakeTimers();
+      try {
+        mockGetRowCount
+          .mockResolvedValueOnce(PENDING)
+          .mockResolvedValueOnce(PENDING)
+          .mockResolvedValueOnce(counted({rowCount: 1763, pending: false}));
+
+        const {result} = renderHookWithProviders(() => useResultRowCount('q-1'));
+
+        await advance(0);
+        expect(mockGetRowCount).toHaveBeenCalledTimes(1);
+        await advance(999);
+        expect(mockGetRowCount).toHaveBeenCalledTimes(1);
+        await advance(1);
+        expect(mockGetRowCount).toHaveBeenCalledTimes(2);
+        await advance(1_999);
+        expect(mockGetRowCount).toHaveBeenCalledTimes(2);
+        await advance(1);
+        expect(mockGetRowCount).toHaveBeenCalledTimes(3);
+
+        // TanStack hands the result to its observers on a timer; vi.waitFor advances the fake clock.
+        await act(async () => {
+          await vi.waitFor(() => expect(result.current.total).toBe(1763));
+        });
+        expect(mockGetRowCount).toHaveBeenCalledTimes(3);
+        expect(mockGetQueryResults).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('walks to the exact total only after the seventh ask still finds nothing', async () => {
+      vi.useFakeTimers();
+      try {
+        mockGetRowCount.mockResolvedValue(PENDING);
+        mockGetQueryResults.mockResolvedValue(page(42));
+
+        const {result} = renderHookWithProviders(() => useResultRowCount('q-1'));
+
+        // The six waits sum to 60 s, so the seventh ask is at 60,000 ms.
+        await advance(59_999);
+        expect(mockGetRowCount).toHaveBeenCalledTimes(6);
+        expect(mockGetQueryResults).not.toHaveBeenCalled();
+
+        await advance(1);
+        expect(mockGetRowCount).toHaveBeenCalledTimes(7);
+        expect(mockGetQueryResults).toHaveBeenCalledTimes(1);
+        await act(async () => {
+          await vi.waitFor(() => expect(result.current.total).toBe(42));
+        });
+        expect(mockGetRowCount).toHaveBeenCalledTimes(7);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it.each(['unmounted', 'pointed at another execution'])(
+      'stops asking and never walks the old execution once %s mid-wait',
+      async (how) => {
+        vi.useFakeTimers();
+        try {
+          mockGetRowCount.mockImplementation(async (id: string) =>
+            id === 'q-1' ? PENDING : counted({rowCount: 5, pending: false})
+          );
+          mockGetQueryResults.mockResolvedValue(page(42));
+
+          const {unmount, rerender} = renderHookWithProviders(({id}) => useResultRowCount(id), {
+            initialProps: {id: 'q-1' as string | null}
+          });
+          await advance(0);
+          expect(mockGetRowCount).toHaveBeenCalledTimes(1);
+
+          if (how === 'unmounted') unmount();
+          else rerender({id: 'q-2'});
+          await advance(120_000);
+
+          expect(mockGetRowCount.mock.calls.filter(([id]) => id === 'q-1')).toHaveLength(1);
+          expect(mockGetQueryResults).not.toHaveBeenCalled();
+        } finally {
+          vi.useRealTimers();
+        }
+      }
+    );
+
+    it('leaves the total unknown when the request fails, and walks nothing', async () => {
+      mockGetRowCount.mockResolvedValue({success: false, error: {message: '', code: 'AccessDenied'}});
       mockGetQueryResults.mockResolvedValue(page(7));
 
-      const {result} = renderHookWithProviders(() => useResultRowCount('q-1'));
+      const {result, queryClient} = renderHookWithProviders(() => useResultRowCount('q-1'));
 
-      await waitFor(() => expect(result.current.isCounting).toBe(false));
-      expect(result.current.total).toBe(7);
-      expect(mockGetQueryResults).toHaveBeenCalledTimes(1);
+      // Wait on the error itself: `isCounting` stays true after one, so there is nothing else to
+      // wait on — and a walk-on-error hook would reach `success` here instead.
+      await waitFor(() => expect(queryClient.getQueryState(catalogKeys.rowCount('q-1'))?.status).toBe('error'));
+      expect(result.current.total).toBeNull();
+      expect(mockGetQueryResults).not.toHaveBeenCalled();
     });
+  });
 
-    it('reports 0 for a succeeded query that returned no rows', async () => {
-      mockGetQueryResults.mockResolvedValue(page(0));
-
-      const {result} = renderHookWithProviders(() => useResultRowCount('q-1'));
-
-      await waitFor(() => expect(result.current.isCounting).toBe(false));
-      expect(result.current.total).toBe(0);
-    });
-
-    it('walks every page to the exact total with no ceiling', async () => {
+  describe('where Athena does not count the result', () => {
+    it('walks every page to the exact total, with no ceiling', async () => {
       // Five full pages, then a short final page — the walk sums them all.
       mockGetQueryResults.mockImplementation(async ({nextToken}) => {
         const seen = nextToken ? Number(nextToken) : 0;
@@ -361,17 +462,23 @@ describe('useResultRowCount', () => {
 
       const {result} = renderHookWithProviders(() => useResultRowCount('q-1'));
 
+      expect(result.current.isCounting).toBe(true);
       await waitFor(() => expect(result.current.isCounting).toBe(false));
       expect(result.current.total).toBe(ROW_COUNT_PAGE_SIZE * 5 + 42);
       expect(mockGetQueryResults).toHaveBeenCalledTimes(6);
+      expect(mockGetQueryResults).toHaveBeenCalledWith(
+        expect.objectContaining({queryExecutionId: 'q-1', maxRows: ROW_COUNT_PAGE_SIZE})
+      );
     });
 
-    it('is disabled (no walk) when the execution id is null', () => {
-      const {result} = renderHookWithProviders(() => useResultRowCount(null));
+    it.each([7, 0])('reports a single page of %i rows at once', async (rows) => {
+      mockGetQueryResults.mockResolvedValue(page(rows));
 
-      expect(result.current.isCounting).toBe(false);
-      expect(result.current.total).toBeNull();
-      expect(mockGetQueryResults).not.toHaveBeenCalled();
+      const {result} = renderHookWithProviders(() => useResultRowCount('q-1'));
+
+      await waitFor(() => expect(result.current.isCounting).toBe(false));
+      expect(result.current.total).toBe(rows);
+      expect(mockGetQueryResults).toHaveBeenCalledTimes(1);
     });
 
     it('leaves total null (pending) when a page fails — never throws', async () => {
@@ -387,19 +494,28 @@ describe('useResultRowCount', () => {
       );
       expect(result.current.total).toBeNull();
     });
+  });
 
-    it('recomputes for a new execution id and abandons the prior count', async () => {
-      mockGetQueryResults.mockImplementation(async ({queryExecutionId}) =>
-        queryExecutionId === 'q-1' ? page(3) : page(99)
-      );
+  it('is disabled (no request at all) when the execution id is null', () => {
+    const {result} = renderHookWithProviders(() => useResultRowCount(null));
 
-      const {result, rerender} = renderHookWithProviders(({id}) => useResultRowCount(id), {
-        initialProps: {id: 'q-1' as string | null}
-      });
-      await waitFor(() => expect(result.current.total).toBe(3));
+    expect(result.current.isCounting).toBe(false);
+    expect(result.current.total).toBeNull();
+    expect(mockGetRowCount).not.toHaveBeenCalled();
+    expect(mockGetQueryResults).not.toHaveBeenCalled();
+  });
 
-      rerender({id: 'q-2'});
-      await waitFor(() => expect(result.current.total).toBe(99));
+  it('recomputes for a new execution id and abandons the prior count', async () => {
+    mockGetRowCount.mockImplementation(async (id: string) =>
+      counted({rowCount: id === 'q-1' ? 3 : 99, pending: false})
+    );
+
+    const {result, rerender} = renderHookWithProviders(({id}) => useResultRowCount(id), {
+      initialProps: {id: 'q-1' as string | null}
     });
+    await waitFor(() => expect(result.current.total).toBe(3));
+
+    rerender({id: 'q-2'});
+    await waitFor(() => expect(result.current.total).toBe(99));
   });
 });

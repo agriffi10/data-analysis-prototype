@@ -22,11 +22,21 @@ export const MAX_POLL_DURATION_MS = 5 * 60_000;
 export const DEFAULT_MAX_ROWS = 100;
 
 /**
- * GetQueryResults MaxResults for the background total-row-count walk —
- * Athena's per-page maximum, so the walk makes the fewest round-trips. These
- * calls scan no extra bytes; they only re-read the already-computed result set.
+ * Page size for the row-count walk, which now runs only where Athena does not count a
+ * statement (a `SHOW`, a `DESCRIBE`, an `EXPLAIN`) or never reports a SELECT's count.
+ * Athena's per-page maximum, so the walk makes the fewest calls. Each page scans nothing,
+ * but it is not free: it is a billed API call that ships a page of rows only to be counted.
  */
 export const ROW_COUNT_PAGE_SIZE = 1000;
+
+/**
+ * How long to wait before asking again for a SELECT whose count has not landed. AWS documents
+ * that row statistics can be filled in a moment after a query completes; in production the
+ * count was already there on the first read after SUCCEEDED every time it was measured, so
+ * this schedule is the margin for the lag AWS describes. Seven asks across about a minute, and
+ * only after the last one does the hook fall back to walking every page.
+ */
+export const ROW_COUNT_PENDING_DELAYS_MS: readonly number[] = [1_000, 2_000, 4_000, 8_000, 15_000, 30_000];
 
 /** The width a result column starts at, in px. */
 export const DEFAULT_COLUMN_WIDTH = 180;

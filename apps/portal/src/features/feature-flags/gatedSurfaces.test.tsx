@@ -92,7 +92,11 @@ vi.mock('../catalog/athena.service', async (importActual) => ({
   getQueryResults: vi.fn().mockResolvedValue({
     success: true,
     data: {columns: [{name: 'region', type: 'varchar'}], rows: [['north']], nextToken: undefined}
-  })
+  }),
+  // Declared rather than spread from the real module, which would reach for the network. "Athena
+  // does not count this", like every workspace suite's default, so the walk over the one-row page
+  // above is what counts.
+  getQueryRowCount: vi.fn().mockResolvedValue({success: true, data: {rowCount: null, pending: false}})
 }));
 vi.mock('../catalog/glue.service', () => ({
   getDatabase: vi.fn().mockResolvedValue({success: true, data: {name: 'alice'}}),

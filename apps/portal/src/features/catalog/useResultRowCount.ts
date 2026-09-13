@@ -1,31 +1,69 @@
 import {useQuery} from '@tanstack/react-query';
-import {getQueryResults} from './athena.service';
+import {getQueryResults, getQueryRowCount} from './athena.service';
 import {unwrap} from '../../lib/serviceResult';
 import {catalogKeys} from './catalogKeys';
 import {NO_KEY} from '../../lib/queryKeys';
-import {ROW_COUNT_PAGE_SIZE} from './catalog.constants';
+import {ROW_COUNT_PAGE_SIZE, ROW_COUNT_PENDING_DELAYS_MS} from './catalog.constants';
 
 export type UseRowCountResult = {
-  /** Exact total once the walk finishes; null while still counting (or on a failed page). */
+  /** Exact total once known; null while still counting (or after a failed request). */
   total: number | null;
-  /** The background walk is in progress. */
+  /** The count is still being worked out. */
   isCounting: boolean;
 };
 
 /**
- * Counts a succeeded query's total result rows by walking every GetQueryResults
- * page in the background. Athena's GetQueryResults calls are free — no
- * extra bytes scanned — so this is the exact total (no ceiling, no "+"), without a
- * COUNT(*) wrapper. Uses the largest page size to minimize round-trips and a
- * separate query key from the visible pager, so counting never disturbs the
- * 20/page cache.
+ * Resolves after `ms`, or rejects as soon as `signal` aborts — so leaving the page, or moving to
+ * another execution, ends a wait between asks instead of letting it ask again afterwards.
+ */
+function waitOrAbort(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new Error('aborted'));
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new Error('aborted'));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener('abort', onAbort, {once: true});
+  });
+}
+
+/** Counts every row by fetching every page. Exact, and a billed API call per 1,000 rows. */
+async function walkEveryPage(queryExecutionId: string, signal: AbortSignal): Promise<number> {
+  let total = 0;
+  let nextToken: string | undefined;
+  do {
+    if (signal.aborted) throw new Error('aborted');
+    const page = unwrap(await getQueryResults({queryExecutionId, nextToken, maxRows: ROW_COUNT_PAGE_SIZE}));
+    total += page.rows.length;
+    nextToken = page.nextToken;
+  } while (nextToken);
+  return total;
+}
+
+/**
+ * A succeeded query's exact total row count — never an estimate, never capped.
  *
- * Pass the succeeded execution id, or null when there is nothing to count (an
- * in-flight/failed query, or a DDL/no-result statement) — the walk is disabled.
- * The total is cached per execution id (staleTime: Infinity) so tab-switching back
- * to a counted result shows it instantly; a new run recomputes under a fresh id.
- * Never surfaces an error: a failed page throws inside the queryFn and leaves
- * `total` null (pending), so the status bar falls back to the loaded-count form.
+ * Athena's own count comes first: one API call reads the rows a SELECT returned from Athena's
+ * runtime statistics, scanning nothing and shipping no row. Counting by fetching every page is
+ * NOT free — each page is a billed API call that ships 1,000 rows only to be counted, so a
+ * ten-million-row result would be ten thousand of them. The walk therefore runs only where
+ * Athena does not count: a statement that is not a SELECT (a `SHOW`, a `DESCRIBE`, an
+ * `EXPLAIN`, whose outputs are small), or a SELECT whose count Athena still has not reported
+ * after `ROW_COUNT_PENDING_DELAYS_MS`, which it documents can happen.
+ *
+ * Pass the succeeded execution id, or null when there is nothing to count (an in-flight or
+ * failed query, or a statement with no result set). The total is cached per execution id
+ * (staleTime: Infinity), so switching back to a counted tab shows it at once; a new run is a new
+ * id. Never surfaces an error: a failed request leaves `total` null, and a failed ask does not
+ * fall back to the walk, so a broken route shows as a missing total rather than silently
+ * restoring the cost.
  */
 export function useResultRowCount(queryExecutionId: string | null): UseRowCountResult {
   const query = useQuery<number>({
@@ -35,20 +73,15 @@ export function useResultRowCount(queryExecutionId: string | null): UseRowCountR
     gcTime: Infinity,
     retry: false,
     queryFn: async ({signal}): Promise<number> => {
-      let total = 0;
-      let nextToken: string | undefined;
-      do {
+      const id = queryExecutionId as string;
+      for (let asked = 0; ; asked++) {
         if (signal.aborted) throw new Error('aborted');
-        const result = await getQueryResults({
-          queryExecutionId: queryExecutionId as string,
-          nextToken,
-          maxRows: ROW_COUNT_PAGE_SIZE
-        });
-        const page = unwrap(result);
-        total += page.rows.length;
-        nextToken = page.nextToken;
-      } while (nextToken);
-      return total;
+        const answer = unwrap(await getQueryRowCount(id));
+        if (answer.rowCount !== null) return answer.rowCount;
+        if (!answer.pending || asked === ROW_COUNT_PENDING_DELAYS_MS.length) break;
+        await waitOrAbort(ROW_COUNT_PENDING_DELAYS_MS[asked], signal);
+      }
+      return walkEveryPage(id, signal);
     }
   });
 

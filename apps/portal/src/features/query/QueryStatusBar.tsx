@@ -20,7 +20,7 @@ type QueryStatusBarProps = {
    * statements, which show no row-count stat at all.
    */
   hasResultSet?: boolean;
-  /** Exact total from the background page-walk; null while still counting. */
+  /** The workspace's exact total (the pager's own count, or Athena's); null while still counting. */
   totalRowCount?: number | null;
   /**
    * Whether the displayed result is savable (row-returning, not pure DDL). Offered
@@ -38,9 +38,9 @@ type QueryStatusBarProps = {
 };
 
 /**
- * The row-count fragment for a succeeded, row-returning query. Prefers the exact
- * background total; until it resolves, falls back to today's loaded
- * count with a "+" when more pages exist.
+ * The row-count fragment for a succeeded, row-returning query. Shows the exact total
+ * once the workspace has one; until then, the loaded count with a "+" when more
+ * pages exist.
  */
 function rowCountLabel({
   rowCount,

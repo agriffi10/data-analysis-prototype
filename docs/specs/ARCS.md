@@ -282,6 +282,13 @@ download it** via the existing presigned-URL flow (both authenticated + read-onl
 stay). 077→080 are query-workspace one-offs (077 is a dependency-of-none but reshapes the DB model the others build on);
 081 is independent. None add IAM/infra.
 
+> **Superseded in part by SPEC-231 (2026-09-10):** 080's "free calls" stopped being true when
+> SPEC-199 put the catalog behind the API — every walked page became a billed call — and its
+> ceiling was already gone (#214). The status bar now reads Athena's own count of the rows a
+> SELECT returned, in one call, and walks every page only where Athena does not count. The
+> total is still exact and never capped. The measurements and the reasoning:
+> `SPEC-231-count-rows-from-athenas-statistics.md`.
+
 ---
 
 ## Table-Share arc (SPEC-088 → 093, + 094 producer)

@@ -14,7 +14,7 @@ type QueryResultsTableProps = {
   pageIndex: number; // 0-based
   rangeStart: number; // 1-based row number of the first row on this page
   rangeEnd: number; // 1-based row number of the last row on this page
-  totalRowCount: number | null; // known only once the last page is loaded
+  totalRowCount: number | null; // the workspace's exact total; null while it is still being counted
   hasPrev: boolean;
   hasNext: boolean;
   isFetchingNext: boolean;
@@ -159,8 +159,8 @@ export function QueryResultsTable({
           </div>
 
           {/* Prev/Next pager, below the scroll region so it stays usable
-              with a wide/tall, scrolled result. Range indicator shows "Rows X–Y";
-              the definitive total appears only at the last page. */}
+              with a wide/tall, scrolled result. Range indicator shows "Rows X–Y",
+              and "of N" once the exact total is known. */}
           <Pager
             className="flex-none py-4"
             hasPrev={hasPrev}

@@ -57,6 +57,56 @@ signed out, so everything below is organic traffic.
 
 ---
 
+## Live-check session — 2026-09-13 (SPEC-231 FR-003: is the row count's first number final?)
+
+**Scope.** FR-003, the measurement that gates SPEC-231's browser switch-over. The route
+`GET /v1/queries/{id}/row-count` was polled through the window after `SUCCEEDED`, before any
+browser code called it.
+
+**What was under test.** `origin/main` at **`e75e60fa`** (#731). `scripts/watch_ci.py --branch
+main` had settled green on it, `Deploy Lambdas` included. The first route answer, a `409` while
+running and then a counted `200`, is behaviour only #731's code produces, which is the
+discriminating observation that the route was live.
+
+**Browser.** Andrew's Chrome through the Claude-in-Chrome extension, as **agriffith**, in a new tab.
+The Hosted UI cookie had expired, and the credential form came up already filled by Chrome's
+password manager. Andrew gave explicit permission in chat to click **Sign in**, and nothing was
+typed into it. The first load of `/query` after the deploy failed on a stale chunk ("Failed to fetch
+dynamically imported module …/QueryPage-….js"); the app's error boundary said to reload, and one
+reload fixed it.
+
+**Instruments — each a way this run differed from the spec's wording.**
+- **The app's own bearer, captured.** `window.fetch` was wrapped so that the app's next API request
+  supplied the Authorization header, reused for the polls. The same wrapper **blocked** every
+  `…/results?maxRows=1000` request, so the old walk added no load. Each `POST /v1/queries` started
+  a poll of `GET /v1/queries/{id}` and `GET /v1/queries/{id}/row-count` side by side, which ran
+  until 10 s after the status first read `SUCCEEDED`.
+- **Not foregrounded.** `visibilityState` read `hidden`. On the first run, `setTimeout(…, 200)` was
+  throttled to 1 s (maximum gap 1,002 ms). Runs 2 and 3 used a timer-free loop that starts each
+  poll when the last one resolves; median gaps were 256 ms and 275 ms, maximums 603 ms and 499 ms.
+- **Run 3 was started from the page, not the Run button.** While the page is hidden, TanStack pauses
+  the workspace's own status poll, so the UI still showed run 2 as running and offered no Run button.
+  Run 3's `POST /v1/queries` was sent from the page with the same session, through the same wrapper.
+  It is the request the Run button sends.
+
+| Execution | Statement | `SUCCEEDED` seen at | Before it | Polls after | After it | Pending after | Numbers returned |
+|---|---|---|---|---|---|---|---|
+| `df8c983f` | 10M `UNNEST` generator | 8,642 ms | `409` only | 11 | all `200` | 0 | **10,000,000** only |
+| `7093d745` | 2M `UNNEST` generator (`sequence(1,2000)` × `sequence(1,1000)`) | 2,207 ms | `409` only | 36 | all `200` | 0 | **2,000,000** only |
+| `ffc542c0` | `WITH t AS (…12345…) SELECT x FROM t WHERE x % 7 = 0` | 339 ms | `409` only | 36 | all `200` | 0 | **1,763** only |
+
+**Verdict: FR-003 passes on all four criteria.**
+- The number was already present on the first poll that saw `SUCCEEDED`, in every run, and it never
+  changed afterwards.
+- It equalled the count known by construction.
+- No answer after `SUCCEEDED` was anything but a `200`.
+
+**What this did not exercise:** the re-ask path. No answer was ever `pending`, so
+`ROW_COUNT_PENDING_DELAYS_MS` is covered by its tests and by AWS's documentation that the
+statistics can lag, not by a live lag.
+
+---
+
 ## Live-check session — 2026-09-11 (the top-bar band, re-run after #725)
 
 **Scope.** The re-run owed by the sweep's top-bar defect, which #725 fixed together with the Files

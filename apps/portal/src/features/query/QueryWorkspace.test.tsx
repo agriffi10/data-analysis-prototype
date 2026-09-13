@@ -13,6 +13,7 @@ import {
   mockEnqueueShare,
   mockGetHistory,
   mockGetResults,
+  mockGetRowCount,
   mockGetStatus,
   mockListFiles,
   mockListSaved,
@@ -78,7 +79,8 @@ vi.mock('../catalog/athena.service', async (importOriginal) => ({
   getTableDdl: vi.fn(),
   runStatementToCompletion: vi.fn(),
   getQueryStatus: vi.fn(),
-  getQueryResults: vi.fn()
+  getQueryResults: vi.fn(),
+  getQueryRowCount: vi.fn()
 }));
 
 vi.mock('../catalog/glue.service', async (importOriginal) => ({
@@ -1493,11 +1495,12 @@ describe('QueryWorkspace', () => {
       // The token is the whole mechanism — a Next that refetched page 1 would still "work"
       // visually on a fixture that returned the same rows twice.
       //
-      // `maxRows` is load-bearing in this assertion, not decoration: `useResultRowCount` walks
-      // every page of the same execution in the background through this same mock, threading
-      // the token itself, so `objectContaining({nextToken: 't-2'})` alone is satisfied by the
-      // row-count walker even if the pager never threads anything. The walker uses
-      // ROW_COUNT_PAGE_SIZE; only the pager asks for the display page size.
+      // `maxRows` is load-bearing in this assertion, not decoration: with the suite's default
+      // "Athena does not count" answer, `useResultRowCount` walks every page of the same
+      // execution through this same mock, threading the token itself, so
+      // `objectContaining({nextToken: 't-2'})` alone is satisfied by the row-count walker even if
+      // the pager never threads anything. The walker uses ROW_COUNT_PAGE_SIZE; only the pager asks
+      // for the display page size.
       expect(mockGetResults).toHaveBeenCalledWith({
         queryExecutionId: 'q-1',
         nextToken: 't-2',
@@ -1505,12 +1508,12 @@ describe('QueryWorkspace', () => {
       });
     });
 
-    // THE FIRST ARM of the row-count gate, which nothing else reaches. The walk is opened by
+    // THE FIRST ARM of the row-count gate, which nothing else reaches. The count is opened by
     // the batch's verdict — a result tab exists — rather than by the first page's columns
     // arriving, and the only way to tell those apart is to keep that page in flight: under the
-    // pre-change gate the walk could not start at all while it hung. The `??` fallback is a
-    // different half of the same commit and is covered by the test below.
-    it('starts the row-count walk while the first page is still in flight', async () => {
+    // pre-change gate the count could not start at all while it hung. Its first request is the
+    // ask for Athena's count, so that call is what the gate opening looks like.
+    it('asks for the row count while the first page is still in flight', async () => {
       let displayPageStarted = false;
       mockGetResults.mockImplementation(async ({maxRows}: {maxRows?: number}) => {
         if (maxRows === ROW_COUNT_PAGE_SIZE) return ok(page([['us-east'], ['eu-west']]));
@@ -1521,11 +1524,9 @@ describe('QueryWorkspace', () => {
       const {user} = renderWorkspace();
       await runOnce(user);
 
-      await waitFor(() =>
-        expect(mockGetResults).toHaveBeenCalledWith(expect.objectContaining({maxRows: ROW_COUNT_PAGE_SIZE}))
-      );
+      await waitFor(() => expect(mockGetRowCount).toHaveBeenCalledWith('q-1'));
       // The premise the assertion above rests on: the display page really was outstanding, so
-      // the walk cannot have been let through by columns that had already arrived.
+      // the count cannot have been let through by columns that had already arrived.
       expect(displayPageStarted).toBe(true);
     });
 
@@ -1540,16 +1541,15 @@ describe('QueryWorkspace', () => {
       const {user} = renderWorkspace();
       await runOnce(user);
 
-      await waitFor(() =>
-        expect(mockGetResults).toHaveBeenCalledWith(expect.objectContaining({maxRows: ROW_COUNT_PAGE_SIZE}))
-      );
+      await waitFor(() => expect(mockGetRowCount).toHaveBeenCalledWith('q-1'));
     });
 
     // The paging-derived total is null until the last page has been loaded, so before this
     // the pager showed no total until you clicked Next to the very end — on a real result
-    // that is every page of it. The exact background walk already knew the answer.
+    // that is every page of it. Athena's own count already knew the answer.
     it('shows the exact total in the pager on the FIRST page, without paging to the end', async () => {
       seedTwoPages();
+      mockGetRowCount.mockResolvedValue(ok({rowCount: 3, pending: false}));
       seedSingle('SELECT 1');
       const {user} = renderWorkspace();
       await runOnce(user);
@@ -1560,30 +1560,65 @@ describe('QueryWorkspace', () => {
       expect(screen.getByRole('button', {name: 'Next'})).toBeEnabled();
     });
 
-    // DDL opens neither of the two gates, so the walker must not run for it. Asserts the
-    // CALL, not the absence of a number: the label is separately gated on `hasResultSet`,
-    // so "no total on screen" is satisfied whether or not the request went out.
-    it('walks no pages for a statement that returns no rows', async () => {
+    // DDL opens neither of the two gates, so nothing may be asked for it: not Athena's count,
+    // and not the walk. Asserts the CALLS, not the absence of a number: the label is separately
+    // gated on `hasResultSet`, so "no total on screen" is satisfied whether or not a request
+    // went out.
+    it('asks nothing and walks no pages for a statement that returns no rows', async () => {
       mockGetResults.mockResolvedValue(ok({columns: [], rows: []}));
       seedSingle('CREATE TABLE t (a int)');
       const {user} = renderWorkspace();
       await runOnce(user);
 
       await waitFor(() => expect(screen.getByText('Succeeded')).toBeInTheDocument());
+      expect(mockGetRowCount).not.toHaveBeenCalled();
       expect(mockGetResults).not.toHaveBeenCalledWith(expect.objectContaining({maxRows: ROW_COUNT_PAGE_SIZE}));
 
-      // The positive control, over the SAME constant and in the same test: a row-returning
-      // statement must walk. Without it, `ROW_COUNT_PAGE_SIZE` ceasing to be what the walker
-      // asks for would make the negative above true for the wrong reason, permanently.
+      // The positive control, in the same test: a row-returning statement must ask. Without it,
+      // a gate that never opened would make the negative above true for the wrong reason.
       cleanup();
       mockGetResults.mockResolvedValue(ok(page([['us-east']])));
       seedSingle('SELECT 1');
       const second = renderWorkspace();
       await runOnce(second.user);
 
-      await waitFor(() =>
-        expect(mockGetResults).toHaveBeenCalledWith(expect.objectContaining({maxRows: ROW_COUNT_PAGE_SIZE}))
+      await waitFor(() => expect(mockGetRowCount).toHaveBeenCalledWith('q-1'));
+    });
+
+    // One total for the bar and the pager, and it never contradicts the grid. The count lands
+    // after the first page, so each case waits for the cache to hold it: asserting on the first
+    // render would read today's screen before the count arrives, and pass on unfixed code.
+    it('shows the pager’s own total once it has the last page, over a disagreeing count', async () => {
+      mockGetResults.mockResolvedValue(ok(page([['a'], ['b'], ['c']])));
+      mockGetRowCount.mockResolvedValue(ok({rowCount: 5, pending: false}));
+      seedSingle('SELECT 1');
+      const {user, queryClient} = renderWorkspace();
+      await runOnce(user);
+
+      await waitFor(() => expect(queryClient.getQueryData(catalogKeys.rowCount('q-1'))).toBe(5));
+      expect(await screen.findByText(/Rows 1–3 of 3/)).toBeInTheDocument();
+      expect(screen.getByText(/3 rows ·/)).toBeInTheDocument();
+      expect(screen.queryByText(/5 rows/)).not.toBeInTheDocument();
+    });
+
+    it.each([
+      {count: 40, bar: /100\+ rows ·/, pager: /^Rows 1–100$/},
+      // Equal to the rows loaded, with a token still present: an exactly-full page can carry one.
+      {count: 100, bar: /100 rows ·/, pager: /^Rows 1–100 of 100$/},
+      {count: 10_000_000, bar: /10,000,000 rows ·/, pager: /^Rows 1–100 of 10000000$/}
+    ])('shows a count of $count only if it is at least the rows already loaded', async ({count, bar, pager}) => {
+      const hundred = Array.from({length: 100}, (_, i) => [`r${i}`]);
+      mockGetResults.mockImplementation(async ({maxRows}: {maxRows?: number}) =>
+        maxRows === ROW_COUNT_PAGE_SIZE ? ok(page([])) : ok(page(hundred, 't-2'))
       );
+      mockGetRowCount.mockResolvedValue(ok({rowCount: count, pending: false}));
+      seedSingle('SELECT 1');
+      const {user, queryClient} = renderWorkspace();
+      await runOnce(user);
+
+      await waitFor(() => expect(queryClient.getQueryData(catalogKeys.rowCount('q-1'))).toBe(count));
+      expect(await screen.findByText(bar)).toBeInTheDocument();
+      expect(screen.getByText(pager)).toBeInTheDocument();
     });
   });
 
