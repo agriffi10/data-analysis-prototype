@@ -47,7 +47,8 @@ export function RefreshTableDialog({target, busy = false, submitError, onConfirm
       onConfirm={() => onConfirm(allowRemovals)}
       onCancel={onCancel}>
       <p className="mt-3 text-sm leading-relaxed text-text-2">
-        This re-reads the files in the table&rsquo;s folder and updates its columns to match what&rsquo;s there now.
+        This reads the first file in the table&rsquo;s folder, alphabetically, and updates the table&rsquo;s columns to
+        match it.
       </p>
 
       <dl className="mt-3 space-y-1.5 rounded-md border border-border bg-surface-2 px-2.5 py-2 text-sm">
