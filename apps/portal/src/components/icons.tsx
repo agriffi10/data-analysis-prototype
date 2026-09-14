@@ -512,7 +512,7 @@ export function FileRowIcon({className = 'h-5 w-5'}: IconProps) {
 
 /**
  * Run / execute (the query toolbar's Run buttons). Filled, not stroked — a solid
- * triangle reads as "play" at 16px where an outlined one reads as a stray chevron.
+ * triangle reads as "play" at `h-4` (14px) where an outlined one reads as a stray chevron.
  *
  * @example
  * <PlayIcon />
@@ -692,7 +692,7 @@ export function SignOutIcon({className = 'h-4 w-4'}: IconProps) {
  * Three stacked dots — the affordance that says a control opens a menu, on the account
  * trigger in the header.
  *
- * Filled circles rather than a stroked path: at 16px a stroke round-cap renders as a soft
+ * Filled circles rather than a stroked path: at `h-4` (14px) a stroke round-cap renders as a soft
  * smudge, and the dots have to read as three distinct marks to say "menu" at all.
  *
  * @example

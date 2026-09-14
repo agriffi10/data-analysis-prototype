@@ -27,7 +27,7 @@ export type FileListRowMobileProps =
     };
 
 /**
- * Mobile (< tablet) two-line list row (56px) — the structural counterpart to the
+ * Mobile (< tablet) two-line list row, `h-14` (49px) — the structural counterpart to the
  * `≥ tablet` table row. Tapping the row body activates it
  * (download a file / open a folder); a trailing size (file) or chevron (folder);
  * a per-object Details control; and, in writable flows, a selection checkbox with

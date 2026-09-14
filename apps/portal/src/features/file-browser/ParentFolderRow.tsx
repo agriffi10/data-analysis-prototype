@@ -6,7 +6,7 @@ type Props = {
   /** Reserve the (empty) checkbox column so the row aligns with selectable rows. */
   selectable: boolean;
   /**
-   * Presentation: `grid` (default) = the ≥ tablet table row; `mobile` = the 56px
+   * Presentation: `grid` (default) = the ≥ tablet table row; `mobile` = the `h-14` (49px)
    * two-line card-list row. Placed in the matching markup.
    */
   variant?: 'grid' | 'mobile';
@@ -24,7 +24,7 @@ export const UP_ONE_LEVEL_LABEL = 'Up one level: go up to parent folder';
  * alignment), no type pill, no Details button, and excluded from selection (it's
  * never added to the select-all set). The whole row is a button, so it's
  * keyboard-focusable and Enter/Space-activatable. The `grid` variant's column
- * widths mirror FileBrowser's COL_* constants; the `mobile` variant is a 56px
+ * widths mirror FileBrowser's COL_* constants; the `mobile` variant is an `h-14` (49px)
  * two-line row.
  *
  * @example

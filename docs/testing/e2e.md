@@ -827,6 +827,12 @@ trail answers it — `owed.md` carries the query and the `IsLogging` preconditio
   tripwire in `sharedPrimitives.guard.test.ts` catches the textual edit; only this catches the
   rendered size.
 
+- **The file details sheet's actions, below 900px.** On `/files` at 375px, open a file's Details
+  and run the one-liner above with the sheet open: **Download**, **Rename** and **Archive this
+  item** each read **38.5**. They stack in a flex column there, where a `flex-1` without its
+  `tablet:` prefix replaces the declared height with the text's, and they read about 20, under 24.
+  It shipped that way once, and no suite can see it: jsdom has no layout.
+
 **The Inline exception does NOT cover a breadcrumb trail — settled 2026-09-01, and what would
 re-open it.** SC 2.5.8's Inline exception reads "the target is in a sentence or its size is
 otherwise constrained by the line-height of non-target text", and the W3C Understanding text gives

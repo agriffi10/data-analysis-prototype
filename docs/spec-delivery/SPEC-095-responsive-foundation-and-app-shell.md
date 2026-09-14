@@ -9,6 +9,11 @@ The shared responsive foundation the surface specs (099→104) build on — pres
 - **`AppNavDrawer`** (`src/components/AppNavDrawer.tsx`) — 300px left off-canvas sheet: five primary links (Files/Query/Connections/Notifications/Help, active via `NavLink aria-current`) + a page-supplied `contextualRail` slot; focus trap + scroll lock + Escape/scrim/link dismiss.
 - **`NavRailProvider` + `navRailContext`** (`useProvideNavRail`/`useNavRailContent`) — lets a page feed its rail into the Header-owned drawer (no page consumes it yet; wired in 099/100).
 - **Header** — mobile hamburger (`tablet:hidden`, ≥44px, `aria-controls`) opening the drawer (mounted only when `useIsMobile`); `PrimaryNav` wrapped `hidden tablet:flex`.
+  > **Correction (2026-09-14) — the "≥44px" above is false, and was false when written.** The
+  > hamburger is `h-11 w-11`, whose px value was read off the class at an assumed 16px root. This
+  > app's root is **14px**, so it draws **38.5px** square (11 × 0.25rem × 14px). Left there
+  > deliberately, for the reason [SPEC-100's correction](SPEC-100-query-workspace-responsive.md)
+  > records: 44×44 is SC 2.5.5, which is AAA, and this project targets A + AA.
 - **`MobileActionBar`** (`src/components/MobileActionBar.tsx`) — fixed-bottom `tablet:hidden` toolbar, safe-area-inset aware; shell only.
 - **`Menu`** (`src/components/Menu.tsx`) — accessible menu primitive extracted from `TableActionsMenu` (render-prop trigger + `role="menu"` popover, arrow roving, Escape/outside-click, danger tone + separators). `TableActionsMenu` now composes it, behavior unchanged.
 - **Responsive `Modal`** (viewport-capped + scroll-in-panel) and **`Drawer`** (`mobileVariant: 'bottom-sheet' | 'full-height'`, default bottom-sheet; member/roster drawers opt into full-height). Desktop presentations unchanged.
