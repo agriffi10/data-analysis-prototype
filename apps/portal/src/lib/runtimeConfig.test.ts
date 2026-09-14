@@ -13,7 +13,7 @@ const COMPLETE = Object.fromEntries(
   [...REQUIRED_CONFIG, ...OPTIONAL_CONFIG].map((key) => [key, `served-${key}`])
 ) as Record<RuntimeConfigKey, string>;
 
-/** The complete document minus some keys — what an unset repository variable renders. */
+/** The complete document minus some keys. */
 function withoutKeys(...omitted: RuntimeConfigKey[]): Record<string, string> {
   return Object.fromEntries(Object.entries(COMPLETE).filter(([key]) => !omitted.includes(key as RuntimeConfigKey)));
 }
@@ -105,6 +105,15 @@ describe('runtimeConfig — a production load that fails', () => {
     ['null', 'null']
   ])('reports unparseable for JSON that is %s', async (_shape, payload) => {
     respondWith(payload);
+    const {loadRuntimeConfig: load} = await productionModule();
+
+    expect(await load()).toEqual({ok: false, reason: 'unparseable'});
+  });
+
+  it('reports unparseable for a body that is not JSON at all, such as the app shell', async () => {
+    // Every row above parses and is refused for its shape. Markup makes the parse itself reject,
+    // and a loader without its catch lets that escape the bootstrap, which then renders nothing.
+    respondWith('<!doctype html><html><body><div id="root"></div></body></html>');
     const {loadRuntimeConfig: load} = await productionModule();
 
     expect(await load()).toEqual({ok: false, reason: 'unparseable'});
