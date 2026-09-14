@@ -102,9 +102,14 @@ Read from the code at `d42a3b42`, and from the vendor pages named.
   `text.split("event_pattern")[1]`, which is the first pattern, and asserts `"FAILED" not in` it. A
   second rule placed after it is never read. The gate's population is the ASLs that set a
   `TimeoutSeconds`, which is six.
-- **Not measured, because the authoring session's read-only production calls were refused:** a real
-  FAILED execution's `error` as `DescribeExecution` reports it, and a Distributed Map child's
-  `stateMachineArn`. FR-007 makes both part of the build.
+- **Measured in production with single read-only calls, and what was not.**
+  - `describe-execution` on two real caught failures reports `error: "TableShareFailed"` for
+    table-share and `error: "DataQualityCheckFailed"` for data-quality. Each is the plane's static
+    `Fail` name, as the filter assumes.
+  - The session's auto-mode classifier refused `list-executions` for file-ops, although the same
+    call for data-quality ran, and it refused one compound read. So two things are still FR-007's
+    to measure: what file-ops' error-less `Fail` reports, and a Distributed Map child's
+    `stateMachineArn`.
 
 ### The decisions, made while authoring
 
