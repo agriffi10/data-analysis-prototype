@@ -183,7 +183,7 @@ export function QueryWorkspace() {
     dropRunState,
     dismissError,
     selectResultTab
-  } = useTabRuns({username, activeTabId, tabs: tabs.tabs, appendEntry, updateEntry});
+  } = useTabRuns({username, activeTabId, tabs: tabs.tabs, appendEntry, updateEntry, toast});
 
   // Create view and Drop table were the same forty lines twice.
   // One background-DDL path now runs, records and reports both.

@@ -5,6 +5,7 @@ import {invalidateSchema} from '../catalog/useSchema';
 import {TabExecutionPoller} from './TabExecutionPoller';
 import {isResultProducingSql, schemaChangingDatabase, statementHint} from './query.sql';
 import {logBackgroundFailure, toUserText} from '../../lib/errorMessages';
+import type {ToastApi} from '../../components/toastContext';
 import type {UseQueryHistoryResult} from './useQueryHistory';
 import type {ParsedStatement, QueryTab, ResultTab, RunScope} from './query.types';
 import type {QueryStatus} from '../catalog/catalog.types';
@@ -57,11 +58,14 @@ export type UseTabRunsResult = {
   pollers: React.ReactNode;
   /** Starts a batch in `tabId` (defaults to the active tab). Returns whether the submit began. */
   submitBatch: (statements: ParsedStatement[], scope: RunScope, tabId?: string, owner?: RunOwner) => boolean;
-  /** Cancels the active tab's in-flight statement and halts the remainder. */
+  /** Cancels the active tab's in-flight statement and halts the remainder; a refused cancel is toasted. */
   handleStop: () => void;
   /** Forgets a closed tab's run state (the execution itself keeps running server-side). */
   dropRunState: (id: string) => void;
-  /** Clears a tab's error and marks it dismissed, so the banner stays closed. */
+  /**
+   * Clears a tab's error and marks it dismissed, so the banner stays closed until the tab's next
+   * run is installed or fails to start.
+   */
   dismissError: (tabId: string) => void;
   /** switch which result-producing statement the results region shows. */
   selectResultTab: (tabId: string, index: number) => void;
@@ -74,6 +78,8 @@ type Params = {
   tabs: QueryTab[];
   appendEntry: UseQueryHistoryResult['appendEntry'];
   updateEntry: UseQueryHistoryResult['updateEntry'];
+  /** Where a refused Stop is reported; the banner belongs to the run's verdict, not to the button. */
+  toast: ToastApi;
 };
 
 /**
@@ -87,7 +93,7 @@ type Params = {
  * never render — so a Stop is visible to an in-flight advancement immediately;
  * state mirrors it for render.
  */
-export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntry}: Params): UseTabRunsResult {
+export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntry, toast}: Params): UseTabRunsResult {
   const queryClient = useQueryClient();
 
   const [runs, setRuns] = useState<Record<string, TabRun>>({});
@@ -278,9 +284,21 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
     const linkedSaved = tabs.find((t) => t.id === tabId)?.savedQuery;
 
     setRunErrors((e) => ({...e, [tabId]: null}));
-    // An owned submit never writes the tab's error, so it must not un-dismiss one
-    // the editor already showed and the user already closed.
-    if (!owner) setDismissed((d) => ({...d, [tabId]: false}));
+    // A dismissed banner re-opens only once this submit has something of its own to show —
+    // its run installed, or its start failed. Re-opening at submit re-showed the PREVIOUS
+    // run's verdict for the whole start and history round-trip.
+    const reopenBanner = () => setDismissed((d) => ({...d, [tabId]: false}));
+    const reportStartFailure = (message: string) => {
+      // An owned submit that fails installs no run, so the tab keeps the previous one — whose
+      // error the editor showed and the user may have closed. The error goes to the owner, and
+      // the tab's banner stays as the user left it.
+      if (owner) {
+        owner.onOutcome(false, message);
+        return;
+      }
+      setRunErrors((e) => ({...e, [tabId]: message}));
+      reopenBanner();
+    };
     void (async () => {
       try {
         const first = statements[0];
@@ -292,12 +310,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
           username
         });
         if (!result.success) {
-          const message = toUserText(result.error);
-          // An owned submit installs no run when it fails, so nothing would mark
-          // the error as that surface's — hand it to the owner instead of the
-          // tab, which the editor shell also reads.
-          if (owner) owner.onOutcome(false, message);
-          else setRunErrors((e) => ({...e, [tabId]: message}));
+          reportStartFailure(toUserText(result.error));
           return;
         }
         const id = result.data.queryExecutionId;
@@ -336,13 +349,14 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
             ...(owner && {token: owner.token})
           }
         }));
+        // The run just replaced the one whose banner was closed, so re-opening can show only
+        // this run's own verdict — an owned run's too, which the editor shell never shows.
+        reopenBanner();
         owner?.onOutcome(true);
       } catch (e) {
         // Services don't throw by contract, but an unreported submit would leave
         // a caller waiting on an outcome that never comes.
-        const message = toUserText(e);
-        if (owner) owner.onOutcome(false, message);
-        else setRunErrors((err) => ({...err, [tabId]: message}));
+        reportStartFailure(toUserText(e));
       } finally {
         // Hand off to the state-based guard: once `runs[tabId]` commits (success) or
         // the run errored (retryable), the ref no longer needs to block.
@@ -354,7 +368,9 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
 
   // Stop cancels the in-flight statement AND halts the remainder. The
   // halted flag is set first so the finalizer never starts the next statement,
-  // even when the current one outruns the cancel and SUCCEEDs.
+  // even when the current one outruns the cancel and SUCCEEDs. The poller observes
+  // CANCELLED; a refused cancel leaves the statement to settle on its own verdict,
+  // so it is said out loud rather than left looking like it worked.
   const handleStop = () => {
     const run = runsRef.current[activeTabId];
     if (!run || run.done) return;
@@ -363,7 +379,11 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
       if (!cur || cur.done) return r;
       return {...r, [activeTabId]: {...cur, halted: true}};
     });
-    void stopQuery(run.executionId); // poller observes CANCELLED
+    void stopQuery(run.executionId).then((result) => {
+      if (!result.success) {
+        toast.push({variant: 'danger', message: `Couldn’t stop the query. ${toUserText(result.error)}`});
+      }
+    });
   };
 
   // Drop the closed tab's in-memory run state (its execution keeps running

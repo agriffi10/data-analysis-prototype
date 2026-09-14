@@ -174,6 +174,12 @@ describe('format', () => {
       expect(formatDurationMs(1234)).toBe('1.2s');
     });
 
+    it('shows minutes and seconds from a minute up, switching where "60.0s" would have shown', () => {
+      expect(formatDurationMs(59_940)).toBe('59.9s');
+      expect(formatDurationMs(59_950)).toBe('1m 0s');
+      expect(formatDurationMs(1_804_000)).toBe('30m 4s');
+    });
+
     it('renders an em dash for undefined', () => {
       expect(formatDurationMs(undefined)).toBe('—');
     });
