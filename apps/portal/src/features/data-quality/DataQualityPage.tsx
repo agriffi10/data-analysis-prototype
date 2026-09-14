@@ -215,11 +215,11 @@ export function DataQualityPage() {
  * writes an index entry, so it has no row here. A history page that silently omits failures
  * teaches the user to trust a list that is lying to them, so the omission is stated.
  *
- * WHY IT SAYS "always" AND NOT "usually". The failure notification
+ * WHY IT SAYS "always" AND NOT "usually". The failure notifications
  * survive everything that happens once an execution has STARTED — including a Lambda import
- * error and a Step Functions-level error, neither of which any verb can catch. What it could
- * not cover was a request that never started an execution at all (a malformed body the Pipe
- * rejects, which exhausts its receives into the DLQ): nothing ran, so nothing notified, and
+ * error and a Step Functions-level error, neither of which any verb can catch. What they could
+ * not cover was a request that never started an execution at all (one the Pipe failed to start
+ * on every receive, so the queue moved it to the DLQ): nothing ran, so nothing notified, and
  * this line hedged with "usually" for exactly that gap. **The DLQ drain** closed it — the request
  * DLQs drain back into the notification pipeline — so the hedge is now the inaccuracy.
  *
