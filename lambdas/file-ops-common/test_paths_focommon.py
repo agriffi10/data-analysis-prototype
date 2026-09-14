@@ -94,10 +94,9 @@ def test_the_fallback_is_on_ABSENCE_not_falsiness():
     ["", " ", "a/b", "..", ".", " leading", "trailing ", "with\x00null", "x" * 256],
 )
 def test_a_name_that_is_not_one_usable_segment_is_refused(name):
-    """The browser's leaf rule plus the two it does not carry — dot segments and a length cap —
-    because the browser only ever names a folder the user is looking at, and this plane accepts a
-    hand-crafted envelope. S3 does not normalise, so a name with a slash or a dot segment produces
-    a real object no listing renders and the browser can never reach or delete."""
+    """The browser's leaf rule plus the one it does not carry — a length cap — because this plane
+    accepts a hand-crafted envelope. S3 does not normalise, so a name with a slash or a dot segment
+    produces a real object no listing renders and the browser can never reach or delete."""
     with pytest.raises(TerminalError) as caught:
         paths.validate_target_name(name)
 

@@ -22,7 +22,7 @@ Public barrel: `features/file-browser/index.ts`.
 | `getObjectMetadata({ bucket, key })` | `objects.metadata` → `ObjectMetadata` (size/type/mtime/etag/storage class/custom). The pairs travel as rows and are folded back into a record here. 404 → error. |
 | `ensurePrefixMarker({ bucket, username })` | Idempotently create the user's `DO_NOT_DELETE.txt` root marker, in ONE call (a `Conflict` is the "already there" answer), once per session. |
 | `isPrefixMarkerKey(key, username)` | Is this exact key the user's root marker? |
-| `validateLeafName(name, label)` / `validateFolderName(name)` | One path-LEAF rule (non-empty, no surrounding spaces, no `/`, no control chars) with the caller's own noun; `validateFolderName` is it with `Folder name` (SPEC-173). |
+| `validateLeafName(name, label)` / `validateFolderName(name)` | One path-LEAF rule (non-empty, no surrounding spaces, no `/`, no control chars, not `.` or `..`) with the caller's own noun; `validateFolderName` is it with `Folder name` (SPEC-173). |
 | `uploadPercent(loaded, total)` | Clamp loaded/total to a 0–100 whole percent (zero-byte → 100). |
 
 

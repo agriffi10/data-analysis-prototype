@@ -680,6 +680,68 @@ describe('FileBrowser — resolving a collision through the UI (SPEC-154 FR-003)
     expect(screen.queryByRole('region', {name: 'Uploads'})).not.toBeInTheDocument();
     expect(mock.uploadFile).toHaveBeenCalledTimes(1);
   });
+
+  it('refuses a new name containing a slash, says why, and keeps the prompt open', async () => {
+    // The retried key is the original prefix plus this name, so a slash would land the file in a
+    // subfolder rather than beside the one it collided with.
+    mock.uploadFile.mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}} as never);
+
+    const {user} = renderBrowser();
+    await uploadInto(user);
+
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', {name: 'Rename'}));
+    const field = within(collisionPrompt()).getByLabelText('New name');
+    await user.clear(field);
+    await user.type(field, 'sub/notes.txt{Enter}');
+
+    // The prompt still being there is what proves Enter did not rename: a rename re-queues the row.
+    expect(within(collisionPrompt()).getByText("File name cannot contain '/'.")).toBeInTheDocument();
+    expect(within(collisionPrompt()).getByRole('button', {name: 'Save as new name'})).toBeDisabled();
+    expect(mock.uploadFile).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('FileBrowser — resolving a folder-name collision through the UI', () => {
+  const folderPrompt = () => screen.getByRole('alertdialog', {name: 'Folder already exists'});
+
+  async function createAndRenameTo(user: ReturnType<typeof renderBrowser>['user'], newName: string) {
+    await user.click(await screen.findByRole('button', {name: 'New folder'}));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByRole('textbox'), 'notes');
+    await user.click(within(dialog).getByRole('button', {name: /create/i}));
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', {name: 'Rename'}));
+    const field = within(folderPrompt()).getByLabelText('New name');
+    await user.clear(field);
+    await user.type(field, `${newName}{Enter}`);
+  }
+
+  it('refuses a new folder name containing a slash, in the folder wording, and creates nothing more', async () => {
+    mock.createFolder.mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}} as never);
+
+    const {user} = renderBrowser();
+    await createAndRenameTo(user, 'sub/notes');
+
+    expect(within(folderPrompt()).getByText("Folder name cannot contain '/'.")).toBeInTheDocument();
+    expect(mock.createFolder).toHaveBeenCalledTimes(1);
+  });
+
+  it('still retries an ordinary new name, without an overwrite', async () => {
+    // The positive control: the same keystrokes with a valid name do reach the create, so the
+    // refusal above is the rule firing rather than Enter doing nothing in this prompt.
+    mock.createFolder.mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}} as never);
+
+    const {user} = renderBrowser();
+    await createAndRenameTo(user, 'notes-2');
+
+    await waitFor(() => expect(mock.createFolder).toHaveBeenCalledTimes(2));
+    expect(mock.createFolder.mock.calls[1][0]).toEqual({
+      bucket: 'my-bucket',
+      prefix: 'alice/',
+      name: 'notes-2',
+      overwrite: false
+    });
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
 });
 
 // FR-003 AC3/AC5: the BATCH prompt, and the summary banner a user actually reads.
@@ -873,6 +935,27 @@ describe('FileBrowser — an upload watched to completion (SPEC-154 FR-004)', ()
     finish(ok({key: 'alice/up.txt'}));
     await user.click(await screen.findByRole('button', {name: 'Clear finished uploads from the list'}));
     expect(screen.queryByRole('region', {name: 'Uploads'})).not.toBeInTheDocument();
+  });
+
+  it('counts a row waiting on a name choice apart from the uploads in progress', async () => {
+    // A collided row moves nowhere until the user answers it, so counting it as in progress
+    // tells them to wait for something that is waiting for them.
+    mock.uploadFile.mockImplementation((async (params: {key: string}) =>
+      params.key === 'alice/notes.txt'
+        ? {success: false, error: {message: 'exists', code: 'Collision'}}
+        : new Promise(() => {})) as never);
+
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('button', {name: 'Upload'}));
+    await user.upload(await screen.findByLabelText('Choose files'), [
+      new File(['a'], 'notes.txt', {type: 'text/plain'}),
+      new File(['b'], 'up.txt', {type: 'text/plain'})
+    ]);
+
+    const list = await screen.findByRole('region', {name: 'Uploads'});
+    await within(list).findByRole('alertdialog', {name: 'File already exists'});
+    // The whole status, matched exactly: counted as in progress, the waiting row would read "2 in progress".
+    expect(within(list).getByText('1 in progress · 1 needs your choice')).toBeInTheDocument();
   });
 });
 
