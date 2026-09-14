@@ -532,6 +532,15 @@ jobs:
         if: always() && steps.gates.outcome == 'success'
         run: pip install "checkov==${CHECKOV_VERSION}"
 
+      # Both Checkov scans below go through .github/scripts/checkov-scan.sh, which refuses to
+      # scan if Checkov reports taking configuration from anywhere but its command line: a
+      # `.checkov.yml` in the scanned directory, the repo root or $HOME, or a flag's
+      # environment variable. That refusal never fires on a normal run, so this proves it
+      # still does, against the scanner just installed, before either gate relies on it.
+      - name: Prove the scans refuse configuration they were not given
+        if: always() && steps.gates.outcome == 'success'
+        run: .github/scripts/checkov-scan-test.sh
+
       - name: Scan infra/
         if: always() && steps.gates.outcome == 'success'
         # --soft-fail: checkov exits 1 merely because checks failed, which under
@@ -545,8 +554,11 @@ jobs:
         # check passed" from "this check never ran" without them. Those two must never look
         # alike. deploy-infra.yml's plan scan carries the same constraint for the same
         # reason, and a test in lambdas/test_security_gates.py pins the flag's absence.
+        #
+        # THROUGH checkov-scan.sh, never bare, for the reason given at the corpus step above.
+        # A refusal writes nothing, so the JSON check below fails the step.
         run: |
-          checkov -d infra \
+          .github/scripts/checkov-scan.sh -d infra \
             --framework terraform \
             --skip-path '.terraform' \
             --output json --compact --soft-fail > checkov.json || true
@@ -629,12 +641,13 @@ jobs:
       # wants a list per Dockerfile; the gap is recorded in docs/security-baseline.md rather
       # than half-closed here.
       #
-      # `--soft-fail` and the parse check for the same reasons the terraform scan gives: the
-      # exit code means two different things, and "did not run" is never "clean".
+      # `--soft-fail`, the parse check and the wrapper for the same reasons the terraform scan
+      # gives: the exit code means two different things, "did not run" is never "clean", and
+      # the scan's configuration is its command line and nothing Checkov finds on disk.
       - name: Scan lambdas/Dockerfile
         if: always() && steps.gates.outcome == 'success'
         run: |
-          checkov -f lambdas/Dockerfile \
+          .github/scripts/checkov-scan.sh -f lambdas/Dockerfile \
             --framework dockerfile \
             --output json --compact --soft-fail > checkov-dockerfile.json || true
           if ! jq -e '(if type=="array" then .[0] else . end) | .summary.failed' checkov-dockerfile.json >/dev/null 2>&1; then

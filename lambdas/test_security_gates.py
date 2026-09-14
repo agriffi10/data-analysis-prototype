@@ -17,7 +17,11 @@ read CI's own files as data for the same reason.
 import pathlib
 import re
 
+import pytest
+import yaml
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+WORKFLOWS = ROOT / ".github" / "workflows"
 SECURITY_WORKFLOW = ROOT / ".github" / "workflows" / "security.yml"
 INFRA_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-infra.yml"
 ENFORCED_LIST = ROOT / ".github" / "checkov-enforced.txt"
@@ -46,6 +50,35 @@ DOCKERFILE_ENFORCED_COUNT = 21
 #: The gate steps must default to a NON-NUMERIC sentinel. `${VAR:-0}` substitutes on empty as
 #: well as unset, so a numeric default turns "the narrowing step wrote nothing" into "clean".
 SENTINEL = "no-count"
+
+#: What a workflow line may say that contains "checkov" without running it: the gate's own four
+#: scripts by name, a scan output or list file, the pinned install, and the artifact's name in
+#: backticks, as a job summary prints it. Anything else on a line that still says "checkov" is
+#: taken to run it, however it is spelled, which is why this lists the harmless forms rather than
+#: the invocations. A new script is added here by hand, because this sweep reads workflows and not
+#: the scripts they call.
+_NOT_A_SCAN = re.compile(
+    r"(?<![\w-])checkov-(?:scan|scan-test|enforced|plan-iam)\.sh(?![\w.-])"
+    r"|[\w./-]*checkov[\w-]*\.(?:json|txt)(?![\w.-])"
+    r"""|\bpip3?\s+install\s+(["']?)checkov==[^\s"']+\1"""
+    r"|\\?`checkov\\?`"
+)
+
+#: The wrapper that refuses configuration Checkov reports taking from outside its command line,
+#: however its path is spelled, capturing the scan's first two arguments.
+WRAPPED_CHECKOV = re.compile(r"(?<![\w-])checkov-scan\.sh\s+(\S+\s+\S+)")
+
+#: The fixture corpus that proves the wrapper's refusal still fires, however its path is spelled.
+CORPUS_CALL = re.compile(r"(?<![\w-])checkov-scan-test\.sh(?![\w.-])")
+
+#: Every scan that must be found going through the wrapper, as (workflow, first two arguments).
+#: The positive control for the sweep below: a collector that stopped matching would otherwise
+#: report no bare invocation and pass.
+KNOWN_WRAPPED_SCANS = {
+    ("security.yml", "-d infra"),
+    ("security.yml", "-f lambdas/Dockerfile"),
+    ("deploy-infra.yml", "-f plan.json"),
+}
 
 
 def _gate_value(workflow: pathlib.Path, name: str) -> str:
@@ -159,9 +192,9 @@ def test_the_checkov_tf_scan_does_not_pass_quiet():
     Raises:
       AssertionError: If the flag is anywhere in the invocation.
     """
-    invocation = _invocation(SECURITY_WORKFLOW, "checkov -d infra")
+    invocation = _invocation(SECURITY_WORKFLOW, "checkov-scan.sh -d infra")
     assert "--quiet" not in invocation, (
-        "checkov -d infra passes --quiet, which strips passed_checks. The enforced gate cannot "
+        "the -d infra scan passes --quiet, which strips passed_checks. The enforced gate cannot "
         "tell 'this check passed' from 'this check never ran' without them."
     )
 
@@ -227,7 +260,7 @@ def test_the_checkov_dockerfile_scan_does_not_pass_quiet():
     Raises:
       AssertionError: When the invocation passes `--quiet`.
     """
-    invocation = _invocation(SECURITY_WORKFLOW, "checkov -f lambdas/Dockerfile")
+    invocation = _invocation(SECURITY_WORKFLOW, "checkov-scan.sh -f lambdas/Dockerfile")
     assert "--quiet" not in invocation, (
         "the dockerfile scan passes --quiet, which strips passed_checks — the enforced gate then "
         "cannot tell a check that passed from one that never ran, and hard-errors on every ID."
@@ -237,3 +270,195 @@ def test_the_checkov_dockerfile_scan_does_not_pass_quiet():
         "which under a report-mode gate is not a job failure. The count comes from the JSON."
     )
 
+
+def _steps_by_job(workflow: pathlib.Path) -> dict[str, list[dict]]:
+    """Reads a workflow's steps, job by job.
+
+    Args:
+      workflow: The workflow file to read.
+
+    Returns:
+      Each job's name mapped to its list of steps, in order.
+
+    Raises:
+      None.
+    """
+    document = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+    return {name: job.get("steps", []) for name, job in document.get("jobs", {}).items()}
+
+
+def _script_lines(step: dict) -> list[str]:
+    """Returns a step's ``run`` script as lines, without its shell comment lines.
+
+    A commented-out invocation runs nothing, so it neither needs the wrapper nor counts as a
+    scan that has it.
+
+    Args:
+      step: One workflow step.
+
+    Returns:
+      The script's lines, or an empty list for a step with no ``run``.
+
+    Raises:
+      None.
+    """
+    return [line for line in str(step.get("run", "")).splitlines() if not line.lstrip().startswith("#")]
+
+
+def _runs_checkov_outside_the_wrapper(line: str) -> bool:
+    """Says whether one line of a ``run`` script runs Checkov other than through the wrapper.
+
+    It removes the forms that say "checkov" without running it (``_NOT_A_SCAN``) and reads what
+    is left, so a spelling nobody listed, such as an environment prefix, ``time``, ``pipx run``
+    or a container image, is still caught. The cost is a false alarm on a new harmless form,
+    which fails loudly and is fixed by naming it there.
+
+    Args:
+      line: One line of a step's ``run`` script, comment lines already removed.
+
+    Returns:
+      True when the line still says "checkov" once the harmless forms are gone.
+
+    Raises:
+      None.
+    """
+    return "checkov" in _NOT_A_SCAN.sub("", line)
+
+
+@pytest.mark.parametrize(
+    ("line", "runs_it"),
+    [
+        ("checkov -d infra \\", True),
+        ("CKV_SKIP_CHECK=CKV_AWS_355 checkov -f plan.json", True),
+        ("env X=1 checkov -d infra", True),
+        ("if checkov -d infra; then", True),
+        ("time checkov -d infra", True),
+        ("pipx run checkov -d infra", True),
+        ('docker run --rm -v "$PWD:/w" bridgecrew/checkov -d /w/infra', True),
+        ("python3 -m checkov.main -d infra", True),
+        ("out=$(checkov -f plan.json)", True),
+        ("out=`checkov -f plan.json`", True),
+        (".github/scripts/checkov-scan.sh -d infra && checkov -f plan.json", True),
+        (".github/scripts/checkov-bare.sh -d infra", True),
+        ("../.github/scripts/checkov-scan.sh -f plan.json \\", False),
+        ("bash ./.github/scripts/checkov-scan.sh -d infra", False),
+        (".github/scripts/checkov-scan-test.sh", False),
+        ('pip install "checkov==${CHECKOV_VERSION}"', False),
+        ("findings=$(.github/scripts/checkov-enforced.sh checkov.json .github/checkov-enforced.txt)", False),
+        ("findings=$(../.github/scripts/checkov-plan-iam.sh checkov-plan.json ../.github/checkov-plan-accepted.txt)", False),
+        ('echo "::error title=Checkov (plan)::output is not valid"', False),
+        ('echo "_Per-resource detail is in the \\`checkov\\` artifact._"', False),
+    ],
+)
+def test_a_line_that_runs_checkov_is_found_however_it_is_spelled(line: str, runs_it: bool):
+    """The sweep's reading of one line, against a line whose verdict is known.
+
+    The sweep below passes on every workflow here, which proves the workflows pass and nothing
+    about whether the sweep can see an invocation. These rows are the positive control: the
+    spellings that escaped a sweep matching command positions, a wrapped scan followed by a bare
+    one, a script the allowlist does not name, and, for silence, every harmless form the
+    workflows use today.
+
+    Args:
+      line: One line of a ``run`` script.
+      runs_it: Whether the line runs Checkov outside the wrapper.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the sweep reads the line the other way.
+    """
+    assert _runs_checkov_outside_the_wrapper(line) is runs_it, (
+        f"{line!r} was read as {'running' if not runs_it else 'not running'} Checkov outside the wrapper"
+    )
+
+
+def test_every_checkov_scan_goes_through_the_config_refusal():
+    """No workflow runs Checkov except through ``checkov-scan.sh``.
+
+    Checkov takes configuration from a ``.checkov.yml`` in the scanned directory, the working
+    directory or $HOME, and from its flags' environment variables. Measured: one such file took
+    CKV_AWS_355 off the blocking plan gate while every other IAM check still ran. The wrapper
+    refuses to scan when Checkov reports configuration from outside its command line. A scan
+    added without it is open to the same file again and looks exactly as green, and so is the
+    Checkov GitHub Action, which runs the scanner where the wrapper cannot reach.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a step runs Checkov outside the wrapper or through its Action, or when
+        a known scan is not found going through the wrapper, which is what a collector that
+        stopped matching would look like.
+    """
+    bare = []
+    wrapped = set()
+    workflows = sorted(WORKFLOWS.glob("*.yml")) + sorted(WORKFLOWS.glob("*.yaml"))
+    for workflow in workflows:
+        for job, steps in _steps_by_job(workflow).items():
+            for step in steps:
+                if "checkov" in str(step.get("uses", "")).lower():
+                    bare.append(f"{workflow.name} / {job}: uses {step['uses']}")
+                for line in _script_lines(step):
+                    if _runs_checkov_outside_the_wrapper(line):
+                        bare.append(f"{workflow.name} / {job}: {line.strip()}")
+                    for match in WRAPPED_CHECKOV.finditer(line):
+                        wrapped.add((workflow.name, " ".join(match.group(1).split())))
+    assert not bare, (
+        "Checkov runs without .github/scripts/checkov-scan.sh, so a .checkov.yml or a CKV_* "
+        f"variable can change what its gate counts: {bare}"
+    )
+    missing = KNOWN_WRAPPED_SCANS - wrapped
+    assert not missing, (
+        f"scan(s) {sorted(missing)} not found going through checkov-scan.sh (found {sorted(wrapped)}). "
+        "Either a scan moved or the collector stopped matching, and a collector matching nothing "
+        "would also find no bare invocation."
+    )
+
+
+def test_the_config_refusal_is_proven_before_each_job_scans():
+    """Every job that scans through the wrapper runs its fixture corpus first, under the same condition.
+
+    The refusal never fires on a normal run, so a Checkov or ConfigArgParse release that stopped
+    reporting a config file the scan still reads would switch every refusal off with nothing
+    going red. The corpus plants configuration against the Checkov the job installed. It has to
+    run in that job, before the job's first scan, under the scan's own ``if:`` so that it runs
+    whenever the scan does, and without ``continue-on-error``, which would make its failure as
+    quiet as the one it catches.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a scanning job has no corpus step, runs it after its first scan,
+        runs it under another condition or lets it fail quietly, or when the two known scanning
+        jobs are not both found.
+    """
+    checked = set()
+    workflows = sorted(WORKFLOWS.glob("*.yml")) + sorted(WORKFLOWS.glob("*.yaml"))
+    for workflow in workflows:
+        for job, steps in _steps_by_job(workflow).items():
+            scans = [i for i, step in enumerate(steps) if any(WRAPPED_CHECKOV.search(line) for line in _script_lines(step))]
+            if not scans:
+                continue
+            checked.add((workflow.name, job))
+            corpus = [i for i, step in enumerate(steps) if any(CORPUS_CALL.search(line) for line in _script_lines(step))]
+            where = f"{workflow.name} / {job}"
+            assert corpus, f"{where} scans through checkov-scan.sh without running checkov-scan-test.sh"
+            assert corpus[0] < scans[0], f"{where} runs checkov-scan-test.sh after its first scan, which has already been read"
+            proof, first_scan = steps[corpus[0]], steps[scans[0]]
+            assert proof.get("if") == first_scan.get("if"), (
+                f"{where}: the corpus runs under if={proof.get('if')!r} and the first scan under "
+                f"if={first_scan.get('if')!r}, so the scan can run without the proof"
+            )
+            assert not proof.get("continue-on-error"), f"{where}: the corpus step may fail without failing the job"
+    assert {("security.yml", "scan"), ("deploy-infra.yml", "plan")} <= checked, (
+        f"expected the security scan job and the infra plan job among the scanning jobs, found {sorted(checked)}"
+    )

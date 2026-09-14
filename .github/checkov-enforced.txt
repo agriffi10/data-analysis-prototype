@@ -30,9 +30,11 @@
 # no VPC, no CMK, no X-Ray, no WAF, and S3 versioning (deferred by decision — revisit
 # before any real user data lands).
 #
-# TO REGENERATE after an intentional infra change:
-#   checkov -d infra --framework terraform --skip-path .terraform --output json --compact \
-#     --soft-fail > /tmp/ck.json
+# TO REGENERATE after an intentional infra change, through the same wrapper the gate uses, so a
+# `.checkov.yml` in infra/, the repo root or your home directory cannot drop an ID from the
+# measurement:
+#   .github/scripts/checkov-scan.sh -d infra --framework terraform --skip-path .terraform \
+#     --output json --compact --soft-fail > /tmp/ck.json
 #   jq -r '(if type=="array" then .[0] else . end) |
 #          ((.results.failed_checks // []) | map(.check_id) | unique) as $f |
 #          ((.results.passed_checks // []) | map(.check_id) | unique)
