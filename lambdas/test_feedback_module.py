@@ -188,7 +188,7 @@ def test_the_queue_is_fifo_with_its_own_dlq_and_encryption_on_both() -> None:
     """Its own DLQ, and both queues encrypted — ``CKV_AWS_27``/``CKV2_AWS_73`` are enforced at zero.
 
     A shared DLQ would let a malformed feedback submission dead-letter somebody's file operation,
-    which is the whole reason each plane has its own.
+    which is why feedback has its own.
     """
     sys.path.insert(0, str(REPO / "lambdas"))
     from tf_blocks import blocks
