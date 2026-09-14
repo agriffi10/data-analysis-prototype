@@ -4,12 +4,17 @@ on:
   # The workflow file itself is in the path filter: a change to how we plan, validate or
   # SCAN the infrastructure must re-run against the real infrastructure. Without it this
   # workflow can be edited — including the IAM scan below — and merged having never once
-  # executed, which is how a security check ships broken and looks fine.
+  # executed, which is how a security check ships broken and looks fine. The same holds for
+  # every script and list its steps read, the IAM gate's accept-list among them.
+  # lambdas/test_config_workflows.py fails when a run block names a file this list omits; a
+  # file only a script reaches, as lambdas/tf_blocks.py is, is kept here by hand.
   pull_request:
     branches: [main]
     paths: ['infra/**', '.github/workflows/deploy-infra.yml',
             '.github/scripts/checkov-scan.sh', '.github/scripts/checkov-scan-test.sh',
             '.github/scripts/lambda_plan_guard.py', '.github/scripts/tf_var_guard.py',
+            '.github/scripts/summary-section.sh', '.github/scripts/checkov-plan-iam.sh',
+            '.github/checkov-plan-accepted.txt', '.github/scripts/apply-gate.sh',
             'lambdas/fixtures/pre_cutover_plan.json',
             'lambdas/fleet.py', 'lambdas/tf_blocks.py']
   push:
@@ -17,6 +22,8 @@ on:
     paths: ['infra/**', '.github/workflows/deploy-infra.yml',
             '.github/scripts/checkov-scan.sh', '.github/scripts/checkov-scan-test.sh',
             '.github/scripts/lambda_plan_guard.py', '.github/scripts/tf_var_guard.py',
+            '.github/scripts/summary-section.sh', '.github/scripts/checkov-plan-iam.sh',
+            '.github/checkov-plan-accepted.txt', '.github/scripts/apply-gate.sh',
             'lambdas/fixtures/pre_cutover_plan.json',
             'lambdas/fleet.py', 'lambdas/tf_blocks.py']
   # Manual recovery lever. The push trigger above is the normal path, but GitHub

@@ -52,6 +52,8 @@ boto3
 # PyYAML, for the two workflow guards in test_ci_scope.py. They read `ci.yml`'s scope pattern
 # list and every step condition in `security.yml`'s scanner job — both of which stopped being
 # structural YAML guarantees and became strings, which is what made them need a guard at all.
+# test_config_workflows.py reads it too, to pair each path-filtered workflow's `paths:` lists
+# with the files its steps run.
 #
 # A real parser rather than the anchored regexes test_security_gates.py uses next door. Those
 # read fixed keys; these walk a step LIST and pair each step with its `if:`, and a regex that
