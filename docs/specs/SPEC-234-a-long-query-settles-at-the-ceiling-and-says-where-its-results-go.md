@@ -59,7 +59,18 @@ Read from the code at `090e595f`, unless a line says it was read live.
   first apply shows this today, and a first apply that outlives the ceiling would show it too.
 - **The Explorer's save refusal is worded for a failure.** A banner makes `failed` true, and
   `FAILED_NOT_SAVEABLE` reads "This query didn’t run, so there’s nothing to save. Fix it and try
-  again." Neither half of that is true of a query that is still running.
+  again." Neither half of that is true of a query that is still running. Create view takes the
+  same refusal (`createViewRefusal={saveRefusal ?? …}`).
+- **The Explorer remembers any error as a failed statement.** `DataExplorerWorkspace` calls
+  `noteFailure(sql)` whenever `exploration.error` is set. Back or Forward onto that description
+  is then held by `useExplorationQuery`, and the screen reads "This set of filters failed last time
+  it ran. Nothing has been run."
+- **Under a banner with no earlier result, the Explorer's body falls through to "No rows
+  returned."** once it stops loading (`body()` in `ExplorationResultsRegion`). A results error
+  already returns nothing there, because the banner has said it.
+- **Today's ceiling also bounds a poll that keeps failing.** The interval returns `false` at five
+  minutes whether or not the requests are failing. The Explorer does not pass `stopOnError`, so
+  that is the only thing that stops it polling a failing route.
 - **History.** `QueryHistoryRow` shows an entry with no terminal status as "Unknown".
 
 ### The decisions
@@ -94,25 +105,33 @@ Andrew made the first four, and the rest were settled while authoring.
     and `stopOnError` would be deciding something it was not written for.
   - The Query tab has to tell it apart from a failure anyway, because the banner title and the
     status bar's verdict are different.
-- **The verdict is taken from a status read after the ceiling, and never from the clock alone.** A
-  timer marks the ceiling, and the first status read after the mark decides. If that status is
-  terminal, it is delivered as usual. If it is `QUEUED` or `RUNNING`, the watch ends. A tab hidden
-  past the ceiling therefore decides on its first poll after it is shown again.
+- **The verdict is taken from a read after the ceiling, and never from the clock alone.** A timer
+  marks the ceiling, and the first read after the mark decides, whether it answers or fails. A
+  terminal status is delivered as usual. A `QUEUED` or `RUNNING` status ends the watch with the
+  verdict. A failed read, once its retry is spent, ends the watch with that error, so no screen
+  polls a failing route without bound, as today's ceiling also ensures. A tab hidden past the
+  ceiling therefore decides on its first poll after it is shown again.
+- **The verdict is not a failure the Explorer remembers.** Remembering it would suspend the
+  description on Back or Forward with a sentence that says it failed. Going back to it instead
+  starts a new watch, which looks again.
 - **The stop is `enabled` resolving `false`.** The browser Fences require this, since a query
   that is only stopped by its interval is still refetched on a reconnect.
 - **The banner is a warning, not the danger banner, and its title comes from the rule.** Nothing
   failed. The Query tab's "Query failed." title, and the bar's "Failed", would each be false here.
+  The title and variant follow whichever message the banner is showing, so a later failure keeps
+  "Query failed." and the danger variant.
 - **The status bar's verdict reads "Still running", with a neutral dot and no timer.** It is written
   in the bar beside "Succeeded", "Failed" and "Cancelled", because it is a state label and not an
   error sentence. A settled run needs a verdict on screen for Save results to sit beside
   (SPEC-233 FR-005), so a blank bar is not an option.
-- **In the Explorer, Save query stays available for a statement that outlived the ceiling.** The
-  refusal exists because a statement Athena rejected would not open where the save promises it
-  opens. A statement that is still running has no such problem, and a refusal reason written for a
-  failure would be false here.
-- **The Explorer's "Running…" under a banner is fixed for every banner, a failed first apply
-  included.** It is the same line of code, and fixing it only for the ceiling would take an extra
-  branch to keep a known defect.
+- **In the Explorer, Save query and Create view stay available for a statement that outlived the
+  ceiling.** The refusal exists because a statement Athena rejected would not open where the save
+  promises it opens. A statement that is still running has no such problem, and a refusal reason
+  written for a failure would be false here.
+- **Under any banner with no earlier result, the Explorer's body shows nothing, and nothing says
+  "Running…".** The banner has said what happened, which is the rule the body already follows for
+  a results error. This covers a failed first apply too. It is the same code, and fixing it only
+  for the ceiling would take an extra branch to keep a known defect.
 
 ## Scope
 
@@ -125,15 +144,21 @@ Andrew made the first four, and the rest were settled while authoring.
 - `lib/errorMessages.ts` gains one rule, `QueryStillRunning`, with a title and a sentence built
   from the ceiling in minutes and the execution id. `params` widens to carry the id.
 - `TabExecutionPoller` reports the verdict once per execution through `onStillRunning`, and
-  `useTabRuns` settles the run on it. `QueryWorkspace` builds the banner from it, and
-  `QueryResultsRegion` and `QueryResultsMobile` take the banner's title and variant from it.
+  `useTabRuns` settles the run on it. `QueryWorkspace` builds the banner's message from it, and
+  passes `QueryResultsRegion` and `QueryResultsMobile` a title and variant that follow whichever
+  message is shown.
 - `QueryStatusBar` takes a `stillRunning` prop, which owns the verdict the way `batchFailed` does.
+  `QueryResultsMobile` takes it as a prop for its strip, as it takes `batchFailed`.
 - `useExploration` routes the verdict to its `error` and stops reporting `isPending`.
-  `ExplorationResultsRegion` shows it as a warning, does not show "Running…" under any banner, and
-  does not refuse Save query for it.
+  `DataExplorerWorkspace` does not remember the verdict as a failed statement.
+  `ExplorationResultsRegion` shows it as a warning, shows nothing and no "Running…" under any
+  banner that has no earlier result, and does not refuse Save query or Create view for it.
+- `CLIENT_MINTED` in `lib/apiContract.guard.test.ts` gains `QueryStillRunning`, which puts the new
+  code under the guard that every code has a rule of its own.
 - The Query and Data Explorer Help guides (FR-004).
-- Hook tests on `useQueryExecution`, integration tests on `QueryWorkspace` and on
-  `DataExplorerWorkspace`, and a Help test.
+- Hook tests on `useQueryExecution`, with the five existing ones ported to the new shape rather
+  than dropped; integration tests on `QueryWorkspace` and on `DataExplorerWorkspace`; and a Help
+  test.
 
 ### Out of Scope
 
@@ -145,7 +170,9 @@ Andrew made the first four, and the rest were settled while authoring.
 - **A link from the banner to the Files folder.**
 - **`runStatementToCompletion`** (View DDL, Drop, Create view). It has its own bound of 90 polls,
   400 ms apart, and reports its outcome as a toast.
-- **The Explorer's polling after a failed request.** It keeps polling, as SPEC-233 left it.
+- **The Explorer's polling after a failed request before the ceiling.** It keeps polling, as
+  SPEC-233 left it. After the ceiling, FR-001 ends the watch on a failed read, which is the bound
+  today's ceiling already gave it.
 - **Raising Athena's DML quota, and any infrastructure, API or contract change.**
 
 ---
@@ -157,20 +184,25 @@ Andrew made the first four, and the rest were settled while authoring.
 #### Description:
 
 `useQueryExecution` watches an execution for `MAX_POLL_DURATION_MS`, which is now 30 minutes. The
-first status read after that mark decides. A terminal status is delivered as `status`, as it is
-today. A `QUEUED` or `RUNNING` status ends the watch. `stillRunning` is then set, and the hook asks
-nothing more about that execution: not on the interval, not on a reconnect. The verdict belongs to
-this watch, so a new watch of the same id looks again.
+first read after that mark decides. A terminal status is delivered as `status`, as it is today. A
+`QUEUED` or `RUNNING` status ends the watch, and `stillRunning` is set. A read that fails, once its
+retry is spent, ends the watch with that `error`, whether or not the caller passed `stopOnError`.
+Once the watch has ended, the hook asks nothing more about that execution: not on the interval,
+not on a reconnect. The verdict belongs to this watch, so a new watch of the same id looks again.
 
 #### Acceptance Criteria:
 
 - [ ] `MAX_POLL_DURATION_MS` is `30 * 60_000`.
 - [ ] With a status that stays `RUNNING`, `stillRunning` is null and polling continues just before
-  the ceiling. After the ceiling, the next status read sets `stillRunning` to
+  the ceiling. After the ceiling, the next status read sets `stillRunning` to an object matching
   `{code: 'QueryStillRunning', params: {limit: 30, queryExecutionId: 'q-1'}}`, with `limit` taken
   from `MAX_POLL_DURATION_MS`.
 - [ ] Once `stillRunning` is set, advancing the clock by at least twice `POLL_INTERVAL_MS` makes no
   further status request, and neither does going offline and back online.
+- [ ] Without `stopOnError`, a status request that fails on every attempt after the ceiling ends
+  the watch once its retry is spent. `error` is reported, `stillRunning` stays null, and advancing
+  the clock by twice `POLL_INTERVAL_MS` makes no further request. Before the ceiling, the same
+  failure keeps polling, as SPEC-233 left it.
 - [ ] A status that turns `SUCCEEDED` on the first read after the ceiling is delivered as `status`,
   and `stillRunning` stays null.
 - [ ] While the page is unfocused past the ceiling, no status is read and `stillRunning` stays
@@ -186,20 +218,26 @@ When the watch of the tab's current statement ends at the ceiling, the tab's run
 Nothing is in flight, Stop gives way to Run, and a batch stops at that statement, so the statements
 after it do not start. A warning banner titled "Still running" shows the rule's sentence. In a
 batch, the sentence is prefixed with "Statement N of M is still running." and followed by the
-existing note about the statements that did not run. The status bar reads "Still running". Nothing
-is sent to stop the execution, and its History entry keeps no verdict. The mobile results view
-shows the same sentence, and the same verdict on its strip.
+existing note about the statements that did not run. The banner's title and variant follow the
+message it is showing, so a start failure that outranks the sentence keeps "Query failed." and the
+danger variant. The status bar reads "Still running". Nothing is sent to stop the execution, and
+its History entry keeps no verdict. The mobile results view shows the same sentence, and the same
+verdict on its strip.
 
 #### Acceptance Criteria:
 
 - [ ] A single statement whose status stays `RUNNING` past the ceiling shows the banner "Still
   running" with "Data Quarry stopped waiting for this query after 30 minutes, so its results won’t
   appear here. When it finishes, they’re saved in your files under system_settings/athenaresults,
-  in a file named after its query ID (q-1)." The banner is not "Query failed.".
+  in a file named after its query ID (q-1)." The banner is not "Query failed.", and it carries the
+  warning variant's `bg-warning-soft` class. Both variants use `role="alert"`, so the class is what
+  tells them apart.
 - [ ] In the same test, after the banner is visible: "Running…" is gone, Stop is not offered,
   pressing Run starts a new execution (`runQuery` is called a second time), `stopQuery` is not
-  called, and `updateQueryHistoryEntry` is never called with `q-1`. Each of these is also true of
-  today's code, where nothing settles, so none of them proves anything on its own.
+  called, and `updateQueryHistoryEntry` is never called with `q-1`. The last two are also true of
+  today's code, where nothing settles, so they prove something only beside the banner.
+- [ ] After the verdict, pressing Run when the new statement fails to start shows the start
+  failure's sentence under "Query failed.", with the danger variant.
 - [ ] In a three-statement script whose second statement stays `RUNNING` past the ceiling,
   `runQuery` is called exactly twice, and the banner reads "Statement 2 of 3 is still running."
   followed by the sentence and " Statement 3 did not run."
@@ -216,19 +254,25 @@ shows the same sentence, and the same verdict on its strip.
 When the watch of an exploration's statement ends at the ceiling, the Explorer stops reporting the
 statement as pending. Its banner shows the same title and sentence as a warning, and "Running…"
 appears nowhere. Earlier rows in the tab stay on screen under the banner, as they do under a
-failure. Save query is not refused on the statement's account. Separately, no banner leaves
-"Running…" on screen when the tab has no earlier rows, and this includes a failed first apply.
+failure. With no earlier rows, the body under the banner shows nothing. Save query and Create view
+are not refused on the statement's account. The verdict is not remembered as a failed statement,
+so going back to that description looks again. Separately, no banner leaves "Running…" or "No rows
+returned." on screen when the tab has no earlier rows, and this includes a failed first apply.
 
 #### Acceptance Criteria:
 
-- [ ] A first apply whose status stays `RUNNING` past the ceiling shows a warning banner titled
-  "Still running" with the sentence, naming that execution's id, and "Running…" appears nowhere.
+- [ ] A first apply whose status stays `RUNNING` past the ceiling shows a banner titled "Still
+  running", with the sentence naming that execution's id and the `bg-warning-soft` class. Neither
+  "Running…" nor "No rows returned." appears.
 - [ ] When an earlier apply in the tab returned rows, those rows are still on screen under the
   banner.
-- [ ] Save query is not refused with "This query didn’t run, so there’s nothing to save. Fix it
-  and try again."
+- [ ] After the banner is visible, the "Save as query" item is not `aria-disabled` and opens its
+  dialog.
+- [ ] After the verdict, applying another filter and then pressing Back makes a new status request
+  for that statement's execution, and "This set of filters failed last time it ran. Nothing has
+  been run." does not appear.
 - [ ] A first apply that fails (`FAILED`, with a syntax-error reason) shows its danger banner, and
-  "Running…" appears nowhere.
+  neither "Running…" nor "No rows returned." appears.
 
 ### FR-004: The Help guides describe the ceiling
 
@@ -246,7 +290,8 @@ scanning, in Athena, and Stop is no longer offered for it. Its results are saved
   statement still running after 30 minutes, which stops the script in the same way.
 - [ ] Data Explorer › *Start exploring a table* gains a step that says the same about an apply.
 - [ ] A Help test asserts that each of those three texts names the ceiling in minutes computed from
-  `MAX_POLL_DURATION_MS`, and that the two describing the results name `athenaresults`.
+  `MAX_POLL_DURATION_MS`, and that the *Write and run a query* callout and the Explorer step name
+  `athenaresults`.
 
 ---
 
@@ -293,13 +338,22 @@ stillRunning?: boolean;
 // today's "Query failed." and 'danger'
 errorTitle?: string;
 errorVariant?: BannerVariant;
+
+// QueryResultsMobile — for its strip, passed like batchFailed, since it holds no run
+stillRunning: boolean;
 ```
 
-The ceiling's mark is a timer that the hook starts once per watch. A timer callback sets the mark,
-because the repo's `react-hooks` preset refuses a ref read, a `Date.now()` or a synchronous state
-update in a render or an effect body. The verdict is then derived during render from the mark, the
-latest status and that status's `dataUpdatedAt`. `enabled` is the function form, so it resolves
-`false` for the verdict just as it does for `stopOnError`.
+The watch is hook state, reset during render when the id changes. The ceiling's mark is set by a
+timer that the hook starts once per watch. The mark has to be state because render reads it, and
+the repo's `react-hooks` preset refuses a synchronous state update in an effect body, as well as a
+ref read or a `Date.now()` during render. A timer callback is none of those. The verdict is derived
+during render from the mark, the latest status or error, and its `dataUpdatedAt` or
+`errorUpdatedAt`. Those two fields are read only once the mark is set, and that matters in both
+directions. Read before the mark, they join TanStack's tracked properties, and every poll
+re-renders the hook's host, which undoes the reason for the new return shape. Never read, the
+deciding `RUNNING` read changes nothing the hook tracks, because the status object is identical
+while it is non-terminal, and the verdict would never render. `enabled` is the function form, so it
+resolves `false` for the verdict just as it does for `stopOnError`.
 
 ## File & Folder Structure
 
@@ -309,6 +363,7 @@ apps/portal/src/features/catalog/useQueryExecution.ts          # the watch, the 
 apps/portal/src/features/catalog/index.ts                      # exports the type and the guard
 apps/portal/src/features/catalog/queryExecutionHooks.test.ts   # FR-001
 apps/portal/src/lib/errorMessages.ts                           # QueryStillRunning, params widened
+apps/portal/src/lib/apiContract.guard.test.ts                  # CLIENT_MINTED gains the code
 apps/portal/src/features/query/TabExecutionPoller.tsx          # onStillRunning
 apps/portal/src/features/query/useTabRuns.tsx                  # settles the run
 apps/portal/src/features/query/QueryWorkspace.tsx              # the banner's text, title, variant
@@ -318,8 +373,11 @@ apps/portal/src/features/query/QueryStatusBar.tsx              # "Still running"
 apps/portal/src/features/query/QueryWorkspace.test.tsx         # FR-002
 apps/portal/src/features/query/queryWorkspaceMobile.test.tsx   # FR-002 mobile criterion
 apps/portal/src/features/data-explorer/useExploration.ts       # error and isPending
-apps/portal/src/features/data-explorer/ExplorationResultsRegion.tsx # banner, loading, save refusal
-apps/portal/src/features/data-explorer/<explorer test>.test.tsx     # FR-003
+apps/portal/src/features/data-explorer/DataExplorerWorkspace.tsx    # the verdict is not a failure
+apps/portal/src/features/data-explorer/ExplorationResultsRegion.tsx # banner, body, save refusal
+apps/portal/src/features/data-explorer/dataExplorerUi.test.tsx      # FR-003 AC1, AC5
+apps/portal/src/features/data-explorer/expressionBar.test.tsx       # FR-003 AC2, AC4
+apps/portal/src/features/data-explorer/saveExploration.test.tsx     # FR-003 AC3
 apps/portal/src/features/help/helpContent.ts                   # FR-004
 apps/portal/src/features/help/help.test.tsx                    # FR-004 criterion
 ```
