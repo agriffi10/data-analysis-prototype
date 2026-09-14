@@ -116,10 +116,10 @@ async function readDocument(): Promise<RuntimeConfigLoad> {
   try {
     body = await response.json();
   } catch {
-    // WHERE A MISSING DOCUMENT ACTUALLY ARRIVES. The static site answers a missing
-    // object with its own index.html under a 200, so the response is `ok` and full of
-    // markup; only parsing it tells the two apart. A loader keyed on the status reads
-    // an app shell as configuration and boots with everything undefined.
+    // A 2xx whose body does not parse, or is cut off mid-read. The container never serves
+    // markup here — its document is rendered JSON and a missing one is a 404 — but a server
+    // answering unknown paths with the app shell under a 200 would, and a loader keyed on
+    // the status alone reads that shell as configuration and boots with everything undefined.
     return {ok: false, reason: 'unparseable'};
   }
   return install(body);
