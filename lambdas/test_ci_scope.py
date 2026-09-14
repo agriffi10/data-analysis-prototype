@@ -1262,7 +1262,8 @@ def _run_scope(
         existing_tags: Tags the registry already holds, which is how a re-run is described. The
             literal ``HEAD`` stands for this commit's sha, which the caller cannot know in advance.
         dispatched: True to exercise the manual recovery lever.
-        tag_input: The dispatch's ``image_tag`` input.
+        tag_input: The dispatch's ``image_tag`` input. The literal ``HEAD`` stands for this
+            commit's sha, as it does in ``existing_tags``.
         rollout: The PRIMARY deployment's ``rolloutState``. Anything but ``COMPLETED`` describes a
             revision the service was pointed at and which never landed — the circuit breaker runs
             with rollback disabled, so PRIMARY stays on it.
@@ -1353,7 +1354,7 @@ def _run_scope(
             "NAME": "dat-prod-spa",
             "CLUSTER": "dat-prod-spa",
             "SERVICE": "dat-prod-spa",
-            "TAG_INPUT": tag_input,
+            "TAG_INPUT": head if tag_input == "HEAD" else tag_input,
             "DISPATCHED": "true" if dispatched else "false",
             "IMAGE_PATTERNS": step["env"]["IMAGE_PATTERNS"]
             if image_patterns is None
@@ -1525,8 +1526,16 @@ def test_every_unreadable_baseline_builds_and_deploys():
         )
 
 
-def test_a_dispatch_never_skips_the_deploy():
-    """The recovery lever is reached for when this step's own reasoning is what is wrong.
+def test_a_dispatch_with_an_empty_input_deploys_this_commit_building_it_only_if_absent():
+    """The recovery lever never skips: it is reached for when this step's own reasoning is wrong.
+
+    So a commit that changed nothing still deploys, and builds when the registry lacks it.
+    Naming this commit's own sha is the same request and is decided the same way: `names` checks
+    only that a tag OTHER than this commit exists, so this one arrives unchecked and has to be
+    asked about, never answered `skip` by construction. And asking is what lets a dispatch after
+    the push run already built this commit — the ordinary way to pick up a revision Terraform
+    registered — reuse the image, because the registry is IMMUTABLE and a rebuild fails at the
+    push.
 
     Args:
         None.
@@ -1535,11 +1544,93 @@ def test_a_dispatch_never_skips_the_deploy():
         None.
 
     Raises:
-        AssertionError: If a manual run can decide it has nothing to do.
+        AssertionError: If either spelling of "this commit" plans anything but a deploy of it,
+            or builds it when the registry already holds it, or skips building it when not.
     """
-    answers = _run_scope(("docs/architecture.md",), dispatched=True)
-    assert answers["deploy"] == "run"
-    assert answers["tag"] == answers["head"]
+    for tag_input, existing_tags, build in (
+        ("", (), "run"),
+        ("HEAD", (), "run"),
+        ("", ("HEAD",), "skip"),
+    ):
+        answers = _run_scope(
+            ("docs/architecture.md",),
+            dispatched=True,
+            tag_input=tag_input,
+            existing_tags=existing_tags,
+        )
+        plan = (answers["tag"], answers["build"], answers["deploy"])
+        assert plan == (answers["head"], build, "run"), (
+            f"a dispatch naming [{tag_input}] with the registry holding {existing_tags} "
+            f"planned {plan}"
+        )
+
+
+def test_a_dispatch_naming_an_existing_older_tag_re_points_without_building():
+    """The lever's other half points the service at an image that is already built.
+
+    `names` refuses a tag the registry does not hold, so one that reaches the scope step exists
+    and answers `skip` by construction, as every other re-point does. It is never asked about,
+    because a failed read is not an absent image: answering "absent" for an older sha builds the
+    CURRENT tree and pushes it under that older commit's tag. The registry read fails in the
+    second run, so the answer is pinned to the construction rather than to what the read says.
+    This commit changes the bundle, so falling through to the push path would build it instead.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If the named tag is refused, rebuilt, or replaced by another.
+    """
+    older = "a" * 40
+    for ecr_call in ("ok", "fails"):
+        answers = _run_scope(
+            ("apps/portal/src/App.tsx",),
+            dispatched=True,
+            tag_input=older,
+            existing_tags=(older,),
+            ecr_call=ecr_call,
+        )
+        plan = (answers["tag"], answers["build"], answers["deploy"])
+        assert plan == (older, "skip", "run"), (
+            f"a dispatch naming an existing tag, registry read {ecr_call}, planned {plan}"
+        )
+
+
+def test_a_dispatch_naming_a_tag_the_cli_would_respell_is_refused():
+    """`names` looks the tag up through the CLI, which trims it and strips quotes from around it.
+
+    So a padded or quoted input is found under a different spelling from the one the scope step
+    would write out, and the register step would then name an image that does not exist. Every
+    row is an input the CLI reduces to the bare tag, which the registry holds, so the refusal can
+    come only from the tag grammar. The two newline rows are what a dropped anchor would let
+    through, one row per anchor, and a newline is also what would write a second line into
+    ``$GITHUB_OUTPUT``.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If any respelled input is planned rather than refused for its form.
+    """
+    older = "a" * 40
+    for tag_input in (f" {older} ", f"'{older}'", f"{older}\n", f"\n{older}"):
+        refused = _run_scope(
+            ("docs/architecture.md",),
+            dispatched=True,
+            tag_input=tag_input,
+            existing_tags=(older,),
+            expect_failure=True,
+        )
+        assert "title=Malformed tag" in refused["stdout"], (
+            f"a dispatch naming {tag_input!r} was refused for another reason:\n"
+            f"{refused['stdout']}"
+        )
 
 
 def test_a_re_run_reuses_the_image_its_first_attempt_pushed():

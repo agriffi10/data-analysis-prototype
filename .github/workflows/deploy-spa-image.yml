@@ -30,6 +30,11 @@ name: Deploy SPA image
 # the running container keeps the old value until the next push to main. And if this pipeline
 # lands broken, the registry is IMMUTABLE: the failing sha cannot be re-pushed, and no local
 # identity may write to production. A dispatch with an existing tag re-points without rebuilding.
+#
+# A RE-POINT AT AN OLDER TAG DOES NOT OUTLAST THE NEXT PUSH TO MAIN if anything the image reads
+# changed since that tag. That run reads the tag back as its baseline, so the commit rolled back
+# from is inside its diff and main is rebuilt over the rollback. A rollback buys time for a
+# revert to land; it does not stand in for one.
 
 on:
   push:
@@ -37,7 +42,7 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: 'Tag to deploy. Empty means build this commit. Naming an EXISTING tag skips the build and only re-points the service.'
+        description: 'Tag to deploy. Empty means this commit, built unless the registry already holds it. Naming an EXISTING tag skips the build and only re-points the service, until the next push to main rebuilds main over it.'
         required: false
         default: ''
 
@@ -177,8 +182,9 @@ jobs:
           # push it under that tag. Against an IMMUTABLE repository that fails at the push blaming
           # tag immutability rather than the throttle; against one whose lifecycle policy had
           # expired the image it succeeds, and the tag permanently names a build of a different
-          # tree. Every re-point path answers `skip` by construction instead: it points at the
-          # image the service is already running, which therefore exists.
+          # tree. Every re-point path answers `skip` by construction instead: it points at an image
+          # already known to exist — the one the service is running, or the one a dispatch named
+          # and `names` found in the registry.
           decide_build() {
             if [ "$1" != "$GITHUB_SHA" ]; then
               echo "::error title=Internal::decide_build was asked about $1, which is not this commit. A re-point must answer skip by construction rather than asking the registry."
@@ -195,10 +201,32 @@ jobs:
           # A DISPATCH NEVER SKIPS. It is the recovery lever, and the reason to reach for it is
           # always something this step's own reasoning cannot see — so it does what the workflow
           # did before this step existed: build this commit, or re-point at a tag that exists.
+          #
+          # A NAMED TAG THAT IS NOT THIS COMMIT IS A RE-POINT, and answers `skip` by construction
+          # like every other. The condition is the one `names` tests before refusing a tag the
+          # registry does not hold, so every tag that reaches this branch was found there — and
+          # handing it to `decide_build` instead would ask the registry about an older sha, which
+          # is the question that function refuses. This commit's own sha, named or left empty, is
+          # the one `names` never checks, so it is asked about rather than assumed.
+          #
+          # FOUND UNDER THE SPELLING THIS STEP WRITES OUT, which only the tag grammar guarantees.
+          # The CLI trims the value `names` hands it and strips quotes from around it, so ` abc `
+          # and `'abc'` are both looked up as `abc` — found, then written out as typed, naming an
+          # image that does not exist. Inside the grammar the CLI sends the value verbatim, and
+          # every tag this workflow pushes is a commit sha. It also keeps a newline out of
+          # `$GITHUB_OUTPUT`.
           if [ "$DISPATCHED" = 'true' ]; then
-            TAG="${TAG_INPUT:-$GITHUB_SHA}"
-            decide_build "$TAG"
-            emit "$TAG" "$BUILD" run
+            if [ -n "$TAG_INPUT" ] && [ "$TAG_INPUT" != "$GITHUB_SHA" ]; then
+              tag_grammar='^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$'
+              if ! [[ "$TAG_INPUT" =~ $tag_grammar ]]; then
+                echo "::error title=Malformed tag::the image_tag input is not a bare image tag — letters, digits, '_', '.' and '-', with no spaces or quotes. Name the commit sha the image was pushed under."
+                exit 1
+              fi
+              emit "$TAG_INPUT" skip run
+            else
+              decide_build "$GITHUB_SHA"
+              emit "$GITHUB_SHA" "$BUILD" run
+            fi
             exit 0
           fi
 
@@ -390,9 +418,9 @@ jobs:
       # task start with a manifest error that reads nothing like the architecture mismatch it is.
       - name: Build
         if: steps.scope.outputs.build == 'run'
-        # Through `env:`, like every other value here. The tag can originate in a dispatch input,
-        # and a value interpolated straight into `run:` is a command-injection sink — and one
-        # carrying a newline could write a second line into $GITHUB_OUTPUT above.
+        # Through `env:`, like every other value here. The tag a build sees is always this commit,
+        # but the one the register and assert steps see can originate in a dispatch input, and a
+        # value interpolated straight into `run:` is a command-injection sink.
         env:
           TAG: ${{ steps.scope.outputs.tag }}
         run: |
