@@ -833,8 +833,8 @@ module "notifications" {
   logs_queue_url = module.observability.logs_queue_url
 
   # base grants the deploy role its SQS/Lambda/event-source-mapping/IAM/logs perms for
-  # this module (already applied); data creates the portal role this
-  # module attaches the enqueue policy to. Force both to settle first.
+  # this module (already applied); data creates the portal role whose unique ID the
+  # writer refuses a `create` from. Force both to settle first.
   depends_on = [module.base, module.data]
 }
 
