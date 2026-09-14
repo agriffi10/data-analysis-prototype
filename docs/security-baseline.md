@@ -463,7 +463,8 @@ unique ID which Terraform sets on the function. That is the "infrastructure-set 
 smuggle" this entry called for, obtained from the service rather than added to the message: `SenderId`
 is a message *system* attribute, so a `SendMessage` cannot set it. A refusal **logs and drops** — it
 does not raise — because this queue's DLQ is deliberately undrained and dead-lettering every forged
-request would hand any signed-in user a way to drown the plane's only operator-facing signal.
+request would hand ~~any signed-in user~~ **— superseded by SPEC-200:** whoever could send as the
+portal role, which no signed-in user now can, a way to drown the plane's only operator-facing signal.
 
 The second fix shape this entry proposed — splitting `create` onto its own queue — was **rejected with
 reasons** rather than merely not chosen: two queues means two event-source mappings and two concurrent

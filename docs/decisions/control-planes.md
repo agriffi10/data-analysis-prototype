@@ -1224,7 +1224,8 @@ an explicit IAM change to exist.
 
 **A refusal LOGS AND DROPS; it does not raise.** Raising would cost three invocations and one permanent
 dead-letter message per forged request, on the queue whose DLQ SPEC-126 deliberately leaves undrained
-and which is this plane's only operator-facing signal — handing every signed-in user a way to drown it.
+and which is this plane's only operator-facing signal — handing ~~every signed-in user~~ **— superseded
+by SPEC-200:** whoever could send as the portal role, which no signed-in user now can, a way to drown it.
 The structured `observability.error` therefore *is* the signal, and has to be, precisely because nothing
 accumulates to notice. It carries the reason code and the SQS `messageId` (both service-stamped) and
 **nothing from the body**: echoing it would move the injection from the victim's inbox to the operator's
