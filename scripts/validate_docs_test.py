@@ -56,6 +56,11 @@ AREA_ONE = (
     "## Fences\n\n- **Alpha** — fence.\n\n## Alpha\n\nR.\n")
 RULE = ("---\npaths:\n  - \"{glob}\"\n---\n\nThis file is in the **{label}** area of the Key Decisions register.\n"
         "Before changing it, read `docs/decisions" + "/{area}.md#fences` — the traps there apply green and fail later.\n")
+# The inventory page every case starts from: the directory it covers declared in its H1, and one
+# row on line 7, so a row a case appends is on line 8.
+DEMO = "apps/portal/src/features/demo"
+INVENTORY_PAGE = ("# Demo feature (`" + DEMO + "/`)\n\nIntro.\n\n| Symbol | File | Purpose |\n|---|---|---|\n"
+                  "| `Widget` | `Widget.tsx` | The row the baseline needs. |\n")
 
 
 def build(root: pathlib.Path) -> None:
@@ -131,6 +136,10 @@ def build(root: pathlib.Path) -> None:
         "  # test_the_cap_is_held READS THIS NUMBER.\n  cap = 1\n}\n")
     (root / "lambdas" / "info" / "planes" / "cited.md").write_text(
         "# Cited plane\n\nThe sweep in test_cited.py forbids a second one.\n")
+    # check_inventory_files refuses a run that read no inventory page, and a page it read no row
+    # from, so the baseline carries one page whose one row resolves.
+    _write(root, INV("demo-feature.md"), INVENTORY_PAGE)
+    _write(root, DEMO + "/Widget.tsx", "export const Widget = 1;\n")
 
 
 def run(root: pathlib.Path) -> tuple[int, str]:
@@ -169,10 +178,26 @@ def D(*parts: str) -> str:
     return "/".join(("docs", *parts))
 
 
+def INV(name: str) -> str:
+    """A fixture path in the component inventory, spelled so no literal names a ``.md`` file."""
+    return f"apps/portal/info/component-inventory/{name}"
+
+
 def _write(root, rel, text):
     p = root / rel
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(text)
+
+
+def _inventory(root, rows="", after="", page=INVENTORY_PAGE):
+    """Rewrite the demo inventory page: its table plus ``rows``, then ``after`` beneath it."""
+    _write(root, INV("demo-feature.md"), page + rows + after)
+
+
+def _touch(root, *rels):
+    """Create the source files a row under test names."""
+    for rel in rels:
+        _write(root, rel, "export {};\n")
 
 
 def _spec(n, frs, status="Draft"):
@@ -857,6 +882,118 @@ CASES = [
                        "def test_the_CAP_is_held():\n    assert True\n"),
                 _cite(r, 0, "lambdas/cited/upper.py",
                       '"""Held by ``test_the_CAP_is_held``."""\n')],
+     0, ""),
+
+    # ---- check_inventory_files ------------------------------------------------------------
+    # The case the check exists for. The line number is asserted here once, so a message that
+    # blames the wrong row cannot pass.
+    ("inventory_row_outlives_its_file",
+     lambda r: _inventory(r, "| `Panel` | `Panel.tsx` | Deleted. |\n"),
+     1, "demo-feature.md:8: `Panel.tsx` is not in `" + DEMO + "/`"),
+    # A bare name means the declared directory itself. Read against the directories above it as
+    # well, it would find this file higher up and pass a row naming nothing in the feature.
+    ("inventory_bare_name_found_only_higher_up",
+     lambda r: [_touch(r, "apps/portal/src/main.tsx"),
+                _inventory(r, "| `main` | `main.tsx` | Not in this feature. |\n")],
+     1, "`main.tsx` is not in `" + DEMO + "/`"),
+    ("inventory_spelled_path_resolves_nowhere",
+     lambda r: _inventory(r, "| `helper` | `lib/absent.ts` | Gone. |\n"),
+     1, "`lib/absent.ts` is not in `" + DEMO + "/` or any directory above it"),
+    # Every span in a cell is a claim, not only the first.
+    ("inventory_second_name_in_a_cell",
+     lambda r: _inventory(r, "| `Widget` / `Absent` | `Widget.tsx`, `Absent.tsx` | Half gone. |\n"),
+     1, "`Absent.tsx` is not in"),
+    ("inventory_same_folder_symbol_without_a_file",
+     lambda r: _inventory(r, "| `Widget`, `Ghost` | (same folder) | One gone. |\n"),
+     1, "`Ghost` is filed as (same folder), but Ghost.tsx or Ghost.ts is not in"),
+    ("inventory_glob_symbol_without_a_file",
+     lambda r: _inventory(r, "| `Widget` / `Ghost` | `*.tsx` | One gone. |\n"),
+     1, "`Ghost` is filed as `*.tsx`, but Ghost.tsx is not in"),
+    ("inventory_derived_form_without_symbols",
+     lambda r: _inventory(r, "| — | (same folder) | Names nothing. |\n"),
+     1, "(same folder) stands for each symbol's own file, but the Symbol cell names none"),
+    # A tombstone claims ABSENCE, so it is checked the other way round.
+    ("inventory_tombstone_for_a_file_that_is_back",
+     lambda r: _inventory(r, "| — | `Widget.tsx` is **gone** | It came back. |\n"),
+     1, "`Widget.tsx` is recorded as gone, but it exists"),
+    # Refused rather than skipped: a cell the check cannot read is a row it has stopped checking.
+    ("inventory_cell_without_backticks",
+     lambda r: _inventory(r, "| `Widget` | Widget.tsx | Unquoted. |\n"),
+     1, "the File cell 'Widget.tsx' names nothing in backticks"),
+    # This name WOULD resolve if a dot segment were allowed, which makes the case a test of the
+    # grammar rather than of existence.
+    ("inventory_span_that_walks_out",
+     lambda r: _inventory(r, "| `Widget` | `../demo/Widget.tsx` | Traverses. |\n"),
+     1, "`../demo/Widget.tsx` in the File column is neither a file nor a directory name"),
+    # Passes on a case-insensitive disk — macOS, where these sessions run — and fails on the Linux
+    # runner, unless the check matches the spelling of each component.
+    ("inventory_wrong_case",
+     lambda r: _inventory(r, "| `Widget` | `widget.tsx` | Wrong case. |\n"),
+     1, "`widget.tsx` is not in"),
+    ("inventory_moved_to_a_directory_that_is_gone",
+     lambda r: _inventory(r, "| `Thing` | moved to `features/gone/` | Moved again. |\n"),
+     1, "`features/gone/` is not in `" + DEMO + "/` or any directory above it"),
+    ("inventory_declared_directory_missing",
+     lambda r: _inventory(r, page=INVENTORY_PAGE.replace(DEMO, "apps/portal/src/features/renamed")),
+     1, "declares `apps/portal/src/features/renamed/`, which does not exist"),
+    # Under a heading declaring its own directory, a bare name is read THERE. `Widget.tsx` is in
+    # the page's directory, so a check still reading the H1's would pass this row.
+    ("inventory_subheading_rebases",
+     lambda r: [_touch(r, "apps/portal/src/routes/Route.tsx"),
+                _inventory(r, after="\n## Routes (`apps/portal/src/routes/`)\n\n| Symbol | File | Purpose |\n"
+                                    "|---|---|---|\n| `Widget` | `Widget.tsx` | Not a route. |\n")],
+     1, "`Widget.tsx` is not in `apps/portal/src/routes/`"),
+    # The two positive controls: a page the parser reads nothing from, and no pages at all, would
+    # each otherwise pass exactly like an inventory with nothing wrong in it.
+    ("inventory_page_with_no_file_column",
+     lambda r: _write(r, INV("other-feature.md"), "# Other (`" + DEMO + "/`)\n\n| Symbol | Path | Purpose |\n"
+                      "|---|---|---|\n| `Widget` | `Widget.tsx` | Unread. |\n"),
+     1, "other-feature.md: no row read from a table with a `File` column"),
+    ("inventory_directory_gone",
+     lambda r: shutil.rmtree(r / INV("")),
+     1, "component-inventory/ holds no pages"),
+    ("inventory_multi_name_cells_ok",
+     lambda r: [_touch(r, DEMO + "/useWidget.ts"),
+                _inventory(r, "| `Widget` / `useWidget` | `Widget.tsx` / `useWidget.ts` | Slash. |\n"
+                              "| `Widget`, `useWidget` | `Widget.tsx`, `useWidget.ts` | Comma. |\n"
+                              "| `useWidget` | `useWidget.ts` (+ `Widget.tsx`) | Parenthesised. |\n")],
+     0, ""),
+    # Rows spell paths from different roots, and each has to resolve.
+    ("inventory_spelled_paths_ok",
+     lambda r: [_touch(r, "apps/portal/src/lib/helper.ts"),
+                _inventory(r, "| `helper` | `lib/helper.ts` | From src. |\n"
+                              "| `helper` | `src/lib/helper.ts` | From the portal. |\n"
+                              "| `helper` | `apps/portal/src/lib/helper.ts` | From the root. |\n"
+                              "| `Widget` | `features/demo/Widget.tsx` | Its own feature, spelled out. |\n")],
+     0, ""),
+    ("inventory_symbol_named_files_ok",
+     lambda r: [_touch(r, DEMO + "/Gadget.ts", DEMO + "/Gizmo.tsx"),
+                _inventory(r, "| `Widget`, `Gadget` | (same folder) | A .tsx and a .ts. |\n"
+                              "| `Widget` / `Gizmo(props)` | `*.tsx` | Each in its own file. |\n")],
+     0, ""),
+    ("inventory_tombstones_ok",
+     lambda r: [_touch(r, "apps/portal/src/features/other/Thing.ts"),
+                _inventory(r, "| `Thing` | moved to `features/other/` | Moved. |\n"
+                              "| — | `old.format.ts` is **gone** | Deleted. |\n")],
+     0, ""),
+    # An escaped pipe is not a column boundary. Split on it, and the File column reads `null)`.
+    ("inventory_escaped_pipe_ok",
+     lambda r: [_touch(r, DEMO + "/useWidget.ts"),
+                _inventory(r, "| `useWidget(id \\| null)` | `useWidget.ts` | Escaped. |\n")],
+     0, ""),
+    # The router declares no directory, and its File column is links to the pages beside it —
+    # which is where a page that declares nothing is read.
+    ("inventory_router_page_ok",
+     lambda r: _write(r, INV("INDEX.md"), "# Inventory\n\nRouter.\n\n| Area | File |\n|---|---|\n"
+                      "| Demo | [`demo-feature.md`](demo-feature.md) |\n"),
+     0, ""),
+    # A declaring subheading's scope ends at the next heading at its level.
+    ("inventory_subheading_scope_ends_ok",
+     lambda r: [_touch(r, "apps/portal/src/routes/Route.tsx"),
+                _inventory(r, after="\n## Routes (`apps/portal/src/routes/`)\n\n| Symbol | File | Purpose |\n"
+                                    "|---|---|---|\n| `Route` | `Route.tsx` | A route. |\n"
+                                    "\n## More\n\n| Symbol | File | Purpose |\n|---|---|---|\n"
+                                    "| `Widget` | `Widget.tsx` | Back in the feature. |\n")],
      0, ""),
 ]
 

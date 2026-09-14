@@ -142,6 +142,9 @@ Attributes:
     it counts is a defect rather than a legitimate cost, so room to spare would be permission to
     add one. The single legitimate case that reaches a zero ratchet is a retirement record worded
     outside ``RETIREMENT_RE``, and the answer to that is to reword it, never to raise this.
+  INVENTORY_DIR: The component inventory, one page per area of the portal's source, each a table
+    of the reusable symbols there and the file each lives in. ``check_inventory_files`` reads
+    every page under it, and refuses to pass having found none.
 """
 
 import fnmatch
@@ -315,6 +318,7 @@ class Citations(typing.NamedTuple):
     sites: list[tuple[int, str, bool]]
     grammars: list[str]
 TEST_CITATION_MAX = 0
+INVENTORY_DIR = "apps/portal/info/component-inventory"
 
 
 class DocsError(Exception):
@@ -1496,6 +1500,221 @@ def check_links() -> list[str]:
     return errors
 
 
+#: A heading that declares the directory the tables beneath it cover: its text ENDS in that
+#: directory as a code span in parentheses, the form every inventory page's H1 takes. A deeper
+#: heading in the same form re-bases the tables under it, until the next heading at its level or
+#: above; one page does this, for route components that live outside its feature.
+INVENTORY_BASE_RE = re.compile(r"^(#{1,6}) .*\(`([^`]+/)`\)\s*$")
+
+#: A File-column code span that names a file, or a directory when it ends in ``/``. No segment
+#: may begin with a dot, so ``..`` cannot walk a row out of the directory it is read against.
+INVENTORY_NAME_RE = re.compile(
+    r"^(?:[\w@+-][\w.@+-]*/)*[\w@+-][\w.@+-]*\.[A-Za-z0-9]+$|^(?:[\w@+-][\w.@+-]*/)+$"
+)
+
+#: ``*.tsx`` in a File cell: each symbol in the row, in a file of its own name.
+INVENTORY_GLOB_RE = re.compile(r"^\*(\.[A-Za-z0-9]+)$")
+
+#: A tombstone: a row recording that a file was deleted, which is a claim that it is ABSENT.
+INVENTORY_GONE_RE = re.compile(r"`([^`]+)` is \*\*gone\*\*")
+
+
+def _spelled_exactly(path: pathlib.Path, directory: bool) -> bool:
+    """Whether ``path`` exists with every component in the case the doc spells it.
+
+    ``Path.exists`` says yes to ``uploadlist.tsx`` on macOS, whose default filesystem ignores
+    case, and no on the Linux runner, so a row naming the wrong case would pass the session that
+    wrote it and fail CI. Matching each component against its directory's entries makes the two
+    agree.
+
+    Args:
+      path: An absolute path under ``ROOT``.
+      directory: Whether a directory is wanted rather than a file.
+
+    Returns:
+      ``True`` when every component is an entry of its parent and the last is of the wanted kind.
+
+    Raises:
+      None.
+    """
+    current = ROOT
+    for part in path.relative_to(ROOT).parts:
+        try:
+            entries = os.listdir(current)
+        except OSError:
+            return False
+        if part not in entries:
+            return False
+        current = current / part
+    return current.is_dir() if directory else current.is_file()
+
+
+def _inventory_resolves(name: str, base: pathlib.Path) -> bool:
+    """Whether a File-column name is where its row says it is.
+
+    A bare name must be IN the directory the page declares: letting it match further up would let
+    an ``index.ts`` resolve to some other folder's. A name carrying a slash is a path the row
+    spells out, and rows spell them from different roots — ``features/auth/useAuth.ts`` from
+    ``src/``, ``src/types/archive.types.ts`` from the portal — so it is read against the declared
+    directory and each directory above it, up to the repository root and never past it.
+
+    Args:
+      name: The name as the cell spells it; a trailing ``/`` names a directory.
+      base: The directory the page declares for this row.
+
+    Returns:
+      ``True`` when some reading of the name exists, in the case it is spelled.
+
+    Raises:
+      None.
+    """
+    anchors = [base]
+    if "/" in name.rstrip("/"):
+        anchors += [p for p in base.parents if p == ROOT or ROOT in p.parents]
+    return any(_spelled_exactly(a / name.rstrip("/"), name.endswith("/")) for a in anchors)
+
+
+def _inventory_row_problems(file_cell: str, symbol_cell: str, base: pathlib.Path, where: str) -> list[str]:
+    """What is wrong with one inventory row's File cell, if anything.
+
+    Four forms are read, each found in the inventory rather than assumed. A code span is a file,
+    or a directory when it ends in ``/`` (the "moved to" rows); a cell may carry several however
+    they are separated, since only the spans are read. ``(same folder)`` and ``*.tsx`` stand for
+    each symbol in the row in a file of its own name, so the Symbol cell supplies the names. And
+    a span followed by "is **gone**" records a deletion, which is checked the other way round: the
+    tombstone is false once the file is back. Anything else is refused rather than skipped,
+    because a cell this check cannot read is a row it has quietly stopped checking.
+
+    Args:
+      file_cell: The row's File cell, stripped.
+      symbol_cell: The row's Symbol cell, stripped; empty when the table has none.
+      base: The directory the page declares for this row.
+      where: ``base`` as a message names it.
+
+    Returns:
+      One message per claim that does not hold, empty when the row holds.
+
+    Raises:
+      None.
+    """
+    symbols = [m.group(0) for span in CODE_SPAN_RE.findall(symbol_cell)
+               if (m := re.match(r"[A-Za-z_$][\w$]*", span))]
+    gone = set(INVENTORY_GONE_RE.findall(file_cell))
+    spans = CODE_SPAN_RE.findall(file_cell)
+    derived: list[tuple[str, tuple[str, ...]]] = []
+    problems: list[str] = []
+    if file_cell == "(same folder)":
+        derived.append(("(same folder)", (".tsx", ".ts")))
+    elif not spans:
+        return [(f"the File cell {file_cell!r} names nothing in backticks, so nothing about it can be "
+                 "checked — write the file as a code span, or `(same folder)` for symbols each in a "
+                 "file of their own name")]
+    for span in spans:
+        glob = INVENTORY_GLOB_RE.match(span)
+        if glob:
+            derived.append((f"`{span}`", (glob.group(1),)))
+        elif not INVENTORY_NAME_RE.match(span):
+            problems.append(f"`{span}` in the File column is neither a file nor a directory name, so "
+                            "nothing about it can be checked")
+        elif span in gone:
+            if _inventory_resolves(span, base):
+                problems.append(f"`{span}` is recorded as gone, but it exists — the tombstone is false")
+        elif not _inventory_resolves(span, base):
+            above = " or any directory above it" if "/" in span.rstrip("/") else ""
+            problems.append(f"`{span}` is not in {where}{above} — the row has outlived its file: "
+                            "delete it, or point it at where the symbol lives now")
+    for form, suffixes in derived:
+        if not symbols:
+            problems.append(f"{form} stands for each symbol's own file, but the Symbol cell names "
+                            "none in backticks")
+        for symbol in symbols:
+            if not any(_inventory_resolves(symbol + suffix, base) for suffix in suffixes):
+                names = " or ".join(symbol + suffix for suffix in suffixes)
+                problems.append(f"`{symbol}` is filed as {form}, but {names} is not in {where}")
+    return problems
+
+
+def check_inventory_files() -> list[str]:
+    """Refuse a component-inventory row whose File column names a file that is not there.
+
+    The inventory is where a session looks for what to reuse, so a row for a deleted file sends
+    it after code that does not exist. One for a floating upload panel outlived its file by
+    months, because nothing read the column against the tree.
+
+    Every page but the router declares the directory it covers in its H1, as ``# Title
+    (`apps/portal/src/<dir>/`)``, and a deeper heading in the same form re-bases the tables under
+    it (``INVENTORY_BASE_RE``). A page that declares nothing is read against its own folder: that
+    is where the router's File column of sibling-page links resolves, and where any other page
+    that lost its declaration would fail loudly rather than pass. How a cell is read is
+    ``_inventory_row_problems``.
+
+    Two positive controls, because a table this parser stops reading passes exactly like a table
+    with nothing wrong in it: the directory must yield pages, and every page must yield at least
+    one row from a table with a ``File`` column.
+
+    Args:
+      None.
+
+    Returns:
+      One message per claim that does not hold, per declared directory that does not exist, and
+      per page the check read nothing from.
+
+    Raises:
+      None.
+    """
+    directory = ROOT / INVENTORY_DIR
+    pages = sorted(directory.rglob("*.md")) if directory.is_dir() else []
+    if not pages:
+        return [(f"{INVENTORY_DIR}/ holds no pages — this check read nothing, and a check that read "
+                 "nothing reads exactly like a clean one. If the inventory moved, move INVENTORY_DIR "
+                 "with it.")]
+    errors = []
+    for page in pages:
+        rel = page.relative_to(ROOT)
+        bases = {0: page.parent}
+        columns: list[str] | None = None
+        rows = 0
+        for number, line in enumerate(page.read_text().splitlines(), 1):
+            heading = re.match(r"(#{1,6}) ", line)
+            if heading:
+                level = len(heading.group(1))
+                bases = {k: v for k, v in bases.items() if k < level}
+                declared = INVENTORY_BASE_RE.match(line)
+                if declared:
+                    bases[level] = ROOT / declared.group(2)
+                    if not _spelled_exactly(bases[level], directory=True):
+                        errors.append(f"{rel}:{number}: declares `{declared.group(2)}`, which does not "
+                                      "exist, so no row under it can be checked until it names one that does")
+                columns = None
+                continue
+            if not line.startswith("|"):
+                columns = None
+                continue
+            cells = [cell.strip() for cell in re.split(r"(?<!\\)\|", line.strip())[1:-1]]
+            if columns is None:
+                columns = cells
+                continue
+            if re.fullmatch(r"\|(?:\s*:?-+:?\s*\|)+", line.strip()) or "File" not in columns:
+                continue
+            rows += 1
+            base = bases[max(bases)]
+            if not _spelled_exactly(base, directory=True):
+                continue
+            where = f"`{base.relative_to(ROOT).as_posix()}/`"
+            if max(bases) == 0:
+                where += " (no heading above the row declares a directory, so it is read against the page's own folder)"
+            file_index = columns.index("File")
+            file_cell = cells[file_index] if file_index < len(cells) else ""
+            symbol_cell = cells[columns.index("Symbol")] if "Symbol" in columns and len(cells) > columns.index("Symbol") else ""
+            errors.extend(f"{rel}:{number}: {problem}"
+                          for problem in _inventory_row_problems(file_cell, symbol_cell, base, where))
+        if not rows:
+            errors.append(f"{rel}: no row read from a table with a `File` column — this check cannot "
+                          "see the page, and a page it cannot see passes. An inventory table is "
+                          "headed | Symbol | File | Purpose |.")
+    return errors
+
+
 def check_section_pointers() -> list[str]:
     """Refuse a ``§N.N`` pointer into ``owed.md`` that names no section.
 
@@ -1819,6 +2038,7 @@ def main() -> int:
         check_test_citations,
         check_workflow_table,
         check_links,
+        check_inventory_files,
         check_section_pointers,
         check_doc_paths_everywhere,
         check_always_loaded_pointers,
