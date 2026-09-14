@@ -63,8 +63,9 @@ Shared spaces, table builder, table share, data quality, file send, **archive**,
 operations and results conversion each get:
 a **FIFO SQS** queue → EventBridge Pipe → Step Functions → single-task verb Lambdas, **one execution
 role per plane** and its own DLQ; `cpcommon` and a domain module are a CODE split, not a packaging
-one, since the cutover. A plane sharing another's
-DLQ lets one malformed request dead-letter someone else's work.
+one, since the cutover. The DLQ is the plane's own because the drain names the feature by the DLQ
+a request lands on; a malformed body is not what sends a request there, since the plane refuses it
+inside the execution the Pipe starts.
 
 **The traps, every one of which ships green:**
 

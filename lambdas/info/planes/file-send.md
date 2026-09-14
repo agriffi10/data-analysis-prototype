@@ -7,8 +7,8 @@ table share does.
 
 **Its own plane, not a mode of table share.** The two share an *algorithm* (`cpcommon.transfer`) and
 nothing else: a different request contract, a different authorization question, a different failure
-vocabulary. One queue and one DLQ under two unrelated features would let a malformed send
-dead-letter someone's table share.
+vocabulary. One queue and one DLQ under two unrelated features would have the DLQ drain, which names
+the feature by the DLQ, report a dead-lettered send as a share.
 
 ## The machine
 

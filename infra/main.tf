@@ -995,7 +995,8 @@ module "table_share" {
 # ITS OWN PLANE, NOT A MODE OF TABLE SHARE. The two share an ALGORITHM (cpcommon.transfer)
 # and nothing else: different request contract, different authorization question,
 # different failure vocabulary. One queue and one DLQ under two unrelated user features
-# would let a malformed send dead-letter someone's table share.
+# would have the DLQ drain, which names the feature by the DLQ, report a dead-lettered send as
+# a share.
 #
 # The plane and its front door. Nothing is listed or copied by the front door itself. Decision record: lambdas/info/planes/file-send.md.
 # Standalone-deployable: names derive from {project}-{environment} inside the module. The
@@ -1052,8 +1053,8 @@ module "file_send" {
 # role holds NO grant on either data bucket; a test asserts the rendered policy names
 # neither, so the grant cannot arrive early and unreviewed.
 #
-# ITS OWN QUEUE AND ITS OWN DLQ, for file-send's recorded reason: one queue under two
-# unrelated user features would let a malformed file operation dead-letter someone's send.
+# ITS OWN QUEUE AND ITS OWN DLQ, for file-send's recorded reason: the DLQ drain names the
+# feature by the DLQ, so a shared one would report a dead-lettered file operation as a send.
 #
 # NOT on the analytics LF admins list — this plane creates no table and runs no DDL — so
 # module.analytics does not depend on it. It passes no CSP input and no CORS origin either:

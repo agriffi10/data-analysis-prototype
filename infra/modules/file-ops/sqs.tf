@@ -8,7 +8,8 @@
 # PER-SPACE LOCK; this group id buys ordering and throughput isolation and nothing else.
 #
 # content_based_deduplication is OFF. Its OWN queue and its OWN DLQ, registered with the drain
-# sweep — a malformed file operation must never dead-letter someone's file send. README.md.
+# sweep, which names the feature by the DLQ — a dead-lettered file operation must never be
+# reported as a file send. README.md.
 
 resource "aws_sqs_queue" "requests_dlq" {
   name                        = local.dlq_name
