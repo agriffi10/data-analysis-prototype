@@ -47,8 +47,16 @@ on:
         default: ''
 
 # Two overlapping deploys of one service is last-writer-wins, and cancelling one mid-flight leaves
-# a half-rolled service — so runs queue rather than race, and none is cancelled. The same reasoning
-# every deploy workflow here carries.
+# a half-rolled service — so a running deploy is never cancelled. A WAITING one can be: GitHub
+# holds one pending run per group, and a newer run replaces it, reported as cancelled. Between two
+# pushes that is the point: the survivor is the newer commit, and the evicted one heals on it the
+# way a skipped run does. `queue: max` would keep every waiting run instead, in an order GitHub
+# does not guarantee — and a push running after a newer one that changed the image diffs
+# backwards from what is deployed, and builds the older bundle over it.
+#
+# FOR A RE-POINT DISPATCH THE EVICTION IS NOT HARMLESS: a merge landing while the dispatch waits
+# evicts it, the service never moves to the named tag, and main's run is green. The dispatch's own
+# run is the evidence — its `Deployed` notice names the image, and `cancelled` is this eviction.
 concurrency:
   group: deploy-spa-image
   cancel-in-progress: false
@@ -99,6 +107,21 @@ jobs:
                         --query 'repositories[0].repositoryUri' --output text 2>/dev/null); then
             echo "::error title=Registry::no repository named $NAME, which is the name Terraform builds from its project_name and environment defaults. Run Deploy Infrastructure."
             exit 1
+          fi
+
+          # THE INPUT IS REFUSED BEFORE IT IS LOOKED UP, not escaped where it is printed. The CLI
+          # respells the value it is handed — trims it and strips quotes from around it — so a
+          # padded or quoted input is found under a spelling other than the one the scope step
+          # writes out; and the refusal below prints the input, where a newline would start a
+          # second workflow command of the caller's choosing. Inside the tag grammar the CLI sends
+          # the value verbatim and the only thing left to print is a tag. Every tag this workflow
+          # pushes is a commit sha.
+          if [ -n "$TAG_INPUT" ]; then
+            tag_grammar='^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$'
+            if ! [[ "$TAG_INPUT" =~ $tag_grammar ]]; then
+              echo "::error title=Malformed tag::the image_tag input is not a bare image tag — letters, digits, '_', '.' and '-', with no spaces or quotes. Name the commit sha the image was pushed under."
+              exit 1
+            fi
           fi
 
           # A DISPATCH NAMES AN IMAGE THAT ALREADY EXISTS; it does not name a new one. Building
@@ -209,19 +232,13 @@ jobs:
           # is the question that function refuses. This commit's own sha, named or left empty, is
           # the one `names` never checks, so it is asked about rather than assumed.
           #
-          # FOUND UNDER THE SPELLING THIS STEP WRITES OUT, which only the tag grammar guarantees.
-          # The CLI trims the value `names` hands it and strips quotes from around it, so ` abc `
-          # and `'abc'` are both looked up as `abc` — found, then written out as typed, naming an
-          # image that does not exist. Inside the grammar the CLI sends the value verbatim, and
-          # every tag this workflow pushes is a commit sha. It also keeps a newline out of
-          # `$GITHUB_OUTPUT`.
+          # FOUND UNDER THE SPELLING THIS STEP WRITES OUT, because `names` refuses anything outside
+          # the tag grammar before looking it up. Outside it the CLI respells the value — ` abc `
+          # and `'abc'` are both looked up as `abc` — and the tag written out here would name an
+          # image that does not exist. Inside it the two spellings are one string, and a newline
+          # cannot reach `$GITHUB_OUTPUT`.
           if [ "$DISPATCHED" = 'true' ]; then
             if [ -n "$TAG_INPUT" ] && [ "$TAG_INPUT" != "$GITHUB_SHA" ]; then
-              tag_grammar='^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$'
-              if ! [[ "$TAG_INPUT" =~ $tag_grammar ]]; then
-                echo "::error title=Malformed tag::the image_tag input is not a bare image tag — letters, digits, '_', '.' and '-', with no spaces or quotes. Name the commit sha the image was pushed under."
-                exit 1
-              fi
               emit "$TAG_INPUT" skip run
             else
               decide_build "$GITHUB_SHA"

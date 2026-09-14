@@ -1059,6 +1059,26 @@ SCOPE_CORPUS = (
 )
 
 
+def _deploy_spa_step(step_id: str) -> dict:
+    """Return one of the deploy workflow's steps, by id rather than by position.
+
+    Args:
+        step_id: The step's ``id``.
+
+    Returns:
+        dict: The step mapping, including its ``run`` script and ``env`` block.
+
+    Raises:
+        AssertionError: If no step carries the id, which means the guards below are asserting
+            about a step that no longer exists.
+    """
+    document = yaml.safe_load(DEPLOY_SPA_WORKFLOW.read_text(encoding="utf-8"))
+    steps = document["jobs"]["deploy"]["steps"]
+    found = [step for step in steps if step.get("id") == step_id]
+    assert found, f"`deploy-spa-image.yml` has no step with id `{step_id}`"
+    return found[0]
+
+
 def _scope_step() -> dict:
     """Return the deploy workflow's scope step, by id rather than by position.
 
@@ -1072,11 +1092,7 @@ def _scope_step() -> dict:
         AssertionError: If no step carries the id, which means the guards below are asserting
             about a step that no longer exists.
     """
-    document = yaml.safe_load(DEPLOY_SPA_WORKFLOW.read_text(encoding="utf-8"))
-    steps = document["jobs"]["deploy"]["steps"]
-    scope = [step for step in steps if step.get("id") == "scope"]
-    assert scope, "`deploy-spa-image.yml` has no step with id `scope`"
-    return scope[0]
+    return _deploy_spa_step("scope")
 
 
 def _selected_by_regexes(patterns: str) -> set[str]:
@@ -1196,15 +1212,20 @@ def test_the_task_scope_list_selects_what_shapes_the_task_definition():
     )
 
 
-#: The stub `aws`. Every answer the scope step reads comes from the environment, so a fixture
-#: describes a deployment rather than a sequence of calls. The two `describe-task-definition`
-#: calls are told apart by their `--query`, which is the only thing that differs between asking
-#: what the service RUNS and asking what the family's newest revision IS.
+#: The stub `aws`. Every answer the `names` and scope steps read comes from the environment, so a
+#: fixture describes a deployment rather than a sequence of calls. The two
+#: `describe-task-definition` calls are told apart by their `--query`, which is the only thing that
+#: differs between asking what the service RUNS and asking what the family's newest revision IS.
 FAKE_AWS = """#!/usr/bin/env python3
-import os, sys
+import json, os, sys
 
 argv = sys.argv[1:]
-if argv[:2] == ["ecs", "describe-services"]:
+if argv[:2] == ["ecr", "describe-repositories"]:
+    uri = os.environ["FAKE_REPOSITORY_URI"]
+    if argv[argv.index("--repository-names") + 1] != uri.rsplit("/", 1)[1]:
+        sys.exit(254)
+    print(uri)
+elif argv[:2] == ["ecs", "describe-services"]:
     # `services[0]` over an empty list is `null`, printed on a SUCCESSFUL call. Modelling a
     # missing service as a non-zero exit would leave the step's `null` branch unexercised
     # while this fixture claimed to cover it.
@@ -1224,7 +1245,12 @@ elif argv[:2] == ["ecr", "describe-images"]:
     # difference stays invisible: a throttle and a missing tag look identical to a bare `else`.
     if os.environ["FAKE_ECR_CALL"] == "fails":
         sys.exit(255)
-    tag = [a for a in argv if a.startswith("imageTag=")][0].split("=", 1)[1]
+    tag = [a for a in argv if a.startswith("imageTag=")][0].split("=", 1)[1].strip()
+    if len(tag) > 1 and tag[0] == tag[-1] and tag[0] in "'\\"":
+        tag = tag[1:-1]
+    if os.environ.get("FAKE_AWS_LOG"):
+        with open(os.environ["FAKE_AWS_LOG"], "a", encoding="utf-8") as log:
+            log.write(json.dumps(tag) + "\\n")
     sys.exit(0 if tag in os.environ["FAKE_EXISTING_TAGS"].split(",") else 254)
 else:
     sys.exit(2)
@@ -1599,15 +1625,89 @@ def test_a_dispatch_naming_an_existing_older_tag_re_points_without_building():
         )
 
 
-def test_a_dispatch_naming_a_tag_the_cli_would_respell_is_refused():
-    """`names` looks the tag up through the CLI, which trims it and strips quotes from around it.
+def _run_names(
+    tag_input: str,
+    *,
+    existing_tags: tuple[str, ...] = (),
+    expect_failure: bool = False,
+) -> tuple[dict[str, str], str, list[str]]:
+    """Run the deploy workflow's real ``names`` script against a stubbed registry.
 
-    So a padded or quoted input is found under a different spelling from the one the scope step
-    would write out, and the register step would then name an image that does not exist. Every
-    row is an input the CLI reduces to the bare tag, which the registry holds, so the refusal can
-    come only from the tag grammar. The two newline rows are what a dropped anchor would let
-    through, one row per anchor, and a newline is also what would write a second line into
-    ``$GITHUB_OUTPUT``.
+    `names` is the one step that asks the registry whether a dispatched tag exists, and the
+    scope step answers ``skip`` for that tag by construction because of it — so the refusal here
+    is the only check that the image a dispatch re-points at is real. The stub answers
+    ``describe-images`` the way the CLI does rather than the way the script spells the call:
+    measured against the CLI's own request body, it trims the ``imageTag=`` value, newlines
+    included, and strips the quotes from around it. A stub comparing the raw argument would refuse
+    a padded tag as unknown where the real CLI finds it; modelling the respelling is what makes an
+    input that slips past the grammar behave here as it would in production — resolved, and handed
+    on under a spelling the registry does not hold.
+
+    Args:
+        tag_input: The dispatch's ``image_tag`` input. The literal ``HEAD`` stands for this
+            commit's sha.
+        existing_tags: Tags the registry holds.
+        expect_failure: Assert the step exits non-zero instead of resolving the names.
+
+    Returns:
+        tuple[dict[str, str], str, list[str]]: The step's ``$GITHUB_OUTPUT``, what it printed,
+            and every tag it asked ``describe-images`` about, spelled as the CLI sends it.
+
+    Raises:
+        AssertionError: If the step's exit status is not the one expected, with its output
+            attached.
+    """
+    step = _deploy_spa_step("names")
+    head = "c" * 40
+    with tempfile.TemporaryDirectory() as work:
+        root = pathlib.Path(work)
+        binaries = root / "bin"
+        binaries.mkdir()
+        stub = binaries / "aws"
+        stub.write_text(FAKE_AWS, encoding="utf-8")
+        stub.chmod(0o755)
+        output, log = root / "output.txt", root / "aws.log"
+        output.touch()
+        log.touch()
+        script = root / "names.sh"
+        script.write_text(step["run"], encoding="utf-8")
+        finished = subprocess.run(  # noqa: S603
+            [_locate_bash("deploy-spa-image.yml"), str(script)],
+            cwd=root,
+            env=_hermetic_env(
+                PATH=f"{binaries}{os.pathsep}{os.environ['PATH']}",
+                TMPDIR=str(root),
+                GITHUB_OUTPUT=str(output),
+                GITHUB_SHA=head,
+                PROJECT="dat",
+                ENVIRONMENT="prod",
+                TAG_INPUT=head if tag_input == "HEAD" else tag_input,
+                FAKE_REPOSITORY_URI="registry.example/dat-prod-spa",
+                FAKE_ECR_CALL="ok",
+                FAKE_EXISTING_TAGS=",".join(existing_tags),
+                FAKE_AWS_LOG=str(log),
+            ),
+            capture_output=True,
+            text=True,
+        )
+        refused = finished.returncode != 0
+        assert refused == expect_failure, (
+            f"the names step was expected to {'refuse' if expect_failure else 'pass'} and "
+            f"exited {finished.returncode}:\n{finished.stdout}\n{finished.stderr}"
+        )
+        looked_up = [
+            json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()
+        ]
+        return _read_github_output(output), finished.stdout, looked_up
+
+
+def test_the_names_step_refuses_a_dispatch_naming_a_tag_the_registry_does_not_hold():
+    """A dispatched tag is deployed without the scope step asking about it, so `names` must.
+
+    Past this refusal the tag is answered ``skip`` by construction and the register step points
+    the service at it, so letting a missing tag through points production at an image the
+    registry does not hold. The registry holds a different tag, so a lookup that ignored its
+    argument would be found out, and nothing may be written for the later steps to read.
 
     Args:
         None.
@@ -1616,21 +1716,132 @@ def test_a_dispatch_naming_a_tag_the_cli_would_respell_is_refused():
         None.
 
     Raises:
-        AssertionError: If any respelled input is planned rather than refused for its form.
+        AssertionError: If the step resolves the names for a missing tag, or refuses it for any
+            reason other than its absence.
     """
-    older = "a" * 40
-    for tag_input in (f" {older} ", f"'{older}'", f"{older}\n", f"\n{older}"):
-        refused = _run_scope(
-            ("docs/architecture.md",),
-            dispatched=True,
-            tag_input=tag_input,
-            existing_tags=(older,),
-            expect_failure=True,
+    missing, held = "b" * 40, "a" * 40
+    outputs, stdout, looked_up = _run_names(
+        missing, existing_tags=(held,), expect_failure=True
+    )
+    assert f"::error title=Unknown tag::{missing} is not in the registry." in stdout, (
+        f"a dispatch naming a missing tag was refused for another reason:\n{stdout}"
+    )
+    assert looked_up == [missing], f"the step asked the registry about {looked_up}"
+    assert outputs == {}, f"a refused dispatch still wrote {outputs}"
+
+
+def test_the_names_step_resolves_an_existing_tag_and_never_looks_up_this_commit():
+    """A tag the registry holds resolves the names; this commit's sha is not asked about at all.
+
+    This commit's image is what the run is about to build, so the registry lacks it on every
+    first attempt, and asking about it would refuse the ordinary dispatch that builds it. The
+    scope step asks about it instead. An empty input means this commit too, and neither spelling
+    may reach the registry here.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If any of the three inputs is refused, writes other names, or asks the
+            registry about a tag it should not.
+    """
+    held = "a" * 40
+    for tag_input, lookups in ((held, [held]), ("HEAD", []), ("", [])):
+        outputs, _, looked_up = _run_names(tag_input, existing_tags=(held,))
+        assert outputs == {
+            "repo": "registry.example/dat-prod-spa",
+            "family": "dat-prod-spa",
+            "cluster": "dat-prod-spa",
+            "service": "dat-prod-spa",
+        }, f"a dispatch naming [{tag_input}] resolved {outputs}"
+        assert looked_up == lookups, (
+            f"a dispatch naming [{tag_input}] asked the registry about {looked_up}"
         )
-        assert "title=Malformed tag" in refused["stdout"], (
-            f"a dispatch naming {tag_input!r} was refused for another reason:\n"
-            f"{refused['stdout']}"
+
+
+def test_the_names_step_refuses_a_malformed_tag_before_the_registry_sees_it():
+    """An input outside the tag grammar is refused before the lookup, and never printed.
+
+    Every respelled row is an input the CLI reduces to a tag the registry holds, so without the
+    grammar it is found, and the scope step writes it out as typed — naming an image that does
+    not exist and, for the newline rows, writing a second line into ``$GITHUB_OUTPUT``. The space
+    and newline rows come one per side, which is what a widened character class or a dropped
+    anchor would let through. The last row is an unknown tag followed by a workflow command: the
+    unknown-tag refusal prints the input, so reaching it would print a spoofed plan as a notice of
+    its own.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If a malformed input is looked up, refused for another reason, or printed
+            as a workflow command of its own.
+    """
+    held = "a" * 40
+    spoof = f"::notice title=Plan::tag={held} build=skip deploy=run"
+    for tag_input in (
+        f" {held}",
+        f"{held} ",
+        f"'{held}'",
+        f"{held}\n",
+        f"\n{held}",
+        f"{'b' * 40}\n{spoof}",
+    ):
+        outputs, stdout, looked_up = _run_names(
+            tag_input, existing_tags=(held,), expect_failure=True
         )
+        assert "::error title=Malformed tag::" in stdout, (
+            f"a dispatch naming {tag_input!r} was refused for another reason:\n{stdout}"
+        )
+        assert looked_up == [], f"{tag_input!r} reached the registry as {looked_up}"
+        commands = [
+            line for line in stdout.splitlines() if line.lstrip().startswith("::")
+        ]
+        assert len(commands) == 1, (
+            f"a dispatch naming {tag_input!r} printed {len(commands)} workflow commands:\n"
+            f"{stdout}"
+        )
+        assert outputs == {}, f"a refused dispatch still wrote {outputs}"
+
+
+def test_the_scope_step_runs_only_after_names_has_passed():
+    """The scope step writes a dispatched tag out unchecked, because `names` has checked it.
+
+    Both the tag's existence and its form are refused in `names`, and the scope step answers
+    ``skip`` for the tag and writes it into ``$GITHUB_OUTPUT`` on that strength. So the ordering
+    carries both checks: `names` must come first, must not tolerate its own failure, and the scope
+    step must carry no condition under which it could run after `names` failed.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If the scope step could run without `names` having passed.
+    """
+    names, scope = _deploy_spa_step("names"), _deploy_spa_step("scope")
+    steps = yaml.safe_load(DEPLOY_SPA_WORKFLOW.read_text(encoding="utf-8"))["jobs"][
+        "deploy"
+    ]["steps"]
+    order = [step.get("id") for step in steps]
+    assert order.index("names") < order.index("scope"), (
+        "the scope step runs before `names`, so a dispatched tag reaches it unchecked"
+    )
+    assert names.get("continue-on-error", False) is False, (
+        "`names` tolerates its own failure, so the scope step runs after a refused tag and "
+        "writes it out"
+    )
+    assert "if" not in scope, (
+        f"the scope step carries `if: {scope.get('if')}`, which could run it after `names` failed"
+    )
 
 
 def test_a_re_run_reuses_the_image_its_first_attempt_pushed():
