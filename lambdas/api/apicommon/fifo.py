@@ -12,19 +12,16 @@ deliberately NOT resolved through ``apicommon.spaces.resolve``, which also check
 API stamps identity and does not authorize, and a second authority for a question the plane's
 validate-authorize verb already answers is a divergence waiting to happen.
 
+What SQS accepts as a key is not decided here: ``cpcommon.config.FIFO_KEY_RE`` is the one rule,
+shared with the notification sender, and ``_checked`` applies it to every derived key.
+
 Attributes:
   DEDUP_BUCKET_MS: The width of table-share's dedup window, in milliseconds. Submits of one
     request inside one window collapse; a deliberate re-share later goes through.
-  MAX_FIFO_KEY_CHARS: What SQS accepts for a group id or a dedup id.
-  _FIFO_KEY_RE: What SQS accepts in one — printable ASCII with no space, which is its
-    "alphanumeric characters and punctuation" rule written as a pattern. Applied with
-    ``fullmatch``: its ``$`` also matches before a trailing newline, so ``match`` would wave
-    through a caller's ``"abc\\n"`` request id and SQS would refuse the send.
 """
 
 import hashlib
 import json
-import re
 import time
 import uuid
 from collections.abc import Callable, Mapping
@@ -32,14 +29,12 @@ from typing import Any, cast
 
 from cpcommon.app_managed import vault_archive_prefix
 from cpcommon.auth import Principal
+from cpcommon.config import FIFO_KEY_RE, MAX_FIFO_KEY_CHARS
 
 from . import config
 from .envelope import ApiError
 
 DEDUP_BUCKET_MS = 60_000
-
-MAX_FIFO_KEY_CHARS = 128
-_FIFO_KEY_RE = re.compile("^[\x21-\x7e]{1,128}$")
 
 
 def _sha(canonical: str) -> str:
@@ -419,7 +414,7 @@ def _checked(key: str, field: str) -> str:
     Raises:
       ApiError: ``InvalidRequest`` if it is too long or carries a character the queue refuses.
     """
-    if not _FIFO_KEY_RE.fullmatch(key):
+    if not FIFO_KEY_RE.fullmatch(key):
         raise ApiError(
             "InvalidRequest",
             f"the derived {field} is longer than {MAX_FIFO_KEY_CHARS} characters "

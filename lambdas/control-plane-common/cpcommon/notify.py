@@ -12,25 +12,17 @@ the flat ``actor`` envelope file-send introduced and archive inherited, where th
 field may be either the verified username or the token object it was verified from. The other
 four planes bind a plain string and read it directly, so this is a two-plane contract living
 here rather than a fleet-wide one.
-
-Attributes:
-  _FIFO_KEY_RE: What the notifications queue accepts as a deduplication id — one to 128 printable
-    ASCII characters with no space, SQS's "alphanumeric characters and punctuation" written as a
-    pattern. Matched whole, never with ``$``, which also matches before a final newline.
 """
 
 import functools
 import hashlib
 import json
 import logging
-import re
 
 from . import clients, config
 from .errors import TerminalError, TransientError
 
 logger = logging.getLogger()
-
-_FIFO_KEY_RE = re.compile("[\x21-\x7e]{1,128}")
 
 
 def dedup_id(request_id, step: str) -> str | None:
@@ -89,14 +81,14 @@ def _queue_key(dedup_id: str) -> str:
       dedup_id: The id a producer composed.
 
     Returns:
-      The id unchanged when the queue accepts it, else the SHA-256 of its UTF-8 bytes in
-      lower-case hex. ``surrogatepass`` lets a lone surrogate, which a JSON body can decode to,
-      digest rather than raise.
+      The id unchanged when ``config.FIFO_KEY_RE`` matches it whole, else the SHA-256 of its UTF-8
+      bytes in lower-case hex. ``surrogatepass`` lets a lone surrogate, which a JSON body can
+      decode to, digest rather than raise.
 
     Raises:
       None.
     """
-    if _FIFO_KEY_RE.fullmatch(dedup_id):
+    if config.FIFO_KEY_RE.fullmatch(dedup_id):
         return dedup_id
     return hashlib.sha256(dedup_id.encode("utf-8", "surrogatepass")).hexdigest()
 

@@ -21,6 +21,7 @@ import pytest
 from apicommon import fifo
 from apicommon.envelope import ApiError
 from cpcommon.auth import Principal
+from cpcommon.config import MAX_FIFO_KEY_CHARS
 
 _VECTORS = json.loads((pathlib.Path(__file__).parent / "fifo_vectors.json").read_text())
 
@@ -382,7 +383,7 @@ def test_a_request_id_ending_in_a_newline_is_refused_rather_than_sent():
     alice = Principal(username="alice", claims={})
     refusals = []
 
-    for request_id in ("abc", "r" * fifo.MAX_FIFO_KEY_CHARS):
+    for request_id in ("abc", "r" * MAX_FIFO_KEY_CHARS):
         assert fifo.dedup_id_for("fileSend.enqueue", alice, {"requestId": request_id}) == request_id
         with pytest.raises(ApiError) as refused:
             fifo.dedup_id_for("fileSend.enqueue", alice, {"requestId": request_id + "\n"})

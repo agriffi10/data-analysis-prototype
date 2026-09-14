@@ -42,6 +42,13 @@ Attributes:
   CATALOG_IDENTIFIER_RE: The single catalog-safe identifier rule — lowercase, leading
     letter, [a-z0-9_], 3-63 chars — for usernames, database, view, table and partition-key
     names.
+  MAX_FIFO_KEY_CHARS: The longest ``MessageGroupId`` or ``MessageDeduplicationId`` SQS accepts on
+    a FIFO queue.
+  FIFO_KEY_RE: The single FIFO key rule — one to ``MAX_FIFO_KEY_CHARS`` printable ASCII
+    characters with no space, SQS's "alphanumeric characters and punctuation" written as a
+    pattern — for the API's enqueue keys and the notification sender's deduplication id alike.
+    Apply it with ``fullmatch``: its ``$`` also matches before a final newline, so ``match``
+    would wave ``"abc\\n"`` through and SQS would refuse the send.
   _REQUIRED_VARS: Attribute name to environment variable, for the values a control plane
     cannot run without.
   _OPTIONAL_VARS: The same, for values that degrade to an empty string rather than raising.
@@ -68,6 +75,9 @@ CAUSE_MAX_CHARS = 32_768
 CAUSE_RESERVATION_BYTES = 2 * CAUSE_MAX_CHARS
 
 CATALOG_IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_]{2,62}$")
+
+MAX_FIFO_KEY_CHARS = 128
+FIFO_KEY_RE = re.compile(f"^[\x21-\x7e]{{1,{MAX_FIFO_KEY_CHARS}}}$")
 
 
 def _require(name: str) -> str:

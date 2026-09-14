@@ -36,7 +36,7 @@ backstop; the guard requires the exact path.
 
 Attributes:
   MAX_REQUEST_ID_BYTES: What a caller's own request id may serialize to. Its budget is
-    ``fifo.MAX_FIFO_KEY_CHARS``: nine of the eleven routes make the id the SQS
+    ``cpcommon.config.MAX_FIFO_KEY_CHARS``: nine of the eleven routes make the id the SQS
     ``MessageDeduplicationId`` verbatim, and ``fifo._checked`` refuses a derived key over that
     length — after the body is assembled. This is the CHAIN's bound on the same field and does not
     supersede that one; it is set at the worst escaping the queue's own character class permits, so
@@ -80,8 +80,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final, Literal
 
+from cpcommon.config import MAX_FIFO_KEY_CHARS
+
 from .contract import EnqueueRoute, Route
-from .fifo import MAX_FIFO_KEY_CHARS
 
 
 def _escaped(characters: int) -> int:
