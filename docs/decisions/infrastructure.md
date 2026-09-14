@@ -385,9 +385,10 @@ that one; the fixture is the real `index.html`.
 
 > **Superseded in part by SPEC-194 and SPEC-202 (marked 2026-09-14):** the distribution is gone, and
 > nginx answers `/config.json` with the rendered document or a 404, never the shell, so a missing
-> document reads as `unreachable` in the loader. The rule stands for any 2xx that is not the document; its fixture is
-> now a markup string, not the real `index.html`. What production can still produce, and the check
-> still owed, is the runtime-config boot-failure row of `docs/testing/owed.md`.
+> document reads as `unreachable` in the loader. The rule stands for any 2xx body that does not
+> parse, and its fixture is now a markup string, not the real `index.html`. What production can
+> still produce, and the check still owed, are recorded in the runtime-config boot-failure row of
+> `docs/testing/owed.md`.
 
 **The document and the feature-flag document look alike and their failure semantics are OPPOSITE.**
 The flag document's degraded path is total and silent by design — an unusable one resolves the
