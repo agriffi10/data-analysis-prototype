@@ -11,7 +11,7 @@ feature → also read that feature's file. Never read them all.
 one-line row to the matching file below (completion-ritual step 4). Add a *new row here* only when a
 whole new area appears — and the row belongs in the file matching the component's **path**, so a
 `features/query/` addition goes in `query-feature.md` and nowhere else. CI reads every File cell
-against the tree and refuses a table without that column; `check_inventory_files` in
+against the tree and refuses a table without that column; `_inventory_row_problems` in
 `scripts/validate_docs.py` says which forms a cell may take. A row that outlives its file fails the
 build.
 

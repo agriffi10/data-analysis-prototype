@@ -1643,18 +1643,22 @@ def _inventory_row_problems(file_cell: str, symbol_cell: str, base: pathlib.Path
             derived.append((f"`{span}`", (glob.group(1),)))
         elif not INVENTORY_NAME_RE.match(span):
             problems.append(f"`{span}` in the File column is neither a file nor a directory name, so "
-                            "nothing about it can be checked")
+                            "nothing about it can be checked — write one path per code span, with no "
+                            "`.` or `..` segment, and end a directory with `/`")
         elif span in gone:
             if _inventory_resolves(span, base):
                 problems.append(f"`{span}` is recorded as gone, but it exists — the tombstone is false")
         elif not _inventory_resolves(span, base):
-            above = " or any directory above it" if "/" in span.rstrip("/") else ""
+            nested = "/" in span.rstrip("/")
+            above = " or any directory above it" if nested else ""
+            scope = "" if nested else " (a name with no slash inside it is read in that directory only)"
             problems.append(f"`{span}` is not in {where}{above} — the row has outlived its file: "
-                            "delete it, or point it at where the symbol lives now")
+                            f"delete it, point it at where the symbol lives now{scope}, or record a "
+                            f"deliberate deletion as `{span}` is **gone**")
     for form, suffixes in derived:
         if not symbols:
-            problems.append(f"{form} stands for each symbol's own file, but the Symbol cell names "
-                            "none in backticks")
+            problems.append(f"{form} stands for each symbol's own file, but the row names no symbol "
+                            "in backticks in a `Symbol` column")
         for symbol in symbols:
             if not any(_inventory_resolves(symbol + suffix, base) for suffix in suffixes):
                 names = " or ".join(symbol + suffix for suffix in suffixes)
@@ -1720,7 +1724,7 @@ def check_inventory_files() -> list[str]:
                                       "directory in this repository, so no row under it can be checked")
                 columns = None
                 continue
-            if columns is not None and line.strip() and "|" in line:
+            if columns is not None and line.strip():
                 if "File" not in columns:
                     continue
                 rows += 1
@@ -1729,7 +1733,8 @@ def check_inventory_files() -> list[str]:
                     continue
                 where = f"`{base.relative_to(ROOT).as_posix()}/`"
                 if max(bases) == 0:
-                    where += " (no heading above the row declares a directory, so it is read against the page's own folder)"
+                    where += (" (no heading above the row declares a directory in the form "
+                              "`# Title (`dir/`)`, so the row is read against the page's own folder)")
                 cells = _table_cells(line)
                 file_index = columns.index("File")
                 file_cell = cells[file_index] if file_index < len(cells) else ""

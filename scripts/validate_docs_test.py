@@ -911,7 +911,7 @@ CASES = [
      1, "`Ghost` is filed as `*.tsx`, but Ghost.tsx is not in"),
     ("inventory_derived_form_without_symbols",
      lambda r: _inventory(r, "| — | (same folder) | Names nothing. |\n"),
-     1, "(same folder) stands for each symbol's own file, but the Symbol cell names none"),
+     1, "(same folder) stands for each symbol's own file, but the row names no symbol"),
     # A tombstone claims ABSENCE, so it is checked the other way round.
     ("inventory_tombstone_for_a_file_that_is_back",
      lambda r: _inventory(r, "| — | `Widget.tsx` is **gone** | It came back. |\n"),
@@ -957,6 +957,12 @@ CASES = [
     ("inventory_indented_table_is_read",
      lambda r: _inventory(r, after="\n   | Symbol | File | Purpose |\n   |---|---|---|\n"
                                    "   | `Ghost` | `Ghost.tsx` | Indented. |\n"),
+     1, "`Ghost.tsx` is not in"),
+    # A table ends at a blank line or a heading, never at a line without a pipe: GitHub renders
+    # that line as one more row. Ended there instead, a hard-wrapped row hid every row under it.
+    ("inventory_row_after_a_wrapped_line_is_read",
+     lambda r: _inventory(r, "| `Widget` | `Widget.tsx` | A purpose that wraps |\nonto a line with no pipe\n"
+                             "| `Ghost` | `Ghost.tsx` | Gone. |\n"),
      1, "`Ghost.tsx` is not in"),
     ("inventory_table_without_outer_pipes_is_read",
      lambda r: _inventory(r, after="\nSymbol | File | Purpose\n--- | --- | ---\n"
