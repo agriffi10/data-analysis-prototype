@@ -363,7 +363,7 @@ def test_no_deployed_module_applies_a_dollar_anchored_pattern_partially():
     anchored, rows = _scan(sources)
     shapes = {(name, shape) for _, name, _, shape in rows}
 
-    assert {"CATALOG_IDENTIFIER_RE", "COLUMN_NAME_RE", "_FIFO_KEY_RE"} <= anchored
-    assert ("_FIFO_KEY_RE", "name") in shapes
+    assert {"CATALOG_IDENTIFIER_RE", "COLUMN_NAME_RE", "FIFO_KEY_RE"} <= anchored
+    assert ("FIFO_KEY_RE", "name") in shapes
     assert ("CATALOG_IDENTIFIER_RE", "attribute") in shapes
     assert _refused(sources) == []

@@ -468,11 +468,11 @@ def test_the_request_id_bound_refuses_no_id_the_queue_would_take():
     two bytes. A bound set at the plain length would refuse an id the queue accepts, which is a
     new refusal wearing a measurement's clothes.
     """
-    from apicommon.fifo import _FIFO_KEY_RE, MAX_FIFO_KEY_CHARS
+    from cpcommon.config import FIFO_KEY_RE, MAX_FIFO_KEY_CHARS
 
     worst = '"' * MAX_FIFO_KEY_CHARS
 
-    assert _FIFO_KEY_RE.fullmatch(worst), "the queue's own character class no longer admits a quote"
+    assert FIFO_KEY_RE.fullmatch(worst), "the queue's own character class no longer admits a quote"
     assert len(json.dumps(worst).encode()) == bounds.MAX_REQUEST_ID_BYTES
 
 
