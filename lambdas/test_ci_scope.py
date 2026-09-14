@@ -50,6 +50,7 @@ import tempfile
 
 import test_config_workflows as _path_filter_guard
 import yaml
+from test_image_tag_check import ENTRY_STEPS
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
@@ -2488,25 +2489,38 @@ def test_a_re_point_never_asks_the_registry_whether_to_build():
 #: harnesses above.
 SHARED_TEMPORARY_ROOTS = ("/tmp/", "/private/tmp/", "/var/tmp/", "/dev/shm/")  # noqa: S108
 
-#: The workflows whose ``run:`` scripts this module EXECUTES rather than merely reads — the
-#: population the rule below is about. ``security.yml`` is parsed here and never run.
-#: ``deploy-infra.yml`` is not run either, and its two temp files travel BETWEEN steps, where a
-#: private file per step would be wrong and ``RUNNER_TEMP`` is the answer instead.
-EXECUTED_WORKFLOWS = (CI_WORKFLOW, DEPLOY_SPA_WORKFLOW)
+#: The two Lambda deploy workflows, each with one step ``test_image_tag_check.py`` executes.
+DEPLOY_LAMBDAS_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-lambdas.yml"
+DEPLOY_LAMBDA_IMAGE_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-lambda-image.yml"
+
+#: The workflows whose ``run:`` scripts the ``lambdas/`` suite EXECUTES rather than merely reads —
+#: the population the rule below is about. This module runs the first two;
+#: ``test_image_tag_check.py`` runs a step from each of the other two. ``security.yml`` is parsed
+#: here and never run. ``deploy-infra.yml`` is not run either, and its two temp files travel
+#: BETWEEN steps, where a private file per step would be wrong and ``RUNNER_TEMP`` is the answer
+#: instead.
+EXECUTED_WORKFLOWS = (
+    CI_WORKFLOW,
+    DEPLOY_SPA_WORKFLOW,
+    DEPLOY_LAMBDAS_WORKFLOW,
+    DEPLOY_LAMBDA_IMAGE_WORKFLOW,
+)
 
 #: The standalone shell scripts the ``lambdas/`` suite EXECUTES, subject to the same rule for the
 #: same reason — ``test_probe_cold_start.py``, ``test_point_lambda.py`` and
-#: ``test_resolve_config.py`` run these three as scripts, and the first is where this defect was
-#: found a second time. Named rather than globbed over ``.github/scripts/`` because the criterion
-#: is execution BY THIS SUITE, which a directory cannot express: ``spa-image-matrix.sh`` holds a
-#: dozen fixed ``/tmp/matrix-*`` names that are the same defect on the host, but no test runs it,
-#: so it cannot flake this gate and fixing it is its own change. Every other ``.sh`` a suite module
-#: names — the two image matrices, the container entrypoint — is read as TEXT, never run. Each path
-#: is asserted to exist, so a rename empties the population loudly rather than quietly.
+#: ``test_resolve_config.py`` run the first three as scripts, and the first is where this defect
+#: was found a second time; ``test_image_tag_check.py`` and ``test_point_lambda.py`` run the tag
+#: check. Named rather than globbed over ``.github/scripts/`` because the criterion is execution
+#: BY THIS SUITE, which a directory cannot express: ``spa-image-matrix.sh`` holds a dozen fixed
+#: ``/tmp/matrix-*`` names that are the same defect on the host, but no test runs it, so it cannot
+#: flake this gate and fixing it is its own change. Every other ``.sh`` a suite module names — the
+#: two image matrices, the container entrypoint — is read as TEXT, never run. Each path is asserted
+#: to exist, so a rename empties the population loudly rather than quietly.
 EXECUTED_SCRIPTS = (
     ROOT / ".github" / "scripts" / "probe-cold-start.sh",
     ROOT / ".github" / "scripts" / "point-lambda.sh",
     ROOT / ".github" / "scripts" / "resolve-config.sh",
+    ROOT / ".github" / "scripts" / "check-image-tag.sh",
 )
 
 
@@ -2626,6 +2640,14 @@ def test_nothing_the_suite_executes_names_a_shared_temporary_path():
         "the sweep did not reach deploy-spa-image.yml's scope step, so its verdict is about some "
         "other set of scripts than the ones the harnesses run"
     )
+    for workflow_name, job, step_id in ENTRY_STEPS:
+        workflow = ROOT / ".github" / "workflows" / workflow_name
+        steps = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"][job]["steps"]
+        runs = [step["run"] for step in steps if step.get("id") == step_id]
+        assert runs and runs[0] in bodies, (
+            f"the sweep did not reach {workflow_name}'s `{step_id}` step, which "
+            "test_image_tag_check.py runs, so its verdict is about some other set of scripts"
+        )
 
     offences = {
         where: lines

@@ -14,6 +14,10 @@ set -euo pipefail
 NAME="${1:?usage: point-lambda.sh <function-name>}"
 FUNCTION="${PROJECT_NAME}-${ENVIRONMENT}-${NAME}"
 
+# The rollback tag is refused HERE TOO, before anything waits on it: this script looks it up and
+# prints it once per function, so it does not lean on its caller having checked the shape.
+bash "$(dirname "$0")/check-image-tag.sh" "${IMAGE_TAG:-}"
+
 # ── The function has to exist, and be idle ────────────────────────────────────
 # Deploy Infrastructure and Deploy Lambdas fire on the same push, so this can win the race. Both
 # waits are inherited from the zip pipeline rather than reasoned about again: a just-created

@@ -121,12 +121,20 @@ jobs:
       # function for a tag to appear, so a mistyped rollback tag would otherwise cost over an hour
       # of billed runtime before anyone learned it was wrong.
       - name: Check the image this run will point at
+        id: image
         env:
           PROJECT: dat
           ENVIRONMENT: prod
           IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
           set -euo pipefail
+
+          # THE SHAPE BEFORE THE REGISTRY. Outside the tag grammar the CLI respells the value it
+          # looks up, so a padded or quoted tag is found here and handed to every shard as typed;
+          # and the refusal below prints a tag it did not find, where a newline would start a
+          # workflow command of the caller's choosing. The script says why at length.
+          bash .github/scripts/check-image-tag.sh "$IMAGE_TAG"
+
           TAG="${IMAGE_TAG:-$GITHUB_SHA}"
           NAME="${PROJECT}-${ENVIRONMENT}-lambda"
           if [ -n "${IMAGE_TAG}" ]; then
