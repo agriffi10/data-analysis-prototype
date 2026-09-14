@@ -72,5 +72,9 @@
   - Reading `dataUpdatedAt` on every render turns the render-count test red: 24 renders over the
     polls where the shipped hook makes 4, all before the ceiling.
   - Keeping the Explorer pending after the verdict turns its hook test red.
+  - Dropping the watch key from the Explorer turns the shared-execution test red. Dropping it from
+    the ceiling timer's dependencies turns the new-watcher test red, where before only lint caught
+    it. Skipping the reset when the id goes to null turns the hook's null leg red. Always giving the
+    mobile banner the still-running title turns the mobile failed-start test red.
 - **The Explorer fix was seen red first.** A failed first apply showed "Running…" twice under its
   banner on the base code.

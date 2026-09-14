@@ -255,6 +255,29 @@ describe('useQueryExecution', () => {
       }
     });
 
+    it('gives a new watcher of the same execution a ceiling of its own', async () => {
+      vi.useFakeTimers();
+      try {
+        mockGetStatus.mockResolvedValue(RUNNING);
+        const {result, rerender} = renderHookWithProviders(({watchKey}) => useQueryExecution('q-1', {watchKey}), {
+          initialProps: {watchKey: 't1'}
+        });
+        await advance(MAX_POLL_DURATION_MS);
+        await advance(ONE_POLL);
+        expect(result.current.stillRunning).not.toBeNull();
+
+        rerender({watchKey: 't2'});
+        await advance(ONE_POLL);
+        expect(result.current.stillRunning).toBeNull();
+
+        await advance(MAX_POLL_DURATION_MS);
+        await advance(ONE_POLL);
+        expect(result.current.stillRunning).not.toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('ends the watch on a failed read after the ceiling, even without stopOnError', async () => {
       vi.useFakeTimers();
       try {
