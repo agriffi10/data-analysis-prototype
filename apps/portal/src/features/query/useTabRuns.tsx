@@ -64,7 +64,7 @@ export type UseTabRunsResult = {
   dropRunState: (id: string) => void;
   /**
    * Clears a tab's error and marks it dismissed, so the run's banner stays closed until the tab's
-   * next run is installed. A start that fails is not a run, and its error shows regardless.
+   * next run is installed. A start that fails is not a run, so a dismissal does not hide its error.
    */
   dismissError: (tabId: string) => void;
   /** switch which result-producing statement the results region shows. */
