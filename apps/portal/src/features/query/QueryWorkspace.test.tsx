@@ -1,7 +1,8 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, cleanup, render, screen, waitFor, within} from '@testing-library/react';
 import {DEFAULT_RESULTS_PAGE_SIZE} from './query.constants';
-import {ROW_COUNT_PAGE_SIZE} from '../catalog/catalog.constants';
+import {MAX_POLL_DURATION_MS, POLL_INTERVAL_MS, ROW_COUNT_PAGE_SIZE} from '../catalog/catalog.constants';
+import {withFakeTimers} from '../../test/fakeTimers';
 import {
   editor,
   fail,
@@ -1263,6 +1264,143 @@ describe('QueryWorkspace', () => {
 
       expect(statusRequestsFor('q-1')).toBe(2);
       expect(screen.getByText(UNREACHABLE)).toBeInTheDocument();
+    });
+  });
+
+  describe('QueryWorkspace — a query that outlives the ceiling', () => {
+    const sentence = (id: string) =>
+      `Data Quarry stopped waiting for this query after 30 minutes, so its results won’t appear here. When it finishes, they’re saved in your files under system_settings/athenaresults, in a file named after its query ID (${id}).`;
+
+    /** Every status read for `id` finds it running; every other execution succeeds. */
+    function keepRunning(id: string) {
+      mockGetStatus.mockImplementation(async (queryExecutionId: string) =>
+        queryExecutionId === id
+          ? ok({queryExecutionId, state: 'RUNNING' as const})
+          : ok(succeeded(queryExecutionId, statusMap[queryExecutionId] ?? {}))
+      );
+    }
+
+    /**
+     * Crosses the ceiling's mark in an `act` of its own, then advances one poll, whose read decides.
+     * The mark is a state update, and React applies it only as the `act` around it exits.
+     */
+    async function outliveTheCeiling() {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(MAX_POLL_DURATION_MS);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS + 10);
+      });
+    }
+
+    const statusBar = () => screen.getAllByRole('status').find((el) => /Still running/.test(el.textContent ?? ''));
+
+    it('settles with a warning that says where the results go, stops nothing, and frees the tab', async () => {
+      await withFakeTimers(async () => {
+        queueRuns('q-1', 'q-2');
+        keepRunning('q-1');
+        seedSingle('SELECT 1');
+        const {user} = renderWorkspace();
+        await screen.findByLabelText('SQL editor');
+        await user.click(screen.getByRole('button', {name: 'Run statement'}));
+        await screen.findByRole('button', {name: /Stop/});
+
+        await outliveTheCeiling();
+
+        const banner = (await screen.findByText(sentence('q-1'))).closest('[role="alert"]');
+        expect(banner).toHaveTextContent('Still running');
+        expect(banner).toHaveClass('bg-warning-soft');
+        expect(screen.queryByText('Query failed.')).not.toBeInTheDocument();
+        // Beside the banner, these say the run settled rather than that nothing happened.
+        expect(screen.queryByText('Running…')).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', {name: /Stop/})).not.toBeInTheDocument();
+        expect(statusBar()).toBeDefined();
+        expect(statusBar()).not.toHaveTextContent(/Failed|elapsed/);
+        expect(mockStopQuery).not.toHaveBeenCalled();
+        expect(mockUpdate).not.toHaveBeenCalled();
+
+        await user.click(screen.getByRole('button', {name: 'Run statement'}));
+        await waitFor(() => expect(mockRunQuery).toHaveBeenCalledTimes(2));
+      });
+    });
+
+    it('gives a failed start after the verdict the failure’s own title and colour', async () => {
+      await withFakeTimers(async () => {
+        queueRuns('q-1');
+        mockRunQuery.mockResolvedValueOnce(fail('fetch failed', 'NetworkUnavailable'));
+        keepRunning('q-1');
+        seedSingle('SELECT 1');
+        const {user} = renderWorkspace();
+        await screen.findByLabelText('SQL editor');
+        await user.click(screen.getByRole('button', {name: 'Run statement'}));
+        await screen.findByRole('button', {name: /Stop/});
+        await outliveTheCeiling();
+        await screen.findByText(sentence('q-1'));
+
+        await user.click(screen.getByRole('button', {name: 'Run statement'}));
+
+        const banner = (
+          await screen.findByText('Can’t reach the server. Check your connection and try again.')
+        ).closest('[role="alert"]');
+        expect(banner).toHaveTextContent('Query failed.');
+        expect(banner).toHaveClass('bg-danger-soft');
+      });
+    });
+
+    it('stops a batch at the statement it stopped watching', async () => {
+      await withFakeTimers(async () => {
+        queueRuns('q-1', 'q-2', 'q-3');
+        keepRunning('q-2');
+        seedTabs({
+          version: 1,
+          tabs: [{id: 'a', label: 'Query 1', sql: 'SELECT 1; SELECT 2; SELECT 3;'}],
+          activeTabId: 'a',
+          nextQueryNumber: 2
+        });
+        const {user} = renderWorkspace();
+        await screen.findByLabelText('SQL editor');
+        await runScriptSingle(user);
+        await waitFor(() => expect(mockRunQuery).toHaveBeenCalledTimes(2));
+
+        await outliveTheCeiling();
+
+        expect(
+          await screen.findByText(`Statement 2 of 3 is still running. ${sentence('q-2')} Statement 3 did not run.`)
+        ).toBeInTheDocument();
+        expect(mockRunQuery).toHaveBeenCalledTimes(2);
+      });
+    });
+
+    it('keeps an earlier statement’s rows savable beside the Still running verdict', async () => {
+      await withFakeTimers(async () => {
+        queueRuns('q-1', 'q-2');
+        keepRunning('q-2');
+        seedTabs({
+          version: 1,
+          tabs: [{id: 'a', label: 'Query 1', sql: 'SELECT 1; SELECT 2;'}],
+          activeTabId: 'a',
+          nextQueryNumber: 2
+        });
+        const {user} = renderWorkspace();
+        await screen.findByLabelText('SQL editor');
+        await runScriptTabs(user);
+        await waitFor(() => expect(mockRunQuery).toHaveBeenCalledTimes(2));
+        await outliveTheCeiling();
+        await screen.findByText(new RegExp(`Statement 2 of 2 is still running`));
+
+        await user.click(await screen.findByRole('button', {name: 'Save results to my files'}));
+        const dialog = await screen.findByRole('dialog', {name: 'Save results to my files'});
+        const nameInput = within(dialog).getByLabelText('File name');
+        await user.clear(nameInput);
+        await user.type(nameInput, 'out');
+        await user.click(within(dialog).getByRole('button', {name: 'Save here'}));
+
+        await waitFor(() =>
+          expect(mockCopyObject).toHaveBeenCalledWith(
+            expect.objectContaining({sourceKey: 'alice/athenaresults/q-1.csv', destKey: 'alice/out.csv'})
+          )
+        );
+      });
     });
   });
 

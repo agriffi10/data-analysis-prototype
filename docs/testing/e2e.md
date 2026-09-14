@@ -390,6 +390,7 @@ two-lock path and the pagination boundary are not reachable from the UI. They li
 | Run a query | Results, paging **without re-running**, the cost line. |
 | Run a multi-statement script | Runs in order, stops at the first failure, earlier statements stay done. |
 | **A status poll that fails** (SPEC-233) — in DevTools → Network → **Request conditions**, block `*://*/v1/queries/*` — with the scheme: a pattern without one fails to parse as a URLPattern, and the old wildcard form's upgrade also matches the START at `/v1/queries`, which fails the run through a different path with the same sentence — then run any query | Within about two seconds the banner reads **Query failed.** *"Can’t reach the server. Check your connection and try again."*, the bar reads **Failed**, "Running…" is gone and **Run** is free. The start request itself went through (it is not in the blocked list). The network panel shows exactly **two** blocked status requests (the first and its one retry) and no more — then set DevTools to **Offline** and back to **No throttling**, and there is still no third. History shows the entry as **Unknown**. Unblock and run again: it succeeds. In a three-statement script the banner names statement 1 and says the other two did not run. |
+| **A query that outlives the ceiling** (SPEC-234) — run a query that takes a minute or so and scans nothing, such as `SELECT count(*) FROM UNNEST(sequence(1, 20000)) AS a(x) CROSS JOIN UNNEST(sequence(1, 20000)) AS b(y)`. While it runs, in DevTools → Network right-click one of its `/v1/queries/<id>` status requests (state `RUNNING`) → **Override content**, and save the body unchanged, so every later poll reads `RUNNING` even after Athena finishes. Keep the tab **visible** and wait 30 minutes. | At about 30 minutes, within one poll, an amber banner titled **Still running** reads *"Data Quarry stopped waiting for this query after 30 minutes, so its results won’t appear here. When it finishes, they’re saved in your files under system_settings/athenaresults, in a file named after its query ID (<id>)."* The bar reads **Still running** with no timer, **Run** is offered and **Stop** is not, and the network panel shows no status request after the deciding one, including after DevTools → **Offline** and back, done at least 30 seconds after the banner: before that the last read is still fresh, and a reconnect would refetch nothing even with a broken stop. History shows the entry as **Unknown**. In Files, `system_settings/athenaresults/<id>.csv` exists, because the query really finished. Remove the override afterwards. The same flow in the Data Explorer (an apply held `RUNNING` the same way) ends in the same banner, with no "Running…" anywhere. |
 | Broken SQL / missing table / a permission failure | Three distinct readable messages, editor intact, **no raw AWS/Athena text anywhere**. |
 | Open the schema rail | Your own database plus every shared space; expand shows columns; the per-table **⋮** offers source files, DDL, refresh, share, drop, **Explore data**. |
 | History | Records and re-runs. |
@@ -529,10 +530,10 @@ as honestly as a succeeding one.
     with 150 data rows. This surface and §4.3's are the same component — if the two ever disagree
     about a label or the button text, that is the regression this pair exists to catch.
 
-> **A query that outruns the poll guard.** Results are read only at `SUCCEEDED`.
-> `MAX_POLL_DURATION_MS` is 5 minutes and `refetchOnWindowFocus` is off, so an execution still
-> running after that renders an indefinite **"Running…"** with no banner and no re-attach. If you
-> can stage a >5-minute query, record what it looks like — the behaviour is not specified anywhere.
+> **A query that outruns the watch's ceiling** is specified since SPEC-234. After 30 minutes the
+> Explorer, like the Query tab, settles with an amber **Still running** banner that names the
+> execution and where its CSV lands, and says "Running…" nowhere. §4.3's *A query that outlives the
+> ceiling* row is the check. Do not file a "Running…" that ends at the ceiling as a hang.
 >
 > **The suspended-failed-statement state is per-mount, and that is accepted, not a defect.** Leave
 > `/explore` and come back and the statement is submitted again. Do not file it.

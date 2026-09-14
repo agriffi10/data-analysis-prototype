@@ -8,12 +8,17 @@
 export const POLL_INTERVAL_MS = 1_500;
 
 /**
- * Stop polling after this long even if the query has not reached a terminal
- * state, so a stuck/forgotten execution can't poll forever. The query keeps
- * running in Athena (the workgroup's bytes-scanned cutoff is the real cost
- * guard); the UI can re-attach to the execution id later.
+ * How long one watch of an execution lasts. The first status read after this much time decides:
+ * a terminal status is delivered as usual, and one still queued or running ends the watch, which
+ * the screen then says in so many words.
+ *
+ * Thirty minutes is Athena's DML timeout in this account, so an ordinary query succeeds or fails
+ * before the browser stops watching it. What outlives it is long DDL, a query that waited in
+ * Athena's queue, or a raised quota. The query keeps running in Athena after the watch ends, and
+ * nothing in the app reattaches to it: its results are read from the CSV Athena writes to the
+ * user's `athenaresults` folder, named after the execution id.
  */
-export const MAX_POLL_DURATION_MS = 5 * 60_000;
+export const MAX_POLL_DURATION_MS = 30 * 60_000;
 
 /**
  * Default GetQueryResults page size — the service-level fallback when a

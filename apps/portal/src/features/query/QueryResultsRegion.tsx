@@ -1,4 +1,4 @@
-import {Banner} from '../../components/Banner';
+import {Banner, type BannerVariant} from '../../components/Banner';
 import {cx} from '../../lib/cx';
 import {ResultTabs} from './ResultTabs';
 import {ResultsPageSizeControl} from './ResultsPageSizeControl';
@@ -37,6 +37,9 @@ type Props = {
   showResultTabs: boolean;
   showError: boolean;
   errorMessage: string | null;
+  /** The banner's title and variant, which follow the message shown. Default to a failure's. */
+  errorTitle?: string;
+  errorVariant?: BannerVariant;
   onDismissError: () => void;
   onSelectResultTab: (index: number) => void;
   canSaveResults: boolean;
@@ -65,6 +68,8 @@ export function QueryResultsRegion({
   showResultTabs,
   showError,
   errorMessage,
+  errorTitle = 'Query failed.',
+  errorVariant = 'danger',
   onDismissError,
   onSelectResultTab,
   canSaveResults,
@@ -87,14 +92,15 @@ export function QueryResultsRegion({
           canSaveResults={canSaveResults}
           onSaveResults={onSaveResults}
           batchFailed={!!run?.failure}
+          stillRunning={!!run?.stillRunning}
         />
       )}
 
       {showError && editorOwnsRun && (
         <div className="px-5 pt-4">
           <Banner
-            variant="danger"
-            title="Query failed."
+            variant={errorVariant}
+            title={errorTitle}
             onDismiss={onDismissError}>
             {/* friendly, mapped guidance — no raw Athena
           engine text (the raw reason is dev-logged + kept in history). */}

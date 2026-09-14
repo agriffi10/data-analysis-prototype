@@ -436,29 +436,52 @@ export function QueryWorkspace() {
     });
   };
 
-  // a batch failure names the failing statement's position and
-  // makes clear the remaining statements did not run.
-  const batchFailureMessage = (() => {
-    const run = activeRun;
-    if (!run?.failure) return null;
-    const total = run.statements.length;
-    if (total === 1) return run.failure.reason;
-    const at = run.failure.statementIndex + 1;
-    const skipped = total - at;
+  // a batch that ended early names the statement it ended at and
+  // makes clear the remaining statements did not run. A lone statement is
+  // just its reason.
+  const endedBatchMessage = (statements: number, statementIndex: number, what: string, reason: string) => {
+    if (statements === 1) return reason;
+    const at = statementIndex + 1;
+    const skipped = statements - at;
     const skippedNote =
       skipped === 0
         ? ''
         : skipped === 1
-          ? ` Statement ${total} did not run.`
-          : ` Statements ${at + 1}–${total} did not run.`;
-    return `Statement ${at} of ${total} failed. ${run.failure.reason}${skippedNote}`;
-  })();
+          ? ` Statement ${statements} did not run.`
+          : ` Statements ${at + 1}–${statements} did not run.`;
+    return `Statement ${at} of ${statements} ${what}. ${reason}${skippedNote}`;
+  };
+  const batchFailureMessage = activeRun?.failure
+    ? endedBatchMessage(
+        activeRun.statements.length,
+        activeRun.failure.statementIndex,
+        'failed',
+        activeRun.failure.reason
+      )
+    : null;
+  const stillRunning = activeRun?.stillRunning;
+  const stillRunningMessage = stillRunning
+    ? endedBatchMessage(
+        activeRun.statements.length,
+        stillRunning.statementIndex,
+        'is still running',
+        stillRunning.message.message
+      )
+    : null;
   const errorMessage =
     runErrors[activeTabId] ??
     batchFailureMessage ??
+    stillRunningMessage ??
     (activeStatus?.state === 'FAILED'
       ? toUserText({code: activeStatus.state, message: activeStatus.stateChangeReason})
       : null);
+  // The banner's title and colour follow the message it shows. A statement the browser stopped
+  // watching did not fail, so its banner is a warning under the rule's own title; anything that
+  // outranks it (a start that failed) keeps the failure's.
+  const errorBanner =
+    stillRunning && !runErrors[activeTabId] && batchFailureMessage === null
+      ? {errorTitle: stillRunning.message.title, errorVariant: 'warning' as const}
+      : {};
   const showError = !!errorMessage && !dismissed[activeTabId];
   const canRun = !!activeTab.sql.trim() && !activeIsInFlight;
   const canClear = activeTab.sql.length > 0 && !activeIsInFlight;
@@ -527,9 +550,11 @@ export function QueryWorkspace() {
               totalRowCount={mobile.ownsRun ? shownTotal : null}
               hasRun={mobile.ownsRun || mobile.pending}
               batchFailed={mobile.ownsRun && !!activeRun?.failure}
+              stillRunning={mobile.ownsRun && !!activeRun?.stillRunning}
               errorMessage={
                 mobile.failedToStart ? (mobile.run?.error ?? null) : mobile.ownsRun && showError ? errorMessage : null
               }
+              {...(mobile.failedToStart ? {} : errorBanner)}
               onDismissError={() => {
                 // A submit that never started owns its error outright; anything
                 // else is the tab's run reporting a failure.
@@ -625,6 +650,7 @@ export function QueryWorkspace() {
                     showResultTabs={showResultTabs}
                     showError={showError}
                     errorMessage={errorMessage}
+                    {...errorBanner}
                     onDismissError={() => dismissError(activeTabId)}
                     onSelectResultTab={(index) => selectResultTab(activeTabId, index)}
                     canSaveResults={canSaveResults}

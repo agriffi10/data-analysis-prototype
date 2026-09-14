@@ -1,5 +1,5 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {screen, waitFor} from '@testing-library/react';
+import {act, screen, waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
@@ -9,6 +9,8 @@ import {newExploration} from './exploration';
 import {getFeatureFlags} from '../feature-flags/featureFlags.service';
 import {getDatabase, listTables} from '../catalog/glue.service';
 import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.service';
+import {MAX_POLL_DURATION_MS, POLL_INTERVAL_MS} from '../catalog/catalog.constants';
+import {withFakeTimers} from '../../test/fakeTimers';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import type {ExplorationTabsState} from './dataExplorer.types';
 import type {FeatureFlags} from '../feature-flags/featureFlags.types';
@@ -178,6 +180,31 @@ describe('the expression bar', () => {
     // …and the previous execution's rows stay on screen rather than the grid emptying (AC5).
     expect(screen.getByRole('grid')).toBeInTheDocument();
     expect(screen.getByText('open')).toBeInTheDocument();
+  });
+
+  it('keeps the previous rows under the banner when an apply outlives the ceiling', async () => {
+    await withFakeTimers(async () => {
+      const {user} = render();
+      await screen.findAllByRole('gridcell');
+      vi.mocked(getQueryStatus).mockImplementation((async (queryExecutionId: string) =>
+        queryExecutionId === 'exec-1'
+          ? ok({queryExecutionId, state: 'SUCCEEDED', dataScannedBytes: 2048})
+          : ok({queryExecutionId, state: 'RUNNING'})) as never);
+
+      await user.type(screen.getByLabelText('Filter expression'), "status = 'open'{Enter}");
+      await waitFor(() => expect(getQueryStatus).toHaveBeenCalledWith('exec-2'));
+      // The ceiling's mark in an act of its own, then the one poll whose read decides.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(MAX_POLL_DURATION_MS);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS + 10);
+      });
+
+      expect(await screen.findByText(/Data Quarry stopped waiting for this query/)).toBeInTheDocument();
+      expect(screen.getByRole('grid')).toBeInTheDocument();
+      expect(screen.getByText('open')).toBeInTheDocument();
+    });
   });
 
   it('is present with the query flag OFF', async () => {

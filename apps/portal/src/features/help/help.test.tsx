@@ -12,6 +12,7 @@ import {configValue} from '../../lib/runtimeConfig';
 import {HelpLink} from './HelpLink';
 import {HelpSectionChips} from './HelpSectionChips';
 import {HelpSidebar} from './HelpSidebar';
+import {MAX_POLL_DURATION_MS} from '../catalog/catalog.constants';
 import type {HelpGuide, HelpSection} from './help.types';
 
 // ─── from HelpGuideCard.test.tsx ───
@@ -540,6 +541,24 @@ describe('guide inline markup', () => {
     // The walk proves nothing unless every step reached the DOM it scanned.
     expect(screen.getAllByRole('listitem')).toHaveLength(cards.reduce((sum, {guide}) => sum + guide.steps.length, 0));
     expect(raw).toEqual([]);
+  });
+});
+
+describe('the long-query guides', () => {
+  it('state the watch’s ceiling the code enforces, and where a long query’s results go', () => {
+    // The minutes are computed from the constant, so a changed ceiling fails here rather than
+    // leaving the guides describing the old one.
+    const minutes = `${MAX_POLL_DURATION_MS / 60_000} minutes`;
+    const guide = (section: string, id: string) =>
+      HELP_SECTIONS.find((s) => s.id === section)?.guides.find((g) => g.id === id);
+
+    const runQuery = guide('query', 'run-query')?.callout?.text ?? '';
+    const runScript = guide('query', 'run-script')?.steps.find((step) => step.startsWith('If a statement fails')) ?? '';
+    const explore = guide('data-explorer', 'start-exploring')?.steps.find((step) => step.includes(minutes)) ?? '';
+
+    for (const text of [runQuery, runScript, explore]) expect(text).toContain(minutes);
+    expect(runQuery).toContain('athenaresults');
+    expect(explore).toContain('athenaresults');
   });
 });
 

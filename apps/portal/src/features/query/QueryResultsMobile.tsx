@@ -1,4 +1,4 @@
-import {Banner} from '../../components/Banner';
+import {Banner, type BannerVariant} from '../../components/Banner';
 import {IconButton} from '../../components/IconButton';
 import {ChevronLeftIcon, PlayIcon} from '../../components/icons';
 import {Pager} from '../../components/Pager';
@@ -25,8 +25,13 @@ type QueryResultsMobileProps = {
   hasRun: boolean;
   /** This view's run ended on a failure, which owns the strip's verdict whatever `status` says. */
   batchFailed: boolean;
+  /** This view's run ended because the browser stopped watching a statement still running. */
+  stillRunning: boolean;
   /** Friendly, already-mapped failure text; null when there's nothing to show. */
   errorMessage: string | null;
+  /** The banner's title and variant, which follow the message shown. Default to a failure's. */
+  errorTitle?: string;
+  errorVariant?: BannerVariant;
   onDismissError: () => void;
   /** The workspace's shared pager — one page in the DOM at a time. */
   results: UseQueryResultsResult;
@@ -55,7 +60,10 @@ export function QueryResultsMobile({
   totalRowCount,
   hasRun,
   batchFailed,
+  stillRunning,
   errorMessage,
+  errorTitle = 'Query failed.',
+  errorVariant = 'danger',
   onDismissError,
   results,
   displayExecutionId
@@ -99,14 +107,15 @@ export function QueryResultsMobile({
           canSaveResults={false}
           onSaveResults={() => {}}
           batchFailed={batchFailed}
+          stillRunning={stillRunning}
         />
       )}
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
         {!!errorMessage && (
           <Banner
-            variant="danger"
-            title="Query failed."
+            variant={errorVariant}
+            title={errorTitle}
             onDismiss={onDismissError}>
             <p className="text-sm">{errorMessage}</p>
           </Banner>

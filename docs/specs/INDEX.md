@@ -239,6 +239,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 231 — Count a Result's Rows from Athena's Own Statistics, Not by Walking Every Page | Completed |
 | 232 — Every Query Route Proves the Execution Is the Caller's, Because an Execution Id Is a Claim | In Progress |
 | 233 — A Failed Status Poll Ends the Query Tab's Run, and Says Why | Completed |
+| 234 — A Long Query Settles at the Ceiling, and Says Where Its Results Go | Completed |
 | 235 — A CSV Table's Refresh Keeps Its Column Order and Adds New Columns at the End | Draft |
 
 ## Arcs

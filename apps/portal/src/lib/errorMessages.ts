@@ -17,6 +17,9 @@ export type UserFacingMessage = {
 /** Accepts a thrown value or a `ServiceResult` error object `{message, code}`. */
 type MappableError = unknown;
 
+/** The typed values an error may carry for its rule's sentence: an API bound, or the execution a watch gave up on. */
+type RuleParams = {limit?: number; queryExecutionId?: string};
+
 /**
  * One authored entry per known condition. The comment on each rule records the
  * trigger + whether the user can fix it — the "why does a user see this?"
@@ -32,7 +35,7 @@ type ErrorRule = {
    * are present. The API answers a field over its bound with the bound itself, and a static
    * sentence throws that away — which leaves the user guessing at a number the server knows.
    */
-  withParams?: (params: {limit?: number}) => string;
+  withParams?: (params: RuleParams) => string;
   title?: string;
   /** Authored friendly text. Omitted only for `passthrough` rules. */
   message?: string;
@@ -386,6 +389,22 @@ const CODE_RULES: readonly ErrorRule[] = [
   // Trigger: a client-side wait (query poll) hit its ceiling. User-fixable — retry. ──
   {code: 'Timeout', message: 'That took too long. Try again.', userFixable: true},
 
+  // Trigger: a query watch outlived its ceiling while the execution was still queued or running.
+  // Minted by the polling hook, never by the API. Not a failure, so it carries its own title: the
+  // query goes on in Athena, and the browser has only stopped waiting. The sentence says where the
+  // results land, because nothing in the app reattaches to an execution and that file is the one
+  // way to read them without paying for the query again. `limit` is the ceiling in minutes, and
+  // the execution id names the file. User-fixable in the sense that matters: it says what to do. ──
+  {
+    code: 'QueryStillRunning',
+    title: 'Still running',
+    message:
+      'Data Quarry stopped waiting for this query, so its results won’t appear here. When it finishes, they’re saved in your files under system_settings/athenaresults.',
+    withParams: ({limit, queryExecutionId}) =>
+      `Data Quarry stopped waiting for this query after ${limit} minutes, so its results won’t appear here. When it finishes, they’re saved in your files under system_settings/athenaresults${queryExecutionId ? `, in a file named after its query ID (${queryExecutionId})` : ''}.`,
+    userFixable: true
+  },
+
   // Trigger: AWS throttled the request (rate limit). User-fixable — wait and retry. ──
   {code: 'ThrottlingException', message: 'The service is busy. Wait a moment and try again.', userFixable: true},
   {code: 'TooManyRequestsException', message: 'The service is busy. Wait a moment and try again.', userFixable: true},
@@ -481,10 +500,10 @@ function normalize(error: MappableError): {
   name?: string;
   message?: string;
   code?: string;
-  params?: {limit?: number};
+  params?: RuleParams;
 } {
   if (error && typeof error === 'object') {
-    const e = error as {name?: string; message?: string; code?: string; params?: {limit?: number}};
+    const e = error as {name?: string; message?: string; code?: string; params?: RuleParams};
     return {name: e.name, message: e.message, code: e.code, params: e.params};
   }
   return {message: typeof error === 'string' ? error : undefined};
@@ -570,7 +589,7 @@ export function logBackgroundFailure(scope: string, error: unknown): void {
   if (import.meta.env.DEV) console.warn(`[${scope}] background operation failed:`, error);
 }
 
-function fromRule(rule: ErrorRule, serviceMessage: string | undefined, params?: {limit?: number}): UserFacingMessage {
+function fromRule(rule: ErrorRule, serviceMessage: string | undefined, params?: RuleParams): UserFacingMessage {
   // Passthrough: the service authored user-safe text (possibly parameterized).
   // Guard against an empty/absent message so we still never surface nothing.
   if (rule.passthrough) {
