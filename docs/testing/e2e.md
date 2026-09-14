@@ -27,7 +27,7 @@ looks right" is never one. Record the outcome in a dated session file (§5).
 
 | Gate | How |
 |---|---|
-| `main` is green, and you know the deployed sha | `gh run list --branch main --event push --limit 5`. A red **Deploy SPA image** or **Publish Config** means you are testing something that is not there. **The deployed sha is NOT `git rev-parse HEAD`** — that workflow deploys only when an input to the image changed, so the running bundle is the last commit that changed one. Read it from the service: `aws ecs describe-services --cluster dat-prod-spa --services dat-prod-spa --query 'services[0].taskDefinition'`, then `aws ecs describe-task-definition --task-definition <arn> --query 'taskDefinition.containerDefinitions[?name==\`spa\`].image'` — the tag is the sha. A *green* Deploy SPA image no longer implies HEAD is live. |
+| `main` is green, and you know the deployed sha | `gh run list --branch main --event push --limit 5`. A red **Deploy SPA image** or **Publish Config** means you are testing something that is not there. **The deployed sha is NOT `git rev-parse HEAD`** — that workflow deploys only when an input to the image changed, so the running bundle is the last commit that changed one. Read it from the service: `aws ecs describe-services --cluster dat-prod-spa --services dat-prod-spa --query 'services[0].taskDefinition' --output text`, then `aws ecs describe-task-definition --task-definition <arn> --query "taskDefinition.containerDefinitions[?name=='spa'].image" --output text` — the tag is the 40-character sha after the last colon. A *green* Deploy SPA image no longer implies HEAD is live. |
 | You are signed in, and you know as whom | Every result below is meaningless without the username it was observed under. |
 | Feature flags are all on | `config/feature-flags.json` → `environments.prod` is `{}`. A surface that is *absent* under a flag reads exactly like a broken one. |
 
@@ -894,9 +894,10 @@ is not a pass.
    production build, so its absence says nothing either way.
 3. `_config/` is **not browsable** in the file browser — the IAM condition, not an SPA filter.
 
-**A flag actually hides things** (one sitting; step 4 restores the environment):
+**A flag actually hides things** (one sitting; step 3 restores the environment):
 
-1. Set `environments.prod` to `{"query": false, "dataQuality": false}`. Merge, wait for **Publish
+1. Run the precondition row's two reads at the top of this file now, and note the image tag.
+   Set `environments.prod` to `{"query": false, "dataQuality": false}`. Merge, wait for **Publish
    Config**. **Do not redeploy the app** — that is the point.
 2. Hard-reload. Expect:
 
@@ -909,10 +910,19 @@ is not a pass.
    | `/help` | Neither the **Query** nor the **Tables** section; in **Files**, *"Check data quality"* and *"Find a past quality check"* are gone while *"Upload files"* remains |
    | Hamburger at 400px | Files, Connections, Notifications, Help — and not the two hidden tabs. A tab hidden in the topbar and present here is the feature still one tap away. |
 
-3. Set it back to `{}`, merge, wait for **Publish Config**, hard-reload. Everything returns, and
-   `gh run list --branch main --event push --limit 5` shows **Publish Config and no Deploy App**.
-   That restoration is what proves `VITE_ENVIRONMENT` reached the bundle — nothing in the all-on
-   pass can.
+3. Set it back to `{}`, merge, wait for **Publish Config**, hard-reload. Everything returns. Now
+   read the image tag again: **it must be the tag step 1 noted.** Read it after the reload rather
+   than waiting on **Deploy SPA image** — it runs on every push, so seeing it proves nothing, and
+   the question is which image served these screens, not what that run does next. Compare the tag,
+   not the task-definition ARN: a config-only merge may re-point the service, which registers a new
+   revision around the same image. A new tag means a new bundle may have served what you saw — an
+   input to the image changed since the commit the service was running, someone dispatched the
+   workflow, or it could not read that commit — and the sitting proves nothing; run it again. A
+   push only ever moves the tag forward, which is what lets one read stand for the whole sitting;
+   a re-run of an older Deploy SPA image run can move it back, so a re-run or a dispatch during
+   the sitting voids it whatever the tag says. Hidden in step 2 and back in step 3 on one image is
+   what proves the app reads the document at runtime and picks its `prod` block by the
+   `environment` key the container renders into `/config.json` — nothing in the all-on pass can.
 
 **`asyncFileOperations` is the sixth key and it is the odd one out** — a kill switch, not an area,
 so what it hides is a behaviour rather than a tab. Its own sitting, and §4.2's async rows are what
