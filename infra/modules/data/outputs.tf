@@ -9,7 +9,7 @@ output "user_space_bucket_arn" {
 }
 
 output "iam_role_arn" {
-  description = "ARN of the shared portal IAM role, the role the API assumes on a caller's behalf with the caller's identity as session tags. The root wires its consumers from the ARN it constructs from the role name rather than from this output, the form base needs because this module depends on base."
+  description = "ARN of the shared portal IAM role, the role the API assumes on a caller's behalf with the caller's identity as session tags. The root wires its consumers from the ARN it constructs from the role name rather than from this output, because base is one of those consumers and this module depends on base."
   value       = aws_iam_role.portal.arn
 }
 

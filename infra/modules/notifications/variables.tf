@@ -43,7 +43,7 @@ variable "notifications_max" {
 }
 
 variable "dlq_max_receive_count" {
-  description = "redrive maxReceiveCount — a request that fails this many times (schema-invalid, forged token, etc.) moves from the request queue to the DLQ."
+  description = "redrive maxReceiveCount — a request that fails this many times (schema-invalid, a user action with no usable identity block, etc.) moves from the request queue to the DLQ."
   type        = number
   default     = 3
 }
