@@ -406,7 +406,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         steps: [
           'In the <b>Query</b> tab’s schema rail, open the <b>⋮</b> menu on the table and choose <b>Refresh table</b>.',
           'Check that the folder shown is the one you added files to, then click <b>Refresh table</b>.',
-          'The refresh runs in the background. You’ll get a notification telling you what changed — which columns were added or retyped, or that the table was already up to date.'
+          'The refresh runs in the background. You’ll get a notification saying how many columns were added, retyped or removed, or that the table was already up to date.'
         ],
         callout: {
           kind: 'warning',
