@@ -107,7 +107,7 @@ export function usableSpaceTargets(
  * from `useConnections` and synced to the `?space=` route param.
  * Selection flows through the URL so a deep-link (`/files?space=…&prefix=…`) and a
  * sidebar click are one mechanism, and a vanished/unusable space reconciles to the
- * personal space purely during render (mirrors `useActiveDatabase`).
+ * personal space purely during render.
  *
  * @example
  * const {space, destinations} = useFileSpace({username, connections, isLoading, userSpaceBucket, sharedSpaceBucket});
