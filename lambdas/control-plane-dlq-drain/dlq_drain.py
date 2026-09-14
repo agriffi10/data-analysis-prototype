@@ -1,27 +1,29 @@
 """Drains every control plane's request DLQ into the notification the user already reads.
 
-A control plane's request reaches its DLQ only when the Pipe fails to start an execution for it
-on every receive the queue allows. That happens three ways: a record too large for Step Functions
-to start an execution with, which the API refuses before it sends; a Pipe that cannot start
-executions at all; and a message redelivered after its first execution has closed, whose repeated
-execution name Step Functions refuses. A malformed body is none of them — the Pipe starts an
-execution for it like any other, and the plane refuses it inside that execution. In the first two
-cases no verb runs and no execution starts, so nothing in the arc's own failure machinery fires;
-the request simply disappears and the person who made it is left watching for a result that will
-never come. The third is where this drain's message can be wrong, because that request may
-already have run, and even succeeded — ``infra/info/control-plane-shape.md`` has the measurement.
+A control plane's request reaches its DLQ only when the queue's receives run out before the Pipe
+has started an execution for it and deleted it. Two causes are certain: a record too large for
+Step Functions to start an execution with, which the API refuses before it sends, and a Pipe that
+cannot start executions at all. A third is likely: a message delivered again after its first
+execution has closed, which Step Functions refuses if the Pipe gives the retry the same execution
+name. A malformed body is none of them — the Pipe starts an execution for it like any other, and
+the plane refuses it inside that execution. In the first two cases no verb runs and no execution
+starts, so nothing in the arc's own failure machinery fires; the request simply disappears and
+the person who made it is left watching for a result that will never come. The third is where
+this drain's message can be wrong, because that request may already have run, and even
+succeeded — ``infra/info/control-plane-shape.md`` has what was measured and what was not.
 
 This one function sits on every request DLQ in ``SOURCES`` and turns each dead-lettered message
 into one sentence in the actor's inbox: your request couldn't be started, nothing was created or
 changed, try again.
 
-Three things shape the whole handler. The body is untrusted — no verb ever authorized a field of
-it — so the recipient comes from the API's identity block inside it, never from a
-username the body asserts, and nothing from the body is interpolated into the message.
-Consuming a DLQ destroys the evidence, so the body is logged, any legacy token redacted, before anything
-else happens. And it cannot be allowed to fail: a throw means redelivery, and a message that
-always throws is redelivered until retention expires, burning invocations on a failure nobody
-is watching — the exact invisibility this exists to end. Every per-message path is total.
+Three things shape the whole handler. The body is untrusted — the drain cannot tell whether any
+verb authorized a field of it — so the recipient comes from the API's identity block inside it,
+never from a username the body asserts, and nothing from the body is interpolated into the
+message. Consuming a DLQ destroys the evidence, so the body is logged, any legacy token redacted,
+before anything else happens. And it cannot be allowed to fail: a throw means redelivery, and a
+message that always throws is redelivered until retention expires, burning invocations on a
+failure nobody is watching — the exact invisibility this exists to end. Every per-message path is
+total.
 
 The drain used to hang off four SQS event-source mappings — four managed poll loops on queues
 that are, by design, almost always empty, and that idle polling was the bulk of the account's
@@ -290,8 +292,8 @@ def _notify_one(record: dict) -> None:
     Every other producer interpolates values a verb already authorized; nothing here has
     authorized anything, so echoing an attacker-supplied string back into a victim's inbox would
     turn the notification pipeline into a text-injection channel. The domain noun is ours, and
-    the identity block names the recipient. No link is set, because the request never ran and
-    there is nothing to link to.
+    the identity block names the recipient. No link is set, because as far as the drain can tell
+    the request never ran, so there is nothing to link to.
 
     **The row's payload carries one body value, the request id, and nothing else**, because a
     reader settles its in-flight record by matching it: without the id a dead-lettered request
