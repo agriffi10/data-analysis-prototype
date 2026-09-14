@@ -18,10 +18,10 @@ const SEND_MAX_ITEMS = 200;
 const SEND_MAX_ITEM_BYTES = 84 * 1024;
 
 /**
- * Enqueue a send-files request onto the file-send FIFO queue — the browser's only file-send
- * write, and its only file-send privilege. The async control plane copies the files into
- * each recipient's `shared_files/{sender}/` inbox, so success means *enqueued*, not sent.
- *
+ * Enqueue a send-files request through the API's `fileSend.enqueue` route — the browser's only
+ * file-send write. The browser holds no privilege on the plane: the API's execution role puts the
+ * request on the file-send FIFO queue, and the async control plane copies the files into each
+ * recipient's `shared_files/{sender}/` inbox, so success means *enqueued*, not sent.
  *
  * The `requestId` stays minted PER SUBMIT in the browser: it is still the double-submit guard,
  * the API echoes it rather than minting one, and reusing it across a retry would make the retry a
