@@ -91,6 +91,9 @@ export function RefreshTableDialog({target, busy = false, submitError, onConfirm
               </li>
             ))}
           </ul>
+          <p className="mt-2 text-sm leading-relaxed text-text-2">
+            To keep them, cancel, add them to the first file in the table&rsquo;s folder, and refresh again.
+          </p>
         </div>
       )}
 
