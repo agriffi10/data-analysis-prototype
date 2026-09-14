@@ -1,7 +1,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {screen, waitFor} from '@testing-library/react';
+import {act, screen, waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
+import {createTestQueryClient, renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
 import {chooseExplorationOption, explorationOption} from './explorationOptions.testkit';
 import {authenticated} from '../../test/authFixtures';
 import {DataExplorerWorkspace} from './DataExplorerWorkspace';
@@ -13,6 +13,8 @@ import {SUSPENDED_TEXT} from './ExplorationResultsRegion';
 import {filterValueKind, isEmptyQuery, moveSortPriority, sameQuery, setSort, sortOf} from './explorationQueryOps';
 import {getDatabase, listTables} from '../catalog/glue.service';
 import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.service';
+import {MAX_POLL_DURATION_MS, POLL_INTERVAL_MS} from '../catalog/catalog.constants';
+import {withFakeTimers} from '../../test/fakeTimers';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import type {ExplorationQuery, ExplorationTabsState} from './dataExplorer.types';
 
@@ -152,6 +154,52 @@ describe('filter history', () => {
     expect(stored.past[0].expression).toBe('seeded 1'); // `seeded 0` fell off the end
     // Descriptions, never result sets (AC5) — the whole cursor is JSON in the tab.
     expect(JSON.stringify(stored)).not.toContain('open');
+  });
+
+  it('looks again at a statement the watch stopped waiting for when history returns to it', async () => {
+    await withFakeTimers(async () => {
+      // Keeps the cache: collected on the way out, exec-1 would be asked about again whatever the
+      // hook remembered, and the test would not see a watch that failed to start over.
+      const queryClient = createTestQueryClient();
+      queryClient.setDefaultOptions({queries: {...queryClient.getDefaultOptions().queries, gcTime: Infinity}});
+      vi.mocked(getQueryStatus).mockImplementation((async (queryExecutionId: string) =>
+        queryExecutionId === 'exec-1'
+          ? ok({queryExecutionId, state: 'RUNNING'})
+          : ok({queryExecutionId, state: 'SUCCEEDED', dataScannedBytes: 2048})) as never);
+      const requestsFor = (id: string) => vi.mocked(getQueryStatus).mock.calls.filter(([asked]) => asked === id).length;
+      const user = userEvent.setup(USER_EVENT_OPTIONS);
+      renderWithProviders(<DataExplorerWorkspace />, {route: '/explore', auth: authenticated('alice'), queryClient});
+      try {
+        await waitFor(() => expect(getQueryStatus).toHaveBeenCalledWith('exec-1'));
+        // The ceiling's mark in an act of its own, then the one poll whose read decides.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(MAX_POLL_DURATION_MS);
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS + 10);
+        });
+
+        await screen.findByText(/Data Quarry stopped waiting for this query/);
+
+        await user.type(screen.getByLabelText('Filter expression'), "status = 'open'{Enter}");
+        await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
+        await screen.findAllByRole('gridcell');
+        const beforeReturning = requestsFor('exec-1');
+
+        await user.click(screen.getByRole('button', {name: 'Back to previous filters'}));
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS + 10);
+        });
+
+        expect(screen.queryByText(SUSPENDED_TEXT)).not.toBeInTheDocument();
+        expect(requestsFor('exec-1')).toBeGreaterThan(beforeReturning);
+        expect(screen.queryByText(/Data Quarry stopped waiting for this query/)).not.toBeInTheDocument();
+        // The cached execution, watched again: going back is not a second bill.
+        expect(runQuery).toHaveBeenCalledTimes(2);
+      } finally {
+        queryClient.clear();
+      }
+    });
   });
 
   it('never re-runs a statement that already failed; it restores and waits', async () => {

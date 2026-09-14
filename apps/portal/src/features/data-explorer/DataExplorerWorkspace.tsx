@@ -6,6 +6,7 @@ import {useFeature} from '../feature-flags';
 import {useQuerySpaces} from '../catalog/useQuerySpaces';
 import {useSaveResults} from '../catalog/useSaveResults';
 import {useRunDdl} from '../catalog/useRunDdl';
+import {isQueryStillRunning} from '../catalog/useQueryExecution';
 import {buildCreateViewSql} from '../catalog/createView';
 import {CreateViewDialog} from '../catalog/CreateViewDialog';
 import {useSavedQuerySpace} from '../saved-queries/useSavedQuerySpace';
@@ -168,10 +169,13 @@ export function DataExplorerWorkspace() {
   }, [activeTabId, queryExecutionId, cost]);
 
   // A statement that failed is remembered so history never walks back into it unasked
-  // In memory and per tab — see `useExplorationQuery`.
+  // In memory and per tab — see `useExplorationQuery`. A statement the browser stopped watching
+  // did not fail, and going back to it starts a new watch, which looks again.
   const noteFailedStatement = useEffectEvent((sql: string) => queryControls.noteFailure(sql));
   useEffect(() => {
-    if (exploration.error != null && exploration.sql !== null) noteFailedStatement(exploration.sql);
+    if (exploration.error != null && !isQueryStillRunning(exploration.error) && exploration.sql !== null) {
+      noteFailedStatement(exploration.sql);
+    }
   }, [exploration.error, exploration.sql]);
 
   // THE PICKER MUST NOT MOUNT WHILE A LINK IS STILL RESOLVING. It reads a database on

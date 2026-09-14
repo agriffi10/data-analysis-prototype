@@ -2,11 +2,13 @@ import {describe, expect, it} from 'vitest';
 import {API_ERROR_CODES} from '../types/apiContract.generated';
 import {PASSTHROUGH_CODES, USER_FIXABLE_CODES, toUserText} from './errorMessages';
 
-/** The two the client mints. Declared here as data so the guards below can reach them. */
+/** The codes the client mints. Declared here as data so the guards below can reach them. */
 const CLIENT_MINTED = [
   'RequestTimeout',
   'NetworkUnavailable',
   'UnsendableParameter',
+  // The query-status hook's verdict that a watch outlived its ceiling. Not a failed request.
+  'QueryStillRunning',
   // The multipart upload path mints these three itself. A code left off this list is
   // invisible to the 'every code has a rule of its own' guard below, which is how a minted
   // code with no rule reaches a user as the generic sentence.

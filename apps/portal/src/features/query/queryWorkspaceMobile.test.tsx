@@ -3,7 +3,7 @@ import {QueryWorkspace} from './QueryWorkspace';
 import {authenticated} from '../../test/authFixtures';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {afterEach, beforeEach, expect, it, vi} from 'vitest';
-import {screen, waitFor, within} from '@testing-library/react';
+import {act, screen, waitFor, within} from '@testing-library/react';
 import {
   LocationProbe,
   NavRailProbe,
@@ -24,6 +24,8 @@ import {
   statusMap
 } from '../../test/queryWorkspaceSupport';
 import {catalogKeys} from '../catalog/catalogKeys';
+import {MAX_POLL_DURATION_MS, POLL_INTERVAL_MS} from '../catalog/catalog.constants';
+import {withFakeTimers} from '../../test/fakeTimers';
 
 // The below-`tablet` surface, driven through the workspace: the browse-first home, the results
 // view and the crossing back up.
@@ -243,6 +245,38 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
     expect(await screen.findByText('That item no longer exists. Refresh and try again.')).toBeInTheDocument();
     expect(screen.getByText('Failed')).toBeInTheDocument();
     expect(screen.queryByText(/is outside alice/)).not.toBeInTheDocument();
+  });
+
+  it('says a run is still running in the results view once the watch reaches its ceiling', async () => {
+    await withFakeTimers(async () => {
+      mockListSaved.mockResolvedValue(savedListing('Revenue'));
+      queueRuns('q-1');
+      mockGetStatus.mockResolvedValue(ok({queryExecutionId: 'q-1', state: 'RUNNING' as const}));
+      const {user} = renderMobileWorkspace();
+      await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
+      await screen.findByRole('heading', {name: 'Revenue'});
+      await waitFor(() => expect(mockGetStatus).toHaveBeenCalled());
+
+      // The mark in an act of its own, then the one poll whose read decides.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(MAX_POLL_DURATION_MS);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS + 10);
+      });
+
+      const banner = (
+        await screen.findByText(
+          'Data Quarry stopped waiting for this query after 30 minutes, so its results won’t appear here. When it finishes, they’re saved in your files under system_settings/athenaresults, in a file named after its query ID (q-1).'
+        )
+      ).closest('[role="alert"]');
+      expect(banner).toHaveTextContent('Still running');
+      expect(banner).toHaveClass('bg-warning-soft');
+      const strip = screen.getAllByRole('status').find((el) => /Still running/.test(el.textContent ?? ''));
+      expect(strip).toBeDefined();
+      expect(screen.queryByText('Failed')).not.toBeInTheDocument();
+      expect(screen.queryByText('Running…')).not.toBeInTheDocument();
+    });
   });
 
   it('runs a table’s data from the drawer into the mobile results view', async () => {

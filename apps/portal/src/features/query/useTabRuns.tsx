@@ -4,10 +4,11 @@ import {runQuery, stopQuery} from '../catalog/athena.service';
 import {invalidateSchema} from '../catalog/useSchema';
 import {TabExecutionPoller} from './TabExecutionPoller';
 import {isResultProducingSql, schemaChangingDatabase, statementHint} from './query.sql';
-import {logBackgroundFailure, toUserText} from '../../lib/errorMessages';
+import {logBackgroundFailure, toUserMessage, toUserText, type UserFacingMessage} from '../../lib/errorMessages';
 import type {UseQueryHistoryResult} from './useQueryHistory';
 import type {ParsedStatement, QueryTab, ResultTab, RunScope} from './query.types';
 import type {QueryStatus} from '../catalog/catalog.types';
+import type {QueryStillRunning} from '../catalog/useQueryExecution';
 
 // Per-tab in-memory run state (not persisted — results re-fetch on a
 // fresh Run). A run is a sequential batch: the statements in
@@ -34,6 +35,11 @@ export type TabRun = {
   halted?: boolean;
   /** Set when a statement failed, failed to start, or its status could not be read; drives the banner. */
   failure?: {statementIndex: number; reason: string};
+  /**
+   * Set when the watch of a statement outlived its ceiling while it was still running. Not a
+   * failure: the banner is a warning with its own title, and the bar's verdict is its own.
+   */
+  stillRunning?: {statementIndex: number; message: UserFacingMessage};
   /** Saved-query link captured at submit, recorded on every statement's history entry. */
   savedQuery?: {key: string; name: string};
   /** Submitter-supplied identity, so a caller can tell ITS run from a later one. */
@@ -247,6 +253,23 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
     [updateRuns]
   );
 
+  // The browser stopped watching a statement that was still running, so the batch ends there,
+  // as it would on a failure. History keeps no verdict and nothing is sent to stop it: the
+  // query goes on in Athena, and its results land in the user's files when it finishes.
+  const handleStillRunning = useCallback(
+    (tabId: string, executionId: string, notice: QueryStillRunning) => {
+      updateRuns((r) => {
+        const cur = r[tabId];
+        if (!cur || cur.done || cur.executionId !== executionId) return r;
+        return {
+          ...r,
+          [tabId]: {...cur, done: true, stillRunning: {statementIndex: cur.currentIndex, message: toUserMessage(notice)}}
+        };
+      });
+    },
+    [updateRuns]
+  );
+
   // Submit a batch of statements into a tab (defaults to the active tab),
   // starting the FIRST statement; the finalizer advances through the rest
   // sequentially. An explicit tabId lets a just-opened tab
@@ -402,6 +425,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
       onStatus={handleStatus}
       onFinalize={handleFinalize}
       onPollFailure={handlePollFailure}
+      onStillRunning={handleStillRunning}
     />
   ));
 

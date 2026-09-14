@@ -1,6 +1,6 @@
 import {useEffect, useRef} from 'react';
 import {isTerminalState} from '../catalog/athena.service';
-import {useQueryExecution} from '../catalog/useQueryExecution';
+import {useQueryExecution, type QueryStillRunning} from '../catalog/useQueryExecution';
 import type {QueryStatus} from '../catalog/catalog.types';
 
 /**
@@ -8,12 +8,13 @@ import type {QueryStatus} from '../catalog/catalog.types';
  * its own useQueryExecution so a backgrounded query keeps polling to terminal
  * (its status/history finalize without waiting for the user to return). Reports
  * status up, and settles each execution id exactly once: with its terminal status
- * through `onFinalize`, or with the error through `onPollFailure` when its status
- * cannot be read. A failed poll is final — the poll is disabled rather than left to
- * answer later, when the tab has already moved on.
+ * through `onFinalize`, with the error through `onPollFailure` when its status
+ * cannot be read, or through `onStillRunning` when the watch outlives its ceiling
+ * with the execution still running. A failed poll is final — the poll is disabled
+ * rather than left to answer later, when the tab has already moved on.
  *
  * @example
- * <TabExecutionPoller tabId={tab.id} executionId={run.executionId} submittedSql={run.sql} onStatus={setStatus} onFinalize={finalize} onPollFailure={settleOnFailure} />
+ * <TabExecutionPoller tabId={tab.id} executionId={run.executionId} submittedSql={run.sql} onStatus={setStatus} onFinalize={finalize} onPollFailure={settleOnFailure} onStillRunning={settleStillRunning} />
  */
 export function TabExecutionPoller({
   tabId,
@@ -21,7 +22,8 @@ export function TabExecutionPoller({
   submittedSql,
   onStatus,
   onFinalize,
-  onPollFailure
+  onPollFailure,
+  onStillRunning
 }: {
   tabId: string;
   executionId: string;
@@ -30,10 +32,13 @@ export function TabExecutionPoller({
   onFinalize: (tabId: string, executionId: string, status: QueryStatus, sql: string) => void;
   /** The execution's status could not be read, after the hook's own retry. */
   onPollFailure: (tabId: string, executionId: string, error: unknown) => void;
+  /** The watch outlived its ceiling and the execution was still running; nothing more is asked. */
+  onStillRunning: (tabId: string, executionId: string, notice: QueryStillRunning) => void;
 }) {
   const execution = useQueryExecution(executionId, {stopOnError: true});
-  const status = execution.data;
+  const status = execution.status;
   const pollError = execution.error;
+  const stillRunning = execution.stillRunning;
   const settledRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -53,6 +58,13 @@ export function TabExecutionPoller({
     settledRef.current = executionId;
     onPollFailure(tabId, executionId, pollError);
   }, [tabId, pollError, executionId, onPollFailure]);
+
+  useEffect(() => {
+    if (!stillRunning) return;
+    if (settledRef.current === executionId) return;
+    settledRef.current = executionId;
+    onStillRunning(tabId, executionId, stillRunning);
+  }, [tabId, stillRunning, executionId, onStillRunning]);
 
   return null;
 }

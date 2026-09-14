@@ -1,5 +1,5 @@
 import {beforeEach, afterEach, describe, expect, it, vi} from 'vitest';
-import {screen, waitFor, within} from '@testing-library/react';
+import {act, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
@@ -11,6 +11,8 @@ import {newExploration} from './exploration';
 import {FAILED_NOT_SAVEABLE} from './ExplorationResultsRegion';
 import {getDatabase, listTables} from '../catalog/glue.service';
 import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.service';
+import {MAX_POLL_DURATION_MS, POLL_INTERVAL_MS} from '../catalog/catalog.constants';
+import {withFakeTimers} from '../../test/fakeTimers';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import type {ExplorationTab, ExplorationTabsState} from './dataExplorer.types';
 import {chooseExplorationOption, explorationOption} from './explorationOptions.testkit';
@@ -377,6 +379,28 @@ describe('nothing to save (FR-002)', () => {
     expect(button).toHaveAttribute('title', FAILED_NOT_SAVEABLE);
     expect(runQuery).not.toHaveBeenCalled();
     expect(screen.queryByText(/neither grouped nor aggregated/)).not.toBeInTheDocument();
+  });
+
+  it('offers Save as query for a statement the watch stopped waiting for, which Athena accepted', async () => {
+    await withFakeTimers(async () => {
+      vi.mocked(getQueryStatus).mockResolvedValue(ok({queryExecutionId: 'exec-1', state: 'RUNNING'}) as never);
+      seedTab();
+      const {user} = render();
+      await waitFor(() => expect(getQueryStatus).toHaveBeenCalled());
+      // The ceiling's mark in an act of its own, then the one poll whose read decides.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(MAX_POLL_DURATION_MS);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS + 10);
+      });
+
+      await screen.findByText(/Data Quarry stopped waiting for this query/);
+
+      expect(await explorationOption(user, 'Save as query')).not.toHaveAttribute('aria-disabled', 'true');
+      await chooseExplorationOption(user, 'Save as query');
+      expect(await screen.findByRole('dialog', {name: 'Save query'})).toBeInTheDocument();
+    });
   });
 
   it('refuses a FAILED exploration, whose rows on screen are a DIFFERENT query’s', async () => {

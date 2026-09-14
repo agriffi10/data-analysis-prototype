@@ -35,6 +35,12 @@ type QueryStatusBarProps = {
    * never started leaves an earlier statement's success on display.
    */
   batchFailed?: boolean;
+  /**
+   * The batch ended because the browser stopped watching a statement that was still running.
+   * It owns the verdict the way `batchFailed` does: the last status read says RUNNING, and a bar
+   * that showed it would look in flight for good.
+   */
+  stillRunning?: boolean;
 };
 
 /**
@@ -68,7 +74,8 @@ export function QueryStatusBar({
   totalRowCount = null,
   canSaveResults = false,
   onSaveResults,
-  batchFailed = false
+  batchFailed = false,
+  stillRunning = false
 }: QueryStatusBarProps) {
   // Tick once a second while in flight so the elapsed time advances. The initial
   // tick is scheduled async (setTimeout) rather than set synchronously in the
@@ -87,14 +94,16 @@ export function QueryStatusBar({
 
   const elapsedMs = isInFlight && startedAt && nowTick ? nowTick - startedAt : undefined;
   const state = status?.state;
-  const verdict = !isInFlight && batchFailed ? 'FAILED' : state;
+  const verdict = isInFlight ? state : batchFailed ? 'FAILED' : stillRunning ? 'STILL_RUNNING' : state;
   // A settled verdict must be on screen for anything that hangs off the result to have
   // something to sit beside. Two ways there isn't one, and both leave a lone button on an
   // otherwise empty bar: a resubmit clears the status a history round-trip before the new run
   // is marked in flight, leaving the previous run `done` with no status at all — unless that run
   // failed, whose verdict holds until the new one is installed; and
   // `isInFlight` tracks the BATCH, so it is not by itself proof the statement settled.
-  const hasVerdict = !isInFlight && (verdict === 'SUCCEEDED' || verdict === 'FAILED' || verdict === 'CANCELLED');
+  const hasVerdict =
+    !isInFlight &&
+    (verdict === 'SUCCEEDED' || verdict === 'FAILED' || verdict === 'CANCELLED' || verdict === 'STILL_RUNNING');
 
   // The bar wraps onto a second line on a phone; the shipped
   // single-row bar is restored from `tablet:` up.
@@ -159,6 +168,16 @@ export function QueryStatusBar({
             aria-hidden="true"
           />
           Cancelled
+        </span>
+      )}
+
+      {!isInFlight && verdict === 'STILL_RUNNING' && (
+        <span className="inline-flex items-center gap-2 font-semibold text-text-2">
+          <span
+            className="h-2 w-2 rounded-full bg-text-3"
+            aria-hidden="true"
+          />
+          Still running
         </span>
       )}
 

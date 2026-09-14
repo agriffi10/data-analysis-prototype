@@ -7,6 +7,7 @@ import {useCopyToClipboard} from '../../lib/useCopyToClipboard';
 import {useIsMobile} from '../../lib/useBreakpoint';
 import {useFeature} from '../feature-flags';
 import {useQueryResults} from '../catalog/useQueryResults';
+import {isQueryStillRunning} from '../catalog/useQueryExecution';
 import {CALC_DEFAULT_FUNCTIONS, EXPLORATION_PAGE_SIZE, PLAIN_COPY_OPTIONS} from './dataExplorer.constants';
 import {AdvancedCopyDialog} from './AdvancedCopyDialog';
 import {renderCopy} from './renderCopy';
@@ -228,6 +229,9 @@ export function ExplorationResultsRegion({
   const [lastGood, setLastGood] = useState<{tabId: string; executionId: string} | null>(null);
   const lastGoodExecutionId = lastGood?.tabId === tabId ? lastGood.executionId : null;
   const failed = Boolean(error);
+  // The banner may be the verdict that the browser stopped watching a statement still running.
+  // It falls back to the last good rows like a failure does, and is worded and coloured apart.
+  const stillRunning = isQueryStillRunning(error);
   // Results are read ONLY once the execution has SUCCEEDED. `useQueryResults` documents
   // itself as a pager "over a succeeded query's results" and cannot enforce that — it is
   // handed an id and never sees the execution's state — so the contract is kept here.
@@ -413,8 +417,11 @@ export function ExplorationResultsRegion({
   const cursorValue = cursorColumn ? rows[cursorRow]?.[cursorColumn.index] : undefined;
 
   // Suspended is not loading: nothing is in flight, deliberately. Without this the status
-  // line announced "Running…" directly above the panel saying nothing had been run.
-  const loading = !queryControls.suspended && (isPending || !shownExecutionId || results.isPending);
+  // line announced "Running…" directly above the panel saying nothing had been run. A banner
+  // with no earlier result to show is not loading either — it said "Running…" under a failure.
+  const loading =
+    !queryControls.suspended &&
+    (failed ? shownExecutionId !== null && results.isPending : isPending || !shownExecutionId || results.isPending);
 
   // `failed` is checked FIRST and is the one that is easy to miss: a failed
   // apply still has a rendered `sql` — the statement Athena rejected — while `shownExecutionId`
@@ -422,7 +429,8 @@ export function ExplorationResultsRegion({
   // save there writes a file that fails to open in the workspace it promises it opens in.
   // A suspended description needs no clause of its own: the workspace passes `useExploration`
   // nothing while suspended, so `sql` is already null.
-  const saveRefusal = failed ? FAILED_NOT_SAVEABLE : sql === null ? NOTHING_TO_SAVE : null;
+  // A statement still running when the watch ended is a statement Athena accepted, so it saves.
+  const saveRefusal = failed && !stillRunning ? FAILED_NOT_SAVEABLE : sql === null ? NOTHING_TO_SAVE : null;
   const hasCell = cursorColumn !== null && cursorValue !== undefined;
   const filterByCellRefusal = !hasCell
     ? NO_CELL_TO_FILTER
@@ -492,8 +500,10 @@ export function ExplorationResultsRegion({
       );
     }
     // The banner above has already said this; an empty grid under it would be a second,
-    // less true account of the same failure.
+    // less true account of the same failure. So would "No rows returned." under a banner with
+    // no earlier result to fall back on.
     if (shownExecutionId !== null && results.isError) return null;
+    if (failed && shownExecutionId === null) return null;
     // Nothing to draw a header from yet: the statement is running and the source could not
     // say what its columns are. That is the `sql` arm's ordinary state — and
     // the `table` arm's only while Glue is still being read.
@@ -702,7 +712,10 @@ export function ExplorationResultsRegion({
           read: a statement that failed is WHY its rows could not be fetched, and saying
           both names the symptom twice. */}
       {error != null ? (
-        <ErrorBanner error={error} />
+        <ErrorBanner
+          error={error}
+          variant={stillRunning ? 'warning' : 'danger'}
+        />
       ) : (
         shownExecutionId !== null && results.isError && <ErrorBanner error={results.error} />
       )}

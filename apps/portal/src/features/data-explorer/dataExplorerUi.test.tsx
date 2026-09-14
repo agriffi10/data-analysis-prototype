@@ -1,5 +1,5 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {screen, waitFor, within} from '@testing-library/react';
+import {act, screen, waitFor, within} from '@testing-library/react';
 import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
@@ -10,6 +10,8 @@ import {EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
 import {newExploration} from './exploration';
 import {getDatabase, listTables} from '../catalog/glue.service';
 import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.service';
+import {MAX_POLL_DURATION_MS, POLL_INTERVAL_MS} from '../catalog/catalog.constants';
+import {withFakeTimers} from '../../test/fakeTimers';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import type {ExplorationTab, ExplorationTabsState} from './dataExplorer.types';
 import type {QuerySpace} from '../catalog/catalog.types';
@@ -447,6 +449,34 @@ describe('the results region', () => {
     expect(alert).toBeInTheDocument();
     expect(alert.textContent).not.toMatch(/SYNTAX_ERROR/);
     expect(screen.queryByText(/cannot be resolved/)).not.toBeInTheDocument();
+  });
+
+  it('settles a first apply that outlives the ceiling with a warning, and says Running… nowhere', async () => {
+    await withFakeTimers(async () => {
+      vi.mocked(getQueryStatus).mockResolvedValue(ok({queryExecutionId: 'exec-1', state: 'RUNNING'}));
+      seedTabs([{id: 't1', table: 'orders'}]);
+      render();
+      await waitFor(() => expect(getQueryStatus).toHaveBeenCalled());
+      expect(screen.getAllByText('Running…').length).toBeGreaterThan(0);
+
+      // The ceiling's mark in an act of its own, then the one poll whose read decides.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(MAX_POLL_DURATION_MS);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS + 10);
+      });
+
+      const banner = (
+        await screen.findByText(
+          'Data Quarry stopped waiting for this query after 30 minutes, so its results won’t appear here. When it finishes, they’re saved in your files under system_settings/athenaresults, in a file named after its query ID (exec-1).'
+        )
+      ).closest('[role="alert"]');
+      expect(banner).toHaveTextContent('Still running');
+      expect(banner).toHaveClass('bg-warning-soft');
+      expect(screen.queryByText('Running…')).not.toBeInTheDocument();
+      expect(screen.queryByText('No rows returned.')).not.toBeInTheDocument();
+    });
   });
 
   it('leaves nothing under the banner of a first apply that failed — no Running…, no empty answer', async () => {

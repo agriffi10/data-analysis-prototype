@@ -27,9 +27,12 @@ export type UseExplorationResult = {
   outputLocation: string | undefined;
   /** What this execution scanned. Null until the execution reports it. */
   cost: ExecutionCost | null;
-  /** The statement is starting or still running. */
+  /** The statement is starting or still running, and the browser is still watching it. */
   isPending: boolean;
-  /** A render refusal, a failed StartQueryExecution, or a failed poll. Render via `toUserMessage`. */
+  /**
+   * A render refusal, a failed StartQueryExecution, a failed poll, or the verdict that the watch
+   * outlived its ceiling (`isQueryStillRunning`). Render via `toUserMessage`.
+   */
   error: unknown;
 };
 
@@ -99,7 +102,7 @@ export function useExploration(exploration: Exploration | null): UseExplorationR
 
   const queryExecutionId = start.data ?? null;
   const poll = useQueryExecution(queryExecutionId);
-  const status = poll.data ?? null;
+  const status = poll.status ?? null;
   const state = status?.state ?? null;
 
   // What the poll last said about THIS statement, read by the cleanup below. A ref rather
@@ -169,7 +172,12 @@ export function useExploration(exploration: Exploration | null): UseExplorationR
     cost,
     // A disabled query reports `isPending` forever in TanStack v5, so `enabled` gates it:
     // signed out with no username, nothing is in flight and a permanent spinner is a lie.
-    isPending: enabled && (start.isPending || start.isFetching || (state !== null && !isTerminalState(state))),
-    error: rendered.error ?? start.error ?? poll.error ?? executionFailure ?? null
+    // A statement the watch gave up on is not pending: nothing more will be asked about it.
+    isPending:
+      enabled &&
+      (start.isPending ||
+        start.isFetching ||
+        (state !== null && !isTerminalState(state) && poll.stillRunning === null)),
+    error: rendered.error ?? start.error ?? poll.error ?? executionFailure ?? poll.stillRunning ?? null
   };
 }

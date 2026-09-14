@@ -174,7 +174,9 @@ describe('useQueryExecution', () => {
       vi.useFakeTimers();
       // As production has it: a focus refetch would make the deciding read here, not the interval.
       const queryClient = createTestQueryClient();
-      queryClient.setDefaultOptions({queries: {...queryClient.getDefaultOptions().queries, refetchOnWindowFocus: false}});
+      queryClient.setDefaultOptions({
+        queries: {...queryClient.getDefaultOptions().queries, refetchOnWindowFocus: false}
+      });
       try {
         mockGetStatus.mockResolvedValue(RUNNING);
         const {result} = renderHookWithProviders(() => useQueryExecution('q-1'), {queryClient});

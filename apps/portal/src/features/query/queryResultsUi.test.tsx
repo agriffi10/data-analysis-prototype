@@ -184,6 +184,7 @@ describe('QueryResultsMobile', () => {
         totalRowCount={2}
         hasRun
         batchFailed={false}
+        stillRunning={false}
         errorMessage={null}
         onDismissError={vi.fn()}
         results={props.results ?? resultsFixture()}
