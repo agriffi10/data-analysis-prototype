@@ -1190,9 +1190,11 @@ def test_the_image_scope_list_and_the_pull_request_gate_select_the_same_paths():
 def test_the_task_scope_list_selects_what_shapes_the_task_definition():
     """The narrower list must cover the runtime-configuration map and the SPA module, and no more.
 
-    It exists for one race: Terraform registering a revision this workflow has not seen yet.
-    Widening it to `infra/` would deploy on every infrastructure merge — 19 of the 40 measured —
-    and buy nothing the revision comparison does not already catch once the apply has landed.
+    It decides which pushes hold the run until their own apply has finished, because Terraform
+    registers a revision this workflow would otherwise read the family too early to see. Widening
+    it to `infra/` would hold the SPA deploy on every infrastructure merge — 19 of the 40 measured
+    — for applies that, outside these two paths, can move a configuration value only through a
+    module output or a variable default.
 
     Args:
         None.
@@ -1216,8 +1218,10 @@ def test_the_task_scope_list_selects_what_shapes_the_task_definition():
 #: fixture describes a deployment rather than a sequence of calls. The two
 #: `describe-task-definition` calls are told apart by their `--query`, which is the only thing that
 #: differs between asking what the service RUNS and asking what the family's newest revision IS.
+#: The newest revision MOVES once this commit's apply has finished, which is the race the scope
+#: step waits out: read before then, the family answers with what it held before the apply.
 FAKE_AWS = """#!/usr/bin/env python3
-import json, os, sys
+import json, os, pathlib, sys
 
 argv = sys.argv[1:]
 if argv[:2] == ["ecr", "describe-repositories"]:
@@ -1238,6 +1242,8 @@ elif argv[:2] == ["ecs", "describe-task-definition"]:
         print(os.environ["FAKE_RUNNING_IMAGE"])
     elif os.environ["FAKE_NEWEST_CALL"] == "fails":
         sys.exit(255)
+    elif (pathlib.Path(os.environ["FAKE_STATE"]) / "applied").exists():
+        print(os.environ["FAKE_APPLIED_ARN"])
     else:
         print(os.environ["FAKE_NEWEST_ARN"])
 elif argv[:2] == ["ecr", "describe-images"]:
@@ -1255,6 +1261,58 @@ elif argv[:2] == ["ecr", "describe-images"]:
 else:
     sys.exit(2)
 """
+
+#: The stub `gh`, answering the one question the scope step asks it: the runs of the apply
+#: workflow for this commit. Each call takes the next answer from ``FAKE_RUNS`` and the last one
+#: repeats, and the answer is put through the step's own ``--jq`` expression by the real ``jq``,
+#: so the expression is exercised rather than assumed. The first COMPLETED answer is what moves
+#: the family's newest revision. A question about any other commit or workflow is answered the way
+#: GitHub would answer it about a past push — finished and green — without moving anything, so a
+#: step that asked the wrong question is told it can go on, and reads the family too early.
+FAKE_GH = """#!/usr/bin/env python3
+import json, os, pathlib, subprocess, sys, urllib.parse
+
+state = pathlib.Path(os.environ["FAKE_STATE"])
+with (state / "gh-calls").open("a", encoding="utf-8") as log:
+    log.write(" ".join(sys.argv[1:]) + "\\n")
+polls = len((state / "gh-calls").read_text(encoding="utf-8").splitlines())
+argv = sys.argv[1:]
+if argv[:1] != ["api"] or os.environ["FAKE_RUNS_CALL"] == "fails":
+    sys.exit(1)
+endpoint = urllib.parse.urlsplit(argv[1])
+wanted = "repos/{}/actions/workflows/{}/runs".format(
+    os.environ["GITHUB_REPOSITORY"], os.environ["APPLY_WORKFLOW"]
+)
+query = urllib.parse.parse_qs(endpoint.query)
+if endpoint.path == wanted and query.get("head_sha") == [os.environ["GITHUB_SHA"]]:
+    answers = json.loads(os.environ["FAKE_RUNS"])
+    runs = answers[min(polls, len(answers)) - 1]
+    if runs and runs[0]["status"] == "completed":
+        (state / "applied").touch()
+else:
+    runs = [{"status": "completed", "conclusion": "success"}]
+body = json.dumps({"total_count": len(runs), "workflow_runs": runs})
+expression = argv[argv.index("--jq") + 1]
+sys.exit(subprocess.run(["jq", "-r", expression], input=body, text=True).returncode)
+"""
+
+#: The stub `sleep`: records how long the step asked to wait and returns at once, so the wait's
+#: window is measured without being spent.
+FAKE_SLEEP = """#!/bin/sh
+echo "$1" >> "$FAKE_STATE/slept"
+"""
+
+#: What the apply workflow's run lookup can answer, one poll at a time.
+APPLY_RUNNING = ({"status": "in_progress", "conclusion": None},)
+APPLY_SUCCEEDED = ({"status": "completed", "conclusion": "success"},)
+APPLY_FAILED = ({"status": "completed", "conclusion": "failure"},)
+
+#: The shortest wait for an apply the scope step may give up after. It must outlast the slowest
+#: apply a push actually gets, QUEUE INCLUDED, because giving up early reddens main on a push whose
+#: apply was only behind another. The number lives here, where a test reads it: re-measure the
+#: apply workflow's push runs (``gh api 'repos/{owner}/{repo}/actions/workflows/deploy-infra.yml/
+#: runs?event=push&per_page=100'``, created to updated) before lowering it.
+MINIMUM_APPLY_WAIT_SECONDS = 660
 
 
 def _run_scope(
@@ -1274,7 +1332,10 @@ def _run_scope(
     service_call: str = "ok",
     newest_call: str = "ok",
     ecr_call: str = "ok",
-) -> dict[str, str]:
+    apply_runs: tuple[tuple[dict, ...], ...] = (APPLY_RUNNING, APPLY_SUCCEEDED),
+    apply_registers: bool = False,
+    runs_call: str = "ok",
+) -> dict[str, str | int]:
     """Run the workflow's real scope script over a throwaway repository and stubbed AWS.
 
     Args:
@@ -1284,7 +1345,13 @@ def _run_scope(
         deployed: What the service is running — ``baseline`` for the previous commit, ``absent``
             for no service at all, ``placeholder`` for the pre-first-deploy image, or
             ``unreachable`` for a sha this clone does not hold.
-        newest_is_running: False when Terraform has registered a revision nobody has pointed at.
+        newest_is_running: False when Terraform has registered a revision nobody has pointed at
+            before this run began.
+        apply_runs: What each successive lookup of this commit's apply run answers, the last
+            repeating. The default is still running on the first poll and finished on the second.
+        apply_registers: True when this commit's apply registers a revision as it finishes, so
+            the family's newest revision moves only once the apply is over.
+        runs_call: ``fails`` to make every lookup of the apply run error.
         existing_tags: Tags the registry already holds, which is how a re-run is described. The
             literal ``HEAD`` stands for this commit's sha, which the caller cannot know in advance.
         dispatched: True to exercise the manual recovery lever.
@@ -1303,7 +1370,9 @@ def _run_scope(
         expect_failure: Assert the step exits non-zero instead of emitting an answer.
 
     Returns:
-        dict[str, str]: The step's ``$GITHUB_OUTPUT`` — ``tag``, ``build`` and ``deploy``.
+        dict[str, str | int]: The step's ``$GITHUB_OUTPUT`` — ``tag``, ``build`` and ``deploy``
+            — with ``polls``, how many times it asked after the apply, and ``slept``, the seconds
+            it asked to wait in all.
 
     Raises:
         AssertionError: If the script exits non-zero, with its output attached.
@@ -1311,13 +1380,15 @@ def _run_scope(
     step = _scope_step()
     with tempfile.TemporaryDirectory() as work:
         root = pathlib.Path(work)
-        repo, binaries = root / "repo", root / "bin"
+        repo, binaries, state = root / "repo", root / "bin", root / "state"
         repo.mkdir()
         binaries.mkdir()
+        state.mkdir()
 
-        stub = binaries / "aws"
-        stub.write_text(FAKE_AWS, encoding="utf-8")
-        stub.chmod(0o755)
+        for name, body in (("aws", FAKE_AWS), ("gh", FAKE_GH), ("sleep", FAKE_SLEEP)):
+            stub = binaries / name
+            stub.write_text(body, encoding="utf-8")
+            stub.chmod(0o755)
 
         git, baseline = _seed_repo(repo)
         clean = _hermetic_env()
@@ -1366,6 +1437,11 @@ def _run_scope(
                 }
             )
         )
+        newest_arn = (
+            running_arn
+            if newest_is_running
+            else "arn:aws:ecs:::task-definition/dat-prod-spa:8"
+        )
 
         output = root / "output.txt"
         output.touch()
@@ -1386,14 +1462,20 @@ def _run_scope(
             if image_patterns is None
             else image_patterns,
             "TASK_PATTERNS": step["env"]["TASK_PATTERNS"],
+            "APPLY_WORKFLOW": step["env"]["APPLY_WORKFLOW"],
+            "GITHUB_REPOSITORY": "owner/repo",
+            "FAKE_STATE": str(state),
+            "FAKE_RUNS": json.dumps(apply_runs),
+            "FAKE_RUNS_CALL": runs_call,
             "FAKE_SERVICE_JSON": service,
             "FAKE_SERVICE_CALL": service_call,
             "FAKE_NEWEST_CALL": newest_call,
             "FAKE_ECR_CALL": ecr_call,
             "FAKE_RUNNING_IMAGE": image,
-            "FAKE_NEWEST_ARN": running_arn
-            if newest_is_running
-            else "arn:aws:ecs:::task-definition/dat-prod-spa:8",
+            "FAKE_NEWEST_ARN": newest_arn,
+            "FAKE_APPLIED_ARN": "arn:aws:ecs:::task-definition/dat-prod-spa:9"
+            if apply_registers
+            else newest_arn,
             # THE BASELINE'S OWN TAG IS ALWAYS PRESENT when the service is running it, because a
             # service cannot run an image the registry does not hold. Leaving it out models a
             # registry that contradicts the deployment, and every re-point fixture would then
@@ -1415,11 +1497,27 @@ def _run_scope(
             capture_output=True,
             text=True,
         )
+        calls, slept = state / "gh-calls", state / "slept"
+        waited = {
+            "polls": len(calls.read_text(encoding="utf-8").splitlines())
+            if calls.exists()
+            else 0,
+            "slept": sum(
+                int(line) for line in slept.read_text(encoding="utf-8").split()
+            )
+            if slept.exists()
+            else 0,
+        }
         if expect_failure:
             assert finished.returncode != 0, (
                 f"the scope step was expected to refuse and did not:\n{finished.stdout}"
             )
-            return {"stdout": finished.stdout, "baseline": baseline, "head": head}
+            return {
+                "stdout": finished.stdout,
+                "baseline": baseline,
+                "head": head,
+                **waited,
+            }
         assert finished.returncode == 0, (
             f"the scope step failed:\n{finished.stdout}\n{finished.stderr}"
         )
@@ -1428,7 +1526,7 @@ def _run_scope(
         answers["baseline"] = baseline
         answers["head"] = head
         answers["stdout"] = finished.stdout
-        return answers
+        return {**answers, **waited}
 
 
 def test_a_commit_touching_nothing_the_image_or_the_task_definition_reads_does_neither():
@@ -1484,8 +1582,14 @@ def test_a_change_under_packages_builds():
     assert _run_scope(("packages/shared/index.ts",))["build"] == "run"
 
 
-def test_a_runtime_configuration_change_points_the_service_without_rebuilding():
-    """Terraform's own revisions are the case a `paths:` filter on the image cannot see.
+def test_a_configuration_change_waits_for_its_apply_then_points_at_what_it_registered():
+    """The family is read only after this push's apply, or the deploy clones what it superseded.
+
+    The apply runs in another workflow on the same push, and this one reaches the family first.
+    A read before the apply finishes finds the revision from before it — same keys, old values —
+    and the register step, which counts keys, deploys it green. So the step asks after this
+    commit's apply until it has finished, and only then compares the family with the service.
+    The same holds when the push also changes the image: the build must clone the new revision.
 
     Args:
         None.
@@ -1494,12 +1598,158 @@ def test_a_runtime_configuration_change_points_the_service_without_rebuilding():
         None.
 
     Raises:
-        AssertionError: If the service is left pointing at a revision Terraform superseded.
+        AssertionError: If the family is read before the apply finished, which leaves the
+            service on the revision the apply superseded.
     """
-    answers = _run_scope(("infra/main.tf",))
-    assert (answers["build"], answers["deploy"]) == ("skip", "run")
-    assert answers["tag"] == answers["baseline"], (
+    only = _run_scope(("infra/main.tf",), apply_registers=True)
+    assert (only["build"], only["deploy"]) == ("skip", "run"), (
+        "a configuration change was decided before its apply finished, so the revision the apply "
+        "registered was never seen"
+    )
+    assert only["tag"] == only["baseline"], (
         "re-pointing must reuse the running image, not build a new one"
+    )
+    assert only["polls"] == 2, "the step stopped asking before the apply had finished"
+
+    with_image = _run_scope(
+        ("apps/portal/src/App.tsx", "infra/modules/spa/ecs.tf"), apply_registers=True
+    )
+    assert (with_image["build"], with_image["deploy"]) == ("run", "run")
+    assert with_image["polls"] == 2, (
+        "a push changing the image and the task definition was built without waiting for its "
+        "apply, so the register step clones the revision from before it"
+    )
+
+
+def test_a_configuration_push_whose_apply_registered_nothing_leaves_the_service_alone():
+    """Most pushes touching `infra/main.tf` change nothing the task definition renders.
+
+    Their apply registers no revision, so after the wait the family still holds the one the
+    service runs, and there is nothing to point at. Re-pointing anyway rolls the production tasks
+    onto a copy of what they already run — which is all the list used to buy, every time.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If a push whose apply changed nothing still rolls the service, or reaches
+            that verdict without having waited for the apply.
+    """
+    answers = _run_scope(("infra/main.tf",), apply_registers=False)
+    assert (answers["build"], answers["deploy"]) == ("skip", "skip"), (
+        "a push whose apply registered no revision still re-pointed the service"
+    )
+    assert answers["polls"] == 2, (
+        "the verdict was reached without waiting for the apply"
+    )
+
+
+def test_an_apply_that_never_finishes_stops_the_run_rather_than_reading_past_it():
+    """Reading the family while the apply may still register is the defect, arriving late.
+
+    So the wait ends in a refusal, not a guess — after a window long enough that a routine apply
+    queued behind another cannot trip it. An answer GitHub will not give is waited out the same
+    way rather than read as finished.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If the step goes on without the apply, gives up inside the window, or
+            refuses without saying why.
+    """
+    for label, fixture in (
+        ("an apply still running", {"apply_runs": (APPLY_RUNNING,)}),
+        ("a lookup that errors", {"runs_call": "fails"}),
+    ):
+        answers = _run_scope(("infra/main.tf",), expect_failure=True, **fixture)
+        assert "::error title=Apply not finished::" in answers["stdout"], (
+            f"{label}: the step refused, but not with the message that names the apply"
+        )
+        assert answers["slept"] >= MINIMUM_APPLY_WAIT_SECONDS, (
+            f"{label}: the step gave up after {answers['slept']} seconds, which a routine apply "
+            "queued behind another can outlast"
+        )
+
+
+def test_a_failed_apply_is_reported_and_the_run_decides_from_what_it_can_read():
+    """A failed apply is a red main already; this run says so and does not add a second red.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If a finished-but-failed apply reddens this run or passes unreported.
+    """
+    answers = _run_scope(("infra/main.tf",), apply_runs=(APPLY_FAILED,))
+    assert (answers["build"], answers["deploy"]) == ("skip", "skip")
+    assert "::warning title=Apply did not succeed::" in answers["stdout"], (
+        "an apply that failed was waited out silently, so nothing says the family may not carry "
+        "this commit's configuration"
+    )
+
+
+def test_nothing_but_a_push_touching_the_task_definition_waits():
+    """The wait is paid by the pushes it protects, and the recovery lever never pays it.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If an ordinary push or a dispatch asks after the apply.
+    """
+    assert _run_scope(("apps/portal/src/App.tsx",))["polls"] == 0, (
+        "a push touching nothing the task definition reads waited for an apply"
+    )
+    assert _run_scope(("infra/main.tf",), dispatched=True)["polls"] == 0, (
+        "a dispatch waited for an apply; the recovery lever does what it is told"
+    )
+
+
+def test_every_path_the_task_list_waits_on_fires_the_apply_it_waits_for():
+    """A push the task list selects waits for a run of the apply workflow, so there must be one.
+
+    A path in the task list that the apply workflow's `paths:` does not cover waits the full
+    window for a run that is never created, and reddens main on every push touching it.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If the named workflow is missing or does not fire on a path the task
+            list selects.
+    """
+    step = _scope_step()
+    workflow = ROOT / ".github" / "workflows" / step["env"]["APPLY_WORKFLOW"]
+    assert workflow.is_file(), (
+        f"the scope step waits for {workflow.name}, which does not exist"
+    )
+
+    waited_on = _selected_by_regexes(step["env"]["TASK_PATTERNS"])
+    assert waited_on, (
+        "the task list selects nothing; the comparison below would be vacuous"
+    )
+    fired = _selected_by_globs(
+        yaml.safe_load(workflow.read_text(encoding="utf-8"))[True]["push"]["paths"]
+    )
+    assert waited_on <= fired, (
+        f"{workflow.name} does not fire on {sorted(waited_on - fired)}, so a push touching it "
+        "waits for an apply run that is never created"
     )
 
 
@@ -2017,12 +2267,12 @@ def test_a_pattern_list_grep_cannot_compile_stops_the_run_rather_than_skipping()
     )
 
 
-def test_a_configuration_change_already_deployed_does_not_re_point_forever():
+def test_a_configuration_change_already_deployed_does_not_wait_forever():
     """The task list is about THIS push; the image change set does not advance when a run re-points.
 
     Tested against the image change set, one merge touching `infra/main.tf` goes on matching for
-    every merge after it — registering a revision and rolling the production tasks, having changed
-    nothing, until the next commit that builds. Measured before the fix: 11 of 15 re-points.
+    every merge after it until the next commit that builds — each run waiting on an apply that
+    cannot concern it. Measured when the list still re-pointed: 11 of 15 re-points were that.
 
     Args:
         None.
@@ -2032,18 +2282,19 @@ def test_a_configuration_change_already_deployed_does_not_re_point_forever():
 
     Raises:
         AssertionError: If a configuration change from an earlier, already-deployed merge keeps
-            triggering deploys.
+            holding later runs.
     """
     stale = _run_scope(("docs/architecture.md",), intermediate=("infra/main.tf",))
-    assert (stale["build"], stale["deploy"]) == ("skip", "skip"), (
-        "a configuration change from an earlier merge is still being re-deployed; the task list "
-        "is being tested against the image baseline rather than against this push"
+    assert stale["polls"] == 0, (
+        "a configuration change from an earlier merge still holds this run for an apply; the task "
+        "list is being tested against the image baseline rather than against this push"
     )
+    assert (stale["build"], stale["deploy"]) == ("skip", "skip")
 
-    # The control: the same change, in THIS commit, still re-points. Without it the assertion
-    # above passes just as well on a task list that matches nothing at all.
+    # The control: the same change, in THIS commit, still waits. Without it the assertion above
+    # passes just as well on a task list that matches nothing at all.
     fresh = _run_scope(("infra/main.tf",), intermediate=("docs/architecture.md",))
-    assert (fresh["build"], fresh["deploy"]) == ("skip", "run")
+    assert fresh["polls"] == 2
 
 
 def test_no_shape_of_quoted_path_can_fall_out_of_the_change_set():
@@ -2167,7 +2418,10 @@ def test_a_re_point_never_asks_the_registry_whether_to_build():
     for label, fixture in (
         ("an unreadable newest revision", {"newest_call": "fails"}),
         ("an unsettled deployment", {"rollout": "FAILED"}),
-        ("a configuration change in this push", {"changed": ("infra/main.tf",)}),
+        (
+            "a revision this push's apply registered",
+            {"changed": ("infra/main.tf",), "apply_registers": True},
+        ),
     ):
         changed = fixture.pop("changed", ("docs/architecture.md",))
         answers = _run_scope(changed, ecr_call="fails", **fixture)

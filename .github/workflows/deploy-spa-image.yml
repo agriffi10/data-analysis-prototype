@@ -15,7 +15,7 @@ name: Deploy SPA image
 # still answered exactly — by the tag the service runs, which is still a commit sha and still an
 # image in the registry — it is just no longer the same answer as "the tip of main". Replayed over
 # the 40 merges before this change, running both path tests exactly as the step does: 15 would have
-# built, 4 would have re-pointed without building, and 21 would have done neither.
+# built, 4 changed only an input to the task definition, and 21 would have done neither.
 #
 # THE BASELINE IS THE DEPLOYED COMMIT, never HEAD~1. A run that skips, and a run that fails, both
 # leave the next one comparing against what is still actually running — so a missed deploy heals on
@@ -25,11 +25,14 @@ name: Deploy SPA image
 #
 # THE DISPATCH PATH IS NOT A CONVENIENCE. Two situations need it and neither is hypothetical.
 # Terraform registers task-definition revisions of its own — the service carries
-# `ignore_changes = [task_definition]` precisely so CI owns which revision runs — so a change to
-# the runtime-configuration map or the CSP produces a revision nobody points the service at, and
-# the running container keeps the old value until the next push to main. And if this pipeline
-# lands broken, the registry is IMMUTABLE: the failing sha cannot be re-pushed, and no local
-# identity may write to production. A dispatch with an existing tag re-points without rebuilding.
+# `ignore_changes = [task_definition]` precisely so CI owns which revision runs. A push editing
+# `infra/main.tf` or the SPA module waits for its own apply and lands on that push, but a value
+# that reaches Terraform any other way — a repository variable applied by a dispatched Deploy
+# Infrastructure, a module output, a default in `variables.tf` — produces a revision nobody points
+# the service at, and the running container keeps the old value until the next push to main. And
+# if this pipeline lands broken, the registry is IMMUTABLE: the failing sha cannot be re-pushed,
+# and no local identity may write to production. A dispatch with an existing tag re-points
+# without rebuilding.
 #
 # A RE-POINT AT AN OLDER TAG DOES NOT OUTLAST THE NEXT PUSH TO MAIN if anything the image reads
 # changed since that tag. That run reads the tag back as its baseline, so the commit rolled back
@@ -64,12 +67,16 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    # The build is ~3 minutes, the matrix ~2, and `wait services-stable` caps itself at 10. Twenty-five
-    # bounds a hung run clear of that without sitting against GitHub's six-hour default.
-    timeout-minutes: 25
+    # The build is ~3 minutes, the matrix ~2, and `wait services-stable` caps itself at 10; a push
+    # that changed the task definition first waits up to 15 for its own apply. Forty bounds a hung
+    # run clear of that without sitting against GitHub's six-hour default.
+    timeout-minutes: 40
     permissions:
       id-token: write
       contents: read
+      # For one question, asked by the scope step: has this commit's Deploy Infrastructure run
+      # finished?
+      actions: read
 
     steps:
       - name: Checkout
@@ -152,13 +159,18 @@ jobs:
       # left an image unproven and main built it anyway; a miss here leaves production running the
       # old bundle behind a green deploy. Add a path to both lists or to neither.
       #
-      # THE TASK LIST IS SEPARATE, AND SMALLER. Terraform registers task-definition revisions of
-      # its own out of `infra/main.tf` (the runtime-configuration map) and `infra/modules/spa/`
-      # (the definition itself), and the service carries `ignore_changes = [task_definition]`
-      # precisely so nothing but this workflow points at one. The revision comparison at the end
-      # catches a revision that already exists; this list is for the RACE, where the apply has not
-      # registered it yet — the two workflows fire on the same push with no ordering between them,
-      # which is the same race the register step already polls through.
+      # THE TASK LIST DECIDES WHEN TO READ, NOT WHAT TO DO. Terraform registers task-definition
+      # revisions of its own out of `infra/main.tf` (the runtime-configuration map and the CSP) and
+      # `infra/modules/spa/` (the definition itself), and the service carries
+      # `ignore_changes = [task_definition]` precisely so nothing but this workflow points at one.
+      # Deploy Infrastructure fires on the same push with no ordering between the two, and this job
+      # reaches the family first: its first AWS read comes seconds in, while the apply starts only
+      # after the Lambda image lands. So a push touching either path waits for its own apply to
+      # FINISH, then decides from live state like any other push — the revision comparison at the
+      # end points the service at whatever the apply registered, and does nothing if it registered
+      # nothing. Re-pointing without waiting, which is what this list used to do, cloned the
+      # revision the apply was about to supersede; the register step counts keys and compares no
+      # value, so that deploy went green serving the old one.
       - name: Work out whether this commit can change what is running
         id: scope
         env:
@@ -167,6 +179,8 @@ jobs:
           SERVICE: ${{ steps.names.outputs.service }}
           TAG_INPUT: ${{ inputs.image_tag }}
           DISPATCHED: ${{ github.event_name == 'workflow_dispatch' }}
+          APPLY_WORKFLOW: deploy-infra.yml
+          GH_TOKEN: ${{ github.token }}
           IMAGE_PATTERNS: |
             ^apps/portal/
             ^packages/
@@ -247,6 +261,90 @@ jobs:
             exit 0
           fi
 
+          # GREP ANSWERS THREE WAYS AND ONLY TWO OF THEM ARE ANSWERS: 0 matched, 1 did not,
+          # anything above that is grep failing to perform the test at all. Written as a bare `if`
+          # the third collapses into the second — so a pattern list GNU grep refuses, which is what
+          # one PCRE construct in either list produces, reads as "nothing changed" and skips the
+          # deploy. Tested rather than assumed, and a failure to test is fatal.
+          #
+          # A here-string, NOT `printf … | grep -q`. Under `pipefail` grep exits at the first
+          # match, printf takes SIGPIPE, and the pipeline reports 141 — which would now be read as
+          # grep failing rather than as a match. Measured in `ci.yml`, over the same idiom.
+          matches() {
+            local status
+            set +e
+            grep -qE -f <(printf '%s' "$1") <<<"$2"
+            status=$?
+            set -e
+            if [ "$status" -gt 1 ]; then
+              echo "::error title=Scope::grep exited $status testing the change set. The pattern list is unusable — POSIX ERE has no non-capturing group or lookaround — so this run cannot decide what to do and will not guess."
+              exit 1
+            fi
+            return "$status"
+          }
+
+          # THE WAIT IS A PROPERTY OF THIS PUSH, so the task-definition list is tested against this
+          # push's own change set rather than against the image's. That one is measured from the
+          # image the service runs and does NOT advance when a run only re-points, so one merge
+          # touching `infra/main.tf` would go on matching for every merge after it until the next
+          # commit that builds, each holding the deploy for an apply that cannot concern it.
+          # Measured when the list still re-pointed: 11 of 15 re-points were that.
+          #
+          # `HEAD^` AND NOT `github.event.before`, with the bound stated rather than discovered.
+          # Every merge to main here is a squash, so a push is one commit and the two agree. They
+          # differ for a push carrying SEVERAL commits, where a configuration change in any but
+          # the tip is missed — and the cost of that is one merge of latency, because the
+          # newest-revision comparison below re-points as soon as the apply has landed. Closing it
+          # exactly means `github.event.before`, which is all-zeros on a first push and can name
+          # an orphan after a force-push, so it would need this same guard for a case that does
+          # not arise. Accepted deliberately. A root commit has no parent and its push is its whole
+          # tree, which is the diff from the empty tree.
+          if ! parent=$(git rev-parse --verify --quiet 'HEAD^'); then
+            parent=$(git hash-object -t tree /dev/null)
+          fi
+          PUSHED=$(git diff -z --name-only --no-renames "$parent" HEAD | tr '\0' '\n')
+
+          # THIS PUSH'S APPLY FINISHES BEFORE ANYTHING BELOW READS AWS, when the push changed an
+          # input to the task definition; the comment above this step says why. Asked of GitHub
+          # rather than read off the family: a revision registered after this commit proves nothing,
+          # because most pushes touching these paths change nothing the definition renders, so the
+          # apply registers none, and a queued run of THIS workflow may have registered one of its
+          # own since the merge.
+          #
+          # FINISHED, NOT SUCCEEDED. A failed apply is already a red main in its own workflow;
+          # failing here as well adds a second red for the same cause and holds back an image that
+          # may not depend on it. So it is said, and the run decides from what the family holds.
+          # What does stop the run is an apply that never finishes inside the window — a dropped
+          # push event, a hung apply, an answer GitHub will not give — because reading past it
+          # would deploy a revision that may predate this commit behind a green check. The window is
+          # far past a routine apply, queue included; re-measure against that workflow's push runs
+          # before shortening it.
+          wait_for_the_apply() {
+            local runs answer attempt polls=60 interval=15
+            runs="repos/$GITHUB_REPOSITORY/actions/workflows/$APPLY_WORKFLOW/runs?head_sha=$GITHUB_SHA&event=push&per_page=1"
+            for attempt in $(seq 1 "$polls"); do
+              answer=$(gh api "$runs" --jq '(.workflow_runs[0] // {}) | "\(.status // "absent") \(.conclusion // "-")"') \
+                || answer='unreadable'
+              case "$answer" in
+                'completed success')
+                  echo "::notice title=Applied::this commit changes an input to the task definition and its $APPLY_WORKFLOW run has finished; deciding from the revision it left."
+                  return 0
+                  ;;
+                completed\ *)
+                  echo "::warning title=Apply did not succeed::this commit's $APPLY_WORKFLOW run ended ${answer#completed }, so the family's newest revision may not carry this commit's configuration. Deciding from it anyway; re-run this job once the apply has succeeded."
+                  return 0
+                  ;;
+              esac
+              echo "this commit changes an input to the task definition; its $APPLY_WORKFLOW run is [$answer], poll $attempt of $polls"
+              sleep "$interval"
+            done
+            echo "::error title=Apply not finished::this commit changes an input to the task definition, and its $APPLY_WORKFLOW run had not finished after $((polls * interval / 60)) minutes (last answer: [$answer]). Reading the family now could clone a revision the apply is about to supersede. If no run exists, GitHub dropped the push event: dispatch $APPLY_WORKFLOW, then re-run this job."
+            exit 1
+          }
+          if matches "$TASK_PATTERNS" "$PUSHED"; then
+            wait_for_the_apply
+          fi
+
           # THE BASELINE IS READ BACK FROM THE SERVICE. Reading it rather than assuming it is what
           # makes a skipped or failed previous run heal on the next merge: the diff is always
           # against what is genuinely running, never against the previous commit.
@@ -316,65 +414,17 @@ jobs:
           # halves are tested — which over-selects, in the expensive direction.
           CHANGED=$(git diff -z --name-only --no-renames "$deployed_tag" HEAD | tr '\0' '\n')
 
-          # THE RACE IS A PROPERTY OF THIS PUSH, so the task-definition list is tested against this
-          # push's own change set rather than against `$CHANGED`. `$CHANGED` is measured from the
-          # image the service runs and does NOT advance when a run only re-points, so one merge
-          # touching `infra/main.tf` would go on matching for every merge after it — registering a
-          # revision and rolling the production tasks, having changed nothing, until the next
-          # commit that builds. Measured before this was fixed: 11 of 15 re-points were that.
-          #
-          # `HEAD^` AND NOT `github.event.before`, with the bound stated rather than discovered.
-          # Every merge to main here is a squash, so a push is one commit and the two agree. They
-          # differ for a push carrying SEVERAL commits, where a configuration change in any but
-          # the tip is missed — and the cost of that is one merge of latency, because the
-          # newest-revision comparison below re-points as soon as the apply has landed. Closing it
-          # exactly means `github.event.before`, which is all-zeros on a first push and can name
-          # an orphan after a force-push, so it would need this same guard for a case that does
-          # not arise. Accepted deliberately.
-          if git rev-parse --verify --quiet 'HEAD^' >/dev/null; then
-            PUSHED=$(git diff -z --name-only --no-renames 'HEAD^' HEAD | tr '\0' '\n')
-          else
-            PUSHED="$CHANGED"
-          fi
-
-          # GREP ANSWERS THREE WAYS AND ONLY TWO OF THEM ARE ANSWERS: 0 matched, 1 did not,
-          # anything above that is grep failing to perform the test at all. Written as a bare `if`
-          # the third collapses into the second — so a pattern list GNU grep refuses, which is what
-          # one PCRE construct in the block below produces, reads as "nothing changed" and skips
-          # the deploy. Tested rather than assumed, and a failure to test is fatal.
-          #
-          # A here-string, NOT `printf … | grep -q`. Under `pipefail` grep exits at the first
-          # match, printf takes SIGPIPE, and the pipeline reports 141 — which would now be read as
-          # grep failing rather than as a match. Measured in `ci.yml`, over the same idiom.
-          matches() {
-            local status
-            set +e
-            grep -qE -f <(printf '%s' "$1") <<<"$2"
-            status=$?
-            set -e
-            if [ "$status" -gt 1 ]; then
-              echo "::error title=Scope::grep exited $status testing the change set. The pattern list is unusable — POSIX ERE has no non-capturing group or lookaround — so this run cannot decide what to do and will not guess."
-              exit 1
-            fi
-            return "$status"
-          }
-
           if matches "$IMAGE_PATTERNS" "$CHANGED"; then
             decide_build "$GITHUB_SHA"
             emit "$GITHUB_SHA" "$BUILD" run
             exit 0
           fi
 
-          if matches "$TASK_PATTERNS" "$PUSHED"; then
-            echo "::notice title=Configuration::this commit changes an input to the task definition; pointing the service without rebuilding, in case the apply has not registered its revision yet"
-            emit "$deployed_tag" skip run
-            exit 0
-          fi
-
           # THE REVISION TERRAFORM ALREADY REGISTERED. `describe-task-definition` on the FAMILY
           # answers with its newest ACTIVE revision, so a disagreement with what the service runs
           # is a revision nobody has pointed at — the state the dispatch lever used to be the only
-          # cure for.
+          # cure for. After a push that changed the task definition this is where the apply's
+          # revision is picked up, because the wait above let it land first.
           # FAILS THE WAY THE OTHER TWO READS DO. Left bare this was the only AWS call in the
           # step that could kill it, and it did so with no annotation at all — so a throttle on the
           # first read deployed and a throttle on this one reddened main, from a step whose name
@@ -421,10 +471,10 @@ jobs:
           # no-op. Measured on ubuntu at ~3000 paths. So `emit` runs first, and the printing uses
           # here-strings, which have no pipe to break.
           emit "$deployed_tag" skip skip
-          echo "::notice title=Nothing to do::no input to the image or to the task definition changed since $deployed_tag, which is the settled commit the service is running ($running/$desired tasks)."
+          echo "::notice title=Nothing to do::no input to the image changed since $deployed_tag, which is the settled commit the service is running ($running/$desired tasks), and the family's newest revision is the one it runs."
           if [ -n "$CHANGED" ]; then
             count=$(grep -c '' <<<"$CHANGED")
-            echo "the $count changed path(s) this decision was made over, none of which matched either list:"
+            echo "the $count changed path(s) this decision was made over, none of which is an input to the image:"
             head -n 60 <<<"$CHANGED"
             if [ "$count" -gt 60 ]; then
               echo "  … and $((count - 60)) more, not printed"
@@ -517,12 +567,15 @@ jobs:
             exit 1
           fi
 
-          # WAITS RATHER THAN FAILING ON THE FIRST READ, because the two workflows race. A commit
-          # that adds a configuration key triggers this pipeline AND the infrastructure apply, with
-          # no ordering between them: read too early and the newest revision predates the apply, so
-          # the count is short and main goes red on exactly the commits that change configuration.
-          # Read too late and it is fine. Polling makes the outcome deterministic instead of a
-          # coin-flip, and still fails loudly if the apply never happened at all.
+          # WAITS RATHER THAN FAILING ON THE FIRST READ, as the backstop to the scope step's wait.
+          # That step holds a push touching the task definition until its own apply has finished,
+          # so on that path the first read here is already after the apply. This loop covers the
+          # paths it does not hold — a dispatch made while an apply is in flight, a push of several
+          # commits whose key change is not the tip — where a revision predating a key change is
+          # short a key and main would go red on exactly the commits that change configuration. It
+          # still fails loudly if the apply never happened at all. It compares a COUNT and nothing
+          # else: a changed VALUE under an unchanged key set passes at once, which is why the
+          # ordering has to come from the scope step and cannot come from here.
           carried=0
           for _ in $(seq 1 20); do
             carried=$(jq '[.containerDefinitions[] | select(.name=="spa") | .environment[] | select(.name | startswith("CONFIG_"))] | length' "$next_json")
