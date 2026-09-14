@@ -103,15 +103,15 @@ You can't debug what you can't see; you can't leak what you don't log.
 Treat every event field as untrusted until validated; derive identity, never accept it.
 
 - ✅ **Validate the full event shape** before acting: required fields present, types correct, enums in range; reject (terminal, §4) on a schema miss with no partial write.
-- ✅ **Derive caller identity server-side** from a verified token — never from a client-asserted `username`/`actor` in the body. For Cognito ID tokens: verify **issuer, audience, expiry, and signature against the pool JWKS** (offline) before trusting any claim (mirrors CLAUDE.md Auth; pre-signup / post-confirmation Lambdas).
-- 🔴 Don't trust a body `username` for authorization; don't skip signature/exp checks "because it came from our queue." ✅ The function is the security boundary, not the UI.
+- ✅ **Derive caller identity server-side** — never from a client-asserted `username`/`actor` in the body. At the edge (the API, pre-signup / post-confirmation), from a verified token: for Cognito ID tokens verify **issuer, audience, expiry, and signature against the pool JWKS** (offline) before trusting any claim (`cpcommon.auth`). On a control plane, from the API-stamped `identity` block, read through `cpcommon.actor` — which cannot verify, because the plane's trust rests on who may write its queue, and only the API may (`docs/architecture.md` ADR row 43).
+- 🔴 Don't trust a body `username` for authorization, and don't add token verification back to a plane: it would be a second answer to a settled question, and a raw JWT back in every message and dead-letter. ✅ The function is the security boundary for *what the actor may do*, not the UI.
 - ✅ Authorize the action against the source of truth (e.g. "is `actor` the owner?") **before** any side effect; a failed check is a clean no-op.
 - ✅ Keep secrets in env/Secrets Manager, not code; scope the function's role so it can read only what it needs (§7).
 
 ## §10 Step Function orchestration
 Put the **workflow** in the state machine; keep each **Task** a single-task Lambda. The orchestrator decides *what* runs; each Lambda does *one* thing.
 
-- ✅ Model multi-step work as explicit states: a **validate** step, then a **`Choice`** that routes by `action` to the right verb Task (e.g. `event → validate JWT → create-space`, or `event → validate JWT → add-members`). Each branch is its own workflow.
+- ✅ Model multi-step work as explicit states: a **validate** step, then a **`Choice`** that routes by `action` to the right verb Task (e.g. `event → validate-authorize → create-space`, or `event → validate-authorize → add-members`). Each branch is its own workflow.
 - 🔴 Don't implement the router as an `if action == …` ladder **inside one Lambda** — that's the monolith. ✅ The `Choice` state is the router; verb Lambdas don't know about each other.
 - ✅ Use the state machine for **retry/backoff (`Retry`)**, **error routing (`Catch` → recorded-failure state)**, **fan-out (`Map`)**, and **parallelism (`Parallel`)** instead of coding those in a Lambda (§4).
 - ✅ Keep state-passed **payloads small** — pass ids/keys and let each Task fetch what it needs (§2); large blobs between states are an anti-pattern and hit size limits.

@@ -53,8 +53,9 @@ browse the space's archive folder and download a receipt.
 
 ## ⚠ Lake Formation is registered in HYBRID mode
 
-**Do not flip to enforced without opting in every principal first**, or the file browser's direct S3
-access to the shared bucket breaks. Hybrid is what lets the browser keep direct-IAM S3 while Athena
+**Do not flip to enforced without opting in every principal first**, or the file browser's
+IAM-authorized S3 access to the shared bucket breaks — the API's calls under the caller's assumed
+role, and bytes on URLs that role presigned. Hybrid is what keeps that access on IAM while Athena
 reads shared tables through LF.
 
 LF assumes a custom registration role to vend temporary S3 credentials for the location; **the role is

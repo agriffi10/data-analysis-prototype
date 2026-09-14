@@ -2,9 +2,10 @@
 
 A web portal that lets authenticated users upload and download files to/from their own
 private space in AWS S3. Authentication is handled by **AWS Cognito**; per‑user isolation is
-enforced at the **IAM layer**, not in application code. The single‑page app talks to AWS **directly
-from the browser** using short‑lived, scoped credentials for most of what it does, with an HTTP API
-and eight async control planes behind it for work a browser session must not be trusted with.
+enforced at the **IAM layer**, not in application code. The single‑page app holds **no AWS
+credentials**: it signs in through Cognito, calls an HTTP API for objects, the catalog and every
+control-plane enqueue, and moves file bytes on URLs the API presigned. Eight async control planes
+behind the API run the work a browser session must not be trusted with.
 
 > **New here?** Start with this README for the big picture and setup, then read
 > [`docs/architecture.md`](docs/architecture.md) for the design and
@@ -75,7 +76,7 @@ This is an **npm workspaces monorepo**.
 | Routing | `react-router-dom` v7 (library mode) |
 | Server state | TanStack Query (`@tanstack/react-query`) |
 | UI state | React Context + `useReducer` (no Redux) |
-| AWS SDK | `@aws-sdk/client-athena`, `@aws-sdk/client-glue`, `@aws-sdk/client-sqs` — **no S3 client**: objects go through the API and file bytes through presigned URLs |
+| AWS SDK | **None** — no `@aws-sdk/*` package may be added (an ESLint rule and a `package.json` test forbid it): objects, the catalog and the queues go through the API, and file bytes through presigned URLs |
 | Auth | AWS Cognito + Amplify v6 (`aws-amplify`) |
 | Testing | Vitest + React Testing Library |
 | Linting | ESLint + Prettier |
@@ -291,7 +292,7 @@ See [`.github/workflows/README.md`](.github/workflows/README.md) for the full co
 - **Code conventions** (TypeScript strict, named exports, `ServiceResult<T>` from services that
   never throw, feature‑folder structure, file‑naming) are defined in [`CLAUDE.md`](CLAUDE.md).
 - **Feature code** lives in `apps/portal/src/features/<feature>/`; shared UI primitives in
-  `apps/portal/src/components/`; AWS clients in `apps/portal/src/lib/`.
+  `apps/portal/src/components/`; the API client and shared plumbing in `apps/portal/src/lib/`.
 - **Before reusing code**, check [`apps/portal/info/component-inventory/INDEX.md`](apps/portal/info/component-inventory/INDEX.md) and
   open the area file(s) it routes you to.
 - **Infrastructure** is organized as bounded‑context modules under `infra/modules/`; IAM policies

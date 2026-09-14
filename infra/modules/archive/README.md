@@ -211,7 +211,8 @@ red for exactly that ordering.
   synchronous call and no bytes move — so 60 s is the room a cold start and a retry storm need, **not
   the work**.
 - **`notify`** is the plane's only **success** producer and the smallest verb here; `notify-failure` is
-  larger only because its second door verifies a JWT first.
+  larger because its second door may read a large run's input back with `DescribeExecution` before
+  the send. It was sized when that door also verified a JWT, which it no longer does.
 
 ## Reuse that makes the state count exceed the verb count
 

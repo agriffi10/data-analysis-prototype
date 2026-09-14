@@ -470,10 +470,11 @@ reasons** rather than merely not chosen: two queues means two event-source mappi
 invocations read-modify-writing one `notifications.json`, trading a spoofing bug for a data-loss bug.
 See `docs/decisions/control-planes.md` → *The notifications `create` boundary*.
 
-**Two limits, stated so they are not read as closed.** The grant itself is still unconditioned and
+**Two limits, stated so they are not read as closed.** ~~The grant itself is still unconditioned and
 must be — no SQS condition key reaches a field inside a message body — so this is a runtime control,
-not an IAM one; Arc B removes the browser's grant entirely (SPEC-200) and the check stays regardless.
-And this decides *who may send a `create`*, not who may reach the queue: a body that is not valid JSON,
+not an IAM one; Arc B removes the browser's grant entirely (SPEC-200) and the check stays regardless.~~
+**— superseded by SPEC-200:** the browser's grant is gone and the check stays behind that; it is a
+runtime control because no SQS condition key reaches a field inside a message body. And this decides *who may send a `create`*, not who may reach the queue: a body that is not valid JSON,
 or that names an unknown action, still dead-letters. No scanner in this baseline can see this class of
 finding — it is a design-review artifact.
 

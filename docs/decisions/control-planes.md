@@ -148,9 +148,11 @@ inside the execution the Pipe starts.
   lexicographically, so a UUID key gives no chronology.
 - **Every member sees the roster**; the join acknowledgement is display-only, since access is granted
   at add time.
-- **The notifications `create` boundary is a RUNTIME check**, because no SQS condition key reaches a
-  message body. It compares the **role-id half** of the `SenderId`, and a refusal **logs and drops,
-  never raises** — dead-lettering per forged request would drown its undrained DLQ. The actor
+- **The notifications `create` boundary is IAM and the API first, a RUNTIME check behind the grant.**
+  The portal role holds no grant on the queue and the API's route accepts only `markRead`/
+  `markAllRead`; the writer's check names only the portal role, so against the API's own role the
+  route is the only fence, and it is runtime because no SQS condition key reaches a message body. It compares the
+  **role-id half** of the `SenderId`, and a refusal **logs and drops, never raises** — dead-lettering per forged request would drown its undrained DLQ. The actor
   reader replaces the `USER_ACTIONS` arm **only**: `create` is the trusted producer (body username,
   no actor, no token), and hoisting the reader above that branch refuses **every notification the
   fleet produces**, silently.
@@ -1185,8 +1187,10 @@ rather than absorbed into this spec; the payload ceiling above is the only part 
 ## The notifications `create` boundary is a runtime check, because IAM cannot express it (SPEC-206)
 
 The plane has said since SPEC-058 that `create` is trusted-producer-only, and the writer takes the
-body's `username` on that action — correctly, because a plane notifying a *recipient* holds no token
-for the person it is telling. **The IAM policy never implemented it.** The portal role's
+body's `username` on that action — correctly, because ~~a plane notifying a *recipient* holds no token
+for the person it is telling~~ **— superseded by SPEC-201:** a plane writes a `create` itself, not
+through the API, so it carries no `identity` block, and the person it tells need not be the caller
+it acted for. **The IAM policy never implemented it.** The portal role's
 `sqs:SendMessage` on the notifications queue was unconditioned, so any signed-in user could enqueue a
 `create` naming anybody and saying anything, including a clickable in-app link. The comment above that
 grant asserted the opposite, which is the dangerous combination: a reader checking the IaC was told the
@@ -1201,8 +1205,10 @@ API now. There is no policy that permits two of the three actions. So the bounda
 `SendMessage` cannot — compared on the **role-id half**, the substring before the first `:`. Not
 equality against the whole value (which never matches, and a control that never matches reads exactly
 like one that works) and not `startswith` (which would refuse an unrelated role whose unique ID merely
-shares an opening). The session-name half is never examined: Cognito's enhanced flow does not document
-what it puts there.
+shares an opening). The session-name half is never examined: ~~Cognito's enhanced flow does not document
+what it puts there~~ **— superseded by SPEC-202:** the Identity Pool is gone, and the API assumes the
+portal role with the username verbatim as its session name, which says which user it is and nothing
+about whether the role may send.
 
 **The rule is a DENY of one principal, not an ALLOW of the rest.** ~~The grant is held by every
 control-plane execution role, the DLQ drain and the portal role — and exactly one of them is
@@ -1244,9 +1250,12 @@ closing that would mean putting the inbox write under ETag CAS first.
 
 **Two limits, stated rather than implied.** This decides who may send a `create`, not who may reach the
 queue — a non-JSON body or an unknown action still raises from `_parse_record` and dead-letters. And it
-is the **interim** fix: Arc B removes the browser's grant (SPEC-200) and after SPEC-196 the denied
+is the **interim** fix: ~~Arc B removes the browser's grant (SPEC-200) and after SPEC-196 the denied
 principal becomes a *service* principal, harmless because every `create` is emitted by execution roles.
-The check stays regardless; that removal is eleven specs out and reversible. Detail:
+The check stays regardless; that removal is eleven specs out and reversible.~~ **— superseded by
+SPEC-200:** the browser's grant is gone, and the check stays behind that. It still names only the
+portal role, so a `create` from the API's execution role would pass it — the API's route refusing
+the action is the fence against that sender. Detail:
 `spec-delivery/SPEC-206`.
 
 ## A delete removes people, not things — and retention keys on a durable fact, never live status (SPEC-205)

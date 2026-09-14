@@ -86,9 +86,10 @@ the router mounts; named exports are the rule everywhere else.
 `useReducer`. No Redux — which is why there is no cache of a cache. Query keys are centralised in
 `lib/queryKeys.ts`.
 
-**Every AWS call goes through a service file, and services never throw.** They return
+**Every API call goes through a service file, and services never throw.** They return
 `ServiceResult<T>` — `{success: true, data}` or `{success: false, error: {message, code?}}` — so a
-caller branches instead of catching. Clients are built in `src/lib/`, never in a component.
+caller branches instead of catching. The one client is `lib/apiClient`'s `apiRequest`, called from
+service files and never from a component; there is no AWS SDK in the browser.
 
 **Raw AWS, Cognito and Athena text is never shown to a user.** `lib/errorMessages.ts` is the single
 source of wording; rendering `error.message` is a defect, not a shortcut.
@@ -178,11 +179,12 @@ rather than a list.
 
 ### The API's auth boundary
 
-**One token, one verification path, two transports.** The control-plane verbs have taken identity
-from a *verified* Cognito ID token carried in an SQS message body since the beginning; the API
-verifies the same token through the same code — `cpcommon.auth` — carried in an `Authorization`
-bearer header instead. Nothing re-derives a username, and nothing anywhere reads a username the
-caller stated.
+**One token, verified once, at the API.** The API verifies the caller's Cognito ID token from an
+`Authorization` bearer header through `cpcommon.auth`, which has no other caller now, and stamps
+the verified username into the `identity` block of every message it enqueues. The control-plane
+verbs used to verify the same token out of the SQS message body; since SPEC-201 they read the block
+through `cpcommon.actor` instead, because the API is the principal that may write their queues (row
+43). Nothing re-derives a username, and nothing anywhere reads a username the caller stated.
 
 - **It is a verifier, not an OIDC client.** No code exchange, no PKCE, no client secret, no redirect
   URI — those belong to Amplify, in the browser. Provider-agnosticism is five server-side config
@@ -320,7 +322,8 @@ workspace has no active database** — every base table is written fully qualifi
 rail is read-only.
 
 Both data buckets are registered in Lake Formation **hybrid** access mode, which is what lets the file
-browser keep direct-IAM S3 access while Athena reads through LF. Flipping to enforced without first
+browser's S3 access stay IAM-authorized — the API's calls under the caller's assumed role, and bytes
+on URLs that role presigned — while Athena reads through LF. Flipping to enforced without first
 opting in every principal would break the file browser.
 
 The seven calls the workspace and the Data Explorer ride on — Athena start, status, results, row

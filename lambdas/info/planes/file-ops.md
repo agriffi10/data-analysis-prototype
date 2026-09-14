@@ -18,9 +18,10 @@ user pressed. What differs is only whether a destination is derived.
 included — is enqueued, because a rename is one `CopyObject` per contained object.
 
 **The trusted actor is the nested `identity` block** the API stamps; the flat top-level `actor`
-still carries the raw ID token until the API stops sending one, and the verb never reads it — both
-are non-empty strings, so a fallback resolves a JWT as a username. It stays in the allowed-field
-set until then, or a pre-cutover message becomes `malformed_event` rather than `unauthorized`.
+carries the raw ID token only on a message enqueued before the API stopped sending one, and the
+verb never reads it — both are non-empty strings, so a fallback resolves a JWT as a username. It
+stays in the allowed-field set, or such a pre-cutover message becomes `malformed_event` rather than
+`unauthorized`.
 The copy/move-only fields (`destination`, `onConflict`, `submittedAt`) are **rejected for a delete**
 and emitted as explicit nulls. That is why `NeedsDestinationGuard` branches on `$.operation`: ASL's
 `IsPresent` is TRUE for a field that is present and null.

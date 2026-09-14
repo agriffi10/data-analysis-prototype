@@ -84,7 +84,7 @@ This layer is **top-level modules, not a package** — the only one shaped that 
 
 | Module | Holds |
 |---|---|
-| `auth` | token verification and action authorization |
+| `auth` | action authorization — its verification adapter is gone, and `cpcommon.actor` supplies the actor |
 | `cache` | the per-user shared-connections cache in the user-space bucket |
 | `casio` | this plane's door to `cpcommon.cas` |
 | `config` | domain configuration |

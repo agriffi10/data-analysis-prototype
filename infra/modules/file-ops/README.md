@@ -39,9 +39,8 @@ Each grant, and why none is an exception:
   which here is **the ordinary case for a large selection**: EventBridge caps an event at 256 KB and
   this plane's own cap allows a request to approach it.
 
-**No Cognito grant, and the absence is deliberate rather than pending.** Token verification is
-offline against the pool's public JWKS — an HTTPS fetch, not an API call — and **this plane looks
-nobody up**: it authorizes the actor against a *space*, never against a user directory. The
+**No Cognito grant, and the absence is deliberate rather than pending.** The plane verifies no
+token — the actor comes from the API's `identity` block — and **this plane looks nobody up**: it authorizes the actor against a *space*, never against a user directory. The
 neighbouring planes carry `AdminGetUser` because they resolve a **recipient**; there is no recipient
 here.
 

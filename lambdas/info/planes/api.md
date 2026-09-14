@@ -193,7 +193,8 @@ call site whose shape changed; and a response annotation outside the closed type
 `UnsupportedTypeError` at generation rather than emitting a permissive type.
 
 `cpcommon.jwks` is imported only by this plane's tests directly, but it is a lazy dependency of
-`cpcommon.auth`, which ten planes use — it belongs to `cpcommon`, not here.
+`cpcommon.auth` — this plane's only, now that the planes stopped verifying — and it lives in
+`cpcommon` beside it.
 
 Full reasoning: `docs/architecture.md` → *The API's auth boundary*; the arc narrative is in
 `docs/specs/ARCS.md`.

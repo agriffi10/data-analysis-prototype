@@ -28,7 +28,7 @@ Batch size is **1**, so each message is its own invocation, which is what preser
 one-at-a-time property. Content-based dedup collapses a byte-identical re-send inside the 5-minute
 window (a double-click); producers may still set an explicit `MessageDeduplicationId`.
 
-## The `create` boundary: IAM and the API first, a runtime check behind them
+## The `create` boundary: IAM and the API first, a runtime check behind the grant
 
 **The portal role no longer holds a grant on this queue**, and the two user actions
 (`markRead`/`markAllRead`) arrive through the API's `notifications.enqueue`, whose request model
@@ -52,8 +52,11 @@ ID is refused and dropped.
 - A refusal **logs and drops, never raises** — dead-lettering per forged request would drown the one
   undrained DLQ.
 
-The writer takes the body username for a `create` because a plane notifying a recipient holds no
-token for them; what the check decides is whether the sender was entitled to be that producer.
+The writer takes the body username for a `create` because a plane writes that message itself, not
+through the API, so it carries no `identity` block — and the person a plane tells need not be the
+caller it acted for. Who may send one is settled upstream, by who holds a grant on the queue and by
+the API's route refusing the action; the check refuses one role, and stands behind the first of
+those.
 
 ## This DLQ is deliberately undrained — the one hole the drain cannot close
 
