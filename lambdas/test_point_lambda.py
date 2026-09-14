@@ -12,7 +12,8 @@ decisions rather than calls.
 
 Attributes:
   SCRIPT: The script under test.
-  DEPLOY_LAMBDA: The zip-path script it execs, stubbed here so the branch is observable.
+  CHECK: The shared tag check the script runs before it uses a rollback tag.
+  REPOSITORY: The registry URI the stub `aws` answers `describe-repositories` with.
 """
 
 import os
@@ -24,13 +25,14 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / ".github" / "scripts" / "point-lambda.sh"
+CHECK = ROOT / ".github" / "scripts" / "check-image-tag.sh"
 
 REPOSITORY = "123456789012.dkr.ecr.us-east-1.amazonaws.com/dat-prod-lambda"
 
 
 def _harness(tmp_path, package_type, *, landed=None, status="Successful",
              image_present=True, function_present=True):
-    """Builds a bin/ holding a fake `aws` and a fake sibling script.
+    """Builds a bin/ holding a fake `aws` and a `sleep` that returns at once.
 
     The fake `aws` answers only the queries this script makes and logs every invocation, so a
     test can assert on what was CALLED rather than on the exit code alone — the neighbouring path
@@ -130,11 +132,11 @@ def _run(binary, script_dir, timeout=30, image_tag=None):
 
 @pytest.fixture
 def staged(tmp_path):
-    """A copy of the script beside the stub sibling it once execed.
+    """A copy of the script beside a copy of the real tag check it runs.
 
-    The script resolves its siblings with `dirname $0`, so a stub has to sit next to the copy
-    under test rather than merely on PATH. The zip-branch script it dispatched to is deleted;
-    the staging is kept because the path resolution it exercises is still the script's own.
+    The script resolves the check with `dirname $0`, so the check has to sit next to the copy
+    under test rather than merely on PATH — and it is the real one, not a stub, because what the
+    script refuses is decided there.
 
     Args:
       tmp_path: The pytest temporary directory.
@@ -148,6 +150,7 @@ def staged(tmp_path):
     staged_dir = tmp_path / "scripts"
     staged_dir.mkdir()
     (staged_dir / "point-lambda.sh").write_text(SCRIPT.read_text(encoding="utf-8"))
+    (staged_dir / CHECK.name).write_text(CHECK.read_text(encoding="utf-8"))
     return staged_dir
 
 
@@ -181,7 +184,6 @@ def test_an_image_function_is_pointed_at_this_commit_s_image(tmp_path, staged):
     assert "--query Code.ImageUri" in calls, (
         "the script must read the effect back; the API call returning is not the deploy landing"
     )
-    assert "DEPLOY_LAMBDA_SH_RAN" not in calls
 
 
 def test_an_update_that_finishes_as_failed_fails_the_function(tmp_path, staged):
@@ -369,3 +371,31 @@ def test_an_explicit_image_tag_overrides_the_commit(tmp_path, staged):
         "the commit sha reached a call the override was supposed to replace, so a rollback would "
         "point some of the fleet at the image it was rolling back from"
     )
+
+
+def test_a_malformed_image_tag_is_refused_before_anything_is_asked(tmp_path, staged):
+    """A rollback tag outside the grammar stops the script before its first `aws` call.
+
+    The script looks the tag up, where the CLI would trim a padded one into a tag it holds, and
+    prints it in an error, where a newline starts a workflow command. It refuses at the top rather
+    than trusting its caller to have checked, and without echoing the input.
+
+    Args:
+      tmp_path: Temporary directory.
+      staged: The staged script directory.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the tag is used, refused for another reason, or printed.
+    """
+    binary, log = _harness(tmp_path, "Image")
+
+    result = _run(binary, staged, image_tag="rollback99\n::notice title=Rollback::spoofed")
+    output = result.stdout + result.stderr
+
+    assert result.returncode == 1, output
+    assert "::error title=Malformed tag::" in output, output
+    assert "spoofed" not in output, "the refusal printed the input it refused"
+    assert not log.exists(), f"the script called aws before refusing:\n{log.read_text()}"

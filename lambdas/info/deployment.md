@@ -188,9 +188,10 @@ Two different things, and only one of them is a revert.
 
 **The code** rolls back by pointing the functions at a previous sha's image, which is still in the
 registry under the lifecycle bound `lambda-image` computes. No code change is involved: run
-`Deploy Lambdas` by `workflow_dispatch` with `image_tag` set to that sha. The tag is checked against
-the registry once, up front, because `point-lambda.sh` waits five minutes per function for one that
-never arrives.
+`Deploy Lambdas` by `workflow_dispatch` with `image_tag` set to that sha. Anything that is not a
+bare tag is refused before it is looked up or printed (`.github/scripts/check-image-tag.sh`), and
+the tag is checked against the registry once, up front, because `point-lambda.sh` waits five
+minutes per function for one that never arrives.
 
 **Confirm it by reading `Code.ImageUri` back, never by "main went green".** The `deploy-lambdas`
 concurrency group holds one pending run, so a merge landing while the forward dispatch is queued can

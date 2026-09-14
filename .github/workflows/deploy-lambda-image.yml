@@ -78,6 +78,16 @@ jobs:
         run: |
           set -euo pipefail
 
+          # THE INPUT IS REFUSED BEFORE IT IS USED, not escaped as it is written. Everything below
+          # sends values to $GITHUB_OUTPUT one per line, and a value carrying a newline sets a
+          # SECOND output — including `repo`, which the push step uses as the registry host. The
+          # unknown-tag refusal prints the input, where a newline starts a workflow command of the
+          # caller's choosing, and the CLI respells a padded or quoted tag before looking it up. An
+          # image tag is a restricted character set anyway, so refusing anything else costs
+          # nothing. The grammar lives in the script, which says why its whole-string match
+          # refuses a newline in any position, the last one included.
+          bash .github/scripts/check-image-tag.sh "$TAG_INPUT"
+
           # CONSTRUCTED FROM THE SAME TWO VARIABLES TERRAFORM BUILDS IT FROM, then confirmed with a
           # describe that NAMES it. An unfiltered describe-repositories authorizes against
           # `repository/*` while the deploy role is scoped to this repository and the SPA's — so
@@ -87,27 +97,6 @@ jobs:
           if ! REPO=$(aws ecr describe-repositories --repository-names "$NAME" \
                         --query 'repositories[0].repositoryUri' --output text 2>/dev/null); then
             echo "::error title=Registry::no repository named $NAME, which is the name Terraform builds from its project_name and environment defaults. Run Deploy Infrastructure."
-            exit 1
-          fi
-
-          # THE INPUT IS REFUSED BEFORE IT IS USED, not escaped as it is written. Everything below
-          # sends values to $GITHUB_OUTPUT one per line, and a value carrying a newline sets a
-          # SECOND output — including `repo`, which the push step uses as the registry host. An
-          # image tag is a restricted character set anyway (ECR allows letters, digits and
-          # `_.-`), so refusing anything else costs nothing and closes the injection rather than
-          # quoting around it.
-          # A WHOLE-STRING TEST, never `grep`. grep is line-oriented, so a value whose FIRST
-          # line is a valid tag matches — which is exactly the injected value this refuses, and
-          # the first version of this check accepted it. Bash's `=~` anchors against the whole
-          # string. It still allows a trailing newline, so that case is refused on its own line.
-          TAG_PATTERN='^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$'
-          BAD_TAG=""
-          if [ -n "$TAG_INPUT" ]; then
-            [[ "$TAG_INPUT" =~ $TAG_PATTERN ]] || BAD_TAG="shape"
-            [ "$TAG_INPUT" = "${TAG_INPUT%$'\n'}" ] || BAD_TAG="newline"
-          fi
-          if [ -n "$BAD_TAG" ]; then
-            echo "::error title=Bad tag::the image_tag input is not a valid ECR tag ($BAD_TAG). Letters, digits, underscore, dot and hyphen only, starting with a letter or digit."
             exit 1
           fi
 

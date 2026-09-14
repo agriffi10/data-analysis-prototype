@@ -105,6 +105,16 @@ jobs:
         run: |
           set -euo pipefail
 
+          # THE INPUT IS REFUSED BEFORE IT IS LOOKED UP, not escaped where it is printed. The CLI
+          # respells the value it is handed — trims it and strips quotes from around it — so a
+          # padded or quoted input is found under a spelling other than the one the scope step
+          # writes out; and the unknown-tag refusal below prints the input, where a newline would
+          # start a second workflow command of the caller's choosing. Inside the tag grammar the
+          # CLI sends the value verbatim and the only thing left to print is a tag. Every tag this
+          # workflow pushes is a commit sha. The grammar is the one both Lambda deploys run, in the
+          # script.
+          bash .github/scripts/check-image-tag.sh "$TAG_INPUT"
+
           # CONSTRUCTED FROM THE SAME TWO VARIABLES TERRAFORM BUILDS IT FROM, then confirmed with a
           # describe that NAMES it. An unfiltered describe-repositories authorizes against
           # `repository/*` while the deploy role is scoped to this repository — so asking the
@@ -115,21 +125,6 @@ jobs:
                         --query 'repositories[0].repositoryUri' --output text 2>/dev/null); then
             echo "::error title=Registry::no repository named $NAME, which is the name Terraform builds from its project_name and environment defaults. Run Deploy Infrastructure."
             exit 1
-          fi
-
-          # THE INPUT IS REFUSED BEFORE IT IS LOOKED UP, not escaped where it is printed. The CLI
-          # respells the value it is handed — trims it and strips quotes from around it — so a
-          # padded or quoted input is found under a spelling other than the one the scope step
-          # writes out; and the refusal below prints the input, where a newline would start a
-          # second workflow command of the caller's choosing. Inside the tag grammar the CLI sends
-          # the value verbatim and the only thing left to print is a tag. Every tag this workflow
-          # pushes is a commit sha.
-          if [ -n "$TAG_INPUT" ]; then
-            tag_grammar='^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$'
-            if ! [[ "$TAG_INPUT" =~ $tag_grammar ]]; then
-              echo "::error title=Malformed tag::the image_tag input is not a bare image tag — letters, digits, '_', '.' and '-', with no spaces or quotes. Name the commit sha the image was pushed under."
-              exit 1
-            fi
           fi
 
           # A DISPATCH NAMES AN IMAGE THAT ALREADY EXISTS; it does not name a new one. Building
