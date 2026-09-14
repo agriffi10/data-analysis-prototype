@@ -71,23 +71,31 @@ Go to **Settings → Secrets and variables → Actions → Variables**.
 |---|---|---|
 | `AWS_REGION` | Names where the state lives, so it is needed to assume the role and read state **before** any output can be resolved | Must match the region of all provisioned resources |
 | `VITE_APP_URL` | **No longer a Terraform input.** `variable "app_url"` is deleted and the three module blocks that consumed it take `local.spa_origin`, which Terraform builds from the subdomain and the parent domain | Its one remaining consumer is `security.yml`'s ZAP target. A stale value there does **not** fail the job — it scans a dead host and reports a clean baseline, the worst shape a security check can take. Set it to `tofu output spa_origin` |
-| `VITE_ENVIRONMENT` | Which feature-flag block this deployment resolves; no resource can tell you which environment it is | Unset ships a bundle that ignores every per-environment override while looking healthy |
-| `VITE_MAX_UPLOAD_BYTES` | A policy number, not a resource attribute | Also feeds `TF_VAR_max_upload_bytes`, so the container and the bundle agree |
+| `VITE_MAX_UPLOAD_BYTES` | A policy number, not a resource attribute | Feeds `TF_VAR_max_upload_bytes`, which the container serves as `/config.json`'s `maxUploadBytes`. The `VITE_` prefix is historical: a production bundle reads no `VITE_` name |
 | `TF_VAR_github_repo` | Scopes the OIDC trust policy | `owner/repo-name`; must match exactly |
 | `TF_VAR_parent_domain`, `TF_VAR_spa_subdomain`, `TF_VAR_api_subdomain`, `TF_VAR_route53_zone_id` | The names and the zone you chose | Terraform builds the origins from them |
 | `TF_VAR_spa_desired_count`, `TF_VAR_spa_image_tag` | Deployment knobs | Both carry `validation` blocks and a `|| 'default'` in the workflow |
 | `TF_VAR_verification_principal_arns` | Principals you nominate | **Unset by design.** Empty (the default) means the verification role is not created; every reference supplies `|| '[]'` |
 | `TF_VAR_project_name`, `TF_VAR_environment` | The resource-name prefix and the environment segment | **Unset by design.** Every reference supplies `|| 'dat'` / `|| 'prod'`; set them only if this deployment does not use the defaults |
+| `TF_VAR_user_space_bucket_name`, `TF_VAR_shared_space_bucket_name`, `TF_VAR_athena_admin_bucket_name`, `TF_VAR_workgroup_name` | The names the one-shot migration works on, where a deployment's differ from the defaults | **Unset by design.** Read only by `migrate-system-settings.yml`, and every reference falls back to the default name. Not a Terraform input despite the prefix: no deploy passes them to Terraform, so setting one moves the migration and nothing else |
 
-That table is the whole set of `vars.*` any workflow reads — **fourteen names, of which eleven are
-actually set**; the last three rows are deliberately absent, each with an explicit `||` fallback at
-every reference. **A variable with no reason in the middle column should not exist.**
+That table is the whole set of `vars.*` any workflow reads, and a row marked **unset by design** is
+deliberately absent, with an explicit `||` fallback at every reference. It carries no count, because
+the last one went stale when a workflow added names: derive the read set with
+`grep -rhoE 'vars\.[A-Za-z0-9_]+' .github/workflows/*.yml | cut -d. -f2 | tr a-z A-Z | sort -u`
+(uppercased, as GitHub stores them) and what is set with `gh variable list`. **A variable with no
+reason in the middle column should not exist.**
 
-**Sixteen retired names are still set and are waiting to be deleted. This is an outstanding action,
-not a completed one.** Six were retired by the move to Terraform state: `API_BASE_URL`, the three
-`VITE_COGNITO_*` values, and the two `VITE_S3_*` bucket names. Ten more had already stopped being
-read when the browser's control-plane enqueues moved behind the API: the eight queue URLs,
-`VITE_ATHENA_WORKGROUP` and `VITE_COGNITO_IDENTITY_POOL_ID`. The list and the ordering are in
+**Retired names are still set and are waiting to be deleted. This is an outstanding action, not a
+completed one** — they are what `gh variable list` shows beyond the read set. Six were retired by
+the move to Terraform state: `API_BASE_URL`, the three `VITE_COGNITO_*` values, and the two
+`VITE_S3_*` bucket names. Ten more had already stopped being read when the browser's control-plane
+enqueues moved behind the API: the eight queue URLs, `VITE_ATHENA_WORKGROUP` and
+`VITE_COGNITO_IDENTITY_POOL_ID`. `VITE_ENVIRONMENT` lost its last reader with `deploy-app.yml`: a
+production bundle reads no `VITE_` name (`npm run check:bundle`), and the feature-flag block is
+chosen by `/config.json`'s `environment`, which the container renders from Terraform's
+`var.environment`. Only a dev build still reads the name, from a local `.env`
+(`apps/portal/.env.example`), as its stand-in for that key. The list and the ordering are in
 [`docs/testing/owed.md`](../../docs/testing/owed.md) — **delete them only after a green post-merge
 `Publish Config`**, because until then they are what a revert falls back to. `Deploy App` is gone,
 so `Publish Config` is the only workflow still resolving configuration from Terraform state — which
@@ -117,8 +125,7 @@ Open a PR that changes a file under `infra/`. The `deploy-infra.yml` `plan` job 
 
 Several workflow values are derived rather than stored as separate GitHub variables:
 
-- `VITE_AWS_REGION` is set to `${{ vars.AWS_REGION }}` in the build step — no separate variable needed.
-- `TF_VAR_aws_region` is set to `${{ vars.AWS_REGION }}` in the plan/apply steps — no separate variable needed.
+- `TF_VAR_aws_region` is set to `${{ vars.AWS_REGION }}` in the plan/apply steps — no separate variable needed — and reaches `/config.json` as `awsRegion`.
 - The three Cognito values and the two bucket names reach `/config.json` through the **container
   entrypoint**, from the ECS task definition that root's `local.spa_runtime_config` renders. There is
   nothing to populate. `.github/scripts/resolve-config.sh` still reads the same Terraform outputs for

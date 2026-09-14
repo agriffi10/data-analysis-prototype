@@ -333,10 +333,10 @@ instead, which re-submits safely. Confirm only the conflicted items are re-sent.
 
 **The kill switch, which now switches a capability OFF rather than to a slower route.** Run the
 async-off half of §4.14 (`{"asyncFileOperations": false}`, publish, hard-reload). A single-file
-copy, move, rename, delete and download are unaffected. A **folder** copy, move or delete is now
-**refused**, per item: the operation summary names each folder with *Folders are handled by the file
-operations service, which is unavailable right now*, and any files selected alongside it still go
-through. No card appears, and no `SendMessage` is issued. Restore the flag in the same sitting.
+copy, move, rename, delete and download are unaffected. A **folder**, or any selection of more than
+one item, is **refused at the control**: Copy, Move and Delete are `aria-disabled` with the reason
+§4.14 step 3 quotes, so nothing is attempted — no file beside the folder goes through, no card
+appears, and no `POST $API_ORIGIN/v1/enqueue/file-ops` fires. Restore the flag in the same sitting.
 
 **The API surface, and the isolation proof (SPEC-198).** Start **signed out** — a signed-in pass
 never tests the token path.
@@ -885,14 +885,19 @@ is not a pass.
 
 **The read is real** (all flags on):
 
-1. Hard-reload signed in. In the network panel, find `_config/feature-flags.json` → **200**. That
-   status is the assertion. `ProtectedLayout` mounts the hook and discards the result precisely so
-   this request exists to be observed.
-2. The response body is **non-empty JSON** carrying the document's `version` and `defaults`. That,
-   with the 200, is the whole of the evidence available in production — the hook's own
-   `ready`/`fallback` console line is behind `import.meta.env.DEV` and prints **nothing** in a
+1. Hard-reload signed in. In the network panel, find `GET $API_ORIGIN/v1/feature-flags` → **200**.
+   That status is the assertion. `ProtectedLayout` mounts the hook and discards the result precisely
+   so this request exists to be observed. A **404** carrying `"code": "NotFound"` means nothing has
+   ever been published to this bucket — a deploy defect, and the app renders all-on over it.
+2. The response is `{"body": …, "etag": …}`, and **`body` is a string**: the document's JSON text,
+   passed through unparsed. It must be non-empty and, parsed, carry `"version": 1` and a `defaults`
+   object — the reader refuses an empty `body` or any other `version`, silently, into the all-on
+   defaults. That, with the 200, is the whole of the evidence available in production — the hook's
+   own `ready`/`fallback` console line is behind `import.meta.env.DEV` and prints **nothing** in a
    production build, so its absence says nothing either way.
-3. `_config/` is **not browsable** in the file browser — the IAM condition, not an SPA filter.
+3. `_config/` is **not browsable** in the file browser — the API lists only a space the caller's
+   claims authorize, and `_config/` belongs to none. Not IAM: the portal role may list `_config/`,
+   which is what lets a never-published document answer 404 rather than a denial.
 
 **A flag actually hides things** (one sitting; step 3 restores the environment):
 
@@ -931,8 +936,13 @@ it is checked against:
 1. Set `environments.prod` to `{"asyncFileOperations": false}`; publish; hard-reload.
 2. In **Help**, the *Files* section keeps *"Rename, move, copy, or delete"* and loses *"When a move
    or copy is refused"*. That is the only visible surface until you act.
-3. Move a folder. It runs in the browser — `CopyObject`/`DeleteObject` in the network panel, no
-   `SendMessage`, no in-progress card, and the listing updated when it finishes.
+3. Select an ordinary folder — not one of §4.2's managed folders, whose own reasons come first.
+   Copy, Move and Delete are `aria-disabled="true"` with `disabled === false`, and each carries the
+   reason as its tooltip: *"Folders and multi-item actions are handled by the file operations
+   service, which is not available."* — the same for any selection of more than one item. No
+   `POST $API_ORIGIN/v1/enqueue/file-ops` fires and no in-progress card appears: the switch turns
+   the capability off, and the browser has no recursive copy to fall back to. A single file still
+   moves, through `POST $API_ORIGIN/v1/objects/move`, exactly as it does with the switch on.
 4. Set it back to `{}`, publish, hard-reload, and confirm §4.2's async rows behave again.
 
 **`resultsConversion` is the seventh key and the third kind** — neither an area nor a kill switch

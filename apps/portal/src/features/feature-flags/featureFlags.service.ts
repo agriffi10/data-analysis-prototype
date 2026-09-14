@@ -5,9 +5,9 @@ import type {FeatureFlagKey, FeatureFlags} from './featureFlags.types';
 import type {ServiceResult} from '../../types/service.types';
 
 /**
- * Where `.github/workflows/deploy-config.yml` publishes. The portal role holds `GetObject`
- * here and nothing else — no write, and no `ListBucket` widening, so the document is
- * invisible to the file browser.
+ * Where `.github/workflows/deploy-config.yml` publishes. The portal role may read and list this
+ * prefix; the file browser never shows it because the API lists only a space the caller's claims
+ * authorize, and this prefix belongs to none.
  *
  * Kept as a declaration although the browser no longer builds a request from it: the key is a
  * contract with the publishing workflow, and it is asserted against the API's own copy so the two
