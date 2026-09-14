@@ -485,6 +485,64 @@ describe('the delete-space guide (SPEC-205)', () => {
   });
 });
 
+describe('guide inline markup', () => {
+  it('renders each supported tag as its element, never as literal markup', () => {
+    const guide: HelpGuide = {
+      id: 'save-query',
+      title: 'Save a query',
+      subtitle: 'Keep it for later.',
+      steps: ['Click <b>Save</b> or press <kbd>Enter</kbd> to write a <code>.sql</code> file.'],
+      callout: {kind: 'tip', text: 'Another space gets a <i>new</i> file.'}
+    };
+
+    render(
+      <HelpGuideCard
+        guide={guide}
+        iconName="query"
+        defaultOpen
+      />
+    );
+
+    expect(screen.getByText('Save').tagName).toBe('STRONG');
+    expect(screen.getByText('Enter').tagName).toBe('KBD');
+    expect(screen.getByText('.sql').tagName).toBe('CODE');
+    expect(screen.getByText('new').tagName).toBe('EM');
+    expect(screen.queryByText(/<\/?(b|kbd|code|i)>/)).not.toBeInTheDocument();
+  });
+
+  it('shows no raw tag anywhere in the authored help, whichever flags hide it', () => {
+    const rawTag = /<\/?[a-z]/i;
+    const cards = HELP_SECTIONS.flatMap((section) =>
+      section.guides.map((guide) => ({key: `${section.id}/${guide.id}`, guide, icon: section.icon}))
+    );
+
+    const {container} = render(
+      <>
+        {cards.map(({key, guide, icon}) => (
+          <HelpGuideCard
+            key={key}
+            guide={guide}
+            iconName={icon}
+            defaultOpen
+          />
+        ))}
+      </>
+    );
+
+    // Section labels and subtitles are printed verbatim, never parsed, so their source text is what shows.
+    const raw = HELP_SECTIONS.flatMap((section) => [section.label, section.subtitle]).filter((text) =>
+      rawTag.test(text)
+    );
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      if (rawTag.test(node.textContent ?? '')) raw.push(node.textContent ?? '');
+    }
+    // The walk proves nothing unless every step reached the DOM it scanned.
+    expect(screen.getAllByRole('listitem')).toHaveLength(cards.reduce((sum, {guide}) => sum + guide.steps.length, 0));
+    expect(raw).toEqual([]);
+  });
+});
+
 // ─── guide-level deep links (SPEC-207 FR-005) ───────────────────────────────
 
 describe('HelpPage guide deep links', () => {
