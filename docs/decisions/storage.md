@@ -70,7 +70,9 @@ unrecoverable — revisit before real user data lands.
   too, since the gate refuses every shape the routing rule sends to the plane — refused **at the
   control**: Copy, Move and Delete are `aria-disabled` with the reason. The
   services' **per-item** `PlaneRequired` refusal, which lets the files beside a folder go through,
-  is reachable only with the flag ON, when a copy or move's destination resolves to no known space.
+  is reachable only past the control: a copy or move whose destination resolves to no known space,
+  or any gesture confirmed after the flag turned off while its dialog was open — the control
+  decides when it renders, `dispatch` when it runs.
 - **The free-name probe moved to the API, not to the plane** — 999 round trips would be strictly
   worse than the loop it replaced. `numberedName` lives in Python only, and **exhaustion is now
   distinguishable from failure** (409 + `attempts`), which it was not.
@@ -1108,8 +1110,8 @@ selection leaves Copy, Move and Delete `aria-disabled` with a reason that does n
 `fileOpsDispatch.test.tsx`). The multi-item half is not the deletion's doing: it is the gate
 refusing every shape the routing rule sends to the plane. `deleteObjects` went with the recursive
 functions, so a multi-file delete is a loop of single deletes — which is what copy and move already
-were — though no gesture now reaches it with more than one item: the control refuses such a
-selection with the flag off, and the plane takes it with the flag on.
+were — though a gesture reaches it with more than one item only through the race below: the
+control refuses such a selection with the flag off, and the plane takes it with the flag on.
 
 ~~**The refusal is per item, not per request, and that is the whole design of it.** A whole-selection
 refusal would lose the files a user picked beside the folder.~~ **— corrected:** the per-item refusal
@@ -1121,10 +1123,12 @@ which is authored wording rather than passthrough, because every occurrence says
 
 ~~**Two paths reach it, and the second is easy to miss.** `useFileBrowserDialogs`'s `routesToPlane`
 returns false when the flag is off *and* when a chosen destination resolves to no known space — so
-the refusal is reachable with the flag ON.~~ **— corrected: one path reaches it, and it is the one
-that is easy to miss** — a copy or move whose chosen destination resolves to no known space, which
-`dispatch` runs in the browser with the flag ON. Recorded because a reader checking only the flag
-would conclude the path is dead in production.
+the refusal is reachable with the flag ON.~~ **— corrected: two paths reach it, and neither goes
+through the control** — a copy or move whose chosen destination resolves to no known space, which
+`dispatch` runs in the browser with the flag ON; and any gesture confirmed after the flag turned
+off while its dialog was open, because the control decides when it renders and `dispatch` reads
+the flag again when it runs. Recorded because a reader checking only the flag would conclude the
+path is dead in production.
 
 ## The free-name probe moved to the API, not to the plane (SPEC-198, amends SPEC-187)
 
