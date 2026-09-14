@@ -156,8 +156,10 @@ function UploadRow({item}: {item: UploadItem}) {
         )}
       </div>
 
-      {/* Per-file cancel / dismiss — revealed on hover (and on focus, a11y) */}
-      <div className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+      {/* Per-file cancel / dismiss, revealed on hover and on focus. Tailwind applies group-hover only
+          under (hover: hover), and a tap focuses the button only as it fires it, if at all (Safari
+          never does), so without the hover:none reveal a phone shows no button at rest. */}
+      <div className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
         <IconButton
           label={isTerminal ? `Dismiss ${name}` : `Cancel upload of ${name}`}
           onClick={() => (isTerminal ? dismiss(item.id) : cancel(item.id))}>

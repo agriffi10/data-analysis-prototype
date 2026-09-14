@@ -831,6 +831,14 @@ describe('FileBrowser — an upload watched to completion (SPEC-154 FR-004)', ()
     expect(within(list).queryByText('first.txt')).not.toBeInTheDocument();
   });
 
+  it('shows the per-file cancel / dismiss button at rest where the primary input cannot hover', async () => {
+    const {user} = renderBrowser();
+    await chooseFile(user);
+    const dismiss = await screen.findByRole('button', {name: 'Dismiss up.txt'});
+    // jsdom evaluates no media query, so the contract is the class on whatever hides the button.
+    expect(dismiss.closest('.opacity-0')).toHaveClass('[@media(hover:none)]:opacity-100');
+  });
+
   it('offers Clear finished only once a row is terminal, and the list leaves with its last row', async () => {
     let finish!: (value: unknown) => void;
     mock.uploadFile.mockImplementation(
