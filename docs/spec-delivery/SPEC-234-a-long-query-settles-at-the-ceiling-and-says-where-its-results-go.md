@@ -27,6 +27,14 @@
 
 ### Deliberate deviations
 
+- **The watch key was added from the execution-frame diff review** (FR-003 AC6). Two Explorer tabs
+  with one description share an execution, so after one tab's verdict the other showed "Still
+  running" without reading again, even once the query had finished. `useQueryExecution` takes a
+  stable `watchKey`, and the Explorer passes its tab id.
+- **Not changed, and said here so it reads as a decision:** Stop pressed within a poll or two of the
+  ceiling, while Athena has not yet reported `CANCELLED`, ends on the "Still running" banner rather
+  than "Cancelled". The window is one or two polls wide at exactly 30 minutes.
+
 - **The Back criterion (FR-003 AC4) is tested in `queryHistory.test.tsx`, not in
   `expressionBar.test.tsx`,** because that file already drives Back onto a failed description. The
   spec's file list was corrected to match.

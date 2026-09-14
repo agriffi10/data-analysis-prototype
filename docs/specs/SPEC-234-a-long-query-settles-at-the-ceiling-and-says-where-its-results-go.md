@@ -273,6 +273,10 @@ returned." on screen when the tab has no earlier rows, and this includes a faile
   been run." does not appear.
 - [ ] A first apply that fails (`FAILED`, with a syntax-error reason) shows its danger banner, and
   neither "Running…" nor "No rows returned." appears.
+- [ ] *Added during the build, from the execution-frame diff review.* Two tabs on one table with one
+  description share an execution. After the first tab's verdict, switching to the second makes a
+  new status read, and a query that has since finished shows its rows there. Switching tabs starts
+  a new watch, because the id alone cannot tell the two tabs apart.
 
 ### FR-004: The Help guides describe the ceiling
 
@@ -318,8 +322,12 @@ export type QueryExecutionWatch = {
 
 export function useQueryExecution(
   queryExecutionId: string | null,
-  options?: {stopOnError?: boolean}
+  /** `watchKey` names the watcher: a change starts a new watch even on the same id. Stable only. */
+  options?: {stopOnError?: boolean; watchKey?: string}
 ): QueryExecutionWatch;
+
+// apps/portal/src/features/data-explorer/useExploration.ts — the tab id is the watch key
+export function useExploration(exploration: Exploration | null, tabId?: string): UseExplorationResult;
 
 /** True for the verdict above, so a surface can word and colour it apart from a failure. */
 export function isQueryStillRunning(value: unknown): value is QueryStillRunning;
@@ -377,7 +385,7 @@ apps/portal/src/features/query/queryResultsUi.test.tsx         # the mobile view
 apps/portal/src/features/data-explorer/useExploration.ts       # error and isPending
 apps/portal/src/features/data-explorer/DataExplorerWorkspace.tsx    # the verdict is not a failure
 apps/portal/src/features/data-explorer/ExplorationResultsRegion.tsx # banner, body, save refusal
-apps/portal/src/features/data-explorer/dataExplorerUi.test.tsx      # FR-003 AC1, AC5
+apps/portal/src/features/data-explorer/dataExplorerUi.test.tsx      # FR-003 AC1, AC5, AC6
 apps/portal/src/features/data-explorer/expressionBar.test.tsx       # FR-003 AC2
 apps/portal/src/features/data-explorer/queryHistory.test.tsx        # FR-003 AC4
 apps/portal/src/features/data-explorer/saveExploration.test.tsx     # FR-003 AC3

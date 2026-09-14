@@ -356,6 +356,39 @@ describe('the exploration tabs', () => {
     expect(vi.mocked(runQuery).mock.calls[1][0]).toMatchObject({sql: 'SELECT *\nFROM "alice"."refunds"'});
   });
 
+  it('looks again when switching to a tab that shares the execution a watch gave up on', async () => {
+    await withFakeTimers(async () => {
+      // Two tabs on one table and one description render one statement, so the start cache hands
+      // both the same execution: only the switch itself can tell the watch to look again.
+      seedTabs([
+        {id: 't1', table: 'orders'},
+        {id: 't2', table: 'orders'}
+      ]);
+      vi.mocked(getQueryStatus).mockResolvedValue(ok({queryExecutionId: 'exec-1', state: 'RUNNING'}));
+      const {user} = render();
+      await waitFor(() => expect(getQueryStatus).toHaveBeenCalled());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(MAX_POLL_DURATION_MS);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS + 10);
+      });
+      await screen.findByText(/Data Quarry stopped waiting for this query/);
+
+      // The query finishes in Athena after the watch has ended.
+      vi.mocked(getQueryStatus).mockResolvedValue(
+        ok({queryExecutionId: 'exec-1', state: 'SUCCEEDED', dataScannedBytes: 2048, engineExecutionTimeMillis: 120})
+      );
+      const readsBefore = vi.mocked(getQueryStatus).mock.calls.length;
+      await user.click(screen.getAllByRole('tab', {name: 'orders'})[1]);
+
+      expect(await screen.findByRole('gridcell', {name: '9.99'})).toBeInTheDocument();
+      expect(vi.mocked(getQueryStatus).mock.calls.length).toBeGreaterThan(readsBefore);
+      expect(screen.queryByText(/Data Quarry stopped waiting for this query/)).not.toBeInTheDocument();
+      expect(runQuery).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('runs no query when a tab is closed', async () => {
     seedTabs([
       {id: 't1', table: 'orders'},

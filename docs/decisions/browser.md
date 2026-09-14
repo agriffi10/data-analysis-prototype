@@ -1363,8 +1363,11 @@ the mark decides. A failed read after it ends the watch too, whether or not the 
 gave the Explorer. Measured by planting a clock-only verdict: the hidden-page test and the
 terminal-after-the-ceiling test went red.
 
-**The verdict belongs to the watch, not to the execution.** It is hook state, reset when the id
-changes, and never an error in the shared cache. A cached verdict would stick: an Explorer tab
+**The verdict belongs to the watch, not to the execution.** It is hook state, reset when the id or
+the watcher changes, and never an error in the shared cache. The watcher matters because two
+Explorer tabs with one description share one cached execution, so the id alone cannot tell them
+apart: the Explorer passes its tab id as the watch key, and a key must be stable, because the reset
+runs during render. A cached verdict would stick: an Explorer tab
 returning to a description would repeat "still running" without looking, even after the query had
 finished. For the same reason the Explorer does not remember the verdict as a failed statement, and
 Back onto it starts a new watch on the cached execution, with no second bill. The hook reads

@@ -45,9 +45,11 @@ export type UseExplorationResult = {
  * `useQueryResults`, whose `NextToken` walk scans no additional bytes.
  *
  * @param exploration - The exploration to run, or null to run nothing.
+ * @param tabId - The Explorer tab showing it. Two tabs with one description share an execution,
+ * so switching between them is what tells the status watch to look again.
  * @returns The rendered SQL, the execution, its state, its cost, and any failure.
  */
-export function useExploration(exploration: Exploration | null): UseExplorationResult {
+export function useExploration(exploration: Exploration | null, tabId?: string): UseExplorationResult {
   const {user} = useAuth();
   const username = user?.username ?? '';
   const queryClient = useQueryClient();
@@ -101,7 +103,7 @@ export function useExploration(exploration: Exploration | null): UseExplorationR
   });
 
   const queryExecutionId = start.data ?? null;
-  const poll = useQueryExecution(queryExecutionId);
+  const poll = useQueryExecution(queryExecutionId, {watchKey: tabId});
   const status = poll.status ?? null;
   const state = status?.state ?? null;
 

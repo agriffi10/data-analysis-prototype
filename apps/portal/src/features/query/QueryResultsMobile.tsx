@@ -95,7 +95,7 @@ export function QueryResultsMobile({
 
       {/* Only when there is something to report — a submit that never reached
           Athena has its failure in the banner below, not an empty strip. */}
-      {hasRun && (isInFlight || status || batchFailed || stillRunning) && (
+      {hasRun && (isInFlight || status || batchFailed) && (
         <QueryStatusBar
           status={status}
           isInFlight={isInFlight}

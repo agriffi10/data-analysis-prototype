@@ -223,7 +223,10 @@ describe('useQueryExecution', () => {
       }
     });
 
-    it('looks again when a new watch starts on the same execution', async () => {
+    it.each([
+      ['another execution', 'q-2'],
+      ['no execution at all', null]
+    ])('looks again when a new watch starts on the same execution, after %s', async (_, between) => {
       vi.useFakeTimers();
       // Keeps the cache: collected on the switch, q-1 would be refetched whatever the hook remembered.
       const queryClient = createTestQueryClient();
@@ -238,7 +241,7 @@ describe('useQueryExecution', () => {
         await advance(ONE_POLL);
         expect(result.current.stillRunning).not.toBeNull();
 
-        rerender({id: 'q-2'});
+        rerender({id: between});
         await advance(ONE_POLL);
         const beforeReturning = requestsFor('q-1');
         rerender({id: 'q-1'});

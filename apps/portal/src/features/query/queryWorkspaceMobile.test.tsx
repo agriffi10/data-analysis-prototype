@@ -247,6 +247,34 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
     expect(screen.queryByText(/is outside alice/)).not.toBeInTheDocument();
   });
 
+  it('gives a saved query that fails to start after the verdict the failure’s own title and colour', async () => {
+    await withFakeTimers(async () => {
+      mockListSaved.mockResolvedValue(savedListing('Revenue', 'Refunds'));
+      queueRuns('q-1');
+      mockRunQuery.mockResolvedValueOnce(fail('fetch failed', 'NetworkUnavailable'));
+      mockGetStatus.mockResolvedValue(ok({queryExecutionId: 'q-1', state: 'RUNNING' as const}));
+      const {user} = renderMobileWorkspace();
+      await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
+      await waitFor(() => expect(mockGetStatus).toHaveBeenCalled());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(MAX_POLL_DURATION_MS);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS + 10);
+      });
+      await screen.findByText(/Data Quarry stopped waiting for this query/);
+
+      await user.click(screen.getByRole('button', {name: 'Back to queries'}));
+      await user.click(await screen.findByRole('button', {name: 'Run saved query Refunds'}));
+
+      const banner = (await screen.findByText('Can’t reach the server. Check your connection and try again.')).closest(
+        '[role="alert"]'
+      );
+      expect(banner).toHaveTextContent('Query failed.');
+      expect(banner).toHaveClass('bg-danger-soft');
+    });
+  });
+
   it('says a run is still running in the results view once the watch reaches its ceiling', async () => {
     await withFakeTimers(async () => {
       mockListSaved.mockResolvedValue(savedListing('Revenue'));

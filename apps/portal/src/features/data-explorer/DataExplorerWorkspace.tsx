@@ -82,7 +82,8 @@ export function DataExplorerWorkspace() {
   // and "runs nothing" is expressed here, by passing nothing to run.
   const linkUnsettled = resolution.status === 'loading' || denied;
   const exploration = useExploration(
-    linkUnsettled || queryControls.suspended ? null : (tabs.activeTab?.exploration ?? null)
+    linkUnsettled || queryControls.suspended ? null : (tabs.activeTab?.exploration ?? null),
+    tabs.activeTab?.id
   );
   // Gated by the same rule, for the same reason one layer down: a denied link must ask
   // Glue nothing at all, and this hook reads a database.

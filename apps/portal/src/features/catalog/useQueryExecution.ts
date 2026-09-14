@@ -20,6 +20,12 @@ export type UseQueryExecutionOptions = {
    * watch's ceiling, and a later successful poll clears the error.
    */
   stopOnError?: boolean;
+  /**
+   * Who is watching, beside which execution. A change starts a new watch even when the id stays
+   * the same, as when two Data Explorer tabs share one cached execution. It must be stable across
+   * renders, because the watch resets during render whenever it changes.
+   */
+  watchKey?: string;
 };
 
 /**
@@ -82,8 +88,8 @@ function outlived(ceilingAt: number | null, data: QueryStatus | undefined, readU
  * it is shown again. The query keeps running in Athena after the watch ends.
  *
  * The verdict belongs to the watch, not to the execution, so it lives here rather than in the
- * shared cache. A new watch of the same id, after a remount or after the id changes away and
- * back, looks again.
+ * shared cache. A new watch of the same id looks again: after a remount, after the id changes
+ * away and back, or when `watchKey` changes.
  *
  * A failed status request is retried as many times as the route's contract allows, which for an
  * idempotent read is once, before the hook reports the error.
@@ -98,15 +104,17 @@ function outlived(ceilingAt: number | null, data: QueryStatus | undefined, readU
  */
 export function useQueryExecution(
   queryExecutionId: string | null,
-  {stopOnError = false}: UseQueryExecutionOptions = {}
+  {stopOnError = false, watchKey}: UseQueryExecutionOptions = {}
 ): QueryExecutionWatch {
-  // Reset during render when the id changes, so a watch never inherits another's mark.
-  const [watch, setWatch] = useState<{id: string | null; ceilingAt: number | null}>({
+  // Reset during render when the id or the watcher changes, so a watch never inherits another's mark.
+  const [watch, setWatch] = useState<{id: string | null; key: string | undefined; ceilingAt: number | null}>({
     id: queryExecutionId,
+    key: watchKey,
     ceilingAt: null
   });
-  if (watch.id !== queryExecutionId) setWatch({id: queryExecutionId, ceilingAt: null});
-  const ceilingAt = watch.id === queryExecutionId ? watch.ceilingAt : null;
+  const current = watch.id === queryExecutionId && watch.key === watchKey;
+  if (!current) setWatch({id: queryExecutionId, key: watchKey, ceilingAt: null});
+  const ceilingAt = current ? watch.ceilingAt : null;
 
   const query = useQuery({
     // A stable placeholder key keeps the hook order constant while disabled.
@@ -132,10 +140,10 @@ export function useQueryExecution(
     if (queryExecutionId === null || settled) return;
     const timer = setTimeout(() => {
       const at = Date.now();
-      setWatch((current) => (current.id === queryExecutionId ? {...current, ceilingAt: at} : current));
+      setWatch((w) => (w.id === queryExecutionId && w.key === watchKey ? {...w, ceilingAt: at} : w));
     }, MAX_POLL_DURATION_MS);
     return () => clearTimeout(timer);
-  }, [queryExecutionId, settled]);
+  }, [queryExecutionId, watchKey, settled]);
 
   const expired = outlived(ceilingAt, query.data, () => query.dataUpdatedAt);
   const stillRunning = useMemo(
