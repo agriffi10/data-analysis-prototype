@@ -55,7 +55,8 @@ resource "aws_sfn_state_machine" "table_builder" {
 #
 # TIMED_OUT ONLY, NEVER FAILED: every whole-request failure the shared Catch takes already
 # reaches NotifyFailure, so FAILED would double-notify every one of them. The two errors no
-# Catch here takes, States.DataLimitExceeded and States.Runtime, reach neither door.
+# Catch here takes, States.DataLimitExceeded and States.Runtime, reach neither door; the machine
+# is built so that neither is raised.
 #
 # The rule is HALF the door — tb_notify_failure must dispatch on the detail-type too, or this
 # delivers a status-change event to a handler that reads a top-level `actor` the event does not

@@ -107,7 +107,7 @@ rule is the documented remedy.
 `NotifyFailure` and then ends `FAILED`, so matching `FAILED` would send a second notification for
 every one of them. The two errors no Catch here takes — `States.DataLimitExceeded`, which only a
 catcher naming it can catch, and `States.Runtime`, which nothing can — also end `FAILED`, and so
-reach neither door.
+reach neither door. The machine is built so that neither is raised.
 
 `notify-failure` is **60 s here rather than 15 s**, because that second door does strictly more work
 than the ASL one: a cold-start JWKS fetch over the network plus a JWT verify before the send, since

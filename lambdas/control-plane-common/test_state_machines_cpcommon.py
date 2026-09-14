@@ -147,8 +147,10 @@ def test_no_state_uses_a_throwing_intrinsic(path):
     States.Runtime is neither retriable nor catchable — not even by a Catch on the very
     same state. Confirmed against the live service with TestState: States.Timeout (no
     Cause), States.DataLimitExceeded and Lambda.Unknown (plain-sentence Cause) each killed
-    the execution BEFORE the recorded-failure state. In data-quality that meant no
-    notification at all on exactly the failures a user most needs to hear about; in
+    the execution BEFORE the recorded-failure state. TestState injected those shapes, and a
+    real States.DataLimitExceeded is never caught, so it never reached the decode at all. In
+    data-quality the others meant no notification at all on exactly the failures a user most
+    needs to hear about; in
     table-share, which decoded per recipient inside a Map, one unparseable Cause failed the
     iteration, which failed the Map, which took down every SIBLING recipient's share.
 

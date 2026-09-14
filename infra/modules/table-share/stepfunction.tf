@@ -47,7 +47,8 @@ resource "aws_sfn_state_machine" "table_share" {
 #
 # TIMED_OUT ONLY, NEVER FAILED: every whole-request failure a Catch takes already reaches
 # NotifyFailure, so FAILED would double-notify every one of them. The two errors no Catch here
-# takes, States.DataLimitExceeded and States.Runtime, reach neither door. README.md.
+# takes, States.DataLimitExceeded and States.Runtime, reach neither door; the machine is built so
+# that neither is raised. README.md.
 resource "aws_cloudwatch_event_rule" "execution_timed_out" {
   name        = "${local.state_machine_name}-timed-out"
   description = "Notify the sender when a table-share execution is stopped by the state machine's own timeout."
