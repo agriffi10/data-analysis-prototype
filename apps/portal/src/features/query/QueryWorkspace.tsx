@@ -183,7 +183,7 @@ export function QueryWorkspace() {
     dropRunState,
     dismissError,
     selectResultTab
-  } = useTabRuns({username, activeTabId, tabs: tabs.tabs, appendEntry, updateEntry});
+  } = useTabRuns({username, activeTabId, tabs: tabs.tabs, appendEntry, updateEntry, toast});
 
   // Create view and Drop table were the same forty lines twice.
   // One background-DDL path now runs, records and reports both.
@@ -482,7 +482,9 @@ export function QueryWorkspace() {
     stillRunning && !runErrors[activeTabId] && batchFailureMessage === null
       ? {errorTitle: stillRunning.message.title, errorVariant: 'warning' as const}
       : {};
-  const showError = !!errorMessage && !dismissed[activeTabId];
+  // A failed start is the latest submit's own news, so a dismissal does not hide it — the
+  // dismissal belongs to the run still on the tab, and holds until the next run replaces it.
+  const showError = !!errorMessage && (!!runErrors[activeTabId] || !dismissed[activeTabId]);
   const canRun = !!activeTab.sql.trim() && !activeIsInFlight;
   const canClear = activeTab.sql.length > 0 && !activeIsInFlight;
   const canSave = !!activeTab.sql.trim(); // disabled only when empty

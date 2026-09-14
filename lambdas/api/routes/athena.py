@@ -539,7 +539,7 @@ def stop(context: RequestContext) -> dict[str, Any]:
     execution id could stop that user's query. The proof costs one ``GetQueryExecution``, a fixed
     second call rather than a loop, and there is no race between it and the stop: an execution's
     recorded output location is fixed when it starts. An unknown id and a foreign one are both
-    ``NotFound``, and today's browser discards every ``stopQuery`` result, so no screen changes.
+    ``NotFound``, which the browser reports as a stop it could not make.
 
     **A refusal Athena raises for the stop itself is reported as success.** Past the proof,
     ``InvalidRequestException`` means an execution of the caller's own that has already finished,

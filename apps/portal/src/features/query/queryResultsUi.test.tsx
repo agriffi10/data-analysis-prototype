@@ -1,5 +1,5 @@
 import {describe, expect, it, vi} from 'vitest';
-import {fireEvent, render, screen, within} from '@testing-library/react';
+import {fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {QueryMobileView} from './QueryMobileView';
 import {QUERY_HISTORY_PAGE_SIZE} from './query.constants';
 import {DEFAULT_COLUMN_WIDTH} from '../catalog/catalog.constants';
@@ -434,6 +434,25 @@ describe('QueryStatusBar', () => {
       );
       expect(screen.getByText('Running…')).toBeInTheDocument();
       expect(screen.getByText(/elapsed/)).toBeInTheDocument();
+    });
+
+    it('never counts a new run’s elapsed time from the previous run’s last tick', async () => {
+      const bar = (inFlight: boolean, startedAt: number) => (
+        <QueryStatusBar
+          status={status({state: 'RUNNING'})}
+          isInFlight={inFlight}
+          startedAt={startedAt}
+          onSaveResults={vi.fn()}
+        />
+      );
+      const {rerender} = render(bar(true, Date.now() - 3000));
+      await waitFor(() => expect(screen.getByText(/elapsed/)).toHaveTextContent(/elapsed 3\.\ds/));
+      rerender(bar(false, Date.now() - 3000));
+
+      // A start after the last tick stands in for the time that passes between two runs.
+      rerender(bar(true, Date.now() + 60_000));
+
+      expect(screen.getByText(/elapsed/)).toHaveTextContent('elapsed —');
     });
 
     it('shows row/scanned/duration stats + Save results on a row-returning success', () => {

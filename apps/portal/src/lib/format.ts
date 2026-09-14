@@ -28,11 +28,20 @@ export function formatCount(n: number): string {
   return n.toLocaleString();
 }
 
-/** Human-readable duration from milliseconds (e.g. 800 → "800 ms", 1234 → "1.2s"). */
+/**
+ * Human-readable duration from milliseconds (e.g. 800 → "800 ms", 1234 → "1.2s",
+ * 1804000 → "30m 4s"). `undefined` → em dash.
+ *
+ * Minutes take over from a minute up, because a long run's elapsed timer read "1804.0s". The
+ * switch is decided on the figure as it would be shown, so nothing ever reads "60.0s".
+ */
 export function formatDurationMs(ms?: number): string {
   if (ms === undefined) return '—';
   if (ms < 1000) return `${ms} ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
+  const seconds = (ms / 1000).toFixed(1);
+  if (Number(seconds) < 60) return `${seconds}s`;
+  const wholeSeconds = Math.round(ms / 1000);
+  return `${Math.floor(wholeSeconds / 60)}m ${wholeSeconds % 60}s`;
 }
 
 /**
