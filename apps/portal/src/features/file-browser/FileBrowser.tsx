@@ -360,7 +360,7 @@ function FileBrowserContent({
           {restoreEnabled && (
             <RestoreArchiveButton
               onClick={restore.openDialog}
-              fullWidth
+              placement="action-bar"
             />
           )}
           <Button

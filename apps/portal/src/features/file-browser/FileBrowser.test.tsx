@@ -591,6 +591,23 @@ describe('FileBrowser — responsive', () => {
     expect(screen.queryByText('Modified')).not.toBeInTheDocument();
     expect(screen.getByLabelText('File actions')).toBeInTheDocument();
   });
+
+  it('shows the action bar just "Restore", still named for the whole label', async () => {
+    window.innerWidth = 500;
+    renderBrowser();
+    await screen.findByText('report.csv');
+    const bar = screen.getByRole('toolbar', {name: 'File actions'});
+    // In a third of a phone's width the whole label wraps to three lines and spills out of the
+    // button. The visible word must begin the name, or voice control cannot reach it.
+    expect(within(bar).getByRole('button', {name: 'Restore Archived Data'})).toHaveTextContent(/^Restore$/);
+  });
+
+  it('keeps the whole label on the top toolbar', async () => {
+    renderBrowser();
+    const restore = await screen.findByRole('button', {name: 'Restore Archived Data'});
+    expect(restore).toHaveTextContent(/^Restore Archived Data$/);
+    expect(restore).not.toHaveAttribute('aria-label');
+  });
 });
 
 // ── SPEC-154 FR-003: a collision is RESOLVED through the UI ─────────────────

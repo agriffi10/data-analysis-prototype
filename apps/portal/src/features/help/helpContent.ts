@@ -145,7 +145,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Read the confirmation. It names what will go, and says plainly that these files leave this space.',
           'Click <b>Archive</b>. The work happens in the background, and a notification tells you when it has finished — including the <b>archive id</b> you will need to get it back.',
           'Every archive also leaves a folder under <b>system_settings</b> → <b>archive</b> in your space, named after its id, holding a receipt you can download and read.',
-          'To bring an archive back, click <b>Restore Archived Data</b> in the <b>Files</b> tab, paste the archive id, and click <b>Restore</b>. Everything comes back where it was.',
+          'To bring an archive back, click <b>Restore Archived Data</b> in the <b>Files</b> tab, paste the archive id, and click <b>Restore</b>. Everything comes back where it was. In a narrow window that first button moves to a bar along the bottom and says just <b>Restore</b>.',
           'A restore takes <b>several hours</b> — the files have to be retrieved from long-term storage first. You get one notification when it starts and another when it is done.'
         ],
         callout: {
