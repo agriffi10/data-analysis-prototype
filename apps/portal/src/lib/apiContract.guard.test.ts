@@ -267,8 +267,8 @@ describe('the one door', () => {
       // rather than an instance of one — and it is what makes this rule matter, since a hook
       // that writes no `retry` at all silently inherits it.
       'lib/queryClient.ts',
-      // A domain property that shares the key's name: "the upload collided, here is my decision,
-      // run it again". It takes a `CollisionDecision` and re-runs a gesture.
+      // A domain property that shares the key's name: "the folder name collided, here is my
+      // decision, run it again". It takes a `CollisionDecision` and re-runs a gesture.
       'features/file-browser/useFileUpload.ts',
       // The same, one layer up: the type of the exploration region's "run it again" affordance.
       'features/data-explorer/useExplorationQuery.ts'

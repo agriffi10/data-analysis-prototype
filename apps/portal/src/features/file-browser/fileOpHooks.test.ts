@@ -2,7 +2,7 @@ import {act, waitFor} from '@testing-library/react';
 import {renderHookWithProviders} from '../../test/renderWithProviders';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {useCopy} from './useCopy';
-import {copyObject, createFolder, deleteObject, firstFreeName, moveObject, uploadFile} from './fileBrowser.service';
+import {copyObject, createFolder, deleteObject, firstFreeName, moveObject} from './fileBrowser.service';
 import {invalidateListing} from './invalidateListing';
 import {useDelete} from './useDelete';
 import type {DeleteSummary} from './useDelete';
@@ -12,13 +12,12 @@ import type {SelectableItem} from './selectionContext';
 
 // ─── from useCopy.test.ts ───
 // One factory for all four hook suites: each only reads the members it drives, and
-// `uploadPercent` still comes from the real module via the spread.
+// the pure helpers still come from the real module via the spread.
 vi.mock('./fileBrowser.service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./fileBrowser.service')>()),
   copyObject: vi.fn(),
   firstFreeName: vi.fn(),
   deleteObject: vi.fn(),
-  uploadFile: vi.fn(),
   createFolder: vi.fn(),
   moveObject: vi.fn()
 }));
@@ -29,7 +28,7 @@ vi.mock('./invalidateListing', () => ({
 
 describe('useCopy', () => {
   /**
-   * Mock the AWS boundary only. `validateFolderName` and `uploadPercent` are PURE and come
+   * Mock the AWS boundary only. `validateFolderName` is PURE and comes
    * through `importOriginal` — the factory used to re-implement the validator by hand, which
    * claimed to "reuse the real validation rules" while omitting the control-character rule
    * entirely and returning different messages. A hand-copied validator drifts from the one
@@ -309,7 +308,6 @@ describe('useDelete', () => {
 // ─── from useFileUpload.test.ts ───
 
 describe('useFileUpload', () => {
-  const mockUpload = vi.mocked(uploadFile);
   const mockCreateFolder = vi.mocked(createFolder);
   const mockInvalidate = vi.mocked(invalidateListing);
 
@@ -317,46 +315,51 @@ describe('useFileUpload', () => {
     return renderHookWithProviders(() => useFileUpload('us', 'alice/'));
   }
 
-  const file = new File(['hello'], 'report.pdf', {type: 'application/pdf'});
-
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   describe('useFileUpload', () => {
-    it('uploads to currentPrefix + name and invalidates the listing on success', async () => {
-      mockUpload.mockResolvedValue({success: true, data: {key: 'alice/report.pdf'}});
-
-      const {result} = render();
-      act(() => result.current.uploadOne(file));
-
-      await waitFor(() => expect(mockInvalidate).toHaveBeenCalledWith(expect.anything(), 'us', 'alice/'));
-      expect(mockUpload).toHaveBeenCalledWith(
-        expect.objectContaining({
-          bucket: 'us',
-          key: 'alice/report.pdf',
-          contentType: 'application/pdf',
-          overwrite: false
-        })
-      );
-    });
-
-    it('renames on collision by re-running with the new key', async () => {
-      mockUpload
+    it('renames a folder on collision by re-running with the new name', async () => {
+      mockCreateFolder
         .mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}})
-        .mockResolvedValueOnce({success: true, data: {key: 'alice/renamed.pdf'}});
+        .mockResolvedValueOnce({success: true, data: {prefix: 'alice/pictures/'}});
 
       const {result} = render();
-      act(() => result.current.uploadOne(file));
+      act(() => result.current.createNewFolder('photos'));
 
-      await waitFor(() => expect(result.current.pendingCollision).not.toBeNull());
-      act(() => result.current.pendingCollision!.retry({rename: 'renamed.pdf'}));
+      await waitFor(() => expect(result.current.pendingCollision).toMatchObject({kind: 'folder', label: 'photos'}));
+      act(() => result.current.pendingCollision!.retry({rename: 'pictures'}));
 
-      await waitFor(() => expect(mockUpload).toHaveBeenCalledTimes(2));
-      expect(mockUpload.mock.calls[1][0]).toMatchObject({
-        key: 'alice/renamed.pdf',
+      await waitFor(() => expect(mockCreateFolder).toHaveBeenCalledTimes(2));
+      expect(mockCreateFolder.mock.calls[1][0]).toEqual({
+        bucket: 'us',
+        prefix: 'alice/',
+        name: 'pictures',
         overwrite: false
       });
+      expect(result.current.pendingCollision).toBeNull();
+    });
+
+    it('overwrites a folder on collision by re-running the same name with overwrite', async () => {
+      mockCreateFolder
+        .mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}})
+        .mockResolvedValueOnce({success: true, data: {prefix: 'alice/photos/'}});
+
+      const {result} = render();
+      act(() => result.current.createNewFolder('photos'));
+
+      await waitFor(() => expect(result.current.pendingCollision).not.toBeNull());
+      act(() => result.current.pendingCollision!.retry({overwrite: true}));
+
+      await waitFor(() => expect(mockCreateFolder).toHaveBeenCalledTimes(2));
+      expect(mockCreateFolder.mock.calls[1][0]).toEqual({
+        bucket: 'us',
+        prefix: 'alice/',
+        name: 'photos',
+        overwrite: true
+      });
+      expect(result.current.pendingCollision).toBeNull();
     });
 
     it('creates a folder and invalidates on success', async () => {
@@ -375,10 +378,10 @@ describe('useFileUpload', () => {
     });
 
     it('surfaces a non-collision error and clears it on dismiss', async () => {
-      mockUpload.mockResolvedValue({success: false, error: {message: 'Access Denied', code: 'AccessDenied'}});
+      mockCreateFolder.mockResolvedValue({success: false, error: {message: 'Access Denied', code: 'AccessDenied'}});
 
       const {result} = render();
-      act(() => result.current.uploadOne(file));
+      act(() => result.current.createNewFolder('photos'));
 
       // Mapped to friendly text (SPEC-106), not the raw 'Access Denied'.
       await waitFor(() =>

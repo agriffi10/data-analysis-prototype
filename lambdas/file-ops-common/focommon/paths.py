@@ -76,11 +76,11 @@ def validate_target_name(name: object) -> str:
     """Confirms a per-item destination name is one path segment a user could have typed.
 
     Mirrors the browser's own leaf rule — non-empty after trimming, no surrounding whitespace, no
-    ``/``, no control characters — and adds the two the browser's version does not carry, because
-    the browser only ever names a folder the user is looking at while this plane accepts a
-    hand-crafted envelope: dot segments, and a length cap. **The cap is applied to characters AND
-    to encoded bytes**, because S3's own limit is 1024 BYTES for a whole key: 255 astral characters
-    is 1020 bytes and would leave nothing for the prefix the name sits under.
+    ``/``, no control characters, not ``.`` or ``..`` — and adds the one the browser's version does
+    not carry, because this plane accepts a hand-crafted envelope: a length cap. **The cap is
+    applied to characters AND to encoded bytes**, because S3's own limit is 1024 BYTES for a whole
+    key: 255 astral characters is 1020 bytes and would leave nothing for the prefix the name sits
+    under.
 
     **The empty string is the case that makes this load-bearing.** An unvalidated ``""`` derives to
     the destination prefix itself, which merges a folder's *contents* into the destination and then,

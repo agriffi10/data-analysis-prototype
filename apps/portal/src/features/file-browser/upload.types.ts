@@ -35,7 +35,7 @@ export type UploadItem = {
    * guard HEAD-checks and pauses the item in `collision`.
    */
   overwrite: boolean;
-  /** Failure / rejection reason (shown in the queue panel). */
+  /** Failure / rejection reason (shown on the item's row in `UploadList`). */
   error?: string;
 };
 

@@ -11,6 +11,7 @@ import {
   uploadFile,
   createFolder,
   validateFolderName,
+  validateLeafName,
   uploadPercent,
   getObjectMetadata,
   __resetPrefixMarkerCache
@@ -572,6 +573,17 @@ describe('uploadPercent', () => {
 describe('validateFolderName', () => {
   it('accepts a normal name', () => {
     expect(validateFolderName('reports')).toBeNull();
+  });
+});
+
+describe('validateLeafName', () => {
+  it('refuses a dot segment by name, and still accepts a dotted or dot-led name', () => {
+    // The API refuses a key with a `.` or `..` segment as access denied, so a name the
+    // browser let through would reach the user as a permission error rather than a reason.
+    expect(validateLeafName('.', 'File name')).toBe('File name cannot be “.” or “..”.');
+    expect(validateLeafName('..', 'File name')).toBe('File name cannot be “.” or “..”.');
+    expect(validateLeafName('.env', 'File name')).toBeNull();
+    expect(validateLeafName('...', 'File name')).toBeNull();
   });
 });
 

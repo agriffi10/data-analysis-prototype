@@ -1,9 +1,14 @@
 import {Button} from '../../components/Button';
 
+const LABEL = 'Restore Archived Data';
+
 type Props = {
   onClick: () => void;
-  /** Fills the mobile action bar's row; the top toolbar's sits at its natural width. */
-  fullWidth?: boolean;
+  /**
+   * `toolbar` — the top toolbar's, at its natural width with the whole label.
+   * `action-bar` — the mobile action bar's, filling its share of the row and reading "Restore".
+   */
+  placement?: 'toolbar' | 'action-bar';
 };
 
 /**
@@ -13,14 +18,22 @@ type Props = {
  * restore has no selection: what it needs is an id the user pastes. That is also why the label
  * says "Archived Data" and not "Archive" — the two controls do opposite things and must not read
  * as a pair of near-identical words.
+ *
+ * In the mobile action bar the visible word is "Restore" alone. The bar splits a phone's width
+ * three ways, and in a third of it the whole label wraps to three lines — taller than the button,
+ * so the text spills out above and below it. The accessible name stays the whole label, which
+ * the visible word begins, as SC 2.5.3 asks: a screen reader, voice control and every test find
+ * the control by the same name at every width.
  */
-export function RestoreArchiveButton({onClick, fullWidth = false}: Props) {
+export function RestoreArchiveButton({onClick, placement = 'toolbar'}: Props) {
+  const inActionBar = placement === 'action-bar';
   return (
     <Button
       variant="default"
-      className={fullWidth ? '!h-11 flex-1' : 'shrink-0'}
+      className={inActionBar ? '!h-11 flex-1' : 'shrink-0'}
+      aria-label={inActionBar ? LABEL : undefined}
       onClick={onClick}>
-      Restore Archived Data
+      {inActionBar ? 'Restore' : LABEL}
     </Button>
   );
 }

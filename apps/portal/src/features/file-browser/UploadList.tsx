@@ -175,7 +175,8 @@ function UploadRow({item}: {item: UploadItem}) {
  * the Upload drawer, listing the session's uploads newest-first in a scrollable
  * list, each with a progress bar + status chip. Reads the SESSION-scoped queue
  * (UploadQueueProvider at the app shell), so it shows every upload of the session
- * and survives the drawer closing / connection switches. Renders nothing when the
+ * and survives the drawer closing / connection switches. The header counts uploads in
+ * progress apart from rows waiting on a name choice. Renders nothing when the
  * queue is empty.
  *
  * @example
@@ -186,7 +187,17 @@ export function UploadList() {
   if (items.length === 0) return null;
 
   const finishedCount = items.filter((i) => TERMINAL_STATUSES.has(i.status)).length;
-  const activeCount = items.length - finishedCount;
+  // A row paused on a name collision is not in progress: nothing moves until the user answers it.
+  const waitingCount = items.filter((i) => i.status === 'collision').length;
+  const activeCount = items.length - finishedCount - waitingCount;
+  const summary = [
+    activeCount > 0 ? `${activeCount} in progress` : null,
+    waitingCount > 0 ? `${waitingCount} ${waitingCount === 1 ? 'needs' : 'need'} your choice` : null
+  ].filter((part) => part !== null);
+  // One text node, so every change to it is announced; non-breaking spaces inside each phrase, so a
+  // narrow drawer wraps only after the separator, never inside a phrase.
+  const status =
+    summary.length === 0 ? 'Complete' : summary.map((part) => part.replaceAll(' ', '\u00a0')).join('\u00a0· ');
   // Newest-first: the reducer appends, so reverse a shallow copy to show the most
   // recent upload at the top.
   const newestFirst = [...items].reverse();
@@ -195,18 +206,18 @@ export function UploadList() {
     <section
       aria-label="Uploads"
       className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-surface">
-      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-4">
+      <header className="flex min-h-11 shrink-0 items-center gap-2 border-b border-border px-4 py-2">
         <h3 className={SECTION_CAPTION}>Uploads</h3>
         <span
-          className="text-sm text-text-2"
-          aria-live="polite">
-          {activeCount > 0 ? `${activeCount} in progress` : 'Complete'}
+          className="min-w-0 flex-1 text-sm text-text-2"
+          aria-live="polite"
+          aria-atomic="true">
+          {status}
         </span>
-        <div className="flex-1" />
         {finishedCount > 0 && (
           <button
             type="button"
-            className="rounded-md px-2 py-1 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="shrink-0 rounded-md px-2 py-1 text-sm font-medium text-text-2 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             onClick={clearFinished}
             aria-label="Clear finished uploads from the list">
             Clear finished

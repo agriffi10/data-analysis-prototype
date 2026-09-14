@@ -141,9 +141,9 @@ function FileBrowserContent({
   const loadedVisibleFolders = loadedFolders.filter((f) => !isHiddenFolder(f));
   const folders = visibleFolders;
 
-  // Create-folder scoped to the folder currently being viewed. File
-  // uploads are now owned by the upload queue, so useFileUpload is used here
-  // only for create-folder (and its folder-name collision / error).
+  // Create-folder scoped to the folder currently being viewed, with its
+  // folder-name collision and error. useFileUpload uploads nothing; file
+  // uploads are owned by the upload queue below.
   const currentPrefix = prefix ?? '';
   const {
     pendingCollision,
@@ -360,7 +360,7 @@ function FileBrowserContent({
           {restoreEnabled && (
             <RestoreArchiveButton
               onClick={restore.openDialog}
-              fullWidth
+              placement="action-bar"
             />
           )}
           <Button
