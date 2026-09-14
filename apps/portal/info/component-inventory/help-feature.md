@@ -17,7 +17,7 @@ Public surface only — the code is the source of truth; verify signatures befor
 | `visibleHelpSections(isEnabled)` / `useVisibleHelpSections()` | `visibleSections.ts` | `HELP_SECTIONS` with every flag-hidden section AND guide dropped — the one filter the page and the panel share (SPEC-207). |
 | `useContextualHelp()` | `useContextualHelp.ts` | `{sectionId, open, openPanel, closePanel}` for the header control; `null` section on a route with no row or a hidden one, and the panel closes on a pathname change (SPEC-207). |
 | `resolveHelpHash(hash, sections)` | `helpDeepLink.ts` | `/help` hash → `{sectionId, guideId}`; sections matched first, then a guide id across the given (already filtered) sections, else the first visible section (SPEC-207). |
-| `renderInline(text)` | `inlineMarkup.tsx` | Parses `<b>`/`<kbd>` markup in guide step + callout strings into `<strong>`/keyed elements (no `dangerouslySetInnerHTML`) (SPEC-074). |
+| `renderInline(text)` | `inlineMarkup.tsx` | Parses `<b>`/`<kbd>`/`<code>`/`<i>` markup in guide intro, step + callout strings into `<strong>`/`<kbd>`/`<code>`/`<em>` elements (no `dangerouslySetInnerHTML`) (SPEC-074). Any other tag reaches the reader raw — `help.test.tsx` fails on one in `HELP_SECTIONS`. |
 
 > **Guide visibility is flag-driven since SPEC-163.** The guides themselves are unchanged, but
 > `HelpPage` filters both SECTIONS and individual GUIDES through `hiddenHelpIds()` — sections

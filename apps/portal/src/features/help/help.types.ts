@@ -23,10 +23,10 @@ export type HelpGuide = {
   subtitle: string;
   /**
    * Optional friendly framing shown above the steps — a sentence or two of
-   * context (what this is for, when you'd reach for it). May contain `<b>…</b>`.
+   * context (what this is for, when you'd reach for it). May contain the same markup as `steps`.
    */
   intro?: string;
-  /** Ordered steps; text may contain `<b>…</b>` emphasis for UI labels. */
+  /** Ordered steps; text may contain `<b>`, `<kbd>`, `<code>` and `<i>` — the tags `renderInline` parses. */
   steps: string[];
   callout?: HelpCallout;
 };
