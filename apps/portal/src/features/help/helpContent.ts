@@ -52,8 +52,8 @@ export const HELP_SECTIONS: HelpSection[] = [
           'If a file does fail, the panel marks it <b>Failed</b> and nothing is saved: an upload that never finishes leaves no file behind for you to find or tidy up. Drop it in again to retry. Pieces from an interrupted upload are cleaned up automatically within a few days.'
         ],
         callout: {
-          kind: 'tip',
-          text: 'Uploading something that shares a name with an existing file? You choose what happens: <b>Overwrite</b> the old one, or keep both — the app suggests an automatically numbered name so nothing is lost.'
+          kind: 'warning',
+          text: 'When an upload shares a name with an existing file, the upload panel holds the new one back until you choose, and the rest of your files carry on. <b>Rename</b> lets you type a different name, so both files are kept. <b>Cancel</b> leaves the new one out of the upload. <b>Overwrite</b> replaces the existing file for good — there is no version history or trash to get it back.'
         }
       },
       {
