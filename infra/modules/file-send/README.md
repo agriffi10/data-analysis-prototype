@@ -54,8 +54,9 @@ statement — verified with `simulate_custom_policy`.
 
 ## The browser gets no cross-prefix write, ever
 
-Its only privilege is `sqs:SendMessage`. **That the browser cannot write into another user's prefix
-is the isolation model working, and is the entire reason this plane exists.**
+It holds no privilege on this plane at all: a send is a call to the API, whose execution role is
+what writes the request queue. **That the browser cannot write into another user's prefix is the
+isolation model working, and is the entire reason this plane exists.**
 
 ## `states:DescribeExecution` is on the execution role, not the machine's
 

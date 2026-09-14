@@ -275,7 +275,8 @@ browser ──▶ API ──sqs:SendMessage──▶ FIFO request queue ──�
 
 - **The browser has no privilege on any plane.** It calls an API route; the API's execution role is
   the only principal that may write a request queue (SPEC-200).
-  The request body carries the caller's ID token.
+  The request body carries the API's `identity` block, which a plane reads through `cpcommon.actor`;
+  no token travels (SPEC-201, row 43).
 
   > **Superseded in part by SPEC-208 (row 46), widened by SPEC-217.** A request queue's writers are
   > *enumerated*, and the shared-space queue now has two: the API, and a scheduled reader that turns

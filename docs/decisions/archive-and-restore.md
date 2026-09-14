@@ -909,9 +909,12 @@ looking like a link that worked.
 
 SPEC-170 FR-001 specifies the digest of `{archiveBucket}/{archiveRoot}` and left it owed to this
 spec, which is the producer. The browser cannot produce it: SPEC-168 decided the browser has **no
-relationship with that bucket** — no CORS, no `connect-src` entry, zero portal-role statements — and
+relationship with that bucket** — no CORS, no `connect-src` entry, zero portal-role statements — ~~and
 `test_archive_bucket_isolation.py` asserts the SPA's build env learns the archive QUEUE and nothing
-else about the plane.
+else about the plane.~~ **— superseded by SPEC-200:** and it now learns nothing about the plane at
+all, because the restore is enqueued through the API, which derives this group id by the same rule.
+`test_archive_bucket_isolation.py` asserts that the portal role names the archive bucket nowhere and
+that the browser's archive enqueue grant is retired.
 
 Including it would also buy nothing. The group id's one job here is that two restores of ONE archive
 serialize, and the archive root's own leading `personal/`/`shared/` segment — the segment SPEC-168

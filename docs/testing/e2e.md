@@ -88,7 +88,8 @@ Object.defineProperty(document,'hidden',{get:()=>false,configurable:true});
 document.dispatchEvent(new Event('visibilitychange'));
 window.dispatchEvent(new Event('focus'));
 
-// 2. Count API route calls, remaining x-amz-target calls, and S3 writes by path.
+// 2. Count API route calls and S3 writes by path. Its x-amz-target arm should record NOTHING —
+// the browser sends no SQS or Athena call — so a row there is a direct AWS call, and a regression.
 // The API arm was added when the catalog ported (SPEC-199) and has NOT been exercised live yet.
 window.__ath=[];const of=window.fetch;
 window.fetch=async function(...a){
@@ -132,7 +133,9 @@ HTMLAnchorElement.prototype.click=function(){if(this.href&&/\.(csv|txt|sql|json)
 `POST /v1/queries`, a poll is `GET /v1/queries/{id}` and a results read is
 `GET /v1/queries/{id}/results` — distinguishable in the network panel, unlike the single Athena
 endpoint they replaced. Count with instrument 2 rather than by eye anyway: a poll fires every 1.5 s
-and the panel fills fast. `x-amz-target` now identifies only the SQS enqueues.
+and the panel fills fast. No request carries `x-amz-target` any more: the enqueues moved behind the
+API as well, so a control-plane enqueue is a `POST /v1/enqueue/…` like any other route. §4.18 is
+where the browser's whole network surface is settled.
 
 Read a downloaded file back **inside the page**; never pull a presigned URL into your context:
 
@@ -322,7 +325,7 @@ upload or a download.
 | Wait for the notification | The card reads *Finished*; the space accepts operations again. |
 | Press **Refresh this folder** (or leave the tab and come back) | The listing now matches. It does **not** update on the notification — that is deliberate, and §4.12's poll is why. |
 | Dismiss a card by hand | It goes, and the space is free again immediately. |
-| Copy a FOLDER into the folder it is already in | The auto-number prompt appears **once** (one `HeadObject`), and confirming enqueues with that name — it is not copied in the browser. |
+| Copy a FOLDER into the folder it is already in | The auto-number prompt appears **once** (one `POST /v1/objects/free-name`), and confirming enqueues with that name — it is not copied in the browser. |
 | Open **Details** on a folder the plane has just deleted | *This folder no longer exists*, and Rename/Archive are gone. Not merely an empty panel. |
 
 **The conflict round trip.** Move something onto a name that already exists, then open the

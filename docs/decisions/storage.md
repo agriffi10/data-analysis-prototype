@@ -66,9 +66,10 @@ unrecoverable — revisit before real user data lands.
   the per-part **maximum**, monotonic across a retry. The 5 GiB ceiling is a refusal on the
   **declared** size — a courtesy, not enforcement, since the API keeps no record of an upload.
 - **The four folder-recursive browser functions are DELETED, not ported** — that loop belongs on the
-  plane. So `asyncFileOperations` off means folder operations are **unavailable**, refused **per
-  item** while the files beside them go through; and the refusal is also reachable with the flag ON,
-  when a destination resolves to no known space.
+  plane. So `asyncFileOperations` off makes a folder or any multi-item selection **unavailable**,
+  refused **at the control**: Copy, Move and Delete are `aria-disabled` with the reason. The
+  services' **per-item** `PlaneRequired` refusal, which lets the files beside a folder go through,
+  is reachable only with the flag ON, when a copy or move's destination resolves to no known space.
 - **The free-name probe moved to the API, not to the plane** — 999 round trips would be strictly
   worse than the loop it replaced. `numberedName` lives in Python only, and **exhaustion is now
   distinguishable from failure** (409 + `attempts`), which it was not.
@@ -1097,19 +1098,27 @@ have worked — for small folders, in every test anyone writes.
 **`asyncFileOperations` therefore switches a capability off rather than to a slower route.** It used
 to be a fallback: with it off, a folder copy, move or delete ran in the browser instead. With the
 browser's recursive primitives gone there is nothing to fall back to, so a folder operation is now
-**refused per item**, with the files selected alongside it still going through. `deleteObjects` went
-with them, so a multi-file delete is a loop of single deletes — which is what copy and move already
-were.
+~~**refused per item**, with the files selected alongside it still going through~~ **— corrected:
+the same change refuses it at the control.** With the flag off, a folder or any multi-item
+selection leaves Copy, Move and Delete `aria-disabled` with a reason that does not promise "later"
+(`planeReasonFor` in `useFileBrowserDialogs`, pinned by `fileOpsDispatch.test.tsx`). `deleteObjects`
+went with them, so a multi-file delete is a loop of single deletes — which is what copy and move
+already were.
 
-**The refusal is per item, not per request, and that is the whole design of it.** A whole-selection
-refusal would lose the files a user picked beside the folder. The message names the folders that did
-not move; the code is `PlaneRequired`, which is authored wording rather than passthrough, because
-every occurrence says the same thing.
+~~**The refusal is per item, not per request, and that is the whole design of it.** A whole-selection
+refusal would lose the files a user picked beside the folder.~~ **— corrected:** the per-item refusal
+is the services' half, and the control refuses the whole selection before it when the flag is off —
+a folder delete that reached the confirm would ask *"Delete the folder “…” and everything inside
+it?"* and then delete nothing. Where the per-item refusal is reached, it still keeps the files picked
+beside the folder. The message names the folders that did not move; the code is `PlaneRequired`,
+which is authored wording rather than passthrough, because every occurrence says the same thing.
 
-**Two paths reach it, and the second is easy to miss.** `useFileBrowserDialogs`'s `routesToPlane`
+~~**Two paths reach it, and the second is easy to miss.** `useFileBrowserDialogs`'s `routesToPlane`
 returns false when the flag is off *and* when a chosen destination resolves to no known space — so
-the refusal is reachable with the flag ON. Recorded because a reader checking only the flag would
-conclude the path is dead in production.
+the refusal is reachable with the flag ON.~~ **— corrected: one path reaches it, and it is the one
+that is easy to miss** — a copy or move whose chosen destination resolves to no known space, which
+`dispatch` runs in the browser with the flag ON. Recorded because a reader checking only the flag
+would conclude the path is dead in production.
 
 ## The free-name probe moved to the API, not to the plane (SPEC-198, amends SPEC-187)
 

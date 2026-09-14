@@ -30,8 +30,8 @@ These pass locally and fail later — check them as part of the work, not as an 
   reads a runtime `/config.json`; a `VITE_*` value is the **dev
   fallback only**, and `npm run check:bundle` asserts the production bundle carries no `VITE_` names
   at all. Wiring the build env and stopping there ships a key that exists nowhere the browser can
-  see it. The list — including the render step and the container entrypoint's
-  own `KEYS`/`REQUIRED`, which is what decides whether the container starts — is
+  see it. The list — including the container entrypoint's own `KEYS`/`REQUIRED`, which is what
+  decides whether the container starts — is
   [`apps/portal/info/runtime-configuration.md`](../../apps/portal/info/runtime-configuration.md).
   **The third site is no longer "a repository variable":** a value Terraform computes is read from
   state through `.github/config-outputs.json`, and only a genuine **input** — one Terraform is given

@@ -527,7 +527,7 @@ Detail: `spec-delivery/SPEC-225`.
 
 ## Notifications (SPEC-058→061)
 
-Per-user inbox at `{username}/user_settings/notifications.json` (array of `{id,message,read,timestamp}` — plus an **optional `link`**, SPEC-113 FR-008: an in-app path the message renders as, gated at render by `isSafeInAppPath` so it can never become an open redirect; absent = plain text, which is every pre-113 producer). **Single-writer:** all mutations (system `create` + user `markRead`/`markAllRead` — **no delete**) go through a **dedicated FIFO SQS queue that triggers the writer Lambda directly** (SQS event-source mapping, batch size 1 — **no Pipe, no Step Function**); per-user ordering via `MessageGroupId` = username. The browser only **reads** the file (+ a **60s background poll** for the unread icon) and enqueues (`sqs:SendMessage`). Anti-spoofing = user-action messages carry the Cognito **ID token**, writer derives `username` from the verified claim (`create` = trusted-producer-only — **enforced since SPEC-206** by the writer refusing a `create` whose SQS-stamped `SenderId` names the portal role; the grant itself is unconditioned and cannot be otherwise, since no SQS condition key reaches a message body). UI = header bell **linking to a `/notifications` page** (not a drawer, not a tab), **10/page**, mark-read/mark-all only. First `create` producer = the **shared-workspace control plane** (SPEC-061; seven lifecycle events, incl. delete fanning out to all members), granted `sqs:SendMessage` on the queue. (**058 write pipeline shipped** — `infra/modules/notifications/` + `lambdas/notifications-writer/`; **059 browser data layer done** — `features/notifications/` read service + `useNotifications` + prefetch; **060 UI done** — header `NotificationsBell` link + `/notifications` page (10/page, mark-read/all, optimistic + Toast); **061 done** — the 062 verb Lambdas emit `create` inline via `notify.emit_notification` (orchestrator role gains `sqs:SendMessage` to the notifications queue ARN only; `NOTIFICATIONS_QUEUE_URL` env), best-effort.)
+Per-user inbox at `{username}/user_settings/notifications.json` (array of `{id,message,read,timestamp}` — plus an **optional `link`**, SPEC-113 FR-008: an in-app path the message renders as, gated at render by `isSafeInAppPath` so it can never become an open redirect; absent = plain text, which is every pre-113 producer). **Single-writer:** all mutations (system `create` + user `markRead`/`markAllRead` — **no delete**) go through a **dedicated FIFO SQS queue that triggers the writer Lambda directly** (SQS event-source mapping, batch size 1 — **no Pipe, no Step Function**); per-user ordering via `MessageGroupId` = username. The browser only **reads** the file (+ a **60s background poll** for the unread icon) and enqueues ~~(`sqs:SendMessage`)~~ **— superseded by SPEC-200:** its two user actions through the API's `notifications.enqueue`, holding no grant on the queue. Anti-spoofing = ~~user-action messages carry the Cognito **ID token**, writer derives `username` from the verified claim~~ **— superseded by SPEC-201:** a user action carries the API's `identity` block, read through `cpcommon.actor`, and any body username is ignored (`create` = trusted-producer-only — **enforced since SPEC-206** by the writer refusing a `create` whose SQS-stamped `SenderId` names the portal role; ~~the grant itself is unconditioned and cannot be otherwise, since no SQS condition key reaches a message body~~ **— superseded by SPEC-200:** the portal role holds no grant on the queue at all). UI = header bell **linking to a `/notifications` page** (not a drawer, not a tab), **10/page**, mark-read/mark-all only. First `create` producer = the **shared-workspace control plane** (SPEC-061; seven lifecycle events, incl. delete fanning out to all members), granted `sqs:SendMessage` on the queue. (**058 write pipeline shipped** — `infra/modules/notifications/` + `lambdas/notifications-writer/`; **059 browser data layer done** — `features/notifications/` read service + `useNotifications` + prefetch; **060 UI done** — header `NotificationsBell` link + `/notifications` page (10/page, mark-read/all, optimistic + Toast); **061 done** — the 062 verb Lambdas emit `create` inline via `notify.emit_notification` (orchestrator role gains `sqs:SendMessage` to the notifications queue ARN only; `NOTIFICATIONS_QUEUE_URL` env), best-effort.)
 
 ## Every plane notifies on a pre-verb failure, and `failure_reason` is the only decoder (SPEC-152)
 
@@ -1169,8 +1169,10 @@ sentence cannot open with "Couldn't move that: " is the lesser argument.
 ## A pre-existing notifications spoofing gap, recorded and not fixed here (SPEC-191)
 
 > **Superseded by SPEC-206 (2026-08-24).** The gap below is closed: the writer refuses a `create`
-> whose SQS-stamped `SenderId` names the portal role. The grant is still unconditioned — that part
-> stays true, and is why the control is a runtime one. See the SPEC-206 entry at the end.
+> whose SQS-stamped `SenderId` names the portal role. ~~The grant is still unconditioned — that part
+> stays true, and is why the control is a runtime one.~~ **— superseded by SPEC-200:** the grant is
+> gone, so the portal role cannot send to this queue at all, and the runtime check stays behind that.
+> See the SPEC-206 entry at the end.
 
 The portal role holds an **unconditioned** `sqs:SendMessage` on the notifications request queue, and
 the writer takes the body's `username` verbatim for a `create`. A signed-in browser can therefore
@@ -1201,9 +1203,12 @@ like one that works) and not `startswith` (which would refuse an unrelated role 
 shares an opening). The session-name half is never examined: Cognito's enhanced flow does not document
 what it puts there.
 
-**The rule is a DENY of one principal, not an ALLOW of the rest.** The grant is held by every
+**The rule is a DENY of one principal, not an ALLOW of the rest.** ~~The grant is held by every
 control-plane execution role, the DLQ drain and the portal role — and exactly one of them is
-user-reachable, which is what makes a single-principal refusal complete rather than partial. The
+user-reachable, which is what makes a single-principal refusal complete rather than partial.~~
+**— superseded by SPEC-200:** the portal role no longer holds the grant. The user-reachable sender
+is now the API's execution role, and its `notifications.enqueue` request model accepts only
+`markRead` and `markAllRead`, so a user's `create` is refused at the API (400) before the queue. The
 count is deliberately not written here: it moved with the eighth plane, and it will move again. An allow-list would be a
 hand-maintained list of role IDs that fails closed on the day a plane is added: that plane's
 notifications would stop, drop or dead-letter unnoticed and nobody would connect the two. One

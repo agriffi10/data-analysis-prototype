@@ -38,9 +38,10 @@ regardless of how many shared spaces exist** — so it stays well inside the por
 aggregate.
 
 Each slot is templated on `${aws:PrincipalTag/shared_space_k}`: S3 object CRUD plus multipart, Glue
-database and table scoped to the slot's space, a `ListBucket` conditioned on the slot prefix, the
-shared delete-denies, and the **single privileged grant the browser receives** — `sqs:SendMessage` to
-the request queue. **An unset slot stamps no tag, so the statement matches nothing** — verified with
+database and table scoped to the slot's space, a `ListBucket` conditioned on the slot prefix and the
+shared delete-denies. No slot carries a queue grant: the request queue is written by the API's
+execution role and the operator transfer reader, never the portal role. **An unset slot stamps no tag, so
+the statement matches nothing** — verified with
 `aws iam simulate-custom-policy`.
 
 **`SharedArchiveReceiptsAreNotUserWritableSystemSettings` uses the wildcard space segment**

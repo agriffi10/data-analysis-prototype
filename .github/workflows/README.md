@@ -113,11 +113,11 @@ chosen by `/config.json`'s `environment`, which the container renders from Terra
 `var.environment`. Only a dev build still reads the name, from a local `.env`
 (`apps/portal/.env.example`), as its stand-in for that key. The list and the ordering are in
 [`docs/testing/owed.md`](../../docs/testing/owed.md) — **delete them only after a green post-merge
-`Publish Config`**, because until then they are what a revert falls back to. `Deploy App` is gone,
-so `Publish Config` is the only workflow still resolving configuration from Terraform state — which
-is what makes re-pointing `.github/config-outputs.json` part of this retirement, not a follow-up. The
-queue URLs are wired straight from each module's output onto the API function by Terraform, with no
-repository variable and no build env in between.
+`Deploy SPA image` and `Publish Config`**, because until then they are what a revert falls back to.
+`Deploy App` is gone, so `Publish Config` is the only workflow still resolving configuration from
+Terraform state — which is what makes re-pointing `.github/config-outputs.json` part of this
+retirement, not a follow-up. The queue URLs are wired straight from each module's output onto the
+API function by Terraform, with no repository variable and no build env in between.
 
 ### Step 4 — Trigger the first app deploy
 
