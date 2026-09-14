@@ -13,14 +13,36 @@ Attributes:
     reference to one that survives in any workflow is reading a value nobody maintains.
   SURVIVING_VARIABLE: A variable that is still a genuine input, used as the positive
     control for the sweep below.
+  README: The workflow directory's setup guide, whose Step 3 table documents every variable.
+  VARIABLES: The root Terraform variable declarations, the source of the name defaults.
+  TOFU_RUN: A `run` script invoking a plan or an apply, global options such as `-chdir` allowed
+    before the subcommand — the steps where Terraform reads its inputs from the environment.
+  GUARD_LINE: The whole first line of such a step: the TF_VAR guard, run before `tofu`.
+  NAME_KEYS: The environment keys workflows build resource names from, mapped to the Terraform
+    variable whose default each must equal.
+  VARIABLE_READ: A workflow reading an Actions variable, in either expression syntax.
+  GUARD: The guard script, imported by path so the declared-variable parse here is its own.
 """
 
+import importlib.util
 import pathlib
 import re
+
+import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 WORKFLOWS = ROOT / ".github" / "workflows"
 RESOLVE_STEP = "- name: Resolve the configuration from Terraform state"
+README = WORKFLOWS / "README.md"
+VARIABLES = ROOT / "infra" / "variables.tf"
+TOFU_RUN = re.compile(r"\btofu\s+(?:-\S+\s+)*(plan|apply)\b")
+GUARD_LINE = re.compile(r"python3 (?:\S+/)?\.github/scripts/tf_var_guard\.py")
+NAME_KEYS = {"PROJECT": "project_name", "PROJECT_NAME": "project_name", "ENVIRONMENT": "environment"}
+VARIABLE_READ = re.compile(r"vars\.([A-Za-z_][A-Za-z0-9_]*)|vars\[\s*['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]\s*\]")
+
+_spec = importlib.util.spec_from_file_location("tf_var_guard", ROOT / ".github" / "scripts" / "tf_var_guard.py")
+GUARD = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(GUARD)
 
 RETIRED_VARIABLES = (
     "API_BASE_URL",
@@ -35,6 +57,9 @@ SURVIVING_VARIABLE = "AWS_REGION"
 
 def _workflows() -> list[pathlib.Path]:
     """Every workflow file, refusing an empty directory.
+
+    Args:
+      None.
 
     Returns:
       The workflow paths, sorted.
@@ -132,7 +157,7 @@ def test_no_workflow_reads_a_retired_repository_variable() -> None:
     """
     references: dict[str, set[str]] = {}
     for path in _workflows():
-        found = set(re.findall(r"vars\.([A-Za-z_][A-Za-z0-9_]*)", path.read_text()))
+        found = _reads(path)
         if found:
             references[path.name] = found
 
@@ -196,3 +221,277 @@ def test_the_resolve_refusal_lands_before_any_aws_write() -> None:
             early[name] = preceding
 
     assert early == {}, f"AWS writes precede the configuration resolve: {early}"
+
+
+
+def _reads(path: pathlib.Path) -> set[str]:
+    """Every Actions variable a workflow reads, upper-cased as GitHub stores the name.
+
+    Both expression syntaxes count — ``vars.NAME`` and ``vars['NAME']`` — and the lookup is
+    case-insensitive, so a sweep keyed on one spelling would let the other through.
+
+    Args:
+      path: The workflow file.
+
+    Returns:
+      The variable names.
+
+    Raises:
+      None.
+    """
+    return {(dotted or indexed).upper() for dotted, indexed in VARIABLE_READ.findall(path.read_text(encoding="utf-8"))}
+
+
+def _terraform_steps() -> list[tuple[str, dict, str | None, bool]]:
+    """Every workflow step that runs a plan or an apply, refusing a population missing either.
+
+    Args:
+      None.
+
+    Returns:
+      For each step: the workflow's file name; the step as YAML loads it; the shell it runs under
+      if anything overrides the default — the step itself, its job, or the workflow; and whether
+      the step or its job continues on error.
+
+    Raises:
+      AssertionError: If no step plans or no step applies, which would make every assertion
+        over these steps agree with nothing.
+    """
+    steps = []
+    for path in _workflows():
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        workflow_shell = ((document.get("defaults") or {}).get("run") or {}).get("shell")
+        for job in (document.get("jobs") or {}).values():
+            job_shell = ((job.get("defaults") or {}).get("run") or {}).get("shell") or workflow_shell
+            steps.extend(
+                (
+                    path.name,
+                    step,
+                    step.get("shell") or job_shell,
+                    bool(step.get("continue-on-error") or job.get("continue-on-error")),
+                )
+                for step in job.get("steps") or []
+                if TOFU_RUN.search(step.get("run", ""))
+            )
+    kinds = {TOFU_RUN.search(step["run"]).group(1) for _, step, _, _ in steps}
+    assert kinds == {"plan", "apply"}, f"expected a plan step and an apply step, found {sorted(kinds)}"
+    return steps
+
+
+def _declared(step: dict) -> set[str]:
+    """The variables the module a step runs `tofu` in declares, refusing a module declaring none.
+
+    Args:
+      step: A plan or apply step, as YAML loads it.
+
+    Returns:
+      The declared names, spelled as OpenTofu matches them.
+
+    Raises:
+      AssertionError: If the step's working directory declares no variable, which would make
+        every environment key read as undeclared for the wrong reason.
+    """
+    module = ROOT / step.get("working-directory", ".")
+    names = GUARD.declared(module)
+    assert "github_repo" in names, f"{module} declares no github_repo — the parse or the directory is wrong"
+    return names
+
+
+def _terraform_receives() -> set[str]:
+    """The Terraform variables every plan and apply is handed from the Actions variable of that name.
+
+    A key counts only when its suffix is exactly a declared variable, because OpenTofu matches the
+    spelling case-sensitively and ignores anything else. A variable handed to one run and not the
+    other is excluded: the apply is what builds, and a plan that disagrees with it reviews a
+    deployment nobody will get.
+
+    Args:
+      None.
+
+    Returns:
+      The variable names, as declared.
+
+    Raises:
+      AssertionError: If `github_repo`, a required input every run is handed, is not found —
+        the parse is broken and an empty set would refuse every read for the wrong reason.
+    """
+    per_step = []
+    for _, step, _, _ in _terraform_steps():
+        names = _declared(step)
+        per_step.append(
+            {
+                key[len("TF_VAR_") :]
+                for key, value in (step.get("env") or {}).items()
+                if key.startswith("TF_VAR_")
+                and key[len("TF_VAR_") :] in names
+                and re.search(r"vars\.\s*" + re.escape(key) + r"\b", str(value), re.IGNORECASE)
+            }
+        )
+    received = set.intersection(*per_step)
+    assert "github_repo" in received, f"the parse lost github_repo; it found {sorted(received)}"
+    return received
+
+
+def test_every_tf_var_a_tofu_step_sets_names_a_declared_variable() -> None:
+    """OpenTofu ignores a `TF_VAR_` it has no variable for, so a misspelt key hands over nothing.
+
+    The spelling is case-sensitive: `TF_VAR_SPA_SUBDOMAIN`, the name GitHub's settings page shows,
+    is not `spa_subdomain`, and a plan given it builds from the default without a warning.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If any plan or apply step sets a `TF_VAR_` key naming no declared variable.
+    """
+    undeclared = sorted(
+        f"{workflow}: {step.get('name', 'unnamed step')}: {key}"
+        for workflow, step, _, _ in _terraform_steps()
+        for key in (step.get("env") or {})
+        if key.startswith("TF_VAR_") and key[len("TF_VAR_") :] not in _declared(step)
+    )
+    assert undeclared == [], f"TF_VAR_ keys naming no declared variable: {undeclared}"
+
+
+def test_every_tf_var_a_workflow_reads_is_handed_to_terraform() -> None:
+    """A workflow reads a Terraform input only when Terraform is handed the same variable.
+
+    The failure this pins was a set of name variables every deploy workflow built resource names
+    from while no plan or apply received them: setting one would have pointed the workflows at
+    resources Terraform never built, and every run in between reads green.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If any workflow reads a `TF_VAR_*` Actions variable that some plan or
+        apply is not handed under its own name.
+    """
+    received = {name.upper() for name in _terraform_receives()}
+    stray = sorted(
+        f"{path.name}:{name}"
+        for path in _workflows()
+        for name in _reads(path)
+        if name.startswith("TF_VAR_") and name[len("TF_VAR_") :] not in received
+    )
+    assert stray == [], f"workflows read TF_VAR_ variables Terraform is never handed: {stray}"
+
+
+def test_every_plan_and_apply_runs_the_tf_var_guard_first() -> None:
+    """The runtime half of the rule above has to be in the step, or it guards nothing.
+
+    The guard reads the environment of the process that runs it, so run anywhere but the
+    `tofu` step it compares nothing against what Terraform receives. It needs `toJSON(vars)` to
+    see what is set, its own line with nothing after it so no `|| true` can swallow its exit, the
+    default `bash -e` shell so that exit ends the step, and no `continue-on-error` to turn the
+    ended step back into a green job.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a plan or apply step does not start with the guard, does not pass it
+        the variables, names a script path that does not exist, overrides the shell, or
+        continues on error.
+    """
+    problems = []
+    for workflow, step, shell, continues in _terraform_steps():
+        where = f"{workflow}: {step.get('name', 'unnamed step')}"
+        first = step["run"].strip().splitlines()[0].strip()
+        if not GUARD_LINE.fullmatch(first):
+            problems.append(f"{where} does not run the guard as its first line (found {first!r})")
+        else:
+            script = ROOT / step.get("working-directory", ".") / first.split(" ", 1)[1]
+            if not script.resolve().is_file():
+                problems.append(f"{where} runs {first.split(' ', 1)[1]}, which does not exist")
+        if (step.get("env") or {}).get("REPO_VARS") != "${{ toJSON(vars) }}":
+            problems.append(f"{where} does not pass REPO_VARS as toJSON(vars)")
+        if shell is not None:
+            problems.append(f"{where} runs under {shell!r}, not the default, so a failing guard may not end it")
+        if continues:
+            problems.append(f"{where} continues on error, so a failing guard leaves the job green")
+    assert problems == [], problems
+
+
+def test_workflow_name_literals_are_the_terraform_defaults() -> None:
+    """Workflows write Terraform's name defaults out, so the two must be the same values.
+
+    They used to read an Actions variable with the default as a fallback, which is the coupling
+    the tests above now forbid; a literal keeps the agreement, and only this keeps it honest if
+    a default in ``infra/variables.tf`` ever moves.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a default cannot be read, if no workflow names either value, or if any
+        workflow's value differs from its default.
+    """
+    text = VARIABLES.read_text(encoding="utf-8")
+    defaults = {}
+    for variable in set(NAME_KEYS.values()):
+        block = re.search(r'^variable\s+"' + variable + r'"\s*\{\n(.*?)^\}', text, re.MULTILINE | re.DOTALL)
+        match = block and re.search(r'^\s*default\s*=\s*"([^"]+)"', block.group(1), re.MULTILINE)
+        assert match, f"infra/variables.tf declares no string default for {variable}"
+        defaults[variable] = match.group(1)
+
+    sites = []
+    for path in _workflows():
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        blocks = [document.get("env") or {}]
+        for job in (document.get("jobs") or {}).values():
+            blocks.append(job.get("env") or {})
+            blocks.extend(step.get("env") or {} for step in job.get("steps") or [])
+        sites.extend(
+            (path.name, key, str(value)) for block in blocks for key, value in block.items() if key in NAME_KEYS
+        )
+
+    assert {NAME_KEYS[key] for _, key, _ in sites} == set(defaults), (
+        f"the sweep found no workflow naming one of {sorted(defaults)} — the matcher is broken"
+    )
+    wrong = sorted(
+        f"{workflow}:{key}={value}" for workflow, key, value in sites if value != defaults[NAME_KEYS[key]]
+    )
+    assert wrong == [], f"workflow names that are not infra/variables.tf's defaults {defaults}: {wrong}"
+
+
+def test_every_variable_a_workflow_reads_has_a_row_in_the_setup_table() -> None:
+    """The setup guide's table claims to be every variable a workflow reads, so hold it to that.
+
+    It drifted both ways before: four name overrides one workflow read never got a row, and a
+    row outlived the last workflow that read its variable. Only the first direction is checked —
+    a row for a variable nothing reads may be there to say it must stay unset.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the sweep finds no read at all, or a variable some workflow reads has
+        no row in Step 3's table.
+    """
+    read = set().union(*(_reads(path) for path in _workflows()))
+    assert SURVIVING_VARIABLE in read, f"the sweep did not find {SURVIVING_VARIABLE}; the matcher is broken"
+
+    section = README.read_text(encoding="utf-8").split("### Step 3", 1)[1].split("\n### ", 1)[0]
+    documented = {
+        name.upper()
+        for line in section.splitlines()
+        if line.startswith("|")
+        for name in re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", line.split("|")[1])
+    }
+    assert sorted(read - documented) == [], "variables read with no row in the README's Step 3 table"

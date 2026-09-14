@@ -156,10 +156,12 @@ cp bootstrap/backend.conf.example backend.conf   # fill in bucket/table names (g
 cp terraform.tfvars.example terraform.tfvars      # gitignored
 ```
 
-Set at least `aws_region`, `project_name`, `github_repo` (as `owner/repo`), `state_bucket`, and
-`state_lock_table`. Other inputs (`environment`, `cognito_domain_prefix`,
-`user_space_bucket_name`, `portal_role_name`) have sensible defaults — see
-[`infra/variables.tf`](infra/variables.tf). Resource names follow `{project_name}-{environment}-*`.
+Set `aws_region`, `github_repo` (as `owner/repo`), `state_bucket` and `state_lock_table`. **Leave
+`project_name`, `environment` and every name override (`cognito_domain_prefix`,
+`user_space_bucket_name`, `portal_role_name` and the like) at their defaults**: CI's apply never
+hands them to Terraform, so a value set here would name resources that the next CI apply plans to
+replace. Resource names therefore come out as `dat-prod-*` — see
+[`infra/variables.tf`](infra/variables.tf), and Step 3 of the workflows guide for why.
 
 ### 3. First apply (locally, with admin credentials)
 
@@ -187,8 +189,8 @@ push an image with **Deploy Lambda image** and pass its sha.
 
 ### 4. Configure GitHub Actions (Settings → Secrets and variables → Actions)
 
-Populate from `tofu output` (see [`.github/workflows/README.md`](.github/workflows/README.md)
-for the full table and notes).
+[`.github/workflows/README.md`](.github/workflows/README.md) is the full guide, with the reason for
+each value.
 
 **Secrets**
 
@@ -198,19 +200,14 @@ for the full table and notes).
 | `TF_VAR_state_bucket` | your bootstrap state bucket name |
 | `TF_VAR_state_lock_table` | your bootstrap lock table name |
 
-**Variables**
+**Variables** are listed in Step 3 of that guide and not copied here: a test holds that table to
+every variable a workflow reads, and a copy is what drifted. Two that are easy to get wrong:
 
-| Variable | Source |
-|---|---|
-| `AWS_REGION` | e.g. `us-east-1` (must match all resources) |
-| `VITE_APP_URL` | `tofu output spa_origin` |
-| `TF_VAR_github_repo` | `owner/repo` (must match exactly; scopes OIDC trust) |
-| `VITE_COGNITO_USER_POOL_ID` | `tofu output cognito_user_pool_id` |
-| `VITE_COGNITO_USER_POOL_CLIENT_ID` | `tofu output cognito_user_pool_client_id` |
-| `VITE_COGNITO_DOMAIN` | `tofu output cognito_domain` |
-| `VITE_S3_USER_SPACE_BUCKET` | `tofu output s3_user_space_bucket_name` |
-| `TF_VAR_project_name` / `TF_VAR_environment` | only if you overrode the Terraform defaults (`dat` / `prod`) |
-| `TF_VAR_lambda_image_tag` | **not a variable to set** — CI supplies `${{ github.sha }}`. Listed because it is required with no default, so a local apply must pass it explicitly |
+- `TF_VAR_lambda_image_tag` is **not a variable to set** — CI supplies `${{ github.sha }}`. It is
+  required with no default, so a local apply must pass it explicitly.
+- `TF_VAR_project_name`, `TF_VAR_environment` and the name overrides (`TF_VAR_*_bucket_name` and
+  the like) **must stay unset**. No workflow hands them to Terraform, so a set one names nothing —
+  and the infrastructure plan and apply fail on one rather than let it read as configuration.
 
 ### 5. Deploy the Lambda code
 

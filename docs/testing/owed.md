@@ -1208,8 +1208,11 @@ deleted**, so that one names nothing at all.
 
 **The survivors are not up for deletion** — each is a genuine input, with its reason tabled in
 [`.github/workflows/README.md`](../../.github/workflows/README.md); a row it marks *unset by design*
-is deliberately absent, and every reference to one supplies a `||` fallback. `VITE_APP_URL` is the
-one that reads like a leftover and is not: its one consumer is `security.yml`'s ZAP target, where a
+is deliberately absent, and every reference to one supplies a `||` fallback. `TF_VAR_project_name`,
+`TF_VAR_environment` and the name overrides are neither survivors nor retirees: none is set, no
+workflow reads one, and setting one fails the infrastructure plan and apply (Step 3 says why), with
+the Step 3 table held by a test to every name a workflow reads. `VITE_APP_URL` is the one that reads
+like a leftover and is not: its one consumer is `security.yml`'s ZAP target, where a
 stale value scans a dead host and reports a clean baseline.
 
 ## Arc B's recipes that outlived their script (ported 2026-09-02)

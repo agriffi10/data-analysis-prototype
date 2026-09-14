@@ -3,6 +3,10 @@ variable "aws_region" {
   type        = string
 }
 
+# project_name, environment and every name override below (the variables defaulting to "") are
+# handed to Terraform by no workflow, so the deployment is always named from these defaults. An
+# Actions variable setting one fails the plan and apply. Changing one here renames real
+# infrastructure, and the workflows that write the names out have to move with it.
 variable "project_name" {
   description = "Short name used as a prefix for AWS resource names"
   type        = string
