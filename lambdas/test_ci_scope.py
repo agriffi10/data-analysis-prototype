@@ -48,6 +48,7 @@ import shutil
 import subprocess
 import tempfile
 
+import test_config_workflows as _path_filter_guard
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -1103,7 +1104,8 @@ def _selected_by_globs(globs: list[str]) -> set[str]:
     Only the two glob shapes the SPA lists actually use are understood — a literal path, and a
     ``dir/**`` prefix. Anything else RAISES rather than being approximated, because a matcher
     that quietly mishandles a shape agrees with the regex list for the wrong reason, which is
-    the failure this comparison exists to catch.
+    the failure this comparison exists to catch. The matcher is the path-filter guard's, so
+    the two tests cannot disagree about what a ``paths:`` entry selects.
 
     Args:
         globs: The workflow's ``paths:`` entries.
@@ -1114,18 +1116,7 @@ def _selected_by_globs(globs: list[str]) -> set[str]:
     Raises:
         AssertionError: If an entry uses a glob shape this matcher does not implement.
     """
-    selected = set()
-    for glob in globs:
-        if glob.endswith("/**"):
-            prefix = glob[: -len("**")]
-            selected |= {path for path in SCOPE_CORPUS if path.startswith(prefix)}
-        else:
-            assert "*" not in glob and "?" not in glob, (
-                f"`{glob}` is a glob shape this test does not implement; teach the matcher "
-                "rather than letting it approximate"
-            )
-            selected |= {path for path in SCOPE_CORPUS if path == glob}
-    return selected
+    return {path for path in SCOPE_CORPUS if _path_filter_guard._filter_selects(globs, path)}
 
 
 def test_the_image_scope_list_and_the_pull_request_gate_select_the_same_paths():
