@@ -8,12 +8,14 @@ on:
   pull_request:
     branches: [main]
     paths: ['infra/**', '.github/workflows/deploy-infra.yml',
+            '.github/scripts/checkov-scan.sh', '.github/scripts/checkov-scan-test.sh',
             '.github/scripts/lambda_plan_guard.py', '.github/scripts/tf_var_guard.py',
             'lambdas/fixtures/pre_cutover_plan.json',
             'lambdas/fleet.py', 'lambdas/tf_blocks.py']
   push:
     branches: [main]
     paths: ['infra/**', '.github/workflows/deploy-infra.yml',
+            '.github/scripts/checkov-scan.sh', '.github/scripts/checkov-scan-test.sh',
             '.github/scripts/lambda_plan_guard.py', '.github/scripts/tf_var_guard.py',
             'lambdas/fixtures/pre_cutover_plan.json',
             'lambdas/fleet.py', 'lambdas/tf_blocks.py']
@@ -303,14 +305,27 @@ jobs:
       - name: Install Checkov
         run: pip install "checkov==${CHECKOV_VERSION}"
 
+      # The scan below refuses any configuration Checkov reports taking from outside its
+      # command line. That refusal never fires on a normal run, so this proves it still does,
+      # against the scanner just installed, before the gate relies on it.
+      - name: Prove the scan refuses configuration it was not given
+        run: .github/scripts/checkov-scan-test.sh
+
       - name: Scan the rendered plan
         working-directory: infra
         # No --quiet: it strips passed_checks from the JSON, and without those the
         # IAM-coverage assertion below cannot tell "no IAM check ran" from "every IAM
         # check passed". Those two must never look alike — the first is the bug this
         # spec exists to prevent recurring.
+        #
+        # THROUGH checkov-scan.sh, never bare. Checkov also reads a `.checkov.yml` from the
+        # working directory, which is infra/ here, or from $HOME, even with -f. Measured with
+        # this invocation on a fixture plan: one holding `skip-check: [CKV_AWS_355]` took that
+        # finding off while every other IAM check still ran, so the coverage assertion below
+        # passed and the gate counted the rest. The wrapper refuses to scan instead, and
+        # writes nothing, so the JSON check below fails the step.
         run: |
-          checkov -f plan.json \
+          ../.github/scripts/checkov-scan.sh -f plan.json \
             --framework terraform_plan \
             --output json --compact --soft-fail > checkov-plan.json || true
           # Checkov emits THREE shapes: a list (multi-framework), an object with .summary
