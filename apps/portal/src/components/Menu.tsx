@@ -99,8 +99,10 @@ export function Menu({trigger, items, ariaLabel, align = 'right', className, men
     first?.focus();
   }, [open]);
 
+  // A natively `disabled` item leaves the roving order: it cannot take focus, so stepping onto it
+  // strands focus where it was. An `aria-disabled` one stays in, for the reason given above.
   const focusItem = (dir: 1 | -1) => {
-    const els = itemRefs.current.filter((el): el is HTMLButtonElement => !!el);
+    const els = itemRefs.current.filter((el): el is HTMLButtonElement => !!el && !el.disabled);
     if (els.length === 0) return;
     const active = document.activeElement as HTMLElement | null;
     const idx = els.findIndex((el) => el === active);
