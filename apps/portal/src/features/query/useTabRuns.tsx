@@ -263,7 +263,11 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
         if (!cur || cur.done || cur.executionId !== executionId) return r;
         return {
           ...r,
-          [tabId]: {...cur, done: true, stillRunning: {statementIndex: cur.currentIndex, message: toUserMessage(notice)}}
+          [tabId]: {
+            ...cur,
+            done: true,
+            stillRunning: {statementIndex: cur.currentIndex, message: toUserMessage(notice)}
+          }
         };
       });
     },

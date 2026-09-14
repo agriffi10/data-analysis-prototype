@@ -872,6 +872,10 @@ call: `useQueryExecution`'s poll (1.5 s, 5-minute ceiling), `runStatementToCompl
 `useQueryResults`' `NextToken` paging, and `useResultRowCount`'s background walk. `listTables` walks
 the API's `nextToken` inside the service, so `useSchema` still gets every table from one call.
 
+> **Changed by SPEC-234:** `useQueryExecution`'s ceiling is now 30 minutes, and it is a verdict on a
+> read after it rather than a stop on the clock. Full entry: `browser.md`, *A long query settles at
+> the ceiling, judged on a read after it, and says where its results go*.
+
 **The counting rule is the part that is easy to get wrong.** "One botocore call per request" is
 unsatisfiable on a cold invocation and satisfiable on the next, because the per-container session
 cache makes `sts:AssumeRole` fire on some invocations and not others. The assertion is therefore on

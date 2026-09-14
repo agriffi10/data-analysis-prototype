@@ -1,7 +1,7 @@
 # Spec: A Long Query Settles at the Ceiling, and Says Where Its Results Go
 
 **ID:** SPEC-234
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-09-14
 **Depends On:** SPEC-078, SPEC-106, SPEC-233
 
@@ -75,7 +75,7 @@ Read from the code at `090e595f`, unless a line says it was read live.
 
 ### The decisions
 
-Andrew made the first four, and the rest were settled while authoring.
+Andrew made the first five, and the rest were settled while authoring.
 
 - **The ceiling is 30 minutes, and the cadence stays at 1.5 seconds.** This matches the DML
   timeout, so the sentence is rare rather than the ordinary case, and no ordinary query is left
@@ -362,6 +362,7 @@ apps/portal/src/features/catalog/catalog.constants.ts          # 30 minutes, the
 apps/portal/src/features/catalog/useQueryExecution.ts          # the watch, the verdict, the new shape
 apps/portal/src/features/catalog/index.ts                      # exports the type and the guard
 apps/portal/src/features/catalog/queryExecutionHooks.test.ts   # FR-001
+apps/portal/src/test/fakeTimers.ts                             # fake timers Testing Library can drive
 apps/portal/src/lib/errorMessages.ts                           # QueryStillRunning, params widened
 apps/portal/src/lib/apiContract.guard.test.ts                  # CLIENT_MINTED gains the code
 apps/portal/src/features/query/TabExecutionPoller.tsx          # onStillRunning
@@ -372,11 +373,13 @@ apps/portal/src/features/query/QueryResultsMobile.tsx          # the same, on mo
 apps/portal/src/features/query/QueryStatusBar.tsx              # "Still running"
 apps/portal/src/features/query/QueryWorkspace.test.tsx         # FR-002
 apps/portal/src/features/query/queryWorkspaceMobile.test.tsx   # FR-002 mobile criterion
+apps/portal/src/features/query/queryResultsUi.test.tsx         # the mobile view's new required prop
 apps/portal/src/features/data-explorer/useExploration.ts       # error and isPending
 apps/portal/src/features/data-explorer/DataExplorerWorkspace.tsx    # the verdict is not a failure
 apps/portal/src/features/data-explorer/ExplorationResultsRegion.tsx # banner, body, save refusal
 apps/portal/src/features/data-explorer/dataExplorerUi.test.tsx      # FR-003 AC1, AC5
-apps/portal/src/features/data-explorer/expressionBar.test.tsx       # FR-003 AC2, AC4
+apps/portal/src/features/data-explorer/expressionBar.test.tsx       # FR-003 AC2
+apps/portal/src/features/data-explorer/queryHistory.test.tsx        # FR-003 AC4
 apps/portal/src/features/data-explorer/saveExploration.test.tsx     # FR-003 AC3
 apps/portal/src/features/help/helpContent.ts                   # FR-004
 apps/portal/src/features/help/help.test.tsx                    # FR-004 criterion

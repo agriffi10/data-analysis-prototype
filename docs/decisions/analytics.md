@@ -753,6 +753,11 @@ fetching rows then. And a query outliving `MAX_POLL_DURATION_MS` (5 min) now sho
 "Running…" rather than a permanent wrong error banner; neither self-heals, and the behaviour is
 unspecified.
 
+> **Superseded by SPEC-234** for the second consequence: a query outliving the watch's ceiling, now
+> 30 minutes, settles with a warning that says where its results go, and no longer shows an
+> indefinite "Running…". Full entry: `browser.md`, *A long query settles at the ceiling, judged on
+> a read after it, and says where its results go*.
+
 **EXTENDED by SPEC-199, when the API landed in this path.** The ambiguity that forced a message rule
 in the browser is now resolved at the one layer holding the message: the route classifies Athena's
 `InvalidRequestException` **by its text** and answers **409 `QueryNotFinished`** for a too-early read
