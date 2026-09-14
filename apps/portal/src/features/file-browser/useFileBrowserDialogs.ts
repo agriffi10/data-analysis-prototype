@@ -90,9 +90,9 @@ export type UseFileBrowserDialogsResult = {
    *
    * Two reasons, and they are different in kind. Either an operation of this session's is still
    * with the plane in one of the spaces this one would touch — temporary, and "try again when it
-   * finishes" is true. Or the plane is not taking work at all, and the browser has no recursive
-   * primitive to fall back to, so a folder or multi-item gesture cannot be performed by anyone:
-   * that one is not temporary, and saying "try again later" would be a lie.
+   * finishes" is true. Or the plane is not taking work at all, and a folder or multi-item gesture
+   * — every shape the routing rule sends to it — is refused outright: that one is not temporary,
+   * and saying "try again later" would be a lie.
    *
    * Answers `undefined` for a selection that stays in the browser — exactly one file. Refusing a
    * single-file delete the plane never sees would take away something the user could do before,
@@ -277,7 +277,8 @@ export function useFileBrowserDialogs({
    * **The controls decide when they render; this decides at confirm.** A folder or multi-item
    * gesture therefore reaches the browser's hooks only through a race between the two: the flag
    * refetched and switched off while a dialog was open, or a chosen destination dropping out of
-   * the spaces list while the picker was. The hooks' per-item `PlaneRequired` refusal answers it.
+   * the spaces list while the picker was. The hooks then loop what arrives: each file is attempted,
+   * and each folder is refused per item with `PlaneRequired`.
    */
   async function dispatch(gesture: FileOpGesture, runHere: () => void | Promise<unknown>): Promise<Dispatched> {
     const needsDestination = gesture.operation !== 'delete';

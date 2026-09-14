@@ -21,8 +21,9 @@ from focommon import config, lock
 
 #: The pinned cross-runtime vector, COMPUTED INDEPENDENTLY IN BOTH RUNTIMES rather than copied from
 #: this one's output — a value copied from Python asserts only that Python is self-consistent, which
-#: is not the property that matters. The browser's own suite asserts the identical pair, so a change
-#: on either side fails a test rather than silently splitting the lock from the queue's ordering.
+#: is not the property that matters. The browser's twin is deleted; the pair it computed survives in
+#: `lambdas/api/fifo_vectors.json`, which the API's derivation is replayed against, so a change on
+#: either side fails a test rather than silently splitting the lock from the queue's ordering.
 _VECTOR_BUCKET = "dat-prod-user-space"
 _VECTOR_SPACE = "alice"
 _VECTOR_DIGEST = "fdeab79570d11a19a05ce52dba54a66b83597ae4fb6eecfd1a378e83b1b6a039"

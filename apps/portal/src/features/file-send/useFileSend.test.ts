@@ -106,9 +106,10 @@ describe('useFileSend', () => {
 
   it('never wedges when the enqueue THROWS, and says something', async () => {
     // The request is BUILT before the ServiceResult contract starts, and `crypto.randomUUID()`
-    // here is undefined outside a secure context, which is the documented dev-preview shape.
-    // Leaving `busy` true there is unrecoverable: the submit reads "Sending…", Cancel is disabled,
-    // the modal refuses to dismiss and swallows Escape, and `close()` refuses because it is busy.
+    // here is undefined outside a secure context, which is the documented dev-preview shape. The
+    // `finally` keeps `busy` from sticking, which would be unrecoverable — the submit reads
+    // "Sending…", Cancel is disabled, the modal refuses to dismiss and swallows Escape, and
+    // `close()` refuses because it is busy — and the catch puts the error on screen.
     vi.mocked(enqueueFileSend).mockRejectedValue(new Error('crypto.randomUUID is not a function'));
     const {hook} = setup();
     act(() => hook.result.current.open(ITEMS));

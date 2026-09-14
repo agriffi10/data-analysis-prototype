@@ -88,7 +88,7 @@ def test_the_actor_is_recovered_from_the_request_when_no_verb_produced_one():
     """THE CASE THIS STATE ACTUALLY SEES. Every failure it exists for — a cold-start import
     error, a state timeout, a task that could not be invoked — happens before an actor exists,
     so the recorded object carries actor: null. Recovering the actor from the identity block
-    in the captured request is the difference between the spec's guarantee holding here and
+    in the captured request is the difference between "every failure notifies" holding here and
     reading as satisfied while telling nobody anything."""
     sent = _capture()
 

@@ -28,8 +28,8 @@ export type UseDeleteResult = BulkOperationState & {
  * it a second time in the browser is the loop that plane exists to remove. A folder, or more than
  * one item, reaches here only through the race `dispatch` in `useFileBrowserDialogs` describes:
  * otherwise such a selection is enqueued, or refused at the Delete control while the plane is
- * off. The per-item refusal below answers that race, and it still deletes the files beside a
- * folder and names the folders it did not touch.
+ * off. What does arrive is looped: each file is deleted, and each folder is refused per item and
+ * named in the summary.
  *
  * Results aggregate across all items — one failure never aborts the rest. On completion the
  * current prefix listing is invalidated so removed items disappear; the caller clears the

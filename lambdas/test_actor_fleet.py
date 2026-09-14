@@ -259,7 +259,8 @@ def test_no_queue_consumer_reads_the_flat_actor_or_a_token_field(name) -> None:
 
     assert not offenders, (
         f"{name} reads {offenders} off the queue body — the identity block is the only source, "
-        "and on four planes the flat field holds a raw token in any pre-cutover message"
+        "and on four planes the flat field holds a raw token in any message enqueued before the "
+        "API stopped sending one"
     )
 
 

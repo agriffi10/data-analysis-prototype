@@ -302,11 +302,12 @@ def test_a_request_with_no_usable_id_reaches_the_contracts_own_refusal_and_names
 
 
 def test_the_block_decides_the_actor_and_the_flat_field_beside_it_does_not():
-    """The block wins, and the flat field must not — it holds a raw token on a pre-cutover message.
+    """The block wins, and the flat field must not — it can still hold a raw token.
 
-    This was SPEC-200's "the block rides along and is ignored". Inverted rather than deleted:
-    the property worth asserting is now the opposite one, and the flat field is still admitted
-    by the allowlist, so a reader that preferred it would pass every other test in this file.
+    A message enqueued before the API stopped sending the token carries one there. This test used
+    to assert that the block rides along and is ignored; it was inverted rather than deleted,
+    because the property worth asserting is now the opposite one, and the flat field is still
+    admitted by the allowlist, so a reader that preferred it would pass every other test here.
     """
     _setup()
 

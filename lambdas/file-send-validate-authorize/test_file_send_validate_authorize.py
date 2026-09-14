@@ -192,11 +192,12 @@ def test_too_many_recipients_is_a_whole_request_failure():
 
 
 def test_the_block_decides_the_actor_and_the_flat_field_beside_it_does_not():
-    """The block wins, and the flat field must not — it holds a raw token on a pre-cutover message.
+    """The block wins, and the flat field must not — it can still hold a raw token.
 
-    This was SPEC-200's "the block rides along and is ignored". Inverted rather than deleted:
-    the property worth asserting is the opposite one now, and the flat field is still admitted
-    by ``_ALLOWED_FIELDS``, so a reader preferring it would pass every other test in this file.
+    A message enqueued before the API stopped sending the token carries one there. This test used
+    to assert that the block rides along and is ignored; it was inverted rather than deleted,
+    because the property worth asserting is the opposite one now, and the flat field is still
+    admitted by ``_ALLOWED_FIELDS``, so a reader preferring it would pass every other test here.
     """
     _setup(spaces={})
 

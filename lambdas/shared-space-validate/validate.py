@@ -1,7 +1,7 @@
 """validate-authorize — the Step Function's first task, run once before any verb.
 
 Parses the SQS record, reads the trusted actor out of the API's identity block rather
-than the spoofable body actor, loads the registry, and authorizes the action. A failed check
+than from any body field, loads the registry, and authorizes the action. A failed check
 raises so the Catch routes to the fail state and no verb runs.
 
 **This queue now has two producers.** The API is one, and everything above describes it. The

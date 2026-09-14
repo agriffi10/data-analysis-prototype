@@ -210,15 +210,15 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
   // with it off, a folder copy, move or delete ran in the browser instead, slowly. The browser
   // has no recursive primitive any more — an operation whose cost grows with object count belongs
   // on the plane and building it twice is the loop the plane exists to remove — so with the flag
-  // off every shape the routing rule sends to the plane is REFUSED AT THE CONTROL: a folder or any
-  // multi-item selection leaves Copy, Move and Delete `aria-disabled` with a reason, and a
-  // folder's Rename with them. A single-file copy, move, delete, rename and download are
-  // unaffected either way.
+  // off nothing falls back, and every shape the routing rule sends to the plane is REFUSED AT THE
+  // CONTROL: a folder or any multi-item selection leaves Copy, Move and Delete `aria-disabled`
+  // with a reason, and a folder's Rename with them. A single-file copy, move, delete, rename and
+  // download are unaffected either way.
   //
   // That refusal is not a surface and gets no row: a registry row can only say a control is there
   // or is not, and every control here is still there, only disabled. The test that says what it
   // does instead is the refused-at-the-control block in `fileOpsDispatch.test.tsx`, which pins it
-  // for a folder Delete.
+  // for a folder Delete and for a two-file Copy, Move and Delete.
   asyncFileOperations: [
     {name: 'File operations in progress', kind: 'control', path: '/files'},
     {

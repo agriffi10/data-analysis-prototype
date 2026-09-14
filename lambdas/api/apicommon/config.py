@@ -160,8 +160,9 @@ def principal_tag_key() -> str:
     Configuration rather than a literal, and its agreement with the stamper is ASSERTED rather
     than structural: two of the portal role's policy templates hard-code this name, as the
     retired Identity Pool's principal-tag map did, and threading a variable through them would
-    edit templates this spec is forbidden to touch. A wrong value here produces a session whose
-    tags match no policy statement, which reads as a denial everywhere and names nothing.
+    edit templates a test holds byte-identical to a pinned baseline. A wrong value here produces a
+    session whose tags match no policy statement, which reads as a denial everywhere and names
+    nothing.
 
     Args:
       None.

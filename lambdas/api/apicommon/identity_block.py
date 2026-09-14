@@ -1,13 +1,13 @@
 """The identity a message carries, written by this service from the verified bearer.
 
-One top-level key holding three fields, and it is nested rather than flat because it has to be:
-on table-share, file-send, archive and file-ops the top-level field named ``actor`` **is the raw
-ID token today**, so a flat verified ``actor`` would overwrite the very field those planes verify.
-That is the ordering failure this whole change exists to avoid.
+One top-level key holding three fields, and it is nested rather than flat because it had to be:
+on table-share, file-send, archive and file-ops the top-level field named ``actor`` **was the raw
+ID token** when the block arrived, so a flat verified ``actor`` would have overwritten the very
+field those planes verified. That is the ordering failure this whole change existed to avoid.
 
-It stays nested after the cutover. The token field is removed rather than the block being moved
-into its place, so there is no second migration and no window in which one plane's ``actor`` is a
-username while another's is still a JWT.
+It stayed nested after the cutover. The token field was dropped from the wire rather than the
+block being moved into its place, so there was no second migration and no window in which one
+plane's ``actor`` was a username while another's was still a JWT.
 
 Nothing in the block is secret, and that is load-bearing rather than incidental: the dead-letter
 drain's redaction replaces TOP-LEVEL keys only, so anything nested here reaches CloudWatch verbatim
