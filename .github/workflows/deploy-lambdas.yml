@@ -32,6 +32,7 @@ on:
       - 'infra/modules/**'
       - 'lambdas/fleet.py'
       - '.github/scripts/point-lambda.sh'
+      - '.github/scripts/check-image-tag.sh'
       - '.github/scripts/probe-cold-start.sh'
 
   workflow_dispatch:
