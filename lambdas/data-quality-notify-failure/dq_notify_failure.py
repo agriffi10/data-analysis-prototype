@@ -1,14 +1,18 @@
 """data-quality notify-failure — the terminal failure notification of last resort.
 
 This exists for the failures no verb can catch. The verb decorator catches an exception inside a
-verb and does nothing at all when the failure happens where no verb code is running — a Lambda
-that fails at import, or a Step Functions-level error such as a state timeout, a payload-size
-failure, or a task that cannot be invoked at all.
+verb and does nothing at all when the failure happens where no verb code is running — a verb
+Lambda that fails at import or times out, or a task that cannot be invoked at all. Each of those
+is an error the Task raises, so its ``States.ALL`` Catch still routes it here.
 
-The state machine reaches this function on every failure path, after cleanup and the recorded
-failure, so notification delivery does not depend on the failing verb having been able to emit
-it. That is the condition the completed-checks-only dashboard was accepted on: a check that fails
-must always reach the user with a concrete reason.
+The state machine reaches this function on every CAUGHT failure path, after cleanup and the
+recorded failure, so notification delivery does not depend on the failing verb having been able to
+emit it. That is the condition the completed-checks-only dashboard was accepted on. Two Step
+Functions errors never arrive: ``States.Runtime``, which ``States.ALL`` does not catch and a Pass
+or Choice state cannot catch at all, and ``States.DataLimitExceeded``, which only a catcher naming
+it can catch and none here does. The machine is built so neither is raised; if one is, nothing
+notifies. Nothing does when this function fails either, an import error in code it shares with
+the verbs included, because its own Catch leads straight to the terminal Fail.
 
 Its input carries the raw Step Functions error rather than a decoded reason, and must stay that
 way — an ASL decode raises an uncatchable runtime error on any Cause that is absent or is not

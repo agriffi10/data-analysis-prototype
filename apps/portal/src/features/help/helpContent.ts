@@ -12,10 +12,12 @@ import type {HelpSection} from './help.types';
 // The data-quality guides now cover the whole loop: starting a check from EITHER
 // entry point (Files, or Data quality → New quality check), the
 // notification that reports it, the report itself, and browsing past
-// checks from the Data quality tab. The drain sweeps every control plane's
-// request DLQ back into notifications, the guides may now say a failure ALWAYS
-// reports itself there — they hedged with "usually" until that shipped, because a
-// request that never started an execution notified nobody.
+// checks from the Data quality tab. The guides say a failure reports itself in
+// notifications, with no adverb. "usually" went when the drain began sweeping every
+// control plane's request DLQ back into notifications, since a request that never
+// started an execution had notified nobody; "always" overclaims, because an
+// uncatchable Step Functions error ends the execution unnotified. The data-quality
+// page's footer note carries the long form.
 // When a feature is added, changed, or removed, revisit this file so the guides
 // never promise behavior that isn't shipped — the post-spec ritual in
 // docs/process/completion-ritual.md includes a check for exactly this.
@@ -199,7 +201,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         ],
         callout: {
           kind: 'tip',
-          text: 'A row tagged <b>Sampled</b> means some of that check’s figures are estimates rather than exact counts — open the report to see which. A check that <b>failed</b> has no row here, because it never produced a report; it always reports itself in your <b>notifications</b> instead — including a request that couldn’t be started at all.'
+          text: 'A row tagged <b>Sampled</b> means some of that check’s figures are estimates rather than exact counts — open the report to see which. A check that <b>failed</b> has no row here, because it never produced a report; it reports itself in your <b>notifications</b> instead — including a request that couldn’t be started at all.'
         }
       }
     ]

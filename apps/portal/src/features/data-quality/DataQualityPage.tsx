@@ -215,27 +215,33 @@ export function DataQualityPage() {
  * writes an index entry, so it has no row here. A history page that silently omits failures
  * teaches the user to trust a list that is lying to them, so the omission is stated.
  *
- * WHY IT SAYS "always" AND NOT "usually". The failure notifications
- * survive everything that happens once an execution has STARTED — including a Lambda import
- * error and a Step Functions-level error, neither of which any verb can catch. What they could
- * not cover was a request that never started an execution at all (one the Pipe failed to start
- * on every receive, so the queue moved it to the DLQ): nothing ran, so nothing notified, and
- * this line hedged with "usually" for exactly that gap. **The DLQ drain** closed it — the request
- * DLQs drain back into the notification pipeline — so the hedge is now the inaccuracy.
+ * WHY IT SAYS NEITHER "always" NOR "usually". Every verb's `States.ALL` Catch reaches the
+ * NotifyFailure state, so a verb's exception, a verb Lambda that fails at import or times out,
+ * and a task that cannot be invoked all notify. A request that never started an execution (one
+ * the Pipe failed to start on every receive, so the queue moved it to the DLQ) notifies too,
+ * because the request DLQs drain back into the notification pipeline — that gap is what this
+ * line once hedged with "usually".
  *
- * The remaining hole is the NOTIFICATIONS DLQ itself, which the drain deliberately leaves
- * undrained (draining it through the queue that just failed to deliver is circular). That is
- * a failure of the delivery channel, not of the check — if it breaks, no wording on this page
- * is reaching the user anyway.
+ * "always" overclaims the other way. `States.Runtime` (a Pass or Choice state reading an absent
+ * key or a null, for one) is never caught by `States.ALL`, and `States.DataLimitExceeded` over
+ * the state payload limit is caught only by a catcher that names it, which none here does.
+ * Either ends the execution FAILED with no notification, and no event rule in the fleet matches
+ * FAILED. The machine is built so neither is raised, which is a design intent and not a
+ * guarantee, so the line states where failures go without promising that every one arrives.
  *
- * This is the STANDING explanation; The post-enqueue banner is the MOMENTARY one.
+ * The notification path itself is outside the check. NotifyFailure's own failure is caught into
+ * the terminal Fail by design, and the drain leaves the notifications DLQ undrained because
+ * draining it through the queue that just failed to deliver is circular. If that path breaks,
+ * no wording on this page is reaching the user anyway.
+ *
+ * This is the STANDING explanation; the post-enqueue banner is the MOMENTARY one.
  * Together they are what keeps a completed-only list honest: the banner covers the check the
  * user just started and cannot yet see, this line covers every check that will never appear.
  */
 function CompletedOnlyNote() {
   return (
     <p className="mt-4 px-1 text-xs text-text-3">
-      This lists checks that finished. A check that failed always reports itself in your{' '}
+      This lists checks that finished. A check that failed reports itself in your{' '}
       <Link
         to="/notifications"
         className="underline underline-offset-2 hover:text-text-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
