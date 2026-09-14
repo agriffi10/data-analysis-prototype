@@ -242,10 +242,12 @@ construction — a typeahead that would not confirm whether `bob` exists is not 
 document holds **usernames and nothing else**: no display names, no email addresses. An email is not
 metadata under this repo's field rule and has no place in a document every user can read.
 
-**What was deliberately NOT granted:** no `ListBucket` widening (the portal role's grant stays
+**What was deliberately NOT granted:** ~~no `ListBucket` widening (the portal role's grant stays
 conditioned on the caller's own prefix, so `_directory/` is invisible to the file browser and the file
-browser needed no change), no `PutObject`, no `DeleteObject`. The user reads; the daily builder is the
-only writer.
+browser needed no change),~~ no `PutObject`, no `DeleteObject`. The user reads; the daily builder is the
+only writer. **— Superseded in part (2026-08-30, #555):** the portal role may now list `_directory/*`
+and `_config/*`; what keeps both out of the file browser is the API, which lists only a space the
+caller's claims authorize.
 
 **The accepted POPULATION changes at the transition, and the acceptance above is weakest for exactly
 the people it adds.** `transition_plan.md` §3.12 provisions every known user's prefix ahead of use,
@@ -308,7 +310,9 @@ Two consequences worth carrying:
 **The document is `_config/feature-flags.json` in the USER-SPACE bucket**, published by
 `.github/workflows/deploy-config.yml` from `config/feature-flags.json` in git. Four flags — `files`,
 `query`, `sharedWorkspaces`, `dataQuality` — a total `defaults` block and per-environment partial
-overrides, resolved in the browser against `VITE_ENVIRONMENT`.
+overrides, resolved in the browser against ~~`VITE_ENVIRONMENT`~~ **— superseded by SPEC-192:**
+`/config.json`'s `environment`, since a production bundle reads no `VITE_` name. Since SPEC-198 the
+browser reads the document through `GET /v1/feature-flags`, not from S3.
 
 **A FLAG HIDES A SURFACE AND REVOKES NOTHING.** Turning Query off hides the tab and its entry points;
 the portal role's Athena, Glue and S3 grants are byte-identical either way. This is SPEC-146's
@@ -327,15 +331,19 @@ in place of a CORS configuration, and its host is absent from the enforcing CSP 
 infra gates on the exact surface SPEC-140 records breaking fresh sign-in for a day, for nothing
 `_config/` beside `_directory/` does not already have. **The generalisation is the useful part: for a
 browser-read advisory document, the bucket that already serves one is the cheap answer** — and it is
-`_config/*`, one `s3:GetObject`, no `ListBucket` widening, no write, no deploy-role change, no CORS,
-CSP or bucket-policy change. This is now the precedent for a third such document.
+`_config/*`, one `s3:GetObject`, ~~no `ListBucket` widening,~~ no write, no deploy-role change, no
+CORS, CSP or bucket-policy change. This is now the precedent for a third such document. **—
+superseded in part (2026-08-30, #555):** the portal role may now list `_config/*`, which is what lets
+the API report a never-published document as absent rather than denied.
 
 **"It already works" is a claim about three files this spec does not touch, so all three are
 asserted.** `lambdas/test_feature_flags_config.py` checks the user-space CORS rule still allows `GET`
 from the app origin, that the bucket host is still in `csp_connect_src`, and that the portal role is
 still on the bucket policy's hand-maintained principal allowlist — plus the deploy role's existing
 `s3:*` on `${user_space_bucket_arn}/*`, which is why the publish adds no IAM. If one of these ever
-fails it is a **finding to raise, not a licence to widen infra inside this spec**.
+fails it is a **finding to raise, not a licence to widen infra inside this spec**. **— Superseded:**
+those assertions were cut on 2026-08-28 (#540), and since SPEC-198 the read goes through the API,
+so the bucket's CORS rule and its CSP entry are no longer on its path.
 
 **AN UNUSABLE DOCUMENT FALLS BACK TO ALL-ON, AND THE FALLBACK IS SILENT.** Missing, unreadable,
 unparseable or a version this build has no reader for: the compiled-in defaults take over and the
@@ -375,8 +383,8 @@ that is how this stops checking (a rename, not a deletion). The key is `environm
 **The publish addresses ONE EXACT KEY — no `sync`, no `--delete`.** `_directory/usernames.json` lives
 one prefix over in the same bucket; a mis-scoped reconcile would break username typeahead everywhere
 (SPEC-146/147) for a feature nothing user-facing depends on yet. It is also a separate workflow from
-`Deploy App` on purpose: flipping a flag must not be a rebuild, which is why the upload carries
-`Cache-Control: no-cache`.
+the app deploy (`Deploy App` then, `Deploy SPA image` now) on purpose: flipping a flag must not be a
+rebuild, which is why the upload carries `Cache-Control: no-cache`.
 
 ## Gating is by REGISTRY, not per-component opt-in (SPEC-163)
 

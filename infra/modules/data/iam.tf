@@ -48,7 +48,9 @@ resource "aws_iam_role" "portal" {
 # s3:ListBucketMultipartUploads is deliberately NOT granted — it does not support the
 # s3:prefix condition key, so granting it would leak other users' in-progress upload keys.
 #
-# The _directory/ and _config/ read statements add NO ListBucket widening and NO write.
+# The _directory/ and _config/ statements grant a read and a listing scoped to those two
+# prefixes, and NO write. The listing is what lets a missing document read as absent rather
+# than denied; the API, not IAM, is what keeps both out of the file browser.
 # The archive Deny includes AbortMultipartUpload ON PURPOSE, and THE UI MIRRORS IT — an IAM
 # Deny with no UI counterpart is a bare AccessDenied for a rule this app authored. README.md.
 resource "aws_iam_role_policy" "portal_permissions" {

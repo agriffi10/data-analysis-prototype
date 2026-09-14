@@ -224,9 +224,9 @@ than blurred into them: the steps are in [`e2e.md`](e2e.md) §4.3, §4.5, §4.14
 |---|---|---|
 | **A status poll refused as `NotFound` for the caller's own execution** (SPEC-233) — the tab settles on *"That item no longer exists. Refresh and try again."* after two status requests | The organic 404 needs SPEC-232 deployed AND an execution whose recorded results location is no longer under the caller's results prefix: the prefix moved by a deploy while a tab holds the id, or a workgroup that enforces its own result location. Neither happens from a signed-in session. The settling path itself is run live by §4.3's blocked-request row; only the real route's 404 on an owned id is owed. | In a scratch environment with SPEC-232 deployed, start a long query, change `cpcommon.results.user_results_prefix` and redeploy the API while the tab polls, and read the banner and the two 404s in the network panel. |
 | **The runtime-config hard failure and the unparseable path** (SPEC-192) — `BootFailure` renders, **no route mounts**, the console names the missing key and **no value from the document appears in it** | Only a production build shows it: under Vitest and in `npm run dev` the fallback answers every read, so the whole suite exercises the arm that will not exist in production. It needs a `config.json` published without a required key, and a second one carrying HTML. | the arc script §A.2, §A.3 |
-| **The promotion property** (SPEC-192) — change one repository variable, re-run Deploy App with no source change, read the new value on the FIRST request | The point of the whole spec, and invisible from the UI: a stale document renders a working, fully-functional portal pointed at the wrong account. | §A.1 |
+| **The promotion property** (SPEC-192) — one image, one changed configuration value, and the new value on the FIRST `GET /config.json`, with no build in between | The point of the whole spec, and invisible from the UI: a stale document renders a working, fully-functional portal pointed at the wrong account. SPEC-194's session read the rendered document and its `no-store` header, but with no value changed — which a cached copy passes too. | Change `VITE_MAX_UPLOAD_BYTES` — one byte higher, so no real upload notices — whose one consumer is the task definition's `CONFIG_maxUploadBytes`. A variable change is not a push, so dispatch **Deploy Infrastructure** to register the revision, then dispatch **Deploy SPA image** with `image_tag` set to the tag the service already runs (`e2e.md` §0 reads it) — a re-point that clones Terraform's newest revision and builds nothing. A merge to `main` in between may do that re-point first, and it shows the property only if it changed no image input: if it built, the value rides a new image and the run proves nothing, so change the value again. After `rollout=COMPLETED`, the first `/config.json` in a tab that loaded the old one carries the new `maxUploadBytes`, and the image tag is unchanged. Put the value back the same way. |
 | **Fresh sign-in end to end, from a private window** (SPEC-192) — proves Amplify is configured before the first render — **a cold-cookie sign-in ran 2026-09-10 in a normal profile**: a new tab, the password screen reached, `redirect_uri` accepted, one `oauth2/` fetch 200, and the deep link restored. A private window's cold HTTP cache and empty storage are what remain | A warm session cannot exercise it: the browser arrives already authenticated, and a bootstrap that configured Amplify too late looks identical. Same shape as the omitted Hosted UI host that broke fresh sign-in for a day. | §A.4 |
-| **Everything the container owns about `/config.json`** — the entrypoint rendering it from the task environment, nginx's `no-store`, image promotion itself | No container exists yet; the document is a static object until SPEC-194. | SPEC-194's own checks |
+| ~~**Everything the container owns about `/config.json`** — the entrypoint rendering it from the task environment, nginx's `no-store`~~ **DISCHARGED 2026-08-27** by SPEC-194's session: the revision carried 20 configuration keys and `/config.json` served those and `version`, under `no-store`. **Image promotion itself** is the row above, still owed. | No container exists yet; the document is a static object until SPEC-194. | [`sessions.md`](sessions.md), 2026-08-27 |
 | **An Excel conversion killed for memory reads the specific sentence** (SPEC-230) | notify-failure words an Excel request's `Sandbox.Timedout` and `Runtime.OutOfMemory` as *the conversion ran out of time or memory*. The first is the name production delivered; the second is the name Lambda gives an out-of-memory kill and has never been observed in this account, and the cell cap exists to make the case unreachable — so nothing a signed-in session can do will produce it. If a different name arrives, that case falls back to *something went wrong*, which is what it said before. The same sentence is also what an Excel request reads if any OTHER verb times out; describe-results makes two small calls, so that would be an outage, and the misdirection is accepted rather than guarded. | Deploy the converter at `memory = 512` in a scratch environment, save the 1,048,575 × 15 query of §4.3 as Excel, and read the error name `notify-failure` logs as `reason`. |
 
 ### DISCHARGED 2026-09-02 — SPEC-213 FR-007's rollback, exercised both ways
@@ -1183,25 +1183,26 @@ coupling is that they have to be the same submission.
 is recorded here rather than closed on the PR. The workflows no longer read these; leaving them is
 not a fault, but a stale value nobody reads is exactly what the next operator will trust.
 
-Sixteen to delete, listed by name in
-[`SPEC-215`'s delivery doc](../spec-delivery/SPEC-215-configuration-from-terraform-state.md). Six
-were retired by this spec (`API_BASE_URL`, the three `VITE_COGNITO_*`, the two bucket names); ten
-were already unread before it (the eight queue URLs, `VITE_ATHENA_WORKGROUP`,
-`VITE_COGNITO_IDENTITY_POOL_ID`).
+To delete: the sixteen listed by name in
+[`SPEC-215`'s delivery doc](../spec-delivery/SPEC-215-configuration-from-terraform-state.md) — six
+retired by this spec (`API_BASE_URL`, the three `VITE_COGNITO_*`, the two bucket names), ten
+already unread before it (the eight queue URLs, `VITE_ATHENA_WORKGROUP`,
+`VITE_COGNITO_IDENTITY_POOL_ID`) — and `VITE_ENVIRONMENT`, whose last reader was `deploy-app.yml`.
+The same set is `gh variable list` minus every name a workflow reads; the README gives the command
+for the second half.
 
 **Order matters and only one way round.** Delete them **after** a green post-merge `Deploy SPA
 image` and `Publish Config` — `Deploy App` was the gate when this was written and no longer exists
 — never before: if the resolver were wrong about a value, the variables are what the revert falls
-back to. To discharge: delete the sixteen, then re-run both workflows and confirm the served
-`/config.json` is unchanged. **`VITE_COGNITO_IDENTITY_POOL_ID` is in the sixteen and its pool is
-now deleted**, so that one names nothing at all.
+back to. To discharge: delete them, then re-run both workflows and confirm the served
+`/config.json` is unchanged. **`VITE_COGNITO_IDENTITY_POOL_ID` is among them and its pool is now
+deleted**, so that one names nothing at all.
 
 **The survivors are not up for deletion** — each is a genuine input, with its reason tabled in
-[`.github/workflows/README.md`](../../.github/workflows/README.md). Fourteen `vars.*` names are
-referenced after this change, of which **eleven are actually set**; the other three
-(`TF_VAR_project_name`, `TF_VAR_environment`, `TF_VAR_verification_principal_arns`) are deliberately
-unset and every reference supplies a `||` fallback. `VITE_APP_URL` is the one that reads like a
-leftover and is not: Cognito's callback list is built from it.
+[`.github/workflows/README.md`](../../.github/workflows/README.md); a row it marks *unset by design*
+is deliberately absent, and every reference to one supplies a `||` fallback. `VITE_APP_URL` is the
+one that reads like a leftover and is not: its one consumer is `security.yml`'s ZAP target, where a
+stale value scans a dead host and reports a clean baseline.
 
 ## Arc B's recipes that outlived their script (ported 2026-09-02)
 
