@@ -1,7 +1,7 @@
 """The per-space lock's binding: the digest, the key, and the wiring to the shared protocol.
 
 The protocol itself is tested where it lives. What is asserted here is what this plane owns — and
-above all that the digest is the SAME one the browser hashes for the queue's ``MessageGroupId``,
+above all that the digest is the SAME one the API hashes for the queue's ``MessageGroupId``,
 because nothing at runtime would notice if it were not.
 """
 
@@ -21,8 +21,9 @@ from focommon import config, lock
 
 #: The pinned cross-runtime vector, COMPUTED INDEPENDENTLY IN BOTH RUNTIMES rather than copied from
 #: this one's output — a value copied from Python asserts only that Python is self-consistent, which
-#: is not the property that matters. The browser's own suite asserts the identical pair, so a change
-#: on either side fails a test rather than silently splitting the lock from the queue's ordering.
+#: is not the property that matters. The browser's twin is deleted; the pair it computed survives in
+#: `lambdas/api/fifo_vectors.json`, which the API's derivation is replayed against, so a change on
+#: either side fails a test rather than silently splitting the lock from the queue's ordering.
 _VECTOR_BUCKET = "dat-prod-user-space"
 _VECTOR_SPACE = "alice"
 _VECTOR_DIGEST = "fdeab79570d11a19a05ce52dba54a66b83597ae4fb6eecfd1a378e83b1b6a039"
@@ -31,7 +32,7 @@ _VECTOR_DIGEST = "fdeab79570d11a19a05ce52dba54a66b83597ae4fb6eecfd1a378e83b1b6a0
 def test_the_digest_matches_the_pinned_cross_runtime_vector():
     """The one assertion that keeps the lock and the queue talking about the same space.
 
-    The browser hashes ``{bucket}/{spaceName}/`` to derive ``MessageGroupId``; this hashes the same
+    The API hashes ``{bucket}/{spaceName}/`` to derive ``MessageGroupId``; this hashes the same
     string to derive the lock key. A difference of one character — a missing trailing slash, say —
     means delivery is ordered per space while the lock is keyed by something else, and NOTHING at
     runtime reports that: operations simply stop being serialized.

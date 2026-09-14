@@ -39,7 +39,7 @@ than against a human's reading of it.
 
 Attributes:
   _LEGACY_TOKEN_FIELDS: The two top-level fields a PRE-CUTOVER envelope kept its raw ID token in.
-    The API stops writing either once the planes read the identity block instead, so on a current
+    The API stopped writing either once the planes read the identity block instead, so on a current
     message this set matches nothing — it is kept because a 14-day queue plus three failed
     receives means a stale body can still arrive, and that body is precisely what this drain
     exists to surface into a log group with a far wider read audience than the queue.

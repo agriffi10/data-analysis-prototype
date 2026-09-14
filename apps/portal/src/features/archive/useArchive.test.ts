@@ -94,9 +94,9 @@ describe('useArchive', () => {
   });
 
   it('recovers from a throw rather than wedging the dialog busy forever', async () => {
-    // The request is BUILT before the ServiceResult contract starts — crypto.randomUUID() and
-    // the SHA-256 digest are both undefined outside a secure context. Without the catch, `busy`
-    // stays true: the confirm reads "Archiving…", Cancel is disabled and Escape is swallowed.
+    // The request is BUILT before the ServiceResult contract starts, and crypto.randomUUID() is
+    // undefined outside a secure context. The `finally` keeps `busy` from sticking — the confirm
+    // would read "Archiving…", Cancel disabled, Escape swallowed — and the catch shows the error.
     vi.mocked(enqueueArchive).mockRejectedValue(new Error('insecure context'));
     const {hook} = setup();
     act(() => hook.result.current.open(ITEMS));

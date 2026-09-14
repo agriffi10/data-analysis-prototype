@@ -4,10 +4,10 @@ Every refusal is asserted by its REASON CODE, never by "something raised". The n
 refusal in this module returns the same exception class, so a test that only caught the class
 would pass against a reader that confused a malformed envelope with an unaccepted principal kind.
 
-The JWT fixture is the load-bearing one. During the cutover every message carries both a verified
-username in the block and a raw 900-character token in the flat field beside it, and both are
-non-empty strings — so a presence check cannot tell them apart and a reader that fell back to the
-field would pass every well-formed fixture here.
+The JWT fixture is the load-bearing one. A message enqueued before the API stopped sending the
+token can carry both a verified username in the block and a raw 900-character token in the flat
+field beside it, and both are non-empty strings — so a presence check cannot tell them apart and
+a reader that fell back to the field would pass every well-formed fixture here.
 """
 
 import ast
@@ -119,8 +119,9 @@ def test_no_other_field_is_consulted_when_the_block_is_missing(field):
     """Asserted per name, because the failure mode is a well-meaning fallback added later.
 
     ``actor`` is the dangerous one and it is in the list twice over: it is the flat field four
-    planes carry the raw token in during the cutover, so a fallback resolves to a JWT rather than
-    to nothing, and nothing about the result looks wrong until a prefix is built from it.
+    planes carry the raw token in on any message enqueued before the API stopped sending one, so a
+    fallback resolves to a JWT rather than to nothing, and nothing about the result looks wrong
+    until a prefix is built from it.
     """
     with pytest.raises(TerminalError) as raised:
         cpactor.trusted_actor({field: "mallory", "requestId": "r"})

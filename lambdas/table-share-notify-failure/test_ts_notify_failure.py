@@ -192,7 +192,7 @@ def test_a_timed_out_execution_with_no_identity_block_notifies_nobody():
 
     A raise here is an async Lambda failure EventBridge retries, so one unattributable event
     becomes three notifications about a failure nobody can be told about. The honest outcome is
-    a logged no-op — and it must not fall back to the flat ``actor``, which on this plane holds
+    a logged no-op — and it must not fall back to the flat ``actor``, which in that envelope holds
     the raw token and would address the notification to a 900-character string.
     """
     fake = _arm()

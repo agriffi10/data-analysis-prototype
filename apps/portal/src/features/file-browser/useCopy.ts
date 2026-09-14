@@ -68,8 +68,10 @@ type Acc = {copied: number; errors: CopySummary['errors']};
  * Orchestrates copy (single + multi-select) on top of `copyObject`.
  *
  * **Files copy; folders are refused.** The recursive primitive is gone — an operation whose cost
- * grows with object count belongs on the file-operations plane. With the plane on, no folder
- * reaches here; with it off, a folder copy is unavailable rather than synchronous.
+ * grows with object count belongs on the file-operations plane. A folder reaches here only through
+ * the race `dispatch` in `useFileBrowserDialogs` describes — otherwise it is enqueued, or refused
+ * at the Copy control while the plane is off — and is refused per item, the files beside it still
+ * attempted.
  *
  * Mirrors useMove, but copy is additive (no source delete)
  * so ONLY the destination prefix is invalidated — the source listing is

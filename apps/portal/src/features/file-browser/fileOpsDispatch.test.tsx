@@ -554,12 +554,12 @@ describe('the conflict round trip', () => {
 
 describe('with the plane switched off, a shape it alone can perform is REFUSED AT THE CONTROL', () => {
   /**
-   * The affordance half of a refusal the services also make, and the half that matters most.
+   * The refusal a user meets with the plane off; the services' per-item one is only a backstop.
    *
-   * The services refuse per item, after the fact, because a mixed selection must still move its
-   * files. But a folder delete that reaches the confirm asks *"Delete the folder and everything
-   * inside it? This can't be undone."* and then deletes nothing — the app's most alarming sentence,
-   * spent on an action that cannot happen. The repo already had `disabledReason` for exactly this.
+   * Refusing after the fact would be worse. A folder delete that reached the confirm would ask
+   * *"Delete the folder and everything inside it? This can't be undone."* and then delete nothing —
+   * the app's most alarming sentence, spent on an action that cannot happen. The repo already had
+   * `disabledReason` for exactly this.
    */
   it('disables Delete for a folder, with a reason that does not promise "later"', async () => {
     withFlags({asyncFileOperations: false});
@@ -572,6 +572,22 @@ describe('with the plane switched off, a shape it alone can perform is REFUSED A
     // Not "try again later": while the service is off, later is the same.
     expect(del).toHaveAccessibleDescription(/not available/i);
     expect(del).not.toHaveAccessibleDescription(/later/i);
+  });
+
+  it('disables Copy, Move and Delete for two FILES as well, because the rule is the routing one', async () => {
+    // No folder anywhere: the gate refuses every shape the routing rule sends to the plane, and the
+    // Files guide tells the user so. A gate narrowed to folders would pass the test above.
+    withFlags({asyncFileOperations: false});
+    const {user} = render();
+
+    await user.click(await screen.findByRole('checkbox', {name: 'Select report.csv'}));
+    await user.click(await screen.findByRole('checkbox', {name: 'Select notes.txt'}));
+
+    for (const name of ['Copy selected items', 'Move selected items', 'Delete selected items']) {
+      const control = screen.getByRole('button', {name});
+      await waitFor(() => expect(control).toHaveAttribute('aria-disabled', 'true'));
+      expect(control).toHaveAccessibleDescription(/not available/i);
+    }
   });
 
   it('leaves a SINGLE FILE alone, which is the whole point of the gate', async () => {
