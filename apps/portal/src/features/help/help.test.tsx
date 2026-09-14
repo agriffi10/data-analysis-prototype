@@ -485,6 +485,25 @@ describe('the delete-space guide (SPEC-205)', () => {
   });
 });
 
+describe('the upload guide', () => {
+  it('names the collision prompt’s choices and promises no suggested name', () => {
+    // The prompt starts its rename field at the colliding name; only a same-folder copy proposes a
+    // numbered one, so the guide must not promise that for an upload.
+    const section = HELP_SECTIONS.find((s) => s.id === 'files');
+    const guide = section?.guides.find((g) => g.id === 'upload-files');
+
+    expect(guide).toBeDefined();
+    const callout = guide!.callout?.text ?? '';
+    expect(callout).toMatch(/<b>Rename<\/b> lets you type a different name/);
+    expect(callout).toMatch(/<b>Cancel<\/b> leaves the new one out/);
+    expect(callout).toMatch(/<b>Overwrite<\/b> replaces the existing file for good/);
+    // An overwrite cannot be undone, so this is a warning like the other guides that say so.
+    expect(guide!.callout?.kind).toBe('warning');
+    const everything = [guide!.subtitle, guide!.intro ?? '', ...guide!.steps, callout].join(' ');
+    expect(everything).not.toMatch(/suggest|numbered/i);
+  });
+});
+
 describe('guide inline markup', () => {
   it('renders each supported tag as its element, never as literal markup', () => {
     const guide: HelpGuide = {
