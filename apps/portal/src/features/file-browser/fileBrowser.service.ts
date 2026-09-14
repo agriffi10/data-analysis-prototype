@@ -416,7 +416,10 @@ export function uploadPercent(loaded: number, total: number): number {
  *
  * The rules are the same wherever a user names a single S3 path segment; only the
  * noun changes, which is why the caller supplies it rather than each surface
- * re-deriving the four checks.
+ * re-deriving the five checks. `.` and `..` are refused because, used as a whole path
+ * segment, either gives the API a key with a dot segment, which it refuses as access denied —
+ * telling a user who made a typo that they lack permission. A caller that appends an
+ * extension is refused them too, which costs nothing anyone would type.
  *
  * @param name - The raw value the user typed.
  * @param label - Sentence-initial noun for the message, e.g. `Folder name`.
@@ -428,6 +431,7 @@ export function validateLeafName(name: string, label: string): string | null {
   if (name.includes('/')) return `${label} cannot contain '/'.`;
   // eslint-disable-next-line no-control-regex
   if (/[\x00-\x1f]/.test(name)) return `${label} cannot contain control characters.`;
+  if (name === '.' || name === '..') return `${label} cannot be “.” or “..”.`;
   return null;
 }
 

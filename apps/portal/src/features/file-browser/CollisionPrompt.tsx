@@ -1,6 +1,7 @@
 import {useState} from 'react';
 import {Button} from '../../components/Button';
 import {Input} from '../../components/Input';
+import {validateFolderName, validateLeafName} from './fileBrowser.service';
 
 type Props = {
   kind: 'file' | 'folder';
@@ -15,6 +16,10 @@ type Props = {
  * so overwriting is irreversible — the user must explicitly choose Overwrite or
  * pick a new name. No write happens while this is open.
  *
+ * The new name is validated here rather than by each caller, because every caller builds a key by
+ * appending it to a prefix: a `/` in it would land the write in a subfolder instead of beside the
+ * original. A file gets the leaf rules; a folder gets the create-folder rules.
+ *
  * @example
  * <CollisionPrompt kind="file" name="report.csv" onOverwrite={overwrite} onRename={rename} onCancel={cancel} />
  */
@@ -24,15 +29,15 @@ export function CollisionPrompt({kind, name, onOverwrite, onRename, onCancel}: P
   const [touched, setTouched] = useState(false);
 
   const trimmed = newName.trim();
-  const canRename = trimmed.length > 0 && trimmed !== name;
+  const nameError =
+    trimmed.length === 0
+      ? 'Enter a name.'
+      : ((kind === 'folder' ? validateFolderName(trimmed) : validateLeafName(trimmed, 'File name')) ??
+        (trimmed === name ? `Enter a name different from “${name}”.` : null));
+  const canRename = nameError === null;
   // Surface why the action is unavailable in text, not just via a disabled
   // button (WCAG 3.3.1 Error Identification).
-  const renameError =
-    touched && !canRename
-      ? trimmed.length === 0
-        ? 'Enter a name.'
-        : `Enter a name different from “${name}”.`
-      : undefined;
+  const renameError = touched ? (nameError ?? undefined) : undefined;
 
   return (
     <div
