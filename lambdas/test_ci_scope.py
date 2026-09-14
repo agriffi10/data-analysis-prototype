@@ -1030,6 +1030,9 @@ def test_the_gate_validation_cannot_be_marked_continue_on_error():
 DEPLOY_SPA_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-spa-image.yml"
 SPA_IMAGE_WORKFLOW = ROOT / ".github" / "workflows" / "spa-image.yml"
 
+#: The shared image-tag check the ``names`` step runs by a path relative to the checkout.
+IMAGE_TAG_CHECK = ROOT / ".github" / "scripts" / "check-image-tag.sh"
+
 #: Paths spanning both lists, the boundaries either could get wrong, and the near misses that
 #: must NOT select — `packages.json` for `^package\.json$`, a nested `package.json` for the root
 #: one, `infra/modules/spa-something/` for `^infra/modules/spa/`.
@@ -1935,7 +1938,9 @@ def _run_names(
     included, and strips the quotes from around it. A stub comparing the raw argument would refuse
     a padded tag as unknown where the real CLI finds it; modelling the respelling is what makes an
     input that slips past the grammar behave here as it would in production — resolved, and handed
-    on under a spelling the registry does not hold.
+    on under a spelling the registry does not hold. The step runs from a checkout holding a copy of
+    the shared tag check at the path it names, and its script sits outside that checkout, as the
+    runner's does, so a path taken relative to ``$0`` cannot resolve here and fail there.
 
     Args:
         tag_input: The dispatch's ``image_tag`` input. The literal ``HEAD`` stands for this
@@ -1963,11 +1968,15 @@ def _run_names(
         output, log = root / "output.txt", root / "aws.log"
         output.touch()
         log.touch()
+        checkout = root / "checkout"
+        checks = checkout / ".github" / "scripts"
+        checks.mkdir(parents=True)
+        shutil.copy(IMAGE_TAG_CHECK, checks / IMAGE_TAG_CHECK.name)
         script = root / "names.sh"
         script.write_text(step["run"], encoding="utf-8")
         finished = subprocess.run(  # noqa: S603
             [_locate_bash("deploy-spa-image.yml"), str(script)],
-            cwd=root,
+            cwd=checkout,
             env=_hermetic_env(
                 PATH=f"{binaries}{os.pathsep}{os.environ['PATH']}",
                 TMPDIR=str(root),
@@ -2494,11 +2503,11 @@ DEPLOY_LAMBDAS_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-lambdas.yml"
 DEPLOY_LAMBDA_IMAGE_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-lambda-image.yml"
 
 #: The workflows whose ``run:`` scripts the ``lambdas/`` suite EXECUTES rather than merely reads —
-#: the population the rule below is about. This module runs the first two;
-#: ``test_image_tag_check.py`` runs a step from each of the other two. ``security.yml`` is parsed
-#: here and never run. ``deploy-infra.yml`` is not run either, and its two temp files travel
-#: BETWEEN steps, where a private file per step would be wrong and ``RUNNER_TEMP`` is the answer
-#: instead.
+#: the population the rule below is about. This module runs steps from the first two, and
+#: ``test_image_tag_check.py`` runs the step in each deploy workflow that first reads a dispatch's
+#: tag. ``security.yml`` is parsed here and never run. ``deploy-infra.yml`` is not run either,
+#: and its two temp files travel BETWEEN steps, where a private file per step would be wrong and
+#: ``RUNNER_TEMP`` is the answer instead.
 EXECUTED_WORKFLOWS = (
     CI_WORKFLOW,
     DEPLOY_SPA_WORKFLOW,
@@ -2509,18 +2518,19 @@ EXECUTED_WORKFLOWS = (
 #: The standalone shell scripts the ``lambdas/`` suite EXECUTES, subject to the same rule for the
 #: same reason — ``test_probe_cold_start.py``, ``test_point_lambda.py`` and
 #: ``test_resolve_config.py`` run the first three as scripts, and the first is where this defect
-#: was found a second time; ``test_image_tag_check.py`` and ``test_point_lambda.py`` run the tag
-#: check. Named rather than globbed over ``.github/scripts/`` because the criterion is execution
-#: BY THIS SUITE, which a directory cannot express: ``spa-image-matrix.sh`` holds a dozen fixed
-#: ``/tmp/matrix-*`` names that are the same defect on the host, but no test runs it, so it cannot
-#: flake this gate and fixing it is its own change. Every other ``.sh`` a suite module names — the
-#: two image matrices, the container entrypoint — is read as TEXT, never run. Each path is asserted
-#: to exist, so a rename empties the population loudly rather than quietly.
+#: was found a second time; ``test_image_tag_check.py``, ``test_point_lambda.py`` and this
+#: module's ``names`` harness run the tag check. Named rather than globbed over ``.github/scripts/``
+#: because the criterion is execution BY THIS SUITE, which a directory cannot express:
+#: ``spa-image-matrix.sh`` holds a dozen fixed ``/tmp/matrix-*`` names that are the same defect on
+#: the host, but no test runs it, so it cannot flake this gate and fixing it is its own change.
+#: Every other ``.sh`` a suite module names — the two image matrices, the container entrypoint — is
+#: read as TEXT, never run. Each path is asserted to exist, so a rename empties the population
+#: loudly rather than quietly.
 EXECUTED_SCRIPTS = (
     ROOT / ".github" / "scripts" / "probe-cold-start.sh",
     ROOT / ".github" / "scripts" / "point-lambda.sh",
     ROOT / ".github" / "scripts" / "resolve-config.sh",
-    ROOT / ".github" / "scripts" / "check-image-tag.sh",
+    IMAGE_TAG_CHECK,
 )
 
 

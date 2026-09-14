@@ -122,6 +122,7 @@ RESPELLED = {
 ENTRY_STEPS = (
     ("deploy-lambdas.yml", "plan", "image"),
     ("deploy-lambda-image.yml", "push", "names"),
+    ("deploy-spa-image.yml", "deploy", "names"),
 )
 
 
@@ -238,8 +239,10 @@ def _tag_variable(step: dict) -> str:
 def _run_step(workflow: str, job: str, step_id: str, tag: str) -> StepRun:
     """Runs a workflow step's real script against the stub registry, as a dispatch would.
 
-    The step runs from a directory holding a copy of the shared check at the path the workflow
-    names, which is where ``actions/checkout`` leaves it on the runner.
+    The layout is the runner's: the step runs from a checkout holding a copy of the shared check
+    at the path the workflow names, and its script sits OUTSIDE that checkout, as the runner's does
+    under ``$RUNNER_TEMP``. A script written into the checkout would let a path taken relative to
+    ``$0`` resolve here and fail on the runner.
 
     Args:
       workflow: The workflow's file name.
@@ -256,7 +259,8 @@ def _run_step(workflow: str, job: str, step_id: str, tag: str) -> StepRun:
     step = _step(workflow, job, step_id)
     with tempfile.TemporaryDirectory() as work:
         root = pathlib.Path(work)
-        binaries, scripts = root / "bin", root / ".github" / "scripts"
+        binaries, checkout = root / "bin", root / "checkout"
+        scripts = checkout / ".github" / "scripts"
         binaries.mkdir()
         scripts.mkdir(parents=True)
         (binaries / "aws").write_text(FAKE_AWS, encoding="utf-8")
@@ -268,7 +272,7 @@ def _run_step(workflow: str, job: str, step_id: str, tag: str) -> StepRun:
         script.write_text(step["run"], encoding="utf-8")
         finished = subprocess.run(  # noqa: S603
             [_bash(), str(script)],
-            cwd=root,
+            cwd=checkout,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -447,7 +451,9 @@ def test_each_entry_step_refuses_a_malformed_tag_before_the_registry_sees_it(ste
     run = _run_step(*step, tag)
 
     assert run.returncode != 0, f"{tag!r} was accepted:\n{run.stdout}"
-    assert "::error title=Malformed tag::" in run.stdout, f"{tag!r} refused otherwise:\n{run.stdout}"
+    assert "::error title=Malformed tag::" in run.stdout, (
+        f"{tag!r} was refused for another reason:\n{run.stdout}"
+    )
     assert len(_commands(run.stdout)) == 1, f"{tag!r} printed:\n{run.stdout}"
     assert run.calls == [], f"{tag!r} reached aws as {run.calls}"
     assert run.outputs == {}, f"a refused dispatch still wrote {run.outputs}"
