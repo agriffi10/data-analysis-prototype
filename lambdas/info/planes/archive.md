@@ -39,8 +39,8 @@ absent from the CSP `connect-src`, and the portal role holds **zero** statements
 browser does get is a **Deny**: `PutObject`, `DeleteObject` and `AbortMultipartUpload` under
 `archive/` in **both** space buckets, so a receipt cannot be forged or deleted by the user it
 describes. `lambdas/test_archive_bucket_isolation.py` pins the IAM half and
-`lambdas/test_csp_policy.py` pins the CSP byte for byte, because it is a NEGATIVE claim and those
-rot silently.
+`lambdas/test_api_module.py` pins `connect-src`'s exact term set, because it is a NEGATIVE claim and
+those rot silently.
 
 **The delete grant is the one this role could not inherit.** Every other plane's execution role
 carries a blanket `Deny s3:DeleteObject` from its first apply; this one cannot, so the property that

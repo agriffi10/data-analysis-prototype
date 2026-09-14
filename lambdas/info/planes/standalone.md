@@ -15,9 +15,9 @@ directly — by Cognito, by a schedule, or by its own queue. They still use `cpc
 ## The fences
 
 - **The notifications `create` boundary is IAM and the API first, a RUNTIME check behind the grant.**
-  The portal role holds no grant on the queue and the API's route accepts only `markRead`/
-  `markAllRead`; the writer's check names only the portal role, so against the API's own role the
-  route is the only fence, and it is runtime because no SQS condition key reaches a message body. It compares the
+  The portal role holds no grant on the queue, and the API's route accepts only `markRead` and
+  `markAllRead`. The writer's check names only the portal role, so against the API's own role the
+  route is the only fence; the check is runtime because no SQS condition key reaches a message body. It compares the
   **role-id half** of the `SenderId`, and a refusal **logs and drops, never raises** — dead-lettering
   per forged request would drown its undrained DLQ.
 - **The DLQ drain notifies the API-stamped `identity.actor`, never anything the body asserts.** A

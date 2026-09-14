@@ -12,9 +12,9 @@ one-line row to the matching file below (completion-ritual step 4). Add a *new r
 whole new area appears — and the row belongs in the file matching the component's **path**, so a
 `features/query/` addition goes in `query-feature.md` and nowhere else.
 
-> Convention reminders (see `CLAUDE.md`): services return `ServiceResult<T>` and never throw; every
-> API call goes through a service file, never a component, and there is no AWS SDK in the browser;
-> server state goes through TanStack Query. These files list the *public surface* — the code is the source
+> Convention reminders (see `CLAUDE.md`): services return `ServiceResult<T>` and never throw; the API
+> is reached only through service files, never from a component, and no `@aws-sdk/*` package may be
+> added; server state goes through TanStack Query. These files list the *public surface* — the code is the source
 > of truth; verify signatures before relying on them.
 
 **Adding a configuration key** is not an inventory question and has its own checklist — a key is

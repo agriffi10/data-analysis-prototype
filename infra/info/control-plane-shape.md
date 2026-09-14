@@ -91,8 +91,8 @@ browser ──HTTPS──▶ API ──sqs:SendMessage──▶ FIFO request que
   fleet guard walks every seed's forward path to hold it.
 - **Everything unbounded travels by pointer**, never on the state, and a cap is not a substitute.
 - **The actor travels in the API's NESTED `identity` block, and no token travels at all.** A plane
-  reads it through `cpcommon.actor`, which cannot verify: the API is the writer, so who may write
-  the queue is the authorization. The DLQ drain takes its recipient from that block and redacts
+  reads it through `cpcommon.actor`, which cannot verify: who may write the queue is the
+  authorization — the API, plus any producer the plane admits by `SenderId`. The DLQ drain takes its recipient from that block and redacts
   only **legacy top-level** token fields, which a message enqueued before the trust flip can still
   carry — pointed at `identity`, it would blank the logged recipient and remove nothing sensitive.
 - **An expected refusal is a RETURN VALUE**; only unpredicted faults raise. A `TerminalError` cannot

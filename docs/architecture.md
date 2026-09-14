@@ -88,8 +88,8 @@ the router mounts; named exports are the rule everywhere else.
 
 **Every API call goes through a service file, and services never throw.** They return
 `ServiceResult<T>` — `{success: true, data}` or `{success: false, error: {message, code?}}` — so a
-caller branches instead of catching. The one client is `lib/apiClient`'s `apiRequest`, called from
-service files and never from a component; there is no AWS SDK in the browser.
+caller branches instead of catching. The one client is `lib/apiClient`'s `apiRequest`, reached only
+through service files and never from a component; no `@aws-sdk/*` package may be added.
 
 **Raw AWS, Cognito and Athena text is never shown to a user.** `lib/errorMessages.ts` is the single
 source of wording; rendering `error.message` is a defect, not a shortcut.
@@ -181,10 +181,10 @@ rather than a list.
 
 **One token, verified once, at the API.** The API verifies the caller's Cognito ID token from an
 `Authorization` bearer header through `cpcommon.auth`, which has no other caller now, and stamps
-the verified username into the `identity` block of every message it enqueues. The control-plane
+the verified username into the `identity` block of every control-plane message it enqueues. The
 verbs used to verify the same token out of the SQS message body; since SPEC-201 they read the block
-through `cpcommon.actor` instead, because the API is the principal that may write their queues (row
-43). Nothing re-derives a username, and nothing anywhere reads a username the caller stated.
+through `cpcommon.actor` instead, because who may write their queues is enumerated — the API, and on
+the shared-space queue an operator reader admitted by `SenderId` (rows 43 and 46). Nothing re-derives a username, and nothing anywhere reads a username the caller stated.
 
 - **It is a verifier, not an OIDC client.** No code exchange, no PKCE, no client secret, no redirect
   URI — those belong to Amplify, in the browser. Provider-agnosticism is five server-side config

@@ -18,7 +18,7 @@
 - **§6 Configuration** — env vars for ARNs/config; validate at init; no hardcoding; no config in code.
 - **§7 IAM least privilege** — one scoped role per function; no shared god-role; isolate non-scopable actions.
 - **§8 Observability** — structured logs; log request/correlation ids; never log secrets/PII; emit metrics.
-- **§9 Security & input trust** — validate every event field; verify JWTs fully; derive identity server-side; least trust on payloads.
+- **§9 Security & input trust** — validate every event field; verify JWTs fully at the edge, and read the API-stamped actor on a plane; derive identity server-side; least trust on payloads.
 - **§10 Step Function orchestration** — workflow lives in the state machine (Choice/Map/Retry/Catch), one Task = one single-task Lambda.
 - **§11 Testing** — drive the **handler**, not the functions under it; stub AWS; 1–3 scenarios per verb, arrange/act/assert; every refusal reason asserted by name.
 - **§12 Code/infra split & packaging** — `lambdas/` code vs Terraform infra; shared code in a common module/layer; pin + minimize deps.
@@ -84,7 +84,7 @@ Configuration comes from the environment, validated early — never hardcoded.
 ## §7 IAM least privilege
 Each single-task function gets its **own** role scoped to exactly what that task touches.
 
-- ✅ One **execution role per function**, granting only the actions/resources that one task needs (e.g. the validator reads the registry + verifies tokens; the deleter gets recursive-delete + drop-DB). Small functions make tight roles natural (§1).
+- ✅ One **execution role per function**, granting only the actions/resources that one task needs (e.g. the validator reads the registry; the deleter gets recursive-delete + drop-DB). Small functions make tight roles natural (§1).
 - 🔴 Don't reuse one broad "orchestrator can do everything" role across unrelated tasks — that's the monolith's IAM smell. ✅ Split the role when you split the function.
 - ✅ Scope resource ARNs with principal-tag/path templates where the model allows; **isolate non-scopable actions** (those that only accept `"*"`) into their own statements (`infra/info/deploy-role-iam.md`).
 - ✅ Verify with `aws iam simulate-custom-policy`: the intended action on the intended resource is `allowed`; an adjacent resource is `implicitDeny`.
@@ -103,7 +103,7 @@ You can't debug what you can't see; you can't leak what you don't log.
 Treat every event field as untrusted until validated; derive identity, never accept it.
 
 - ✅ **Validate the full event shape** before acting: required fields present, types correct, enums in range; reject (terminal, §4) on a schema miss with no partial write.
-- ✅ **Derive caller identity server-side** — never from a client-asserted `username`/`actor` in the body. At the edge (the API, pre-signup / post-confirmation), from a verified token: for Cognito ID tokens verify **issuer, audience, expiry, and signature against the pool JWKS** (offline) before trusting any claim (`cpcommon.auth`). On a control plane, from the API-stamped `identity` block, read through `cpcommon.actor` — which cannot verify, because the plane's trust rests on who may write its queue, and only the API may (`docs/architecture.md` ADR row 43).
+- ✅ **Derive caller identity server-side** — never from a client-asserted `username`/`actor` in the body. At the edge, which is the API, from a verified token: for Cognito ID tokens verify **issuer, audience, expiry, and signature against the pool JWKS** (offline) before trusting any claim (`cpcommon.auth`). The Cognito triggers receive no token: Cognito invokes them with the user's attributes, and the invoke permission scoped to the pool is what makes that event trustworthy. On a control plane, from the API-stamped `identity` block, read through `cpcommon.actor` — which cannot verify, because the plane's trust rests on who may write its queue: the API, and on the shared-space queue an operator door admitted by `SenderId` (`docs/architecture.md` ADR rows 43 and 46).
 - 🔴 Don't trust a body `username` for authorization, and don't add token verification back to a plane: it would be a second answer to a settled question, and a raw JWT back in every message and dead-letter. ✅ The function is the security boundary for *what the actor may do*, not the UI.
 - ✅ Authorize the action against the source of truth (e.g. "is `actor` the owner?") **before** any side effect; a failed check is a clean no-op.
 - ✅ Keep secrets in env/Secrets Manager, not code; scope the function's role so it can read only what it needs (§7).

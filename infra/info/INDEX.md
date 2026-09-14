@@ -68,7 +68,7 @@ and shared traps: [`control-plane-shape.md`](control-plane-shape.md).
 | Module | Owns | README |
 |---|---|---|
 | `notifications` | the notifications FIFO queue and its **single writer** | [README](../modules/notifications/README.md) |
-| `feedback` | the feedback FIFO queue and its **single writer** — the one queue the browser never held a grant on | [README](../modules/feedback/README.md) |
+| `feedback` | the feedback FIFO queue and its **single writer** — written only by the API, with a top-level username rather than an `identity` block, and an undrained DLQ | [README](../modules/feedback/README.md) |
 | `control-plane-dlq-drain` | one scheduled drain over every plane's request DLQ | [README](../modules/control-plane-dlq-drain/README.md) |
 | `user-directory` | the daily username-directory builder | [README](../modules/user-directory/README.md) |
 | `verification` | the archive-audit CloudTrail trail and the read-only verification role | [README](../modules/verification/README.md) |

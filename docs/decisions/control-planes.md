@@ -149,9 +149,9 @@ inside the execution the Pipe starts.
 - **Every member sees the roster**; the join acknowledgement is display-only, since access is granted
   at add time.
 - **The notifications `create` boundary is IAM and the API first, a RUNTIME check behind the grant.**
-  The portal role holds no grant on the queue and the API's route accepts only `markRead`/
-  `markAllRead`; the writer's check names only the portal role, so against the API's own role the
-  route is the only fence, and it is runtime because no SQS condition key reaches a message body. It compares the
+  The portal role holds no grant on the queue, and the API's route accepts only `markRead` and
+  `markAllRead`. The writer's check names only the portal role, so against the API's own role the
+  route is the only fence; the check is runtime because no SQS condition key reaches a message body. It compares the
   **role-id half** of the `SenderId`, and a refusal **logs and drops, never raises** — dead-lettering per forged request would drown its undrained DLQ. The actor
   reader replaces the `USER_ACTIONS` arm **only**: `create` is the trusted producer (body username,
   no actor, no token), and hoisting the reader above that branch refuses **every notification the
@@ -1187,8 +1187,8 @@ rather than absorbed into this spec; the payload ceiling above is the only part 
 ## The notifications `create` boundary is a runtime check, because IAM cannot express it (SPEC-206)
 
 The plane has said since SPEC-058 that `create` is trusted-producer-only, and the writer takes the
-body's `username` on that action — correctly, because ~~a plane notifying a *recipient* holds no token
-for the person it is telling~~ **— superseded by SPEC-201:** a plane writes a `create` itself, not
+body's `username` on that action — correctly, because a plane notifying a *recipient* holds no token
+for the person it is telling **— and since SPEC-201,** because a plane writes a `create` itself, not
 through the API, so it carries no `identity` block, and the person it tells need not be the caller
 it acted for. **The IAM policy never implemented it.** The portal role's
 `sqs:SendMessage` on the notifications queue was unconditioned, so any signed-in user could enqueue a

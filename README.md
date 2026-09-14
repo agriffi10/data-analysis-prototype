@@ -3,8 +3,8 @@
 A web portal that lets authenticated users upload and download files to/from their own
 private space in AWS S3. Authentication is handled by **AWS Cognito**; per‑user isolation is
 enforced at the **IAM layer**, not in application code. The single‑page app holds **no AWS
-credentials**: it signs in through Cognito, calls an HTTP API for objects, the catalog and every
-control-plane enqueue, and moves file bytes on URLs the API presigned. Eight async control planes
+credentials**: it signs in through Cognito, calls an HTTP API for objects, the catalog, queries and
+every control-plane enqueue, and moves file bytes on URLs the API presigned. Eight async control planes
 behind the API run the work a browser session must not be trusted with.
 
 > **New here?** Start with this README for the big picture and setup, then read
