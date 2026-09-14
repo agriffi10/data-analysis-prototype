@@ -42,8 +42,9 @@ browser ──HTTPS──▶ API ──sqs:SendMessage──▶ FIFO request que
   naming every request queue by ARN, from a list the module refuses at any other length. A new plane
   adds its queue there, not a grant of its own; no Lambda invoke, no DLQ, no Step Function. A
   second producer is admitted only by `SenderId`, as shared-spaces' operator reader is.
-  `lambdas/test_queue_writers.py` enumerates the queues from the filesystem and asserts that the
-  API's grant names every one and that no portal-role policy can write any of them.
+  `lambdas/test_queue_writers.py` asserts that no portal-role policy can send to any queue, and
+  that the API's grant is rendered from a list of the pinned length with no DLQ and no wildcard —
+  by count, not by name, so a swapped entry passes.
 - **Batch size 1**, so each message starts its own execution and the FIFO per-`MessageGroupId`
   ordering is preserved.
 - **`content_based_deduplication` is on, and the producer also sends an explicit
@@ -93,7 +94,7 @@ browser ──HTTPS──▶ API ──sqs:SendMessage──▶ FIFO request que
   reads it through `cpcommon.actor`, which cannot verify: the API is the writer, so who may write
   the queue is the authorization. The DLQ drain takes its recipient from that block and redacts
   only **legacy top-level** token fields, which a message enqueued before the trust flip can still
-  carry — pointed at `identity`, it would blank the recipient and remove nothing sensitive.
+  carry — pointed at `identity`, it would blank the logged recipient and remove nothing sensitive.
 - **An expected refusal is a RETURN VALUE**; only unpredicted faults raise. A `TerminalError` cannot
   name the colliding item, and the user needs it named.
 - **One producer says every per-recipient outcome**, at the end of the machine — not each verb.

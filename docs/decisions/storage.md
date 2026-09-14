@@ -66,8 +66,9 @@ unrecoverable — revisit before real user data lands.
   the per-part **maximum**, monotonic across a retry. The 5 GiB ceiling is a refusal on the
   **declared** size — a courtesy, not enforcement, since the API keeps no record of an upload.
 - **The four folder-recursive browser functions are DELETED, not ported** — that loop belongs on the
-  plane. So `asyncFileOperations` off makes a folder or any multi-item selection **unavailable**,
-  refused **at the control**: Copy, Move and Delete are `aria-disabled` with the reason. The
+  plane. So `asyncFileOperations` off makes a folder **unavailable** — and any multi-item selection
+  too, since the gate refuses every shape the routing rule sends to the plane — refused **at the
+  control**: Copy, Move and Delete are `aria-disabled` with the reason. The
   services' **per-item** `PlaneRequired` refusal, which lets the files beside a folder go through,
   is reachable only with the flag ON, when a copy or move's destination resolves to no known space.
 - **The free-name probe moved to the API, not to the plane** — 999 round trips would be strictly
@@ -1101,9 +1102,12 @@ browser's recursive primitives gone there is nothing to fall back to, so a folde
 ~~**refused per item**, with the files selected alongside it still going through~~ **— corrected:
 the same change refuses it at the control.** With the flag off, a folder or any multi-item
 selection leaves Copy, Move and Delete `aria-disabled` with a reason that does not promise "later"
-(`planeReasonFor` in `useFileBrowserDialogs`, pinned by `fileOpsDispatch.test.tsx`). `deleteObjects`
-went with them, so a multi-file delete is a loop of single deletes — which is what copy and move
-already were.
+(`planeReasonFor` in `useFileBrowserDialogs`, pinned for a folder Delete by
+`fileOpsDispatch.test.tsx`). The multi-item half is not the deletion's doing: it is the gate
+refusing every shape the routing rule sends to the plane. `deleteObjects` went with the recursive
+functions, so a multi-file delete is a loop of single deletes — which is what copy and move already
+were — though no gesture now reaches it with more than one item: the control refuses such a
+selection with the flag off, and the plane takes it with the flag on.
 
 ~~**The refusal is per item, not per request, and that is the whole design of it.** A whole-selection
 refusal would lose the files a user picked beside the folder.~~ **— corrected:** the per-item refusal

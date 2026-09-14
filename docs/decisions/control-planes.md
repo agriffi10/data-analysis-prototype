@@ -1195,7 +1195,8 @@ question had been answered.
 **IAM cannot express this rule at all, and that is the argument — not a preference for runtime checks.**
 No SQS condition key reaches a field inside a message body, so a queue or identity policy could only
 deny the portal role `sqs:SendMessage` outright: the same principal on the same action that `markRead`
-and `markAllRead` need. There is no policy that permits two of the three actions. So the boundary is the
+and `markAllRead` ~~need~~ **— superseded by SPEC-200:** needed then; they reach the queue through the
+API now. There is no policy that permits two of the three actions. So the boundary is the
 `SenderId` SQS stamps on every message — a message *system* attribute the service sets and a
 `SendMessage` cannot — compared on the **role-id half**, the substring before the first `:`. Not
 equality against the whole value (which never matches, and a control that never matches reads exactly
@@ -1209,7 +1210,7 @@ user-reachable, which is what makes a single-principal refusal complete rather t
 **— superseded by SPEC-200:** the portal role no longer holds the grant. The user-reachable sender
 is now the API's execution role, and its `notifications.enqueue` request model accepts only
 `markRead` and `markAllRead`, so a user's `create` is refused at the API (400) before the queue. The
-count is deliberately not written here: it moved with the eighth plane, and it will move again. An allow-list would be a
+count of the grant's holders is deliberately not written here: it moved with the eighth plane, and it will move again. An allow-list would be a
 hand-maintained list of role IDs that fails closed on the day a plane is added: that plane's
 notifications would stop, drop or dead-letter unnoticed and nobody would connect the two. One
 environment variable beats eight, and the deny direction fails open only toward principals that require

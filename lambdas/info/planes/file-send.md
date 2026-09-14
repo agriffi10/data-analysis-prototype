@@ -44,8 +44,8 @@ because EventBridge drops an input this plane's own cap allows to approach 200 K
 
 `{requestId, traceparent, identity: {actor, delegated_by, assurance}, source: {space, items},
 recipients[]}`,
-plus a **legacy top-level `actor`** still carrying the raw ID token until the API stops sending
-one. Unknown top-level fields are **rejected, not ignored**.
+plus a **legacy top-level `actor`** carrying the raw ID token, which only a message enqueued before
+the API stopped sending the token still has. Unknown top-level fields are **rejected, not ignored**.
 
 **The verb reads the block and never the flat field**, which matters because both are non-empty
 strings: a fallback would build a notification recipient out of a 900-character token on the first

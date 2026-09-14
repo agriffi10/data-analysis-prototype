@@ -140,7 +140,10 @@ as a runtime `AccessDenied`, not a plan error**.
   verb arrives loud instead of silent. No object bytes pass through the function, so the
   memory buys CPU for the pool's threads.
 - **`notify-failure`** is 60 s rather than 15 s, because the EventBridge `TIMED_OUT` door does
-  strictly more work than the ASL one: a cold-start JWKS fetch plus a JWT verify before the send.
+  strictly more work than the ASL one: for a large send it must read the run's input back with
+  `DescribeExecution`, because EventBridge drops an input that would push the event past 256 KB.
+  It was sized when that door also fetched JWKS and verified a JWT, which it no longer does — the
+  actor comes from the API's `identity` block.
 
 ## `TimeoutSeconds` is 3 hours, and it arrived with the thing that made it necessary
 

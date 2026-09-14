@@ -2009,8 +2009,9 @@ Formation Identity Center configuration (§4.4) and the user-space bucket policy
 additions made through this repo's IaC.
 
 **Hybrid mode is now a choice, not a discovery.** The portal registers the bucket itself and
-must choose **hybrid** mode, so the file browser's `ListObjectsV2` / `GetObject` path — which the
-API now makes on its behalf — keeps working. The old risk — inheriting an enforced-mode registration that blocks direct S3 —
+must choose **hybrid** mode, so the file browser's `ListObjectsV2` / `GetObject` path keeps working
+— listing through the API under the caller's assumed portal-role session, and bytes on URLs that
+same session presigned. The old risk — inheriting an enforced-mode registration that blocks direct S3 —
 returns only if sequencing changes.
 
 **If the portal turns out not to be first into the account**, the previous strategy's surgery

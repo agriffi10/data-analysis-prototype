@@ -28,18 +28,18 @@ Batch size is **1**, so each message is its own invocation, which is what preser
 one-at-a-time property. Content-based dedup collapses a byte-identical re-send inside the 5-minute
 window (a double-click); producers may still set an explicit `MessageDeduplicationId`.
 
-## The `create` boundary is a runtime check, not IAM
+## The `create` boundary: IAM and the API first, a runtime check behind them
 
-**The portal role no longer holds a grant on this queue** — the two user actions
+**The portal role no longer holds a grant on this queue**, and the two user actions
 (`markRead`/`markAllRead`) arrive through the API's `notifications.enqueue`, whose request model
-accepts no other action. The check below outlived that grant: the first fence is now that the
-portal role cannot send at all, and the check stays behind it. It was built as a runtime check
-because IAM could not do the job: no SQS condition key reaches a field
-inside a message body, so a policy could only have denied the portal role `SendMessage` outright —
-the same principal on the same action the two user actions needed then. **IAM cannot express "this
-principal may send these two actions and not the third" at all.**
+accepts no other action — so a user's `create` is refused before the queue. The writer's own check
+outlived that grant and stays behind it as a backstop. It was built as a runtime check because IAM
+could not do the job: no SQS condition key reaches a field inside a message body, so a policy could
+only have denied the portal role `SendMessage` outright — the same principal on the same action the
+two user actions needed then. **IAM cannot express "this principal may send these two actions and
+not the third" at all.**
 
-So the boundary is enforced at runtime by the writer, against the **`SenderId`** SQS stamps on every
+So the backstop is enforced at runtime by the writer, against the **`SenderId`** SQS stamps on every
 message and a sender cannot set. A `create` whose **role-id half** matches the portal role's unique
 ID is refused and dropped.
 
@@ -71,8 +71,9 @@ someone who looks. **The 14-day retention is what buys that someone the time to 
 
 It may read and write **any** user's `notifications.json` (the `*` is the per-user prefix segment)
 and nothing else app-relevant: **no `DeleteObject` anywhere** — the document is only ever
-read-modify-rewritten via `PutObject` — and no admin or shared-bucket access. Token verification is
-offline JWKS, so **no Cognito IAM is required**.
+read-modify-rewritten via `PutObject` — and no admin or shared-bucket access. It verifies no token
+at all — a user action's actor comes from the API's `identity` block — so **no Cognito IAM is
+required**.
 
 It also holds `s3:ListBucket`, prefix-conditioned. A `GetObject` on a key that does **not** yet exist
 — a brand-new user's first notification — returns **403, not `NoSuchKey`**, unless the caller holds
@@ -104,9 +105,10 @@ module carries.
 
 ## The shared import that was once impossible
 
-The writer imports `cpcommon.auth` and `cpcommon.clients`, which it could not before: `cpcommon.config`
-`_require`d six variables **at import** and only three are set here, so `cpcommon.auth` was
-unimportable and the function carried a second copy of the fleet's JWKS verifier. Config resolves on
+The writer imports the shared layer — `cpcommon.actor` and `cpcommon.clients` among it — which it
+could not before: `cpcommon.config` `_require`d six variables **at import** and only three are set
+here, so `cpcommon.auth` was unimportable and the function carried a second copy of the fleet's
+JWKS verifier. It needs neither now: a user action's actor comes from the API's `identity` block. Config resolves on
 **first access** now, so the import is safe and only the variables actually read are needed. The
 three still absent — `ADMIN_BUCKET`, `SHARED_SPACE_BUCKET`, `ATHENA_WORKGROUP` — are absent on
 purpose, and a probe imports the module without them (`test_layer_import_safety.py`).

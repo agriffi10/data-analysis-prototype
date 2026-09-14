@@ -88,8 +88,9 @@ Object.defineProperty(document,'hidden',{get:()=>false,configurable:true});
 document.dispatchEvent(new Event('visibilitychange'));
 window.dispatchEvent(new Event('focus'));
 
-// 2. Count API route calls and S3 writes by path. Its x-amz-target arm should record NOTHING —
-// the browser sends no SQS or Athena call — so a row there is a direct AWS call, and a regression.
+// 2. Count API route calls and S3 writes by path. Its x-amz-target arm should record only
+// AWSCognitoIdentityProviderService.* (Amplify's token refresh, or a sign-out's RevokeToken);
+// any other target is a direct AWS call, and a regression.
 // The API arm was added when the catalog ported (SPEC-199) and has NOT been exercised live yet.
 window.__ath=[];const of=window.fetch;
 window.fetch=async function(...a){
@@ -133,9 +134,10 @@ HTMLAnchorElement.prototype.click=function(){if(this.href&&/\.(csv|txt|sql|json)
 `POST /v1/queries`, a poll is `GET /v1/queries/{id}` and a results read is
 `GET /v1/queries/{id}/results` — distinguishable in the network panel, unlike the single Athena
 endpoint they replaced. Count with instrument 2 rather than by eye anyway: a poll fires every 1.5 s
-and the panel fills fast. No request carries `x-amz-target` any more: the enqueues moved behind the
-API as well, so a control-plane enqueue is a `POST /v1/enqueue/…` like any other route. §4.18 is
-where the browser's whole network surface is settled.
+and the panel fills fast. No SQS or Athena request carries `x-amz-target` any more — the enqueues
+moved behind the API as well, so a control-plane enqueue is a `POST /v1/enqueue/…` like any other
+route — and the only targets left are Cognito's. §4.18 is where the browser's whole network
+surface is settled.
 
 Read a downloaded file back **inside the page**; never pull a presigned URL into your context:
 
