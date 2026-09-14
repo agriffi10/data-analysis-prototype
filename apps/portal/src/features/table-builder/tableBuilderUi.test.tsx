@@ -182,7 +182,7 @@ describe('RefreshTableDialog', () => {
   const optIn = () => screen.getByRole('checkbox', {name: /allow columns to be removed/i});
 
   describe('RefreshTableDialog', () => {
-    it('names the table and the folder it will re-read', () => {
+    it('names the table and the folder whose first file it will read', () => {
       render();
       expect(screen.getByRole('alertdialog', {name: /alice\.sales_2026/})).toBeInTheDocument();
       expect(screen.getByText('alice.sales_2026')).toBeInTheDocument();
@@ -204,10 +204,11 @@ describe('RefreshTableDialog', () => {
       expect(onConfirm).toHaveBeenCalledWith(true);
     });
 
-    it('names the link-borne columns and explains why the refresh was stopped', () => {
+    it('names the link-borne columns, explains why the refresh was stopped, and offers a way to keep them', () => {
       render(LINKED);
       expect(screen.getByText(/previous refresh was stopped/i)).toBeInTheDocument();
-      expect(screen.getByText(/no longer in the files/i)).toBeInTheDocument();
+      expect(screen.getByText(/aren’t in the first file in the table’s folder/i)).toBeInTheDocument();
+      expect(screen.getByText(/to keep them, cancel/i)).toBeInTheDocument();
       const list = screen.getByRole('list', {name: /columns that would be removed/i});
       expect(within(list).getByText('legacy_id')).toBeInTheDocument();
       // Not a catalog-safe identifier — column names never have to be.

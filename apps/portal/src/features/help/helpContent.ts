@@ -394,15 +394,15 @@ export const HELP_SECTIONS: HelpSection[] = [
         ],
         callout: {
           kind: 'tip',
-          text: 'Once it’s ready, the table appears in the <b>Query</b> tab under the same space, so you can start writing SQL against it straight away. Later on, when the files in that folder gain or lose columns, use <b>Refresh table</b> rather than building it again.'
+          text: 'Once it’s ready, the table appears in the <b>Query</b> tab under the same space, so you can start writing SQL against it straight away. The table takes its columns from the first file in the folder, alphabetically, so if that file’s columns change later, use <b>Refresh table</b> rather than building it again.'
         }
       },
       {
         id: 'refresh-table',
         title: 'Refresh a table after the files change',
-        subtitle: 'The table is missing columns you’ve added to the folder.',
+        subtitle: 'Update the table’s columns from the first file in its folder.',
         intro:
-          'A table records the columns its files had when it was built. Add a column to those files afterwards and the table won’t know about it — <b>Refresh table</b> re-reads the folder and updates the table’s column list to match what’s there now. Your files are never modified, only the table’s definition, and the table stays queryable the whole time.',
+          'A table takes its columns from <b>one file: the first in its folder, alphabetically</b>. <b>Refresh table</b> reads the folder’s first file again and updates the table’s column list to match it, so a new column is only picked up once it’s in that file. Add it only to a later file — say, <code>sales_2026_09.csv</code> in a folder that starts with <code>sales_2025_01.csv</code> — and the refresh will say the table is already up to date. To pick it up, add the column to that first file too, then refresh again. <b>In CSV files, put a new column last</b>, in every file that has it: CSV columns are matched by position, not by name, so a column added anywhere else puts older files’ values in the wrong columns. Capital letters sort before lowercase ones, and a file in a subfolder sorts by its full path, so <code>archive/old.csv</code> comes before <code>current.csv</code>. That isn’t always the order the <b>Files</b> tab shows. A refresh never modifies your files, only the table’s definition, and the table stays queryable the whole time.',
         steps: [
           'In the <b>Query</b> tab’s schema rail, open the <b>⋮</b> menu on the table and choose <b>Refresh table</b>.',
           'Check that the folder shown is the one you added files to, then click <b>Refresh table</b>.',
@@ -410,7 +410,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         ],
         callout: {
           kind: 'warning',
-          text: 'If a column has <b>disappeared</b> from the files, the refresh stops and changes nothing — the notification names the columns and links you back to the dialog. To go ahead, tick <b>Allow columns to be removed</b> and refresh again. Removing a column breaks any saved query or view that references it.'
+          text: 'If a column has <b>disappeared</b> from the folder’s first file, the refresh stops and changes nothing — the notification names the columns and links you back to the dialog. That can also happen when a different file now sorts first (you deleted or renamed the old first file, or added one that sorts earlier) and it’s missing some of the table’s columns. To keep them, add them to the file that now sorts first — in a CSV, in the same position they have in the table — or make the old first file sort first again, then refresh again. To remove them, tick <b>Allow columns to be removed</b> and refresh again. Removing a column breaks any saved query or view that references it, even if other files still have it.'
         }
       },
       {
