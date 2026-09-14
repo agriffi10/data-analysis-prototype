@@ -32,8 +32,8 @@ export type TableActions = {
   canViewSourceFiles: (database: string, table: GlueTableSummary) => boolean;
 };
 
-// A provisioning/failed/leaving shared connection is shown but not expandable
-// and not selectable — a static row with its status label.
+// A shared connection that is not usable (provisioning, failed, leaving, deleting)
+// is shown but not expandable — a static row with its status label.
 function UnusableNode({connection}: {connection: Connection}) {
   return (
     <div className="flex items-center gap-2 rounded-md px-2 py-2 text-base font-semibold text-text-3">
@@ -100,7 +100,7 @@ export function SchemaBrowser({
   connections = [],
   actions
 }: {
-  /** Accessible databases (personal + usable shared connections). */
+  /** Every connection, personal first; a shared one that is not usable renders as a static row. */
   connections?: Connection[];
   actions: TableActions;
 }) {

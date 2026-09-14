@@ -19,8 +19,8 @@ const barButton =
 
 /**
  * The query-tab strip above the editor toolbar. "Card"
- * tabs (design-system.md §6) — distinct from the topbar Files|Query underline and
- * the sidebar fill. Active tab: an elevated card (surface fill + border + shadow +
+ * tabs (design-system.md §6) — distinct from the top bar's underline tabs and the
+ * sidebar fill. Active tab: an elevated card (surface fill + border + shadow +
  * bold label) — never color-only, and no leading dot so it can't be confused with
  * the dirty-state marker. The last remaining tab hides its close control; the `+`
  * is never disabled (the cap is enforced by a dialog upstream).

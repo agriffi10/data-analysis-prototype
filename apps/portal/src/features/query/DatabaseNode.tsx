@@ -13,8 +13,8 @@ import {useFeature} from '../feature-flags';
 import {SECTION_CAPTION} from '../../components/fieldStyles';
 
 // a single database in the schema rail — a disclosure node that, when
-// expanded, loads its own schema (`useSchema`, decoupled from the active target)
-// and splits its objects into two collapsible groups: Tables and Views.
+// expanded, loads its own schema (`useSchema`) and splits its objects into two
+// collapsible groups: Tables and Views.
 
 function Chevron({open, className}: {open: boolean; className?: string}) {
   return (
@@ -30,9 +30,9 @@ function Chevron({open, className}: {open: boolean; className?: string}) {
   );
 }
 
-// Each object row: expand to reveal its columns (inspection only — the rail is browse-only
-// drops click-to-insert) and a per-row (view-aware) actions menu. The "View"
-// badge is dropped inside the Views group (membership conveys the type).
+// Each object row: expand to reveal its columns (inspection only — the rail never
+// writes into the editor) and a per-row (view-aware) actions menu. No row carries a
+// "View" badge: membership of the Views group conveys the type.
 function TableRow({
   database,
   table,
