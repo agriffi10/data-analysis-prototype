@@ -52,9 +52,10 @@ concurrency:
   group: migrate-system-settings
   cancel-in-progress: false
 
+# infra/variables.tf's defaults, written out: the deploy never hands Terraform any other value.
 env:
-  PROJECT_NAME: ${{ vars.TF_VAR_project_name || 'dat' }}
-  ENVIRONMENT: ${{ vars.TF_VAR_environment || 'prod' }}
+  PROJECT_NAME: dat
+  ENVIRONMENT: prod
 
 jobs:
   migrate:
@@ -108,13 +109,15 @@ jobs:
 
       - name: Run the migration
         env:
-          # Derived from the two repository variables, with an explicit override honoured where the
-          # IaC allows one — a bucket renamed because its global name was taken would otherwise
-          # make this address a bucket that does not exist.
-          USER_SPACE_BUCKET: ${{ vars.TF_VAR_user_space_bucket_name || format('{0}-{1}-user-space', vars.TF_VAR_project_name || 'dat', vars.TF_VAR_environment || 'prod') }}
-          SHARED_SPACE_BUCKET: ${{ vars.TF_VAR_shared_space_bucket_name || format('{0}-{1}-shared-space', vars.TF_VAR_project_name || 'dat', vars.TF_VAR_environment || 'prod') }}
-          ADMIN_BUCKET: ${{ vars.TF_VAR_athena_admin_bucket_name || format('{0}-{1}-athena-admin', vars.TF_VAR_project_name || 'dat', vars.TF_VAR_environment || 'prod') }}
-          ATHENA_WORKGROUP: ${{ vars.TF_VAR_workgroup_name || format('{0}-{1}-portal-wg', vars.TF_VAR_project_name || 'dat', vars.TF_VAR_environment || 'prod') }}
+          # Built the way infra/main.tf builds them, `-prod-` included: those four locals hard-code
+          # the segment rather than reading var.environment. The IaC's name overrides are not
+          # read here because the deploy never hands them to Terraform either — a set one would
+          # have pointed this at a bucket Terraform never renamed, and tf_var_guard.py now fails
+          # the infrastructure deploy instead.
+          USER_SPACE_BUCKET: ${{ env.PROJECT_NAME }}-prod-user-space
+          SHARED_SPACE_BUCKET: ${{ env.PROJECT_NAME }}-prod-shared-space
+          ADMIN_BUCKET: ${{ env.PROJECT_NAME }}-prod-athena-admin
+          ATHENA_WORKGROUP: ${{ env.PROJECT_NAME }}-prod-portal-wg
           MODE: ${{ inputs.mode }}
           RUN_ID: ${{ inputs.run_id }}
           KEY: ${{ inputs.key }}

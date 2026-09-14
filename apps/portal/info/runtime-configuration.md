@@ -48,7 +48,9 @@ Adding one means touching all five, and a test compares them:
 3. **its source**, which is one of two things and never both — `.github/config-outputs.json`, the
    one map from Terraform output name to configuration key, for a value Terraform computes; a
    GitHub repository variable for a genuine **input** Terraform is *given*. Today only
-   `environment` and `maxUploadBytes` are inputs
+   `maxUploadBytes` is an input, through `VITE_MAX_UPLOAD_BYTES`. `environment` is neither: the
+   task definition renders it from Terraform's `var.environment`, which no workflow hands over, so
+   it is always the default `prod` — Step 3 of `.github/workflows/README.md` says why
 4. the ECS task definition — `local.spa_runtime_config` at root, which `modules/spa` renders one
    `CONFIG_<key>` entry per map entry from
 5. the container entrypoint's own `KEYS`/`REQUIRED` lists in

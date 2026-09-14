@@ -7,7 +7,7 @@ record, so a workflow without one is a workflow nobody has described:
 |---|---|---|
 | `ci.yml` | PR → `main` | Web app: `tsc -b` build + the bundle VITE_ check (lint, format and the unit/component tests are DISABLED here and run in the local pre-push gate — `docs/process/ci-and-deploy-traps.md`). Those steps are **scoped**: a pull request touching none of `apps/portal/**`, `packages/**`, the root manifests, `.nvmrc`, this workflow, or the out-of-tree files the suite reads through `?raw` and `import.meta.glob` (the feature-flag document, `infra/main.tf`, two `lambdas/` modules, and every IAM policy template — scores of files reached by one glob) skips them. Leaving an out-of-tree read off that list is not a smaller saving but a silent one — the coupled file changes, the set-equality guard that would have caught it never runs, and the job is green. The scoping is per-STEP, not a workflow-level `paths:` filter, so the job always runs and always reports — a required check by that name can never sit pending. An unreachable base runs everything. Lambdas: the doc, contract, feature-flag and app-managed-path validators and the PR-queue corpora only (`ruff`, `mypy` and `pytest` are DISABLED here and run in the local pre-push gate); separate `lambdas` job, never scoped |
 | `deploy-config.yml` | Push to `main` (paths: `config/**`, its own file, the flag validator, the configuration map and the resolver); manual dispatch | Validate the feature-flag document, then publish it to the user-space bucket — whose name it resolves from Terraform state through the same map |
-| `deploy-infra.yml` | PR → `main` (paths: `infra/**`, own workflow file); push to `main` (same); manual dispatch (optional `skip_refresh` recovery input) | `tofu fmt -check` + `tofu plan` on PRs (posts plan as PR comment); `tofu plan` + `tofu apply` on merge |
+| `deploy-infra.yml` | PR → `main` (paths: `infra/**`, its own file, and the scripts and fixtures named in its `paths:` filter); push to `main` (same); manual dispatch (optional `skip_refresh` recovery input) | `tofu fmt -check` + `tofu plan` on PRs (posts plan as PR comment); `tofu apply` on merge |
 | `security.yml` | PR → `main`; weekly (Mon 06:17 UTC); manual dispatch | Security scanning: Semgrep SAST, `npm audit` (runtime + full), `pip-audit`, gitleaks, Checkov, OWASP ZAP baseline. All **report-only** — see the `GATE_*` block in the workflow and `docs/security-baseline.md` (SPEC-138) |
 | `deploy-lambdas.yml` | Push to `main` (paths: `lambdas/**`, the function table, the probe table, `point-lambda.sh`, `probe-cold-start.sh`, the planner); manual dispatch (optional `image_tag` **rollback** input) | Point **every** function at the fleet's container image, reconcile what was pointed by name, then invoke a sample and prove the deployed artefact starts |
 | `spa-image.yml` | PR → `main` (paths: `apps/portal/**`, the root manifests, `.dockerignore`, the matrix script, both image workflows) | Builds the SPA image and runs the behaviour matrix — every response header, status and cache class, against a container started the way ECS starts it. **Before merge**, because a gate that runs after cannot block anything |
@@ -76,15 +76,31 @@ Go to **Settings → Secrets and variables → Actions → Variables**.
 | `TF_VAR_parent_domain`, `TF_VAR_spa_subdomain`, `TF_VAR_api_subdomain`, `TF_VAR_route53_zone_id` | The names and the zone you chose | Terraform builds the origins from them |
 | `TF_VAR_spa_desired_count`, `TF_VAR_spa_image_tag` | Deployment knobs | Both carry `validation` blocks and a `|| 'default'` in the workflow |
 | `TF_VAR_verification_principal_arns` | Principals you nominate | **Unset by design.** Empty (the default) means the verification role is not created; every reference supplies `|| '[]'` |
-| `TF_VAR_project_name`, `TF_VAR_environment` | The resource-name prefix and the environment segment | **Unset by design.** Every reference supplies `|| 'dat'` / `|| 'prod'`; set them only if this deployment does not use the defaults |
-| `TF_VAR_user_space_bucket_name`, `TF_VAR_shared_space_bucket_name`, `TF_VAR_athena_admin_bucket_name`, `TF_VAR_workgroup_name` | The names the one-shot migration works on, where a deployment's differ from the defaults | **Unset by design.** Read only by `migrate-system-settings.yml`, and every reference falls back to the default name. Not a Terraform input despite the prefix: no deploy passes them to Terraform, so setting one moves the migration and nothing else |
 
-That table is the whole set of `vars.*` any workflow reads, and a row marked **unset by design** is
+That table is the whole set of `vars.*` any workflow reads — `lambdas/test_config_workflows.py`
+fails when a workflow reads one it has no row for — and the row marked **unset by design** is
 deliberately absent, with an explicit `||` fallback at every reference. It carries no count, because
 the last one went stale when a workflow added names: derive the read set with
 `grep -rhoE 'vars\.[A-Za-z0-9_]+' .github/workflows/*.yml | cut -d. -f2 | tr a-z A-Z | sort -u`
 (uppercased, as GitHub stores them) and what is set with `gh variable list`. **A variable with no
 reason in the middle column should not exist.**
+
+**Every other `TF_VAR_*` variable must stay unset, because no workflow hands that variable to
+Terraform.** Some of those inputs reach Terraform from somewhere else — `max_upload_bytes` from
+`VITE_MAX_UPLOAD_BYTES`, `lambda_image_tag` from the commit — and the rest do not reach it at all.
+The second kind includes `TF_VAR_project_name` and `TF_VAR_environment`, which resource names are
+built from, and every name override `infra/variables.tf` declares with an empty default, such as
+`TF_VAR_user_space_bucket_name` or `TF_VAR_workgroup_name`. `deploy-infra.yml` passes none of them
+to the plan or the apply, so Terraform always builds from the defaults: `dat`, `prod`, and no
+override. The workflows that address those resources write the same defaults out instead of
+reading a variable, because reading one is what would have pointed them at resources Terraform
+never built. Setting one fails the next **Deploy Infrastructure** plan or apply:
+`.github/scripts/tf_var_guard.py` runs inside both and refuses any `TF_VAR_*` variable that run
+does not hand to Terraform unchanged, under a name the module declares. **Renaming a deployment is
+not a matter of setting these.** It would mean wiring them into both runs and renaming every
+resource they touch — and even then not every name would move, because `infra/main.tf` builds
+several of them, the user-space bucket and the Athena workgroup among them, with a literal `-prod-`
+rather than `var.environment`.
 
 **Retired names are still set and are waiting to be deleted. This is an outstanding action, not a
 completed one** — they are what `gh variable list` shows beyond the read set. Six were retired by
@@ -139,7 +155,7 @@ Terraform owns the Lambda *infrastructure* (function, execution role, log group,
 
 - **Prerequisite:** the IaC must be applied first, and this commit's image must be in the registry — `deploy-lambda-image.yml` builds it on the same push, and both this workflow and `deploy-infra.yml`'s apply wait for the tag.
 - **Reuses** the existing `AWS_DEPLOY_ROLE_ARN` secret and `AWS_REGION` variable — no new required config.
-- **Resource names are derived**, not stored: `{project}-{env}-{name}` for the function and `{project}-{env}-lambda` for the registry. `project`/`env` come from optional Variables `TF_VAR_project_name` / `TF_VAR_environment` (defaults `dat` / `prod`, matching `infra/variables.tf`). Set those Variables only if you overrode the Terraform defaults.
+- **Resource names are derived**, not stored: `{project}-{env}-{name}` for the function and `{project}-{env}-lambda` for the registry. `project`/`env` are `infra/variables.tf`'s defaults, `dat` and `prod`, written into the workflow — not repository variables, for the reason Step 3 gives.
 - **Adding a lambda:** create `lambdas/<name>/<module>.py`, add a `docker-lambda` module call under the owning Terraform module, and that is the whole registration — CI derives the fleet from those module calls, and no list under `.github/` names functions any more. A new **module** also needs a `function_names` output and a line in the root's `lambda_deployed_names`; a new **plane** additionally needs an invoke grant and a row in `.github/lambda-probes.json` — see [`lambdas/info/deployment.md`](../../lambdas/info/deployment.md).
 - **The layer machinery is gone, in the repository and in AWS.** There is no layer table, no layer build script and no attach loop; what lands on `/opt/python` is decided by `lambdas/docker/assemble.py` reading the `lambdas/*-common/` directories, so there is no list a module can be missing from. The 923 published versions across ten layers were destroyed in CI, and the deploy role's layer grants came off in the apply after — that order being forced, since a grant removed first strands the versions with no identity able to reach them. `lambdas/test_no_layer_references.py` fails on a layer ARN, a layer IAM action, a layer API call, a `*_layer_name` declaration or a project-and-environment-qualified layer name reappearing in a workflow, a script or a `.tf` file — not on a bare suffix, which is also a source-directory name.
 - **EVERY function is deployed, every run.** Narrowing to a diff was right while each function carried its own zip and its own layer ARNs; with one image for the whole fleet, "which functions changed" has no answer, and a function left un-pointed runs an older image and reports a stale build stamp while working perfectly. The `pointed` job reconciles by NAME rather than by count, because the names say which functions are running last week's image.

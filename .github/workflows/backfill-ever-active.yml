@@ -34,9 +34,10 @@ concurrency:
   group: backfill-ever-active
   cancel-in-progress: false
 
+# infra/variables.tf's defaults, written out: the deploy never hands Terraform any other value.
 env:
-  PROJECT_NAME: ${{ vars.TF_VAR_project_name || 'dat' }}
-  ENVIRONMENT: ${{ vars.TF_VAR_environment || 'prod' }}
+  PROJECT_NAME: dat
+  ENVIRONMENT: prod
 
 jobs:
   invoke:

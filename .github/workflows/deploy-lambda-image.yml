@@ -70,8 +70,8 @@ jobs:
       - name: Resolve the registry and the tag
         id: names
         env:
-          PROJECT: ${{ vars.TF_VAR_project_name || 'dat' }}
-          ENVIRONMENT: ${{ vars.TF_VAR_environment || 'prod' }}
+          PROJECT: dat
+          ENVIRONMENT: prod
           TAG_INPUT: ${{ inputs.image_tag }}
         run: |
           set -euo pipefail
@@ -84,7 +84,7 @@ jobs:
           NAME="${PROJECT}-${ENVIRONMENT}-lambda"
           if ! REPO=$(aws ecr describe-repositories --repository-names "$NAME" \
                         --query 'repositories[0].repositoryUri' --output text 2>/dev/null); then
-            echo "::error title=Registry::no repository named $NAME. Terraform builds it from project_name and environment; run Deploy Infrastructure, or set TF_VAR_project_name / TF_VAR_environment if this deployment does not use the defaults."
+            echo "::error title=Registry::no repository named $NAME, which is the name Terraform builds from its project_name and environment defaults. Run Deploy Infrastructure."
             exit 1
           fi
 

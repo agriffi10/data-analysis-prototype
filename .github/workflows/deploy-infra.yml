@@ -8,13 +8,13 @@ on:
   pull_request:
     branches: [main]
     paths: ['infra/**', '.github/workflows/deploy-infra.yml',
-            '.github/scripts/lambda_plan_guard.py',
+            '.github/scripts/lambda_plan_guard.py', '.github/scripts/tf_var_guard.py',
             'lambdas/fixtures/pre_cutover_plan.json',
             'lambdas/fleet.py', 'lambdas/tf_blocks.py']
   push:
     branches: [main]
     paths: ['infra/**', '.github/workflows/deploy-infra.yml',
-            '.github/scripts/lambda_plan_guard.py',
+            '.github/scripts/lambda_plan_guard.py', '.github/scripts/tf_var_guard.py',
             'lambdas/fixtures/pre_cutover_plan.json',
             'lambdas/fleet.py', 'lambdas/tf_blocks.py']
   # Manual recovery lever. The push trigger above is the normal path, but GitHub
@@ -152,8 +152,15 @@ jobs:
         # step, the job and the PR check all reported success. OpenTofu still WRITES -out on a
         # failed plan, so the Checkov and IAM gates downstream then scanned a partial plan and
         # passed it. A plan gate that cannot fail is not a gate.
-        run: set -o pipefail && tofu plan -no-color -out=tfplan 2>&1 | tee /tmp/plan.txt
+        #
+        # The guard runs HERE rather than as a step of its own because the environment it checks
+        # is this step's: a TF_VAR_ variable that is set and not in the block below reads as
+        # configuration while Terraform builds from its default. The apply step runs it too.
+        run: |
+          python3 ../.github/scripts/tf_var_guard.py
+          set -o pipefail && tofu plan -no-color -out=tfplan 2>&1 | tee /tmp/plan.txt
         env:
+          REPO_VARS: ${{ toJSON(vars) }}
           TF_VAR_aws_region: ${{ vars.AWS_REGION }}
           TF_VAR_github_repo: ${{ vars.TF_VAR_github_repo }}
           TF_VAR_state_bucket: ${{ secrets.TF_VAR_state_bucket }}
@@ -265,8 +272,8 @@ jobs:
       # constructing the name does.
       - name: Assert the planned Lambda fleet
         env:
-          PROJECT: ${{ vars.TF_VAR_project_name || 'dat' }}
-          ENVIRONMENT: ${{ vars.TF_VAR_environment || 'prod' }}
+          PROJECT: dat
+          ENVIRONMENT: prod
         run: |
           set -euo pipefail
           REPOSITORY=$(aws ecr describe-repositories \
@@ -474,8 +481,8 @@ jobs:
       # every PR.
       - name: Wait for this commit's Lambda image
         env:
-          PROJECT: ${{ vars.TF_VAR_project_name || 'dat' }}
-          ENVIRONMENT: ${{ vars.TF_VAR_environment || 'prod' }}
+          PROJECT: dat
+          ENVIRONMENT: prod
         run: |
           set -euo pipefail
           NAME="${PROJECT}-${ENVIRONMENT}-lambda"
@@ -502,6 +509,7 @@ jobs:
         # Every use should be followed by an ordinary run to confirm the refresh works
         # again — an apply that skipped refresh has proved nothing about drift.
         run: |
+          python3 ../.github/scripts/tf_var_guard.py
           REFRESH_FLAG=""
           if [ "${{ inputs.skip_refresh }}" = "true" ]; then
             REFRESH_FLAG="-refresh=false"
@@ -509,6 +517,8 @@ jobs:
           fi
           tofu apply -auto-approve $REFRESH_FLAG
         env:
+          # See the plan step: the guard on the first line of `run` checks this block.
+          REPO_VARS: ${{ toJSON(vars) }}
           TF_VAR_aws_region: ${{ vars.AWS_REGION }}
           TF_VAR_github_repo: ${{ vars.TF_VAR_github_repo }}
           TF_VAR_state_bucket: ${{ secrets.TF_VAR_state_bucket }}

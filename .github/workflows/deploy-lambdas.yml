@@ -45,12 +45,13 @@ on:
         required: false
         default: ''
 
-# Resource names are derived deterministically from the same project/environment
-# the IaC uses (defaults match infra/variables.tf). Override via repo Variables
-# only if you changed TF_VAR_project_name / TF_VAR_environment.
+# Resource names are derived from the same project and environment the IaC uses: the defaults
+# in infra/variables.tf, written out rather than read from a repository variable. The deploy
+# never hands either to Terraform, so a variable here could only point this workflow at functions
+# Terraform never built. lambdas/test_config_workflows.py holds these equal to the defaults.
 env:
-  PROJECT_NAME: ${{ vars.TF_VAR_project_name || 'dat' }}
-  ENVIRONMENT: ${{ vars.TF_VAR_environment || 'prod' }}
+  PROJECT_NAME: dat
+  ENVIRONMENT: prod
 
 # Two merges landing close together used to run two deploys at once, racing
 # `update-function-code` and `update-function-configuration` on the same functions —
@@ -121,8 +122,8 @@ jobs:
       # of billed runtime before anyone learned it was wrong.
       - name: Check the image this run will point at
         env:
-          PROJECT: ${{ vars.TF_VAR_project_name || 'dat' }}
-          ENVIRONMENT: ${{ vars.TF_VAR_environment || 'prod' }}
+          PROJECT: dat
+          ENVIRONMENT: prod
           IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
           set -euo pipefail

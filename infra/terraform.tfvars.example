@@ -2,17 +2,15 @@
 # terraform.tfvars is gitignored — never commit it.
 
 aws_region        = "us-east-1"
-project_name      = "s3-upload-portal"
 github_repo       = "your-org/s3-upload-portal"
 state_bucket      = "your-tofu-state-bucket-name"
 state_lock_table  = "your-tofu-lock-table-name"
 
-# Optional — defaults shown. Used in resource names as {project_name}-{environment}.
-# environment = "prod"
-
-# Optional — Hosted UI domain prefix (must be globally unique across all AWS).
-# Defaults to {project_name}-{environment}-portal when unset.
-# cognito_domain_prefix = ""
+# DELIBERATELY NOT SETTABLE HERE: project_name, environment, and the name overrides such as
+# cognito_domain_prefix and user_space_bucket_name. No workflow hands them to Terraform, so the
+# live resources are named from their defaults (dat, prod, no override), and a value here would
+# plan a rename of real infrastructure that CI never applies. Step 3 of
+# .github/workflows/README.md says why, and what a rename would actually take.
 
 # SPEC-186 FR-004 — who may assume the read-only verification role for live checks
 # (catalog GetTable/GetTableVersions and the archive audit record).
