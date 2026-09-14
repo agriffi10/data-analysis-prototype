@@ -290,6 +290,13 @@ describe('useFileSpace', () => {
       expect(result.current.fellBack).toBe(false);
     });
 
+    // Deep links name the personal space explicitly; it must resolve, not read as a vanished space.
+    it('resolves an explicit ?space=personal to the personal space without a fallback', () => {
+      const {result} = setup('/files?space=personal');
+      expect(result.current.space?.kind).toBe('personal');
+      expect(result.current.fellBack).toBe(false);
+    });
+
     it('falls back to personal for a not-yet-usable (provisioning) ?space=', () => {
       const {result} = setup('/files?space=sales_2026');
       expect(result.current.space?.kind).toBe('personal');

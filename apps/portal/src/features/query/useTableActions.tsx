@@ -92,8 +92,8 @@ export function useTableActions({
   const actions: TableActions = {
     canViewSourceFiles: (database: string, table: GlueTableSummary) => tablePrefix(database, table) !== null,
     // Deep-link the file browser to the table's data folder. `space` is REQUIRED, not
-    // decoration: an absent one resolves to the personal space, so a shared table's link
-    // would open the user's own bucket at the shared prefix.
+    // decoration: an absent one resolves to the personal space, whose root refuses a shared
+    // prefix, so a shared table's link would open the user's own files at their root.
     onViewSourceFiles: (database: string, table: GlueTableSummary) => {
       const key = tablePrefix(database, table);
       const space = spaceFor(database);

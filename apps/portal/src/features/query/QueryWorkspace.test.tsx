@@ -778,7 +778,7 @@ describe('QueryWorkspace', () => {
         overwrite: false
       });
       await user.click(await screen.findByRole('button', {name: 'View in Files'}));
-      expect(screen.getByLabelText('probe-location')).toHaveTextContent('/files?prefix=alice%2F');
+      expect(screen.getByLabelText('probe-location')).toHaveTextContent('/files?space=personal&prefix=alice%2F');
     });
 
     it('a destination collision prompts Overwrite, then copies with overwrite', async () => {
@@ -1404,10 +1404,110 @@ describe('QueryWorkspace', () => {
     });
   });
 
+  describe('QueryWorkspace — a dismissed banner and a refused Stop', () => {
+    const COLUMN_MISSING = 'A column in your query wasn’t found. Check the column names.';
+
+    /** Runs `q-1` to a failure and closes its banner. */
+    async function failAndDismiss(user: ReturnType<typeof renderWorkspace>['user']) {
+      statusMap['q-1'] = {state: 'FAILED', stateChangeReason: 'COLUMN_NOT_FOUND: amont'};
+      await user.click(screen.getByRole('button', {name: 'Run statement'}));
+      await screen.findByText(COLUMN_MISSING);
+      await user.click(screen.getByRole('button', {name: 'Dismiss'}));
+    }
+
+    it('keeps a dismissed banner closed while the next run starts, then shows that run’s own failure', async () => {
+      queueRuns('q-1', 'q-2');
+      statusMap['q-2'] = {state: 'FAILED', stateChangeReason: 'TABLE_NOT_FOUND: Table alice.nope does not exist'};
+      seedSingle('SELECT 1');
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      await failAndDismiss(user);
+      let landAppend = () => {};
+      mockAppend.mockReturnValueOnce(
+        new Promise((resolve) => (landAppend = () => resolve(ok({version: 1, entries: []}))))
+      );
+
+      await user.click(screen.getByRole('button', {name: 'Run statement'}));
+      await waitFor(() =>
+        expect(mockAppend).toHaveBeenLastCalledWith('alice', expect.objectContaining({queryExecutionId: 'q-2'}))
+      );
+
+      expect(screen.queryByText('Query failed.')).not.toBeInTheDocument();
+      landAppend();
+      expect(
+        await screen.findByText('That table wasn’t found. Check the name and that it includes its database.')
+      ).toBeInTheDocument();
+    });
+
+    it('shows a start that fails after a dismissed banner, and its retry does not bring the dismissed one back', async () => {
+      queueRuns('q-1');
+      mockRunQuery
+        .mockResolvedValueOnce(fail('raw: rate exceeded for alice', 'ThrottlingException'))
+        .mockResolvedValueOnce(ok({queryExecutionId: 'q-3'}));
+      seedSingle('SELECT 1');
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      await failAndDismiss(user);
+
+      await user.click(screen.getByRole('button', {name: 'Run statement'}));
+      expect(await screen.findByText('The service is busy. Wait a moment and try again.')).toBeInTheDocument();
+      expect(screen.queryByText(/rate exceeded/)).not.toBeInTheDocument();
+
+      // The failed start installed no run, so the dismissed failure is still the tab's.
+      mockAppend.mockReturnValueOnce(new Promise(() => {}));
+      await user.click(screen.getByRole('button', {name: 'Run statement'}));
+      await waitFor(() =>
+        expect(mockAppend).toHaveBeenLastCalledWith('alice', expect.objectContaining({queryExecutionId: 'q-3'}))
+      );
+      expect(screen.queryByText(COLUMN_MISSING)).not.toBeInTheDocument();
+    });
+
+    it('says why a Stop was refused, in the code’s wording, and leaves the run going', async () => {
+      queueRuns('q-1');
+      statusMap['q-1'] = {state: 'RUNNING'};
+      mockStopQuery.mockResolvedValueOnce(fail('raw: cannot cancel q-1', 'NetworkError'));
+      seedSingle('SELECT 1');
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      await user.click(screen.getByRole('button', {name: 'Run statement'}));
+
+      await user.click(await screen.findByRole('button', {name: 'Stop the running query'}));
+
+      expect(
+        await screen.findByText('Couldn’t stop the query. Can’t reach the server. Check your connection and try again.')
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/cannot cancel/)).not.toBeInTheDocument();
+      expect(mockStopQuery).toHaveBeenCalledWith('q-1');
+      expect(screen.getByText('Running…')).toBeInTheDocument();
+    });
+
+    it('says nothing when a Stop goes through', async () => {
+      queueRuns('q-1');
+      statusMap['q-1'] = {state: 'RUNNING'};
+      seedSingle('SELECT 1');
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      await user.click(screen.getByRole('button', {name: 'Run statement'}));
+
+      await user.click(await screen.findByRole('button', {name: 'Stop the running query'}));
+      await waitFor(() => expect(mockStopQuery).toHaveBeenCalledWith('q-1'));
+      await act(async () => {});
+
+      expect(screen.queryByText(/Couldn’t stop/)).not.toBeInTheDocument();
+    });
+  });
+
   describe('QueryWorkspace — shared-space routing & save (SPEC-055/077)', () => {
-    it('runs with no db/outputLocation and offers personal + shared save destinations', async () => {
+    it('runs with no db/outputLocation, offers personal + shared save destinations, and links a shared save into Files', async () => {
+      // Two shared spaces in one bucket, the other sorting first, so the link has to pick by folder.
       mockReadCache.mockResolvedValue(
-        ok({version: 1, connections: [{name: 'salesdata', role: 'member', status: 'active'}]})
+        ok({
+          version: 1,
+          connections: [
+            {name: 'analytics', role: 'member', status: 'active'},
+            {name: 'salesdata', role: 'member', status: 'active'}
+          ]
+        })
       );
       seedSingle('SELECT 1');
       mockCopyObject.mockResolvedValue(ok({destKey: 'salesdata/out.csv'}));
@@ -1444,8 +1544,10 @@ describe('QueryWorkspace', () => {
         })
       );
       expect(await screen.findByText(/Saved to salesdata\/out\.csv/)).toBeInTheDocument();
-      // The Files browser can't render shared spaces → no deep-link.
-      expect(screen.queryByRole('button', {name: 'View in Files'})).not.toBeInTheDocument();
+      // `space` is part of the assertion: without it Files resolves the personal space and opens
+      // it at its root, and with the wrong one it opens `analytics`, which shares the bucket.
+      await user.click(screen.getByRole('button', {name: 'View in Files'}));
+      expect(screen.getByLabelText('probe-location')).toHaveTextContent('/files?space=salesdata&prefix=salesdata%2F');
     });
 
     // The space half of a cancelled overwrite's restore, which the one-space test cannot see — the

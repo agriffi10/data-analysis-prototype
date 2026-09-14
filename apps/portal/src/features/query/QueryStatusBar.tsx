@@ -92,7 +92,8 @@ export function QueryStatusBar({
     };
   }, [isInFlight]);
 
-  const elapsedMs = isInFlight && startedAt && nowTick ? nowTick - startedAt : undefined;
+  // The tick survives between runs, so until a run's first tick lands it can predate the start.
+  const elapsedMs = isInFlight && startedAt && nowTick >= startedAt ? nowTick - startedAt : undefined;
   const state = status?.state;
   const verdict = isInFlight ? state : batchFailed ? 'FAILED' : stillRunning ? 'STILL_RUNNING' : state;
   // A settled verdict must be on screen for anything that hangs off the result to have

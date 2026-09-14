@@ -130,6 +130,19 @@ describe('FilesPage — shared space (SPEC-057 FR-002/FR-004)', () => {
     expect(rootCrumb().getByText('marketing_data')).toBeInTheDocument();
   });
 
+  // The deep link the save-results toast and the rail's "View source files" both build.
+  it('seeds a shared space at an in-space ?prefix= deep link', async () => {
+    renderAt('/files?space=marketing_data&prefix=marketing_data%2Freports%2F');
+    await waitFor(() =>
+      expect(listFiles).toHaveBeenCalledWith(
+        'shared-bucket',
+        'marketing_data/reports/',
+        undefined,
+        expect.any(AbortSignal)
+      )
+    );
+  });
+
   it('falls back to the personal space with a notice for a ?space= that is gone or not yet usable', async () => {
     // Unknown space → fallback; the browser targets the personal space and a
     // non-blocking status notice explains the switch.

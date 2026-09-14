@@ -233,6 +233,23 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
     expect(screen.queryByRole('button', {name: 'Prev'})).not.toBeInTheDocument();
   });
 
+  it('says why a second run failed after the first failure’s banner was dismissed', async () => {
+    mockListSaved.mockResolvedValue(savedListing('Revenue'));
+    queueRuns('q-1', 'q-2');
+    statusMap['q-1'] = {state: 'FAILED', stateChangeReason: 'COLUMN_NOT_FOUND: amont'};
+    statusMap['q-2'] = {state: 'FAILED', stateChangeReason: 'TABLE_NOT_FOUND: Table alice.nope does not exist'};
+    const {user} = renderMobileWorkspace();
+    await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
+    await screen.findByText('A column in your query wasn’t found. Check the column names.');
+    await user.click(screen.getByRole('button', {name: 'Dismiss'}));
+
+    await user.click(screen.getByRole('button', {name: 'Run'}));
+
+    expect(
+      await screen.findByText('That table wasn’t found. Check the name and that it includes its database.')
+    ).toBeInTheDocument();
+  });
+
   it('says why in the results view when a run’s status cannot be read', async () => {
     mockListSaved.mockResolvedValue(savedListing('Revenue'));
     queueRuns('q-1');

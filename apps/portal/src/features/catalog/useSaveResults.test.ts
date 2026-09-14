@@ -204,3 +204,21 @@ describe('useSaveResults, the conversion path (SPEC-223 FR-002, FR-003)', () => 
     expect(result.current.busy).toBe(false);
   });
 });
+
+describe('useSaveResults, the CSV path', () => {
+  it('links a saved CSV into Files only while its destination is a listed space', async () => {
+    // An overwrite confirm can land after the membership has gone, and Files would then fall back
+    // to the personal space, so that toast carries no link. The first save is the positive control.
+    vi.mocked(copyObject).mockResolvedValue({success: true, data: {destKey: 'q1.csv'}});
+    const {result} = renderSave();
+    const saveCsv = {...saveParquet, filename: 'q1.csv', format: 'csv' as const};
+
+    act(() => result.current.save(saveCsv));
+    await waitFor(() => expect(pushed).toHaveLength(1));
+    act(() => result.current.save({...saveCsv, destPrefix: 'finance/'}));
+    await waitFor(() => expect(pushed).toHaveLength(2));
+
+    expect(pushed[0]).toHaveProperty('action.label', 'View in Files');
+    expect(pushed[1]).toEqual({variant: 'success', message: 'Saved to finance/q1.csv'});
+  });
+});
