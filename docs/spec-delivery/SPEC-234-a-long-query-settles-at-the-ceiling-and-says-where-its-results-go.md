@@ -61,7 +61,7 @@
   full suite, with its thresholds), `validate_docs.py` and its corpus, the contract regeneration,
   the feature-flag and app-managed-path validators with the path sweep's corpus, the PR-queue hook
   and installer corpora, and ruff. The test names collected by the runner before and after differ
-  only by the eighteen added, and none vanished.
+  only by the twenty-one names this change adds (an `it.each` row counts once), and none vanished.
 - **Mutation checks, each planted once, seen red, then reverted:**
   - A clock-only verdict turns the hidden-page and terminal-after-the-ceiling tests red.
   - An interval-only stop turns the reconnect half red, by one request.
