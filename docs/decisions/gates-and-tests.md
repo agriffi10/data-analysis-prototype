@@ -21,12 +21,22 @@ entry you need, not the file.**
 - [A citation is a promise, and the ratchet is exact in both directions (2026-09-08)](#a-citation-is-a-promise-and-the-ratchet-is-exact-in-both-directions-2026-09-08)
 - [The hook refuses a stale base, and the doc gate a spec without the template's shape (2026-09-08)](#the-hook-refuses-a-stale-base-and-the-doc-gate-a-spec-without-the-templates-shape-2026-09-08)
 - [The queue reads `main`'s build from its push runs, and nothing else that records its sha (2026-09-10)](#the-queue-reads-mains-build-from-its-push-runs-and-nothing-else-that-records-its-sha-2026-09-10)
+- [A scanner's configuration is its command line, and what it discovers is refused (2026-09-14)](#a-scanners-configuration-is-its-command-line-and-what-it-discovers-is-refused-2026-09-14)
 
 ## Fences
 
 - **A gate blocks on a NARROWED count, never a total.** Checkov enforces check IDs measured at
   **zero** — enforcing what passes rather than suppressing what does not — and the plan scan
   accepts by check ID **and** resource. **A line matching no finding is a hard error.**
+- **A Checkov scan's configuration is its COMMAND LINE, and what it DISCOVERS is refused.**
+  Checkov reads a `.checkov.yml` from the `-d` directory, the working directory and `$HOME` even
+  under `-f`, and its flags' environment variables. One `skip-check` took a finding off the
+  blocking plan gate while the coverage check still passed, from a file no reviewer reads as part
+  of a gate. `--config-file` does not stop discovery; it is parsed beside what was found. So every
+  scan runs through `checkov-scan.sh`, which asks the scanner (`--show-config`) what it would use
+  and refuses anything but its command line, and a corpus plants a config against the installed
+  version before each job's scans. Refuse, never ignore: an ignored suppression file reads as one.
+  Variables Checkov reads without a flag go unreported and unrefused.
 - **"Did not run" is never "clean."** A broken scanner fails the job even in report mode, and
   `--quiet` must never come back: without `passed_checks` the gate cannot tell a pass from a check
   that never ran.
@@ -599,3 +609,80 @@ check keyed on a commit sha inherits every bot that records a run against that s
 population (the fence above) is defined by the trigger, never by the sha. `pre_push_test.py`
 carries the incident as a case beside one where a failed push run still reads RED, drives the
 check through a fake `gh` that runs the queue's real `--jq`, and plants each of its checks.
+
+
+## A scanner's configuration is its command line, and what it discovers is refused (2026-09-14)
+
+**What happened.** A reviewer reported, and a throwaway `checkov==3.3.9` reproduced, that Checkov
+reads `.checkov.yaml` and `.checkov.yml` from the directory named by `-d`, from the working
+directory and from `$HOME`, even when `-f` names one file, and reads the environment variables
+behind its own flags (`CKV_SKIP_CHECK` among them). A key found there takes effect unless the same
+flag is on the command line. On a plan holding one `"Action": "*"` policy, the rendered-plan scan
+reported 9 failures, and with `infra/.checkov.yml` holding `skip-check: [CKV_AWS_355]` it reported
+8, that one gone. The coverage assertion fires only when NO IAM check ran, so a targeted skip
+satisfies it. On a policy granting `s3:GetObject` on `"*"`, skipping the two IDs it raises left 7
+IAM checks evaluated, a narrowed count of 0 and the blocking gate printing "no findings". The file
+sits outside the three list files the gates name, so no reviewer reads it as a change to a gate.
+
+**The `.tf` and Dockerfile gates failed closed, by accident.** Their numerator hard-errors when an
+enforced ID is evaluated against nothing, which is what a `skip-check` of one produces, and the
+message then blames a typo or a scanner rename. A `baseline` set in the file fails closed by
+another road. One covering every failure leaves Checkov printing only its summary, which the scan
+step's JSON check refuses; one leaving a failure standing drops `passed_checks` to zero. The keys
+that were not measured need not touch whether an ID ran.
+
+**No option turns discovery off.** `--config-file` is parsed BESIDE the discovered files: the
+planted skip survived an explicit config that set only `framework`, and one that set
+`skip-check: []`, because ConfigArgParse admits a file's key whenever the flag is absent from the
+command line, and an empty list writes no flag. Being immune rather than refusing would need a copy
+of `infra/` without the file, or the `--directory=` spelling that Checkov's discovery does not
+parse, which is a quirk a patch release could remove. Either way it would also need a clean working
+directory, an empty `$HOME` and no flag variables set, because `--directory=` was measured still
+reading a config from the working directory.
+
+**The rule.** A scan's configuration is its command line and the list files its gate names.
+Whatever the scanner discovers is REFUSED, never ignored, because an ignored suppression file reads
+as a suppression while suppressing nothing, the shape `checkov-plan-iam.sh` already refuses in a
+stale accept line. Every Checkov scan runs through `.github/scripts/checkov-scan.sh`, which asks
+Checkov, with the same arguments and `--show-config`, what configuration it would use, and refuses
+any section of that report other than the command line and the defaults. It is a whitelist, so a
+section a later version names differently is refused too, and asking the scanner rather than
+listing the places it looks covers a discovery location that a version bump adds. The section
+names are Checkov's own and pinned with it. Which sources get recorded is ConfigArgParse's, and
+Checkov does not pin that, so a release that stopped recording one is the silent case the corpus
+below exists for. A refusal writes
+nothing to stdout, so each scan step's JSON check fails. `checkov-plan-iam.sh` now also refuses a
+file that holds no Checkov result: plain `jq` reads an empty file as success, and it would
+otherwise have narrowed a refused scan to a clean zero.
+
+**What proves it.** The refusal never fires on a normal run, so
+`.github/scripts/checkov-scan-test.sh` runs in each scanning job, ahead of the scans, against the
+Checkov that job installed. It plants a config in the working directory, in the `-d` directory and
+in `$HOME`, and sets `CKV_SKIP_CHECK`. For each, it asserts that the refusal names its source and
+leaves nothing a caller could parse. With nothing planted, it asserts the fixture's `CKV_AWS_355`
+is reported by its ID. Each check was planted once: seven mutations of the wrapper and the
+numerator, and each reddened its own case for its own reason. `test_security_gates.py` holds the
+wiring. A workflow line may say `checkov` only in a form that cannot run it: the gate's four
+scripts by name, a scan output or list file, the pinned install, or the artifact's name. So a scan
+is caught however it is spelled. A first draft matched command positions and missed an environment
+prefix, `time`, `pipx run` and a container image. A table of lines is that sweep's positive
+control. The Checkov Action is refused, and each job runs the corpus before its first scan, under
+the same `if:`.
+
+**Not closed by this.** An inline `# checkov:skip=` comment is a second route. Measured, it moves
+an enforced finding to `skipped_checks` while the ID still passes on another resource, and the
+enforced numerator reads zero. The environment variables Checkov reads directly rather than
+through a flag are a third: `--show-config` cannot report them, and a review measured
+`CKV_IGNORED_DIRECTORIES` taking the finding of a resource in a subdirectory off a `-d` scan while
+the wrapper exited 0. Semgrep and gitleaks, two of the other three blocking scanners, pass no
+config file either, and whether they read ignore files from the repository (`.semgrepignore`,
+`.gitleaks.toml`, `.gitleaksignore`) the way Checkov reads its config has not been measured. And
+code the pull request controls runs in both scanning jobs before Checkov does: `npm ci` runs
+install scripts in the security scan job, and the plan job runs `lambdas/fleet.py` and
+`lambda_plan_guard.py`. A step can write `$GITHUB_ENV` for every later step, which is how a flagless
+variable above would arrive without a workflow edit. The review that found this measured an install
+script doing so. It also measured a fake `checkov` placed earlier on `PATH` that stripped one
+module's failures from a `-d` scan while this corpus still passed. That `$GITHUB_PATH` places it
+there for a later step is inferred. The wrapper cannot see either, and does not claim to. It closes
+a file added in good faith, not code written to defeat the gate, which a pull request that can edit
+the workflow could do more simply.

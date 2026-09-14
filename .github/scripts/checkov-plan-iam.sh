@@ -43,6 +43,16 @@ err() { echo "::error title=Checkov (plan IAM)::$1" >&2; }
 [ -f "$accepted_file" ] || { err "$accepted_file is missing — that file IS the gate."; exit 2; }
 
 norm='(if type=="array" then .[0] else . end)'
+
+# The file must hold a Checkov result: a numeric failure count, under `.summary` or, in the bare
+# shape Checkov prints when it found nothing to scan, at the top. An EMPTY file holds no JSON
+# value, and plain jq reads "no value" as success, so without this a scan that wrote nothing
+# (checkov-scan.sh's refusal, or a crash) would narrow to a clean zero.
+if ! jq -e "$norm | (.summary.failed // .failed) | numbers" "$json" >/dev/null 2>&1; then
+  err "$json holds no Checkov result, so there is nothing to count. The scan did not run, or was refused."
+  exit 2
+fi
+
 # `.resource // ""` because jq's test() RAISES on null, and a raise aborts the whole filter —
 # one malformed finding with no resource would take every real finding down with it and
 # report a clean zero.
