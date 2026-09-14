@@ -44,8 +44,8 @@ because EventBridge drops an input this plane's own cap allows to approach 200 K
 
 `{requestId, traceparent, identity: {actor, delegated_by, assurance}, source: {space, items},
 recipients[]}`,
-plus a **legacy top-level `actor`** still carrying the raw ID token until the API stops sending
-one. Unknown top-level fields are **rejected, not ignored**.
+plus a **legacy top-level `actor`** carrying the raw ID token, which only a message enqueued before
+the API stopped sending the token still has. Unknown top-level fields are **rejected, not ignored**.
 
 **The verb reads the block and never the flat field**, which matters because both are non-empty
 strings: a fallback would build a notification recipient out of a 900-character token on the first
@@ -116,9 +116,10 @@ absolute source key and its size: everything the manifest builder needs, with no
   into a failed execution.
 - **No shared-space directory is published**, and the same reticence applies here: the share dialog
   suggests only spaces you belong to.
-- **The browser's only privilege remains `sqs:SendMessage`.** The **Send to…** control sits on the
-  selection toolbar, and `useFileSend` mints the `requestId` per SUBMIT — that is the FIFO dedup id,
-  and therefore what makes a retry possible rather than a queue-level guard.
+- **The browser holds no privilege on this plane.** The **Send to…** control sits on the selection
+  toolbar and calls the API's `fileSend.enqueue` route; the API's execution role is what writes the
+  queue. `useFileSend` mints the `requestId` per SUBMIT and the API sends it as the FIFO dedup id,
+  which is what makes a retry possible rather than a queue-level guard.
 - **No Lake Formation admin designation** — no table is created here. A `NoDataObjectDelete` **Deny**
   ships from the first apply, and the only write into a user's space is `*/shared_files/*`.
 - **The execution role is on the user-space bucket policy's allowlist** — read that before building

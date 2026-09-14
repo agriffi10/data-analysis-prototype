@@ -192,8 +192,9 @@ and **refuses a diff**, so a regenerated file that was not committed reddens; `t
 call site whose shape changed; and a response annotation outside the closed type vocabulary raises
 `UnsupportedTypeError` at generation rather than emitting a permissive type.
 
-`cpcommon.jwks` is imported only by this plane's tests directly, but it is a lazy dependency of
-`cpcommon.auth`, which ten planes use — it belongs to `cpcommon`, not here.
+`cpcommon.jwks` is imported directly by `apicommon.config` and by tests, and lazily by
+`cpcommon.auth` through `cpcommon.clients`. The API is the only plane that reaches either, now that
+the planes stopped verifying, and the module lives in `cpcommon` beside `auth`.
 
 Full reasoning: `docs/architecture.md` → *The API's auth boundary*; the arc narrative is in
 `docs/specs/ARCS.md`.

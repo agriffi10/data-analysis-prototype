@@ -12,9 +12,9 @@ one-line row to the matching file below (completion-ritual step 4). Add a *new r
 whole new area appears — and the row belongs in the file matching the component's **path**, so a
 `features/query/` addition goes in `query-feature.md` and nowhere else.
 
-> Convention reminders (see `CLAUDE.md`): services return `ServiceResult<T>` and never throw; all S3
-> calls go through service files; clients are instantiated in `src/lib/`, never in components; server
-> state goes through TanStack Query. These files list the *public surface* — the code is the source
+> Convention reminders (see `CLAUDE.md`): services return `ServiceResult<T>` and never throw; the API
+> is reached only through service files, never from a component, and no `@aws-sdk/*` package may be
+> added; server state goes through TanStack Query. These files list the *public surface* — the code is the source
 > of truth; verify signatures before relying on them.
 
 **Adding a configuration key** is not an inventory question and has its own checklist — a key is
@@ -25,7 +25,7 @@ wired in five places and a missed one stops the container starting:
 
 | Area | File | What's in it |
 |---|---|---|
-| Foundations | [`foundations.md`](foundations.md) | `src/lib/` — AWS clients, credentials, `ServiceResult` adapters, `toUserMessage`, FIFO enqueue skeleton, query client |
+| Foundations | [`foundations.md`](foundations.md) | `src/lib/` — the API client, the ID token, `ServiceResult` adapters, `toUserMessage`, JSON documents, runtime config, query client |
 | Shared components | [`shared-components.md`](shared-components.md) | `src/components/` — Modal, ConfirmDialog, Drawer, Pager, Menu, MobileActionBar, Button/Input/Badge/Banner, ErrorBanner, Toast |
 | Shared types | [`shared-types.md`](shared-types.md) | `src/types/` |
 | Shared hooks | [`shared-hooks.md`](shared-hooks.md) | `src/hooks/` |

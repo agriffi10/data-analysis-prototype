@@ -6,9 +6,9 @@ Eight modules are the same machine with different verbs: **shared-spaces**, **ta
 have in common, so each module's own README carries only what is distinct about it.
 
 ```
-browser ──sqs:SendMessage──▶ FIFO request queue ──▶ EventBridge Pipe ──▶ Step Function ──▶ verb Lambdas
-                                     │                                                          │
-                                     └──▶ DLQ ──▶ control-plane-dlq-drain          notifications queue
+browser ──HTTPS──▶ API ──sqs:SendMessage──▶ FIFO request queue ──▶ EventBridge Pipe ──▶ Step Function ──▶ verb Lambdas
+                                                    │                                                          │
+                                                    └──▶ DLQ ──▶ control-plane-dlq-drain          notifications queue
 ```
 
 ## The files, and what each always holds
@@ -20,7 +20,7 @@ browser ──sqs:SendMessage──▶ FIFO request queue ──▶ EventBridge 
 | `stepfunction.tf` | the Standard state machine, its log group, and the **explicit** function map |
 | `state-machine.asl.json.tftpl` | the ASL definition |
 | `lambda.tf` | every verb function, `for_each` over the map in `locals.tf` |
-| `iam.tf` | the shared execution role, the Step Function role, the Pipe role, and the portal role's enqueue policy |
+| `iam.tf` | the shared execution role, the Step Function role and the Pipe role — **no enqueue grant**, which is `module.api`'s |
 | `locals.tf` | constructed names and ARNs, and **the verb map** |
 | `policies/` | `.tftpl` templates — no inline `jsonencode` IAM anywhere |
 
@@ -37,9 +37,14 @@ browser ──sqs:SendMessage──▶ FIFO request queue ──▶ EventBridge 
 - **Three roles, three jobs.** The **Pipe** role only calls `states:StartExecution` (plus the SQS
   consume) — it *starts* the execution and does not run it. The **Step Function** role invokes the
   verbs. The **execution** role is what the verbs actually run as.
-- **The browser's only privilege on any plane is `sqs:SendMessage` to that plane's request queue.** No
-  Lambda invoke, no DLQ, no Step Function. The policy is attached to the shared portal role **by
-  name** (the role is created in `module.data`).
+- **The browser holds no privilege on any plane.** It calls the API's enqueue route, and the API's
+  execution role is what writes the request queue: one `sqs:SendMessage` statement in `module.api`
+  naming every request queue by ARN, from a list the module refuses at any other length. A new plane
+  adds its queue there, not a grant of its own; no Lambda invoke, no DLQ, no Step Function. A
+  second producer is admitted only by `SenderId`, as shared-spaces' operator reader is.
+  `lambdas/test_queue_writers.py` asserts that no portal-role policy can send to any queue, and
+  that the API's grant is rendered from a list of the pinned length with no DLQ and no wildcard —
+  by count, not by name, so a swapped entry passes.
 - **Batch size 1**, so each message starts its own execution and the FIFO per-`MessageGroupId`
   ordering is preserved.
 - **`content_based_deduplication` is on, and the producer also sends an explicit
@@ -85,9 +90,11 @@ browser ──sqs:SendMessage──▶ FIFO request queue ──▶ EventBridge 
   which is what retired the instance of this that used to bite; the rule is the general one, and a
   fleet guard walks every seed's forward path to hold it.
 - **Everything unbounded travels by pointer**, never on the state, and a cap is not a substitute.
-- **The request envelope is FLAT** — `actor` is the raw token at the top level — because the DLQ drain
-  reads and **redacts** that field flatly. Nested, a dead-lettered request notifies nobody *and*
-  writes the JWT to CloudWatch.
+- **The actor travels in the API's NESTED `identity` block, and no token travels at all.** A plane
+  reads it through `cpcommon.actor`, which cannot verify: who may write the queue is the
+  authorization — the API, plus any producer the plane admits by `SenderId`. The DLQ drain takes its recipient from that block and redacts
+  only **legacy top-level** token fields, which a message enqueued before the trust flip can still
+  carry — pointed at `identity`, it would blank the logged recipient and remove nothing sensitive.
 - **An expected refusal is a RETURN VALUE**; only unpredicted faults raise. A `TerminalError` cannot
   name the colliding item, and the user needs it named.
 - **One producer says every per-recipient outcome**, at the end of the machine — not each verb.

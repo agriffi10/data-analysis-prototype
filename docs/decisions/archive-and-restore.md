@@ -909,9 +909,13 @@ looking like a link that worked.
 
 SPEC-170 FR-001 specifies the digest of `{archiveBucket}/{archiveRoot}` and left it owed to this
 spec, which is the producer. The browser cannot produce it: SPEC-168 decided the browser has **no
-relationship with that bucket** — no CORS, no `connect-src` entry, zero portal-role statements — and
+relationship with that bucket** — no CORS, no `connect-src` entry, zero portal-role statements — ~~and
 `test_archive_bucket_isolation.py` asserts the SPA's build env learns the archive QUEUE and nothing
-else about the plane.
+else about the plane.~~ **— superseded:** that assertion went in the 2026-08-28 suite cut, and
+SPEC-200 retired the fact — the SPA's configuration now names nothing of the plane, not even its
+queue, because the restore is enqueued through the API, which derives this group id by the same rule.
+`test_archive_bucket_isolation.py` asserts that neither space's portal-role template names the
+archive bucket and that the browser's archive enqueue grant is retired.
 
 Including it would also buy nothing. The group id's one job here is that two restores of ONE archive
 serialize, and the archive root's own leading `personal/`/`shared/` segment — the segment SPEC-168
@@ -920,5 +924,6 @@ globally unique. The bucket is one constant across every restore this app can ma
 
 So the canonical string is `{kind}/{name}/archive/{archiveId}/`, mirroring `arcommon.paths.
 archive_root`, and `docs/testing/e2e.md`'s hand-crafted command was corrected to
-match so the live check exercises the rule the browser reproduces. A test pins the derivation and
+match so the live check exercises the rule ~~the browser reproduces~~ **— superseded by SPEC-200:**
+the API reproduces (`apicommon.fifo`). A test pins the derivation and
 names SPEC-168's browser isolation — not the test — as the decision to re-open if it ever fails.

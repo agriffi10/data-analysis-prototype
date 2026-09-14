@@ -109,10 +109,11 @@ every one of them. The two errors no Catch here takes — `States.DataLimitExcee
 catcher naming it can catch, and `States.Runtime`, which nothing can — also end `FAILED`, and so
 reach neither door. The machine is built so that neither is raised.
 
-`notify-failure` is **60 s here rather than 15 s**, because that second door does strictly more work
-than the ASL one: a cold-start JWKS fetch over the network plus a JWT verify before the send, since
-the sender has to come from the token in the timed-out execution's own input. 15 s was sized for a
-decode and a send. The DLQ drain, which does the same verify, is at 60 s for the same reason.
+`notify-failure` is **60 s here rather than 15 s**, sized when that second door did strictly more
+work than the ASL one: a cold-start JWKS fetch over the network plus a JWT verify before the send,
+since the sender came from the token in the timed-out execution's own input. It no longer verifies
+anything — the actor comes from the API's `identity` block — so the extra time is headroom now, not
+need; 15 s was sized for a decode and a send.
 
 ## Why three verbs are sized above 60 s / 512 MB
 

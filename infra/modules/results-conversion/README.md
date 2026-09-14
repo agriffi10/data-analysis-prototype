@@ -2,9 +2,9 @@
 
 Takes a **finished Athena execution** and writes its result set into a space the actor may write
 to, as Parquet, JSON or Excel. This module is the whole plane: the queue, the pipe, the machine,
-the execution role and five verbs. **Still nothing a user can reach** — no UI enqueues onto it
-until the browser surface lands in SPEC-223, so the route is live and unflagged and only a
-hand-crafted authenticated call drives it.
+the execution role and five verbs. Users reach it through the **Format** choice in the Query tab's
+save-results dialog and the Data Explorer's export dialog (SPEC-223), gated on the
+`resultsConversion` flag; the route itself is unflagged.
 
 The shape this module shares with the other seven is in
 [`../../info/control-plane-shape.md`](../../info/control-plane-shape.md); the orchestration and the

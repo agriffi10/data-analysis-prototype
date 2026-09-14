@@ -39,7 +39,8 @@ only the region, not data**.
 ## ⚠ Lake Formation is registered in HYBRID mode
 
 **Do not flip to enforced (non-hybrid) without opting in every principal first** — it would break the
-file browser's direct S3 access to the user-space bucket. Hybrid is what makes the same data reachable
+file browser's IAM-authorized S3 access to the user-space bucket (the API's calls under the caller's
+assumed role, and bytes on URLs that role presigned). Hybrid is what makes the same data reachable
 two ways: non-opted-in principals via direct S3 IAM, opted-in ones via LF credential vending.
 
 The registration role is a **custom role, deliberately not the LF service-linked one**, so the trust

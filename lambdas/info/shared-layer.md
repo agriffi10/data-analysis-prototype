@@ -89,9 +89,9 @@ question was answered elsewhere. The fleet had five of those and they had drifte
 fifth was not that any one was wrong, it was that nobody could say which one a request had used.
 
 What the trust actually rests on is **who may write the queue**, not on a signature. The API's
-execution role holds `sqs:SendMessage` on the eight request queues and the browser's role does not
-— SPEC-200 FR-008, enforced by a `.tftpl` sweep derived from the modules on disk rather than from a
-list. If that grant is ever widened, no amount of verification here would help, because a principal
+execution role holds `sqs:SendMessage` on every request queue and no portal-role policy can write
+one — SPEC-200 FR-008. The second half is enforced by a `.tftpl` sweep derived from the modules on
+disk rather than from a list; the first is checked by count, not by name. If that grant is ever widened, no amount of verification here would help, because a principal
 that can write the queue can write the block.
 
 **Two rules earn their keep against fixtures that all look alike.**

@@ -1030,8 +1030,11 @@ a raw JWT travels through eight queues, sits in eight state-machine execution in
 CloudWatch whenever a message dead-letters.
 
 **The provenance is a grant, and it is enumerated rather than asserted:** the API's execution role
-holds `sqs:SendMessage` on exactly the eight request-queue ARNs, and a `.tftpl` sweep derived from
-the modules on the filesystem fails if any policy attached to the browser's role grants it again.
+holds `sqs:SendMessage` on ~~exactly the eight request-queue ARNs~~ **— superseded by SPEC-211 and
+SPEC-221:** every request-queue ARN, feedback's (SPEC-211) and results-conversion's (SPEC-221)
+having joined the eight, from a list whose length the module pins, and a `.tftpl` sweep derived
+from the modules on the filesystem fails if any policy attached to the ~~browser's role~~ **—
+superseded by SPEC-202:** portal role, which the browser no longer holds, grants it again.
 If that grant is ever widened, no amount of verification in the plane would help — a principal that
 can write the queue can write the block.
 

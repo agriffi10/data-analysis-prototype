@@ -105,19 +105,19 @@ rather than `var.environment`.
 **Retired names are still set and are waiting to be deleted. This is an outstanding action, not a
 completed one** — they are what `gh variable list` shows beyond the read set. Six were retired by
 the move to Terraform state: `API_BASE_URL`, the three `VITE_COGNITO_*` values, and the two
-`VITE_S3_*` bucket names. Ten more had already stopped being read when the browser's control-plane
-enqueues moved behind the API: the eight queue URLs, `VITE_ATHENA_WORKGROUP` and
-`VITE_COGNITO_IDENTITY_POOL_ID`. `VITE_ENVIRONMENT` lost its last reader with `deploy-app.yml`: a
+`VITE_S3_*` bucket names. Ten more had already stopped being read as the browser moved behind the
+API: the eight queue URLs when the control-plane enqueues moved, `VITE_ATHENA_WORKGROUP` when the
+catalog did, and `VITE_COGNITO_IDENTITY_POOL_ID` when the Identity Pool was retired. `VITE_ENVIRONMENT` lost its last reader with `deploy-app.yml`: a
 production bundle reads no `VITE_` name (`npm run check:bundle`), and the feature-flag block is
 chosen by `/config.json`'s `environment`, which the container renders from Terraform's
 `var.environment`. Only a dev build still reads the name, from a local `.env`
 (`apps/portal/.env.example`), as its stand-in for that key. The list and the ordering are in
 [`docs/testing/owed.md`](../../docs/testing/owed.md) — **delete them only after a green post-merge
-`Publish Config`**, because until then they are what a revert falls back to. `Deploy App` is gone,
-so `Publish Config` is the only workflow still resolving configuration from Terraform state — which
-is what makes re-pointing `.github/config-outputs.json` part of this retirement, not a follow-up. The
-queue URLs are wired straight from each module's output onto the API function by Terraform, with no
-repository variable and no build env in between.
+`Deploy SPA image` and `Publish Config`**, because until then they are what a revert falls back to.
+`Deploy App` is gone, so `Publish Config` is the only workflow still resolving configuration from
+Terraform state — which is what makes re-pointing `.github/config-outputs.json` part of this
+retirement, not a follow-up. The queue URLs are wired straight from each module's output onto the
+API function by Terraform, with no repository variable and no build env in between.
 
 ### Step 4 — Trigger the first app deploy
 

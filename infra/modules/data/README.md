@@ -148,7 +148,7 @@ user data lands.
 SQS stamps `SenderId` on every message, and for a **role** it is `{unique_id}:{session-name}` — a
 system attribute a `SendMessage` cannot set, and the one attributable fact a queued message carries
 about who sent it. The notifications writer compares the role-id half against this to refuse a
-`create` from browser credentials. **The unique id, never the name or the ARN** — `SenderId` carries
+`create` sent under the portal role — a backstop now, since that role holds no grant on the queue. **The unique id, never the name or the ARN** — `SenderId` carries
 neither, and a comparison against the wrong one silently never matches.
 
 ## The two `time_sleep` guards
