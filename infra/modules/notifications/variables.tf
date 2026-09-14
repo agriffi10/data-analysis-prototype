@@ -24,7 +24,7 @@ variable "user_space_bucket_name" {
 }
 
 variable "portal_role_unique_id" {
-  description = "The portal role's IAM unique ID (AROA…), set on the writer as NOTIFICATIONS_UNTRUSTED_SENDER_ID. SQS stamps SenderId as {unique_id}:{session-name}; the writer refuses a `create` whose role-id half matches this, which is what makes trusted-producer-only true of the running system rather than only of the design. NO DEFAULT ON PURPOSE: a root that forgets to wire it must fail at plan, because the writer's own fail-closed would otherwise deploy a function that silently refuses every notification in the product."
+  description = "The portal role's IAM unique ID (AROA…), set on the writer as NOTIFICATIONS_UNTRUSTED_SENDER_ID. SQS stamps SenderId as {unique_id}:{session-name}; the writer refuses a `create` whose role-id half matches this. That is a second fence, not the boundary: what keeps a user from sending a `create` is that the portal role holds no grant on the queue and the API's notifications route refuses the action. The check names this one role and no other, so a `create` sent by the API's own execution role would pass it, and against that sender the route's refusal is the only fence. NO DEFAULT ON PURPOSE: a root that forgets to wire it must fail at plan, because the writer's own fail-closed would otherwise deploy a function that silently refuses every notification in the product."
   type        = string
 
   # A missing wire fails at plan (no default); a WRONG one would not. The role's ARN and its

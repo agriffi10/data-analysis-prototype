@@ -259,7 +259,7 @@ locals {
   # NOTIFICATIONS_QUEUE_URL. Constructed strings (not module.notifications' outputs) so
   # they're KNOWN AT PLAN TIME and don't force a shared_spaces→notifications dependency
   # (infra/info/deploy-role-iam.md "unknown ARN" discipline); IAM never validates that the queue
-  # exists, so no apply ordering is needed (same pattern as the portal role's enqueue).
+  # exists, so no apply ordering is needed.
   notifications_queue_name = "${var.project_name}-${var.environment}-notifications-requests.fifo"
   notifications_queue_arn  = "arn:aws:sqs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:${local.notifications_queue_name}"
   notifications_queue_url  = "https://sqs.${var.aws_region}.amazonaws.com/${data.aws_caller_identity.current.account_id}/${local.notifications_queue_name}"
@@ -818,9 +818,10 @@ module "notifications" {
   # The writer reads/writes {username}/user_settings/notifications.json in Bucket 1.
   user_space_bucket_name = local.user_space_bucket_name
 
-  # The identity the writer must REFUSE a `create` from. That grant is unconditioned — IAM
-  # has no condition key that reaches a field inside a message body — so the boundary is a
-  # runtime check against the SenderId SQS stamps, and this is the value it compares.
+  # The identity the writer must REFUSE a `create` from, matched against the SenderId SQS
+  # stamps on every message. The portal role holds no grant on this queue, so the check is a
+  # second fence behind that missing grant; a `create` sent through the API meets the route's
+  # refusal instead.
   # A resource attribute rather than a name: SenderId carries the unique ID and nothing else.
   portal_role_unique_id = module.data.portal_role_unique_id
 
