@@ -1306,6 +1306,7 @@ echo "$1" >> "$FAKE_STATE/slept"
 APPLY_RUNNING = ({"status": "in_progress", "conclusion": None},)
 APPLY_SUCCEEDED = ({"status": "completed", "conclusion": "success"},)
 APPLY_FAILED = ({"status": "completed", "conclusion": "failure"},)
+APPLY_CANCELLED = ({"status": "completed", "conclusion": "cancelled"},)
 
 #: The shortest wait for an apply the scope step may give up after. It must outlast the slowest
 #: apply a push actually gets, QUEUE INCLUDED, because giving up early reddens main on a push whose
@@ -1691,7 +1692,12 @@ def test_an_apply_that_never_finishes_stops_the_run_rather_than_reading_past_it(
 
 
 def test_a_failed_apply_is_reported_and_the_run_decides_from_what_it_can_read():
-    """A failed apply is a red main already; this run says so and does not add a second red.
+    """An apply that finished without succeeding is said, and the run goes on from live state.
+
+    A failed apply is a red main already, and adding a second red for it holds back an image
+    that may not depend on it. A cancelled one is what GitHub leaves when a newer push's run
+    replaces a pending one: it will never finish any further, so waiting on it runs out the
+    window and reddens main for a push that did nothing wrong.
 
     Args:
         None.
@@ -1700,14 +1706,21 @@ def test_a_failed_apply_is_reported_and_the_run_decides_from_what_it_can_read():
         None.
 
     Raises:
-        AssertionError: If a finished-but-failed apply reddens this run or passes unreported.
+        AssertionError: If a finished-but-unsuccessful apply reddens this run or passes
+            unreported.
     """
-    answers = _run_scope(("infra/main.tf",), apply_runs=(APPLY_FAILED,))
-    assert (answers["build"], answers["deploy"]) == ("skip", "skip")
-    assert "::warning title=Apply did not succeed::" in answers["stdout"], (
-        "an apply that failed was waited out silently, so nothing says the family may not carry "
-        "this commit's configuration"
-    )
+    for label, runs in (
+        ("a failed apply", APPLY_FAILED),
+        ("a cancelled apply", APPLY_CANCELLED),
+    ):
+        answers = _run_scope(("infra/main.tf",), apply_runs=(runs,))
+        assert (answers["build"], answers["deploy"]) == ("skip", "skip"), (
+            f"{label} did not let the run decide from what the family holds"
+        )
+        assert "::warning title=Apply did not succeed::" in answers["stdout"], (
+            f"{label} was waited out silently, so nothing says the family may not carry this "
+            "commit's configuration"
+        )
 
 
 def test_nothing_but_a_push_touching_the_task_definition_waits():
@@ -1762,6 +1775,33 @@ def test_every_path_the_task_list_waits_on_fires_the_apply_it_waits_for():
     assert waited_on <= fired, (
         f"{workflow.name} does not fire on {sorted(waited_on - fired)}, so a push touching it "
         "waits for an apply run that is never created"
+    )
+
+
+def test_the_scope_step_holds_a_token_that_may_read_the_apply_runs():
+    """The harness builds its own environment, so it cannot see what the runner hands the step.
+
+    `gh` refuses to run with no token at all, and the runs endpoint refuses a token without the
+    Actions permission in a private repository. Either way every lookup reads as unreadable,
+    and every push touching the task definition waits out the window and reddens main.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If the job's token cannot read workflow runs, or the step is not given
+            it.
+    """
+    document = yaml.safe_load(DEPLOY_SPA_WORKFLOW.read_text(encoding="utf-8"))
+    permissions = document["jobs"]["deploy"]["permissions"]
+    assert permissions.get("actions") in ("read", "write"), (
+        f"the deploy job's token is granted {permissions}, which cannot list workflow runs"
+    )
+    assert _scope_step()["env"].get("GH_TOKEN") == "${{ github.token }}", (
+        "the scope step is not handed the job's token as GH_TOKEN, so `gh` has nothing to ask with"
     )
 
 
