@@ -448,4 +448,16 @@ describe('the results region', () => {
     expect(alert.textContent).not.toMatch(/SYNTAX_ERROR/);
     expect(screen.queryByText(/cannot be resolved/)).not.toBeInTheDocument();
   });
+
+  it('leaves nothing under the banner of a first apply that failed — no Running…, no empty answer', async () => {
+    vi.mocked(getQueryStatus).mockResolvedValue(
+      ok({queryExecutionId: 'exec-1', state: 'FAILED', stateChangeReason: "line 1:8: mismatched input 'FROM'"})
+    );
+    seedTabs([{id: 't1', table: 'orders'}]);
+    render();
+
+    expect(await screen.findByText(/syntax error in your query/i)).toBeInTheDocument();
+    expect(screen.queryByText('Running…')).not.toBeInTheDocument();
+    expect(screen.queryByText('No rows returned.')).not.toBeInTheDocument();
+  });
 });

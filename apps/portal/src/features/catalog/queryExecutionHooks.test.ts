@@ -1,12 +1,13 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, waitFor} from '@testing-library/react';
-import {renderHookWithProviders} from '../../test/renderWithProviders';
+import {focusManager, onlineManager} from '@tanstack/react-query';
+import {createTestQueryClient, renderHookWithProviders} from '../../test/renderWithProviders';
 import {getQueryResults, getQueryRowCount, getQueryStatus} from './athena.service';
 import {useQueryExecution} from './useQueryExecution';
 import {useQueryResults} from './useQueryResults';
 import {useResultRowCount} from './useResultRowCount';
 import {catalogKeys} from './catalogKeys';
-import {POLL_INTERVAL_MS, ROW_COUNT_PAGE_SIZE} from './catalog.constants';
+import {MAX_POLL_DURATION_MS, POLL_INTERVAL_MS, ROW_COUNT_PAGE_SIZE} from './catalog.constants';
 import type {QueryResultPage, QueryRowCount, QueryStatus} from './catalog.types';
 
 // One boundary for all three hook suites. `isTerminalState` and friends stay real
@@ -37,7 +38,7 @@ describe('useQueryExecution', () => {
   describe('useQueryExecution', () => {
     it('is disabled and does not poll while the id is null', () => {
       const {result} = renderHookWithProviders(() => useQueryExecution(null));
-      expect(result.current.fetchStatus).toBe('idle');
+      expect(result.current).toEqual({status: undefined, error: null, stillRunning: null});
       expect(mockGetStatus).not.toHaveBeenCalled();
     });
 
@@ -45,7 +46,7 @@ describe('useQueryExecution', () => {
       mockGetStatus.mockResolvedValue(ok(status({state: 'SUCCEEDED'})));
       const {result} = renderHookWithProviders(() => useQueryExecution('q-1'));
 
-      await waitFor(() => expect(result.current.data?.state).toBe('SUCCEEDED'));
+      await waitFor(() => expect(result.current.status?.state).toBe('SUCCEEDED'));
       expect(mockGetStatus).toHaveBeenCalledWith('q-1');
     });
 
@@ -53,7 +54,7 @@ describe('useQueryExecution', () => {
       mockGetStatus.mockResolvedValue({success: false, error: {message: 'boom'}});
       const {result} = renderHookWithProviders(() => useQueryExecution('q-1'));
 
-      await waitFor(() => expect(result.current.isError).toBe(true));
+      await waitFor(() => expect(result.current.error).not.toBeNull());
       expect(result.current.error).toEqual(expect.objectContaining({message: 'boom'}));
       // The harness retries nothing, so the second request is the hook's own retry.
       expect(mockGetStatus).toHaveBeenCalledTimes(2);
@@ -65,7 +66,7 @@ describe('useQueryExecution', () => {
         mockGetStatus.mockResolvedValue({success: false, error: {message: 'refused', code: 'NotFound'}});
         const {result} = renderHookWithProviders(() => useQueryExecution('q-1', {stopOnError: true}));
         await act(async () => {
-          await vi.waitFor(() => expect(result.current.isError).toBe(true));
+          await vi.waitFor(() => expect(result.current.error).not.toBeNull());
         });
 
         await act(async () => {
@@ -84,7 +85,7 @@ describe('useQueryExecution', () => {
         mockGetStatus.mockResolvedValue({success: false, error: {message: 'refused', code: 'NotFound'}});
         const {result} = renderHookWithProviders(() => useQueryExecution('q-1'));
         await act(async () => {
-          await vi.waitFor(() => expect(result.current.isError).toBe(true));
+          await vi.waitFor(() => expect(result.current.error).not.toBeNull());
         });
         // Counted from the error, not the first request, because the retry alone makes a second.
         const atError = mockGetStatus.mock.calls.length;
@@ -95,6 +96,159 @@ describe('useQueryExecution', () => {
 
         // The interval's request, and its own retry.
         expect(mockGetStatus).toHaveBeenCalledTimes(atError + 2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('the watch’s ceiling', () => {
+    const RUNNING = ok(status({state: 'RUNNING'}));
+    const requestsFor = (id: string) => mockGetStatus.mock.calls.filter(([requested]) => requested === id).length;
+
+    /**
+     * Advances the fake clock inside its own `act`. Crossing the ceiling's mark gets a call of its
+     * own: the mark is a state update, and React applies it only when the `act` around it exits.
+     */
+    async function advance(ms: number) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+    }
+    /** One poll past wherever the clock stands, with room for the read and its notification. */
+    const ONE_POLL = POLL_INTERVAL_MS + 10;
+
+    it('ends the watch on the first read after the ceiling that finds it running, and asks nothing more', async () => {
+      vi.useFakeTimers();
+      try {
+        mockGetStatus.mockResolvedValue(RUNNING);
+        const {result} = renderHookWithProviders(() => useQueryExecution('q-1'));
+
+        await advance(MAX_POLL_DURATION_MS - 1);
+        expect(result.current.stillRunning).toBeNull();
+        const beforeTheMark = requestsFor('q-1');
+        await advance(1);
+        await advance(ONE_POLL);
+
+        expect(requestsFor('q-1')).toBeGreaterThan(beforeTheMark);
+        expect(result.current.stillRunning).toMatchObject({
+          code: 'QueryStillRunning',
+          params: {limit: 30, queryExecutionId: 'q-1'}
+        });
+        expect(result.current.status?.state).toBe('RUNNING');
+
+        const atVerdict = requestsFor('q-1');
+        await advance(POLL_INTERVAL_MS * 2);
+        await act(async () => {
+          onlineManager.setOnline(false);
+          onlineManager.setOnline(true);
+          await vi.advanceTimersByTimeAsync(10);
+        });
+        expect(requestsFor('q-1')).toBe(atVerdict);
+      } finally {
+        onlineManager.setOnline(true);
+        vi.useRealTimers();
+      }
+    });
+
+    it('delivers a terminal status read after the ceiling, and reports no verdict', async () => {
+      vi.useFakeTimers();
+      try {
+        const start = Date.now();
+        mockGetStatus.mockImplementation(async () =>
+          ok(status({state: Date.now() - start > MAX_POLL_DURATION_MS ? 'SUCCEEDED' : 'RUNNING'}))
+        );
+        const {result} = renderHookWithProviders(() => useQueryExecution('q-1'));
+
+        await advance(MAX_POLL_DURATION_MS);
+        await advance(ONE_POLL);
+
+        expect(result.current.status?.state).toBe('SUCCEEDED');
+        expect(result.current.stillRunning).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('decides on the first read after a hidden page is shown again, never on the clock alone', async () => {
+      vi.useFakeTimers();
+      // As production has it: a focus refetch would make the deciding read here, not the interval.
+      const queryClient = createTestQueryClient();
+      queryClient.setDefaultOptions({queries: {...queryClient.getDefaultOptions().queries, refetchOnWindowFocus: false}});
+      try {
+        mockGetStatus.mockResolvedValue(RUNNING);
+        const {result} = renderHookWithProviders(() => useQueryExecution('q-1'), {queryClient});
+        await advance(MAX_POLL_DURATION_MS - 10_000);
+
+        focusManager.setFocused(false);
+        const hidden = requestsFor('q-1');
+        await advance(20_000);
+        expect(requestsFor('q-1')).toBe(hidden);
+        expect(result.current.stillRunning).toBeNull();
+
+        focusManager.setFocused(true);
+        await advance(ONE_POLL);
+        expect(requestsFor('q-1')).toBe(hidden + 1);
+        expect(result.current.stillRunning).not.toBeNull();
+      } finally {
+        focusManager.setFocused(undefined);
+        queryClient.clear();
+        vi.useRealTimers();
+      }
+    });
+
+    it('looks again when a new watch starts on the same execution', async () => {
+      vi.useFakeTimers();
+      // Keeps the cache: collected on the switch, q-1 would be refetched whatever the hook remembered.
+      const queryClient = createTestQueryClient();
+      queryClient.setDefaultOptions({queries: {...queryClient.getDefaultOptions().queries, gcTime: Infinity}});
+      try {
+        mockGetStatus.mockResolvedValue(RUNNING);
+        const {result, rerender} = renderHookWithProviders(({id}) => useQueryExecution(id), {
+          initialProps: {id: 'q-1' as string | null},
+          queryClient
+        });
+        await advance(MAX_POLL_DURATION_MS);
+        await advance(ONE_POLL);
+        expect(result.current.stillRunning).not.toBeNull();
+
+        rerender({id: 'q-2'});
+        await advance(ONE_POLL);
+        const beforeReturning = requestsFor('q-1');
+        rerender({id: 'q-1'});
+        await advance(ONE_POLL);
+
+        expect(result.current.stillRunning).toBeNull();
+        expect(requestsFor('q-1')).toBeGreaterThanOrEqual(beforeReturning + 2);
+      } finally {
+        queryClient.clear();
+        vi.useRealTimers();
+      }
+    });
+
+    it('ends the watch on a failed read after the ceiling, even without stopOnError', async () => {
+      vi.useFakeTimers();
+      try {
+        mockGetStatus.mockResolvedValue({success: false, error: {message: 'refused', code: 'NotFound'}});
+        const {result} = renderHookWithProviders(() => useQueryExecution('q-1'));
+
+        // Each window ends between two ticks. One that ends ON a tick can leave the timer that tick
+        // schedules through its retry for the next window, and the counts would then shift by one poll.
+        await advance(POLL_INTERVAL_MS * 4 + POLL_INTERVAL_MS / 3);
+        // Before the ceiling a failure keeps polling: each interval is a request and its retry.
+        const early = requestsFor('q-1');
+        await advance(POLL_INTERVAL_MS);
+        expect(requestsFor('q-1')).toBe(early + 2);
+
+        await advance(MAX_POLL_DURATION_MS - POLL_INTERVAL_MS * 5 - POLL_INTERVAL_MS / 3 + 10);
+        const atTheMark = requestsFor('q-1');
+        await advance(ONE_POLL);
+        await advance(POLL_INTERVAL_MS * 2);
+
+        // The deciding read and its retry, and nothing after them.
+        expect(requestsFor('q-1')).toBe(atTheMark + 2);
+        expect(result.current.error).toEqual(expect.objectContaining({code: 'NotFound'}));
+        expect(result.current.stillRunning).toBeNull();
       } finally {
         vi.useRealTimers();
       }

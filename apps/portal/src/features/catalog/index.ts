@@ -9,7 +9,8 @@ export {
 } from './athena.service';
 export {getDatabase, listTables} from './glue.service';
 export {useQuerySpaces} from './useQuerySpaces';
-export {useQueryExecution} from './useQueryExecution';
+export {useQueryExecution, isQueryStillRunning} from './useQueryExecution';
+export type {QueryExecutionWatch, QueryStillRunning} from './useQueryExecution';
 export {useQueryResults} from './useQueryResults';
 export type {UseQueryResultsResult} from './useQueryResults';
 export {useResultRowCount} from './useResultRowCount';
