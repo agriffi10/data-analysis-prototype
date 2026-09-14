@@ -25,11 +25,11 @@ export type UseDeleteResult = BulkOperationState & {
  *
  * **Files loop; folders are refused.** The recursive primitive this hook used to call is gone: an
  * operation whose cost grows with object count belongs on the file-operations plane, and building
- * it a second time in the browser is the loop that plane exists to remove. No real gesture brings
- * a folder here, or more than one item: with the plane taking work — the shipped default — such a
- * selection is enqueued, and with it switched off the Delete control refuses it before the
- * confirm. The per-item refusal below is the backstop for a caller that skips that gate, and it
- * still deletes the files beside a folder and names the folders it did not touch.
+ * it a second time in the browser is the loop that plane exists to remove. A folder, or more than
+ * one item, reaches here only through the race `dispatch` in `useFileBrowserDialogs` describes:
+ * otherwise such a selection is enqueued, or refused at the Delete control while the plane is
+ * off. The per-item refusal below answers that race, and it still deletes the files beside a
+ * folder and names the folders it did not touch.
  *
  * Results aggregate across all items — one failure never aborts the rest. On completion the
  * current prefix listing is invalidated so removed items disappear; the caller clears the

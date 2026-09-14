@@ -72,16 +72,15 @@ const CODE_RULES: readonly ErrorRule[] = [
   {code: 'TooLarge', userFixable: true, passthrough: true}, // upload exceeds the max size (carries the limit)
   {code: 'NoFreeName', userFixable: false, passthrough: true}, // 999 numbered names are taken at the destination
 
-  // Trigger: a folder copy or move reached the browser, which a real gesture does only with the
-  // file-operations flag ON and a chosen destination that resolved to no known space — in
-  // practice a spaces list that had not loaded. With the flag off the control refuses a folder
-  // before any service runs, so this never says the service is down. User-fixable: a reload
-  // fetches the spaces again. NOT passthrough: the services raise it per item and the sentence is
-  // the same one every time.
+  // Trigger: a folder reached the browser's copy, move or delete hook, which happens only through
+  // the race `dispatch` in `useFileBrowserDialogs` describes. The service may be off or on in that
+  // race, so the sentence names neither cause; a reload shows the real state either way, which is
+  // what makes it user-fixable. NOT passthrough: the services raise it per item and the sentence
+  // is the same one every time.
   {
     code: 'PlaneRequired',
     message:
-      "The file operations service handles folders, but this destination couldn't be matched to one of your spaces. Reload the page and try again.",
+      "Folders are handled by the file operations service, which couldn't take this request. Reload the page and try again.",
     userFixable: true
   },
 

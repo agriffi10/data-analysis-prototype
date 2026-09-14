@@ -47,10 +47,10 @@ type Acc = {moved: number; errors: MoveSummary['errors']};
  *
  * **Files move; folders are refused.** A folder rename is one `CopyObject` per contained object,
  * so its cost cannot be bounded without listing the folder first — which is exactly the work the
- * file-operations plane exists to take off the browser. With the plane off, the Move and Rename
- * controls refuse a folder before this is reached. With it on, one gesture still lands a folder
- * here: a move whose chosen destination resolves to no known space, which the dispatcher runs in
- * the browser. That folder is refused per item, and the files beside it still move.
+ * file-operations plane exists to take off the browser. A folder reaches here only through the
+ * race `dispatch` in `useFileBrowserDialogs` describes — otherwise it is enqueued, or refused at
+ * the Move and Rename controls while the plane is off — and is refused per item, the files beside
+ * it still attempted.
  *
  * A move is ONE route now, not a copy call followed by a delete call: two calls put a closed tab
  * between them, and versioning is off.

@@ -20,7 +20,7 @@ set only when there IS a refusal:
 request on this plane into the refusal branch. For an authorized create or
 delete it also durably records the in-flight state in the actor's cache and emits a start
 notification — the browser reads only that cache, so without it the row reconciles back to
-active or vanishes on reload. Verbs trust the context it outputs and never re-verify the token
+active or vanishes on reload. Verbs trust the context it outputs and never re-read the identity
 or re-authorize.
 
 The service name is the control plane, not the function: one shared-space request is up to eight

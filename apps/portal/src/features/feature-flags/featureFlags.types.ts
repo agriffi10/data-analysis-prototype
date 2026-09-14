@@ -6,9 +6,10 @@
  * Five of the seven are areas, and the two exceptions are deliberate and different from each
  * other. `asyncFileOperations` is a kill switch over the file browser's copy/move/delete
  * routing, whose only other switch is `files: false` — which removes the entire file browser.
- * Off, every gesture keeps the browser's synchronous path; on, anything that is not exactly one
- * file is handed to the control plane. Publishing it needs no app build, which is what makes the
- * largest user-visible change in the product survivable.
+ * Off, exactly one file keeps the browser's synchronous path and anything else is refused at the
+ * control, since the browser has no recursive primitive to run it with; on, anything that is not
+ * exactly one file is handed to the control plane. Publishing it needs no app build, which is what
+ * makes the largest user-visible change in the product survivable.
  *
  * `resultsConversion` is neither an area nor a kill switch but a PRESENTATION flag over one
  * control: off, the Save-results dialog offers no format choice and saves the CSV it always did.

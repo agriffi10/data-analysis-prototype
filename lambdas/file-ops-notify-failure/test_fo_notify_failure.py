@@ -87,7 +87,7 @@ def test_an_engine_failure_notifies_the_actor():
 def test_the_actor_is_recovered_from_the_request_when_no_verb_produced_one():
     """THE CASE THIS STATE ACTUALLY SEES. Every failure it exists for — a cold-start import
     error, a state timeout, a task that could not be invoked — happens before an actor exists,
-    so the recorded object carries actor: null. Recovering the actor from the verified token
+    so the recorded object carries actor: null. Recovering the actor from the identity block
     in the captured request is the difference between the spec's guarantee holding here and
     reading as satisfied while telling nobody anything."""
     sent = _capture()
@@ -118,7 +118,7 @@ def _timed_out(input_json=None, included=True):
     """An EventBridge Step Functions status-change event for a timed-out execution.
 
     The execution's input is what the Pipe forwarded — the raw SQS batch — so the actor comes
-    from the verified token in it, exactly as the ASL door's fallback does.
+    from the identity block in it, exactly as the ASL door's fallback does.
     """
     detail = {"status": "TIMED_OUT", "inputDetails": {"included": included}}
     if input_json is not None:

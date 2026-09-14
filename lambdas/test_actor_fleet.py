@@ -216,7 +216,7 @@ def test_no_queue_consumer_reads_the_flat_actor_or_a_token_field(name) -> None:
 
     A raw JWT and a username are both non-empty strings, so a consumer reading the flat field
     beside the block cannot be caught by any fixture-based test — it has to be caught by shape.
-    ``idToken`` is the same field under its other name on the four planes that use it.
+    ``idToken`` is the same field under its other name on the four planes that used it.
 
     Scoped to the parsed body's own binding, which is derived per module: the state machine's
     failure object carries an ``actor`` too, and that one IS the trusted value.

@@ -77,10 +77,9 @@ export function useFileSend(space: SendSourceSpace | null, notify: (toast: SendT
     } catch (err) {
       // `enqueueFileSend` returns a ServiceResult and does not normally throw — but the request
       // is BUILT before that contract starts, and `crypto.randomUUID()` here is undefined outside
-      // a secure context, which is the documented dev-preview shape. A throw here used to leave
-      // `busy` true forever: the submit control reads "Sending…", Cancel is disabled, the modal
-      // refuses to dismiss and swallows Escape, and `close()` refuses because it is busy — an
-      // unrecoverable dialog, with no error shown.
+      // a secure context, which is the documented dev-preview shape. Without this catch its throw
+      // escapes the click handler: the `finally` still frees the dialog, but the submit does
+      // nothing and shows no error.
       setError(toUserText(err));
       return false;
     } finally {

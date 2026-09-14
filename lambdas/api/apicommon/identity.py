@@ -139,8 +139,8 @@ class IdentityUnavailableError(RuntimeError):
 class UserIdentity:
     """The verified identity a request acts as.
 
-    Built ONLY from the claims of the verified ID token — the same claims the Identity Pool's
-    principal-tag map reads today. Constructed in this module and nowhere else, asserted by a
+    Built ONLY from the claims of the verified ID token — the same claims the retired Identity
+    Pool's principal-tag map read. Constructed in this module and nowhere else, asserted by a
     sweep: a route minting one from a path segment would assume the portal role as somebody
     else, and would pass every test that supplies a matching token.
 
