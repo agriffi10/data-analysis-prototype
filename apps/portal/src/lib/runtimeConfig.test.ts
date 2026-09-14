@@ -13,7 +13,7 @@ const COMPLETE = Object.fromEntries(
   [...REQUIRED_CONFIG, ...OPTIONAL_CONFIG].map((key) => [key, `served-${key}`])
 ) as Record<RuntimeConfigKey, string>;
 
-/** The complete document minus some keys — what an unset repository variable renders. */
+/** The complete document minus some keys. */
 function withoutKeys(...omitted: RuntimeConfigKey[]): Record<string, string> {
   return Object.fromEntries(Object.entries(COMPLETE).filter(([key]) => !omitted.includes(key as RuntimeConfigKey)));
 }

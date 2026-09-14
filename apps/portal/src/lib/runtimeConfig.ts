@@ -104,8 +104,8 @@ async function readDocument(): Promise<RuntimeConfigLoad> {
     // AND A DEADLINE, because nothing renders until this settles. An origin that accepts
     // the connection and never answers — a load balancer with no healthy target — would
     // otherwise leave a blank page with an empty console forever, which is the one
-    // failure mode with no diagnostic at all. The abort lands in the catch below as
-    // `unreachable`, which is what it is.
+    // failure mode with no diagnostic at all. An abort before the headers lands in the
+    // catch below as `unreachable`, which is what it is; one after them fails the parse.
     response = await fetch(CONFIG_URL, {cache: 'no-store', signal: AbortSignal.timeout(CONFIG_TIMEOUT_MS)});
   } catch {
     return {ok: false, reason: 'unreachable'};
@@ -116,10 +116,10 @@ async function readDocument(): Promise<RuntimeConfigLoad> {
   try {
     body = await response.json();
   } catch {
-    // A 2xx whose body does not parse, or is cut off mid-read. The container never serves
-    // markup here — its document is rendered JSON and a missing one is a 404 — but a server
-    // answering unknown paths with the app shell under a 200 would, and a loader keyed on
-    // the status alone reads that shell as configuration and boots with everything undefined.
+    // A 2xx whose body does not parse, or is cut off mid-read. This container's own fallback
+    // answers unknown paths with the app shell under a 200, and only its exact-match
+    // `/config.json` location keeps the document off that path; a loader keyed on the status
+    // alone would take the shell for configuration.
     return {ok: false, reason: 'unparseable'};
   }
   return install(body);
