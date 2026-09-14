@@ -350,8 +350,9 @@ function FileBrowserContent({
         )}
       </div>
 
-      {/* Mobile bottom action bar (writable only) — New folder + Upload, ≥44px
-          . Same handlers as the top-toolbar buttons. */}
+      {/* Mobile bottom action bar (writable only) — New folder and Upload, plus
+          Restore Archived Data when restore is enabled, each `!h-11` (38.5px). Same
+          handlers as the top-toolbar buttons. */}
       {writable && isMobile && (
         <MobileActionBar ariaLabel="File actions">
           {/* Mount-gated into the bar rather than CSS-hidden, so exactly one

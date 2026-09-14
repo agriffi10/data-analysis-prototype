@@ -14,7 +14,7 @@ type PagerProps = {
   className?: string;
 };
 
-// Full touch height on mobile (~38px), compact at ≥ tablet.
+// Touch height on mobile, `h-[38px]` (a literal 38px); compact `tablet:h-9` (31.5px) at ≥ tablet.
 const pagerButton =
   'h-[38px] rounded-md border border-border px-4 text-sm font-medium text-text-2 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent tablet:h-9';
 

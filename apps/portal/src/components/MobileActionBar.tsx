@@ -1,7 +1,11 @@
 import {type ReactNode} from 'react';
 
 export type MobileActionBarProps = {
-  /** Primary mobile actions (caller-supplied; each should be a ≥44px target). */
+  /**
+   * Primary mobile actions, caller-supplied. Give each the app's mobile touch height, `!h-11`:
+   * 38.5px at the 14px root, clear of the 24px AA floor and short of the AAA 44px, which this
+   * project does not target.
+   */
   children: ReactNode;
   /** Accessible name for the toolbar. Default "Actions". */
   ariaLabel?: string;
@@ -16,8 +20,8 @@ export type MobileActionBarProps = {
  *
  * @example
  * <MobileActionBar ariaLabel="File actions">
- *   <Button className="flex-1">New folder</Button>
- *   <Button variant="primary" className="flex-1">Upload</Button>
+ *   <Button className="!h-11 flex-1">New folder</Button>
+ *   <Button variant="primary" className="!h-11 flex-1">Upload</Button>
  * </MobileActionBar>
  */
 export function MobileActionBar({children, ariaLabel = 'Actions'}: MobileActionBarProps) {

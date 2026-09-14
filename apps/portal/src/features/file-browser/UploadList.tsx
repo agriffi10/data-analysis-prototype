@@ -115,7 +115,7 @@ function UploadRow({item}: {item: UploadItem}) {
 
   return (
     <li className="group relative flex items-start gap-3 px-3 py-3 hover:bg-surface-2">
-      {/* File-type chip (28px) */}
+      {/* File-type chip, `h-7 w-7` (24.5px) */}
       <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-surface-2 text-[10px] font-semibold text-text-2">
         {fileExtension(name, {fallback: 'FILE', maxLen: 4})}
       </span>
@@ -139,7 +139,7 @@ function UploadRow({item}: {item: UploadItem}) {
           </span>
         </div>
 
-        {/* 6px accent progress bar — only while uploading (design-system §5) */}
+        {/* `h-1.5` (5.25px) accent progress bar — only while uploading (design-system §5) */}
         {item.status === 'uploading' && (
           <div
             className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-border"

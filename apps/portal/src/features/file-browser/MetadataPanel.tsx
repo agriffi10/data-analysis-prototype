@@ -40,8 +40,10 @@ type Props = {
 
 // The Download + Rename action pair. Download resolves a presigned URL
 // and downloads with attachment disposition (both authenticated + read-only);
-// Rename opens the shared RenameDialog and is hidden in read-only mode. Desktop =
-// side-by-side 50/50; mobile sheet = stacked full-width (≥44px).
+// Rename opens the shared RenameDialog and is hidden in read-only mode. At
+// ≥ tablet they sit side by side, 50/50, at `!h-[38px]`; the mobile sheet stacks
+// them full-width at `!h-11`, which is 38.5px at the 14px root — clear of the 24px
+// AA floor, short of the AAA 44px, which this project does not target.
 function PanelActions({
   bucket,
   file,
