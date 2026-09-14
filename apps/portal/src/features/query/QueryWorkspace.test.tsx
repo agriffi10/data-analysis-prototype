@@ -1301,18 +1301,27 @@ describe('QueryWorkspace', () => {
       ).toBeInTheDocument();
     });
 
-    it('shows a start that fails after a dismissed banner, in the code’s wording', async () => {
+    it('shows a start that fails after a dismissed banner, and its retry does not bring the dismissed one back', async () => {
       queueRuns('q-1');
-      mockRunQuery.mockResolvedValueOnce(fail('raw: rate exceeded for alice', 'ThrottlingException'));
+      mockRunQuery
+        .mockResolvedValueOnce(fail('raw: rate exceeded for alice', 'ThrottlingException'))
+        .mockResolvedValueOnce(ok({queryExecutionId: 'q-3'}));
       seedSingle('SELECT 1');
       const {user} = renderWorkspace();
       await screen.findByLabelText('SQL editor');
       await failAndDismiss(user);
 
       await user.click(screen.getByRole('button', {name: 'Run statement'}));
-
       expect(await screen.findByText('The service is busy. Wait a moment and try again.')).toBeInTheDocument();
       expect(screen.queryByText(/rate exceeded/)).not.toBeInTheDocument();
+
+      // The failed start installed no run, so the dismissed failure is still the tab's.
+      mockAppend.mockReturnValueOnce(new Promise(() => {}));
+      await user.click(screen.getByRole('button', {name: 'Run statement'}));
+      await waitFor(() =>
+        expect(mockAppend).toHaveBeenLastCalledWith('alice', expect.objectContaining({queryExecutionId: 'q-3'}))
+      );
+      expect(screen.queryByText(COLUMN_MISSING)).not.toBeInTheDocument();
     });
 
     it('says why a Stop was refused, in the code’s wording, and leaves the run going', async () => {

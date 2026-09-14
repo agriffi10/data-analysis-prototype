@@ -459,7 +459,9 @@ export function QueryWorkspace() {
     (activeStatus?.state === 'FAILED'
       ? toUserText({code: activeStatus.state, message: activeStatus.stateChangeReason})
       : null);
-  const showError = !!errorMessage && !dismissed[activeTabId];
+  // A failed start is the latest submit's own news, so it shows past a dismissal — which
+  // belongs to the run still on the tab, and stays closed until the next run replaces it.
+  const showError = !!errorMessage && (!!runErrors[activeTabId] || !dismissed[activeTabId]);
   const canRun = !!activeTab.sql.trim() && !activeIsInFlight;
   const canClear = activeTab.sql.length > 0 && !activeIsInFlight;
   const canSave = !!activeTab.sql.trim(); // disabled only when empty

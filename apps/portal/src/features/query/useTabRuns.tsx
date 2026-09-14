@@ -63,8 +63,8 @@ export type UseTabRunsResult = {
   /** Forgets a closed tab's run state (the execution itself keeps running server-side). */
   dropRunState: (id: string) => void;
   /**
-   * Clears a tab's error and marks it dismissed, so the banner stays closed until the tab's next
-   * run is installed or fails to start.
+   * Clears a tab's error and marks it dismissed, so the run's banner stays closed until the tab's
+   * next run is installed. A start that fails is not a run, and its error shows regardless.
    */
   dismissError: (tabId: string) => void;
   /** switch which result-producing statement the results region shows. */
@@ -284,20 +284,13 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
     const linkedSaved = tabs.find((t) => t.id === tabId)?.savedQuery;
 
     setRunErrors((e) => ({...e, [tabId]: null}));
-    // A dismissed banner re-opens only once this submit has something of its own to show —
-    // its run installed, or its start failed. Re-opening at submit re-showed the PREVIOUS
-    // run's verdict for the whole start and history round-trip.
-    const reopenBanner = () => setDismissed((d) => ({...d, [tabId]: false}));
+    // A start that fails installs no run, so the tab keeps the previous one — whose banner the
+    // user may have closed — and `dismissed` stays as they left it. The tab's own start error
+    // shows past it (the workspace reads `runErrors` ahead of `dismissed`); an owned submit's
+    // goes to the owner instead, since the editor shell reads the tab's.
     const reportStartFailure = (message: string) => {
-      // An owned submit that fails installs no run, so the tab keeps the previous one — whose
-      // error the editor showed and the user may have closed. The error goes to the owner, and
-      // the tab's banner stays as the user left it.
-      if (owner) {
-        owner.onOutcome(false, message);
-        return;
-      }
-      setRunErrors((e) => ({...e, [tabId]: message}));
-      reopenBanner();
+      if (owner) owner.onOutcome(false, message);
+      else setRunErrors((e) => ({...e, [tabId]: message}));
     };
     void (async () => {
       try {
@@ -349,9 +342,11 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
             ...(owner && {token: owner.token})
           }
         }));
-        // The run just replaced the one whose banner was closed, so re-opening can show only
-        // this run's own verdict — an owned run's too, which the editor shell never shows.
-        reopenBanner();
+        // The banner re-opens here, not at submit, where it re-showed the PREVIOUS run's verdict
+        // for the whole start and history round-trip. The run just replaced the one whose banner
+        // was closed, so re-opening can show only this run's own verdict — an owned run's too,
+        // which the editor shell never shows.
+        setDismissed((d) => ({...d, [tabId]: false}));
         owner?.onOutcome(true);
       } catch (e) {
         // Services don't throw by contract, but an unreported submit would leave
