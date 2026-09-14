@@ -13,8 +13,9 @@ precisely so it never would be.
 
 **Nothing it produces rides on the state.** At ``ARCHIVE_MAX_OBJECTS`` the plan is tens of
 megabytes against a 256 KB payload limit, and ``States.DataLimitExceeded`` escapes every
-``Catch`` — which on this plane is a run that told the user nothing at all. What comes back is
-the plan's KEY plus the count and the byte total.
+``Catch`` here (``States.ALL`` does not match it and none names it) — which on this plane is a
+run that told the user nothing at all. What comes back is the plan's KEY plus the count and the
+byte total.
 
 The service name is the control plane, not the function, so one restore's invocations stay one
 queryable set. The per-verb identity rides as the ``verb`` field.

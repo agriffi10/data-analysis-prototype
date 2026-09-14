@@ -113,8 +113,8 @@ def _sink(monkeypatch):
 
 def test_the_plan_comes_back_as_a_POINTER_and_the_object_list_does_not():
     """At ARCHIVE_MAX_OBJECTS the list is tens of megabytes against a 256 KB payload limit, and
-    States.DataLimitExceeded escapes every Catch — which on this plane is a run that told the
-    user nothing at all."""
+    States.DataLimitExceeded escapes every Catch here (States.ALL does not match it and none
+    names it) — which on this plane is a run that told the user nothing at all."""
     fake = _install(archived=[(f"{_ARCHIVE_ROOT}reports/q1.csv", 90_112)])
 
     out = m.handler(_request(), None)

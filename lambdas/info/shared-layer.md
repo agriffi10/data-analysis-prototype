@@ -292,10 +292,13 @@ that is not a JSON string. Verified against the live service with TestState:
 | `Lambda.Unknown` (prose) | `States.Runtime` — "Cannot convert String to Json" |
 
 Three of four realistic shapes killed the execution **before** the recorded-failure and
-notify states — so on precisely the failures a user most needs to hear about (a timeout, an
-oversized payload, a Lambda that died without a handled error) they were told nothing at
-all. Python can do this safely, so the decode moved to `cpcommon.errors.failure_reason` and
-the machines pass `$.error` through untouched. See the `docs/decisions/control-planes.md` entry.
+notify states — so on precisely the failures a user most needs to hear about (a timeout, a
+Lambda that died without a handled error) they were told nothing at all. The
+`States.DataLimitExceeded` row is that error's shape injected through `TestState`: a real one
+is never caught (`States.ALL` does not match it and no Catch names it), so it never reached the
+decode, and moving the decode did not route it to the notifier. Python can do this safely, so
+the decode moved to `cpcommon.errors.failure_reason` and the machines pass `$.error` through
+untouched. See the `docs/decisions/control-planes.md` entry.
 
 **Why the reason split is gated on `errorType`.** `TerminalError` composes its message as
 `f"{reason}: {detail}"` from a registered, colon-free code, so splitting on the first colon

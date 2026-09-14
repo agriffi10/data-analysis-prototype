@@ -111,8 +111,9 @@ def _clone(table: dict) -> tuple[dict, dict, bool]:
 def _enforce_definition_cap(definition: dict, database: str, table: str) -> None:
     """Refuses a definition too large to ride the Step Functions state.
 
-    Enforced up front as a whole-request terminal, because the limit it protects is raised
-    outside every Catch — discovered later there is no recorded outcome and no notification at
+    Enforced up front as a whole-request terminal, because breaching the limit it protects raises
+    ``States.DataLimitExceeded``, which escapes every Catch here (``States.ALL`` does not match it
+    and none names it) — discovered later there is no recorded outcome and no notification at
     all.
 
     Args:

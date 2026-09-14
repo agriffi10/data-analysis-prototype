@@ -3,11 +3,17 @@
 This exists for the failures no verb can catch. ``@notifies_on_failure`` is a decorator on
 the verb handlers: it catches an exception inside a verb and does nothing at all when the
 failure happens where no verb code is running — a Lambda that fails at import, a Step
-Functions-level error such as a state timeout or a payload-size failure, or a transient error
-that exhausts its Retry, which the decorator passes through un-notified by design because a
-retry was still pending when it saw it. None of those is hypothetical for this fleet: three
-singleton Lambdas once raised ``ModuleNotFoundError`` at cold start for nine days, and a
-table-builder verb failing the same way produces the same silence.
+Functions-level error such as a state timeout, or a transient error that exhausts its Retry,
+which the decorator passes through un-notified by design because a retry was still pending when
+it saw it. None of those is hypothetical for this fleet: three singleton Lambdas once raised
+``ModuleNotFoundError`` at cold start for nine days, and a table-builder verb failing the same
+way produces the same silence.
+
+Two Step Functions errors never reach it by either door. ``States.DataLimitExceeded`` is caught
+only by a catcher that names it, and none in this machine does; ``States.Runtime`` is caught by
+nothing, ``States.ALL`` included. Either ends the run FAILED, which the timeout door below does
+not match, so a failure no verb had already reported reaches nobody. The machine is built so
+that neither is raised.
 
 Its input carries the raw Step Functions error rather than a decoded reason, and must stay
 that way — the ASL decode that would produce a reason raises an uncatchable runtime error on

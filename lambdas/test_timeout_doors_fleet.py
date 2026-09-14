@@ -138,8 +138,8 @@ def test_every_plane_with_a_ceiling_declares_the_rule() -> None:
         assert 'status          = ["TIMED_OUT"]' in text, f"{name} does not match TIMED_OUT"
         pattern = text.split("event_pattern")[1].split("})")[0]
         assert "FAILED" not in pattern, (
-            f"{name} would double-notify: every other whole-request failure already reaches "
-            "NotifyFailure through the shared Catch"
+            f"{name} would double-notify: every whole-request failure the shared Catch takes "
+            "already reaches NotifyFailure"
         )
 
 

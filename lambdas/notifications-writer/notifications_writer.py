@@ -6,26 +6,31 @@ the user's inbox object and is the only writer of it; per-user serialization com
 FIFO message group plus that batch size. There is no delete — notifications are only ever
 marked read.
 
-Actor binding differs by action. The user-originated actions carry the caller's Cognito ID
-token and the target is the verified username claim, so any body username is ignored. Creation
-is trusted-producer-only and uses the body username, which is correct because a plane notifying
-a recipient holds no token for the person it is telling. A schema-invalid or unauthorized
-message raises, so the record retries and then lands in the dead-letter queue — never a partial
-write.
+Actor binding differs by action. A user action's target is the actor in the identity block the
+API sends it with, so any body username is ignored; a ``create`` is trusted-producer-only and
+its target is the body username. A schema-invalid message, or a user action with no usable
+identity block, raises, so the record retries and then lands in the dead-letter queue — never a
+partial write.
 
-What makes trusted-producer-only true of the running system is a check here, not the IAM
-policy. The portal role's grant on this queue is unconditioned and cannot be otherwise: no SQS
-condition key reaches a field inside a message body, so a policy could only deny the browser
-``SendMessage`` outright — the same principal on the same action the user actions need. So the
-handler compares the ``SenderId`` SQS stamps on every message, which a ``SendMessage`` cannot
-set, and refuses a ``create`` that came from browser credentials. A refusal LOGS AND DROPS
-rather than raising: raising would cost three invocations and one permanent dead-letter message
-per forged request, on the queue whose dead-letter queue is deliberately undrained, which would
-hand every signed-in user a way to drown the only operator-facing signal this plane has.
+What keeps a user from sending a ``create`` is upstream of this module. The portal role, which
+the API assumes on a caller's behalf, holds no grant on this queue, so a user reaches it only
+through the API, which sends as its execution role and whose notifications route accepts
+``markRead`` and ``markAllRead`` and nothing else. The check here is a second fence behind the missing grant, and
+it outlived the grant it was built against: the handler compares the ``SenderId`` SQS stamps on
+every message, which a ``SendMessage`` cannot set, and refuses a ``create`` sent as the portal
+role. It is a runtime check because IAM could not express the rule while that role held the
+grant: no SQS condition key reaches a message body, so a policy could only have denied the role
+``SendMessage`` outright, which the user actions needed then. It names that one role and no
+other, so it stands behind the missing grant and not behind the API: a ``create`` sent by the
+API's execution role would pass it, and against that sender the route's refusal is the only
+fence. A refusal LOGS AND DROPS rather than raising: raising would cost three invocations and
+one permanent dead-letter message per refused request, on the queue whose dead-letter queue is
+deliberately undrained, which would hand whoever could send as that role a way to drown the only
+operator-facing signal this plane has.
 
-That boundary is narrower than it looks and the limit is worth knowing: a body that is not
-valid JSON, or that names an unknown action, still raises from ``_parse_record`` before any of
-this runs. This decides who may send a ``create``, not who may reach the queue.
+The check is narrower than it looks and the limit is worth knowing: a body that is not valid
+JSON, or that names an unknown action, still raises from ``_parse_record`` before any of this
+runs. It judges the sender of a ``create`` that parsed, not who may reach the queue.
 
 This is the delivery channel for every failure notification in the system, and its dead-letter
 queue is deliberately left undrained: draining it would ask the queue that just failed to
@@ -39,12 +44,13 @@ retry-into-DLQ contract is expressed in ``AuthorizationError``.
 
 The ``create`` branch is the trusted-producer path and has never had an actor to establish. It
 is written by the control-plane execution roles, never by a browser and never through the API,
-and it carries its target ``username`` in the body with no actor and no token — which is why the
-reader is called INSIDE the user-action arm and not above the branch. Hoisted, it would refuse
-every notification the fleet produces, and it would do it silently: the producers notify
-best-effort, so archives and shares would complete and users would simply never be told. Whether
-that producer is entitled to be one is a separate question, answered before this by the sender
-check in ``process``.
+so it carries no identity block, and its target ``username`` rides in the body because the
+person a plane tells need not be the caller it acted for. That is why the reader is called
+INSIDE the user-action arm and not above the branch. Hoisted, it would refuse every notification
+the fleet produces, and it would do it silently: the producers notify best-effort, so archives
+and shares would complete and users would simply never be told. Who may send a ``create`` is
+settled upstream, by who holds a grant on this queue and by the API's route refusing the action;
+the sender check in ``process`` stands behind the first of those, refusing the portal role.
 
 The 46 ms of cold start PyJWT used to cost on both paths is gone with the verifier.
 
@@ -56,13 +62,15 @@ Attributes:
   NOTIFICATIONS_MAX: Inbox cap, set by Terraform.
   MAX_PAYLOAD_BYTES: Ceiling on one create's serialised ``payload``, enforced here because this
     is the only server-side gate the field will ever have. A producer's own bound is a design
-    budget in its own layer and constrains nothing that arrives at this queue — the grant on it
-    is unconditioned, and while the sender check above now bounds WHO reaches this function, IAM
-    still bounds nobody. Oversize is REFUSED rather than truncated — a truncated structured field
-    is a half-object a reader has to defend against, where a refusal dead-letters the one message
-    and leaves every other row untouched.
-  UNTRUSTED_SENDER_ID: The IAM unique ID of the role the browser assumes, set by Terraform. Empty
-    means the check cannot run, and every ``create`` is refused rather than passed.
+    budget in its own layer and constrains nothing that arrives at this queue, because nothing
+    between a producer and this function reads the field: no SQS condition key reaches a message
+    body, and the sender check judges who sent a ``create``, not what it carries. Oversize
+    is REFUSED rather than truncated — a truncated structured field is a half-object a reader
+    has to defend against, where a refusal dead-letters the one message and leaves every other
+    row untouched.
+  UNTRUSTED_SENDER_ID: The IAM unique ID of the portal role, the role the API assumes on a
+    caller's behalf, set by Terraform. Empty means the check cannot run, and every ``create`` is
+    refused rather than passed.
   CREATE_REFUSAL_*: The three reason codes a refused ``create`` is logged under. They are three
     rather than two because an unset ``UNTRUSTED_SENDER_ID`` is a state neither of the others
     describes — the deploy is broken, not the record and not an attacker — and one code for two
@@ -103,7 +111,7 @@ class ValidationError(Exception):
 
 
 class AuthorizationError(Exception):
-    """A missing or invalid token on a user-originated action. Raising retries into the DLQ."""
+    """A user action with no usable identity block. Raising retries into the DLQ."""
 
 
 def _now_iso():
@@ -337,9 +345,10 @@ def _create_sender_refusal(sender):
     """Decides whether a create's sender may write to somebody else's inbox.
 
     For a role, ``SenderId`` is the role's unique ID, a colon, and a session name. Only the
-    role-id half is compared. The session half is never examined: Cognito's enhanced flow does
-    not document what it sets there, so pinning a literal would couple this boundary to an
-    undocumented value. The comparison is equality on that half rather than a prefix test —
+    role-id half is compared. The session half is never examined: the API names each session of
+    the portal role after the caller it acts for, so that half says which user it is and nothing
+    about whether the role may send, and the refusal applies to the role whichever caller's
+    session it is. The comparison is equality on that half rather than a prefix test —
     a prefix would also match a different role whose unique ID merely starts the same way.
 
     Order is load-bearing, not stylistic, and the two guards carry different halves of it. The
@@ -374,7 +383,7 @@ def _resolve_username(req):
     User-originated actions require the API's identity block and ignore any body username; creation is
     a trusted producer and uses the body username.
 
-    Whether that producer IS trusted is decided before this function, by the sender check in
+    A ``create`` sent as the portal role is refused before this function, by the sender check in
     ``process``. It sits above this call rather than inside the create branch on purpose: this
     runs before any branch, so a guard placed lower would let a refused create with no
     ``username`` raise from here and dead-letter — which is the outcome the refusal exists to
@@ -387,7 +396,7 @@ def _resolve_username(req):
       The target username.
 
     Raises:
-      AuthorizationError: When a user-originated action's token cannot be verified.
+      AuthorizationError: When a user action carries no usable identity block.
       ValidationError: When a create carries no username.
     """
     action = req["action"]
@@ -418,7 +427,7 @@ def process(req, sender):
     Raises:
       ValidationError: When a create has no message, a create's payload is oversize, or a
         mark-read has no id.
-      AuthorizationError: When a user-originated action's token cannot be verified.
+      AuthorizationError: When a user action carries no usable identity block.
       ClientError: On any S3 fault.
     """
     action = req["action"]
@@ -492,7 +501,7 @@ def handler(event, context):
     Raises:
       ValidationError: When the event carries no records, more than one record, or the record
         fails validation. No partial write occurs.
-      AuthorizationError: When a user-originated action's token cannot be verified.
+      AuthorizationError: When a user action carries no usable identity block.
       ClientError: On any S3 fault.
     """
     records = event.get("Records", []) if isinstance(event, dict) else []

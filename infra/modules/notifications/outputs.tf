@@ -4,7 +4,7 @@ output "notifications_queue_url" {
 }
 
 output "notifications_queue_arn" {
-  description = "ARN of the FIFO request queue — the `sqs:SendMessage` scope for the API and for every trusted producer. The portal role's half is unconditioned and cannot be otherwise (no SQS condition key reaches a message body); the writer refuses a `create` from it by SenderId instead."
+  description = "ARN of the FIFO request queue — the `sqs:SendMessage` scope for the API and for every trusted producer. The portal role holds no grant on it, so a user reaches this queue only through the API, whose notifications route accepts `markRead` and `markAllRead` and refuses `create`. The writer's refusal of a `create` whose SenderId names the portal role is a second fence behind that missing grant."
   value       = aws_sqs_queue.requests.arn
 }
 

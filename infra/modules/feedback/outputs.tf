@@ -4,7 +4,7 @@ output "feedback_queue_url" {
 }
 
 output "feedback_queue_arn" {
-  description = "ARN of the FIFO request queue — the `sqs:SendMessage` scope for the API and for nobody else. The portal role holds no grant on this queue at all, which is what stops a browser writing a feedback record attributed to somebody it chose."
+  description = "ARN of the FIFO request queue — the `sqs:SendMessage` scope for the API and for nobody else. The portal role holds no grant on this queue at all, so a record reaches it only through the API, which attributes it to the verified caller rather than to a username the sender chose."
   value       = aws_sqs_queue.requests.arn
 }
 

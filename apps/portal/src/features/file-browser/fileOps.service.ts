@@ -29,10 +29,10 @@ const FILE_OPS_MAX_ITEMS = 200;
 const FILE_OPS_MAX_SELECTION_BYTES = 64 * 1024;
 
 /**
- * Enqueue one file operation onto the file-ops FIFO queue — the browser's only file-ops write,
- * and its only file-ops privilege. The async control plane performs the copy, move or delete, so
- * success means *enqueued*, never completed.
- *
+ * Enqueue one file operation through the API's `fileOps.enqueue` route — the browser's only
+ * file-ops write. The browser holds no privilege on the plane: the API's execution role puts the
+ * request on the file-ops FIFO queue, and the async control plane performs the copy, move or
+ * delete, so success means *enqueued*, never completed.
  *
  * The `requestId` stays minted PER SUBMIT in the browser: it is still the double-submit guard,
  * the API echoes it rather than minting one, and reusing it across a retry would make the retry a

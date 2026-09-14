@@ -354,7 +354,8 @@ def _scan(event: dict) -> dict:
 
     Per-file figures are accounted for but not returned. Each file gets its own share and its own
     complete-or-sampled verdict, but a per-file array on the state would exceed the payload limit
-    at the object cap, and breaching it raises outside every Catch: the execution would die
+    at the object cap, and breaching it raises ``States.DataLimitExceeded``, which escapes every
+    Catch here (``States.ALL`` does not match it and none names it): the execution would die
     without reaching the notify state and the user would be told nothing at all, on exactly the
     biggest folders. The report's encoding block is aggregate anyway.
 

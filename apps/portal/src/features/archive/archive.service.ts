@@ -26,11 +26,11 @@ function selectionTooLarge(items: ArchiveRequest['items']): boolean {
 }
 
 /**
- * Enqueue an archive request onto the archive FIFO queue — the browser's only archive write,
- * and its only archive privilege. The async control plane copies the selection into the vault at
- * `GLACIER`, confirms every object, and only then deletes the source, so success here means
- * *enqueued*, not archived.
- *
+ * Enqueue an archive request through the API's `archive.archive` route — the browser's only
+ * archive write. The browser holds no privilege on the plane: the API's execution role puts the
+ * request on the archive FIFO queue, and the async control plane copies the selection into the
+ * vault at `GLACIER`, confirms every object, and only then deletes the source, so success here
+ * means *enqueued*, not archived.
  *
  * The `requestId` stays minted PER SUBMIT in the browser: it is still the double-submit guard,
  * the API echoes it rather than minting one, and reusing it across a retry would make the retry a

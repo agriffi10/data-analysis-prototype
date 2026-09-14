@@ -141,9 +141,10 @@ composition by `test_load_table_definition.py`:
 | **40 KiB** | **891** | **115,293** | **44%** ← chosen |
 | 48 KiB | 1,069 | 138,255 | 53% ← over half; rejected |
 
-Breaching the 256 KB state-payload limit raises `States.DataLimitExceeded`, thrown **outside
-every Catch** — no recorded outcome and no notification, on a request that already did all
-its work. So an oversized table is refused up front as a whole-request terminal.
+Breaching the 256 KB state-payload limit raises `States.DataLimitExceeded`, which **no Catch in
+this machine takes** — `States.ALL` does not match it and none names it — so there is no
+recorded outcome and no notification, on a request that already did all its work. So an
+oversized table is refused up front as a whole-request terminal.
 
 ### `table-builder-apply-refresh` — what the in-place update does *not* retire
 

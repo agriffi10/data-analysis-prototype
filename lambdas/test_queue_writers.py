@@ -190,8 +190,8 @@ def test_the_lambda_environment_and_the_wiring_agree_with_the_contract_registry(
     environment block sets those variables; the root wiring says which module's output each one
     takes. A renamed variable is a ``ConfigError`` on every request to that one plane, forever,
     reported to the user as "contact the administrator". A SWAPPED pair is worse: both variables
-    are set, both are read, and the messages simply go to the wrong plane's queue and dead-letter.
-    Neither shows up in ``tofu validate``, in a plan, or in any other test.
+    are set, both are read, and the messages simply go to the wrong plane's queue instead of their
+    own. Neither shows up in ``tofu validate``, in a plan, or in any other test.
 
     Args:
       None.
@@ -248,8 +248,11 @@ def test_the_one_queue_outside_the_contract_registry_is_wired_just_as_carefully(
 
     That trade costs exactly one thing: the swapped-pair guard above stops covering it. This is
     that coverage, written out. A renamed variable is a ``ConfigError`` on every submission
-    forever; a wired-to-the-wrong-module one sends every submission to another plane's queue,
-    where it dead-letters. Neither shows up in ``tofu validate``, in a plan, or anywhere else.
+    forever; a wired-to-the-wrong-module one sends every submission to another plane's queue.
+    Neither shows up in ``tofu validate``, in a plan, or anywhere else. On the wrong queue a
+    submission never reaches the feedback writer: a Pipe plane refuses it as unauthorized, because
+    it carries no identity block, and the notifications writer refuses it as an unknown action and
+    dead-letters it.
 
     Args:
       None.
@@ -290,6 +293,6 @@ def test_the_one_queue_outside_the_contract_registry_is_wired_just_as_carefully(
     module, output = wired.groups()
     assert module == "feedback", (
         f"FEEDBACK_QUEUE_URL takes its value from module.{module}, so every submission would go "
-        "to another plane's queue and dead-letter there"
+        "to another plane's queue and never reach the feedback writer"
     )
     assert not output.endswith("dlq_url"), "FEEDBACK_QUEUE_URL names a dead-letter queue"

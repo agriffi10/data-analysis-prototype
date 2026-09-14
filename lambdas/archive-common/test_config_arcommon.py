@@ -3,7 +3,8 @@
 Every cap here is COMPUTED against the thing that sizes it rather than asserted as a number.
 A hard-coded number in a test restates the constant; it does not check it, and it hides a
 wrong model — which on this plane means a request the Pipe cannot start, or a state that
-breaches 256 KB and raises States.DataLimitExceeded outside every Catch.
+breaches 256 KB and raises States.DataLimitExceeded, which escapes every Catch here (States.ALL
+does not match it and none names it).
 """
 
 import json
@@ -19,9 +20,10 @@ from arcommon import config
 from cpcommon import config as cp_config
 
 #: Step Functions' hard cap on a state payload AND on an execution input. Breaching either
-#: raises States.DataLimitExceeded, which is thrown OUTSIDE every Catch. Read from the fleet
-#: constant rather than restated — four private copies of one service quota is the rule-written-
-#: twice failure, and the copies do not have to disagree to be a problem: they have to be able to.
+#: raises States.DataLimitExceeded, which escapes every Catch here (States.ALL does not match it
+#: and none names it). Read from the fleet constant rather than restated — four private copies of
+#: one service quota is the rule-written-twice failure, and the copies do not have to disagree to
+#: be a problem: they have to be able to.
 _STATE_PAYLOAD_LIMIT = cp_config.STATE_PAYLOAD_LIMIT_BYTES
 
 #: S3's own maximum key length. The worst case a cap has to survive, not the typical one.

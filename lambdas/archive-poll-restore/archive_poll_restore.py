@@ -14,8 +14,9 @@ nothing ever asked for it, and reading that as "not yet" would burn every remain
 before reporting a timeout for something that was never going to complete.
 
 **It samples, and the progress record is an S3 POINTER.** The loop runs for hours; a per-object
-status list on the state is the 256 KB failure whose overflow escapes every ``Catch``, which on
-this plane is a run that tells the user nothing at all. What rides is the small scalar block the
+status list on the state is the 256 KB failure whose overflow escapes every ``Catch`` here
+(``States.ALL`` does not match ``States.DataLimitExceeded`` and none names it), which on this
+plane is a run that tells the user nothing at all. What rides is the small scalar block the
 ``Choice`` branches on, and the index it reached lives beside the plan in the admin bucket.
 
 **The iteration cap lives in Python, not in the ASL ``Choice``.** A literal in the rendered

@@ -3,9 +3,10 @@
 inspect-source turns the validated selection into the exact object list that will be copied and
 writes it here; the manifest builder and delete-source read it back. **Nothing it produces rides
 on the state.** At ``ARCHIVE_MAX_OBJECTS`` the list is tens of megabytes against a 256 KB payload
-limit, and ``States.DataLimitExceeded`` escapes every ``Catch`` — the worst failure this plane
-has, because it is the one where the user is told nothing at all. So the plan goes to the admin
-bucket and its KEY is threaded onward, with the count and the byte total beside it.
+limit, and ``States.DataLimitExceeded`` escapes every ``Catch`` here (``States.ALL`` does not
+match it and none names it) — the worst failure this plane has, because it is the one where the
+user is told nothing at all. So the plan goes to the admin bucket and its KEY is threaded
+onward, with the count and the byte total beside it.
 
 This module owns **every** admin-bucket key layout on this plane — the two plans, the two
 transfer manifests, the poll's progress record and the three Map Run result exports — for
@@ -52,8 +53,9 @@ Attributes:
     order, and a second dataset would be a second thing that could disagree with the plan.
   PROGRESS_BASENAME: The poll's progress record. It lives in the admin bucket rather than on the
     state for the reason: the loop runs for hours and a per-object status list on the
-    state is the 256 KB failure whose overflow escapes every ``Catch``. What rides is the small
-    scalar block the ``Choice`` branches on.
+    state is the 256 KB failure whose overflow escapes every ``Catch`` here (``States.ALL`` does
+    not match ``States.DataLimitExceeded`` and none names it). What rides is the small scalar
+    block the ``Choice`` branches on.
   RESULTS_FOLDER: The folder under the request's prefix that the Distributed Map's
     ``ResultWriter`` exports into. Step Functions appends its own Map Run component below it.
   RETRIEVAL_RESULTS_FOLDER: The retrieval Map's export folder. Nothing reads it — that Map
@@ -168,8 +170,9 @@ def write_restore_plan(request: dict, actor: str, objects: list, total_bytes: in
 
     **Nothing it produces rides on the state**, for the same reason the copy plan does not: at
     ``ARCHIVE_MAX_OBJECTS`` the list is tens of megabytes against a 256 KB payload limit, and
-    ``States.DataLimitExceeded`` escapes every ``Catch``. Each entry carries its size so
-    the restore can tell the user how much is coming back and the retrieval can bound its wait.
+    ``States.DataLimitExceeded`` escapes every ``Catch`` here (``States.ALL`` does not match it
+    and none names it). Each entry carries its size so the restore can tell the user how much is
+    coming back and the retrieval can bound its wait.
 
     Args:
       request: The validated restore request, which determines the key and names the archive and

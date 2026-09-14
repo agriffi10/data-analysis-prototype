@@ -851,7 +851,7 @@ def test_every_link_of_the_chain_fits_the_state_limit(route):
         for name, size in measured.items():
             assert size < limit, (
                 f"{route.id} at {fill!r}: {name} reaches {size:,} bytes against a {limit:,}-byte "
-                f"limit — States.DataLimitExceeded, thrown outside every Catch, so the user whose "
+                f"limit — States.DataLimitExceeded, which no Catch in the fleet names, so the user whose "
                 f"request failed is told nothing"
             )
 

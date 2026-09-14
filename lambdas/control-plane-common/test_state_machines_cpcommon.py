@@ -147,8 +147,10 @@ def test_no_state_uses_a_throwing_intrinsic(path):
     States.Runtime is neither retriable nor catchable — not even by a Catch on the very
     same state. Confirmed against the live service with TestState: States.Timeout (no
     Cause), States.DataLimitExceeded and Lambda.Unknown (plain-sentence Cause) each killed
-    the execution BEFORE the recorded-failure state. In data-quality that meant no
-    notification at all on exactly the failures a user most needs to hear about; in
+    the execution BEFORE the recorded-failure state. TestState injected those shapes, and a
+    real States.DataLimitExceeded is never caught, so it never reached the decode at all. In
+    data-quality the others meant no notification at all on exactly the failures a user most
+    needs to hear about; in
     table-share, which decoded per recipient inside a Map, one unparseable Cause failed the
     iteration, which failed the Map, which took down every SIBLING recipient's share.
 
@@ -184,9 +186,14 @@ def test_every_plane_notifies_before_it_fails(path):
     The verbs honour it through their own instrumentation, and SPEC-126's DLQ drain honours
     it for requests that never started an execution. Neither covers the gap between: an
     execution that started and then died BEFORE OR OUTSIDE any verb's Python — a
-    States.Timeout, a States.DataLimitExceeded, a task-level throttle, a Lambda that fails
-    at IMPORT. In that window the user gets no notification, no DLQ message, and a request
-    that simply never completes.
+    States.Timeout, a task-level throttle, a Lambda that fails at IMPORT. In that window the
+    user gets no notification, no DLQ message, and a request that simply never completes.
+    Each Task's States.ALL Catch routes the throttle and the import failure to NotifyFailure,
+    and would route a task-level States.Timeout the same way. The execution's own
+    TimeoutSeconds is not a state error and no Catch sees it: that one reaches NotifyFailure
+    only through a TIMED_OUT rule, on the planes that carry one. Neither path closes
+    States.DataLimitExceeded, which only a catcher naming it takes and none in the fleet does,
+    nor States.Runtime, which nothing takes.
 
     The design was right and was built once: data-quality carried a NotifyFailure state
     while table-builder, table-share and shared-spaces routed every failure straight to a
@@ -217,8 +224,8 @@ def test_every_plane_notifies_before_it_fails(path):
 
 
 #: Step Functions' hard cap on a state payload. Breaching it raises
-#: States.DataLimitExceeded, which is thrown OUTSIDE every Catch. Read from the module this file
-#: tests rather than restated beside it.
+#: States.DataLimitExceeded, which States.ALL does not catch and no Catch in the fleet names.
+#: Read from the module this file tests rather than restated beside it.
 _STATE_PAYLOAD_LIMIT = config.STATE_PAYLOAD_LIMIT_BYTES
 
 

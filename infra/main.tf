@@ -259,7 +259,7 @@ locals {
   # NOTIFICATIONS_QUEUE_URL. Constructed strings (not module.notifications' outputs) so
   # they're KNOWN AT PLAN TIME and don't force a shared_spaces→notifications dependency
   # (infra/info/deploy-role-iam.md "unknown ARN" discipline); IAM never validates that the queue
-  # exists, so no apply ordering is needed (same pattern as the portal role's enqueue).
+  # exists, so no apply ordering is needed.
   notifications_queue_name = "${var.project_name}-${var.environment}-notifications-requests.fifo"
   notifications_queue_arn  = "arn:aws:sqs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:${local.notifications_queue_name}"
   notifications_queue_url  = "https://sqs.${var.aws_region}.amazonaws.com/${data.aws_caller_identity.current.account_id}/${local.notifications_queue_name}"
@@ -818,9 +818,10 @@ module "notifications" {
   # The writer reads/writes {username}/user_settings/notifications.json in Bucket 1.
   user_space_bucket_name = local.user_space_bucket_name
 
-  # The identity the writer must REFUSE a `create` from. That grant is unconditioned — IAM
-  # has no condition key that reaches a field inside a message body — so the boundary is a
-  # runtime check against the SenderId SQS stamps, and this is the value it compares.
+  # The identity the writer must REFUSE a `create` from, matched against the SenderId SQS
+  # stamps on every message. The portal role holds no grant on this queue, so the check is a
+  # second fence behind that missing grant; a `create` sent through the API meets the route's
+  # refusal instead.
   # A resource attribute rather than a name: SenderId carries the unique ID and nothing else.
   portal_role_unique_id = module.data.portal_role_unique_id
 
@@ -832,17 +833,17 @@ module "notifications" {
   logs_queue_url = module.observability.logs_queue_url
 
   # base grants the deploy role its SQS/Lambda/event-source-mapping/IAM/logs perms for
-  # this module (already applied); data creates the portal role this
-  # module attaches the enqueue policy to. Force both to settle first.
+  # this module (already applied); data creates the portal role whose unique ID the
+  # writer refuses a `create` from. Force both to settle first.
   depends_on = [module.base, module.data]
 }
 
 # Feedback: a FIFO queue and one writer Lambda, the same standalone shape as notifications
 # above. No Pipe and no state machine — there is one verb, and it appends one event to one object.
 #
-# The queue's ONLY writer is module.api's execution role. The portal role has no statement naming
-# it, which is what makes a feedback record attributable: on the user plane the browser could
-# write one directly, under whatever username it chose.
+# The queue's ONLY writer is module.api's execution role, and the API takes the username from the
+# verified caller, which is what makes a feedback record attributable. The portal role, which the
+# API assumes on a caller's behalf, has no statement naming the queue.
 module "feedback" {
   source = "./modules/feedback"
 
@@ -920,7 +921,7 @@ module "table_builder" {
   logs_queue_url = module.observability.logs_queue_url
 
   # base grants the deploy role its table-builder perms (already
-  # applied); data creates the portal role this module attaches the enqueue policy to.
+  # applied); this module attaches nothing to the portal role that data creates.
   # Settle those first. NOTE: this module is ordered BEFORE module.analytics (which
   # depends_on it) so the shared execution role EXISTS before analytics adds it to the
   # Lake Formation admins list — LF rejects an unknown admin principal, so the role
@@ -981,8 +982,8 @@ module "table_share" {
   logs_queue_url = module.observability.logs_queue_url
 
   # base grants the deploy role its table-share perms (already
-  # applied); data creates the portal role this module attaches the enqueue policy
-  # to. Settle both first.
+  # applied); this module attaches nothing to the portal role that data creates.
+  # Settle both first.
   depends_on = [module.base, module.data]
 }
 
@@ -1037,8 +1038,8 @@ module "file_send" {
   logs_queue_arn = module.observability.logs_queue_arn
   logs_queue_url = module.observability.logs_queue_url
 
-  # base grants the deploy role its file-send perms (already applied); data
-  # creates the portal role this module attaches the enqueue policy to. Settle both first.
+  # base grants the deploy role its file-send perms (already applied); this module
+  # attaches nothing to the portal role that data creates. Settle both first.
   depends_on = [module.base, module.data]
 }
 
@@ -1060,8 +1061,8 @@ module "file_send" {
 # module.analytics does not depend on it. It passes no CSP input and no CORS origin either:
 # the browser has no relationship with it at all now: the API writes the request queue.
 #
-# base grants the deploy role its file-ops perms; data creates the portal role this module
-# attaches the enqueue policy to. Settle both first.
+# base grants the deploy role its file-ops perms; this module attaches nothing to the portal
+# role that data creates. Settle both first.
 module "file_ops" {
   source = "./modules/file-ops"
 
@@ -1196,8 +1197,8 @@ module "archive" {
   logs_queue_url = module.observability.logs_queue_url
 
   # base grants the deploy role its archive perms (including the bucket) BEFORE this
-  # module's resources land; data creates the portal role this module attaches the enqueue
-  # policy to. Settle both first.
+  # module's resources land; this module attaches nothing to the portal role that data
+  # creates. Settle both first.
   depends_on = [module.base, module.data]
 }
 
@@ -1266,8 +1267,7 @@ module "data_quality" {
   notifications_queue_url = local.notifications_queue_url
 
   # base grants the deploy role its data-quality perms (already applied);
-  # data creates the portal role this module attaches the enqueue policy to, and the
-  # user-space bucket the reports land in. Settle both first.
+  # data creates the user-space bucket the reports land in. Settle both first.
   depends_on = [module.base, module.data]
   # The nine verbs produce structured logs onto the logs queue.
   logs_queue_arn = module.observability.logs_queue_arn
