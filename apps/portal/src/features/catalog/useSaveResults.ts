@@ -132,13 +132,6 @@ export function useSaveResults({
   const [overwritePrompt, setOverwritePrompt] = useState<OverwritePrompt | null>(null);
   const [declined, setDeclined] = useState<OverwritePrompt | null>(null);
 
-  // The spaces a result can be saved into — the user's own space
-  // first, then every shared space they currently belong to (usable). The picker
-  // excludes each space's protected `athenaresults/` folder. The list
-  // is `useQuerySpaces`, shared with the saved-queries surfaces rather than rebuilt —
-  // and the CALL sits in the two views, which gate it (see `Params`).
-  const personalBucket = spaces[0]?.bucket;
-
   // Default file name — the saved query's name when the tab is linked,
   // else a generic stamp; sanitized to the leaf-name rule (no slash/control chars).
   const defaultName = (() => {
@@ -185,18 +178,24 @@ export function useSaveResults({
       setOpen(false);
       setOverwritePrompt(null);
       void invalidateListing(queryClient, args.destBucket, args.destPrefix);
-      // The Files browser only renders the personal space,
-      // so the "View in Files" deep-link is offered only for a personal-space save.
-      const isPersonalDest = args.destBucket === personalBucket;
+      // The deep link names its space, as the rail's "View source files" does: an absent
+      // `?space=` resolves to the personal space, whose root refuses a shared prefix, so a shared
+      // save's link would open the user's own files at their root. The id is the one `?space=`
+      // takes — 'personal', or the shared-space name — and the prefix picks between spaces that
+      // share a bucket. A destination no longer in `spaces` gets no link, because Files would
+      // fall back to the personal space for it too.
+      const destSpace = spaces.find((s) => s.bucket === args.destBucket && args.destPrefix.startsWith(s.rootPrefix));
       toast.push({
         variant: 'success',
         message: `Saved to ${args.destPrefix}${args.filename}`,
-        ...(isPersonalDest && {
+        ...(destSpace && {
           action: {
             label: 'View in Files',
             onClick: () => {
               toast.dismiss();
-              navigate(`/files?prefix=${encodeURIComponent(args.destPrefix)}`);
+              navigate(
+                `/files?space=${encodeURIComponent(destSpace.id)}&prefix=${encodeURIComponent(args.destPrefix)}`
+              );
             }
           }
         })

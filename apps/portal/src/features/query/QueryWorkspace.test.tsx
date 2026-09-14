@@ -777,7 +777,7 @@ describe('QueryWorkspace', () => {
         overwrite: false
       });
       await user.click(await screen.findByRole('button', {name: 'View in Files'}));
-      expect(screen.getByLabelText('probe-location')).toHaveTextContent('/files?prefix=alice%2F');
+      expect(screen.getByLabelText('probe-location')).toHaveTextContent('/files?space=personal&prefix=alice%2F');
     });
 
     it('a destination collision prompts Overwrite, then copies with overwrite', async () => {
@@ -1267,9 +1267,16 @@ describe('QueryWorkspace', () => {
   });
 
   describe('QueryWorkspace — shared-space routing & save (SPEC-055/077)', () => {
-    it('runs with no db/outputLocation and offers personal + shared save destinations', async () => {
+    it('runs with no db/outputLocation, offers personal + shared save destinations, and links a shared save into Files', async () => {
+      // Two shared spaces in one bucket, the other sorting first, so the link has to pick by folder.
       mockReadCache.mockResolvedValue(
-        ok({version: 1, connections: [{name: 'salesdata', role: 'member', status: 'active'}]})
+        ok({
+          version: 1,
+          connections: [
+            {name: 'analytics', role: 'member', status: 'active'},
+            {name: 'salesdata', role: 'member', status: 'active'}
+          ]
+        })
       );
       seedSingle('SELECT 1');
       mockCopyObject.mockResolvedValue(ok({destKey: 'salesdata/out.csv'}));
@@ -1306,8 +1313,10 @@ describe('QueryWorkspace', () => {
         })
       );
       expect(await screen.findByText(/Saved to salesdata\/out\.csv/)).toBeInTheDocument();
-      // The Files browser can't render shared spaces → no deep-link.
-      expect(screen.queryByRole('button', {name: 'View in Files'})).not.toBeInTheDocument();
+      // `space` is part of the assertion: without it Files resolves the personal space and opens
+      // it at its root, and with the wrong one it opens `analytics`, which shares the bucket.
+      await user.click(screen.getByRole('button', {name: 'View in Files'}));
+      expect(screen.getByLabelText('probe-location')).toHaveTextContent('/files?space=salesdata&prefix=salesdata%2F');
     });
 
     // The space half of a cancelled overwrite's restore, which the one-space test cannot see — the
