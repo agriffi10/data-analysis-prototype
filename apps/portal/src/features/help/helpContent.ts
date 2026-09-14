@@ -402,7 +402,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Refresh a table after the files change',
         subtitle: 'Update the table’s columns from the first file in its folder.',
         intro:
-          'A table takes its columns from <b>one file: the first in its folder, alphabetically</b>. If the files sit in subfolders, such as <b>year=2026/</b>, it’s the first file in the subfolder that sorts first. <b>Refresh table</b> reads the folder’s first file again and updates the table’s column list to match it, so a new column is only picked up once it’s in that file. Add it only to a later file — say, <b>sales_2026_09.csv</b> in a folder that starts with <b>sales_2025_01.csv</b> — and the refresh will say the table is already up to date. Your files are never modified, only the table’s definition, and the table stays queryable the whole time.',
+          'A table takes its columns from <b>one file: the first in its folder, alphabetically</b>. Capital letters sort before lowercase ones, and a file in a subfolder sorts by its full path, so <code>archive/old.csv</code> comes before <code>current.csv</code>. That isn’t always the order the <b>Files</b> tab shows. <b>Refresh table</b> reads the folder’s first file again and updates the table’s column list to match it, so a new column is only picked up once it’s in that file. Add it only to a later file — say, <code>sales_2026_09.csv</code> in a folder that starts with <code>sales_2025_01.csv</code> — and the refresh will say the table is already up to date. Your files are never modified, only the table’s definition, and the table stays queryable the whole time.',
         steps: [
           'In the <b>Query</b> tab’s schema rail, open the <b>⋮</b> menu on the table and choose <b>Refresh table</b>.',
           'Check that the folder shown is the one you added files to, then click <b>Refresh table</b>.',
@@ -410,7 +410,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         ],
         callout: {
           kind: 'warning',
-          text: 'If a column has <b>disappeared</b> from the folder’s first file, the refresh stops and changes nothing — the notification names the columns and links you back to the dialog. That can also happen when a different file now sorts first (you deleted or renamed the old first file, or added one that sorts earlier) and it has fewer columns. To go ahead, tick <b>Allow columns to be removed</b> and refresh again. Removing a column breaks any saved query or view that references it.'
+          text: 'If a column has <b>disappeared</b> from the folder’s first file, the refresh stops and changes nothing — the notification names the columns and links you back to the dialog. That can also happen when a different file now sorts first (you deleted or renamed the old first file, or added one that sorts earlier) and it’s missing some of the table’s columns. To go ahead, tick <b>Allow columns to be removed</b> and refresh again. Removing a column breaks any saved query or view that references it, even if other files still have it.'
         }
       },
       {

@@ -207,7 +207,7 @@ describe('RefreshTableDialog', () => {
     it('names the link-borne columns and explains why the refresh was stopped', () => {
       render(LINKED);
       expect(screen.getByText(/previous refresh was stopped/i)).toBeInTheDocument();
-      expect(screen.getByText(/no longer in the files/i)).toBeInTheDocument();
+      expect(screen.getByText(/aren’t in the first file in the table’s folder/i)).toBeInTheDocument();
       const list = screen.getByRole('list', {name: /columns that would be removed/i});
       expect(within(list).getByText('legacy_id')).toBeInTheDocument();
       // Not a catalog-safe identifier — column names never have to be.

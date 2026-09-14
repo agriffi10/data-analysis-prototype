@@ -75,7 +75,8 @@ export function RefreshTableDialog({target, busy = false, submitError, onConfirm
         <div className="mt-4 rounded-lg border border-warning-soft bg-warning-soft p-3">
           <p className="text-sm font-medium text-warning">A previous refresh was stopped</p>
           <p className="mt-1 text-sm leading-relaxed text-text-2">
-            These columns are no longer in the files, so refreshing would remove them from the table:
+            These columns aren&rsquo;t in the first file in the table&rsquo;s folder, so refreshing would remove them
+            from the table:
           </p>
           <ul
             aria-label="Columns that would be removed"
@@ -110,8 +111,8 @@ export function RefreshTableDialog({target, busy = false, submitError, onConfirm
           <span
             id={consequenceId}
             className="mt-0.5 block leading-relaxed text-text-2">
-            A column that is missing from the files is dropped from the table. Any saved query or view that references
-            it will stop working.
+            A column missing from the first file in the table&rsquo;s folder is dropped from the table, even if other
+            files still have it. Any saved query or view that references it will stop working.
           </span>
         </span>
       </label>

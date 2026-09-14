@@ -68,8 +68,8 @@ _BODIES = {
     "definition_too_large": "that table has too many columns to refresh.",
     "format_changed": "the folder's file format no longer matches the table's - build a new table instead.",
     "columns_removed": (
-        "these columns are no longer in the data and would be removed: {removed}. Nothing "
-        "was changed - refresh again and confirm the removal to apply it."
+        "these columns aren't in the first file in the table's folder and would be removed: "
+        "{removed}. Nothing was changed - refresh again and confirm the removal to apply it."
     ),
     "removals_flag_not_applicable": "the request was malformed. Please try again.",
     "table_changed_during_refresh": (
