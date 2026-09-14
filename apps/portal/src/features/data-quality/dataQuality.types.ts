@@ -17,14 +17,6 @@ export type DataQualityRequest = {
 };
 
 /**
- * The wire envelope. `idToken` is attached at send time and never stored.
- *
- * There is deliberately NO actor/username field: the actor is derived server-side from
- * the verified token claim, so a body cannot assert an identity.
- */
-export type DataQualityMessage = DataQualityRequest & {idToken: string};
-
-/**
  * One row on the runs dashboard.
  *
  * Mirrors an entry in `{space}/_data-quality-reports/index.json`, written by

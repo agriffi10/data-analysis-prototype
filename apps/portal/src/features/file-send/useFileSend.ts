@@ -76,11 +76,11 @@ export function useFileSend(space: SendSourceSpace | null, notify: (toast: SendT
       return true;
     } catch (err) {
       // `enqueueFileSend` returns a ServiceResult and does not normally throw — but the request
-      // is BUILT before that contract starts: `crypto.randomUUID()` here and the SHA-256 digest
-      // inside the service are both undefined outside a secure context, which is the documented
-      // dev-preview shape. A throw here used to leave `busy` true forever: the submit control
-      // reads "Sending…", Cancel is disabled, the modal refuses to dismiss and swallows Escape,
-      // and `close()` refuses because it is busy — an unrecoverable dialog, with no error shown.
+      // is BUILT before that contract starts, and `crypto.randomUUID()` here is undefined outside
+      // a secure context, which is the documented dev-preview shape. A throw here used to leave
+      // `busy` true forever: the submit control reads "Sending…", Cancel is disabled, the modal
+      // refuses to dismiss and swallows Escape, and `close()` refuses because it is busy — an
+      // unrecoverable dialog, with no error shown.
       setError(toUserText(err));
       return false;
     } finally {

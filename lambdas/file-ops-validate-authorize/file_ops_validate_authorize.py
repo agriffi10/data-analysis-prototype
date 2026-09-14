@@ -411,10 +411,10 @@ def _validate_and_authorize(event) -> dict:
     """Reads the trusted actor, authorizes both sides, validates the request and decides outcomes.
 
     The actor comes from the ``identity`` block the API stamped, never from a body username and
-    never from the flat ``actor`` field beside it — that field still carries the raw token until
-    the API stops sending one, and a JWT and a username are both non-empty strings. From the point
-    the actor is known, a whole-request rejection notifies them before the Catch records it; a
-    failure before it has no trusted recipient and stays notification-free.
+    never from the flat ``actor`` field beside it — that field carries the raw token on a message
+    enqueued before the API stopped sending one, and a JWT and a username are both non-empty
+    strings. From the point the actor is known, a whole-request rejection notifies them before the
+    Catch records it; a failure before it has no trusted recipient and stays notification-free.
 
     That notification is built by hand from the parsed body, so it names the request id itself:
     a browser tracking the request in flight settles its card by matching that id, and a run

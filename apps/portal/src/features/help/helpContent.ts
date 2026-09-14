@@ -22,10 +22,12 @@ import type {HelpSection} from './help.types';
 //
 // ONE GUIDE COVERS RENAME, MOVE, COPY AND DELETE, and it cannot be gated. The conflict guide
 // beside it follows the async switchover, because a refusal round trip only exists while the
-// routing does — but the four verbs themselves work in either state, so gating their one guide
-// would leave the core of the Files section undocumented whenever the kill switch is thrown. The
-// accepted cost, stated rather than hidden: with that switch off, this guide's background-operation
-// paragraph overstates for as long as it stays off.
+// routing does — but the four verbs still work on a single file in either state, and with the
+// switch off one of this guide's steps is what explains the controls a folder or any multi-item
+// selection then leaves unavailable. Gating the guide would leave the core of the Files section
+// undocumented whenever the kill switch is thrown. The accepted cost, stated rather than hidden:
+// with that switch off, the intro and the background-operation steps overstate for as long as it
+// stays off.
 
 /** The authored Help & guides sections, in sidebar order. */
 export const HELP_SECTIONS: HelpSection[] = [
@@ -89,7 +91,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'To <b>Rename</b> a single item, click <b>Details</b> on its row and choose <b>Rename</b>, then type a <b>New name</b> — a file keeps its original extension automatically.',
           'A single file is done straight away. <b>Anything else — a folder, or more than one item — is handed to Data Quarry to do in the background.</b> You get a note that it has been requested, an entry in the in-progress list, and a notification when it finishes.',
           'While one of those is running, anything else in that space that would also run in the background — another folder or multi-item <b>Copy</b>, <b>Move</b> or <b>Delete</b>, and <b>Archive</b> — is unavailable and says so. Nothing is queued, so start it again once the first has finished. Single files are unaffected, and the file list does not update by itself either: press <b>Refresh</b>, or leave the tab and come back.',
-          'If Data Quarry’s background service is unavailable, a folder Copy, Move or Delete is refused and says so — the files you picked alongside it still go through, and the message names the folders that did not. Try those again later.',
+          'If Data Quarry’s background service is unavailable, <b>Copy</b>, <b>Move</b> and <b>Delete</b> are unavailable for a folder or for more than one item, and so is <b>Rename</b> for a folder — each says why. A single file works as normal.',
           'The folders Data Quarry fills for you are gathered under <b>system_settings</b>, sorted in among your own folders — <b>athenaresults</b>, where your query results are kept, and your <b>archive</b> receipts. Click it to open it up, and browse what is inside as normal. Both are managed for you, so neither can be deleted or moved. Tables shared with you stay in <b>shared_tables</b> at the top level, because they are yours to work with.'
         ],
         callout: {

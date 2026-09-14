@@ -43,9 +43,9 @@ _JWT = JWT_SHAPED
 def _raw(actor="alice", identity=True):
     """The Pipe's forwarded batch, as the failure seed reads it from $$.Execution.Input.
 
-    The flat ``actor`` still carries the raw token until the API stops sending it, and is kept
-    here for that reason: the recovery must come from the block beside it, and dropping the
-    field would stop this fixture proving so.
+    The flat ``actor`` carries the raw token that a message enqueued before the API stopped
+    sending one still has, and is kept here for that reason: the recovery must come from the
+    block beside it, and dropping the field would stop this fixture proving so.
 
     Args:
       actor: The verified username the identity block names.

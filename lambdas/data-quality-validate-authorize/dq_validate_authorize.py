@@ -2,8 +2,8 @@
 
 The first verb, and the only place the actor is established: it comes from the ``identity`` block
 the API stamped after verifying the caller's bearer, never from a body field — the envelope
-carries no username at all, and the flat field beside the block holds a raw token until the API
-stops sending one.
+carries no username at all, and the flat field beside the block holds a raw token only on a
+message enqueued before the API stopped sending one.
 
 It then authorizes read access to the requested location and validates the report destination. A
 personal space must be the user-space bucket with the location under the actor's own prefix. A

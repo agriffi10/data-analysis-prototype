@@ -200,8 +200,8 @@ export function useFileBrowserDialogs({
   // The chosen destination bucket, as a space. A move or copy across connections names another
   // space entirely, and the plane resolves a bucket from the space rather than the other way
   // round — so a bucket that matches no known target has no answer at all, and the gesture runs
-  // here instead. That is the pre-plane behaviour rather than a refusal, because nothing the user
-  // could do before this plane existed may become impossible.
+  // here instead. Its files still move or copy; a folder in it is refused per item, because the
+  // browser has no recursive primitive left to run it with.
   function destinationSpaceFor(destBucket: string, destPrefix: string): FileOpDestination | undefined {
     const target = (destinations ?? []).find((d) => d.bucket === destBucket && destPrefix.startsWith(d.rootPrefix));
     if (!target) return undefined;
@@ -271,8 +271,8 @@ export function useFileBrowserDialogs({
    * before still awaits it.
    *
    * A copy or move whose chosen destination resolves to no known space runs here too. The builder
-   * would otherwise throw, and the user would get a generic failure for a request the browser
-   * could simply have made.
+   * would otherwise throw, and the user would get a generic failure for the whole selection. Run
+   * here, its files still go through and each folder in it is refused on its own, by name.
    */
   async function dispatch(gesture: FileOpGesture, runHere: () => void | Promise<unknown>): Promise<Dispatched> {
     const needsDestination = gesture.operation !== 'delete';

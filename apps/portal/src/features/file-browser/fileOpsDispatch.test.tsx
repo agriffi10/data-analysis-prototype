@@ -554,12 +554,12 @@ describe('the conflict round trip', () => {
 
 describe('with the plane switched off, a shape it alone can perform is REFUSED AT THE CONTROL', () => {
   /**
-   * The affordance half of a refusal the services also make, and the half that matters most.
+   * The only refusal a user meets with the plane off: the services' per-item one is never reached.
    *
-   * The services refuse per item, after the fact, because a mixed selection must still move its
-   * files. But a folder delete that reaches the confirm asks *"Delete the folder and everything
-   * inside it? This can't be undone."* and then deletes nothing — the app's most alarming sentence,
-   * spent on an action that cannot happen. The repo already had `disabledReason` for exactly this.
+   * Refusing after the fact would be worse. A folder delete that reached the confirm would ask
+   * *"Delete the folder and everything inside it? This can't be undone."* and then delete nothing —
+   * the app's most alarming sentence, spent on an action that cannot happen. The repo already had
+   * `disabledReason` for exactly this.
    */
   it('disables Delete for a folder, with a reason that does not promise "later"', async () => {
     withFlags({asyncFileOperations: false});

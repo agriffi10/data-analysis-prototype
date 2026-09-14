@@ -91,10 +91,9 @@ export function useArchive(space: ArchiveSpace | null, notify: (toast: ArchiveTo
       return true;
     } catch (err) {
       // `enqueueArchive` returns a ServiceResult and does not normally throw — but the request
-      // is BUILT before that contract starts: `crypto.randomUUID()` here and the SHA-256 digest
-      // inside the service are both undefined outside a secure context. Without this catch a
-      // throw leaves `busy` true forever: the confirm reads "Archiving…", Cancel is disabled and
-      // the modal swallows Escape — an unrecoverable dialog showing no error.
+      // is BUILT before that contract starts, and `crypto.randomUUID()` here is undefined outside
+      // a secure context. Without this catch its throw escapes the click handler: the `finally`
+      // still frees the dialog, but the confirm does nothing and shows no error.
       setError(toUserText(err));
       return false;
     } finally {

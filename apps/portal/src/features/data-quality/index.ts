@@ -14,7 +14,6 @@ export {locationLabel, sourceFolderPrefix} from './dataQuality.format';
 export type {DataQualityTarget} from './useDataQualityCheck';
 export type {
   ColumnFinding,
-  DataQualityMessage,
   DataQualityReport,
   DataQualityRequest,
   DataQualityRunSummary,

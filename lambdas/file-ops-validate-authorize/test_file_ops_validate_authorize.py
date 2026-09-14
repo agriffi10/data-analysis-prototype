@@ -302,7 +302,7 @@ def test_a_request_with_no_usable_id_reaches_the_contracts_own_refusal_and_names
 
 
 def test_the_block_decides_the_actor_and_the_flat_field_beside_it_does_not():
-    """The block wins, and the flat field must not — it holds a raw token until the cutover.
+    """The block wins, and the flat field must not — it holds a raw token on a pre-cutover message.
 
     This was SPEC-200's "the block rides along and is ignored". Inverted rather than deleted:
     the property worth asserting is now the opposite one, and the flat field is still admitted

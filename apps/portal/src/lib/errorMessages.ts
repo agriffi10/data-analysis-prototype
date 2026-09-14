@@ -72,15 +72,17 @@ const CODE_RULES: readonly ErrorRule[] = [
   {code: 'TooLarge', userFixable: true, passthrough: true}, // upload exceeds the max size (carries the limit)
   {code: 'NoFreeName', userFixable: false, passthrough: true}, // 999 numbered names are taken at the destination
 
-  // Trigger: a folder copy, move or delete reached the browser — the file-operations flag is off,
-  // or the chosen destination resolved to no known space. The browser has no recursive primitive
-  // any more: an operation whose cost grows with object count belongs on the plane and nowhere
-  // else, so the flag switches the capability off rather than falling back to a slow copy of it.
-  // NOT passthrough: the services raise it per item and the sentence is the same one every time.
+  // Trigger: a folder copy or move reached the browser, which a real gesture does only with the
+  // file-operations flag ON and a chosen destination that resolved to no known space — in
+  // practice a spaces list that had not loaded. With the flag off the control refuses a folder
+  // before any service runs, so this never says the service is down. User-fixable: a reload
+  // fetches the spaces again. NOT passthrough: the services raise it per item and the sentence is
+  // the same one every time.
   {
     code: 'PlaneRequired',
-    message: 'Folders are handled by the file operations service, which is unavailable right now. Try again later.',
-    userFixable: false
+    message:
+      "The file operations service handles folders, but this destination couldn't be matched to one of your spaces. Reload the page and try again.",
+    userFixable: true
   },
 
   // NO PRODUCER REMAINS. The enqueue services raised this when a control plane's queue URL was
@@ -286,10 +288,8 @@ const CODE_RULES: readonly ErrorRule[] = [
     userFixable: false
   },
 
-  // Trigger: the temporary AWS credentials / ID token expired mid-session.
-  // User-fixable — sign in again to re-mint them. ──
-  // Trigger: no Identity Pool credentials / ID token — the user isn't signed in
-  // (or the session lapsed). User-fixable — sign in. ──
+  // Trigger: no ID token — the user isn't signed in (or the session lapsed), or a hook was asked
+  // to act with no signed-in username. User-fixable — sign in. ──
   {code: 'NotAuthenticated', message: 'Sign in to continue.', userFixable: true},
 
   // Trigger: the API refused a request as unauthenticated. Every one of its 401s is

@@ -118,8 +118,8 @@ def trusted_actor(
     pre-cutover envelope is that the block is missing.
 
     A refusal is total. There is no default actor, no coercion, and no second field consulted —
-    including the flat top-level ``actor``, which holds a raw token on four planes during the
-    cutover and would resolve to a plausible-looking non-empty string.
+    including the flat top-level ``actor``, which on four planes holds a raw token in any message
+    enqueued before the cutover and would resolve to a plausible-looking non-empty string.
 
     Args:
       req: The parsed message body, as ``events.parse_sqs_request`` returns it. Typed ``Any``

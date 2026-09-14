@@ -105,9 +105,9 @@ export function useFileOpSubmit(): UseFileOpSubmitResult {
       });
       return 'sent';
     } catch (err) {
-      // The service returns a `ServiceResult` and does not normally throw — but the request is
-      // BUILT before that contract starts: `crypto.randomUUID()` and the SHA-256 group digest are
-      // both undefined outside a secure context. Without this the dialogs stay busy forever.
+      // Nothing here should throw: the request arrives built, its id minted behind the caller's
+      // own guard, and the service returns a `ServiceResult`. This is the backstop for a breach of
+      // that contract, which would otherwise reject past every caller with no message shown.
       toast.push({variant: 'danger', message: toUserText(err)});
       return 'refused';
     } finally {
