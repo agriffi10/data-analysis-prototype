@@ -82,7 +82,9 @@ function TableRow({
             className="ml-auto"
           />
         </button>
-        <div className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
+        {/* Tailwind applies group-hover only under (hover: hover), and Safari never focuses a
+            tapped button, so without the hover:none reveal an iPhone shows no trigger at rest. */}
+        <div className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
           <TableActionsMenu
             tableName={table.name}
             items={[

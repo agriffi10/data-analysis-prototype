@@ -135,6 +135,13 @@ describe('DatabaseNode', () => {
       expect(screen.queryByRole('button', {name: /region/})).not.toBeInTheDocument();
     });
 
+    it('shows the options trigger at rest where the primary input cannot hover', async () => {
+      renderNode();
+      const trigger = await screen.findByRole('button', {name: 'Options for sales_2026'});
+      // jsdom evaluates no media query, so the contract is the class on whatever hides the trigger.
+      expect(trigger.closest('.opacity-0')).toHaveClass('[@media(hover:none)]:opacity-100');
+    });
+
     it('offers view-aware actions for a view row and invokes them with (database, table)', async () => {
       const onViewDdl = vi.fn();
       const actions = makeActions({canViewSourceFiles: (_db, t) => t.tableType !== 'VIRTUAL_VIEW', onViewDdl});
