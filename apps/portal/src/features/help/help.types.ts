@@ -11,7 +11,7 @@ export type HelpIconName = 'files' | 'query' | 'tables' | 'explore' | 'connectio
 export type HelpSectionId =
   'files' | 'query' | 'tables' | 'data-explorer' | 'shared-connections' | 'notifications' | 'feedback';
 
-/** An accent "Tip" or a danger "Careful" note; a guide renders at most one. */
+/** An accent "Tip" or a danger "Careful" note; a guide renders at most one. `text` may contain the same markup as a guide's steps. */
 export type HelpCallout = {kind: 'tip'; text: string} | {kind: 'warning'; text: string};
 
 /** A single how-to guide — one task the user can perform. */
@@ -26,7 +26,7 @@ export type HelpGuide = {
    * context (what this is for, when you'd reach for it). May contain the same markup as `steps`.
    */
   intro?: string;
-  /** Ordered steps; text may contain `<b>`, `<kbd>`, `<code>` and `<i>` — the tags `renderInline` parses. */
+  /** Ordered steps; text may contain the inline markup `renderInline` parses. */
   steps: string[];
   callout?: HelpCallout;
 };

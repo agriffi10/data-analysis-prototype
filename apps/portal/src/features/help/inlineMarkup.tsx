@@ -1,9 +1,5 @@
 import {Fragment, type ReactNode} from 'react';
 
-// Authored guide steps carry light inline markup: <b>Upload</b> for UI labels,
-// <kbd>Cmd/Ctrl + Enter</kbd> for shortcuts, <code>.sql</code> for literal text
-// and <i>new</i> for emphasis. Parse to real elements rather than injecting
-// HTML, so there's no dangerouslySetInnerHTML.
 type InlineTag = 'b' | 'kbd' | 'code' | 'i';
 
 const ELEMENTS: Record<InlineTag, (inner: string, key: number) => ReactNode> = {
@@ -35,8 +31,9 @@ const ELEMENTS: Record<InlineTag, (inner: string, key: number) => ReactNode> = {
 const TOKEN = /<(b|kbd|code|i)>([\s\S]*?)<\/\1>/g;
 
 /**
- * Renders a guide string, converting `<b>` → `<strong>`, `<kbd>` → a styled key,
- * `<code>` → inline monospace and `<i>` → `<em>`. Any other tag is left as text.
+ * Renders a guide string's light markup as real elements: `<b>` (a UI label) → `<strong>`,
+ * `<kbd>` (a shortcut) → a styled key, `<code>` (literal text) → inline monospace and `<i>` → `<em>`.
+ * Parsed rather than injected, so there's no dangerouslySetInnerHTML. Any other tag is left as text.
  */
 export function renderInline(text: string): ReactNode {
   const nodes: ReactNode[] = [];

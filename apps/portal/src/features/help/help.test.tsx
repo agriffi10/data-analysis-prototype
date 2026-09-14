@@ -510,7 +510,8 @@ describe('guide inline markup', () => {
     expect(screen.queryByText(/<\/?(b|kbd|code|i)>/)).not.toBeInTheDocument();
   });
 
-  it('shows no raw tag in any authored guide, whichever flags hide it', () => {
+  it('shows no raw tag anywhere in the authored help, whichever flags hide it', () => {
+    const rawTag = /<\/?[a-z]/i;
     const cards = HELP_SECTIONS.flatMap((section) =>
       section.guides.map((guide) => ({key: `${section.id}/${guide.id}`, guide, icon: section.icon}))
     );
@@ -528,10 +529,13 @@ describe('guide inline markup', () => {
       </>
     );
 
-    const raw: string[] = [];
+    // Section labels and subtitles are printed verbatim, never parsed, so their source text is what shows.
+    const raw = HELP_SECTIONS.flatMap((section) => [section.label, section.subtitle]).filter((text) =>
+      rawTag.test(text)
+    );
     const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
-      if (/<\/?[a-z]/i.test(node.textContent ?? '')) raw.push(node.textContent ?? '');
+      if (rawTag.test(node.textContent ?? '')) raw.push(node.textContent ?? '');
     }
     // The walk proves nothing unless every step reached the DOM it scanned.
     expect(screen.getAllByRole('listitem')).toHaveLength(cards.reduce((sum, {guide}) => sum + guide.steps.length, 0));
