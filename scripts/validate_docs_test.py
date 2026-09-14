@@ -920,8 +920,8 @@ CASES = [
     ("inventory_cell_without_backticks",
      lambda r: _inventory(r, "| `Widget` | Widget.tsx | Unquoted. |\n"),
      1, "the File cell 'Widget.tsx' names nothing in backticks"),
-    # This name WOULD resolve if a dot segment were allowed, which makes the case a test of the
-    # grammar rather than of existence.
+    # The grammar refuses a dot segment, and says so. Without it this row still fails, since no
+    # directory listing holds `..`, but as a missing file, which is false: the file is there.
     ("inventory_span_that_walks_out",
      lambda r: _inventory(r, "| `Widget` | `../demo/Widget.tsx` | Traverses. |\n"),
      1, "`../demo/Widget.tsx` in the File column is neither a file nor a directory name"),
@@ -935,7 +935,33 @@ CASES = [
      1, "`features/gone/` is not in `" + DEMO + "/` or any directory above it"),
     ("inventory_declared_directory_missing",
      lambda r: _inventory(r, page=INVENTORY_PAGE.replace(DEMO, "apps/portal/src/features/renamed")),
-     1, "declares `apps/portal/src/features/renamed/`, which does not exist"),
+     1, "declares `apps/portal/src/features/renamed/`, which is not a directory in this repository"),
+    # An absolute path is outside the tree the check reads. Reported, rather than raised from deep
+    # in the resolver, where it took every other check's report down with it.
+    ("inventory_declared_directory_outside_the_repo",
+     lambda r: _inventory(r, page=INVENTORY_PAGE.replace(DEMO + "/", "/etc/")),
+     1, "declares `/etc/`, which is not a directory in this repository"),
+    # A trailing slash names a directory, and a file of that name is not one.
+    ("inventory_file_named_as_a_directory",
+     lambda r: _inventory(r, "| `Widget` | `Widget.tsx/` | Not a folder. |\n"),
+     1, "`Widget.tsx/` is not in"),
+    ("inventory_row_shorter_than_its_header",
+     lambda r: _inventory(r, "| `Widget` |\n"),
+     1, "the File cell '' names nothing in backticks"),
+    ("inventory_same_folder_beside_a_name",
+     lambda r: [_touch(r, DEMO + "/useWidget.ts"),
+                _inventory(r, "| `Widget`, `Ghost` | (same folder), `useWidget.ts` | One gone. |\n")],
+     1, "`Ghost` is filed as (same folder), but Ghost.tsx or Ghost.ts is not in"),
+    # Tables are found by their delimiter row. A table indented, or written without outer pipes,
+    # is read like any other; found by a leading pipe instead, each passed with its row unread.
+    ("inventory_indented_table_is_read",
+     lambda r: _inventory(r, after="\n   | Symbol | File | Purpose |\n   |---|---|---|\n"
+                                   "   | `Ghost` | `Ghost.tsx` | Indented. |\n"),
+     1, "`Ghost.tsx` is not in"),
+    ("inventory_table_without_outer_pipes_is_read",
+     lambda r: _inventory(r, after="\nSymbol | File | Purpose\n--- | --- | ---\n"
+                                   "`Ghost` | `Ghost.tsx` | Pipeless.\n"),
+     1, "`Ghost.tsx` is not in"),
     # Under a heading declaring its own directory, a bare name is read THERE. `Widget.tsx` is in
     # the page's directory, so a check still reading the H1's would pass this row.
     ("inventory_subheading_rebases",
@@ -943,11 +969,15 @@ CASES = [
                 _inventory(r, after="\n## Routes (`apps/portal/src/routes/`)\n\n| Symbol | File | Purpose |\n"
                                     "|---|---|---|\n| `Widget` | `Widget.tsx` | Not a route. |\n")],
      1, "`Widget.tsx` is not in `apps/portal/src/routes/`"),
-    # The two positive controls: a page the parser reads nothing from, and no pages at all, would
-    # each otherwise pass exactly like an inventory with nothing wrong in it.
-    ("inventory_page_with_no_file_column",
-     lambda r: _write(r, INV("other-feature.md"), "# Other (`" + DEMO + "/`)\n\n| Symbol | Path | Purpose |\n"
-                      "|---|---|---|\n| `Widget` | `Widget.tsx` | Unread. |\n"),
+    # The three positive controls. Each would otherwise pass exactly like an inventory with nothing
+    # wrong in it. The first sits on a page whose other table is fine, which is what the per-page
+    # control cannot see: one good table satisfies it.
+    ("inventory_table_without_a_file_column",
+     lambda r: _inventory(r, after="\n### Services\n\n| Symbol | Purpose |\n|---|---|\n"
+                                   "| `ghost()` | Its file is named nowhere the check reads. |\n"),
+     1, "demo-feature.md:11: a table headed 'Symbol | Purpose' has no `File` column"),
+    ("inventory_page_with_no_table",
+     lambda r: _write(r, INV("other-feature.md"), "# Other (`" + DEMO + "/`)\n\nProse, and no table.\n"),
      1, "other-feature.md: no row read from a table with a `File` column"),
     ("inventory_directory_gone",
      lambda r: shutil.rmtree(r / INV("")),
