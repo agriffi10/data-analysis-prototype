@@ -147,8 +147,8 @@ before either copy lands** — the guard is a read, and two of them see the same
 makes the two properties one — **a resend of the same request cannot open a second archive under a
 second uuid**.
 
-Its own queue and its own DLQ, registered with the drain sweep: a malformed archive must never
-dead-letter someone's file send.
+Its own queue and its own DLQ, registered with the drain sweep, which names the feature by the DLQ a
+request lands on: a dead-lettered archive must never reach its user as a file send.
 
 ## `TimeoutSeconds` is 43,200 — and the storage class, not the data, is why
 

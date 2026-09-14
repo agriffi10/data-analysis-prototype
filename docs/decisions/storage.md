@@ -184,8 +184,9 @@ mode on table share's.
 
 **Why not a mode.** The two features share an *algorithm* (`cpcommon.transfer`) and nothing else:
 different request contract, different authorization question, different failure vocabulary. Folding
-them together would put one queue and one DLQ under two unrelated user features, and a malformed
-send would dead-letter someone's table share. The pattern is reused; the resources never are.
+them together would put one queue and one DLQ under two unrelated user features, and the DLQ drain,
+which names the feature by the DLQ a request lands on, would report a dead-lettered send as a
+share. The pattern is reused; the resources never are.
 
 **The envelope is flat, and that is a contract with a shared security path.** `actor` is the raw ID
 token at the **top level**, not `actor.idToken`. The spec was written nested and was amended during

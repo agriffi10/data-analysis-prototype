@@ -118,8 +118,9 @@ not be absorbed by a 5-minute window.
 
 **At-least-once delivery does not give this plane a re-run** — the Pipe cannot name the executions it
 starts, and a redelivered message either returns the original ARN or fails with
-`ExecutionAlreadyExists`. **Recovery is the DLQ drain.** Its own queue and its own DLQ: a malformed
-file operation must never dead-letter someone's file send.
+`ExecutionAlreadyExists`. **Recovery is the DLQ drain.** Its own queue and its own DLQ, because the
+drain names the feature by the DLQ a request lands on: a dead-lettered file operation must never
+reach its user as a file send.
 
 ## Five verbs hold the parsed plan, and their memory rows are inputs to a cap
 

@@ -27,8 +27,13 @@ browser ──sqs:SendMessage──▶ FIFO request queue ──▶ EventBridge 
 ## The invariants
 
 - **One execution role per plane**, shared by every verb, whose policy is the **union** of the verbs'
-  needs. **A plane sharing another plane's DLQ lets one malformed request dead-letter someone else's
-  work** — each plane owns its own.
+  needs. **Each plane owns its own DLQ, because the drain names the feature by the DLQ a request
+  lands on** — as built, `_source_for` in `dlq_drain.py` reads the DLQ's name, never the untrusted
+  body — so a shared DLQ would tell a user the wrong feature failed, or name none. A malformed body
+  is not the reason: the Pipe starts an execution for any record that fits Step Functions' input
+  limit, and the plane refuses the body inside that execution. A request reaches its DLQ when the
+  Pipe's `StartExecution` keeps failing until its receives run out, including a redelivery of one
+  that already started, which *A redelivered message is not a re-run*, below, covers.
 - **Three roles, three jobs.** The **Pipe** role only calls `states:StartExecution` (plus the SQS
   consume) — it *starts* the execution and does not run it. The **Step Function** role invokes the
   verbs. The **execution** role is what the verbs actually run as.

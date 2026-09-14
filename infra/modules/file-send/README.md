@@ -16,8 +16,8 @@ The Lambda side is [`lambdas/info/planes/file-send.md`](../../../lambdas/info/pl
 
 The two features share an **algorithm** (`cpcommon.transfer`) and nothing else — different request
 contract, different authorization question, different failure vocabulary. Folding them together would
-put **one queue and one DLQ under two unrelated user features**, and **a malformed send would
-dead-letter someone's table share**.
+put **one queue and one DLQ under two unrelated user features**, and **the DLQ drain, which names
+the feature by the DLQ, would report a dead-lettered send as a share**.
 
 Its DLQ is registered with the drain sweep, so a dead-lettered send becomes a user notification
 rather than silence.

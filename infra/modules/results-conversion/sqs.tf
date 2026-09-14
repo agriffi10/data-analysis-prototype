@@ -3,8 +3,8 @@
 # while different users run in parallel. MessageDeduplicationId is the request id, so a browser
 # retry of one submit is one execution — content_based_deduplication is OFF on both queues.
 #
-# Its OWN queue and its OWN DLQ, registered with the drain sweep — a malformed conversion
-# request must never dead-letter someone's file operation.
+# Its OWN queue and its OWN DLQ, registered with the drain sweep, which names the feature by
+# the DLQ — a dead-lettered conversion must never be reported as a file operation.
 
 resource "aws_sqs_queue" "requests_dlq" {
   name                        = local.dlq_name

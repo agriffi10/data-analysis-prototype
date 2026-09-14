@@ -6,8 +6,8 @@
 # content_based_deduplication is OFF: two byte-identical sends a user genuinely repeats must
 # not be absorbed by a 5-minute window.
 #
-# ITS OWN QUEUE AND ITS OWN DLQ — a malformed send must never dead-letter someone's table
-# share. The DLQ is registered with the drain sweep. README.md.
+# ITS OWN QUEUE AND ITS OWN DLQ — the drain sweep it is registered with names the feature by
+# the DLQ, so a dead-lettered send must never be reported as a share. README.md.
 
 resource "aws_sqs_queue" "requests_dlq" {
   name                        = local.dlq_name
