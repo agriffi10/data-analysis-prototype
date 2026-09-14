@@ -184,9 +184,11 @@ def test_every_plane_notifies_before_it_fails(path):
     The verbs honour it through their own instrumentation, and SPEC-126's DLQ drain honours
     it for requests that never started an execution. Neither covers the gap between: an
     execution that started and then died BEFORE OR OUTSIDE any verb's Python — a
-    States.Timeout, a States.DataLimitExceeded, a task-level throttle, a Lambda that fails
-    at IMPORT. In that window the user gets no notification, no DLQ message, and a request
-    that simply never completes.
+    States.Timeout, a task-level throttle, a Lambda that fails at IMPORT. In that window the
+    user gets no notification, no DLQ message, and a request that simply never completes.
+    NotifyFailure, reached through each Task's States.ALL Catch, closes that window. It does
+    not close States.DataLimitExceeded, which only a catcher naming it takes and none in the
+    fleet does, nor States.Runtime, which nothing takes.
 
     The design was right and was built once: data-quality carried a NotifyFailure state
     while table-builder, table-share and shared-spaces routed every failure straight to a
@@ -217,8 +219,8 @@ def test_every_plane_notifies_before_it_fails(path):
 
 
 #: Step Functions' hard cap on a state payload. Breaching it raises
-#: States.DataLimitExceeded, which is thrown OUTSIDE every Catch. Read from the module this file
-#: tests rather than restated beside it.
+#: States.DataLimitExceeded, which States.ALL does not catch and no Catch in the fleet names.
+#: Read from the module this file tests rather than restated beside it.
 _STATE_PAYLOAD_LIMIT = config.STATE_PAYLOAD_LIMIT_BYTES
 
 

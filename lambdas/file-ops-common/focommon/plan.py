@@ -49,8 +49,8 @@ Attributes:
     cap they are ~156 KB on top of a state already holding the selection and one outcome record
     per item, which is over Step Functions' 256 KB limit — and the overflow would land on the
     collector's result AFTER the copy, or on delete-source's AFTER the deletion, where
-    ``States.DataLimitExceeded`` escapes every ``Catch`` and the user is told nothing at all. Only
-    the COUNT rides.
+    ``States.DataLimitExceeded`` escapes every ``Catch`` here (``States.ALL`` does not match it and
+    none names it) and the user is told nothing at all. Only the COUNT rides.
   RESULTS_FOLDER: The folder the Distributed Map's ``ResultWriter`` exports into. Step Functions
     appends its own Map Run component below it, so this is a prefix rather than a key.
 """

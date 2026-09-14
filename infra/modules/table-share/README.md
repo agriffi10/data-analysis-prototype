@@ -103,9 +103,11 @@ Parallel and Map states but **not top-level execution failures**, so the machine
 nothing at all — **the exact silence the failure path exists to close**. An EventBridge `TIMED_OUT`
 rule is the documented remedy.
 
-**`TIMED_OUT` only, never `FAILED`.** Every other whole-request failure already reaches
-`NotifyFailure` through a Catch, so matching `FAILED` would send a second notification for every one
-of them.
+**`TIMED_OUT` only, never `FAILED`.** Every whole-request failure a Catch takes already reaches
+`NotifyFailure` and then ends `FAILED`, so matching `FAILED` would send a second notification for
+every one of them. The two errors no Catch here takes — `States.DataLimitExceeded`, which only a
+catcher naming it can catch, and `States.Runtime`, which nothing can — also end `FAILED`, and so
+reach neither door.
 
 `notify-failure` is **60 s here rather than 15 s**, because that second door does strictly more work
 than the ASL one: a cold-start JWKS fetch over the network plus a JWT verify before the send, since

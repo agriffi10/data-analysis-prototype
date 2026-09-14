@@ -8,8 +8,9 @@ terminal failure.
 
 **Nothing it produces rides on the state.** At ``ARCHIVE_MAX_OBJECTS`` the object list is tens of
 megabytes against a 256 KB payload limit, so the plan goes to S3 and its KEY is threaded onward
-with the count and the byte total beside it. ``States.DataLimitExceeded`` escapes every ``Catch``,
-which on this plane means a run that deleted nothing and told nobody.
+with the count and the byte total beside it. ``States.DataLimitExceeded`` escapes every ``Catch``
+here (``States.ALL`` does not match it and none names it), which on this plane means a run that
+deleted nothing and told nobody.
 
 The service name is the control plane, not the function, so one archive's invocations stay one
 queryable set. The per-verb identity rides as the ``verb`` field.

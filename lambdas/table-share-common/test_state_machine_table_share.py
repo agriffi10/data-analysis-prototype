@@ -306,8 +306,9 @@ def test_the_machine_itself_cannot_notify_a_timeout_so_a_rule_must():
 
     So what has to hold is that **something outside the machine listens**. The rule and its
     handler are covered in `table-share-notify-failure/test_ts_notify_failure.py`; what belongs
-    here is that the in-machine path is still intact for every OTHER whole-request failure, and
-    that the two cannot both fire (the rule matches TIMED_OUT, the Fail state produces FAILED).
+    here is that the in-machine path is still intact for every whole-request failure a Catch
+    takes, and that the two cannot both fire (the rule matches TIMED_OUT, the Fail state
+    produces FAILED).
     """
     asl = _asl()
 

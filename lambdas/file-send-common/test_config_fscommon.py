@@ -155,7 +155,7 @@ def test_the_validated_state_stays_under_the_payload_limit():
 
     assert size < _STATE_PAYLOAD_LIMIT, (
         f"a worst-case validated state is {size} bytes, over the {_STATE_PAYLOAD_LIMIT}-byte "
-        f"limit — and SPEC-166's Map throws States.DataLimitExceeded outside every Catch"
+        f"limit — and SPEC-166's Map raises States.DataLimitExceeded, which no Catch here names"
     )
 
 

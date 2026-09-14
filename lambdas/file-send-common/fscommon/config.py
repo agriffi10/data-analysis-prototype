@@ -20,7 +20,8 @@ Attributes:
     Map records a per-recipient outcome, each failed item carrying the raw Step Functions
     error bounded by ``cpcommon.errors.MAX_DETAIL_CHARS``, and breaching 256 KB raises
     ``States.DataLimitExceeded`` ON THE MAP — destroying every per-recipient outcome the Map
-    exists to preserve, outside every Catch.
+    exists to preserve, and escaping every Catch here (``States.ALL`` does not match it and none
+    names it).
     ``test_the_validated_state_stays_under_the_payload_limit`` computes the worst case from these
     constants rather than asserting a number, and
     ``test_a_failed_recipient_carrying_a_bounded_error_still_fits`` does the same for the failure

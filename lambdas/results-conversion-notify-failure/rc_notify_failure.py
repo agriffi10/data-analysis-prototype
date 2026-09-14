@@ -2,9 +2,14 @@
 
 This exists for the failures no verb can catch. ``@notifies_on_failure`` is a decorator on the
 verb handlers: it catches an exception inside a verb and does nothing at all when the failure
-happens where no verb code is running — a Lambda that fails at import, a state timeout, a
-payload-size failure, a task that cannot be invoked. In that window the actor is told nothing.
-This path closes that.
+happens where no verb code is running — a Lambda that fails at import, a state timeout, a task
+that cannot be invoked. In that window the actor is told nothing. This path closes that.
+
+Two Step Functions errors never reach it by either door. ``States.DataLimitExceeded`` is caught
+only by a catcher that names it, and none in this machine does; ``States.Runtime`` is caught by
+nothing, ``States.ALL`` included. Either ends the run FAILED, which the timeout door below does
+not match, so a failure no verb had already reported reaches nobody. The machine is built so
+that neither is raised.
 
 Its input carries the raw Step Functions error rather than a decoded reason, and must stay that
 way — an ASL decode raises an uncatchable ``States.Runtime`` whenever the Cause is absent or is

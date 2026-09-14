@@ -488,7 +488,8 @@ write through would silently return less than was taken.
 
 The restore plan goes to the admin bucket and only its **key** rides on the state, for the reason
 every artifact on this plane does: at `ARCHIVE_MAX_OBJECTS` the list is tens of megabytes against a
-256 KB payload limit, and `States.DataLimitExceeded` escapes every `Catch`. It is read back with the
+256 KB payload limit, and `States.DataLimitExceeded` is caught by no `Catch` in this machine —
+`States.ALL` does not match it and none names it. It is read back with the
 same identity check SPEC-169's review added to the copy plan — the key is a pure function of the
 request id, so a second run under a reused id overwrites it, and a guard that cleared **that** plan's
 destinations would clear a restore for keys this run is not going to write.
@@ -674,7 +675,8 @@ retrieval, so treating a missing header as a failure everywhere would refuse a r
 already readable.
 
 **The poll samples, and its progress is an S3 pointer.** A per-object status list on the state is the
-256 KB failure whose overflow escapes every `Catch` — which on this plane is a run that told the user
+256 KB failure whose overflow escapes every `Catch` here (`States.ALL` does not match
+`States.DataLimitExceeded` and none names it) — which on this plane is a run that told the user
 nothing at all — so the record lives beside the plan in the admin bucket and only scalars ride. The
 paging rule has two halves that are easy to conflate: `RESTORE_POLL_PAGE` is the granularity progress
 is **recorded** at, and the invocation's own bound is the whole plan. One page per `Wait` was the

@@ -908,8 +908,8 @@ def test_the_state_still_fits_AFTER_the_transfer_and_the_deletion():
     outcome record per item — over the limit, at the caps this plane already accepts. And the place
     it would break is the worst one available: ``States.DataLimitExceeded`` on the collector's
     result lands AFTER the copy, and on delete-source's result AFTER the deletion. That error
-    escapes every ``Catch``, so the user would be told nothing at all about an operation that had
-    already moved or removed their data.
+    escapes every ``Catch`` here (``States.ALL`` does not match it and none names it), so the user
+    would be told nothing at all about an operation that had already moved or removed their data.
 
     This asserts the state as it is actually built — scalars and keys only — still fits.
     """

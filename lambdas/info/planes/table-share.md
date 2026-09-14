@@ -159,9 +159,11 @@ entry carries the raw Step Functions `{Error, Cause}` (PR #252 — the ASL decod
 shrink it raised an uncatchable `States.Runtime`, so the raw object is what makes the reason
 recoverable at all). Measured against a real Cause from execution history: **~570 bytes per
 failed recipient, ~1.2 KB with a verbose Athena `StateChangeReason`**. Step Functions caps a
-state payload at 256 KB, and breaching it raises `States.DataLimitExceeded` **on the Map** —
-which routes to the whole-request failure state and destroys every per-recipient outcome the
-Map exists to preserve, turning a partial success into a total failure.
+state payload at 256 KB, and breaching it raises `States.DataLimitExceeded` **on the Map**.
+The Map's `States.ALL` Catch does not match that error and no Catch here names it, so the run
+ends FAILED without reaching the whole-request failure state, and the timeout door matches only
+TIMED_OUT. It destroys every per-recipient outcome the Map exists to preserve, turning a partial
+success into a total failure that no whole-request notification reports.
 
 Measured, not guessed: at the bounded worst case (a maximum-length detail plus a deep stack)
 100 recipients reach ~154 KB — under the limit, but the request object rides in the *same*

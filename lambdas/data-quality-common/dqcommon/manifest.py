@@ -5,7 +5,8 @@ passed between states by pointer, never inline, and this module is the one place
 pointer back into data.
 
 It is not on the state because at the caps the manifest measures megabytes, and a state payload
-over the limit raises an error thrown outside every Catch. The execution would die without
+over the limit raises ``States.DataLimitExceeded``, which escapes every Catch here
+(``States.ALL`` does not match it and none names it). The execution would die without
 reaching the notify state, so the user would be told nothing, on exactly the biggest folders —
 the worst failure mode in the pipeline, and what this indirection avoids.
 
