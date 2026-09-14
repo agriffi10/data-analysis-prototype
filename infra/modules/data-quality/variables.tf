@@ -63,7 +63,7 @@ variable "dlq_max_receive_count" {
   default     = 3
 }
 
-# ── The browser's enqueue grant ────────────────────────────────────
+# ── Athena ─────────────────────────────────────────────────────────
 
 variable "athena_workgroup" {
   description = "the SHARED portal Athena workgroup every verb's queries run in — the SAME workgroup table-builder/table-share use. Athena's Lake Formation integration is tied to the workgroup: a dedicated workgroup (the original design) fails LF's Create/Describe checks even when the execution role is an LF admin, because everything LF-governed must run in the one workgroup. Constructed string from root (the portal workgroup name), mirroring table-builder's athena_workgroup input."
