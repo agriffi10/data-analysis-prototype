@@ -49,11 +49,14 @@ on:
 # Two overlapping deploys of one service is last-writer-wins, and cancelling one mid-flight leaves
 # a half-rolled service — so a running deploy is never cancelled. A WAITING one can be: GitHub
 # holds one pending run per group, and a newer run replaces it, reported as cancelled. Between two
-# pushes that is harmless, because the survivor is the newer commit and the evicted one heals on
-# it the way a skipped run does. For a re-point DISPATCH it is not: a merge landing while the
-# dispatch waits evicts it, the service never moves to the named tag, and main's run is green. The
-# dispatch's own run is the evidence — its `Deployed` notice names the image, and `cancelled` is
-# this eviction.
+# pushes that is the point: the survivor is the newer commit, and the evicted one heals on it the
+# way a skipped run does. `queue: max` would keep every waiting run instead, in an order GitHub
+# does not guarantee — and a push running after a newer one that changed the image diffs
+# backwards from what is deployed, and builds the older bundle over it.
+#
+# FOR A RE-POINT DISPATCH THE EVICTION IS NOT HARMLESS: a merge landing while the dispatch waits
+# evicts it, the service never moves to the named tag, and main's run is green. The dispatch's own
+# run is the evidence — its `Deployed` notice names the image, and `cancelled` is this eviction.
 concurrency:
   group: deploy-spa-image
   cancel-in-progress: false

@@ -1638,8 +1638,10 @@ def _run_names(
     is the only check that the image a dispatch re-points at is real. The stub answers
     ``describe-images`` the way the CLI does rather than the way the script spells the call:
     measured against the CLI's own request body, it trims the ``imageTag=`` value, newlines
-    included, and strips the quotes from around it. A stub that compared the raw argument would
-    refuse a padded tag the real CLI finds, and so could not tell a grammar check from its absence.
+    included, and strips the quotes from around it. A stub comparing the raw argument would refuse
+    a padded tag as unknown where the real CLI finds it; modelling the respelling is what makes an
+    input that slips past the grammar behave here as it would in production — resolved, and handed
+    on under a spelling the registry does not hold.
 
     Args:
         tag_input: The dispatch's ``image_tag`` input. The literal ``HEAD`` stands for this
@@ -1765,10 +1767,11 @@ def test_the_names_step_refuses_a_malformed_tag_before_the_registry_sees_it():
 
     Every respelled row is an input the CLI reduces to a tag the registry holds, so without the
     grammar it is found, and the scope step writes it out as typed — naming an image that does
-    not exist and, for the newline rows, writing a second line into ``$GITHUB_OUTPUT``. The two
-    newline rows are what a dropped anchor would let through, one per anchor. The last row is an
-    unknown tag followed by a workflow command: the unknown-tag refusal prints the input, so
-    reaching it would print a spoofed plan as a notice of its own.
+    not exist and, for the newline rows, writing a second line into ``$GITHUB_OUTPUT``. The space
+    and newline rows come one per side, which is what a widened character class or a dropped
+    anchor would let through. The last row is an unknown tag followed by a workflow command: the
+    unknown-tag refusal prints the input, so reaching it would print a spoofed plan as a notice of
+    its own.
 
     Args:
         None.
@@ -1783,7 +1786,8 @@ def test_the_names_step_refuses_a_malformed_tag_before_the_registry_sees_it():
     held = "a" * 40
     spoof = f"::notice title=Plan::tag={held} build=skip deploy=run"
     for tag_input in (
-        f" {held} ",
+        f" {held}",
+        f"{held} ",
         f"'{held}'",
         f"{held}\n",
         f"\n{held}",
@@ -1804,6 +1808,40 @@ def test_the_names_step_refuses_a_malformed_tag_before_the_registry_sees_it():
             f"{stdout}"
         )
         assert outputs == {}, f"a refused dispatch still wrote {outputs}"
+
+
+def test_the_scope_step_runs_only_after_names_has_passed():
+    """The scope step writes a dispatched tag out unchecked, because `names` has checked it.
+
+    Both the tag's existence and its form are refused in `names`, and the scope step answers
+    ``skip`` for the tag and writes it into ``$GITHUB_OUTPUT`` on that strength. So the ordering
+    carries both checks: `names` must come first, must not tolerate its own failure, and the scope
+    step must carry no condition under which it could run after `names` failed.
+
+    Args:
+        None.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If the scope step could run without `names` having passed.
+    """
+    names, scope = _deploy_spa_step("names"), _deploy_spa_step("scope")
+    steps = yaml.safe_load(DEPLOY_SPA_WORKFLOW.read_text(encoding="utf-8"))["jobs"][
+        "deploy"
+    ]["steps"]
+    order = [step.get("id") for step in steps]
+    assert order.index("names") < order.index("scope"), (
+        "the scope step runs before `names`, so a dispatched tag reaches it unchecked"
+    )
+    assert names.get("continue-on-error", False) is False, (
+        "`names` tolerates its own failure, so the scope step runs after a refused tag and "
+        "writes it out"
+    )
+    assert "if" not in scope, (
+        f"the scope step carries `if: {scope.get('if')}`, which could run it after `names` failed"
+    )
 
 
 def test_a_re_run_reuses_the_image_its_first_attempt_pushed():
