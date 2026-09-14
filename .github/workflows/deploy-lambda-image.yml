@@ -38,8 +38,10 @@ on:
         default: ''
 
 # Two overlapping pushes of one repository is wasted work at best, and cancelling one mid-push
-# leaves a partial upload the registry has to garbage-collect. Runs queue rather than race, and
-# none is cancelled — the same reasoning deploy-spa-image.yml carries.
+# leaves a partial upload the registry has to garbage-collect — so a running push is never
+# cancelled. A WAITING run can be, because GitHub holds one pending run per group and a newer run
+# replaces it. The commit it would have imaged then has none, and a `Deploy Lambdas` or `Deploy
+# Infrastructure` run for that commit fails its wait for the tag, with an error pointing back here.
 concurrency:
   group: deploy-lambda-image
   cancel-in-progress: false
