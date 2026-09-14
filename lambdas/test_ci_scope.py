@@ -1589,7 +1589,8 @@ def test_a_configuration_change_waits_for_its_apply_then_points_at_what_it_regis
     A read before the apply finishes finds the revision from before it — same keys, old values —
     and the register step, which counts keys, deploys it green. So the step asks after this
     commit's apply until it has finished, and only then compares the family with the service.
-    The same holds when the push also changes the image: the build must clone the new revision.
+    The same holds when the push also changes the image, and when the service has no baseline:
+    either way the register step clones the family, and must clone the new revision.
 
     Args:
         None.
@@ -1618,6 +1619,17 @@ def test_a_configuration_change_waits_for_its_apply_then_points_at_what_it_regis
     assert with_image["polls"] == 2, (
         "a push changing the image and the task definition was built without waiting for its "
         "apply, so the register step clones the revision from before it"
+    )
+
+    # A service with no baseline builds and deploys straight away, and the register step still
+    # clones the family, so the wait has to come before those exits too.
+    unanchored = _run_scope(
+        ("infra/main.tf",), deployed="placeholder", apply_registers=True
+    )
+    assert (unanchored["build"], unanchored["deploy"]) == ("run", "run")
+    assert unanchored["polls"] == 2, (
+        "a configuration push to a service with no baseline was deployed without waiting for "
+        "its apply"
     )
 
 

@@ -15,7 +15,7 @@ name: Deploy SPA image
 # still answered exactly — by the tag the service runs, which is still a commit sha and still an
 # image in the registry — it is just no longer the same answer as "the tip of main". Replayed over
 # the 40 merges before this change, running both path tests exactly as the step does: 15 would have
-# built, 4 changed only an input to the task definition, and 21 would have done neither.
+# built, 4 would have waited for their apply without building, and 21 would have done neither.
 #
 # THE BASELINE IS THE DEPLOYED COMMIT, never HEAD~1. A run that skips, and a run that fails, both
 # leave the next one comparing against what is still actually running — so a missed deploy heals on
@@ -26,13 +26,13 @@ name: Deploy SPA image
 # THE DISPATCH PATH IS NOT A CONVENIENCE. Two situations need it and neither is hypothetical.
 # Terraform registers task-definition revisions of its own — the service carries
 # `ignore_changes = [task_definition]` precisely so CI owns which revision runs. A push editing
-# `infra/main.tf` or the SPA module waits for its own apply and lands on that push, but a value
-# that reaches Terraform any other way — a repository variable applied by a dispatched Deploy
-# Infrastructure, a module output, a default in `variables.tf` — produces a revision nobody points
-# the service at, and the running container keeps the old value until the next push to main. And
-# if this pipeline lands broken, the registry is IMMUTABLE: the failing sha cannot be re-pushed,
-# and no local identity may write to production. A dispatch with an existing tag re-points
-# without rebuilding.
+# `infra/main.tf` or the SPA module waits for its own apply and lands on that push, bar the
+# bounds the scope step states, but a value that reaches Terraform any other way — a repository
+# variable applied by a dispatched Deploy Infrastructure, a module output, a default in
+# `variables.tf` — produces a revision nobody points the service at, and the running container
+# keeps the old value until the next push to main. And if this pipeline lands broken, the
+# registry is IMMUTABLE: the failing sha cannot be re-pushed, and no local identity may write to
+# production. A dispatch with an existing tag re-points without rebuilding.
 #
 # A RE-POINT AT AN OLDER TAG DOES NOT OUTLAST THE NEXT PUSH TO MAIN if anything the image reads
 # changed since that tag. That run reads the tag back as its baseline, so the commit rolled back
@@ -53,8 +53,9 @@ on:
 # a half-rolled service — so a running deploy is never cancelled. A WAITING one can be: GitHub
 # holds one pending run per group, and a newer run replaces it, reported as cancelled. Between two
 # pushes that is the point: the survivor is the newer commit, and the evicted one heals on it the
-# way a skipped run does. `queue: max` would keep every waiting run instead, in an order GitHub
-# does not guarantee — and a push running after a newer one that changed the image diffs
+# way a skipped run does — an image change at once, a configuration change a push late, for the
+# reason the scope step gives. `queue: max` would keep every waiting run instead, in an order
+# GitHub does not guarantee — and a push running after a newer one that changed the image diffs
 # backwards from what is deployed, and builds the older bundle over it.
 #
 # FOR A RE-POINT DISPATCH THE EVICTION IS NOT HARMLESS: a merge landing while the dispatch waits
@@ -311,14 +312,19 @@ jobs:
           # apply registers none, and a queued run of THIS workflow may have registered one of its
           # own since the merge.
           #
-          # FINISHED, NOT SUCCEEDED. A failed apply is already a red main in its own workflow;
-          # failing here as well adds a second red for the same cause and holds back an image that
-          # may not depend on it. So it is said, and the run decides from what the family holds.
-          # What does stop the run is an apply that never finishes inside the window — a dropped
-          # push event, a hung apply, an answer GitHub will not give — because reading past it
-          # would deploy a revision that may predate this commit behind a green check. The window is
-          # far past a routine apply, queue included; re-measure against that workflow's push runs
-          # before shortening it.
+          # FINISHED, NOT SUCCEEDED. A failed apply is already a red main in its own workflow, and
+          # failing the wait as well would hold back an image that may not depend on it. So the wait
+          # says so and goes on from what the family holds; the register step's key count still
+          # refuses a revision missing a key. A run GitHub CANCELLED is finished too: it keeps one
+          # pending run per concurrency group and cancels the older when a newer queues, in either
+          # workflow, so a newer push's apply carries this change and it lands a push late — the
+          # same bound as a push of several commits, and the same when it is this workflow's own
+          # pending run that is replaced, since the wait keys on the newer push's diff. What does
+          # stop the run is an apply that never finishes inside the window — a dropped push event,
+          # a hung apply, an answer GitHub will not give — because reading past it would deploy a
+          # revision that may predate this commit behind a green check. The window is far past a
+          # routine apply, queue included; re-measure against that workflow's push runs before
+          # shortening it.
           wait_for_the_apply() {
             local runs answer attempt polls=60 interval=15
             runs="repos/$GITHUB_REPOSITORY/actions/workflows/$APPLY_WORKFLOW/runs?head_sha=$GITHUB_SHA&event=push&per_page=1"
@@ -338,7 +344,7 @@ jobs:
               echo "this commit changes an input to the task definition; its $APPLY_WORKFLOW run is [$answer], poll $attempt of $polls"
               sleep "$interval"
             done
-            echo "::error title=Apply not finished::this commit changes an input to the task definition, and its $APPLY_WORKFLOW run had not finished after $((polls * interval / 60)) minutes (last answer: [$answer]). Reading the family now could clone a revision the apply is about to supersede. If no run exists, GitHub dropped the push event: dispatch $APPLY_WORKFLOW, then re-run this job."
+            echo "::error title=Apply not finished::this commit changes an input to the task definition, and its $APPLY_WORKFLOW run had not finished after $((polls * interval / 60)) minutes (last answer: [$answer]). Reading the family now could clone a revision the apply is about to supersede. If no run exists, GitHub dropped the push event: dispatch $APPLY_WORKFLOW, and once it has finished dispatch this workflow, which does not wait. Re-running this job instead asks the same question and gets the same answer, because a dispatched run is not a push run."
             exit 1
           }
           if matches "$TASK_PATTERNS" "$PUSHED"; then
