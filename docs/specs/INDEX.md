@@ -241,6 +241,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 233 — A Failed Status Poll Ends the Query Tab's Run, and Says Why | Completed |
 | 234 — A Long Query Settles at the Ceiling, and Says Where Its Results Go | Completed |
 | 235 — A CSV Table's Refresh Keeps Its Column Order and Adds New Columns at the End | Draft |
+| 236 — A Run That Ends on an Error No Catch Takes Still Tells the User | Draft |
 
 ## Arcs
 
