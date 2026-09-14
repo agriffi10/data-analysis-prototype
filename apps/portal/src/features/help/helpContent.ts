@@ -16,8 +16,8 @@ import type {HelpSection} from './help.types';
 // notifications, with no adverb. "usually" went when the drain began sweeping every
 // control plane's request DLQ back into notifications, since a request that never
 // started an execution had notified nobody; "always" overclaims, because an
-// uncatchable Step Functions error ends the execution unnotified. The data-quality
-// page's footer note carries the long form.
+// uncatchable Step Functions error ends the execution without reaching the failure
+// notifier. The data-quality page's footer note carries the long form.
 // When a feature is added, changed, or removed, revisit this file so the guides
 // never promise behavior that isn't shipped — the post-spec ritual in
 // docs/process/completion-ritual.md includes a check for exactly this.

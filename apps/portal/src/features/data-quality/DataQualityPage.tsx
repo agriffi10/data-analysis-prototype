@@ -223,10 +223,11 @@ export function DataQualityPage() {
  * line once hedged with "usually".
  *
  * "always" overclaims the other way. `States.Runtime` (a Pass or Choice state reading an absent
- * key or a null, for one) is never caught by `States.ALL`, and `States.DataLimitExceeded` over
- * the state payload limit is caught only by a catcher that names it, which none here does.
- * Either ends the execution FAILED with no notification, and no event rule in the fleet matches
- * FAILED. The machine is built so neither is raised, which is a design intent and not a
+ * key, or a path through a null, for one) is never caught by `States.ALL`, and
+ * `States.DataLimitExceeded` over the state payload limit is caught only by a catcher that names
+ * it, which none here does. Either ends the execution FAILED without reaching NotifyFailure, and
+ * no event rule in the fleet matches FAILED, so a failure no verb had already reported goes
+ * unreported. The machine is built so neither is raised, which is a design intent and not a
  * guarantee, so the line states where failures go without promising that every one arrives.
  *
  * The notification path itself is outside the check. NotifyFailure's own failure is caught into
