@@ -151,6 +151,30 @@ describe('useQueryExecution', () => {
       }
     });
 
+    it('re-renders its host on no poll while the status is unchanged', async () => {
+      // The reason the hook returns its own shape: reading `dataUpdatedAt` before the ceiling
+      // would make TanStack notify on every poll, and the Explorer would re-render with each one.
+      vi.useFakeTimers();
+      try {
+        mockGetStatus.mockResolvedValue(RUNNING);
+        let renders = 0;
+        renderHookWithProviders(() => {
+          renders += 1;
+          return useQueryExecution('q-1');
+        });
+        await advance(POLL_INTERVAL_MS * 2 + POLL_INTERVAL_MS / 3);
+        const settled = renders;
+        const before = requestsFor('q-1');
+
+        await advance(POLL_INTERVAL_MS * 20);
+
+        expect(requestsFor('q-1')).toBeGreaterThanOrEqual(before + 20);
+        expect(renders).toBe(settled);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('delivers a terminal status read after the ceiling, and reports no verdict', async () => {
       vi.useFakeTimers();
       try {

@@ -486,7 +486,8 @@ describe('the results region', () => {
     seedTabs([{id: 't1', table: 'orders'}]);
     render();
 
-    expect(await screen.findByText(/syntax error in your query/i)).toBeInTheDocument();
+    const banner = (await screen.findByText(/syntax error in your query/i)).closest('[role="alert"]');
+    expect(banner).toHaveClass('bg-danger-soft');
     expect(screen.queryByText('Running…')).not.toBeInTheDocument();
     expect(screen.queryByText('No rows returned.')).not.toBeInTheDocument();
   });

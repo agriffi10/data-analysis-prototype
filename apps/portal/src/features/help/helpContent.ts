@@ -469,7 +469,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Already in the <b>Query</b> tab? Open the <b>⋮</b> menu on a table in the schema rail and choose <b>Explore data</b> to open it here.',
           'Use <b>+</b> on the tab strip to explore another table alongside this one, and <b>✕</b> to close one.',
           'Switch between <b>Grid</b>, <b>Record</b> and <b>Text</b> with the <b>Presentation</b> control — <b>Record</b> shows one row at a time, which is the easier read on a phone.',
-          'An apply still running after <b>30 minutes</b> keeps going in Athena, but the Explorer stops waiting for it and says so. When it finishes, its results are saved in your files under <b>system_settings</b> › <b>athenaresults</b>, in a file named after the query ID the message shows.'
+          'An apply still running after <b>30 minutes</b> keeps going in Athena, and keeps scanning, but the Explorer stops waiting for it and says so. When it finishes, its results are saved in your files under <b>system_settings</b> › <b>athenaresults</b>, in a file named after the query ID the message shows.'
         ],
         callout: {
           kind: 'tip',

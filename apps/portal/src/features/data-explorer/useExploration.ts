@@ -27,7 +27,7 @@ export type UseExplorationResult = {
   outputLocation: string | undefined;
   /** What this execution scanned. Null until the execution reports it. */
   cost: ExecutionCost | null;
-  /** The statement is starting or still running, and the browser is still watching it. */
+  /** The statement is starting or still running, with no verdict that its watch outlived the ceiling. */
   isPending: boolean;
   /**
    * A render refusal, a failed StartQueryExecution, a failed poll, or the verdict that the watch

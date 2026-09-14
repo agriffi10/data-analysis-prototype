@@ -53,7 +53,7 @@
   full suite, with its thresholds), `validate_docs.py` and its corpus, the contract regeneration,
   the feature-flag and app-managed-path validators with the path sweep's corpus, the PR-queue hook
   and installer corpora, and ruff. The test names collected by the runner before and after differ
-  only by the sixteen added, and none vanished.
+  only by the eighteen added, and none vanished.
 - **Mutation checks, each planted once, seen red, then reverted:**
   - A clock-only verdict turns the hidden-page and terminal-after-the-ceiling tests red.
   - An interval-only stop turns the reconnect half red, by one request.
@@ -61,5 +61,8 @@
   - Deleting the watch reset turns the new-watch test red.
   - A no-op settle in `useTabRuns` turns all four workspace tests red.
   - Remembering the verdict as a failure turns the Explorer's Back test red on the suspension text.
+  - Reading `dataUpdatedAt` on every render turns the render-count test red: 24 renders over the
+    polls where the shipped hook makes 4, all before the ceiling.
+  - Keeping the Explorer pending after the verdict turns its hook test red.
 - **The Explorer fix was seen red first.** A failed first apply showed "Running…" twice under its
   banner on the base code.

@@ -1,5 +1,5 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
-import {waitFor} from '@testing-library/react';
+import {act, waitFor} from '@testing-library/react';
 import {renderHookWithProviders, createTestQueryClient} from '../../test/renderWithProviders';
 import {useExploration} from './useExploration';
 import {useQueryResults} from '../catalog/useQueryResults';
@@ -8,6 +8,7 @@ import {newExploration} from './exploration';
 import {explorerKeys, explorationSourceScope} from './explorerKeys';
 import type {Exploration, ExplorationSource} from './dataExplorer.types';
 import type {QueryState} from '../catalog/catalog.types';
+import {MAX_POLL_DURATION_MS, POLL_INTERVAL_MS} from '../catalog/catalog.constants';
 
 vi.mock('../catalog/athena.service', async (importOriginal) => ({
   // `isTerminalState` stays REAL: it decides when polling stops, and a stub would decide
@@ -249,6 +250,34 @@ describe('useExploration — one execution per distinct rendered SQL (FR-006)', 
     expect(result.current.sql).toBeNull();
     expect(result.current.isPending).toBe(false);
     await waitFor(() => expect(runQuery).not.toHaveBeenCalled());
+  });
+});
+
+describe('useExploration — a statement that outlives the watch’s ceiling', () => {
+  it('reports the verdict as its error and stops being pending', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(getQueryStatus).mockResolvedValue(status({state: 'RUNNING'}));
+      const {result} = renderHookWithProviders(() => useExploration(newExploration(TABLE)));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+      });
+      expect(result.current.isPending).toBe(true);
+
+      // The ceiling's mark in an act of its own, then the one poll whose read decides.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(MAX_POLL_DURATION_MS);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS + 10);
+      });
+
+      expect(result.current.error).toMatchObject({code: 'QueryStillRunning', params: {queryExecutionId: 'exec-1'}});
+      expect(result.current.state).toBe('RUNNING');
+      expect(result.current.isPending).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
