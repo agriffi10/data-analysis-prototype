@@ -8,11 +8,11 @@ The Files surface now reflows across mobile / tablet / desktop. Presentation/mar
 - **Table columns (FR-002).** The `≥ tablet` table keeps its flex layout; the **Type** column (header + each row's Badge cell) is `hidden desktop:block` so it shows on desktop and sheds at tablet.
 - **Mobile card list (FR-003).** New **`FileListRowMobile`** (56px two-line: icon + name/meta, trailing size for files / chevron for folders, per-object Details control, selection checkbox + `accent-soft`/inset-`accent`-bar selected treatment). `ParentFolderRow` gained a `variant="mobile"` two-line (`..` / "Up one level") presentation.
 - **Bottom bar (FR-005).** `MobileActionBar` carries **New folder + Upload** (≥44px); the top-toolbar New folder/Upload/Create-table group renders at ≥ tablet. Content gets `pb-24 tablet:pb-0` so the fixed bar never occludes the last row. **No header ⋯ overflow menu, no selection mode** (per the product decision).
-
-  > **Correction (2026-09-14) — the "≥44px" above is false, and was false when written.** The bar's
-  > buttons carry `!h-11`, whose px value was read off the class at an assumed 16px root. This app's
-  > root is **14px**, so `!h-11` draws **38.5px** (11 × 0.25rem × 14px). Left there deliberately, for
-  > the reason [SPEC-100's correction](SPEC-100-query-workspace-responsive.md) records: 44×44 is
+  > **Correction (2026-09-14) — two sizes in these bullets are false, and were false when
+  > written.** Both were read off the class at an assumed 16px root; this app's root is **14px**, so
+  > one spacing step is 3.5px. The mobile row is `h-14`, which draws **49px**, not 56. The bar's
+  > buttons are `!h-11`, which draws **38.5px**, not ≥44. The buttons are left at 38.5px deliberately,
+  > for the reason [SPEC-100's correction](SPEC-100-query-workspace-responsive.md) records: 44×44 is
   > SC 2.5.5, which is AAA, and this project targets A + AA.
 - **Bulk toolbar (FR-006).** Copy/Move/Delete are labelled at ≥ tablet, **icon-only on mobile** (Delete danger-toned); checkboxes stay always-visible at every width.
 - Shared `formatDate` extracted to `fileBrowser.format.ts` (used by table + mobile row).

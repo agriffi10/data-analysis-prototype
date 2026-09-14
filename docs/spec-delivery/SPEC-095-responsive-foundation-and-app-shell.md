@@ -9,7 +9,6 @@ The shared responsive foundation the surface specs (099→104) build on — pres
 - **`AppNavDrawer`** (`src/components/AppNavDrawer.tsx`) — 300px left off-canvas sheet: five primary links (Files/Query/Connections/Notifications/Help, active via `NavLink aria-current`) + a page-supplied `contextualRail` slot; focus trap + scroll lock + Escape/scrim/link dismiss.
 - **`NavRailProvider` + `navRailContext`** (`useProvideNavRail`/`useNavRailContent`) — lets a page feed its rail into the Header-owned drawer (no page consumes it yet; wired in 099/100).
 - **Header** — mobile hamburger (`tablet:hidden`, ≥44px, `aria-controls`) opening the drawer (mounted only when `useIsMobile`); `PrimaryNav` wrapped `hidden tablet:flex`.
-
   > **Correction (2026-09-14) — the "≥44px" above is false, and was false when written.** The
   > hamburger is `h-11 w-11`, whose px value was read off the class at an assumed 16px root. This
   > app's root is **14px**, so it draws **38.5px** square (11 × 0.25rem × 14px). Left there

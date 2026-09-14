@@ -41,9 +41,10 @@ type Props = {
 // The Download + Rename action pair. Download resolves a presigned URL
 // and downloads with attachment disposition (both authenticated + read-only);
 // Rename opens the shared RenameDialog and is hidden in read-only mode. At
-// ≥ tablet they sit side by side, 50/50, at `!h-[38px]`; the mobile sheet stacks
-// them full-width at `!h-11`, which is 38.5px at the 14px root — clear of the 24px
-// AA floor, short of the AAA 44px, which this project does not target.
+// ≥ tablet they sit side by side, 50/50, at `tablet:!h-[38px]`; the mobile sheet
+// stacks them full-width at `!h-11` (38.5px). `flex-1` is tablet-only because in
+// the stacked column a non-auto flex basis replaces the height, and the buttons
+// would collapse to their text.
 function PanelActions({
   bucket,
   file,
@@ -69,7 +70,7 @@ function PanelActions({
       <div className="flex flex-col gap-2 tablet:flex-row">
         <Button
           variant="primary"
-          className="!h-11 flex-1 gap-2 tablet:!h-[38px]"
+          className="!h-11 gap-2 tablet:!h-[38px] tablet:flex-1"
           onClick={() => void dl.download(file)}
           disabled={downloading}
           aria-busy={downloading}
@@ -80,7 +81,7 @@ function PanelActions({
         {canModify && (
           <Button
             variant="default"
-            className="!h-11 flex-1 gap-2 tablet:!h-[38px]"
+            className="!h-11 gap-2 tablet:!h-[38px] tablet:flex-1"
             onClick={() => onRequestRename(file)}
             disabledReason={writeLockReason}
             aria-label={`Rename ${file.name}`}>

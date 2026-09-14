@@ -2,9 +2,9 @@ import {type ReactNode} from 'react';
 
 export type MobileActionBarProps = {
   /**
-   * Primary mobile actions, caller-supplied. Give each the app's mobile touch height, `!h-11`:
-   * 38.5px at the 14px root, clear of the 24px AA floor and short of the AAA 44px, which this
-   * project does not target.
+   * Primary mobile actions, caller-supplied. The Files bar gives each `!h-11`, which is 38.5px at
+   * the 14px root: clear of the 24px AA floor, and short of the AAA 44px, which this project does
+   * not target.
    */
   children: ReactNode;
   /** Accessible name for the toolbar. Default "Actions". */
@@ -14,7 +14,8 @@ export type MobileActionBarProps = {
 /**
  * Mobile-only bar fixed to the bottom of the viewport (`tablet:hidden`),
  * safe-area-inset aware so controls clear the home indicator. Surfaces mount
- * their primary mobile actions here (Files → New folder + Upload). This is the
+ * their primary mobile actions here (Files → New folder + Upload, and Restore
+ * Archived Data when restore is enabled). This is the
  * shell only — the consuming page pads its scroll region by the bar height so
  * the bar never occludes the last row.
  *
