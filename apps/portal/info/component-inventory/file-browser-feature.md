@@ -28,7 +28,7 @@ Public barrel: `features/file-browser/index.ts`.
 
 ### Upload internals — `multipartUpload.ts` + `xhrUpload.ts`
 
-Behind `uploadFile`, which is the only entry point a feature should call.
+Behind `uploadFile`. A feature calls neither these nor `uploadFile`: it enqueues through `useUploadQueue().enqueue`, the one upload path with cancel and a row in `UploadList`, and the queue calls `uploadFile`.
 
 | Symbol | Purpose |
 |---|---|
@@ -41,7 +41,7 @@ Behind `uploadFile`, which is the only entry point a feature should call.
 |---|---|---|
 | `useFileBrowser(bucket, prefix?)` | `useFileBrowser.ts` | Paginated listing via `useInfiniteQuery`; merges/sorts pages for the picker, and exposes `page` — ONE server page at a time, folders first within it — for the browser, whose position is remembered per listing and clamped to the pages a refetch leaves. `goNext` advances only if a page actually arrived. Hides EVERY `DO_NOT_DELETE.txt` by basename at any depth in either bucket — no caller-supplied key (SPEC-173 FR-003). |
 | `useFileSpace({username, connections, isLoading, userSpaceBucket, sharedSpaceBucket})` | `useFileSpace.ts` | Active file-browser **space** from `useConnections` + the `?space=` route param → `FileSpaceTarget {id,bucket,rootPrefix,kind,label}`; `selectSpace`/`fellBack`/`dismissFellBack`. Gone/revoked/not-yet-active space reconciles to personal (file-side analogue of `useActiveDatabase`) (SPEC-057). |
-| `useFileUpload(bucket, prefix)` | `useFileUpload.ts` | Upload + create-folder orchestration: progress, collision warn-and-confirm, listing invalidation. |
+| `useFileUpload(bucket, prefix)` | `useFileUpload.ts` | Create-folder orchestration for `FileBrowser`: the folder-name collision warn-and-confirm, the error, and listing invalidation on success. Despite the name it uploads nothing — a new upload surface calls `useUploadQueue().enqueue(files, {bucket, prefix})`, which has cancel and shows each file in `UploadList`. `prefix` is the folder prefix ending in `/`, since each key is `prefix + file.name`. |
 | `useObjectMetadata(bucket, key \| null)` | `useObjectMetadata.ts` | Per-object `HeadObject` metadata via `useQuery`, keyed per object; disabled when key is null. |
 | `useDelete(bucket, prefix, username?)` | `useDelete.ts` | Deletes a selection file by file; a FOLDER is refused per item with `PlaneRequired` while the files beside it still go through. Aggregates a `DeleteSummary`, invalidates the listing. Never throws. |
 | `useMove(bucket, sourcePrefix, username?)` | `useMove.ts` | Rename (single) + move (multi-select) orchestration; collision warn-and-confirm, source/dest invalidation. A FOLDER is refused per item. Aggregates a `MoveSummary`. |
