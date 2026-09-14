@@ -110,6 +110,15 @@ describe('runtimeConfig — a production load that fails', () => {
     expect(await load()).toEqual({ok: false, reason: 'unparseable'});
   });
 
+  it('reports unparseable for a body that is not JSON at all, such as the app shell', async () => {
+    // Every row above parses and is refused for its shape. Markup makes the parse itself reject,
+    // and a loader without its catch lets that escape the bootstrap, which then renders nothing.
+    respondWith('<!doctype html><html><body><div id="root"></div></body></html>');
+    const {loadRuntimeConfig: load} = await productionModule();
+
+    expect(await load()).toEqual({ok: false, reason: 'unparseable'});
+  });
+
   it('refuses an unsupported version WHOLE, and names what it found', async () => {
     respondWith(JSON.stringify({version: 2, ...COMPLETE}));
     const {loadRuntimeConfig: load, configValue: read} = await productionModule();
