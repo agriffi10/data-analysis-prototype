@@ -1,8 +1,9 @@
 """Unit tests for the data-quality notify-failure handler (SPEC-114 FR-004).
 
-The state this covers is the one that fires when NO VERB CODE RAN — a Lambda import
-failure, a Step Functions-level error — so its input is whatever RecordFailure could
-shape, and its job is to still put a friendly sentence in the actor's inbox.
+The state this covers is the one that fires when NO VERB CODE COULD REPORT — a verb Lambda
+that failed at import or was killed at its timeout, a task that could not be invoked — so its
+input is whatever RecordFailure could shape, and its job is to still put a friendly sentence in
+the actor's inbox.
 """
 
 import json

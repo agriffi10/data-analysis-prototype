@@ -545,6 +545,12 @@ channel, with no admin UI to check and no reason to suspect anything but slownes
 SPEC-137's nine-day `ModuleNotFoundError` and PR #196's shared-layer cold-start crash are both exactly
 this shape.
 
+**One error in that list is not closed by it.** `States.DataLimitExceeded` is caught only by a
+catcher that names it, and none in the fleet does, so it still ends a run FAILED without reaching
+`NotifyFailure`; so does `States.Runtime`, which `States.ALL` never catches. No event rule matches
+FAILED. The machines are built so neither is raised, which is why the data-quality footer carries
+no "always".
+
 **A fifth plane cannot ship without it.** `test_state_machines_cpcommon.py` enumerates every
 `state-machine.asl.json.tftpl` under `infra/modules/` and asserts each has a `NotifyFailure` Task with
 a `States.ALL` Catch, plus that its `RecordFailure` copies `$.error` **whole**. The exemption list is
