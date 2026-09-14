@@ -1,9 +1,13 @@
 """Drains every control plane's request DLQ into the notification the user already reads.
 
-Each control plane dead-letters a request it cannot process — a malformed body the Pipe
-rejects, or a message that exhausts its receives. When that happens no verb runs and no
-execution starts, so nothing in the arc's own failure machinery fires. The request simply
-disappears and the person who made it is left watching for a result that will never come.
+A control plane's request reaches its DLQ only when the Pipe fails to start an execution for it
+on every receive the queue allows. That leaves two causes: a record too large for Step Functions
+to start an execution with, which the API refuses before it sends, and a Pipe that cannot start
+executions at all. A malformed body is not one of them — the Pipe starts an execution for it like
+any other, and the plane refuses it inside that execution. When a request does dead-letter no
+verb runs and no execution starts, so nothing in the arc's own failure machinery fires. The
+request simply disappears and the person who made it is left watching for a result that will
+never come.
 
 This one function sits on every request DLQ in ``SOURCES`` and turns each dead-lettered message
 into one sentence in the actor's inbox: your request couldn't be started, nothing was created or
