@@ -1,8 +1,8 @@
 """Unit tests for the notifications writer.
 
-The S3 client and token verification are faked — the client on
-`cpcommon.clients` since SPEC-156 FR-004, which is also where `lambdas/conftest.py`'s
-shared-layer snapshot restores it from.
+The S3 client is faked, on `cpcommon.clients`, which is also where `lambdas/conftest.py`'s
+shared-layer snapshot restores it from. Nothing verifies a token any more, so there is no
+verifier to fake: a user action carries the identity block `_identity` builds.
 """
 
 import json
@@ -84,10 +84,11 @@ def _inbox(s3, username):
 
 
 # The two senders every test names explicitly. A create legitimately comes from an execution
-# role; a user action legitimately comes from the browser, which is the role the create guard
-# refuses — so the user-action tests below are also the proof that the guard did not catch them.
+# role. The user-action tests send as the portal role, the one sender the create guard refuses,
+# so they are also the proof that the guard is create-only — in the running system that role
+# holds no grant here and a user action arrives from the API's execution role.
 SERVICE_SENDER = "AROASERVICE:producer"
-PORTAL_SENDER = "AROAPORTAL:CognitoIdentityCredentials"
+PORTAL_SENDER = "AROAPORTAL:alice"
 
 #: Events captured from observability.error. Module-level rather than a fixture because the
 #: __main__ runner below calls each test with no arguments, so a fixture parameter would be a
@@ -138,10 +139,10 @@ def test_create_prepends_newest_first():
 
 def test_an_OVERSIZE_payload_is_refused_rather_than_truncated():
     # THE ONLY SERVER-SIDE GATE THIS FIELD WILL EVER HAVE. A producer's own bound lives in its
-    # own layer and constrains nothing that arrives here: the grant on this queue is
-    # unconditioned, and while the sender check now bounds WHICH principals reach the writer,
-    # IAM still bounds nothing about the message itself. Refusing dead-letters the one message;
-    # truncating would write a half-object into an inbox every poll downloads whole.
+    # own layer and constrains nothing that arrives here: no SQS condition key reaches a message
+    # body, and the sender check judges who sent a create, not what it carries. Refusing
+    # dead-letters the one message; truncating would write a half-object into an inbox every
+    # poll downloads whole.
     s3 = _setup()
     oversize = {"requestId": "r-1", "conflicts": ["k" * (w.MAX_PAYLOAD_BYTES + 1)]}
 
@@ -296,7 +297,7 @@ def test_ACCEPTED_a_redelivered_create_writes_a_SECOND_inbox_entry():
     ACCEPTED because the blast radius is one duplicated line in a read-only list — no
     access is granted, nothing is overwritten, and the user can dismiss it — while the fix
     with real teeth is a producer-supplied idempotency key, a contract change across four
-    control planes and the browser producer. Recorded in docs/decisions/control-planes.md.
+    control planes and the API. Recorded in docs/decisions/control-planes.md.
 
     If this starts failing, the writer became idempotent: revisit the decision and the
     delivery-doc note, do not delete the test.
@@ -325,11 +326,13 @@ def _refusals():
 
 
 def test_a_create_from_the_portal_role_is_refused_and_nothing_is_written():
-    """The boundary itself.
+    """The sender check itself.
 
     The writer takes the body's username for a create, which is right — a plane telling Bob
-    that Alice sent him files holds no token for Bob. What was missing is that the browser
-    could send one too, because IAM cannot condition on a message body. SenderId can.
+    that Alice sent him files writes the create itself, with no identity block, and Bob is not
+    the caller it acted for. What was missing, while the portal role held a grant on this
+    queue, is that it could send one too, because IAM cannot condition on a message body.
+    SenderId can.
     """
     s3 = _setup()
 
@@ -363,8 +366,8 @@ def test_a_refused_create_DROPS_rather_than_raising_even_with_no_username():
     The guard sits above the username resolution, not inside the create branch. Lower, a
     forged create that simply omits `username` would reach "create requires a username" and
     RAISE — three invocations and one permanent message on a dead-letter queue that is
-    deliberately undrained, per forged request, which is a way for any signed-in user to
-    drown the only operator-facing signal this plane has.
+    deliberately undrained, per forged request, which is a way for whoever could send as the
+    portal role to drown the only operator-facing signal this plane has.
     """
     s3 = _setup()
 
