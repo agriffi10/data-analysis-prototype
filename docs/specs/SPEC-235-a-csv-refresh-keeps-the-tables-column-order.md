@@ -3,7 +3,8 @@
 **ID:** SPEC-235
 **Status:** Draft
 **Last Updated:** 2026-09-14
-**Depends On:** SPEC-144, SPEC-145, SPEC-149
+**Depends On:** SPEC-144, SPEC-145, SPEC-149, and the copy fix on `fix/refresh-reads-the-first-file`
+landing on `main` first (see *Scope*)
 
 ## Overview
 
@@ -93,8 +94,11 @@ map each row's fields to the table's columns by position.
 - Tests beside each verb and beside the dialog.
 - **The copy FR-002 and FR-003 extend was being reworded while this spec was written**, by a fix
   not yet on `main` (branch `fix/refresh-reads-the-first-file`, which says the refresh reads the
-  first file). Both FRs are stated against the wording on `main` at build time. Any sentence quoted
-  here from today's copy is context, not the target.
+  first file). It edits the same lines: the `columns_removed` template, the guide's intro and
+  removal paragraph, and the dialog's opt-in description. It must land first, so this build
+  reconciles its copy rather than being overwritten by it on a later rebase, where prose that
+  contradicts itself merges without a conflict. Both FRs are stated against the wording on `main`
+  at build time. Any sentence quoted here from today's copy is context, not the target.
 - At completion: an entry in `docs/decisions/analytics.md`, with a Fences clause saying a CSV
   table's column list is a positional contract that a refresh never reorders. The live check in
   *Implementation Phases* is folded into `docs/testing/e2e.md`.
@@ -132,12 +136,17 @@ and Parquet the written order stays the first file's.
   This criterion fails against the code at `5391198d`.
 - [ ] CSV, live `a,b,c`, first file `c,a,b,d`: `update_table` receives `a,b,c,d`.
 - [ ] CSV, live `a,b,c`, first file `y,a,x,b,c`: `update_table` receives `a,b,c,y,x`.
-- [ ] CSV, live `a,b,c`, first file `a,c`, removals allowed: `update_table` receives `a,c`.
+- [ ] CSV, live `a,b,c`, first file `a,c` (a removal diff-schema has already let through):
+  `update_table` receives `a,c`.
 - [ ] CSV, live `amount,region` with a comment on `region`, first file `Region,Amount,Notes`:
   `update_table` receives `amount,region,notes`, and `region` still carries its comment.
+- [ ] CSV, live `amount,region`, first file `Amount,region,amount`: refused as `update_failed`, and
+  `update_table` is not called. No existing test covers this refusal, and a reorder keyed on the
+  case-folded name merges the two columns silently while every other criterion here still passes.
+  The read-back cannot catch it either, because it compares name sets.
 - [ ] Parquet, live `a,b,c`, first file `a,new,b,c`: `update_table` receives `a,new,b,c`. The same
-  holds for JSON. Both tests set `format` explicitly, because the test event factory defaults it to
-  `csv`, so a test that leaves it unset exercises only the CSV branch.
+  holds for JSON. Both tests set `format` explicitly, because apply-refresh's test event factory
+  defaults it to `csv`, so a test that leaves it unset exercises only the CSV branch.
 - [ ] An event with no `format` is refused as `malformed_event`, and `update_table` is not called.
 
 ### FR-002: The removal refusal on a CSV table says what a removal does to older files
@@ -161,7 +170,9 @@ the dialog with the columns named.
   string.
 - [ ] On the CSV refusal the reason is `columns_removed` and the link is identical to the one
   today's code builds for the same columns.
-- [ ] A diff-schema event with no `format` is refused as `malformed_event`.
+- [ ] A diff-schema event with no `format` and no removal is refused as `malformed_event`. The
+  format is read up front beside the other required fields, not only on the removal path.
+- [ ] diff-schema's test event factory gains a format parameter; today it sets none.
 
 ### FR-003: The Refresh dialog and the Help guide describe the kept order and the removal's effect
 
@@ -176,9 +187,12 @@ The browser does not know a table's format, so the copy names CSV rather than de
   columns at the end of the table and never moves the existing ones, so a new column goes last in
   every CSV file that has it, and that a column placed anywhere else is read into the wrong
   columns in that file. Its removal paragraph gains the dialog's sentence.
-- No guide or dialog text on `main` at build time may say that a refresh reorders a CSV table to
-  match the first file, or tell the user to reorder a file to restore the table's order. The sweep
-  is closed with a grep for "order" and "position" over `helpContent.ts` and
+- No guide or dialog text on `main` at build time may say any of three things this spec makes
+  false: that a refresh reorders a CSV table to match the first file; that a CSV column placed
+  anywhere but last misreads the OLDER files (it now misreads the file it is misplaced in; the
+  rewording fix adds exactly this sentence to the guide's intro, true when it was written); or that
+  the user should reorder a file to restore the table's order. The sweep is closed with a grep for
+  "order", "position" and "older files" over `helpContent.ts` and
   `features/table-builder/*.tsx`, and the result is recorded in the PR body.
 
 #### Acceptance Criteria:
@@ -208,8 +222,15 @@ def _write_columns(
 
 # lambdas/table-builder-common/tbcommon/messages.py
 def removed_tokens(names: list[str], fmt: str) -> dict: ...
-# diff-schema calls removed_tokens(removed_names, events.require(event, "format"))
+
+# lambdas/table-builder-diff-schema/diff_schema.py, in _diff beside the other required reads:
+#   fmt = events.require(event, "format")
+# and on the removal refusal: removed_tokens(removed_names, fmt)
 ```
+
+The reorder keeps duplicate names, so the fold-collision refusal still sees them. A stable sort of
+the kept columns on their index in the live table, followed by the new columns in the first file's
+order, does this; a dict keyed on the folded name does not.
 
 ## File & Folder Structure
 
@@ -219,6 +240,7 @@ lambdas/table-builder-apply-refresh/test_apply_refresh.py   (FR-001)
 lambdas/table-builder-common/tbcommon/messages.py           (FR-002)
 lambdas/table-builder-diff-schema/diff_schema.py            (FR-002)
 lambdas/table-builder-diff-schema/test_diff_schema.py       (FR-002)
+lambdas/test_child_spans_per_plane.py                       (FR-002: its table-builder event gains a format)
 apps/portal/src/features/table-builder/RefreshTableDialog.tsx       (FR-003)
 apps/portal/src/features/table-builder/tableBuilderUi.test.tsx      (FR-003)
 apps/portal/src/features/help/helpContent.ts                        (FR-003)
