@@ -203,7 +203,7 @@ describe('getNotifications', () => {
  * and ignores a `username` in the body, asserted against a body that carries someone else's in
  * `lambdas/api/test_fifo_derivations.py`. The dedup id — the one id this plane mints, fresh every
  * time, because a mark-read is idempotent and must never be absorbed — has its own test there
- * too, and the `idToken` field is stamped by the API from the verified bearer.
+ * too, and no token rides in the body: the API stamps the verified caller as the identity block.
  *
  * The `username` argument stays on this service's input because its callers pass it and the query
  * keys read it; it simply no longer reaches the wire.

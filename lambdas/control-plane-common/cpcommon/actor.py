@@ -14,11 +14,11 @@ verify is a reader that will grow a second verifier, and the whole point of the 
 five of them had drifted.
 
 **The flat top-level ``actor`` field beside the block is never consulted.** On table-share,
-file-send, archive and file-ops that field holds the raw ID token during the cutover, and a raw JWT
-and a username are both non-empty strings — so a reader shaped "take the block, fall back to the
-field" passes every well-formed fixture and builds an S3 prefix, a Glue database name and a
-notification recipient out of a 900-character token on the first message from before the flip. The
-block is read into a local and nothing else is read at all.
+file-send, archive and file-ops that field holds the raw ID token in any message enqueued before
+the API stopped sending one, and a raw JWT and a username are both non-empty strings — so a reader
+shaped "take the block, fall back to the field" passes every well-formed fixture and builds an S3
+prefix, a Glue database name and a notification recipient out of a 900-character token on the
+first message from before the flip. The block is read into a local and nothing else is read at all.
 
 Dropping the verification is not dropping an authorization. The token answered "is this really
 alice?", which the API answers now. Whether alice may do the thing is still decided by each plane's
@@ -118,8 +118,9 @@ def trusted_actor(
     pre-cutover envelope is that the block is missing.
 
     A refusal is total. There is no default actor, no coercion, and no second field consulted —
-    including the flat top-level ``actor``, which holds a raw token on four planes during the
-    cutover and would resolve to a plausible-looking non-empty string.
+    including the flat top-level ``actor``, which on four planes holds a raw token in any message
+    enqueued before the API stopped sending one and would resolve to a plausible-looking
+    non-empty string.
 
     Args:
       req: The parsed message body, as ``events.parse_sqs_request`` returns it. Typed ``Any``

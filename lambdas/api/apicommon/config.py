@@ -138,8 +138,9 @@ def portal_role_arn() -> str:
     """Returns the role the API assumes to act as its caller.
 
     Read per call rather than at import, like every other value here. It is the EXISTING portal
-    role — the same ARN the Identity Pool's role attachment names — so every policy, bucket
-    policy and Lake Formation grant that authorizes a browser session authorizes this one too.
+    role — the ARN the retired Identity Pool's role attachment named — so every policy, bucket
+    policy and Lake Formation grant written for the browser sessions it used to vend authorizes
+    this one too.
 
     Args:
       None.
@@ -157,10 +158,11 @@ def principal_tag_key() -> str:
     """Returns the session-tag key carrying the username.
 
     Configuration rather than a literal, and its agreement with the stamper is ASSERTED rather
-    than structural: the Identity Pool's principal-tag map and two of the portal role's policy
-    templates hard-code this name, and threading a variable through them would edit templates
-    this spec is forbidden to touch. A wrong value here produces a session whose tags match no
-    policy statement, which reads as a denial everywhere and names nothing.
+    than structural: two of the portal role's policy templates hard-code this name, as the
+    retired Identity Pool's principal-tag map did, and threading a variable through them would
+    edit templates a test holds byte-identical to a pinned baseline. A wrong value here produces a
+    session whose tags match no policy statement, which reads as a denial everywhere and names
+    nothing.
 
     Args:
       None.
@@ -177,10 +179,10 @@ def principal_tag_key() -> str:
 def max_shared_memberships() -> int:
     """Returns how many membership slots a caller can carry.
 
-    The same count that sizes the Cognito custom attributes, the Identity Pool's tag map and the
-    portal role's shared-space policy. A hand-copied number here drops the slots above it, and
-    dropping a slot leaves every personal feature working while shared spaces refuse — which
-    presents as the propagation delay the product already documents.
+    The same count that sizes the Cognito custom attributes, the portal role trust statement's
+    session-tag keys and its shared-space policy. A hand-copied number here drops the slots above
+    it, and dropping a slot leaves every personal feature working while shared spaces refuse —
+    which presents as the propagation delay the product already documents.
 
     Args:
       None.

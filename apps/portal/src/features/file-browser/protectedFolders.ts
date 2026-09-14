@@ -181,15 +181,15 @@ export function undeletableRootFolderRefusal(
  * Feeding this to `Button.disabledReason` states the refusal before the confirm instead, and
  * swallows the click that would have opened it.
  *
- * **ONLY WHEN EVERY ITEM IS REFUSED, and that condition is the whole subtlety.** The service is
- * PER ITEM: `useDelete` loops the selection and records a failure against one protected folder
- * without abandoning the rest. Refusing on the FIRST protected item — which this did until
- * review caught it — killed Delete for a mixed selection the app would previously have carried
- * out, and at a space root the header's select-all takes in `athenaresults/`, `saved_queries/`
- * and `archive/` at once, so "select all → Delete" became dead with a reason about saved
- * queries. The confirm is only misleading when it is offering something wholly impossible; a
- * partial selection genuinely does something, and the per-item report is how that has always
- * been told.
+ * **ONLY WHEN EVERY ITEM IS REFUSED, and that condition is the whole subtlety.** The refusal
+ * downstream is PER ITEM: the file-operations plane, which takes every selection holding a folder
+ * while it is taking work, records a failure against one protected folder without abandoning the
+ * rest. Refusing on the FIRST protected item — which this did until review caught it — killed
+ * Delete for a mixed selection the app would previously have carried out, and at a space root the
+ * header's select-all takes in `athenaresults/`, `saved_queries/` and `archive/` at once, so
+ * "select all → Delete" became dead with a reason about saved queries. The confirm is only
+ * misleading when it is offering something wholly impossible; a partial selection genuinely does
+ * something, and the per-item report is how that has always been told.
  *
  * Only the folder ITSELF matches, exactly as the service's rule does: a file inside
  * `saved_queries/` is ordinary and deletes normally, so this must not walk ancestors the way

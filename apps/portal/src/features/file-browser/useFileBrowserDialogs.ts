@@ -90,18 +90,18 @@ export type UseFileBrowserDialogsResult = {
    *
    * Two reasons, and they are different in kind. Either an operation of this session's is still
    * with the plane in one of the spaces this one would touch — temporary, and "try again when it
-   * finishes" is true. Or the plane is not taking work at all, and the browser has no recursive
-   * primitive to fall back to, so a folder or multi-item gesture cannot be performed by anyone:
-   * that one is not temporary, and saying "try again later" would be a lie.
+   * finishes" is true. Or the plane is not taking work at all, and a folder or multi-item gesture
+   * — every shape the routing rule sends to it — is refused outright: that one is not temporary,
+   * and saying "try again later" would be a lie.
    *
    * Answers `undefined` for a selection that stays in the browser — exactly one file. Refusing a
    * single-file delete the plane never sees would take away something the user could do before,
    * which is the one thing this switchover may not do.
    *
-   * **This is the affordance half of a refusal the services also make.** The services refuse per
-   * item, after the fact, because a mixed selection must still move its files; this stops the
-   * doomed gesture reaching the delete confirm at all — which otherwise asks "delete the folder and
-   * everything inside it? This can't be undone", and then deletes nothing.
+   * **This is the refusal a user meets; the services' per-item one is a backstop** for the race
+   * `dispatch` describes. This stops the doomed gesture reaching the delete confirm at all — which
+   * otherwise asks "delete the folder and everything inside it? This can't be undone", and then
+   * deletes nothing.
    */
   spaceBusyReasonFor: (items: SelectableItem[]) => string | undefined;
   /**
@@ -200,8 +200,8 @@ export function useFileBrowserDialogs({
   // The chosen destination bucket, as a space. A move or copy across connections names another
   // space entirely, and the plane resolves a bucket from the space rather than the other way
   // round — so a bucket that matches no known target has no answer at all, and the gesture runs
-  // here instead. That is the pre-plane behaviour rather than a refusal, because nothing the user
-  // could do before this plane existed may become impossible.
+  // here instead. Each file in it is still attempted; a folder is refused per item, because the
+  // browser has no recursive primitive left to run it with.
   function destinationSpaceFor(destBucket: string, destPrefix: string): FileOpDestination | undefined {
     const target = (destinations ?? []).find((d) => d.bucket === destBucket && destPrefix.startsWith(d.rootPrefix));
     if (!target) return undefined;
@@ -271,8 +271,14 @@ export function useFileBrowserDialogs({
    * before still awaits it.
    *
    * A copy or move whose chosen destination resolves to no known space runs here too. The builder
-   * would otherwise throw, and the user would get a generic failure for a request the browser
-   * could simply have made.
+   * would otherwise throw, and the user would get a generic failure for the whole selection. Run
+   * here, each file is still attempted and each folder is refused on its own, by name.
+   *
+   * **The controls decide when they render; this decides at confirm.** A folder or multi-item
+   * gesture therefore reaches the browser's hooks only through a race between the two: the flag
+   * refetched and switched off while a dialog was open, or a chosen destination dropping out of
+   * the spaces list while the picker was. The hooks then loop what arrives: each file is attempted,
+   * and each folder is refused per item with `PlaneRequired`.
    */
   async function dispatch(gesture: FileOpGesture, runHere: () => void | Promise<unknown>): Promise<Dispatched> {
     const needsDestination = gesture.operation !== 'delete';

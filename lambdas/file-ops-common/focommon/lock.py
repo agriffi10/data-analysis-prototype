@@ -11,12 +11,12 @@ buckets have versioning off.
 staleness rule, the release by overwriting. What is here is what is genuinely this plane's: the key
 derivation, the thresholds derived from THIS machine's ceiling, and the sentences it narrates with.
 
-**The key is a DIGEST, and it is the same derivation the browser hashes for ``MessageGroupId``.**
+**The key is a DIGEST, and it is the same derivation the API hashes for ``MessageGroupId``.**
 An S3 key reaches 1024 characters where SQS caps a group id at 128, so the raw path is a length
 failure that appears only for the users with the deepest prefixes. Computing it once here — rather
 than restating the canonical string wherever it is needed — is what keeps the lock and the queue
-group talking about the same space. The browser computes the same digest in TypeScript, and a test
-on each side pins the same canonical string and the same expected hex.
+group talking about the same space. The API computes the same digest in ``apicommon.fifo``, and a
+test on each side pins the same canonical string and the same expected hex.
 
 Attributes:
   WORDING: This plane's six lock sentences. Literals here, so ``observability``'s rule that a
@@ -50,8 +50,8 @@ def space_digest(bucket: str, root: str) -> str:
     """Returns the stable identifier for one space, as a SHA-256 hex digest.
 
     The canonical string is ``{bucket}/{root}`` with the root's trailing slash included, and the
-    trailing slash is part of what is hashed rather than an incidental detail: the browser hashes
-    the same string to derive the queue's ``MessageGroupId``, so a difference of one character
+    trailing slash is part of what is hashed rather than an incidental detail: the API hashes the
+    same string to derive the queue's ``MessageGroupId``, so a difference of one character
     means the lock and the delivery ordering are about different things and neither reports an
     error.
 

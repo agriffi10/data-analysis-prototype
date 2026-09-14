@@ -16,8 +16,8 @@ vi.mock('../../lib/apiClient', async (importOriginal) => ({
  * **The FIFO keys are deliberately absent from this file.** The group id was the database name —
  * so two builds against one catalog database serialize — and the dedup id was the minted request
  * id; both are computed server-side now and replayed against vectors captured from this service in
- * `lambdas/api/test_fifo_derivations.py`, for a personal and a shared space alike. So is the
- * `idToken` field, and so is `mode: 'refresh'`, which the API now STAMPS: that a refresh and only
+ * `lambdas/api/test_fifo_derivations.py`, for a personal and a shared space alike. The `idToken`
+ * field is gone from the wire, and `mode: 'refresh'` is the API's to STAMP: that a refresh and only
  * a refresh carries it is asserted in `lambdas/api/test_enqueue_routes.py`, against the route's
  * own declaration rather than against a copy of the string.
  *

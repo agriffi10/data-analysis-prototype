@@ -38,8 +38,9 @@ wider read audience than this queue, and nothing an operator needs from these re
 The events carry its LENGTH.
 
 This queue's dead-letter queue is deliberately undrained — see ``dlq_drain.UNDRAINED_QUEUES``. The
-drain notifies from a verified token in the message body, and this body carries none by design, so
-draining it would mean notifying from an untrusted body field.
+drain names a recipient only from the identity block the API nests in a request, and this body
+keeps its username at the top level instead, so draining it would mean teaching the drain a second
+place to find one.
 
 Attributes:
   ADMIN_BUCKET: Destination bucket, set by Terraform.

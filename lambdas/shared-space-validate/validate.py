@@ -1,7 +1,7 @@
 """validate-authorize — the Step Function's first task, run once before any verb.
 
 Parses the SQS record, reads the trusted actor out of the API's identity block rather
-than the spoofable body actor, loads the registry, and authorizes the action. A failed check
+than from any body field, loads the registry, and authorizes the action. A failed check
 raises so the Catch routes to the fail state and no verb runs.
 
 **This queue now has two producers.** The API is one, and everything above describes it. The
@@ -20,7 +20,7 @@ set only when there IS a refusal:
 request on this plane into the refusal branch. For an authorized create or
 delete it also durably records the in-flight state in the actor's cache and emits a start
 notification — the browser reads only that cache, so without it the row reconciles back to
-active or vanishes on reload. Verbs trust the context it outputs and never re-verify the token
+active or vanishes on reload. Verbs trust the context it outputs and never re-read the identity
 or re-authorize.
 
 The service name is the control plane, not the function: one shared-space request is up to eight

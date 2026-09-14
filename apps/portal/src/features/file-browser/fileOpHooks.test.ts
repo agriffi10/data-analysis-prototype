@@ -72,8 +72,8 @@ describe('useCopy', () => {
 
     it('refuses a FOLDER per item, and still copies the files beside it', async () => {
       // The recursive primitive is gone: an operation whose cost grows with object count belongs
-      // on the file-operations plane. With the plane on, no folder reaches this hook at all; with
-      // it off, the refusal is per item so a mixed selection is not lost with it.
+      // on the file-operations plane. A folder reaches this hook only through a race the controls
+      // cannot see, and the refusal is per item so a mixed selection is not lost with it.
       mockCopyObject.mockResolvedValue({success: true, data: {destKey: 'alice/dest/f.txt'}});
 
       const {result} = render();
@@ -234,8 +234,9 @@ describe('useDelete', () => {
     });
 
     it('refuses a FOLDER per item, and still deletes the files beside it', async () => {
-      // The recursive primitive is gone. With the plane on, a folder never reaches this hook;
-      // with it off, the refusal is per item so the rest of the selection is not lost with it.
+      // The recursive primitive is gone. A folder reaches this hook only through a race the
+      // controls cannot see, so this pins the backstop, which is per item so the rest of the
+      // selection is not lost with it.
       mockDeleteObject.mockResolvedValue({success: true, data: {key: 'alice/a.txt'}});
 
       const {result} = render();

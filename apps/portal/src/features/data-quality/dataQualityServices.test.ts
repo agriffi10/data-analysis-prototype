@@ -107,8 +107,8 @@ describe('dataQuality.service', () => {
    * one-character divergence that made two spellings of one location serialize (this plane strips
    * BOTH ends where the space-keyed planes keep a trailing slash) has its own named test there.
    *
-   * The `idToken` field went the same way — the API stamps it from the verified bearer and
-   * refuses a body that claims one.
+   * The `idToken` field is gone from the wire — the API stamps the verified caller as the
+   * identity block instead, and refuses a body that claims a token.
    */
   describe('enqueueQualityCheck', () => {
     let api: ApiMock;
