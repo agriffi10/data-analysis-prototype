@@ -32,6 +32,10 @@ Design decision (asked + recorded): a shared-destination save shows a plain succ
 **no "View in Files" link**, because the Files browser only renders the personal space until
 SPEC-057. No dead UI (mirrors SPEC-052 omitting entry points until their targets exist).
 
+> **Superseded:** the condition lapsed when SPEC-057 let Files browse shared spaces, so a
+> shared-space save now carries the link too, as `/files?space={id}&prefix={folder}`
+> (`useSaveResults`; the toast is described in `docs/design/design-system.md` §6).
+
 ## What changed from earlier specs?
 
 - **`runQuery`** (SPEC-034): optional `outputLocation`. **`copyObject`** (SPEC-019/039):
