@@ -110,7 +110,7 @@ def test_a_lambda_import_failure_reaches_the_sender():
     assert "something went wrong" in message.lower()
 
 
-def test_a_map_payload_overflow_still_notifies():
+def test_a_map_payload_overflow_handed_to_it_notifies_without_leaking():
     """States.DataLimitExceeded on the Map's collected results is THE realistic
     execution-level failure on this plane — it is why cpcommon bounds every
     TerminalError detail — and its Cause is prose, not JSON. As the machine is built it

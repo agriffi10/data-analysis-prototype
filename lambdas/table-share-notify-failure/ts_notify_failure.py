@@ -17,8 +17,9 @@ own Map item and its siblings carry on, so the execution succeeds and never reac
 function; the sender hears about that recipient from the Map verb's own decorator. What reaches
 here is the failure that ended the whole request — the validate or inspect verb, or the Map
 state itself. The Map's realistic failure does not arrive, though: a payload-size failure on
-the collected results is ``States.DataLimitExceeded``, and that is why every terminal detail is
-bounded — the bound is all that keeps a partial success from ending as a silent total failure.
+the collected results is ``States.DataLimitExceeded``, and that is why the recipients are capped
+and every terminal detail is bounded — the two together are all that keeps a partial success
+from ending as a silent total failure.
 The two paths are disjoint by construction, so there is no double-notification to design around
 on the recipient path.
 

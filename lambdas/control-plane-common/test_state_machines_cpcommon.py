@@ -186,9 +186,12 @@ def test_every_plane_notifies_before_it_fails(path):
     execution that started and then died BEFORE OR OUTSIDE any verb's Python — a
     States.Timeout, a task-level throttle, a Lambda that fails at IMPORT. In that window the
     user gets no notification, no DLQ message, and a request that simply never completes.
-    NotifyFailure, reached through each Task's States.ALL Catch, closes that window. It does
-    not close States.DataLimitExceeded, which only a catcher naming it takes and none in the
-    fleet does, nor States.Runtime, which nothing takes.
+    Each Task's States.ALL Catch routes the throttle and the import failure to NotifyFailure,
+    and would route a task-level States.Timeout the same way. The execution's own
+    TimeoutSeconds is not a state error and no Catch sees it: that one reaches NotifyFailure
+    only through a TIMED_OUT rule, on the planes that carry one. Neither path closes
+    States.DataLimitExceeded, which only a catcher naming it takes and none in the fleet does,
+    nor States.Runtime, which nothing takes.
 
     The design was right and was built once: data-quality carried a NotifyFailure state
     while table-builder, table-share and shared-spaces routed every failure straight to a
