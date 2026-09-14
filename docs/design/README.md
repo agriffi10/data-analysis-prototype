@@ -17,6 +17,8 @@ The task is to **recreate these designs in the existing codebase** (`apps/portal
 ## Fidelity
 **High-fidelity.** Colors, spacing, type, and control sizes are final — see **Design Tokens**. Recreate pixel-accurately using the app's existing component library and Tailwind/utility conventions. Where the mockup and an existing codebase pattern disagree on a class name or token, prefer the codebase's token that matches the hex/px value listed here.
 
+> **What shipped differs from these numbers, and [`design-system.md`](design-system.md) records what shipped.** The figures in this handoff describe the mockup beside it, which is drawn in literal px. The app's spacing-scale classes are rem against a 14px root (`html { font-size: 14px }` in `apps/portal/src/index.css`), so they render at 7/8 of their usual size, while its type sizes and radii are literal px and render as written: grid rows are `h-12` (42px, where this file says 48px), the top bar and the mobile list rows are `h-14` (49px, where it says 56px), and the spacing scale steps by 3.5px rather than 4px. The colours moved as well. Among them, the muted text `#8a93a2` and the danger `#dc2626` failed WCAG AA and were darkened to `#646b78` and `#b91c1c`, and the light danger border `#f6cfcb` ships as `danger-border` `#f6caca`. The type is Inter, where this file says a system UI stack, and the dark theme (September 2026) came after this handoff. The figures below are left as the handoff drew them, so they still match the `.dc.html` file.
+
 ---
 
 ## Mapping to the codebase
