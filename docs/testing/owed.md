@@ -115,7 +115,7 @@ two-user version of the check is in *Needs a second (or third) account*.
 | ~~**A request naming an unregistered space is REFUSED, not faulted** (the registry list grant)~~ **DISCHARGED 2026-09-10** on file-send through the API: the execution `SUCCEEDED`, the recipient annotated `invalid: "unknown_space"`, no `AccessDenied` traceback. | This is the defect the grant fixes, and its offline test cannot see it: every suite fakes S3, and a fake raises `NoSuchKey` for a missing key, which is the one shape production never produced under a role with no list statement. What is owed is a real send to a space name that is not in `shared-spaces/`, ending at the ordinary `unknown_space` refusal with the recipient annotated — **not** a failed execution. The pre-fix signature to check it against is the 2026-08-17 traceback: `AccessDenied ... s3:ListBucket on arn:aws:s3:::dat-prod-athena-admin` out of `cpcommon/registry.py:30`. | A hand-crafted envelope on any plane's authorize step; no plane-named script exists for file-send yet |
 | **The two documents that belong to no user answer ABSENT, not denied** (portal role) | `ListTheSharedDocuments` is what makes `_directory/` and `_config/` absence reachable, and neither route's handler has ever run in production. Measured in `logs/service=api/` on 2026-08-30: every `/v1/user-directory` record was refused before the handler (`verification_failed`, `no_bearer_credential`, or the route not being served), and `/v1/feature-flags` does not appear at all — so both absence branches are unrun as well as unprovable offline. **The API is not idle**, which an earlier draft of this row wrongly claimed: `PUT /v1/objects/content` and `POST /v1/queries` both carry authenticated traffic. Delete or rename the flag document and call the route: expected `404 NotFound`, not a 5xx. Same for the directory, expected an empty `200`. **Restore the document afterwards** — the flags document is read on every page load. | — |
 | **The archive/restore negative assertion** — for a refused restore, **no** `RestoreObject` for that archive id | A refusal that had already begun retrieval is invisible from the UI and costs 3–5 billed hours. Read the audit trail, never `head-object`. | §2.4 |
-| **The vault prefix is swept after a restore** (SPEC-171 FR-005) — **PARTLY SETTLED 2026-08-31:** `logs/service=archive/` carries `archive swept` for request `26c2e82f` at 18:32:17, so the sweep *ran*. That it left **nothing behind** is still unread. | Nothing human can read `dat-prod-archive`, and the browser sees only the receipt folder, which survives by design. `aws s3api list-objects-v2 --bucket dat-prod-archive --prefix "personal/$USERNAME/archive/$ARCHIVE_ID/" --max-keys 5` → **`KeyCount: 0`**, `_manifest.json` included. Needs a principal on that bucket's allowlist, which no human identity is. | — |
+| **The vault prefix is swept after a restore** (SPEC-171 FR-005) — **PARTLY SETTLED 2026-08-31:** `logs/service=archive/` carries `archive swept` for request `26c2e82f` at 18:32:17, so the sweep *ran*. That it left **nothing behind** is still unread. | Nothing human can read `dat-prod-archive`, and the browser sees only the receipt folder, which survives by design. `aws s3api list-objects-v2 --bucket dat-prod-archive --prefix "personal/$PORTAL_USER/archive/$ARCHIVE_ID/" --max-keys 5` → **`KeyCount: 0`**, `_manifest.json` included. Needs a principal on that bucket's allowlist, which no human identity is. | — |
 | ~~**`head-object` on user-space or archive** — restored objects back at `STANDARD`, content type survived, byte-identical~~ **DISCHARGED 2026-09-09** for archive `f0465c23-…`, restore completed 14:25 UTC. Against `agriffith/spec220_archive_fixture/header-only.csv`, with `agriffith/header-only.csv` — the never-archived object it was copied from — as the control: **`STANDARD`** on both, content type **`text/csv`** on both, 10 bytes on both, and **ETag, raw bytes and SHA-256 all equal**. `lastModified` is the pair that shows a REWRITE rather than an object that never left: control **2026-08-06T01:11:48Z**, restored **2026-09-09T14:25:14Z**, which is the copy-back. The archive run also ran `DeleteSource`, and the fixture was gone from the root listing. | **What `STANDARD` excludes, and what it does not.** It excludes the silent failure the archive ASL names on `CopyBackObjects`: an item copied without an explicit STANDARD *"lands back in GLACIER and expires to unreadable a few days later, having looked like a success throughout"*. It does **not** establish what the vault held — that is still unobservable, and the row further down saying so stands. Note the route defaults a missing class to `STANDARD`, so the reading means "S3 reported no class"; it still bites, because S3 reports `GLACIER` explicitly. **Content type excludes nothing here** — at 10 bytes this took the single-copy path where `MetadataDirective` is S3's own default; the discriminating case is the `>5 GiB` row below, still owed. **And no `head-object` by the OPERATOR CLI identity** — that half of the blocker is real and current, both buckets deny it — but the route makes one server-side under a role that can reach the bucket. | Details drawer, [`e2e.md`](e2e.md) §4.2 |
 | **The `>5 GiB` metadata round trip** (SPEC-171, and all three transfer planes) | `CreateMultipartUpload` carries no `MetadataDirective`, so before the fix every object over 5 GiB lost its content type on every copy this repo makes. Only an object over the threshold exercises it; a fixture below it passes forever. Confirm `ContentType` survives by `head-object`. **No browser can make the fixture** (2026-09-10): the upload drawer caps a file at 5 GB, so the source object needs an operator write. |
 | ~~**The restore plan agrees with the receipt** (SPEC-170)~~ **DISCHARGED 2026-09-09** for request `589e1b90-…`: `archive/589e1b90-…/restore-plan.json` exists with `objectCount: 2` and `totalBytes: 10`, the receipt reads `Files archived: 2`, and both `destKey`s are the original paths — `agriffith/spec220_archive_fixture/` and `…/header-only.csv`. | Evidence: [`sessions.md`](sessions.md) 2026-09-09. |
@@ -204,7 +204,7 @@ than blurred into them: the steps are in [`e2e.md`](e2e.md) §4.3, §4.5, §4.14
 |---|---|
 | **`Description` and column-comment preservation across a refresh** (SPEC-149) — both survive, the columns changed, `get-table-versions` shows a previous version | Needs the `dat-prod-verification` role. From any other principal Glue returns *Insufficient Lake Formation permission(s): Required Describe*. See §2.5. |
 | **The foreign projection fixture** (SPEC-153 FR-006 AC2) | The same `GetTable` response. Paste it **verbatim** when you have it — the shipped fixture is docs-transcribed. |
-| **SPEC-201 H.4 (the staged pre-cutover message) and H.5 (`assurance` refused live with a neighbour)** | Both hand-enqueue onto a request queue. After SPEC-200 FR-008 the **API's execution role** is the only role the IaC lets write one, and it trusts `lambda.amazonaws.com` alone, so the assumed session of it that this row used to call for, driven from CI, cannot exist. **This row also said a laptop identity has no grant, and that was false:** the operator CLI identity holds `AdministratorAccess` and can send (§2.2's banner). What blocks an agent session is that its production AWS writes are classifier-blocked whatever the chat authorization says, so both are the operator's to run by hand. Recipe: the arc script §H.4, §H.5. |
+| **SPEC-201 H.4 (the staged pre-cutover message) and H.5 (`assurance` refused live with a neighbour)** | Both hand-enqueue onto a request queue. After SPEC-200 FR-008 the **API's execution role** is the only role the IaC lets write one besides the shared-space transfer reader, and both trust `lambda.amazonaws.com` alone, so the assumed session of the API role that this row used to call for, driven from CI, cannot exist. **This row also said a laptop identity has no grant, and that was false:** the operator CLI identity holds `AdministratorAccess` and can send (§2.2's banner). What blocks an agent session is that its production AWS writes are classifier-blocked whatever the chat authorization says, so both are the operator's to run by hand. Recipe: the arc script §H.4, §H.5. |
 
 ### SPEC-203's two owed checks — one of them EXPIRES
 
@@ -286,7 +286,7 @@ That is SPEC-213 FR-006, and these are the parts it does not reach.
 
 | Check | Why the probe cannot settle it | What it takes |
 |---|---|---|
-| **`control-plane-dlq-drain` starts** | Invoking it sweeps all four request DLQs, **deletes** the messages it reads and emits a notification into each actor's inbox. Consuming a DLQ destroys the only copy of a dead-lettered body, and a deploy-time sweep runs it through a container that has just changed — the moment the drain is least proven. FR-006's own third criterion says to record this rather than count it as covered. | A deliberate operator invocation against a DLQ known to be empty, or a probe payload the handler recognises as a no-op. The deploy role's `lambda:InvokeFunction` grant is already there. |
+| **`control-plane-dlq-drain` starts** | Invoking it sweeps every request DLQ in its `DLQ_ARNS`, **deletes** the messages it reads and emits a notification into each actor's inbox. Consuming a DLQ destroys the only copy of a dead-lettered body, and a deploy-time sweep runs it through a container that has just changed — the moment the drain is least proven. FR-006's own third criterion says to record this rather than count it as covered. | A deliberate operator invocation against a DLQ known to be empty, or a probe payload the handler recognises as a no-op. The deploy role's `lambda:InvokeFunction` grant is already there. |
 | **The other 71 functions start** | The probe is a sample by design. All 86 run the **same image**, and `lambda-image-matrix.sh` imports every handler module inside it through the real runtime bootstrap — so what the sample adds is that a deployed function's *configuration* lets it start, and that is per-function. A plane-mate starting says nothing about a sibling whose environment or memory is wrong. | Invoking all 86, which needs 71 more grants; or accepting the sample, which is what FR-006 asks for. Named here so the gap is a decision rather than an assumption. |
 | **A cold start specifically** | `update-function-code` discards every warm environment, so a probe straight after pointing is cold in the ordinary case — but `log-sweep` and the DLQ drain fire on ten-minute schedules and can be warm when it runs. The script reports which it observed; it does not force a cold one. | Nothing safe. A warm hit still implies an earlier successful init of the same code, because a failed init leaves nothing to reuse — weaker evidence, and the script says so rather than implying more. |
 
@@ -566,6 +566,12 @@ and saying why.
 
 ## 2. Recipes
 
+**`$PORTAL_USER` is your portal username, and it is deliberately not called `USERNAME`.** In zsh,
+the macOS default shell, `USERNAME` is a special parameter holding the login name: assigning it
+changes nothing and prints no error, so a recipe run with it names the laptop's account instead of
+yours — a prefix that is not yours, or an actor no plane accepts — and fails in a way that looks
+like the plane is broken.
+
 ### 2.1 Credentials as the portal role
 
 > **RETIRED by SPEC-202 (2026-09-02). This recipe cannot be run: there is no Identity Pool, so no
@@ -608,13 +614,13 @@ Export the three values in a shell you will close afterwards, then `rm -f /tmp/i
 
 ```bash
 # Expect AccessDenied on BOTH.
-aws s3api delete-object --bucket dat-prod-user-space   --key "$USERNAME/saved_queries/DO_NOT_DELETE.txt"
+aws s3api delete-object --bucket dat-prod-user-space   --key "$PORTAL_USER/saved_queries/DO_NOT_DELETE.txt"
 aws s3api delete-object --bucket dat-prod-shared-space --key "$SPACE/saved_queries/DO_NOT_DELETE.txt"
 
 # Expect BOTH to succeed — this is what proves the refusals above came from the marker Deny
 # and not from the credentials being wrong.
-aws s3api put-object    --bucket dat-prod-user-space --key "$USERNAME/saved_queries/marker_control.txt" --body /dev/null
-aws s3api delete-object --bucket dat-prod-user-space --key "$USERNAME/saved_queries/marker_control.txt"
+aws s3api put-object    --bucket dat-prod-user-space --key "$PORTAL_USER/saved_queries/marker_control.txt" --body /dev/null
+aws s3api delete-object --bucket dat-prod-user-space --key "$PORTAL_USER/saved_queries/marker_control.txt"
 ```
 
 Afterwards, both markers are still present (they are hidden in the portal, so confirm with
@@ -643,19 +649,19 @@ is required and there is no content-based dedup:
 # THE CHECK. Expect the send to SUCCEED — the grant is unconditioned, so SQS accepts it.
 # The refusal happens in the writer, which is the whole point.
 aws sqs send-message --queue-url "$QUEUE_URL" \
-  --message-group-id "$USERNAME" --message-deduplication-id "boundary-$(date +%s)" \
-  --message-body "{\"action\":\"create\",\"username\":\"$USERNAME\",\"message\":\"SPOOFED\"}"
+  --message-group-id "$PORTAL_USER" --message-deduplication-id "boundary-$(date +%s)" \
+  --message-body "{\"action\":\"create\",\"username\":\"$PORTAL_USER\",\"message\":\"SPOOFED\"}"
 
 # THE POSITIVE CONTROL. Expect this to succeed AND take effect — without it, a refusal cannot be
 # told apart from the browser having lost access to the queue entirely.
 aws sqs send-message --queue-url "$QUEUE_URL" \
-  --message-group-id "$USERNAME" --message-deduplication-id "control-$(date +%s)" \
-  --message-body "{\"action\":\"markAllRead\",\"identity\":{\"actor\":\"$USERNAME\",\"delegated_by\":null,\"assurance\":\"interactive\"}}"
+  --message-group-id "$PORTAL_USER" --message-deduplication-id "control-$(date +%s)" \
+  --message-body "{\"action\":\"markAllRead\",\"identity\":{\"actor\":\"$PORTAL_USER\",\"delegated_by\":null,\"assurance\":\"interactive\"}}"
 ```
 
 Then observe, in this order:
 
-1. **No row saying `SPOOFED`** in `s3://dat-prod-user-space/$USERNAME/user_settings/notifications.json`
+1. **No row saying `SPOOFED`** in `s3://dat-prod-user-space/$PORTAL_USER/user_settings/notifications.json`
    — read it in the portal's Network tab or with `get-object`. This is the pass condition.
 2. **Every row now reads** — the control landed, so the credentials and the queue both work.
 3. **`reason: untrusted-sender`** under `logs/service=notifications/year=/month=/day=/`, with the
@@ -709,8 +715,8 @@ Every plane takes one FIFO queue:
 ```bash
 QUEUE=$(aws sqs get-queue-url --queue-name dat-prod-table-builder-requests.fifo --query QueueUrl --output text)
 aws sqs send-message --queue-url "$QUEUE" \
-  --message-group-id "$USERNAME" --message-deduplication-id "$REQUEST_ID" \
-  --message-body "$(jq -nc --arg u "$USERNAME" --arg r "$REQUEST_ID" \
+  --message-group-id "$PORTAL_USER" --message-deduplication-id "$REQUEST_ID" \
+  --message-body "$(jq -nc --arg u "$PORTAL_USER" --arg r "$REQUEST_ID" \
       '{identity:{actor:$u, delegated_by:null, assurance:"interactive"},
         mode:"refresh", requestId:$r, tableName:"partfix",
         space:{kind:"personal", bucket:"dat-prod-user-space", prefix:($u+"/partfix/"), database:$u}}')"
@@ -737,8 +743,8 @@ retired both halves.** Such a body never reaches a DLQ: every Pipe is `FIRE_AND_
 batch of one and no filter, input template or enrichment (`infra/modules/*/pipe.tf`), so it starts
 an execution for any record that fits. The refusal happens inside that execution and before any
 actor is bound — `parse_sqs_request` or `trusted_actor` raises (`cpcommon/events.py`,
-`cpcommon/actor.py`) — so nobody is notified, as item 1 of the banner records for a token-only
-body. And the drain verifies nothing: `_notify_one` takes the recipient from the API-stamped
+`cpcommon/actor.py`) — so there is no actor to notify, as item 1 of the banner records for a
+token-only body. And the drain verifies nothing: `_notify_one` takes the recipient from the API-stamped
 `identity` block through `cpcommon.actor.trusted_actor`, and a body with no usable block notifies
 nobody and is only logged (`test_dlq_drain.py`,
 `test_a_pre_cutover_message_with_no_identity_block_notifies_nobody`).
@@ -757,16 +763,26 @@ that makes the block trustworthy. Send three messages, one per branch of `_notif
 with a block, a JSON body with none, and a body that is not JSON at all:
 
 ```bash
+PORTAL_USER=<your portal username>
 DLQ=$(aws sqs get-queue-url --queue-name dat-prod-table-builder-requests-dlq.fifo --query QueueUrl --output text)
 REQUEST_ID=$(uuidgen)
-aws sqs send-message --queue-url "$DLQ" --message-group-id "$USERNAME" \
-  --message-body "$(jq -nc --arg u "$USERNAME" --arg r "$REQUEST_ID" \
+aws sqs send-message --queue-url "$DLQ" --message-group-id "$PORTAL_USER" \
+  --message-deduplication-id "$(uuidgen)" \
+  --message-body "$(jq -nc --arg u "$PORTAL_USER" --arg r "$REQUEST_ID" \
       '{identity:{actor:$u, delegated_by:null, assurance:"interactive"},
         requestId:$r, tableName:"dlq_probe_marker", idToken:"legacy-placeholder"}')"
-aws sqs send-message --queue-url "$DLQ" --message-group-id "$USERNAME" \
+aws sqs send-message --queue-url "$DLQ" --message-group-id "$PORTAL_USER" \
+  --message-deduplication-id "$(uuidgen)" \
   --message-body "$(jq -nc --arg r "$(uuidgen)" '{requestId:$r, tableName:"dlq_probe_marker"}')"
-aws sqs send-message --queue-url "$DLQ" --message-group-id "$USERNAME" --message-body 'not the envelope at all'
+aws sqs send-message --queue-url "$DLQ" --message-group-id "$PORTAL_USER" \
+  --message-deduplication-id "$(uuidgen)" --message-body 'not the envelope at all'
 ```
+
+Every send names its own deduplication id, because the DLQs disagree about deduplication. Where a
+DLQ deduplicates by content, as this one does, a re-run inside five minutes would silently drop the
+constant third body; where it does not, a send without an id is refused outright. Check which with
+`aws sqs get-queue-attributes --attribute-names ContentBasedDeduplication` before pointing the block
+at another plane's DLQ.
 
 **Pass**, within one 10-minute drain tick for the inbox and one more log-sweep tick for the records:
 
@@ -780,25 +796,28 @@ aws sqs send-message --queue-url "$DLQ" --message-group-id "$USERNAME" --message
 - The DLQ is empty — `ApproximateNumberOfMessages` and `ApproximateNumberOfMessagesNotVisible` both
   read 0 — and the next tick sends no second notification.
 - **`logs/service=dlq-drain/` is the operator CLI's half**: it is in `dat-prod-athena-admin`, nothing
-  in the API reads `logs/`, and the object routes address only a personal or shared space. Among the
-  day object's spans are three records, one per message, their fields under `fields`: `notified a
-  dead-lettered request` with
+  in the API reads `logs/`, and the object routes address only a personal or shared space. Beside
+  the `sweep-queue` spans, the day object holds three event records, one per message, with their
+  fields under `fields`: `notified a dead-lettered request` with
   your `recipient`, `request_id` equal to `$REQUEST_ID`, `dedup: true` and a `body` in which
   `idToken` reads `"<redacted>"` while `identity.actor` stays readable; `no verified recipient for a
   dead-lettered request` with `reason: no-verified-recipient` and its body; and `dead-lettered
   message could not be parsed` with `reason: unparseable-body` and the body as a quoted repr.
 
 **What this does not reach is the redrive**: that a real delivery failure lands the API's body on
-the DLQ intact. That is SQS's mechanism rather than the drain's code, it needs a Pipe that cannot
-start executions, and it is what SPEC-201's §H.7 is still owed for (`sessions.md`).
+the DLQ intact. That is SQS's mechanism rather than the drain's code, and it needs a Pipe that
+cannot start executions. SPEC-201's §H.7, still owed (`sessions.md`), asks for it on all eight
+queues and then for no JWT-shaped string in the drain's CloudWatch group or `logs/` and a
+notification taken from `identity.actor`. This recipe covers only that notification, on one queue
+and with a staged body; the eight real dead-letters, and the JWT sweep over what they log, remain.
 
 **Archive and restore.** Two UUIDs per run, and they must **differ** — the plane refuses a restore
 whose `requestId` equals its `archiveId`. The group id is the digest of the **archive root alone**,
 which is the contract the browser reproduces:
 
 ```bash
---message-group-id "$(printf 'personal/%s/archive/%s/' "$USERNAME" "$ARCHIVE_ID" | shasum -a 256 | cut -d' ' -f1)"
---message-body "$(jq -nc --arg r "$REQUEST_ID" --arg u "$USERNAME" --arg a "$ARCHIVE_ID" \
+--message-group-id "$(printf 'personal/%s/archive/%s/' "$PORTAL_USER" "$ARCHIVE_ID" | shasum -a 256 | cut -d' ' -f1)"
+--message-body "$(jq -nc --arg r "$REQUEST_ID" --arg u "$PORTAL_USER" --arg a "$ARCHIVE_ID" \
     '{identity:{actor:$u, delegated_by:null, assurance:"interactive"},
       requestId:$r, mode:"restore", space:{kind:"personal", name:$u}, archiveId:$a}')"
 ```
@@ -947,7 +966,7 @@ The scale reads:
 
 ```bash
 # The fixture really is over the old caps.
-aws s3 ls --recursive --summarize "s3://dat-prod-user-space/$USERNAME/<source-prefix>/" | tail -3
+aws s3 ls --recursive --summarize "s3://dat-prod-user-space/$PORTAL_USER/<source-prefix>/" | tail -3
 
 # One event per run carries the recipient and item counts.
 aws s3 cp "s3://dat-prod-athena-admin/logs/service=table-share/year=<Y>/month=<M>/day=<D>/data.jsonl" - \

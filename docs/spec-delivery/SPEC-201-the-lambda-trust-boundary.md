@@ -110,4 +110,6 @@ nowhere earlier.
 
 **Owed** ([`owed.md`](../testing/owed.md)): H.2's non-member and foreign-prefix negatives need a
 second account; H.4, H.5 and H.7 need `sqs:SendMessage`, which after SPEC-200 is the API execution
-role's alone. Safari is owed — this was Chromium.
+role's alone. **Corrected 2026-09-14:** that role trusts only `lambda.amazonaws.com`, and the
+operator CLI identity can send because it holds `AdministratorAccess`; `owed.md` §2.2 has the
+detail. Safari is owed — this was Chromium.
