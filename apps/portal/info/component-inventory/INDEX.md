@@ -10,7 +10,10 @@ feature → also read that feature's file. Never read them all.
 **Keep it current:** when a spec adds a reusable service / hook / component / type / utility, add a
 one-line row to the matching file below (completion-ritual step 4). Add a *new row here* only when a
 whole new area appears — and the row belongs in the file matching the component's **path**, so a
-`features/query/` addition goes in `query-feature.md` and nowhere else.
+`features/query/` addition goes in `query-feature.md` and nowhere else. CI reads every File cell
+against the tree and refuses a table without that column; `_inventory_row_problems` in
+`scripts/validate_docs.py` says which forms a cell may take. A row that outlives its file fails the
+build.
 
 > Convention reminders (see `CLAUDE.md`): services return `ServiceResult<T>` and never throw; the API
 > is reached only through service files, never from a component, and no `@aws-sdk/*` package may be

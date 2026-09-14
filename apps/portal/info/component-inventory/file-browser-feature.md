@@ -6,34 +6,34 @@ Public surface only — the code is the source of truth; verify signatures befor
 
 Public barrel: `features/file-browser/index.ts`.
 
-### Services — `fileBrowser.service.ts` (all return `ServiceResult<T>`, never throw)
+### Services (all return `ServiceResult<T>`, never throw)
 
-| Symbol | Purpose |
-|---|---|
-| `listFiles(bucket, prefix?, continuationToken?, abortSignal?)` | One page of folders + files, through `objects.list`. The route delimits and bounds the page; the signal stops the browser **waiting**, not the request on the wire (a Lambda invocation cannot be cancelled). |
-| `getDownloadUrl({ bucket, key, fileName? })` | Presigned `GetObject` minted by `objects.downloadUrl`, signed by the caller's own assumed session and clamped to it. Returns `{url, expiresAt}` — the expiry is what tells an expired link from a denial. |
-| `uploadFile({ bucket, key, body, contentType, overwrite?, onProgress?, signal? })` | Uploads one file by whichever path the **server** chose — `objects.upload` answers a single presigned `PUT` or a multipart plan, and the browser holds no threshold. Bytes go over **`XMLHttpRequest`** (`fetch` fires no upload-progress event), and every URL is minted immediately before it is redeemed. `onProgress` is the AGGREGATE across parts and is monotonic across a retry. |
-| `createFolder({ bucket, prefix, name, overwrite? })` | Zero-byte `{prefix}{name}/` marker (`application/x-directory`), in ONE call — the collision check is the write route's own `Conflict`. |
-| `deleteObject({ bucket, key, username })` | Single-object delete; refuses the prefix marker with no request at all. |
-| `copyObject({ bucket, sourceKey, destKey, username, destBucket?, overwrite? })` | `objects.copy`; the collision `HeadObject` moved inside the route, so a copy costs one call. `destBucket` defaults to `bucket`; each end resolves to its own space. `ServiceResult<{ destKey }>`. |
-| `moveObject({ bucket, sourceKey, destKey, username, destBucket?, overwrite? })` | `objects.move` — **ONE route** performing copy-then-delete. Two calls would put a closed tab between them, and versioning is off. Same-key no-op. |
-| `firstFreeName({ bucket, prefix, baseName, kind })` | The first free `{name} (N)`, resolved server-side in one call where the browser walked up to 999 `HeadObject`s. Exhaustion is `NoFreeName`; anything else keeps its own code. |
-| `objectExists({ bucket, key })` | Existence of an exact key → bool. The route answers 200 either way. |
-| `getObjectMetadata({ bucket, key })` | `objects.metadata` → `ObjectMetadata` (size/type/mtime/etag/storage class/custom). The pairs travel as rows and are folded back into a record here. 404 → error. |
-| `ensurePrefixMarker({ bucket, username })` | Idempotently create the user's `DO_NOT_DELETE.txt` root marker, in ONE call (a `Conflict` is the "already there" answer), once per session. |
-| `isPrefixMarkerKey(key, username)` | Is this exact key the user's root marker? |
-| `validateLeafName(name, label)` / `validateFolderName(name)` | One path-LEAF rule (non-empty, no surrounding spaces, no `/`, no control chars, not `.` or `..`) with the caller's own noun; `validateFolderName` is it with `Folder name` (SPEC-173). |
-| `uploadPercent(loaded, total)` | Clamp loaded/total to a 0–100 whole percent (zero-byte → 100). |
+| Symbol | File | Purpose |
+|---|---|---|
+| `listFiles(bucket, prefix?, continuationToken?, abortSignal?)` | `fileBrowser.service.ts` | One page of folders + files, through `objects.list`. The route delimits and bounds the page; the signal stops the browser **waiting**, not the request on the wire (a Lambda invocation cannot be cancelled). |
+| `getDownloadUrl({ bucket, key, fileName? })` | `fileBrowser.service.ts` | Presigned `GetObject` minted by `objects.downloadUrl`, signed by the caller's own assumed session and clamped to it. Returns `{url, expiresAt}` — the expiry is what tells an expired link from a denial. |
+| `uploadFile({ bucket, key, body, contentType, overwrite?, onProgress?, signal? })` | `fileBrowser.service.ts` | Uploads one file by whichever path the **server** chose — `objects.upload` answers a single presigned `PUT` or a multipart plan, and the browser holds no threshold. Bytes go over **`XMLHttpRequest`** (`fetch` fires no upload-progress event), and every URL is minted immediately before it is redeemed. `onProgress` is the AGGREGATE across parts and is monotonic across a retry. |
+| `createFolder({ bucket, prefix, name, overwrite? })` | `fileBrowser.service.ts` | Zero-byte `{prefix}{name}/` marker (`application/x-directory`), in ONE call — the collision check is the write route's own `Conflict`. |
+| `deleteObject({ bucket, key, username })` | `fileBrowser.service.ts` | Single-object delete; refuses the prefix marker with no request at all. |
+| `copyObject({ bucket, sourceKey, destKey, username, destBucket?, overwrite? })` | `fileBrowser.service.ts` | `objects.copy`; the collision `HeadObject` moved inside the route, so a copy costs one call. `destBucket` defaults to `bucket`; each end resolves to its own space. `ServiceResult<{ destKey }>`. |
+| `moveObject({ bucket, sourceKey, destKey, username, destBucket?, overwrite? })` | `fileBrowser.service.ts` | `objects.move` — **ONE route** performing copy-then-delete. Two calls would put a closed tab between them, and versioning is off. Same-key no-op. |
+| `firstFreeName({ bucket, prefix, baseName, kind })` | `fileBrowser.service.ts` | The first free `{name} (N)`, resolved server-side in one call where the browser walked up to 999 `HeadObject`s. Exhaustion is `NoFreeName`; anything else keeps its own code. |
+| `objectExists({ bucket, key })` | `fileBrowser.service.ts` | Existence of an exact key → bool. The route answers 200 either way. |
+| `getObjectMetadata({ bucket, key })` | `fileBrowser.service.ts` | `objects.metadata` → `ObjectMetadata` (size/type/mtime/etag/storage class/custom). The pairs travel as rows and are folded back into a record here. 404 → error. |
+| `ensurePrefixMarker({ bucket, username })` | `fileBrowser.service.ts` | Idempotently create the user's `DO_NOT_DELETE.txt` root marker, in ONE call (a `Conflict` is the "already there" answer), once per session. |
+| `isPrefixMarkerKey(key, username)` | `fileBrowser.service.ts` | Is this exact key the user's root marker? |
+| `validateLeafName(name, label)` / `validateFolderName(name, parentPrefix?)` | `fileBrowser.service.ts` | One path-LEAF rule (non-empty, no surrounding spaces, no `/`, no control chars, not `.` or `..`) with the caller's own noun. `validateFolderName` is it with `Folder name`, plus the app-managed `system_settings` name refused at any depth and, given the parent, the app's own folder names refused inside `system_settings/` — a courtesy on the dialogs, not a boundary: uploads and pastes never call it (SPEC-173). |
+| `uploadPercent(loaded, total)` | `fileBrowser.service.ts` | Clamp loaded/total to a 0–100 whole percent (zero-byte → 100). |
 
 
-### Upload internals — `multipartUpload.ts` + `xhrUpload.ts`
+### Upload internals
 
 Behind `uploadFile`. A feature calls neither these nor `uploadFile`: it enqueues through `useUploadQueue().enqueue`, the one upload path with cancel and a row in `UploadList`, and the queue calls `uploadFile`.
 
-| Symbol | Purpose |
-|---|---|
-| `uploadParts(...)`, `PART_CONCURRENCY`, `PART_RETRIES` (`multipartUpload.ts`) | The part loop behind `uploadFile`'s multipart branch: per-part minting, per-part retry with a re-mint, a monotonic aggregate progress that never falls across a retry, and a best-effort abort on cancel that deliberately does **not** carry the caller's signal. `PART_CONCURRENCY` × `UPLOAD_CONCURRENCY` is budgeted against the browser's per-origin connection limit, so neither is readable alone. |
-| `putBytes`, `uploadCancelled`, `uploadRejection`, `UploadFailure` (`xhrUpload.ts`) | The **one** module permitted to name `XMLHttpRequest`, shared by both upload paths and enforced by a named-list guard with a positive control. Reads a part's `ETag` (absent ⇒ `null`, never a throw) and tells an expired link from a denial — which is what stops a 403 at the tail of a long upload reading as a permissions fault. |
+| Symbol | File | Purpose |
+|---|---|---|
+| `uploadParts(...)`, `PART_CONCURRENCY`, `PART_RETRIES` | `multipartUpload.ts` | The part loop behind `uploadFile`'s multipart branch: per-part minting, per-part retry with a re-mint, a monotonic aggregate progress that never falls across a retry, and a best-effort abort on cancel that deliberately does **not** carry the caller's signal. `PART_CONCURRENCY` × `UPLOAD_CONCURRENCY` is budgeted against the browser's per-origin connection limit, so neither is readable alone. |
+| `putBytes`, `uploadCancelled`, `uploadRejection`, `UploadFailure` | `xhrUpload.ts` | The **one** module permitted to name `XMLHttpRequest`, shared by both upload paths and enforced by a named-list guard with a positive control. Reads a part's `ETag` (absent ⇒ `null`, never a throw) and tells an expired link from a denial — which is what stops a 403 at the tail of a long upload reading as a permissions fault. |
 
 ### Hooks
 
