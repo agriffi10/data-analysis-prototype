@@ -53,8 +53,10 @@ resource "aws_sfn_state_machine" "table_builder" {
 # the actor would be told nothing at all. This plane shipped the bound without the door and
 # was silent on it until a live check found the gap.
 #
-# TIMED_OUT ONLY, NEVER FAILED: every other whole-request failure already reaches
-# NotifyFailure through the shared Catch, so FAILED would double-notify every one of them.
+# TIMED_OUT ONLY, NEVER FAILED: every whole-request failure the shared Catch takes already
+# reaches NotifyFailure, so FAILED would double-notify every one of them. The two errors no
+# Catch here takes, States.DataLimitExceeded and States.Runtime, reach neither door; the machine
+# is built so that neither is raised.
 #
 # The rule is HALF the door — tb_notify_failure must dispatch on the detail-type too, or this
 # delivers a status-change event to a handler that reads a top-level `actor` the event does not

@@ -9,7 +9,8 @@ Attributes:
   REFRESH_MAX_DEFINITION_BYTES: Largest live table definition a refresh will carry onto the
     Step Functions state. Its own bound, deliberately not table-share's, which was measured
     for a 50-recipient Map. Breaching the 256 KB state-payload limit raises
-    States.DataLimitExceeded outside every Catch, so an oversized table is refused up front.
+    States.DataLimitExceeded, which escapes every Catch here (States.ALL does not match it and
+    none names it), so an oversized table is refused up front.
     Sizing evidence is in ``lambdas/info/planes/table-builder.md``.
 """
 

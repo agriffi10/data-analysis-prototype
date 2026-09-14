@@ -2,17 +2,26 @@
 
 This exists for the failures no verb can catch. ``@notifies_on_failure`` is a decorator on the
 verb handlers: it catches an exception inside a verb and does nothing at all when the failure
-happens where no verb code is running — a Lambda that fails at import, a state timeout, a
-payload-size failure, a task that cannot be invoked. In that window the sender is told nothing:
-no notification, no DLQ message, and the request simply never completes.
+happens where no verb code is running — a Lambda that fails at import, a state timeout, a task
+that cannot be invoked. In that window the sender is told nothing: no notification, no DLQ
+message, and the request simply never completes.
+
+Two Step Functions errors never reach it by either door. ``States.DataLimitExceeded`` is caught
+only by a catcher that names it, and none in this machine does; ``States.Runtime`` is caught by
+nothing, ``States.ALL`` included. Either ends the run FAILED, which the timeout door below does
+not match, so a failure no verb had already reported reaches nobody. The machine is built so
+that neither is raised.
 
 It is the whole-request failure only, and that is the design. A per-recipient failure ends its
 own Map item and its siblings carry on, so the execution succeeds and never reaches this
 function; the sender hears about that recipient from the Map verb's own decorator. What reaches
 here is the failure that ended the whole request — the validate or inspect verb, or the Map
-state itself, where a payload-size failure on the collected results is the realistic one, which
-is why every terminal detail is bounded. The two paths are disjoint by construction, so there
-is no double-notification to design around on the recipient path.
+state itself. The Map's realistic failure does not arrive, though: a payload-size failure on
+the collected results is ``States.DataLimitExceeded``, and that is why the recipients are capped
+and every terminal detail is bounded — the two together are all that keeps a partial success
+from ending as a silent total failure.
+The two paths are disjoint by construction, so there is no double-notification to design around
+on the recipient path.
 
 Its input carries the raw Step Functions error rather than a decoded reason, and must stay that
 way — an ASL decode raises an uncatchable runtime error whenever the Cause is absent or is not

@@ -721,7 +721,8 @@ def _inspect(event: dict) -> dict:
     The state output threads the request object and adds four small keys. The file list and the
     column lists stay in the manifest and are passed by pointer; partition values stay there too,
     since there can be many per key. The disaster this prevents is a state payload over the limit,
-    which raises outside every Catch — the execution dies without reaching the notify state and
+    which raises ``States.DataLimitExceeded`` and escapes every Catch here (``States.ALL`` does
+    not match it and none names it) — the execution dies without reaching the notify state and
     the user is never told anything at all, on exactly the biggest folders. Threading the whole
     event is deliberate: dropping the request id or actor would make the terminal states hard-fail
     on an absent path, equally uncatchable, so "only these keys" means "add only these", not "keep

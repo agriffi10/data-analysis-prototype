@@ -20,8 +20,9 @@ would delete a source nothing had copied. So the operation is tested, and for a 
 **COUNTS AND KEYS GO TO S3, NOT ONTO THE STATE.** Measured at the selection cap, the deletable list
 and the per-item counts are ~100 KB on top of a state already carrying the selection and one outcome
 record per item — over Step Functions' 256 KB limit. The overflow would land on THIS verb's result,
-which is after the copy: ``States.DataLimitExceeded`` escapes every ``Catch``, so the user would be
-told nothing at all about an operation that had already moved their data. Only the count rides.
+which is after the copy: ``States.DataLimitExceeded`` escapes every ``Catch`` here (``States.ALL``
+does not match it and none names it), so the user would be told nothing at all about an operation
+that had already moved their data. Only the count rides.
 
 **Successes are derived by subtraction, never listed.** The engine reports a per-batch integer and
 per-item failures; a per-item success list would be a key list by another name, and a key list is

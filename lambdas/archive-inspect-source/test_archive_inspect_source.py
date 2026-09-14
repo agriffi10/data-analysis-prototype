@@ -108,8 +108,9 @@ def _no_real_notifications(monkeypatch):
 
 def test_the_plan_key_comes_back_and_the_object_list_does_not():
     """At ARCHIVE_MAX_OBJECTS the plan is tens of megabytes against a 256 KB payload limit, and
-    States.DataLimitExceeded escapes every Catch — which on this plane is a run that deleted
-    nothing and told nobody. What rides is the pointer, the count and the byte total."""
+    States.DataLimitExceeded escapes every Catch here (States.ALL does not match it and none
+    names it) — which on this plane is a run that deleted nothing and told nobody. What rides is
+    the pointer, the count and the byte total."""
     fake = _install({"alice/reports/a.csv": 5, "alice/reports/b.csv": 7})
 
     result = m.handler(_event(), None)

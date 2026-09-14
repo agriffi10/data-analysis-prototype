@@ -188,8 +188,8 @@ def test_the_timeout_rule_exists_and_matches_timed_out_and_never_failed():
 
     A top-level TimeoutSeconds expiry is not an ASL path, so no Catch covers it and EventBridge is
     the only route to a notification — which is why its absence was invisible to every other test
-    here. FAILED must stay out of the pattern: every other whole-request failure already reaches
-    NotifyFailure through the shared Catch, so matching it would double-notify all of them.
+    here. FAILED must stay out of the pattern: every whole-request failure the shared Catch takes
+    already reaches NotifyFailure, so matching it would double-notify all of them.
     """
     with open(_STEPFUNCTION_TF, encoding="utf-8") as handle:
         text = handle.read()

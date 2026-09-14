@@ -30,8 +30,9 @@ Attributes:
   NOTIFICATIONS_QUEUE_URL: Optional and never required — notifications are best-effort, so
     an unset queue URL makes every emit a logged no-op rather than crashing the verb.
   STATE_PAYLOAD_LIMIT_BYTES: What Step Functions accepts for one state payload AND for one
-    execution input. Breaching either raises ``States.DataLimitExceeded``, which is thrown OUTSIDE
-    every Catch — so a request over it is not refused, it disappears.
+    execution input. Breaching either raises ``States.DataLimitExceeded``, which escapes every
+    Catch in the fleet (``States.ALL`` does not match it and none names it) — so a request over it
+    is not refused, it disappears.
   CAUSE_MAX_CHARS: The longest error ``Cause`` the service will carry. It is a maximum length in
     CHARACTERS on the execution-history event shapes, not a byte quota on a state, and the
     distinction is the whole reason the next constant exists.

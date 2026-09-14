@@ -124,7 +124,7 @@ export function SendFilesDialog({items, busy = false, submitError, onSubmit, onC
       onCancel={onCancel}>
       <p className="mb-3 mt-1 text-sm text-text-2">
         Copies what you&rsquo;ve selected into each recipient&rsquo;s space — you keep yours. It runs in the background,
-        and every outcome comes back as a notification.
+        and the outcomes come back as notifications.
       </p>
 
       <div className="mb-4">
