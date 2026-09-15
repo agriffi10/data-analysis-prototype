@@ -90,9 +90,10 @@ def authorize_source(username: str, space) -> dict:
 def assert_not_reserved(root: str, key: str) -> str:
     """Refuses the space's own portal-managed folders as archive sources.
 
-    Every rule is anchored at the SPACE ROOT — ``{root}{folder}/`` — which leaves
+    Every rule is anchored at the SPACE ROOT — ``{root}{folder}/``, or
+    ``{root}system_settings/{folder}/`` for a folder that moved there — which leaves
     ``alice/reports/archive/`` an ordinary folder the user made and may archive, the same
-    anchoring ``isUndeletableRootFolder`` uses in the browser.
+    anchoring ``undeletableRootFolderRefusal`` uses in the browser.
 
     **THREE WAYS TO SELECT ONE, NOT TWO.** The folder itself and anything beneath it are the
     obvious two. The third is an ANCESTOR: selecting the space root as a folder passes both, and
