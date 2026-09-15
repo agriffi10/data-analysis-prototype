@@ -432,6 +432,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           '<b>Views can’t be refreshed.</b> A view has no data files to re-read, so the menu doesn’t offer it. Re-create the view instead.',
           '<b>Tables with catalog-registered partitions can’t be refreshed</b>, nor can tables built outside Data Quarry or pointing at files outside your space.',
           '<b>The file format can’t change.</b> If the folder’s files are no longer the format the table expects, build a new table over them.',
+          '<b>Two columns can’t differ only by capital letters.</b> Athena treats <code>Amount</code> and <code>amount</code> as one column, so if the folder’s first file has both, the refresh stops, changes nothing, and the notification names them. Rename one in your files, then refresh again.',
           '<b>One refresh at a time per table.</b> If a refresh of that table is already running, a second one is refused and changes nothing — wait for the notification from the first, then check whether you still need to refresh again.'
         ]
       },

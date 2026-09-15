@@ -888,17 +888,19 @@ strands nothing: the write already refused every definition carrying one. The wr
 own guard, because nothing after its fold would notice a column collapsed. The mechanism is on
 the [table-builder plane page](../../lambdas/info/planes/table-builder.md#the-fences).
 
-**The fold is Athena's, `lower()`, and one function applies it everywhere.** diff-schema matched on
-`casefold()` while apply-refresh wrote and refused on `lower()`. Full case folding maps `ß` to `ss`,
-so against a live `strasse` the header `Straße,notes` reported only `notes` added. The write then
-landed `straße` in place of `strasse`, removing a column without the opt-in, and the read-back
-passed because it compared casefolded sets. AWS documents that Athena lowers names, and Hive
-normalises an identifier with Java's `toLowerCase`, which, like Python's `lower()`, is Unicode
-lowercasing and keeps `ß`. So `cpcommon.columns.fold` is `lower()`, and the create rule, the diff's match
-and partition-key exclusion, the write's names, comment carry and refusal, and both catalog reads
-around the update all call it. The two folds differ only on non-ASCII characters, which only a
-refresh sees, because only a refresh skips the name rule. The evidence is the documentation and
-the Hive source, not a live Athena run.
+**The fold is Athena's, `lower()`, and one function applies it to every name a refresh
+compares.** diff-schema matched on `casefold()` while apply-refresh wrote and refused on `lower()`.
+Full case folding maps `ß` to `ss`, so against a live `strasse` the header `Straße,notes` reported
+only `notes` added. The write then landed `straße` in place of `strasse`, removing a column without
+the opt-in, and the read-back passed because it compared casefolded sets. AWS documents that
+Athena lowers names, and Hive normalises an identifier with Java's `toLowerCase`, which, like
+Python's `lower()`, is Unicode lowercasing and keeps `ß`. So `cpcommon.columns.fold` is `lower()`,
+and the create rule, the diff's match and partition-key exclusion, the write's names, comment carry
+and refusal, and both catalog reads around the update all call it, as does results-conversion's
+duplicate check. The two folds differ only on non-ASCII characters, which the name rule keeps out
+of a create; a refresh skips that rule, and results-conversion never applies it to a query's
+column names. The create path's DDL builder still drops a partition-key collision by exact name.
+The evidence is the documentation and the Hive source, not a live Athena run.
 
 **The rule is not what makes the renderer safe.** `cpcommon.ddl.quote` now doubles an embedded
 backtick, as `quote_dml` always did for the double quote. A renderer that is safe only because

@@ -118,6 +118,11 @@ def compute_diff(existing: list[dict], inferred: list[dict], partition_key_names
     where it affects only the DDL body, so a data column named after a partition key does reach
     here and would otherwise be reported on every single refresh.
 
+    A header two of whose columns fold to one name is refused before anything is classified.
+    The index below would keep only the last of the pair, so no classification of such a header
+    is true, and a refusal that depended on one would miss the collision that changes nothing
+    else. It also puts the refusal ahead of the removal check, which opting in cannot satisfy.
+
     Args:
       existing: The columns the table currently declares.
       inferred: The columns the data now implies.
@@ -131,7 +136,9 @@ def compute_diff(existing: list[dict], inferred: list[dict], partition_key_names
 
     Raises:
       KeyError: If a column is missing its name or type.
+      TerminalError: ``invalid_column_names`` when two inferred data columns fold to one name.
     """
+    _refuse_fold_collisions(inferred, partition_key_names)
     old = _by_folded_name(existing, partition_key_names)
     new = _by_folded_name(inferred, partition_key_names)
 
@@ -195,17 +202,16 @@ def _diff(event: dict) -> dict:
       verb that never runs.
 
     Raises:
-      TerminalError: ``invalid_column_names`` when two columns fold to one name, checked first
-        because opting into a removal cannot fix it. ``columns_removed`` when a removal was not
-        opted into. Either way nothing is changed, and the tokens are what carry the column
-        names into the notification and, for a removal, the link the browser names them back
-        from.
+      TerminalError: ``invalid_column_names`` when two columns fold to one name, from
+        ``compute_diff`` and so always ahead of a removal, which opting in cannot fix.
+        ``columns_removed`` when a removal was not opted into. Either way nothing is changed,
+        and the tokens are what carry the column names into the notification and, for a
+        removal, the link the browser names them back from.
     """
     existing = events.require(event, "existingColumns")
     inferred = events.require(event, "columns")
     partition_key_names = {k["name"] for k in (event.get("partitionKeys") or [])}
 
-    _refuse_fold_collisions(inferred, partition_key_names)
     diff = compute_diff(existing, inferred, partition_key_names)
     removed_names = [c["name"] for c in diff["removed"]]
 

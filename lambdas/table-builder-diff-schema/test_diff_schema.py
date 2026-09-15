@@ -151,12 +151,12 @@ def test_a_removal_without_the_opt_in_is_refused_and_names_the_columns():
 def test_a_fold_collision_is_refused_naming_only_the_colliding_columns():
     """Refuses a header two of whose columns Athena would give one name, and names just those.
 
-    Against a live ``amount,region``, the header ``Amount,region,amount`` indexed back to the live
-    table and was reported unchanged, so the collision reached the user as no change at all.
-    ``Straße`` and ``STRASSE`` ride in the same header because Athena keeps them apart: naming
-    them too would refuse a collision Athena does not have. The live table also has a column the
-    header lacks: the collision is refused ahead of that removal, because opting into the removal
-    cannot fix it.
+    The header differs from the live table by nothing but the collision, which is the case the
+    refusal exists for: indexed on the fold, ``Amount,region,amount`` collapses back to the live
+    ``amount,region`` and was reported unchanged, so the collision reached the user as no change
+    at all. ``Straße`` and ``STRASSE`` are in both the live table and the header because Athena
+    keeps them apart, and naming them too would refuse a collision Athena does not have. The one
+    notification is the refusal, with no link, since there is nothing to opt into.
 
     Args:
       None.
@@ -169,7 +169,7 @@ def test_a_fold_collision_is_refused_naming_only_the_colliding_columns():
     """
     queue = _arm_notifications()
     event = _event(
-        _cols(("amount", "string"), ("region", "string"), ("gone", "string")),
+        _cols(("amount", "string"), ("region", "string"), ("straße", "string"), ("strasse", "string")),
         _cols(
             ("Amount", "string"),
             ("region", "string"),
@@ -182,8 +182,10 @@ def test_a_fold_collision_is_refused_naming_only_the_colliding_columns():
     exc = _expect_reason(event, "invalid_column_names")
 
     assert exc.tokens["columns"] == '"Amount", "amount"'
+    assert len(queue.calls) == 1, "the refusal should be the run's only notification"
     body = json.loads(queue.calls[0]["MessageBody"])
     assert '"Amount", "amount"' in body["message"]
+    assert "link" not in body
 
 
 # ── Shape + observability ────────────────────────────────────────────────────
