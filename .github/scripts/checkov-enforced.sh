@@ -19,6 +19,19 @@
 # (SPEC-138) turned on the gate's own configuration. The fix is a deliberate edit with a
 # reason, never a silent pass.
 #
+# A FINDING CHECKOV REPORTS SKIPPED ON AN ENFORCED ID IS A HARD ERROR, NOT A COUNT. An inline
+# `checkov:skip=<ID>` in the scanned file moves that resource's result into skipped_checks
+# while the ID still runs on every other resource, so a count of failures alone reads zero
+# and the coverage check above still holds. Measured against 3.3.9: `bridgecrew:skip=` and a
+# skip naming the ID's BC_* alias land there too, and a skip on a resource that would have
+# PASSED is recorded as skipped, not passed. So a skip is a suppression rather than a
+# finding, and counting it would report a misconfiguration that may not exist. It is refused,
+# like any suppression that is not on a list the gate names: that list is where a reviewer
+# reads a change to the gate, and a comment beside one resource is not. The check reads
+# Checkov's own record of what it skipped rather than grepping for the comment, so every
+# spelling Checkov honours is covered. It runs before the coverage check, whose message
+# would otherwise blame a typo and invite removing the ID when every instance is skipped.
+#
 # The scan JSON must carry passed_checks, so the caller must NOT pass --quiet to checkov —
 # the same constraint, for the same reason, that deploy-infra.yml's plan scan already states.
 #
@@ -48,6 +61,23 @@ if ! evaluated=$(jq -er "$norm | [((.results.passed_checks // [])[], (.results.f
   exit 2
 fi
 
+ids_json=$(echo "$enforced" | jq -R . | jq -sc .)
+
+# No `-e`: with it, jq exits non-zero when nothing is selected, which is the healthy case.
+if ! skipped=$(jq -r --argjson ids "$ids_json" "$norm"' | (.results.skipped_checks // [])[]
+    | select(.check_id as $c | $ids | index($c))
+    | "\(.check_id) on \(.resource // "?") is SKIPPED (\(.file_path // "?"), lines \((.file_line_range // []) | map(tostring) | join("-")))"' "$json"); then
+  err "could not read skipped checks from $json — the scan output is not readable."
+  exit 2
+fi
+if [ -n "$skipped" ]; then
+  while IFS= read -r finding; do
+    err "$finding — a suppression of a check held at zero is refused, not counted."
+  done <<< "$skipped"
+  err "Checkov records an inline checkov:skip as SKIPPED, which a count of failures cannot see. Delete the skip. If the check should stop being enforced, remove its line from $list deliberately, with a reason."
+  exit 2
+fi
+
 unevaluated=$(comm -23 <(echo "$enforced") <(echo "$evaluated"))
 if [ -n "$unevaluated" ]; then
   err "enforced check(s) evaluated against nothing: $(echo "$unevaluated" | tr '\n' ' ')"
@@ -55,7 +85,6 @@ if [ -n "$unevaluated" ]; then
   exit 2
 fi
 
-ids_json=$(echo "$enforced" | jq -R . | jq -sc .)
 count=$(jq -r --argjson ids "$ids_json" \
   "$norm | (.results.failed_checks // []) | map(select(.check_id as \$c | \$ids | index(\$c))) | length" "$json")
 

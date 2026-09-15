@@ -536,7 +536,9 @@ jobs:
       # scan if Checkov reports taking configuration from anywhere but its command line: a
       # `.checkov.yml` in the scanned directory, the repo root or $HOME, or a flag's
       # environment variable. That refusal never fires on a normal run, so this proves it
-      # still does, against the scanner just installed, before either gate relies on it.
+      # still does, against the scanner just installed, before either gate relies on it. It
+      # also plants an inline `checkov:skip` of an enforced ID in each framework and proves
+      # the numerator below refuses the finding Checkov reports skipped.
       - name: Prove the scans refuse configuration they were not given
         if: always() && steps.gates.outcome == 'success'
         run: .github/scripts/checkov-scan-test.sh
@@ -614,7 +616,8 @@ jobs:
       # accepts (no VPC, no CMK, no X-Ray); blocking on it would mean suppressing twenty
       # rules to enforce five. This narrows it to the checks .github/checkov-enforced.txt
       # holds at zero. The script hard-errors if an enforced ID was evaluated against
-      # nothing, so a typo or a renamed check cannot read as enforcement.
+      # nothing, so a typo or a renamed check cannot read as enforcement, and if Checkov
+      # reports a finding on one SKIPPED, so an inline `checkov:skip` cannot take it off.
       #
       # ASSIGN, THEN ECHO — never `echo "VAR=$(script)"`. A command substitution that fails
       # inside an argument to `echo` does NOT fail the step: `echo` exits 0, `set -e` sees
