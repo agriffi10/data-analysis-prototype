@@ -195,9 +195,14 @@ def _inventory(root, rows="", after="", page=INVENTORY_PAGE):
 
 
 def _touch(root, *rels):
-    """Create the source files a row under test names."""
+    """Create the source files a row under test names, each exporting the name it is called by.
+
+    So a row naming ``Thing`` in ``Thing.ts`` holds. That makes this helper's default a place the
+    residency check cannot fail, which is why every case about residency writes its file's text
+    itself, with a name that differs from the file's.
+    """
     for rel in rels:
-        _write(root, rel, "export {};\n")
+        _write(root, rel, f"export const {pathlib.PurePosixPath(rel).name.split('.')[0]} = 1;\n")
 
 
 def _spec(n, frs, status="Draft"):
@@ -911,7 +916,7 @@ CASES = [
      1, "`Ghost` is filed as `*.tsx`, but Ghost.tsx is not in"),
     ("inventory_derived_form_without_symbols",
      lambda r: _inventory(r, "| — | (same folder) | Names nothing. |\n"),
-     1, "(same folder) stands for each symbol's own file, but the row names no symbol"),
+     1, "the Symbol cell '—' names no symbol this check can read"),
     # A tombstone claims ABSENCE, so it is checked the other way round.
     ("inventory_tombstone_for_a_file_that_is_back",
      lambda r: _inventory(r, "| — | `Widget.tsx` is **gone** | It came back. |\n"),
@@ -988,11 +993,15 @@ CASES = [
     ("inventory_directory_gone",
      lambda r: shutil.rmtree(r / INV("")),
      1, "component-inventory/ holds no pages"),
+    # The last row names a page beside its source. The page exports nothing, and the name's home
+    # is the source file, so the row holds.
     ("inventory_multi_name_cells_ok",
      lambda r: [_touch(r, DEMO + "/useWidget.ts"),
+                _write(r, DEMO + "/notes.md", "# Notes\n"),
                 _inventory(r, "| `Widget` / `useWidget` | `Widget.tsx` / `useWidget.ts` | Slash. |\n"
                               "| `Widget`, `useWidget` | `Widget.tsx`, `useWidget.ts` | Comma. |\n"
-                              "| `useWidget` | `useWidget.ts` (+ `Widget.tsx`) | Parenthesised. |\n")],
+                              "| `useWidget` | `useWidget.ts` (+ `Widget.tsx`) | Parenthesised. |\n"
+                              "| `useWidget` | `useWidget.ts` (+ `notes.md`) | Beside a page. |\n")],
      0, ""),
     # Rows spell paths from different roots, and each has to resolve.
     ("inventory_spelled_paths_ok",
@@ -1007,10 +1016,13 @@ CASES = [
                 _inventory(r, "| `Widget`, `Gadget` | (same folder) | A .tsx and a .ts. |\n"
                               "| `Widget` / `Gizmo(props)` | `*.tsx` | Each in its own file. |\n")],
      0, ""),
+    # A tombstone names no source, so its row need name no symbol; one that does name the symbol
+    # the file took with it has no file left to read the name in.
     ("inventory_tombstones_ok",
      lambda r: [_touch(r, "apps/portal/src/features/other/Thing.ts"),
                 _inventory(r, "| `Thing` | moved to `features/other/` | Moved. |\n"
-                              "| — | `old.format.ts` is **gone** | Deleted. |\n")],
+                              "| — | `old.format.ts` is **gone** | Deleted. |\n"
+                              "| `normalizeColumnType` | `older.format.ts` is **gone** | Went with it. |\n")],
      0, ""),
     # An escaped pipe is not a column boundary. Split on it, and the File column reads `null)`.
     ("inventory_escaped_pipe_ok",
@@ -1030,6 +1042,190 @@ CASES = [
                                     "|---|---|---|\n| `Route` | `Route.tsx` | A route. |\n"
                                     "\n## More\n\n| Symbol | File | Purpose |\n|---|---|---|\n"
                                     "| `Widget` | `Widget.tsx` | Back in the feature. |\n")],
+     0, ""),
+
+    # ---- check_inventory_files: each name in the Symbol cell is exported by the row's file ------
+    # The case residency exists for: the file is still there and the symbol moved to its sibling,
+    # which the File-cell check passes. The line number is asserted once here too.
+    ("inventory_symbol_moved_to_a_sibling_file",
+     lambda r: [_write(r, DEMO + "/athena.service.ts", "export function getQueryStatus() {}\n"),
+                _write(r, DEMO + "/rowCount.service.ts", "export function getQueryRowCount() {}\n"),
+                _inventory(r, "| `getQueryRowCount(id)` | `athena.service.ts` | Moved out. |\n")],
+     1, "demo-feature.md:8: `getQueryRowCount` is not exported from `athena.service.ts`"),
+    # Named in a file is not exported from it. Every line here names `helper`, most after the word
+    # `export`, one in each form the reader knows, and one at the start of a line inside a block
+    # comment; a reader that looks for the name, or for any of those forms anywhere, passes the row.
+    ("inventory_symbol_named_but_not_exported",
+     lambda r: [_write(r, DEMO + "/util.ts",
+                       "import {helper} from './other';\n/**\n * export function helper() moved out.\n */\n"
+                       "// export const helper = 1;\n// export {helper} from './helper';\n"
+                       "// export default helper;\n  /*\nexport function helper() {}\n  */\n"
+                       "const local = helper;\nexport const other = local;\n"),
+                _inventory(r, "| `helper()` | `util.ts` | Imported, not exported. |\n")],
+     1, "`helper` is not exported from `util.ts`"),
+    # An item exported `as` another name is exported by that name, and by no other.
+    ("inventory_symbol_exported_under_another_name",
+     lambda r: [_write(r, DEMO + "/util.ts", "const helper = 1;\nexport {helper as assist};\n"),
+                _inventory(r, "| `helper` | `util.ts` | Renamed on the way out. |\n")],
+     1, "`helper` is not exported from `util.ts`"),
+    # A directory is read one level deep, and only its source: an export in a subdirectory, or a
+    # code sample in a README, is not the directory's.
+    ("inventory_symbol_only_below_a_named_directory",
+     lambda r: [_write(r, "apps/portal/src/features/other/other.ts", "export const Other = 1;\n"),
+                _write(r, "apps/portal/src/features/other/deep/thing.ts", "export const Thing = 1;\n"),
+                _inventory(r, "| `Thing` | moved to `features/other/` | Moved. |\n")],
+     1, "`Thing` is not exported from any source file directly in `features/other/`"),
+    ("inventory_symbol_only_in_a_readme",
+     lambda r: [_write(r, "apps/portal/src/features/other/other.ts", "export const Other = 1;\n"),
+                _write(r, "apps/portal/src/features/other/README.md", "```ts\nexport const Thing = 1;\n```\n"),
+                _inventory(r, "| `Thing` | moved to `features/other/` | Moved. |\n")],
+     1, "`Thing` is not exported from any source file directly in `features/other/`"),
+    # Under `(same folder)` the name is read in its own file, which here exports another.
+    ("inventory_same_folder_symbol_not_exported",
+     lambda r: [_write(r, DEMO + "/Gadget.ts", "export const gadget = 1;\n"),
+                _inventory(r, "| `Gadget` | (same folder) | Its file exports another name. |\n")],
+     1, "`Gadget` is not exported from `Gadget.ts`"),
+    # The JSX form claims its component, and a member the name before the dot. Read any other way,
+    # each row claims nothing, or is refused, and says so in other words.
+    ("inventory_jsx_form_is_read",
+     lambda r: _inventory(r, "| `<Ghost prop>` | `Widget.tsx` | A component. |\n"),
+     1, "`Ghost` is not exported from `Widget.tsx`"),
+    ("inventory_member_form_is_read",
+     lambda r: _inventory(r, "| `Ghost.field` | `Widget.tsx` | A member. |\n"),
+     1, "`Ghost` is not exported from `Widget.tsx`"),
+    # A span is one name, matched whole. Each of these carries a second name, or a family of them,
+    # in a place a reader of its first name alone never looks, and each row holds if the span is
+    # read that way: `Widget` is exported and `Ghost` is not. One case per place, so loosening
+    # the match anywhere turns one red by name.
+    ("inventory_symbol_runs_on_past_its_name",
+     lambda r: _inventory(r, "| `Widget/Ghost` | `Widget.tsx` | Two names in one span. |\n"),
+     1, "`Widget/Ghost` in the Symbol column is not one name"),
+    ("inventory_symbol_runs_on_after_a_space",
+     lambda r: _inventory(r, "| `Widget Ghost` | `Widget.tsx` | Two names, a space apart. |\n"),
+     1, "`Widget Ghost` in the Symbol column is not one name"),
+    ("inventory_symbol_second_name_after_a_call",
+     lambda r: _inventory(r, "| `Widget(id) / Ghost()` | `Widget.tsx` | Two calls. |\n"),
+     1, "`Widget(id) / Ghost()` in the Symbol column is not one name"),
+    ("inventory_symbol_second_name_after_a_type_argument",
+     lambda r: _inventory(r, "| `Widget<T> / Ghost<U>` | `Widget.tsx` | Two types. |\n"),
+     1, "`Widget<T> / Ghost<U>` in the Symbol column is not one name"),
+    ("inventory_symbol_second_tag_after_a_jsx_tag",
+     lambda r: _inventory(r, "| `<Widget prop> or <Ghost>` | `Widget.tsx` | Two tags. |\n"),
+     1, "`<Widget prop> or <Ghost>` in the Symbol column is not one name"),
+    ("inventory_symbol_second_name_after_a_member",
+     lambda r: _inventory(r, "| `Widget.size, Ghost` | `Widget.tsx` | A member, then a name. |\n"),
+     1, "`Widget.size, Ghost` in the Symbol column is not one name"),
+    # The two forms that claim nothing are matched whole as well, or a second claim rides in one.
+    ("inventory_member_span_carrying_a_second_name",
+     lambda r: _inventory(r, "| `Widget.size` / `.more / Ghost()` | `Widget.tsx` | A member, and a call. |\n"),
+     1, "`.more / Ghost()` in the Symbol column is not one name"),
+    ("inventory_member_span_continuing_nothing",
+     lambda r: _inventory(r, "| `.Ghost` / `Widget` | `Widget.tsx` | A member of nothing. |\n"),
+     1, "`.Ghost` in the Symbol column is not one name"),
+    ("inventory_return_after_nothing_is_read",
+     lambda r: _inventory(r, "| → `Ghost`, `Widget` | `Widget.tsx` | An arrow with nothing before it. |\n"),
+     1, "`Ghost` is not exported from `Widget.tsx`"),
+    ("inventory_return_span_carrying_a_second_name",
+     lambda r: _inventory(r, "| `Widget()` → `string, Ghost(n)` | `Widget.tsx` | A return, and a call. |\n"),
+     1, "`string, Ghost(n)` in the Symbol column is not one name"),
+    # Beside a name, a leading wildcard keeps the per-row control quiet, so only this refusal
+    # stands between it and a family nobody checks.
+    ("inventory_symbol_span_without_a_name",
+     lambda r: _inventory(r, "| `Widget` / `*Props` | `Widget.tsx` | A family, unnamed. |\n"),
+     1, "`*Props` in the Symbol column is not one name"),
+    # A span is a return only when an arrow and nothing else stands before it. Here words do too,
+    # and the span is a claim like any other.
+    ("inventory_symbol_after_an_arrow_and_words_is_read",
+     lambda r: _inventory(r, "| `Widget()` → a list, and `Ghost()` | `Widget.tsx` | Then a claim. |\n"),
+     1, "`Ghost` is not exported from `Widget.tsx`"),
+    # Brackets are read one deep, and a deeper span says it is refused rather than being misread.
+    ("inventory_symbol_nested_brackets_refused",
+     lambda r: _inventory(r, "| `Widget(wrap(id))` | `Widget.tsx` | Nested. |\n"),
+     1, "`Widget(wrap(id))` in the Symbol column is not one name"),
+    # A stylesheet exports nothing, so "not exported" would be a true sentence with a false reason.
+    ("inventory_symbol_filed_only_in_a_non_source_file",
+     lambda r: [_write(r, DEMO + "/tokens.css", ":root {}\n"),
+                _inventory(r, "| `brand` | `tokens.css` | A token. |\n")],
+     1, "`brand` is filed only in `tokens.css`, which is not source and exports nothing"),
+    # The positive control: a row that names source must name a symbol. A table whose Symbol
+    # column was renamed reads an empty cell on every row, and passes exactly like a table whose
+    # every symbol is at home unless this fires.
+    ("inventory_table_with_its_symbol_column_renamed",
+     lambda r: _inventory(r, after="\n### Hooks\n\n| Name | File | Purpose |\n|---|---|---|\n"
+                                   "| `useGhost` | `Widget.tsx` | Not read as a symbol. |\n"),
+     1, "demo-feature.md:13: the Symbol cell '' names no symbol this check can read"),
+    ("inventory_symbol_cell_without_backticks",
+     lambda r: _inventory(r, "| useGhost | `Widget.tsx` | Unquoted. |\n"),
+     1, "the Symbol cell 'useGhost' names no symbol this check can read"),
+    ("inventory_directory_row_without_a_symbol",
+     lambda r: [_touch(r, "apps/portal/src/features/other/Thing.ts"),
+                _inventory(r, "| — | moved to `features/other/` | Moved, but what? |\n")],
+     1, "the Symbol cell '—' names no symbol this check can read"),
+    # Every export form the reader knows, each claimed by name, so a form it stops reading turns
+    # this case red.
+    ("inventory_export_forms_ok",
+     lambda r: [_write(r, DEMO + "/forms.ts",
+                       "export function fnA(x) {}\nexport function* fnGen() {}\nexport async function fnB() {}\n"
+                       "export const cC = 1;\nexport let lD = 1;\nexport var vV = 1;\nexport type TE<T> = T;\n"
+                       "export interface IF {}\nexport enum EG {}\nexport const enum CEH {}\nexport class KI {}\n"
+                       "export abstract class KJ {}\nexport declare const dS: number;\nexport namespace NS {}\n"
+                       "export default function DefK() {}\nconst lL = 1;\nconst lM = 1;\n"
+                       "export {lL};\nexport {lM as aliasM};\nexport {type TO} from './types';\n"
+                       "export type {TU} from './types';\n"
+                       "export {\n  // a comment the reader skips\n  lP,\n  /* and another */ lQ,\n} from './more';\n"
+                       "export * as NSX from './ns';\n/** Documented on the line it is declared. */ export function docd() {}\n"
+                       "/* c8 ignore next */ /** Twice. */ export function twiceDocd() {}\n"),
+                _write(r, DEMO + "/Def.ts", "const DefR = 1;\nexport default DefR;\n"),
+                _write(r, DEMO + "/Bom.ts", "\ufeffexport const BomFirst = 1;\n"),
+                # A comment is removed only where it opens a line. This `/* ` sits mid-line in a
+                # string, and read as a comment it would swallow the export beneath it.
+                _write(r, DEMO + "/Glob.ts", "const hint = 'keep /* in the string';\nexport const afterGlob = 1;\n// */\n"),
+                # Nor is a glob opening a line of a template literal.
+                _write(r, DEMO + "/Help.ts", "const help = `Every CSV at the root:\n/*.csv`;\nexport const afterHelp = 1;\n// */\n"),
+                _inventory(r, "| `fnA(x)` / `fnGen()` / `fnB()` / `cC` / `lD` / `vV` / `TE<T>` / `IF` / `EG` | `forms.ts` | Declared. |\n"
+                              "| `CEH` / `KI` / `KJ` / `dS` / `NS` / `DefK` | `forms.ts` | Declared too. |\n"
+                              "| `lL` / `aliasM` / `TO` / `TU` / `lP` / `lQ` | `forms.ts` | Listed. |\n"
+                              "| `NSX` / `docd()` / `twiceDocd()` | `forms.ts` | A namespace, and two after their docs. |\n"
+                              "| `afterHelp` | `Help.ts` | Beneath a glob in a template literal. |\n"
+                              "| `DefR` | `Def.ts` | A default, declared above it. |\n"
+                              "| `BomFirst` | `Bom.ts` | On a first line behind a byte-order mark. |\n"
+                              "| `afterGlob` | `Glob.ts` | Beneath a string that is not a comment. |\n")],
+     0, ""),
+    # Every Symbol-cell form that claims a name, and the ones that claim nothing: a return after
+    # either arrow, whatever it is, a shape, and a member continuing the span before it.
+    ("inventory_symbol_forms_ok",
+     lambda r: [_write(r, DEMO + "/Widget.tsx",
+                       "export const Widget = 1;\nexport function useWidget() {}\nexport type WidgetProps<T> = T;\n"
+                       "export const widgetKeys = {};\nexport function Gadget() {}\nexport function Gizmo() {}\n"),
+                _inventory(r, "| `useWidget(id)` → `{status, error}` | `Widget.tsx` | A call, and a shape. |\n"
+                              "| `useWidget(id)` → `boolean` | `Widget.tsx` | A call, and a type. |\n"
+                              "| `useWidget(id)` -> `[flags, status]` | `Widget.tsx` | A tuple, after an ASCII arrow. |\n"
+                              "| `useWidget(id)` → `string \\| null` | `Widget.tsx` | A union. |\n"
+                              "| `<Widget onChange={(v) => set(v)}>` | `Widget.tsx` | A prop holding an arrow. |\n"
+                              "| `WidgetProps<T>` | `Widget.tsx` | A type argument. |\n"
+                              "| `widgetKeys.list(id)` / `.detail(id)` | `Widget.tsx` | Members. |\n"
+                              "| `<Widget prop>` / `<Gadget>` / `<Gizmo/>` | `Widget.tsx` | JSX. |\n")],
+     0, ""),
+    # A path the row spells out is read at every level it exists. The nearer one here exports
+    # another name, and read alone it would fail a row whose symbol is where the row says.
+    ("inventory_symbol_in_the_farther_reading_ok",
+     lambda r: [_write(r, DEMO + "/lib/helper.ts", "export const other = 1;\n"),
+                _write(r, "apps/portal/src/lib/helper.ts", "export const helper = 1;\n"),
+                _write(r, DEMO + "/lib/shared/near.ts", "export const Near = 1;\n"),
+                _write(r, "apps/portal/src/lib/shared/far.ts", "export const Far = 1;\n"),
+                _write(r, DEMO + "/lib/near.ts", "export const nearOnly = 1;\n"),
+                _write(r, "apps/portal/src/lib/near.ts", "export const other = 1;\n"),
+                _inventory(r, "| `helper` | `lib/helper.ts` | The shared one. |\n"
+                              "| `Far` | moved to `lib/shared/` | The shared directory. |\n"
+                              "| `nearOnly` | `lib/near.ts` | The feature's own, which is read too. |\n")],
+     0, ""),
+    # A name re-exported by a directory's barrel is in the directory. The subdirectory beside it
+    # is kept out by its missing suffix; the `is_file` test is for one named like a source file,
+    # which no case can plant, because `check_source_citations` raises on it first.
+    ("inventory_symbol_in_a_named_directory_ok",
+     lambda r: [_write(r, "apps/portal/src/features/other/index.ts", "export {Thing} from './impl';\n"),
+                _write(r, "apps/portal/src/features/other/impl/impl.ts", "export const Thing = 1;\n"),
+                _inventory(r, "| `Thing` | moved to `features/other/` | Re-exported by the barrel. |\n")],
      0, ""),
 ]
 
