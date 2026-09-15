@@ -93,11 +93,13 @@ role already holds and why it is split across one managed policy per resource fa
   from any resource-policy `Deny` that covers a read the AWS provider uses on refresh — otherwise the
   provider sees the resource as "deleted" and every plan proposes a destructive recreate. Same
   break-glass shape (`put-bucket-policy` out-of-band, then merge).
-- **`depends_on` defers data sources (benign plan noise).** A module declaring
-  `depends_on = [module.base]` has its data sources unknown at plan whenever a PR touches
-  `module.base` → cascades to `(known after apply)` and can show a ForceNew attribute fed by one as
-  *force-replace* (the ForceNew data-source trap, below). At apply these resolve to identical values (no-op / identical recreate). This is
-  **not** drift — don't panic at the plan.
+- **`depends_on` defers data sources, so no module behind one reads any.** A module called with
+  `depends_on = [module.base]` had its data sources unknown at plan whenever a PR touched
+  `module.base`, and everything built from them with it: a policy document the plan-time IAM scan
+  cannot read, and a ForceNew attribute planned as a replacement (the ForceNew data-source trap,
+  below). At apply they resolved to identical values, so it was never drift, and it was never
+  benign either. Keep the edge; render documents with `templatefile()` and pass any other read from
+  the root. `lambdas/test_depends_on_defers_no_data_source.py` refuses the shape.
 - **An unknown ARN inside `compact()`/a list silently drops the change.** A cross-module ARN that is
   unknown-at-plan (e.g. a role created in the same apply) inside `compact()` made OpenTofu plan *no*
   change to a list attribute — the value was never written. **Rule:** any cross-module ARN feeding a
@@ -121,11 +123,11 @@ role already holds and why it is split across one managed policy per resource fa
 
 ## The ForceNew data-source trap
 
-**Inside a module carrying a module-level `depends_on`, prefer a variable over a data source for
-anything feeding a ForceNew attribute.** A pending change in the dependency defers the data source to
-apply time, and `(known after apply)` on a ForceNew attribute plans *"must be replaced"*. This had
-every infra apply destroying and recreating `module.auth`'s identity-pool principal-tag mapping — the
-ABAC keystone — until `data.aws_region.current.name` became `var.aws_region`.
+**Inside a module carrying a module-level `depends_on`, no data source at all** (the bullet above),
+and this is the case that first taught it. A pending change in the dependency defers the data source
+to apply time, and `(known after apply)` on a ForceNew attribute plans *"must be replaced"*. This
+had every infra apply destroying and recreating `module.auth`'s identity-pool principal-tag mapping
+— the ABAC keystone — until `data.aws_region.current.name` became `var.aws_region`.
 
 `ignore_changes` is the wrong tool here, because nothing drifts. Contrast
 `aws_lakeformation_permissions`, where the API genuinely reads back different values and

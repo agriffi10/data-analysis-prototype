@@ -314,7 +314,7 @@ rows stay, and three findings survive by decision.
 **The counts, measured rather than estimated.** The `.tf` scan over `infra/` reports **918 passed /
 736 failed**, 474 resources, against 508/373 when this file was written. The enforce list went from
 **52 IDs to 89**: 37 newly-passing IDs joined it, **none disappeared then**, and the gate script itself
-reports `enforcing 79 check ID(s); 0 finding(s) on them`. It was 89 until the Identity Pool and then CloudFront were retired — the entries above record why, as this file is where an enforce-list removal has to be argued.
+reports `enforcing 68 check ID(s); 0 finding(s) on them`. It was 89 until the Identity Pool and then CloudFront were retired, and 79 until the observability module's policy documents became templates — the entries above and below record why, as this file is where an enforce-list removal has to be argued.
 
 **Thirty-five of the 37 came with the new families. Two did not**, and the exception is the useful
 part: `CKV_AWS_251` and `CKV_AWS_36` both evaluate
@@ -564,8 +564,10 @@ account", which matters, but is a different and smaller thing than a user-facing
 
 Neither subsumes the other, so both stay:
 
-- Only the **`.tf` scan** reports CKV_AWS_50 (Lambda X-Ray), CKV_AWS_115, CKV_AWS_18, CKV_AWS_82,
-  CKV_AWS_86, CKV2_AWS_40/42/61 — and it runs on every PR and on the weekly sweep.
+- The **`.tf` scan** runs on every PR and on the weekly sweep. Measured against the plan scan of
+  run 35001183572, the only findings it reports that the plan scan does not are `CKV_AWS_50`
+  (Lambda X-Ray) and `CKV_AWS_18`, which the plan scan resolves and passes. The other IDs this
+  bullet once listed are now reported by both scans or evaluated by neither.
 - Only the **plan scan** evaluates IAM policy documents at all, and it resolves interpolated values,
   so some `.tf` findings correctly disappear here.
 
@@ -781,7 +783,8 @@ against is the right one.
 
 **The accept list covers only the rules firing today.** Adding a new non-scopable wildcard action to
 `github_actions_deploy` — the recurring case CLAUDE.md's "Infra rule" mandates — can fire
-`CKV_AWS_356`/`CKV_AWS_111`/`CKV_AWS_49` on that resource, none of them accepted. Such a change is a
+`CKV_AWS_355`/`CKV_AWS_290`/`CKV_AWS_63` on that resource, none of them accepted (their data-source
+twins, which this passage once named, cannot fire on it). Such a change is a
 two-part edit: the grant, and its acceptance. Designed friction, recorded so it is not a surprise.
 
 ## Two shell facts are what make every hard error above reachable
@@ -949,3 +952,43 @@ contents belongs on this page. **The rule still holds for a check that passes be
 checks is true.** These two pass because of how the configuration is SHAPED, and the distinction is
 what a regeneration cannot see: re-measure, then ask what made each new arrival pass before adding
 it.
+
+## Eleven IDs leave the enforce list with the observability data sources (2026-09-15)
+
+The observability module built its three IAM documents from `aws_iam_policy_document` data
+sources, the last such sources in `infra/`. They are `templatefile()` renders now, because the
+module waits on `module.base` and a data source behind that edge is read at apply, which left the
+documents unknown on every pull request changing a deploy grant (the reasoning is in
+`docs/decisions/infrastructure.md`). Eleven enforced IDs had evaluated those three data sources and
+nothing else, since the `.tf` scan cannot read a `templatefile()` policy: `CKV2_AWS_40`,
+`CKV_AWS_1`, `CKV_AWS_49`, `CKV_AWS_107` to `CKV_AWS_111`, `CKV_AWS_283`, `CKV_AWS_356` and
+`CKV_AWS_358`. Measured through `checkov-scan.sh` against checkov 3.3.9: on the parent tree the gate
+exits 0 over 79 IDs; with the data sources gone it exits 2 naming exactly those eleven as evaluated
+against nothing; with them removed it exits 0 over 68.
+
+**What the removal gives up is less than the list made it look.** Nine of the eleven are the
+data-source form of a check Checkov also runs on the resource, and the plan scan runs those on every
+rendered document of that kind and blocks on any IAM finding. For identity policies, `CKV_AWS_1` is
+`CKV_AWS_62`, `CKV_AWS_49` is `CKV_AWS_63`, `CKV_AWS_107` to `CKV_AWS_111` are `CKV_AWS_287`,
+`CKV_AWS_288`, `CKV_AWS_289`, `CKV_AWS_286` and `CKV_AWS_290`, and `CKV_AWS_356` is `CKV_AWS_355`;
+on the plan runs where the sweep's policy was known, the plan scan ran all eight on it, and
+`CKV2_AWS_40`. For a role's trust policy, `CKV_AWS_358` (a GitHub Actions OIDC trust policy
+restricts its claims) is `CKV_AWS_393`, which Checkov's source calls its resource-level mirror. It
+is on this list already, and the plan scan ran it on the deploy role's GitHub trust policy (run
+35001183572), whose template the `.tf` scan cannot read. Only `CKV_AWS_283` (a policy admits any AWS
+principal) has no resource form, and a trust policy's nearest checks on the plan are `CKV_AWS_60`
+and `CKV_AWS_61`.
+
+**One exposure is left, and nothing in the tree has it today.** A data source no `depends_on`
+reaches, at the root or in `module.base`, is still allowed. An `aws_iam_policy_document` placed
+there and feeding a bucket or queue policy would be evaluated by these data-source checks and would
+block nothing, because the `.tf` gate no longer enforces them and the plan gate counts only
+`aws_iam_*` resources. Every templated resource policy in the tree already sits outside both
+counts, so the removal takes no protection from anything that exists.
+
+**Three passing IDs stay unenforced, and the third was unrecorded.** `CKV_AWS_115` and `CKV_AWS_117`
+are the two in the section above. `CKV_AWS_319` (alarm actions enabled) passes on one resource, the
+observability module's logs-backlog alarm, because `actions_enabled` defaults to true. The alarm has
+no action by decision (the comment in `infra/modules/observability/alarm.tf`), so it passes for how
+the resource is shaped and not because anyone is told. It has been unenforced since that alarm
+landed on 2026-09-10, and stays so for the reason the section above gives.

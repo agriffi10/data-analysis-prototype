@@ -528,6 +528,7 @@ module "auth" {
 module "data" {
   source = "./modules/data"
 
+  account_id             = data.aws_caller_identity.current.account_id
   project_name           = var.project_name
   spa_origin             = local.spa_origin
   user_space_bucket_name = local.user_space_bucket_name
@@ -1352,7 +1353,9 @@ module "observability" {
   shared_space_bucket_name = local.shared_space_bucket_name
   athena_workgroup         = local.athena_workgroup_name
 
-  # base grants the deploy role its observability perms (already applied).
+  # base writes the deploy role's observability grants, so an apply changing one writes it before
+  # anything here uses it. The edge also defers every data source in the module to apply, which is
+  # why the module declares none: modules/observability/README.md.
   depends_on = [module.base]
 }
 

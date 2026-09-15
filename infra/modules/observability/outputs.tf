@@ -8,11 +8,6 @@ output "logs_queue_arn" {
   value       = aws_sqs_queue.logs.arn
 }
 
-output "producer_policy_json" {
-  description = "Ready-to-attach policy granting sqs:SendMessage on the logs queue and nothing else. Attached to the sweep's own role and to the control-plane execution roles."
-  value       = data.aws_iam_policy_document.logs_producer.json
-}
-
 output "function_names" {
   description = "Every Lambda this module deploys, by deployed name. Aggregated at the root into `lambda_function_names`; the reasoning lives there rather than in fourteen copies of it."
   value       = [module.sweep.function_name]

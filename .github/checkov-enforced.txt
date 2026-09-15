@@ -12,6 +12,13 @@
 # resource. A couple are merely operational rather than security-critical (CKV_AWS_216,
 # CKV_AWS_305); they are here because they pass, which is the whole rule.
 #
+# RE-MEASURED 2026-09-15, after the observability module's policy documents became templates:
+# 68 IDs, eleven fewer. All eleven evaluated only those three aws_iam_policy_document data
+# sources, and this scan cannot read a templatefile() policy, so each would have been enforced
+# against nothing, which checkov-enforced.sh refuses. The removal is argued in
+# docs/security-baseline.md, beside the three IDs that pass and stay unenforced: CKV_AWS_115,
+# CKV_AWS_117 and CKV_AWS_319, each passing because of how its resource is shaped.
+#
 # RE-MEASURED 2026-08-31, after CloudFront was retired: 79 IDs, nine fewer, every removal
 # measured by the command below rather than predicted, and each argued in
 # docs/security-baseline.md. Nothing newly passing went unenforced.
@@ -112,19 +119,6 @@ CKV_AWS_333    # Ensure ECS services do not have public IP addresses assigned to
 CKV_AWS_249    # Ensure that the Execution Role ARN and the Task Role ARN are different in ECS Task definitions (1)
 CKV_AWS_336    # Ensure ECS containers are limited to read-only access to root filesystems (1)
 CKV_AWS_97     # Ensure Encryption in transit is enabled for EFS volumes in ECS Task definitions (1)
-
-# aws_iam_policy_document
-CKV2_AWS_40    # Ensure AWS IAM policy does not allow full IAM privileges (3)
-CKV_AWS_1      # Ensure IAM policies that allow full "*-*" administrative privileges are not created (3)
-CKV_AWS_107    # Ensure IAM policies does not allow credentials exposure (3)
-CKV_AWS_108    # Ensure IAM policies does not allow data exfiltration (3)
-CKV_AWS_109    # Ensure IAM policies does not allow permissions management / resource exposure without constraints (3)
-CKV_AWS_110    # Ensure IAM policies does not allow privilege escalation (3)
-CKV_AWS_111    # Ensure IAM policies does not allow write access without constraints (3)
-CKV_AWS_283    # Ensure no IAM policies documents allow ALL or any AWS principal permissions to the resource (3)
-CKV_AWS_356    # Ensure no IAM policies documents allow "*" as a statement's resource for restrictable actions (3)
-CKV_AWS_358    # Ensure AWS GitHub Actions OIDC authorization policies only allow safe claims and claim order (3)
-CKV_AWS_49     # Ensure no IAM policies documents allow "*" as a statement's actions (3)
 
 # aws_iam_role
 CKV2_AWS_56    # Ensure AWS Managed IAMFullAccess IAM policy is not used. (20)
