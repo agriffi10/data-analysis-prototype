@@ -16,7 +16,7 @@ type Props = {
  * Enter-to-submit come from FormDialog; Escape cancels via Modal.
  *
  * @example
- * <CreateFolderDialog onCreate={(name) => createFolder(name)} onCancel={close} />
+ * <CreateFolderDialog onCreate={(name) => createNewFolder(name)} onCancel={close} />
  */
 export function CreateFolderDialog({onCreate, onCancel, parentPrefix}: Props) {
   const [name, setName] = useState('');

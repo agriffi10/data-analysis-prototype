@@ -55,7 +55,7 @@ type Acc = {moved: number; errors: MoveSummary['errors']};
  * A move is ONE route now, not a copy call followed by a delete call: two calls put a closed tab
  * between them, and versioning is off.
  *
- * Mirrors useFileUpload's collision warn-and-confirm and useDelete's aggregation. `sourcePrefix`
+ * Mirrors useCreateFolder's collision warn-and-confirm and useDelete's aggregation. `sourcePrefix`
  * is the current view (the items' common parent); both it and any destination prefix are
  * invalidated on completion so the moved items appear/disappear. Never throws.
  */

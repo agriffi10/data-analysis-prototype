@@ -1,5 +1,5 @@
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
-import {screen, within, waitFor} from '@testing-library/react';
+import {act, screen, within, waitFor} from '@testing-library/react';
 import type {ReactElement} from 'react';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {FileBrowser} from './FileBrowser';
@@ -17,7 +17,7 @@ import {apiRequest} from '../../lib/apiClient';
 import type {FileListPage, S3FileItem, S3FolderItem} from '../../types/s3.types';
 
 // Integration style (react.md §21): render the REAL FileBrowser tree — real
-// hooks (useFileBrowser/useDelete/useMove/useCopy/useFileUpload), real child
+// hooks (useFileBrowser/useDelete/useMove/useCopy/useCreateFolder), real child
 // dialogs (Create/Delete/Rename/Move/Copy/Metadata) — and mock ONLY the AWS
 // service boundary. The pure helpers (validateFolderName/uploadPercent/…) stay
 // real via importActual so the hooks behave normally.
@@ -301,7 +301,7 @@ describe('FileBrowser — details drawer', () => {
 });
 
 describe('FileBrowser — write controls', () => {
-  it('creates a folder through the New folder dialog', async () => {
+  it('creates a folder through the New folder dialog, and hands New folder back', async () => {
     const {user} = renderBrowser();
     await user.click(await screen.findByRole('button', {name: 'New folder'}));
     const dialog = await screen.findByRole('dialog');
@@ -310,6 +310,7 @@ describe('FileBrowser — write controls', () => {
     await waitFor(() =>
       expect(mock.createFolder).toHaveBeenCalledWith(expect.objectContaining({name: 'photos', prefix: 'alice/'}))
     );
+    await waitFor(() => expect(screen.getByRole('button', {name: 'New folder'})).toBeEnabled());
   });
 
   it('refuses the app’s own folder names inside system_settings, and issues no request', async () => {
@@ -750,6 +751,30 @@ describe('FileBrowser — resolving a folder-name collision through the UI', () 
       overwrite: false
     });
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('closes the prompt on Cancel and hands New folder back, creating nothing more', async () => {
+    // New folder is disabled while a create is in flight, so a create that ends in a collision
+    // has to release it too: otherwise cancelling the prompt leaves the button dead for good.
+    let answer!: (result: Awaited<ReturnType<typeof service.createFolder>>) => void;
+    mock.createFolder.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    const newFolder = () => screen.getByRole('button', {name: 'New folder'});
+
+    const {user} = renderBrowser();
+    await user.click(await screen.findByRole('button', {name: 'New folder'}));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByRole('textbox'), 'notes');
+    await user.click(within(dialog).getByRole('button', {name: /create/i}));
+    expect(newFolder()).toBeDisabled();
+
+    await act(async () => answer({success: false, error: {message: 'exists', code: 'Collision'}}));
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', {name: 'Cancel'}));
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(newFolder()).toBeEnabled();
+    await user.click(newFolder());
+    expect(await screen.findByRole('dialog', {name: 'Create folder'})).toBeInTheDocument();
+    expect(mock.createFolder).toHaveBeenCalledTimes(1);
   });
 
   describe('inside system_settings, where the retry reaches the real createFolder', () => {

@@ -4,7 +4,7 @@ import {Pager} from '../../components/Pager';
 import type {S3FolderItem} from '../../types/s3.types';
 import {Banner} from '../../components/Banner';
 import {useFileBrowser} from './useFileBrowser';
-import {useFileUpload} from './useFileUpload';
+import {useCreateFolder} from './useCreateFolder';
 import {useDelete} from './useDelete';
 import {useMove} from './useMove';
 import {useCopy} from './useCopy';
@@ -142,8 +142,7 @@ function FileBrowserContent({
   const folders = visibleFolders;
 
   // Create-folder scoped to the folder currently being viewed, with its
-  // folder-name collision and error. useFileUpload uploads nothing; file
-  // uploads are owned by the upload queue below.
+  // folder-name collision and error.
   const currentPrefix = prefix ?? '';
   const {
     pendingCollision,
@@ -152,7 +151,7 @@ function FileBrowserContent({
     createNewFolder,
     cancelCollision,
     dismissError
-  } = useFileUpload(bucket, currentPrefix);
+  } = useCreateFolder(bucket, currentPrefix);
   // Multi-file upload queue — enqueue from the dropzone; progress,
   // cancel, and per-file collisions now live in the in-drawer UploadList.
   const {enqueue} = useUploadQueue();

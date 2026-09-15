@@ -6,7 +6,7 @@ import {copyObject, createFolder, deleteObject, firstFreeName, moveObject} from 
 import {invalidateListing} from './invalidateListing';
 import {useDelete} from './useDelete';
 import type {DeleteSummary} from './useDelete';
-import {useFileUpload} from './useFileUpload';
+import {useCreateFolder} from './useCreateFolder';
 import {useMove} from './useMove';
 import type {SelectableItem} from './selectionContext';
 
@@ -306,21 +306,21 @@ describe('useDelete', () => {
   });
 });
 
-// ─── from useFileUpload.test.ts ───
+// ─── useCreateFolder ───
 
-describe('useFileUpload', () => {
+describe('useCreateFolder', () => {
   const mockCreateFolder = vi.mocked(createFolder);
   const mockInvalidate = vi.mocked(invalidateListing);
 
   function render() {
-    return renderHookWithProviders(() => useFileUpload('us', 'alice/'));
+    return renderHookWithProviders(() => useCreateFolder('us', 'alice/'));
   }
 
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  describe('useFileUpload', () => {
+  describe('useCreateFolder', () => {
     it('renames a folder on collision by re-running with the new name', async () => {
       mockCreateFolder
         .mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}})
@@ -378,7 +378,7 @@ describe('useFileUpload', () => {
       });
     });
 
-    it('surfaces a non-collision error and clears it on dismiss', async () => {
+    it('surfaces a non-collision error, releases busy, and clears it on dismiss', async () => {
       mockCreateFolder.mockResolvedValue({success: false, error: {message: 'Access Denied', code: 'AccessDenied'}});
 
       const {result} = render();
@@ -388,6 +388,7 @@ describe('useFileUpload', () => {
       await waitFor(() =>
         expect(result.current.error).toBe("You don't have permission to do that. Contact the Administrator.")
       );
+      expect(result.current.isBusy).toBe(false);
       expect(mockInvalidate).not.toHaveBeenCalled();
 
       act(() => result.current.dismissError());
