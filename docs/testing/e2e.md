@@ -488,7 +488,7 @@ the **first** partition.
    → A refusal naming **both** `Amount` and `AMOUNT`, in a create's words, and the rail unchanged.
    `already up to date` here is the defect: the collision went unreported.
 8. **The sharp-s control:** delete `part0a.csv`, upload `part0b.csv`
-   (`ID,Region,Amount,Straße,STRASSE`), refresh.
+   (`ID,Region,Amount,Straße,STRASSE`) into `year=2025/`, refresh.
    → `2 columns added`, and the rail reads `id, region, amount, straße, strasse`. `1 column added`
    over that same rail is the defect: a diff folding `ß` into `ss` while the write keeps it.
 9. Delete `part0b.csv` and refresh with the opt-in. → `2 columns removed`, and the fixture is back

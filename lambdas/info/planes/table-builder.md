@@ -95,7 +95,7 @@ statements, no window in which the table is absent, and **no verb on this plane 
   colliding name before it classifies anything, so a header of `Amount,region,amount` is refused
   rather than reported unchanged. Apply-refresh keeps its own guard, `update_failed` before the
   update, because nothing after its fold would notice a column collapsed.
-- **Every step folds a name through `cpcommon.columns.fold`, which is `lower()`, never
+- **Every step of a refresh folds a name through `cpcommon.columns.fold`, which is `lower()`, never
   `casefold()`.** That covers the diff's match and partition-key exclusion, the write's names,
   comment carry and refusal, and both catalog reads around the update. Athena lowercases, so
   `Straße` and `STRASSE` are two columns, `straße` and `strasse`. Full case folding makes them one.

@@ -54,9 +54,9 @@ Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does
   every statement built from the same value is swept.
 - **A column name is user data.** Creates refuse empty, non-`[a-z0-9_]`, over-255 and fold-collision
   names. A refresh skips the check, or it would strand pre-rule tables, but its diff still refuses a
-  fold collision. **Every step folds through `columns.fold`, which is `lower()` and never
-  `casefold()`**: the second merges `ß` into `ss`, so a diff and a write folding differently removed
-  a column without the opt-in.
+  fold collision. **Every step of a refresh folds through `columns.fold`, which is `lower()` and
+  never `casefold()`**: the second merges `ß` into `ss`, so a diff and a write folding differently
+  removed a column without the opt-in.
 - **A table's `LOCATION` is read recursively**, so the space root is not a data folder.
 - **Results are read only at `SUCCEEDED`.** A too-early `GetQueryResults` reached users as a generic
   "contact the administrator"; the API now answers **409 `QueryNotFinished`**, classified by Athena's
@@ -893,8 +893,8 @@ the [table-builder plane page](../../lambdas/info/planes/table-builder.md#the-fe
 so against a live `strasse` the header `Straße,notes` reported only `notes` added. The write then
 landed `straße` in place of `strasse`, removing a column without the opt-in, and the read-back
 passed because it compared casefolded sets. AWS documents that Athena lowers names, and Hive
-normalises an identifier with Java's `toLowerCase`, the same Unicode mapping as Python's `lower()`,
-which keeps `ß`. So `cpcommon.columns.fold` is `lower()`, and the create rule, the diff's match
+normalises an identifier with Java's `toLowerCase`, which, like Python's `lower()`, is Unicode
+lowercasing and keeps `ß`. So `cpcommon.columns.fold` is `lower()`, and the create rule, the diff's match
 and partition-key exclusion, the write's names, comment carry and refusal, and both catalog reads
 around the update all call it. The two folds differ only on non-ASCII characters, which only a
 refresh sees, because only a refresh skips the name rule. The evidence is the documentation and

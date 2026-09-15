@@ -236,18 +236,51 @@ def test_the_read_only_fields_glue_rejects_are_not_sent():
 # ── Column names, comments and casing ────────────────────────────────────────
 
 
-def test_column_names_are_lowercased_like_the_create_path():
-    """AWS documents that Athena "automatically lowers any upper case names in DDL queries
-    when it creates databases, tables, or columns" — so the create path folds for free and
-    this one, which bypasses Athena entirely, has to do it in code. Without the fold a
-    refresh would leave a mixed-case catalog entry the create path could never produce.
+def test_names_are_lowercased_like_the_create_path_and_every_check_uses_that_fold():
+    """Writes names the way Athena lowercases them, and carries, drops and verifies on that fold.
+
+    AWS documents that Athena "automatically lowers any upper case names in DDL queries when it
+    creates databases, tables, or columns", so the create path folds for free and this one,
+    which bypasses Athena entirely, has to do it in code. Lowercasing is not case folding:
+    against a live ``straße`` and the partition key ``weiss``, ``STRASSE`` and ``Weiß`` are the
+    new columns ``strasse`` and ``weiß``, and ``Weiss`` and ``WEISS`` are the partition key,
+    dropped rather than refused as a collision. Keyed on ``casefold()`` instead, ``strasse`` took
+    the live column's comment, ``Weiß`` was dropped as if it were the partition key, and the
+    read-back counted ``straße`` and ``strasse`` as one column. The live name is not ASCII so
+    that a carry keyed on one fold and looked up on the other loses the comment either way
+    round.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
     """
-    glue, _sqs = _install()
-    columns = [{"name": "Order_ID", "type": "string"}, {"name": "Amount", "type": "string"}]
+    storage = {
+        **_live_table()["StorageDescriptor"],
+        "Columns": [{"Name": "straße", "Type": "string", "Comment": "the street"}],
+    }
+    live = _live_table(StorageDescriptor=storage, PartitionKeys=[{"Name": "weiss", "Type": "string"}])
+    glue, _sqs = _install(table=live)
+    columns = [
+        {"name": "Straße", "type": "string"},
+        {"name": "STRASSE", "type": "string"},
+        {"name": "Weiß", "type": "string"},
+        {"name": "Weiss", "type": "string"},
+        {"name": "WEISS", "type": "string"},
+        {"name": "notes", "type": "string"},
+    ]
+    keys = [{"name": "weiss", "type": "string", "values": ["a", "b"]}]
 
-    m.handler(_event(columns=columns), None)
+    out = m.handler(_event(columns=columns, partitionKeys=keys), None)
 
-    assert [c["Name"] for c in glue.table_input["StorageDescriptor"]["Columns"]] == ["order_id", "amount"]
+    written = glue.table_input["StorageDescriptor"]["Columns"]
+    assert [c["Name"] for c in written] == ["straße", "strasse", "weiß", "notes"]
+    assert [c.get("Comment") for c in written] == ["the street", None, None, None]
+    assert out["appliedColumnCount"] == 4
 
 
 def test_columns_differing_only_by_case_are_refused_before_the_update():
@@ -300,47 +333,6 @@ def test_columns_differing_only_by_case_are_refused_before_the_update():
     assert raised.value.reason == "update_failed"
     assert "amount" in raised.value.detail, raised.value.detail
     assert glue.update_calls == [], "the colliding definition was sent to Glue"
-
-
-def test_names_fold_the_way_athena_lowercases_them_so_sharp_s_is_not_ss():
-    """Writes, carries, drops and verifies on the one fold Athena applies, which keeps ß apart from ss.
-
-    Athena lowercases a column name and never case-folds it, so ``Straße``, ``STRASSE`` and
-    ``Weiß`` are three columns — ``straße``, ``strasse`` and ``weiß`` — and diff-schema, matching
-    the same way on this header, reports one unchanged and three added. Keyed on ``casefold()``
-    instead, ``straße`` took the live ``strasse`` column's comment, ``Weiß`` was dropped as if it
-    were the partition key ``weiss``, and the read-back counted ``straße`` and ``strasse`` as one
-    column.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      None.
-    """
-    storage = {
-        **_live_table()["StorageDescriptor"],
-        "Columns": [{"Name": "strasse", "Type": "string", "Comment": "the street"}],
-    }
-    live = _live_table(StorageDescriptor=storage, PartitionKeys=[{"Name": "weiss", "Type": "string"}])
-    glue, _sqs = _install(table=live)
-    columns = [
-        {"name": "Straße", "type": "string"},
-        {"name": "STRASSE", "type": "string"},
-        {"name": "Weiß", "type": "string"},
-        {"name": "notes", "type": "string"},
-    ]
-    keys = [{"name": "weiss", "type": "string", "values": ["a", "b"]}]
-
-    out = m.handler(_event(columns=columns, partitionKeys=keys), None)
-
-    written = glue.table_input["StorageDescriptor"]["Columns"]
-    assert [c["Name"] for c in written] == ["straße", "strasse", "weiß", "notes"]
-    assert [c.get("Comment") for c in written] == [None, "the street", None, None]
-    assert out["appliedColumnCount"] == 4
 
 
 def test_a_retyped_column_takes_the_fresh_type_and_keeps_its_comment():

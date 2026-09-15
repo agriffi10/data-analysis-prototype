@@ -92,11 +92,13 @@ def test_all_four_classes_at_once():
 def test_names_match_the_way_athena_lowercases_them_so_sharp_s_is_not_ss():
     """Matches a header name to a live column or partition key only when Athena gives them one name.
 
-    Athena lowercases a name and never case-folds it, so ``Straße`` becomes ``straße``,
-    ``STRASSE`` becomes ``strasse`` and ``Weiß`` becomes ``weiß``, which is what apply-refresh
-    writes from this header. Matching on ``casefold()`` folded the first two onto the live
-    ``strasse`` and ``Weiß`` onto the partition key ``weiss``, and reported only ``notes`` added,
-    so the write landed two columns the diff never reported.
+    Athena lowercases a name and never case-folds it. Against a live ``straße`` and the partition
+    key ``weiss``, ``Straße`` is the live column, ``STRASSE`` and ``Weiß`` are the new columns
+    ``strasse`` and ``weiß``, and ``Weiss`` and ``WEISS`` are the partition key, left out of the
+    comparison and of the collision check rather than refused. That is what apply-refresh writes
+    from this header. Matching on ``casefold()`` folded ``STRASSE`` onto ``straße`` and ``Weiß``
+    onto ``weiss``, and reported only ``notes`` added, so the write landed two columns the diff
+    never reported.
 
     Args:
       None.
@@ -108,15 +110,22 @@ def test_names_match_the_way_athena_lowercases_them_so_sharp_s_is_not_ss():
       None.
     """
     event = _event(
-        _cols(("strasse", "string")),
-        _cols(("Straße", "string"), ("STRASSE", "string"), ("Weiß", "string"), ("notes", "string")),
+        _cols(("straße", "string")),
+        _cols(
+            ("Straße", "string"),
+            ("STRASSE", "string"),
+            ("Weiß", "string"),
+            ("Weiss", "string"),
+            ("WEISS", "string"),
+            ("notes", "string"),
+        ),
         partition_keys=("weiss",),
     )
 
     out = m.handler(event, None)
 
     assert out["diff"]["added"] == [
-        {"name": "Straße", "type": "string"},
+        {"name": "STRASSE", "type": "string"},
         {"name": "Weiß", "type": "string"},
         {"name": "notes", "type": "string"},
     ]
@@ -145,7 +154,9 @@ def test_a_fold_collision_is_refused_naming_only_the_colliding_columns():
     Against a live ``amount,region``, the header ``Amount,region,amount`` indexed back to the live
     table and was reported unchanged, so the collision reached the user as no change at all.
     ``Straße`` and ``STRASSE`` ride in the same header because Athena keeps them apart: naming
-    them too would refuse a collision Athena does not have.
+    them too would refuse a collision Athena does not have. The live table also has a column the
+    header lacks: the collision is refused ahead of that removal, because opting into the removal
+    cannot fix it.
 
     Args:
       None.
@@ -158,7 +169,7 @@ def test_a_fold_collision_is_refused_naming_only_the_colliding_columns():
     """
     queue = _arm_notifications()
     event = _event(
-        _cols(("amount", "string"), ("region", "string")),
+        _cols(("amount", "string"), ("region", "string"), ("gone", "string")),
         _cols(
             ("Amount", "string"),
             ("region", "string"),
