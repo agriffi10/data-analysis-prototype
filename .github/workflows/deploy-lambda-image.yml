@@ -168,8 +168,10 @@ jobs:
           docker push "${REPO}:${TAG}"
 
       # `docker push` reporting success is not the same as the registry holding the image, and
-      # this is the only place that difference is observable — nothing downstream consumes the
-      # image yet, so a push that silently did nothing would go unnoticed until the cutover.
+      # this is the only run that sees the difference on every push. The two workflows that
+      # consume the tag, `deploy-infra.yml` and `deploy-lambdas.yml`, run only on the pushes
+      # their path filters select, and even then report the missing tag minutes later, in
+      # their own logs.
       - name: Assert the registry holds this tag
         if: steps.names.outputs.build == 'run'
         env:

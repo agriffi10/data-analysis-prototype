@@ -5,11 +5,13 @@ third and a fourth already declare an OpenTofu version. Every assertion here is 
 from the workflow directory rather than written against a list: a further consumer is
 coming, and a check that counted to three would keep passing while the fourth drifted.
 
-The last two tests hold a workflow's ``paths:`` filters to its own file and to the files
-its ``run:`` blocks name. A filter that omits one lets a pull request edit that file — a
-blocking gate, or the list of findings it accepts — and merge without the gate ever
-executing. A file only a script reaches, a module it imports or a table it reads, is not
-derived: those filter entries are kept by hand.
+The tests at the end are about ``paths:`` filters. Most hold a workflow's filters to its own
+file and to the files its ``run:`` blocks name. A filter that omits one lets a pull request
+edit that file — a blocking gate, or the list of findings it accepts — and merge without the
+gate ever executing. A file only a script reaches, a module it imports or a table it reads,
+is not derived: those filter entries are kept by hand. One holds the opposite: the two image
+deploys must carry no filter on their push at all, and a filter naming exactly the right
+files would pass every other check here.
 
 Attributes:
   ROOT: The repository root.
@@ -43,6 +45,8 @@ Attributes:
   UNSELECTED_PATH: A tracked file the infrastructure workflow's filter must NOT select, so a
     matcher that selected everything could not pass.
   SPELLING_CORPUS_FILES: The tracked set the spelling corpus resolves against.
+  UNFILTERED_ON_PUSH: The image deploys, which must run on every push to ``main``; the test
+    that holds them gives the reason for each.
 """
 
 import importlib.util
@@ -93,6 +97,7 @@ KNOWN_REFERENCES = (
 )
 UNSELECTED_PATH = "docs/architecture.md"
 SPELLING_CORPUS_FILES = frozenset({".github/scripts/x.sh", "lambdas/fleet.py"})
+UNFILTERED_ON_PUSH = frozenset({"deploy-lambda-image.yml", "deploy-spa-image.yml"})
 
 
 def _workflows() -> list[pathlib.Path]:
@@ -763,6 +768,64 @@ def test_every_path_filter_selects_the_files_its_workflow_runs() -> None:
         if not _filter_selects(globs, reference)
     )
     assert missing == [], "path filters omit files their workflow runs:\n  " + "\n  ".join(missing)
+
+
+def test_the_image_deploys_carry_no_path_filter_on_their_push() -> None:
+    """The two image deploys carry no ``paths:`` or ``paths-ignore:`` on their push.
+
+    Adding the filter breaks nothing. The damage comes from a later push the filter skips,
+    once it is already on ``main``, which is why the test above cannot see it: it reads only
+    a filter that exists, and one naming its own file and every file its steps run passes it.
+
+    The Lambda image is tagged with the commit, and two workflows firing on wider triggers
+    wait for that tag: ``deploy-infra.yml`` polls the registry for it and fails after ten
+    minutes, and ``deploy-lambdas.yml`` points every function at it. Filtering the build
+    turns an infrastructure merge that touches no Lambda input into a red ``main``.
+
+    The SPA deploy decides what to do from what the service is running: its commit, whether
+    the family holds a newer revision, and whether the last rollout settled. Those reads are
+    what point the service at a revision Terraform registered on its own and heal a deploy
+    that failed, so a filter skips the pushes that would do either, and production keeps the
+    old revision behind a green ``main``. The full reasoning for both is
+    ``docs/decisions/infrastructure.md``, "The SPA deploy decides from what is running".
+
+    The push's branch is asserted first, since a workflow that no longer runs on a push to
+    ``main`` has no filter there either. A job- or step-level ``if:`` that skips the build
+    does the same damage and is not read: both workflows already gate their steps with
+    ``if:``, and no mechanical line separates a gate that skips the build from those.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If either workflow's push stops naming ``main`` among its branches, or
+        gains a path filter.
+    """
+    pushes: dict[str, dict[str, Any]] = {}
+    for name in sorted(UNFILTERED_ON_PUSH):
+        document = yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))
+        triggers = document.get(True, document.get("on"))
+        push = triggers.get("push") if isinstance(triggers, dict) else None
+        branches = (push.get("branches") or []) if isinstance(push, dict) else []
+        assert "main" in ([branches] if isinstance(branches, str) else branches), (
+            f"{name}'s push no longer names main among its branches, so finding no filter on "
+            "it proves nothing"
+        )
+        pushes[name] = push
+
+    filtered = sorted(
+        f"{name} filters its push with `{key}`"
+        for name, push in pushes.items()
+        for key in ("paths", "paths-ignore")
+        if key in push
+    )
+    assert filtered == [], (
+        "an image deploy must run on every push to main, and a filter does its damage later, "
+        "on main — this test's docstring says how, for each:\n  " + "\n  ".join(filtered)
+    )
 
 
 def _one_step_workflow(
