@@ -10,7 +10,7 @@ import os
 import pathlib
 import re
 import sys
-from urllib.parse import unquote
+from urllib.parse import parse_qs, unquote, urlsplit
 
 import pytest
 
@@ -248,30 +248,56 @@ def test_the_prefix_is_the_FULL_key_and_the_ROUTES_OWN_RULE_says_why():
     """THE TEST THAT HOLDS THE TWO LANGUAGES TOGETHER (FR-004 AC5).
 
     The link is minted in Python and honoured by a TypeScript route rule, and nothing offline
-    connects the two. Both halves are read out of the source rather than restated: the gate, and
-    what ``rootPrefix`` actually is — pinning only the gate leaves a rename of that value passing
-    every assertion here while every link silently lands at a space root.
+    connects the two. Everything the route decides with is read out of the source rather than
+    restated: its path, its ``?prefix=`` and ``?space=`` parameters, its gate and the segment rule
+    ``isNamedPath`` applies, and what ``rootPrefix`` actually is — pinning only the gate leaves a
+    rename of that value passing every assertion here while every link silently lands at a space
+    root. The gate and the segment rule are each pinned whole, because a clause added to either
+    refuses links this test would still call good; the file-send plane's
+    ``test_a_recipients_link_is_the_FULL_key_and_the_ROUTES_OWN_RULE_says_why`` reads all of these
+    with the same patterns. Each run's space and root come from where its result is — the
+    destination when anything landed, the source when nothing did — never from the link, which
+    would check the link against itself and pass one that names the wrong space.
     """
+    app = (_PORTAL / "App.tsx").read_text()
+    assert 'path="/files"' in app, "the file browser's route moved — re-derive the link's path"
     route = (_PORTAL / "routes" / "FilesPage.tsx").read_text()
+    assert "const prefixParam = searchParams.get('prefix') || undefined;" in route, (
+        "the route no longer reads ?prefix= as it is"
+    )
     assert re.search(
-        r"prefixParam && prefixParam\.startsWith\((\w+)\.rootPrefix\) && prefixParam\.endsWith\('/'\)",
+        r"const initialPrefix =\s*prefixParam\s*&&\s*prefixParam\.startsWith\((\w+)\.rootPrefix\)"
+        r"\s*&&\s*prefixParam\.endsWith\('/'\)\s*&&\s*isNamedPath\(prefixParam\)"
+        r"\s*\?\s*prefixParam\s*:\s*\1\.rootPrefix;",
         route,
-    ), "the route no longer gates ?prefix= on the space's rootPrefix and a trailing slash — re-derive the link"
+    ), "the route's ?prefix= gate changed — re-derive the link"
+    helpers = (_PORTAL / "features" / "file-browser" / "fileBrowser.paths.ts").read_text()
+    assert re.search(
+        r"export function isNamedPath\(keyOrPrefix: string\): boolean \{\s*return keyOrPrefix"
+        r"\s*\.replace\(/\\/\$/, ''\)\s*\.split\('/'\)\s*\.every\(\s*\(segment\) =>\s*segment !== ''"
+        r"\s*&&\s*segment !== '\.'\s*&&\s*segment !== '\.\.'\s*\);\s*\}",
+        helpers,
+    ), "isNamedPath's segment rule changed — re-derive what a link's prefix may contain"
 
     space = (_PORTAL / "features" / "file-browser" / "useFileSpace.ts").read_text()
+    assert "searchParams.get('space')" in space, "the space is no longer chosen by ?space="
     assert "rootPrefix: `${username}/`" in space, "a personal space's root is no longer {username}/"
     assert "rootPrefix: `${conn.database}/`" in space, "a shared space's root is no longer {name}/"
 
-    for summary, records in (
-        (_summary(), _records(("alice/reports/", "moved", {}))),
-        (_summary(), _records(("alice/reports/", "conflict", {}))),
-    ):
-        prefix = unquote(notify.outcome_link(summary, records).split("prefix=", 1)[1])
-        root = "finance/" if "space=" in notify.outcome_link(summary, records) else "alice/"
-        assert prefix.startswith(root), (
-            f"{prefix!r} does not start with the root the route resolves, so it is discarded"
+    expected = {"moved": (["finance"], "finance/"), "conflict": ([], "alice/")}
+    for outcome, (spaces, root) in expected.items():
+        link = notify.outcome_link(_summary(), _records(("alice/reports/", outcome, {})))
+        assert link is not None, f"a run whose item was {outcome!r} lost its link"
+        url = urlsplit(link)
+        query = parse_qs(url.query, keep_blank_values=True)
+        prefix = query.get("prefix", [""])[0]
+        assert url.path == "/files", f"{link!r} does not open the file browser"
+        assert query.get("space", []) == spaces, f"{link!r} does not name the space whose root is {root!r}"
+        assert prefix.startswith(root), f"{prefix!r} does not start with the root the route resolves, {root!r}"
+        assert prefix.endswith("/"), f"{prefix!r} does not end at a folder boundary, so the route discards it"
+        assert all(part not in ("", ".", "..") for part in prefix[:-1].split("/")), (
+            f"{prefix!r} has a segment that is empty or a dot, so the route discards it"
         )
-        assert prefix.endswith("/"), f"{prefix!r} does not end at a folder boundary, so it is discarded"
 
 
 def test_the_link_is_a_path_the_browsers_own_gate_accepts():

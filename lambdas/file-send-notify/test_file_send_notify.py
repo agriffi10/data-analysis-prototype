@@ -105,14 +105,17 @@ def test_a_recipients_link_is_the_FULL_key_and_the_ROUTES_OWN_RULE_says_why(sent
     and the recipient lands at their space root, a link that looks as if it worked. The route's
     path, its ``?prefix=`` and ``?space=`` parameters, its whole gate and the segment rule
     ``isNamedPath`` applies, what ``rootPrefix`` is, the literal ``NotificationRow`` gates a space
-    link on, and ``isSafeInAppPath``'s accept rule are read out of the source rather than restated: pinning
-    only the gate leaves a rename of ``rootPrefix`` green while every link lands at a root. Each
-    addressee's space and root come from who they are — ``bob`` is a user and ``finance-owner``
-    receives for the space ``finance`` — never from the link, which would check the link against
-    itself. ``?space=`` must come first, because the row tests for that literal and a space link
-    that slips the shared-workspaces gate lands its owner in their own files. And the prefix must be
-    the inbox the copy writes to, since a link to the space root also survives the route and shows
-    the recipient nothing they were sent.
+    link on, and ``isSafeInAppPath``'s accept rule are read out of the source rather than restated:
+    pinning only the gate leaves a rename of ``rootPrefix`` green while every link lands at a root.
+    The file-ops plane's ``test_the_prefix_is_the_FULL_key_and_the_ROUTES_OWN_RULE_says_why`` reads
+    the route's path, its ``?prefix=`` and ``?space=`` parameters, its gate, the segment rule and
+    ``rootPrefix`` with the same patterns, so a change to any of them is re-derived for both links.
+    Each addressee's space and root come from who they are — ``bob`` is a user and
+    ``finance-owner`` receives for the space ``finance`` — never from the link, which would check
+    the link against itself. ``?space=`` must come first, because the row tests for that literal
+    and a space link that slips the shared-workspaces gate lands its owner in their own files. And
+    the prefix must be the inbox the copy writes to, since a link to the space root also survives
+    the route and shows the recipient nothing they were sent.
     """
     summary = _summary([_ok(), _ok(kind="space", name="finance")])
 
@@ -121,7 +124,9 @@ def test_a_recipients_link_is_the_FULL_key_and_the_ROUTES_OWN_RULE_says_why(sent
     app = (_PORTAL / "App.tsx").read_text()
     assert 'path="/files"' in app, "the file browser's route moved — re-derive the link's path"
     route = (_PORTAL / "routes" / "FilesPage.tsx").read_text()
-    assert "const prefixParam = searchParams.get('prefix')" in route, "the route no longer reads ?prefix="
+    assert "const prefixParam = searchParams.get('prefix') || undefined;" in route, (
+        "the route no longer reads ?prefix= as it is"
+    )
     assert re.search(
         r"const initialPrefix =\s*prefixParam\s*&&\s*prefixParam\.startsWith\((\w+)\.rootPrefix\)"
         r"\s*&&\s*prefixParam\.endsWith\('/'\)\s*&&\s*isNamedPath\(prefixParam\)"
@@ -129,13 +134,12 @@ def test_a_recipients_link_is_the_FULL_key_and_the_ROUTES_OWN_RULE_says_why(sent
         route,
     ), "the route's ?prefix= gate changed — re-derive the link"
     helpers = (_PORTAL / "features" / "file-browser" / "fileBrowser.paths.ts").read_text()
-    named = re.search(
-        r"export function isNamedPath\(keyOrPrefix: string\): boolean \{\n(.*?)\n\}", helpers, re.DOTALL
-    )
-    assert named and ".replace(/\\/$/, '')" in named.group(1), "isNamedPath no longer trims one trailing slash"
-    assert "segment !== '' && segment !== '.' && segment !== '..'" in named.group(1), (
-        "isNamedPath's segment rule changed — re-derive what a link's prefix may contain"
-    )
+    assert re.search(
+        r"export function isNamedPath\(keyOrPrefix: string\): boolean \{\s*return keyOrPrefix"
+        r"\s*\.replace\(/\\/\$/, ''\)\s*\.split\('/'\)\s*\.every\(\s*\(segment\) =>\s*segment !== ''"
+        r"\s*&&\s*segment !== '\.'\s*&&\s*segment !== '\.\.'\s*\);\s*\}",
+        helpers,
+    ), "isNamedPath's segment rule changed — re-derive what a link's prefix may contain"
     space = (_PORTAL / "features" / "file-browser" / "useFileSpace.ts").read_text()
     assert "searchParams.get('space')" in space, "the space is no longer chosen by ?space="
     assert "rootPrefix: `${username}/`" in space, "a personal space's root is no longer {username}/"
@@ -152,7 +156,7 @@ def test_a_recipients_link_is_the_FULL_key_and_the_ROUTES_OWN_RULE_says_why(sent
         spaces, root = expected[user]
         assert link is not None, f"{user}'s message lost its link"
         url = urlsplit(link)
-        query = parse_qs(url.query)
+        query = parse_qs(url.query, keep_blank_values=True)
         prefix = query.get("prefix", [""])[0]
         assert url.path == "/files", f"{link!r} does not open the file browser"
         assert query.get("space", []) == spaces, f"{link!r} does not name the space whose root is {root!r}"
