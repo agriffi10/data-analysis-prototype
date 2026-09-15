@@ -256,9 +256,10 @@ def test_columns_differing_only_by_case_are_refused_before_the_update():
     The fold turns ``Amount`` and ``amount`` into one column name. An update does not reject
     duplicate names the way Athena's ``CREATE`` does, and the read-back compares name sets, so
     both spellings collapse on each side and a missing refusal would report success while the
-    table silently lost a column. The header also adds ``notes`` because a collision alone folds
-    back to the live columns, so diff-schema reports the table unchanged and this verb never
-    runs. The verb's other ``update_failed`` refusals come from the update call or the read-back
+    table silently lost a column. Diff-schema refuses this header before the verb runs, so this
+    is the backstop, pinned because nothing after the fold would notice it gone. The header also
+    adds ``notes`` so that the definition differs from the live one for more than the collision.
+    The verb's other ``update_failed`` refusals come from the update call or the read-back
     after it, so an untouched ``update_table`` and a detail naming the column are what pin this
     one.
 
@@ -299,6 +300,47 @@ def test_columns_differing_only_by_case_are_refused_before_the_update():
     assert raised.value.reason == "update_failed"
     assert "amount" in raised.value.detail, raised.value.detail
     assert glue.update_calls == [], "the colliding definition was sent to Glue"
+
+
+def test_names_fold_the_way_athena_lowercases_them_so_sharp_s_is_not_ss():
+    """Writes, carries, drops and verifies on the one fold Athena applies, which keeps ß apart from ss.
+
+    Athena lowercases a column name and never case-folds it, so ``Straße``, ``STRASSE`` and
+    ``Weiß`` are three columns — ``straße``, ``strasse`` and ``weiß`` — and diff-schema, matching
+    the same way on this header, reports one unchanged and three added. Keyed on ``casefold()``
+    instead, ``straße`` took the live ``strasse`` column's comment, ``Weiß`` was dropped as if it
+    were the partition key ``weiss``, and the read-back counted ``straße`` and ``strasse`` as one
+    column.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    storage = {
+        **_live_table()["StorageDescriptor"],
+        "Columns": [{"Name": "strasse", "Type": "string", "Comment": "the street"}],
+    }
+    live = _live_table(StorageDescriptor=storage, PartitionKeys=[{"Name": "weiss", "Type": "string"}])
+    glue, _sqs = _install(table=live)
+    columns = [
+        {"name": "Straße", "type": "string"},
+        {"name": "STRASSE", "type": "string"},
+        {"name": "Weiß", "type": "string"},
+        {"name": "notes", "type": "string"},
+    ]
+    keys = [{"name": "weiss", "type": "string", "values": ["a", "b"]}]
+
+    out = m.handler(_event(columns=columns, partitionKeys=keys), None)
+
+    written = glue.table_input["StorageDescriptor"]["Columns"]
+    assert [c["Name"] for c in written] == ["straße", "strasse", "weiß", "notes"]
+    assert [c.get("Comment") for c in written] == [None, "the street", None, None]
+    assert out["appliedColumnCount"] == 4
 
 
 def test_a_retyped_column_takes_the_fresh_type_and_keeps_its_comment():
@@ -347,8 +389,8 @@ def test_ACCEPTED_a_mixed_case_live_table_is_silently_re_cased_on_refresh():
     is why 149 hard-codes the fold, but documentation is the same class of evidence that had
     SPEC-144 FR-001 reversed mid-build. The check that would discharge it is a live
     ``GetTable`` read-back after refreshing a table carrying a mixed-case column, and it is
-    recorded as owed. Note the comment survives the re-casing — the carry is keyed on
-    ``casefold()`` — so this is a rename, not a column swap.
+    recorded as owed. Note the comment survives the re-casing — the carry is keyed on the same
+    fold as the write — so this is a rename, not a column swap.
 
     If this starts failing, the fold changed: revisit the decision (docs/decisions/analytics.md, "Removing a
     column needs an opt-in" / SPEC-149's apply entry), do not delete the test.

@@ -35,6 +35,7 @@ Attributes:
 import logging
 
 from cpcommon import clients, ddl, errors, events, observability
+from cpcommon import columns as columns_mod
 from cpcommon.errors import TerminalError, TransientError
 from tbcommon import glue, notify
 
@@ -72,11 +73,13 @@ _GLUE_RETRYABLE = frozenset({
 def _write_columns(columns: list[dict], live_partition_keys: list[dict], live_columns: list[dict]) -> list[dict]:
     """Builds the Glue columns an in-place refresh writes: fresh names and types, carried metadata.
 
-    Names are lowercased, because this write bypasses the folding the create path gets for
-    free. AWS documents that Athena lowers any upper-case names in DDL when it creates
-    databases, tables or columns, so every table this plane built through the Athena create
-    path carries lower-case columns, and writing the file header's own casing would leave a
-    mixed-case catalog entry the create path could never have produced.
+    Names are folded through ``columns.fold``, because this write bypasses the folding the
+    create path gets for free. AWS documents that Athena lowers any upper-case names in DDL
+    when it creates databases, tables or columns, so every table this plane built through the
+    Athena create path carries lower-case columns, and writing the file header's own casing
+    would leave a mixed-case catalog entry the create path could never have produced. Every
+    other comparison below uses the same fold, and so does diff-schema, so the names this
+    lands are the names the diff reported.
 
     Comments and per-column parameters are carried from the live column of the same folded
     name. Inference returns names and types and has nothing to say about what a column means,
@@ -97,24 +100,25 @@ def _write_columns(columns: list[dict], live_partition_keys: list[dict], live_co
       The Glue column entries to write.
 
     Raises:
-      TerminalError: ``update_failed`` when the fold collapses two columns into one. The check
-        is here because the fold is what creates the collision — a header of ``Amount,amount``
-        is two fields to inference and one column name to Glue. The create path got this
-        refusal for free because Athena rejects duplicate column names, but an update performs
-        no such validation, and the post-condition cannot catch it either because it compares
-        name sets: both spellings collapse to one entry on each side and compare equal, so the
-        verb would report success while the table under-reported a column and failed at query
-        time.
+      TerminalError: ``update_failed`` when the fold collapses two columns into one. Diff-schema
+        refuses such a header before this verb runs; the check stays because the fold here is
+        what would create the collision — a header of ``Amount,amount`` is two fields to
+        inference and one column name to Glue — and nothing after it would notice. The create
+        path got this refusal for free because Athena rejects duplicate column names, but an
+        update performs no such validation, and the post-condition cannot catch it either
+        because it compares name sets: both spellings collapse to one entry on each side and
+        compare equal, so the verb would report success while the table under-reported a
+        column and failed at query time.
     """
-    carried = {(c.get("Name") or "").casefold(): c for c in live_columns}
-    partition_names = {(k.get("Name") or "").casefold() for k in live_partition_keys}
+    carried = {columns_mod.fold(c.get("Name") or ""): c for c in live_columns}
+    partition_names = {columns_mod.fold(k.get("Name") or "") for k in live_partition_keys}
 
     written = []
     for column in columns:
-        folded = column["name"].casefold()
+        folded = columns_mod.fold(column["name"])
         if folded in partition_names:
             continue
-        entry = {"Name": column["name"].lower(), "Type": column["type"]}
+        entry = {"Name": folded, "Type": column["type"]}
         live = carried.get(folded) or {}
         if live.get("Comment"):
             entry["Comment"] = live["Comment"]
@@ -194,6 +198,27 @@ def _table_input(live_table: dict, columns: list[dict], partition_keys: list[dic
     return table_input
 
 
+def _folded_names(table_def: dict) -> set[str]:
+    """The folded names of a Glue table's data columns, as the checks around the write read them.
+
+    One helper for both reads of the catalog, so the stale-stamp check and the read-back cannot
+    fold differently from each other or from the write.
+
+    Args:
+      table_def: A table as Glue reports it.
+
+    Returns:
+      Each data column's name through ``columns.fold``.
+
+    Raises:
+      None.
+    """
+    return {
+        columns_mod.fold(column.get("Name") or "")
+        for column in (table_def.get("StorageDescriptor") or {}).get("Columns") or []
+    }
+
+
 def _abandon_if_changed(
     event: dict, live_table: dict, database: str, table: str, intended: set[str]
 ) -> None:
@@ -233,7 +258,7 @@ def _abandon_if_changed(
       live_table: The pre-write ``GetTable`` response's table dict.
       database: The target database, for the message.
       table: The target table, for the message.
-      intended: The case-folded column names this run is about to write.
+      intended: The folded column names this run is about to write.
 
     Returns:
       None.
@@ -246,11 +271,7 @@ def _abandon_if_changed(
     if not observed or not current or observed == current:
         return
 
-    live = {
-        column["Name"].casefold()
-        for column in live_table.get("StorageDescriptor", {}).get("Columns", [])
-    }
-    if live == intended:
+    if _folded_names(live_table) == intended:
         logger.info("refresh for %s.%s already landed — re-applying idempotently", database, table)
         observability.info(
             "re-applying a refresh that already landed", database=database, table=table
@@ -359,14 +380,15 @@ def _post_condition(database: str, table: str, expected: set) -> int:
 
     Checked rather than assumed, because this plane's canonical failure was a verb that
     completed while the catalog did not agree. An accepted update proves the call was accepted,
-    not that the definition landed as intended. The comparison is on the case-folded name set
+    not that the definition landed as intended. The comparison is on the folded name set
     rather than a count: same cost, and a count cannot tell an update that landed from one that
-    landed against a definition carrying the same number of columns.
+    landed against a definition carrying the same number of columns. It folds the way the
+    write did, so ``straße`` and ``strasse`` stay two names here as they are two columns there.
 
     Args:
       database: The target database.
       table: The target table name.
-      expected: The case-folded column names the update wrote.
+      expected: The folded column names the update wrote.
 
     Returns:
       The number of columns the catalog now reports.
@@ -385,10 +407,7 @@ def _post_condition(database: str, table: str, expected: set) -> int:
             "update_failed", f"{database}.{table} is not readable after the update: {err}"
         ) from err
 
-    actual = {
-        (c.get("Name") or "").casefold()
-        for c in (table_def.get("StorageDescriptor") or {}).get("Columns") or []
-    }
+    actual = _folded_names(table_def)
     if actual != expected:
         raise TerminalError(
             "update_failed",
@@ -455,7 +474,7 @@ def _apply(event: dict) -> dict:
     live_table = _get_table(database, table)
     table_input = _table_input(live_table, columns, partition_keys)
     written = [column["Name"] for column in table_input["StorageDescriptor"]["Columns"]]
-    _abandon_if_changed(event, live_table, database, table, {n.casefold() for n in written})
+    _abandon_if_changed(event, live_table, database, table, set(written))
 
     observability.info(
         "applying refresh",
@@ -467,7 +486,7 @@ def _apply(event: dict) -> dict:
     )
 
     _update(database, table_input)
-    applied = _post_condition(database, table, {name.casefold() for name in written})
+    applied = _post_condition(database, table, set(written))
 
     out = dict(event)
     out["status"] = "refreshed"

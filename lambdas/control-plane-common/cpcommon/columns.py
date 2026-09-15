@@ -124,6 +124,30 @@ def describe(names: list[str]) -> str:
     return f"{shown} and {extra} more" if extra > 0 else shown
 
 
+def fold(name: str) -> str:
+    """The name Athena gives a column: the name lowercased, and never case-folded.
+
+    Every step that asks whether two names are one column asks it through here, so a create's
+    collision rule, a refresh's diff, the names its write lands and the read-back that verifies
+    them cannot disagree. AWS documents that Athena lowers a name, and Hive normalises an
+    identifier with Java's ``toLowerCase``. That is Unicode lowercasing, the mapping Python's
+    ``str.lower`` applies. ``str.casefold`` is a different operation. It also maps ``ß`` to
+    ``ss``, so it merges ``Straße`` and ``STRASSE``, which Athena keeps as two columns. The two
+    differ only outside ASCII, which is why only a refresh, which skips the name rule, can tell
+    them apart.
+
+    Args:
+      name: A column name as a header, a footer or the catalog spells it.
+
+    Returns:
+      The name as Athena would store it.
+
+    Raises:
+      None.
+    """
+    return name.lower()
+
+
 def is_valid(name: object) -> bool:
     """Is one column name usable in Athena on its own terms?
 
@@ -144,7 +168,7 @@ def is_valid(name: object) -> bool:
     Raises:
       None.
     """
-    return isinstance(name, str) and name.isascii() and COLUMN_NAME_RE.fullmatch(name.lower()) is not None
+    return isinstance(name, str) and name.isascii() and COLUMN_NAME_RE.fullmatch(fold(name)) is not None
 
 
 def invalid_names(names: Iterable[object]) -> list[str]:
@@ -186,8 +210,8 @@ def folded_duplicates(names: Iterable[object]) -> list[str]:
     counts: dict[str, int] = {}
     for name in names:
         if isinstance(name, str):
-            counts[name.lower()] = counts.get(name.lower(), 0) + 1
-    return [n for n in names if isinstance(n, str) and counts[n.lower()] > 1]
+            counts[fold(name)] = counts.get(fold(name), 0) + 1
+    return [n for n in names if isinstance(n, str) and counts[fold(n)] > 1]
 
 
 def check_names(names: Iterable[object]) -> None:
