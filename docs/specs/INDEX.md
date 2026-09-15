@@ -242,6 +242,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 234 — A Long Query Settles at the Ceiling, and Says Where Its Results Go | Completed |
 | 235 — A CSV Table's Refresh Keeps Its Column Order and Adds New Columns at the End | Draft |
 | 236 — A Run That Ends on an Error No Catch Takes Still Tells the User | Draft |
+| 237 — A Restore Never Copies Over a File, and One Archive Id Is One Run | Draft |
 
 ## Arcs
 
