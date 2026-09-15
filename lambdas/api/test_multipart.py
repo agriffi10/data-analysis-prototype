@@ -576,10 +576,14 @@ class TestNothingIsCreatedForAnOccupiedKey:
         assert fake.calls == ["head_object"], "an upload was created for a refused key"
 
     @pytest.mark.parametrize(
-        # `assert_replaceable` refuses TWO things, and a guard driven on one of them is a guard
+        # `assert_replaceable` refuses THREE things, and a guard driven on one of them is a guard
         # that survives being swapped for the weaker `assert_writable` — measured: it did.
         "key",
-        ["alice/system_settings/archive/secret.bin", "alice/reports/DO_NOT_DELETE.txt"],
+        [
+            "alice/system_settings/archive/secret.bin",
+            "alice/reports/DO_NOT_DELETE.txt",
+            "alice/system_settings/athenaresults/secret.bin",
+        ],
     )
     @pytest.mark.parametrize(
         ("path", "body"),
@@ -604,7 +608,8 @@ class TestNothingIsCreatedForAnOccupiedKey:
           s3: The client fixture.
           path: The route under test.
           body: The rest of its request.
-          key: A write-locked location and a marker key — the two things the check refuses.
+          key: A write-locked location, a marker key and a key in the query results folder — the
+            three things the check refuses.
 
         Returns:
           None.

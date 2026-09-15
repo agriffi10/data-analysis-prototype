@@ -17,7 +17,10 @@
  * A sweep in CI refuses a new declaration or construction outside this file.
  */
 
-/** Athena writes every query's result set here. Visible, browsable, never a write destination. */
+/**
+ * Athena writes every query's result set here. Visible, browsable, never a write destination: IAM
+ * lets the user write here and never delete, so `writeLockedPrefix.ts` refuses the write itself.
+ */
 export const ATHENA_RESULTS_FOLDER = 'athenaresults';
 
 /**

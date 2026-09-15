@@ -5,14 +5,18 @@ an explanation. They live here too because a disabled button is not a permission
 this API would otherwise perform reaches S3 whether or not a browser would have sent it.
 
 **The two buckets deny different things, and this module mirrors each rather than averaging
-them.** The user-space bucket's Deny is root-anchored — `{root}archive/` and, since the folders
-moved, `{root}system_settings/archive/`, each and below. The
-shared-space bucket's wildcard segment matches `/` too, so *any* `archive` folder below the space
-root is covered. Averaging them either leaves a hole on one bucket or refuses work the other
-permits, and both failures are invisible until someone hits them.
+them.** The user-space bucket's Deny is root-anchored — `{root}system_settings/archive/` and
+below. The shared-space bucket's wildcard segment matches `/` too, so a `system_settings/archive`
+pair at *any* depth below the space root is covered. Averaging them either leaves a hole on one
+bucket or refuses work the other permits, and both failures are invisible until someone hits them.
 ``test_archive_write_lock_mirrors_iam.py`` is what keeps this paragraph honest: it builds a key
 matcher out of each bucket policy and runs ``is_write_locked`` against it, so the asymmetry is
 asserted rather than described.
+
+**The query results folder is refused too, though IAM permits the write.** Both buckets Deny
+``s3:DeleteObject`` beneath it and nothing else, so an upload or a folder made there can never be
+removed — the marker's reason, applied to a whole folder. Its Deny has the receipt folder's shape,
+so the same test holds this rule against it.
 
 **Key containment wraps `cpcommon.paths` rather than calling it bare.** `assert_inside_root`
 raises `TerminalError`, which `errors.for_exception` does not recognise, so an unwrapped call
@@ -22,6 +26,7 @@ code.
 """
 
 from cpcommon.app_managed import (
+    ATHENA_RESULTS_FOLDER,
     RECEIPT_FOLDER,
     app_managed_prefixes,
     segments_hold_app_managed,
@@ -147,20 +152,60 @@ def is_write_locked(space: ResolvedSpace, key: str) -> bool:
     Raises:
       None.
     """
-    if key.startswith(app_managed_prefixes(space.root, RECEIPT_FOLDER)):
+    return _is_at_or_below(space, key, RECEIPT_FOLDER)
+
+
+def is_in_results_folder(space: ResolvedSpace, key: str) -> bool:
+    """Whether a key is in the query results folder, where nothing written can be removed.
+
+    Not part of ``is_write_locked``, which mirrors a ``PutObject`` Deny: here IAM permits the write
+    and denies only the delete. The Deny's reach is the receipt folder's — root-anchored in a
+    personal space, the ``system_settings/athenaresults`` pair at any depth in a shared one — so
+    the same scan answers it.
+
+    Args:
+      space: The resolved space.
+      key: The object key or prefix being written.
+
+    Returns:
+      True if the key is the results folder or inside it.
+
+    Raises:
+      None.
+    """
+    return _is_at_or_below(space, key, ATHENA_RESULTS_FOLDER)
+
+
+def _is_at_or_below(space: ResolvedSpace, key: str, folder: str) -> bool:
+    """Whether a key is an app-managed folder or inside it, as that bucket's Deny reaches it.
+
+    Root-anchored for either kind, and a segment scan for the folder's pair in a shared space only.
+    The scan drops a file key's last segment, because a file NAMED like the folder is not a file
+    inside it.
+
+    Args:
+      space: The resolved space.
+      key: The object key or prefix.
+      folder: The app-managed folder's name.
+
+    Returns:
+      True if the key is at or below the folder.
+
+    Raises:
+      None.
+    """
+    if key.startswith(app_managed_prefixes(space.root, folder)):
         return True
     if space.kind != "shared":
         return False
     if not key.startswith(space.root):
         return False
     segments = key[len(space.root) :].split("/")
-    return segments_hold_app_managed(
-        segments if key.endswith("/") else segments[:-1], RECEIPT_FOLDER
-    )
+    return segments_hold_app_managed(segments if key.endswith("/") else segments[:-1], folder)
 
 
 def assert_writable(space: ResolvedSpace, key: str) -> None:
-    """Refuses a write into a location the bucket policy write-locks.
+    """Refuses a write into a location the bucket policy write-locks, or one it would never let go.
 
     **The marker rule is deliberately NOT here, and the split is the whole point.** Both bucket
     policies Deny ``s3:DeleteObject`` on ``*/DO_NOT_DELETE.txt`` and nothing else — creating one is
@@ -170,6 +215,11 @@ def assert_writable(space: ResolvedSpace, key: str) -> None:
     be created and a saved-queries folder would vanish once emptied, both failing as a *best-effort*
     background write that logs and carries on.
 
+    **The results folder IS here, though IAM permits its writes too, and the marker is why that
+    needs saying.** A rule stricter than the policy is wrong exactly when something legitimate
+    writes through it. Nothing does here: Athena delivers its results itself, and the browser only
+    copies them out. What a caller writes here instead is an object nobody can delete.
+
     Args:
       space: The resolved space.
       key: The object key being created.
@@ -178,10 +228,13 @@ def assert_writable(space: ResolvedSpace, key: str) -> None:
       None.
 
     Raises:
-      ApiError: ``AccessDenied`` for a write-locked location.
+      ApiError: ``AccessDenied`` for a write-locked location or the results folder, each with its
+        own detail.
     """
     if is_write_locked(space, key):
         raise ApiError("AccessDenied", "archived locations are not writable")
+    if is_in_results_folder(space, key):
+        raise ApiError("AccessDenied", "the query results folder is not writable")
 
 
 def assert_replaceable(space: ResolvedSpace, key: str) -> None:
@@ -202,7 +255,8 @@ def assert_replaceable(space: ResolvedSpace, key: str) -> None:
       None.
 
     Raises:
-      ApiError: ``AccessDenied`` for a marker key or a write-locked location.
+      ApiError: ``AccessDenied`` for a marker key, a write-locked location or the query results
+        folder.
     """
     if is_marker(key):
         raise ApiError("AccessDenied", "folder markers may not be removed or replaced")

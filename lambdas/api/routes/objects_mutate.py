@@ -76,8 +76,8 @@ def delete_object(context: RequestContext) -> dict[str, Any]:
       The key deleted.
 
     Raises:
-      ApiError: ``AccessDenied`` on an unauthorized space, an escaping key, a marker key or a
-        write-locked location.
+      ApiError: ``AccessDenied`` on an unauthorized space, an escaping key, a marker key, a
+        write-locked location or the query results folder.
       IdentityUnavailableError: If the caller's role cannot be assumed.
     """
     body = context.body if isinstance(context.body, dict) else {}

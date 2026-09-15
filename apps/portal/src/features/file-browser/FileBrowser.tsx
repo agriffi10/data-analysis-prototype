@@ -41,7 +41,7 @@ import {
   useArchive,
   useRestoreArchive
 } from '../archive';
-import {writeLockRefusal} from './writeLockedPrefix';
+import {isWriteLockedPrefix, writeLockRefusal} from './writeLockedPrefix';
 import {useToast} from '../../components/toastContext';
 import {useSelection, type SelectableItem} from './selectionContext';
 import type {FileSpaceTarget, FileSpaceKind} from './useFileSpace';
@@ -186,11 +186,14 @@ function FileBrowserContent({
   const move = useMove(bucket, currentPrefix, username);
   const copy = useCopy(bucket, username);
   const canModify = writable && !!username;
-  // The first prefix-based write gate. IAM denies writes beneath `archive/`, so
-  // every control that would attempt one says why instead of producing a bare AccessDenied.
+  // The prefix-based write gate. IAM denies writes beneath the receipt folder, and deletes beneath
+  // the query results folder — where a write would therefore stay — so the controls that would
+  // write or destroy in either say why instead.
   const writeLockReason = writeLockRefusal(currentPrefix, rootPrefix, spaceKind ?? 'personal') ?? undefined;
-  // Archive is gated by the write lock because an archive DELETES from the current folder.
-  const archiveEnabled = !!username && filesEnabled && !writeLockReason;
+  // Archive is gated by the receipt folder's lock alone — an archive of an archive is not a thing.
+  // In the app's own results folder it stays, and `archiveRefusal` refuses it naming the folder.
+  const archiveEnabled =
+    !!username && filesEnabled && !isWriteLockedPrefix(currentPrefix, rootPrefix, spaceKind ?? 'personal');
   // A RESTORE is not: it writes into the space root, never into the folder being browsed — and
   // gating it on the write lock removed the button from `archive/`, which is the one place the
   // dialog itself tells the user to go and look for an id (the write gate says `writable`).
