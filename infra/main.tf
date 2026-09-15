@@ -920,15 +920,15 @@ module "table_builder" {
   logs_queue_arn = module.observability.logs_queue_arn
   logs_queue_url = module.observability.logs_queue_url
 
-  # base grants the deploy role its table-builder perms (already
-  # applied); this module attaches nothing to the portal role that data creates.
-  # Settle those first. NOTE: this module is ordered BEFORE module.analytics (which
+  # base grants the deploy role its table-builder perms (already applied); settle those
+  # first. The user-space bucket reaches this module only as a string, so nothing here
+  # waits on module.data. NOTE: this module is ordered BEFORE module.analytics (which
   # depends_on it) so the shared execution role EXISTS before analytics adds it to the
   # Lake Formation admins list — LF rejects an unknown admin principal, so the role
   # must be created first (same reason module.shared_spaces precedes analytics). The
   # verbs read the analytics-owned catalog only at RUNTIME, by which point the full
   # apply has created it.
-  depends_on = [module.base, module.data]
+  depends_on = [module.base]
 }
 
 # Table-share control plane: a DEDICATED FIFO SQS → EventBridge Pipe →
@@ -981,10 +981,10 @@ module "table_share" {
   logs_queue_arn = module.observability.logs_queue_arn
   logs_queue_url = module.observability.logs_queue_url
 
-  # base grants the deploy role its table-share perms (already
-  # applied); this module attaches nothing to the portal role that data creates.
-  # Settle both first.
-  depends_on = [module.base, module.data]
+  # base grants the deploy role its table-share perms (already applied); settle those
+  # first. The user-space bucket reaches this module only as a string, so nothing here
+  # waits on module.data.
+  depends_on = [module.base]
 }
 
 # File-send control plane: a DEDICATED FIFO SQS → EventBridge Pipe → Standard
@@ -1038,9 +1038,10 @@ module "file_send" {
   logs_queue_arn = module.observability.logs_queue_arn
   logs_queue_url = module.observability.logs_queue_url
 
-  # base grants the deploy role its file-send perms (already applied); this module
-  # attaches nothing to the portal role that data creates. Settle both first.
-  depends_on = [module.base, module.data]
+  # base grants the deploy role its file-send perms (already applied); settle those first.
+  # The user-space bucket reaches this module only as a string, so nothing here waits on
+  # module.data.
+  depends_on = [module.base]
 }
 
 # File-operations control plane: a DEDICATED FIFO SQS → EventBridge Pipe → Standard Step
@@ -1061,8 +1062,8 @@ module "file_send" {
 # module.analytics does not depend on it. It passes no CSP input and no CORS origin either:
 # the browser has no relationship with it at all now: the API writes the request queue.
 #
-# base grants the deploy role its file-ops perms; this module attaches nothing to the portal
-# role that data creates. Settle both first.
+# base grants the deploy role its file-ops perms; settle those first. The user-space bucket
+# reaches this module only as a string, so nothing here waits on module.data.
 module "file_ops" {
   source = "./modules/file-ops"
 
@@ -1096,7 +1097,7 @@ module "file_ops" {
   logs_queue_arn = module.observability.logs_queue_arn
   logs_queue_url = module.observability.logs_queue_url
 
-  depends_on = [module.base, module.data]
+  depends_on = [module.base]
 }
 
 # Results-conversion control plane: a DEDICATED FIFO SQS → EventBridge Pipe → Standard Step
@@ -1138,7 +1139,7 @@ module "results_conversion" {
   logs_queue_arn = module.observability.logs_queue_arn
   logs_queue_url = module.observability.logs_queue_url
 
-  depends_on = [module.base, module.data]
+  depends_on = [module.base]
 }
 
 # Archive control plane + the archive bucket: a DEDICATED FIFO SQS → EventBridge
@@ -1197,9 +1198,9 @@ module "archive" {
   logs_queue_url = module.observability.logs_queue_url
 
   # base grants the deploy role its archive perms (including the bucket) BEFORE this
-  # module's resources land; this module attaches nothing to the portal role that data
-  # creates. Settle both first.
-  depends_on = [module.base, module.data]
+  # module's resources land. The user-space bucket reaches this module only as a string,
+  # so nothing here waits on module.data.
+  depends_on = [module.base]
 }
 
 # Data-quality control plane: a DEDICATED FIFO SQS → EventBridge Pipe →
@@ -1266,9 +1267,10 @@ module "data_quality" {
   notifications_queue_arn = local.notifications_queue_arn
   notifications_queue_url = local.notifications_queue_url
 
-  # base grants the deploy role its data-quality perms (already applied);
-  # data creates the user-space bucket the reports land in. Settle both first.
-  depends_on = [module.base, module.data]
+  # base grants the deploy role its data-quality perms (already applied); settle those
+  # first. The reports land in the user-space bucket only at RUNTIME, and this module names
+  # that bucket as a string, so nothing here waits on module.data.
+  depends_on = [module.base]
   # The nine verbs produce structured logs onto the logs queue.
   logs_queue_arn = module.observability.logs_queue_arn
   logs_queue_url = module.observability.logs_queue_url
@@ -1393,9 +1395,10 @@ module "user_directory" {
   admin_bucket_name        = local.athena_admin_bucket_name
   athena_workgroup         = local.athena_workgroup_name
 
-  # base grants the deploy role its user-directory perms (already applied);
-  # data owns the bucket this writes into.
-  depends_on = [module.base, module.data]
+  # base grants the deploy role its user-directory perms (already applied). The write into
+  # the user-space bucket happens only at RUNTIME, and this module names that bucket as a
+  # string, so nothing here waits on module.data.
+  depends_on = [module.base]
 }
 
 # ── Verification access ─────────────────────────────────────
