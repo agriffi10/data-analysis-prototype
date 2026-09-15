@@ -15,11 +15,14 @@ read CI's own files as data for the same reason.
 """
 
 import dataclasses
+import json
 import os
 import pathlib
 import re
 import shutil
 import subprocess
+import tempfile
+from typing import NamedTuple
 
 import pytest
 import yaml
@@ -31,6 +34,21 @@ INFRA_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-infra.yml"
 ENFORCED_LIST = ROOT / ".github" / "checkov-enforced.txt"
 DOCKERFILE_ENFORCED_LIST = ROOT / ".github" / "checkov-dockerfile-enforced.txt"
 ACCEPTED_LIST = ROOT / ".github" / "checkov-plan-accepted.txt"
+NARROWING_SCRIPT = ROOT / ".github" / "scripts" / "checkov-enforced.sh"
+GATE_SCRIPT = ROOT / ".github" / "scripts" / "apply-gate.sh"
+
+#: The name of the Checkov gate's count, as a whole word, so ``CHECKOV_DOCKERFILE_FINDINGS``
+#: is not a mention of it.
+COUNT_NAME = re.compile(r"\bCHECKOV_FINDINGS\b")
+
+#: Every step of security.yml's scan job that writes or reads the Checkov gate's count, in the
+#: order the job runs them. Each is replayed from the workflow, and the replay refuses to run
+#: unless these are exactly the steps that name the count.
+CHECKOV_COUNT_STEPS = (
+    "Narrow to the enforced checks",
+    "Narrow the dockerfile scan to its enforced checks",
+    "Apply gate (Checkov)",
+)
 
 #: The Semgrep rule excluded from the Lambdas scan. A Flask template-injection check, pulled in
 #: by ``p/owasp-top-ten``'s Python set; there is no Flask and no HTTP response in this fleet.
@@ -624,6 +642,203 @@ def test_the_root_semgrepignore_holds_no_pattern():
     assert ROOT_SEMGREPIGNORE.is_file(), (
         "the root .semgrepignore is missing, so Semgrep's built-in list applies and every scan is refused"
     )
+
+
+class StepRun(NamedTuple):
+    """What one replayed workflow step did.
+
+    Attributes:
+      name: The step's name.
+      returncode: The step's exit status.
+      output: What it printed to stdout and stderr together.
+      carried: Every ``$GITHUB_ENV`` value the job holds once the step has finished, last write
+        winning, which is what the next step starts with.
+    """
+
+    name: str
+    returncode: int
+    output: str
+    carried: dict[str, str]
+
+
+def _scan_json(enforce_list: pathlib.Path, shape: str) -> str:
+    """Builds a Checkov JSON report over every ID on one enforce list.
+
+    Args:
+      enforce_list: The list whose IDs the report evaluates.
+      shape: ``clean`` passes every ID, ``one-failure`` fails the first ID on one resource and
+        passes the rest, and ``unevaluated`` leaves the first ID out, so the narrowing script
+        hard-errors on an enforced ID evaluated against nothing.
+
+    Returns:
+      The report, as Checkov's ``--output json`` writes it.
+
+    Raises:
+      AssertionError: On a shape this does not build.
+    """
+    assert shape in {"clean", "one-failure", "unevaluated"}, f"unknown report shape {shape!r}"
+    ids = [row[0] for row in _list_entries(enforce_list)]
+    first, rest = ids[0], ids[1:]
+    passed = [{"check_id": check, "resource": "fixture.passing"} for check in (ids if shape == "clean" else rest)]
+    failed = [{"check_id": first, "resource": "fixture.failing"}] if shape == "one-failure" else []
+    return json.dumps({"results": {"passed_checks": passed, "failed_checks": failed, "skipped_checks": []}})
+
+
+def _replay_checkov_count(terraform: str, dockerfile: str) -> list[StepRun]:
+    """Runs every step that writes or reads the Checkov gate's count, as the runner would.
+
+    First it holds ``CHECKOV_COUNT_STEPS`` to the workflow: they must be exactly the scan job's
+    steps that name the count, in the job's order, neither the job nor the workflow may set it in
+    an ``env`` block, and no script under ``.github/scripts/`` may name it. A writer the replay did
+    not run could hand the gate a number no row sees. Then each script is the workflow's own, run by ``bash -e`` from a checkout holding the
+    gate's scripts and both enforce lists, and sits outside that checkout as the runner's does.
+    Each step starts with what earlier steps wrote to ``$GITHUB_ENV``, never its own writes, and
+    every step runs whatever the one before did, since each carries ``if: always()``. The
+    caller's ``CHECKOV_*``, ``GATE_*`` and ``GITHUB_*`` variables are dropped, so a shell that has
+    one set cannot hand a step a count.
+
+    Args:
+      terraform: The shape of the terraform scan's report, as ``_scan_json`` builds it.
+      dockerfile: The shape of the dockerfile scan's report.
+
+    Returns:
+      One run per step in ``CHECKOV_COUNT_STEPS``, in order.
+
+    Raises:
+      AssertionError: If the steps naming the count are not ``CHECKOV_COUNT_STEPS``, if an
+        ``env`` block or a gate script names it, if a step uses an expression the replay cannot
+        evaluate or writes
+        ``$GITHUB_ENV`` in a form the replay cannot read, or if ``bash`` or ``jq`` is not
+        installed.
+    """
+    bash, jq = shutil.which("bash"), shutil.which("jq")
+    assert bash and jq, "bash and jq are needed to run the gate's steps; CI has both, and a laptop without them should say so"
+    document = yaml.safe_load(SECURITY_WORKFLOW.read_text(encoding="utf-8"))
+    scan = document["jobs"]["scan"]
+    preset = [where for where, env in (("workflow", document.get("env")), ("scan job", scan.get("env"))) if COUNT_NAME.search(json.dumps(env or {}))]
+    assert not preset, f"the {' and '.join(preset)} env names CHECKOV_FINDINGS, a value the gate reads whenever no step writes one"
+    touching = [
+        str(step.get("name"))
+        for step in scan["steps"]
+        if any(COUNT_NAME.search(line) for line in _script_lines(step))
+        or COUNT_NAME.search(json.dumps({key: value for key, value in step.items() if key != "run"}, default=str))
+    ]
+    assert touching == list(CHECKOV_COUNT_STEPS), (
+        f"the scan job's steps naming CHECKOV_FINDINGS are {touching}, not {list(CHECKOV_COUNT_STEPS)}. A step "
+        "that writes or reads the count and is not replayed can hand the gate a number no row here sees: add it "
+        "to CHECKOV_COUNT_STEPS in the job's order and stage it in the rows."
+    )
+    hidden = [
+        path.relative_to(ROOT).as_posix()
+        for path in sorted(GATE_SCRIPT.parent.rglob("*"))
+        if path.is_file() and "__pycache__" not in path.parts and COUNT_NAME.search(path.read_text(encoding="utf-8", errors="ignore"))
+    ]
+    assert not hidden, (
+        f"{hidden} name CHECKOV_FINDINGS. A write there reaches the gate from a step whose own script never "
+        "names the count, so the check above cannot see it: keep every write of the count in security.yml."
+    )
+    steps = {step.get("name"): step for step in scan["steps"]}
+    base = {key: value for key, value in os.environ.items() if not key.startswith(("CHECKOV_", "GATE_", "GITHUB_"))}
+    base["GATE_CHECKOV"] = _gate_value(SECURITY_WORKFLOW, "CHECKOV")
+    runs: list[StepRun] = []
+    carried: dict[str, str] = {}
+    with tempfile.TemporaryDirectory() as work:
+        root = pathlib.Path(work)
+        checkout = root / "checkout"
+        for source in (NARROWING_SCRIPT, GATE_SCRIPT, ENFORCED_LIST, DOCKERFILE_ENFORCED_LIST):
+            (checkout / source.relative_to(ROOT)).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(source, checkout / source.relative_to(ROOT))
+        (checkout / "checkov.json").write_text(_scan_json(ENFORCED_LIST, terraform), encoding="utf-8")
+        (checkout / "checkov-dockerfile.json").write_text(_scan_json(DOCKERFILE_ENFORCED_LIST, dockerfile), encoding="utf-8")
+        for index, name in enumerate(CHECKOV_COUNT_STEPS):
+            step = steps.get(name)
+            assert step, f"security.yml's scan job has no step named {name!r}, so the replay would skip it"
+            assert "${{" not in str(step["run"]) and not step.get("env"), f"{name!r} reads an expression the replay cannot evaluate"
+            script, env_file = root / f"step-{index}.sh", root / f"env-{index}"
+            script.write_text(str(step["run"]), encoding="utf-8")
+            env_file.touch()
+            finished = subprocess.run(  # noqa: S603
+                [bash, "-e", str(script)],
+                cwd=checkout,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=60,
+                env={**base, **carried, "GITHUB_ENV": str(env_file), "GITHUB_STEP_SUMMARY": str(root / "summary.md")},
+            )
+            for line in env_file.read_text(encoding="utf-8").splitlines():
+                assert "=" in line and "<<" not in line.split("=", 1)[0], f"{name!r} wrote {line!r}, a form the replay cannot read"
+                key, value = line.split("=", 1)
+                carried[key] = value
+            runs.append(StepRun(name, finished.returncode, finished.stdout + finished.stderr, dict(carried)))
+    return runs
+
+
+@pytest.mark.parametrize(
+    ("terraform", "dockerfile", "refusal", "verdict"),
+    [
+        pytest.param("clean", "one-failure", None, "1 finding(s) and gate=block", id="both-narrowings-count"),
+        pytest.param(
+            "clean", "unevaluated", "evaluated against nothing", "finding count 'no-count' is not a number",
+            id="the-dockerfile-narrowing-fails-after-a-terraform-zero",
+        ),
+        pytest.param(
+            "unevaluated", "clean", "the terraform narrowing produced no count ('')",
+            "finding count 'no-count' is not a number", id="the-terraform-narrowing-fails",
+        ),
+    ],
+)
+def test_the_checkov_gate_counts_both_frameworks_or_refuses(terraform: str, dockerfile: str, refusal: str | None, verdict: str):
+    """The Checkov gate reads a total of both frameworks, and refuses any count that is less.
+
+    Two steps write the one count the gate reads, the terraform narrowing and then the dockerfile
+    narrowing adding to it, and the gate's ``:-no-count`` default covers only a count nothing
+    wrote. A narrowing that hard-errors writes nothing, so when the dockerfile narrowing failed
+    after a terraform zero, the zero stood as the total and the gate printed "no findings" over a
+    red step; the dockerfile narrowing now writes the sentinel before it narrows. The terraform
+    narrowing has to stay the first writer, or its own failure would leave an earlier number
+    standing the same way, and the dockerfile step has to refuse the empty count that failure
+    leaves rather than add it, because bash arithmetic reads an empty value as zero.
+
+    Args:
+      terraform: The shape of the terraform scan's report.
+      dockerfile: The shape of the dockerfile scan's report.
+      refusal: What the dockerfile narrowing prints when it fails, or ``None`` where neither
+        narrowing fails.
+      verdict: What the gate says about the count it is handed.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a row does not stage its case, when the gate says anything else or
+        passes, or when the dockerfile narrowing fails for another reason or not at all.
+    """
+    narrowed_terraform, narrowed_dockerfile, gate = _replay_checkov_count(terraform, dockerfile)
+    if terraform == "clean":
+        assert narrowed_terraform.carried.get("CHECKOV_FINDINGS") == "0", (
+            f"the terraform narrowing did not write a zero, so this row does not stage its case: {narrowed_terraform}"
+        )
+    else:
+        assert narrowed_terraform.returncode != 0 and "evaluated against nothing" in narrowed_terraform.output, (
+            f"the terraform narrowing did not hard-error, so this row does not stage its case: {narrowed_terraform}"
+        )
+        assert "CHECKOV_FINDINGS" not in narrowed_terraform.carried, (
+            f"the terraform narrowing failed after CHECKOV_FINDINGS={narrowed_terraform.carried['CHECKOV_FINDINGS']!r} "
+            "was written, a number that stands as the count once the narrowing writes nothing"
+        )
+    handed = narrowed_dockerfile.carried.get("CHECKOV_FINDINGS")
+    assert verdict in gate.output and gate.returncode != 0, (
+        f"the gate was handed CHECKOV_FINDINGS={handed!r} and should say {verdict!r} and fail; "
+        f"it exited {gate.returncode} saying: {gate.output.strip()}"
+    )
+    if refusal is None:
+        assert narrowed_dockerfile.returncode == 0, narrowed_dockerfile
+    else:
+        assert narrowed_dockerfile.returncode != 0 and refusal in narrowed_dockerfile.output, (
+            f"the dockerfile narrowing should fail saying {refusal!r}; it exited "
+            f"{narrowed_dockerfile.returncode}: {narrowed_dockerfile.output}"
+        )
 
 
 def _rule_exclusions(node: object, where: str) -> list[tuple[str, str]]:

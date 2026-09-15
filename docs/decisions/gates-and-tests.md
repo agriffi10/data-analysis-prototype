@@ -156,7 +156,16 @@ would silently cover the isolation policies, which is the one thing this scan ex
   "no count was written" into "clean" — `apply-gate.sh` rejects a non-numeric count, which is what an
   absent count is. ZAP's pre-existing `no-report` default is the same idea; it was there to be copied
   and wasn't. **A pessimistic pre-write does not substitute for either**, which is what the first
-  draft believed.
+  draft believed. **A count that several steps write needs every step after the first to write
+  the sentinel before it narrows**, because the default only covers a count that nothing wrote, and
+  a step that hard-errors writes nothing. When the Dockerfile narrowing failed after the terraform
+  narrowing had written a zero, that zero stood as the total, and the gate printed "no findings"
+  over a red step. The summary's full count, written before the terraform narrowing, stood in the
+  same way when that narrowing failed, so `security.yml` no longer writes it. The Dockerfile step
+  now writes `no-count` first, and refuses to add a terraform count that is not a number, because
+  bash arithmetic reads an empty value or `no-count` as zero.
+  `test_the_checkov_gate_counts_both_frameworks_or_refuses` replays the steps that touch the count
+  the way the runner does, and refuses to run unless they are every step that names it.
 
 **One exposure accepted, and it is not the Checkov one.** Semgrep's binary is pinned but its
 `--config p/*` rulesets are fetched from the registry at scan time and are **not** — so an upstream
