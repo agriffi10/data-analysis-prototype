@@ -46,6 +46,12 @@ _BODIES = {
         "letters, digits and underscores, and two names that differ only by case become one "
         "column - rename them in your files and try again."
     ),
+    "partition_column_not_last": (
+        "these columns have a partition key's name and aren't at the end of the file: "
+        "{columns}. A CSV file's columns are read in order, so a column named after a "
+        "partition key can only be left out when nothing follows it - move it to the end of "
+        "your files, or take it out, and try again."
+    ),
     "schema_inference_failed": "the data schema couldn't be read.",
     "unmappable_type": "the data schema couldn't be read.",
     "ddl_execution_failed": "creating the table failed. Please try again or contact the Administrator.",

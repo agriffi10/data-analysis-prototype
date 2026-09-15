@@ -327,6 +327,13 @@ def _infer(event: dict) -> dict:
     table; refusing the refresh strands the ones already there, which is the outcome the whole
     refresh path exists to prevent.
 
+    The second refusal beside it is the same shape, for a different reason. A data column
+    naming a partition key is dropped from the body, and under a positional SerDe that moves
+    every column after it onto the wrong field — so a CSV header carrying one anywhere but at
+    the end is refused rather than built, naming the column. The statement itself is rendered
+    HERE, and only on a create: it is what execute-ddl runs, and no state on the refresh
+    branch reads it, so a refresh neither renders it nor can be failed by its refusal.
+
     It selects on the storage descriptor, the same signal the SerDe check above uses, and NOT on
     the request's mode: this verb is shared by both branches and a test forbids it reading the
     mode field, because the moment it does, "a refresh reuses these verbs unchanged" stops being
@@ -342,8 +349,10 @@ def _infer(event: dict) -> dict:
     Raises:
       TerminalError: ``format_changed`` when the folder no longer matches the table's SerDe,
         ``unmappable_type`` for an unmappable dtype, ``invalid_column_names`` when a CREATE's
-        header carries a name Athena cannot use, ``schema_inference_failed`` for any other scan
-        or parse failure, or ``malformed_event`` for a missing field.
+        header carries a name Athena cannot use, ``partition_column_not_last`` when a CREATE's
+        CSV header names a partition key before a column it keeps,
+        ``schema_inference_failed`` for any other scan or parse failure, or ``malformed_event``
+        for a missing field.
       TransientError: On a retryable S3 fault.
     """
     fmt = events.require(event, "format")
@@ -368,6 +377,11 @@ def _infer(event: dict) -> dict:
     except Exception as exc:
         raise TerminalError("schema_inference_failed", f"could not read {sample_key}: {exc}") from exc
 
+    partition_keys = event.get("partitionKeys") or []
+
+    out = dict(event)
+    out["columns"] = columns
+
     if not event.get("storage"):
         try:
             columns_mod.check(columns)
@@ -376,12 +390,16 @@ def _infer(event: dict) -> dict:
                 "invalid_column_names", exc.summary, tokens={"columns": exc.summary}
             ) from exc
 
-    partition_keys = event.get("partitionKeys") or []
-    ddl = build_create_table_ddl(database, table_name, columns, partition_keys, fmt, location)
+        shifting = ddl_mod.shifting_partition_columns(columns, partition_keys, fmt)
+        if shifting:
+            summary = columns_mod.describe(shifting)
+            raise TerminalError(
+                "partition_column_not_last", summary, tokens={"columns": summary}
+            )
 
-    out = dict(event)
-    out["columns"] = columns
-    out["ddl"] = ddl
+        out["ddl"] = build_create_table_ddl(
+            database, table_name, columns, partition_keys, fmt, location
+        )
     logger.info("inferred %d columns for %s.%s", len(columns), database, table_name)
     observability.info(
         "inferred schema",

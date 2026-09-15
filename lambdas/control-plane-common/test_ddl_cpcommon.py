@@ -16,6 +16,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import pytest
+from cpcommon import ddl as ddl_module
 from cpcommon.ddl import (
     build_create_table_ddl,
     quote,
@@ -96,6 +98,72 @@ def test_an_apostrophe_in_an_enum_value_cannot_inject_a_property():
     assert props.count("'projection.enabled'=") == 1
     assert "'projection.enabled'='true'" in props
     assert "'projection.enabled'='false'" not in props
+
+
+# ── Dropping a column that names a partition key ─────────────────────────────
+#
+# Athena compares the two ignoring case and refuses the pair as "Column repeated in
+# partitioning columns", so the drop matches on the fold. What it may drop depends on the
+# SerDe: Athena reads Parquet and JSON by name, while OpenCSVSerde takes fields in order and
+# only skips the header — so a CSV drop moves every later column onto the wrong field. Both
+# halves were measured on built tables: a header of `year,id,region` over `2025,1,south` read
+# `id` as `2025` and `region` as `1`, and `id,region,year` read correctly.
+
+_YEAR_KEY = [{"name": "year", "type": "string", "values": ["2025"]}]
+
+
+def test_a_trailing_column_naming_a_partition_key_is_dropped_whichever_case_each_carries():
+    """The drop's safe shape, and the only one a CSV has: nothing the table keeps follows it, so
+    the remaining fields still line up. Folded on BOTH sides — data-quality's keys come from
+    folder names, so `Month=01/` is the user's capital letter, not a column's."""
+    columns = [{"name": "id", "type": "string"}, {"name": "month", "type": "string"},
+               {"name": "Year", "type": "string"}]
+    keys = [{"name": "year", "type": "string", "values": ["2025"]},
+            {"name": "Month", "type": "string", "values": ["01"]}]
+
+    ddl = build_create_table_ddl("alice", "sales", columns, keys, "csv", LOC)
+
+    assert "(`id` string) PARTITIONED BY (`year` string, `Month` string)" in ddl
+
+
+def test_a_csv_column_naming_a_partition_key_before_a_kept_one_refuses_to_render():
+    """The statement would build a table that looks right and answers every query one column
+    over. Callers refuse it in their own words first; this raise is what stops a renderer that
+    is safe only because someone else validated."""
+    columns = [{"name": "Year", "type": "string"}, {"name": "id", "type": "string"},
+               {"name": "region", "type": "string"}]
+
+    with pytest.raises(ddl_module.PartitionColumnShiftError) as err:
+        build_create_table_ddl("alice", "sales", columns, _YEAR_KEY, "csv", LOC)
+
+    assert err.value.names == ["Year"]
+    assert err.value.summary == '"Year"'
+
+
+def test_every_default_storage_read_by_position_is_declared_positional():
+    """`POSITIONAL_FORMATS` is a claim about SerDes that nothing else ties to the clauses, and a
+    format added without listing it reopens the shift silently — the symptom being a table that
+    looks right. Derived from the storage clauses rather than restated, so this fails on the
+    addition rather than agreeing with whatever the constant says."""
+    by_position = ("OpenCSVSerde", "LazySimpleSerDe")
+
+    from_clauses = {
+        fmt
+        for fmt, storage in ddl_module._DEFAULT_STORAGE.items()
+        if any(serde in storage.clause for serde in by_position)
+    }
+
+    assert from_clauses == ddl_module.POSITIONAL_FORMATS
+
+
+def test_the_same_column_is_dropped_from_a_parquet_body_because_athena_reads_those_by_name():
+    """The refusal is about the SerDe, not about the collision: a Parquet column is matched by
+    name, so the ones after the dropped column keep their own values."""
+    columns = [{"name": "Year", "type": "string"}, {"name": "id", "type": "bigint"}]
+
+    ddl = build_create_table_ddl("alice", "sales", columns, _YEAR_KEY, "parquet", LOC)
+
+    assert "(`id` bigint) PARTITIONED BY (`year` string)" in ddl
 
 
 def test_an_apostrophe_in_a_location_is_escaped_into_one_literal():

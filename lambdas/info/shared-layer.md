@@ -136,6 +136,14 @@ The consolidation itself (from `table-builder-infer-schema/ddl.py`, SPEC-069) wa
 move as `cpcommon.type_mapping`: the projection-props logic is fiddly, easy to get subtly
 wrong, and must not exist twice.
 
+**It refuses one statement rather than rendering it.** A data column naming a partition key is
+dropped from the body — matched through `columns.fold`, because Athena refuses the pair as
+"Column repeated in partitioning columns". For a format in `POSITIONAL_FORMATS`, where the SerDe
+takes fields in order rather than by name, that drop moves every later column onto the wrong
+field, so `shifting_partition_columns` names the offenders and the builder raises
+`PartitionColumnShiftError`. Both arcs ask it first and refuse in their own wording; the raise is
+the backstop, on the same reasoning as `quote` escaping a backtick it was promised never to see.
+
 ## `cpcommon/type_mapping.py` — polars, and the barrier that used to be there
 
 This module imports **polars**, and `cpcommon` is reachable from every control-plane verb.

@@ -80,6 +80,18 @@ Revisit before real users arrive.
   **no S3 request at all**.
 - **`StartProfileQuery` submits the three checks and waits for none of them** — the wait is the
   machine's, not the verb's.
+- **Three refusals at the temp table, not one, because they ask for three different repairs.** A
+  column name Athena cannot use (`invalid_column_names`, edit a header), a `key=value` folder whose
+  key cannot be one (`invalid_partition_names`, rename a folder), and a CSV column named after a
+  partition that is not at the end of the header (`partition_column_not_last`, move or drop the
+  column). The third exists because the typed table leaves such a column out and a CSV is read by
+  POSITION, so the report would describe every later column against its neighbour's field — worse
+  than no report, since the user acts on it.
+- **A column named after a partition that IS at the end is still profiled against the partition's
+  value.** The typed table leaves it out, the profile query still projects it, and Athena resolves
+  the name to the partition column — so its missing and type figures describe the folder rather
+  than the file. The duplicates grouping folds it out; the profile query cannot, alone, because
+  the report maps aliases back by POSITION. Both must move together.
 - **Results are read only at `SUCCEEDED`** (see table-builder — the same 400).
 
 ## The layer — `data-quality-common/dqcommon/`

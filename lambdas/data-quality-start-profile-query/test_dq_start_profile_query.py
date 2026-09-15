@@ -85,6 +85,24 @@ def test_json_starts_two_queries_and_marks_ragged_not_applicable(started):
     assert out["duplicates"]["status"] == "QUEUED"
 
 
+def test_the_duplicates_grouping_names_a_partition_key_once_whatever_its_case(monkeypatch, started):
+    """The temp table leaves out a data column naming a partition key in any case — here `Year`
+    against the key `year`, and `month` against the folder-derived `Month` — so the grouping
+    names each of the table's columns once rather than repeating one under two spellings."""
+    monkeypatch.setattr(v.manifest_store, "load", lambda bucket, key: {
+        "partitionKeys": [{"name": "year", "values": ["2025"]}, {"name": "Month", "values": ["01"]}],
+        "files": [{"key": "alice/sales/year=2025/Month=01/jan.csv", "size": 1, "columns": [
+            {"name": "id", "type": "string"},
+            {"name": "month", "type": "string"},
+            {"name": "Year", "type": "string"},
+        ]}],
+    })
+
+    v.handler(_event(), None)
+
+    assert 'GROUP BY "id", "year", "Month" HAVING' in started[-1]["query"]
+
+
 # ── Idempotent submission (FR-003) ───────────────────────────────────────────
 
 

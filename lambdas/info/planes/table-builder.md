@@ -97,12 +97,23 @@ statements, no window in which the table is absent, and **no verb on this plane 
   colliding name before it classifies anything, so a header of `Amount,region,amount` is refused
   rather than reported unchanged. Apply-refresh keeps its own guard, `update_failed` before the
   update, because nothing after its fold would notice a column collapsed.
-- **Every step of a refresh folds a name through `cpcommon.columns.fold`, which is `lower()`, never
-  `casefold()`.** That covers the diff's match and partition-key exclusion, the write's names,
-  comment carry and refusal, and both catalog reads around the update. Athena lowercases, so
-  `Straße` and `STRASSE` are two columns, `straße` and `strasse`. Full case folding makes them one.
-  When the diff casefolded and the write lowercased, a header of `Straße,notes` against a live
-  `strasse` reported only `notes` added and replaced `strasse` without the removal opt-in.
+- **Every step of a refresh, and a create's partition-key drop, folds a name through
+  `cpcommon.columns.fold`, which is `lower()`, never `casefold()`.** That covers the diff's match and
+  partition-key exclusion, the write's names, comment carry and refusal, both catalog reads around
+  the update, and the DDL builder's drop of a data column naming a partition key. Athena lowercases,
+  so `Straße` and `STRASSE` are two columns, `straße` and `strasse`. Full case folding makes them
+  one. When the diff casefolded and the write lowercased, a header of `Straße,notes` against a live
+  `strasse` reported only `notes` added and replaced `strasse` without the removal opt-in. When the
+  drop matched by exact name, a header `Year` beside the key `year` reached Athena as both columns,
+  and it failed the build as "Column repeated in partitioning columns", which no retry fixes.
+- **In a CSV that drop is only safe at the END of the header, because OpenCSVSerde matches fields
+  by POSITION.** Leaving out a column with a kept column after it feeds every later column its
+  neighbour's field — measured on a built table: `year,id,region` over `2025,1,south` read `id` as
+  `2025`. Every CSV column is a string, so nothing errors and the rail looks right. A create
+  refuses that header as `partition_column_not_last`, naming the column; Parquet and JSON are
+  matched by name and still drop. `ddl.shifting_partition_columns` decides, and the builder raises
+  rather than render one. **A refresh still drops in any position** — it writes Glue columns
+  directly, so this rule does not reach it.
 - **A table's `LOCATION` is read recursively**, so the space root is not a data folder.
 - **Results are read only at `SUCCEEDED`.** `GetQueryResults` against a `QUEUED` execution is a 400
   whose name maps to nothing, and it reached users as a generic "contact the administrator".

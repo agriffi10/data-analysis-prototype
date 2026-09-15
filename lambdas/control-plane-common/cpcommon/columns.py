@@ -127,9 +127,10 @@ def describe(names: list[str]) -> str:
 def fold(name: str) -> str:
     """The name Athena gives a column: the name lowercased, and never case-folded.
 
-    A create's collision rule, a result conversion's duplicate check, a refresh's diff, the names
-    its write lands and the read-back that verifies them all ask whether two names are one column
-    through here, so they cannot disagree. AWS documents that Athena lowers a name, and Hive
+    A create's collision rule, the DDL builder's partition-key drop and data-quality's grouping
+    that mirrors it, a result conversion's duplicate check, a refresh's diff, the names its write
+    lands and the read-back that verifies them all ask whether two names are one column through
+    here, so they cannot disagree. AWS documents that Athena lowers a name, and Hive
     normalises an identifier with Java's ``toLowerCase``, which, like Python's ``str.lower``, is
     Unicode lowercasing and keeps ``ß``. ``str.casefold`` is a different operation. It also maps
     ``ß`` to ``ss``, so it merges ``Straße`` and ``STRASSE``, which Athena keeps as two columns.
