@@ -986,8 +986,9 @@ other.
   If both second passes run before any copy lands, both copy back with an unconditional `CopyObject`,
   and if one sweeps the vault while the other is still copying, the other reports
   `restore_incomplete` over a restore that fully landed and rewrites the receipt to say the archive
-  is intact, when it is gone. A file the user edits after the first run restored it is overwritten
-  silently if the second run copies it while the vault copy still exists.
+  is intact, when it is gone — and the message tells the user to delete the files that came back
+  and request again, which would destroy the only copy. A file the user edits after the first run
+  restored it is overwritten silently if the second run copies it while the vault copy still exists.
 
 **The guard's own residual was understated, with no overlap needed.** The second pass heads every
 destination once, before the copy-back Map, and the Map then runs for as long as the archive copy it
@@ -1003,6 +1004,9 @@ alike; and a create-only claim on the archive id would close the reused-id race 
 `assert_archive_unused` only narrows. A per-archive restore lock was weighed and not chosen: it stops
 the overlap and its misleading reports, but it brings acquire and release states and a staleness
 limit above the 12-hour ceiling, and it leaves the single-restore window open. The overlapping
-restore's duplicate and false-failure reports are the accepted cost. A follow-up spec will carry the
-repair and retire every site that states this entry's live claims; until it lands, everything above
-is live.
+restore's duplicate and false-failure reports are the accepted cost — **except the incomplete
+report's instruction to delete the files that came back**, which a spec review found would destroy
+the only copy once another run has swept the vault. That one is not accepted (Andrew, the same day):
+the follow-up checks the vault before any message calls the archive intact. A follow-up spec will
+carry the repair and retire every site that states this entry's live claims; until it lands,
+everything above is live.

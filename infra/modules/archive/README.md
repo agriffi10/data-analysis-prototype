@@ -153,8 +153,10 @@ no lock**, so here is what overlap does.
   second guard pass that runs after the other run has copied any file back refuses as occupied,
   over files that are the restore itself. If both second passes run before any copy lands, both
   copy back with an unconditional `CopyObject`, and if one run sweeps the vault while the other is
-  still copying, the other reports `restore_incomplete` over a restore that fully landed, pointing
-  the user at an archive that no longer exists. **And a file the user edits after the first run
+  still copying, the other reports `restore_incomplete` over a restore that fully landed. **That
+  message is worse than wrong**: it says the archive is intact and tells the user to delete the
+  files that came back and request again, when those files are now the only copy and the request
+  will find no archive. **And a file the user edits after the first run
   restored it is overwritten if the second run copies it while the vault copy still exists** —
   silently, which is the loss the guard exists to prevent.
 - **One request id sent twice, past the five-minute dedup window, is the unrecoverable case.** The two
