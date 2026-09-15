@@ -248,6 +248,10 @@ describe('QueryWorkspace responsive (SPEC-100)', () => {
     expect(
       await screen.findByText('That table wasn’t found. Check the name and that it includes its database.')
     ).toBeInTheDocument();
+    // Athena's own words ride beneath the phone's banner too, closed until asked for.
+    expect(screen.getByText('TABLE_NOT_FOUND: Table alice.nope does not exist').closest('details')).not.toHaveAttribute(
+      'open'
+    );
   });
 
   it('says why in the results view when a run’s status cannot be read', async () => {

@@ -42,7 +42,7 @@ const VIEW = {name: 'revenue_view', tableType: 'VIRTUAL_VIEW', columns: []};
 
 const PERSONAL_SPACE: QuerySpace = {
   id: 'personal',
-  label: 'My files',
+  label: 'alice',
   bucket: 'user-space',
   rootPrefix: 'alice/',
   rootLabel: 'My Files'

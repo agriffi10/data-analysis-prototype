@@ -36,7 +36,7 @@ vi.mock('../../lib/userSpace', async (importOriginal) => ({
 
 const PERSONAL: QuerySpace = {
   id: 'personal',
-  label: 'My files',
+  label: 'alice',
   bucket: 'user-space',
   rootPrefix: 'alice/',
   rootLabel: 'My Files'

@@ -14,7 +14,7 @@ import type {UseSaveQueryResult} from '../saved-queries/useSaveQuery';
 
 const MINE: QuerySpace = {
   id: 'personal',
-  label: 'My files',
+  label: 'alice',
   bucket: 'user-space',
   rootPrefix: 'alice/',
   rootLabel: 'My Files'

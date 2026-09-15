@@ -224,7 +224,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Open the <b>Query</b> tab and type SQL in the editor.',
           'Click <b>Run Statement</b>, or press <kbd>Ctrl/Cmd + Enter</kbd> — it runs your selection if you have one, otherwise the statement under the cursor.',
           'Watch the status bar for progress, the exact total row count, data scanned, and how long it took. While the total is still being counted it shows the rows loaded so far with a <b>+</b>, and says <b>counting…</b>.',
-          'If the query fails because of something in its SQL, open <b>Details</b> under the message to read Athena’s own explanation, with the line and column it stopped at.',
+          'If the query fails because of something in its SQL, open <b>Details</b> under the message to read Athena’s own explanation. Its line and column count from the start of the statement that ran, not from the top of the editor.',
           'Changed your mind mid-run? Click <b>Stop</b> to cancel a running query or script.'
         ],
         callout: {

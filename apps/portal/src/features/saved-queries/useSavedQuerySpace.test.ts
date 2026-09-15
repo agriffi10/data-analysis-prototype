@@ -6,7 +6,7 @@ import type {QuerySpace} from '../catalog/catalog.types';
 
 const PERSONAL: QuerySpace = {
   id: 'personal',
-  label: 'My files',
+  label: 'alice',
   bucket: 'user-space',
   rootPrefix: 'alice/',
   rootLabel: 'My Files'

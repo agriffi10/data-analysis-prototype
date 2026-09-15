@@ -337,7 +337,7 @@ describe('SavedQueriesPanel', () => {
 
   const personal: QuerySpace = {
     id: 'personal',
-    label: 'My files',
+    label: 'alice',
     bucket: 'user-space',
     rootPrefix: 'alice/',
     rootLabel: 'My Files'
@@ -396,7 +396,7 @@ describe('SavedQueriesPanel', () => {
 
   it('shows a friendly empty state naming the space', () => {
     setup({queries: []});
-    expect(screen.getByText('No saved queries in My files')).toBeInTheDocument();
+    expect(screen.getByText('No saved queries in alice')).toBeInTheDocument();
   });
 
   it('keeps fetching rather than reading as empty while listing pages remain', () => {
@@ -434,7 +434,7 @@ describe('SavedQueriesPanel', () => {
       within(select)
         .getAllByRole('option')
         .map((o) => o.textContent)
-    ).toEqual(['My files', 'teamspace']);
+    ).toEqual(['alice', 'teamspace']);
 
     await user.selectOptions(select, 'teamspace');
     expect(onSelectSpace).toHaveBeenCalledWith('teamspace');

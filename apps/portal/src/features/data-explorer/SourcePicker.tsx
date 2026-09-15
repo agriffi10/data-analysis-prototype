@@ -34,8 +34,8 @@ export type SourcePickerProps = {
  * **There is no database step**, and its absence is a decision rather than an omission: a
  * space maps to exactly one Glue database here (see `spaceDatabase`), so a database control
  * would offer one option — the one-option control the gating rule declines to render for the share
- * dialog's recipient kind. The database is shown beside the space it belongs to, but only
- * when it differs from the space's own label — for a shared space the two are the same string.
+ * dialog's recipient kind. Every space's label is its database name, the personal space's
+ * included, so the one name on each row is the one a query types.
  *
  * Views are offered alongside tables. A view is a perfectly good thing to explore and the
  * renderer does not care which it is reading.

@@ -192,6 +192,8 @@ describe('column geometry', () => {
     await user.click(screen.getByRole('button', {name: 'Column options: total'}));
     await user.click(screen.getByRole('menuitem', {name: 'Hide column'}));
     await waitFor(() => expect(headerNames()).toEqual(['id', 'status']));
+    // The button focus returned to went with its column; the neighbour's takes focus, not <body>.
+    await waitFor(() => expect(document.activeElement).toHaveAccessibleName('Column options: status'));
     await user.click(screen.getByRole('button', {name: 'Column options: status'}));
     await user.click(screen.getByRole('menuitem', {name: 'Hide column'}));
     await waitFor(() => expect(headerNames()).toEqual(['id']));

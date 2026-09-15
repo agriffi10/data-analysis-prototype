@@ -1,7 +1,7 @@
 import {useState} from 'react';
 import {Menu, type MenuItem} from '../../components/Menu';
 import {cx} from '../../lib/cx';
-import {GRID_SCROLL_BOX_ATTRIBUTE, menuAlignFor} from './menuAlign';
+import {contentRightOf, GRID_SCROLL_BOX_ATTRIBUTE, menuAlignFor} from './menuAlign';
 import {FILTER_OPERATORS, FILTER_OPERATOR_LABELS, operatorTakesValue} from './explorationQueryOps';
 import type {ColumnFilter, FilterOperator, FilterValueKind} from './dataExplorer.types';
 
@@ -36,6 +36,9 @@ export type ColumnQueryActions = {
   filter: (column: string, operator: FilterOperator, value?: string) => void;
   clearFilter: (column: string) => void;
 };
+
+/** Marks each header's menu button with its column, so focus can land on a neighbour's after a hide. */
+export const COLUMN_MENU_TRIGGER_ATTRIBUTE = 'data-column-menu-trigger';
 
 export type ColumnFilterMenuProps = {
   column: string;
@@ -123,13 +126,14 @@ export function ColumnFilterMenu({column, actions, onRequestValue, onHide, hideR
           <button
             ref={ref}
             type="button"
+            {...{[COLUMN_MENU_TRIGGER_ATTRIBUTE]: column}}
             aria-label={name}
             aria-haspopup="menu"
             aria-expanded={open}
             aria-controls={open ? menuId : undefined}
             onClick={(event) => {
               const box = event.currentTarget.closest(`[${GRID_SCROLL_BOX_ATTRIBUTE}]`);
-              setAlign(menuAlignFor(event.currentTarget.getBoundingClientRect(), box?.getBoundingClientRect()));
+              setAlign(menuAlignFor(event.currentTarget.getBoundingClientRect().left, contentRightOf(box)));
               toggle();
             }}
             className={cx(
