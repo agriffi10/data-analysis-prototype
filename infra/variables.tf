@@ -96,16 +96,16 @@ variable "principal_tag_key" {
   default     = "username"
 
   # Pinned to the literal, and the validation is the point rather than the default. This key is
-  # hard-coded in two of the portal role's permission templates and in the Python identity
-  # layer, none of which this variable reaches — so "one variable feeds both, therefore they
-  # cannot drift" is false. An empty repo variable satisfies a required variable
-  # AND overrides a default, so a TF_VAR override would silently produce sessions whose tags
-  # match no policy statement: AccessDenied on every API path, the browser path still working,
-  # and nothing naming the cause. Refuse it at plan instead. Changing this key means threading it
-  # through those three sites first, and this line is the reminder.
+  # hard-coded in the portal role's user-space permission template, which this variable does
+  # not reach — so "one variable feeds every site, therefore they cannot drift" is false. An
+  # empty repo variable satisfies a required variable AND overrides a default, so a TF_VAR
+  # override would silently produce sessions whose tags match none of that template's
+  # statements: AccessDenied on every user-space path, and nothing naming the cause. Refuse it
+  # at plan instead. Changing this key means threading it through that template first, and this
+  # line is the reminder.
   validation {
     condition     = var.principal_tag_key == "username"
-    error_message = "principal_tag_key must be \"username\" while the portal-role permission templates hard-code it. Thread the variable through those first, then change this."
+    error_message = "principal_tag_key must be \"username\" while the portal role's user-space permission template hard-codes it. Thread the variable through that template first, then change this."
   }
 }
 

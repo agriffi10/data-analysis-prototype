@@ -229,8 +229,8 @@ locals {
   # an unknown-at-plan ARN inside a LIST attribute made OpenTofu plan NO change to that list —
   # the value was never written (infra/info/deploy-role-iam.md → "An unknown ARN inside compact()/a list
   # silently drops the change"). The module therefore exposes no role_arn output at all, so
-  # there is nothing to reach for by mistake. Apply ordering is preserved by
-  # module.user_directory's depends_on chain.
+  # there is nothing to reach for by mistake. Nothing orders the two at apply: the allowlist
+  # entry is a string match in a policy condition, and the builder writes only at runtime.
   #
   # Without the allowlist entry the builder's PutObject fails with an opaque AccessDenied that
   # looks like an IAM problem and is not — the bucket policy's Deny overrides its identity
@@ -534,8 +534,8 @@ module "data" {
   portal_role_name       = local.portal_role_name
   deploy_role_arn        = local.deploy_role_arn
 
-  # The portal role's SECOND trust statement: the API assumes this same role to act as its
-  # caller, with the same tag set read from the same claims. The key set the statement admits is
+  # The portal role's one trust statement: the API assumes this role to act as its caller, with
+  # session tags read from the verified token's claims. The key set the statement admits is
   # built from the same two variables the function's environment carries, so the two cannot drift
   # apart by transcription.
   #
@@ -1104,8 +1104,9 @@ module "file_ops" {
 # Function pipeline running single-task verb Lambdas on ONE shared execution role. Takes a
 # finished Athena execution and writes its result set into a space the actor may write to, in
 # the format they chose. This module is the whole plane: the plumbing and five verbs, of which
-# only convert reads bytes and only convert writes. base grants the deploy role its perms; data creates the portal
-# role and the bucket policy this plane's role is allowlisted in. Settle both first.
+# only convert reads bytes and only convert writes. base grants the deploy role its perms;
+# settle those first. The user-space bucket policy names this plane's role only in a condition,
+# a string match, so nothing here waits on module.data.
 module "results_conversion" {
   source = "./modules/results-conversion"
 
@@ -1362,8 +1363,8 @@ module "observability" {
 #
 # The bucket ARN and the logs queue arrive as CONSTRUCTED STRINGS from the locals above rather
 # than as module.data / module.observability outputs, so this module plans standalone and its
-# IAM templates render at plan time. module.data must exist first (the builder writes into its
-# bucket), which the depends_on below orders.
+# IAM templates render at plan time. The builder writes into module.data's bucket only at
+# runtime, so nothing at apply orders the two.
 module "user_directory" {
   source = "./modules/user-directory"
 

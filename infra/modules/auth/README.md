@@ -19,32 +19,16 @@ Code: `lambdas/pre-signup/`, `lambdas/post-confirmation/`.
 
 This module carries a module-level `depends_on = [module.base]`. **A module-level `depends_on` defers
 every data source inside the module to apply time** whenever the dependency has a pending change —
-and `module.base` changes on most PRs, since it holds the deploy-role policies.
+and `module.base` changes on most PRs, since it holds the deploy-role policies. **A deferred value
+on a ForceNew attribute plans a replacement**, and this module holds the user directory. Take the
+region from `var.aws_region`, which is the same value by construction (`providers.tf` does
+`region = var.aws_region`) and is known at plan time.
 
-So `data.aws_region.current` came back `(known after apply)`, which made `identity_provider_name`
-unknown at plan time — **and it is a ForceNew attribute**:
-
-```
-~ identity_provider_name = "cognito-idp.us-east-1.amazonaws.com/us-east-1_zOlWYrE9K"
-      # forces replacement -> (known after apply) # forces replacement
-```
-
-**Every apply therefore destroyed and recreated the principal-tag mapping the entire ABAC isolation
-model depends on** — on PRs that touched no auth code at all.
-
-It failed **closed**, not open: the portal policy interpolates the tag into a Resource ARN
-(`${bucket_arn}/${aws:PrincipalTag/username}/*`), so an unstamped tag leaves the ARN unresolved and
-matches nothing. But a window where a fresh sign-in gets credentials that can read nothing is still a
-real outage, and it recurred on every infra merge.
-
-`var.aws_region` is the same value by construction (`providers.tf` does `region = var.aws_region`)
-and is known at plan time.
-
-**`ignore_changes` would have been the wrong fix.** Compare the LF-grants case in
-`docs/decisions/infrastructure.md`, where `aws_lakeformation_permissions` genuinely reads back different values than
-were written and the drift is unavoidable. Here **nothing drifts** — the value is correct and
-constant, it was merely unknowable at plan time. Suppressing the diff would hide a real change to the
-provider name if the pool were ever recreated.
+The rule was learned on the Identity Pool this module used to hold: a deferred
+`data.aws_region.current` made the pool's provider name `(known after apply)`, and every infra merge
+destroyed and recreated the principal-tag mapping the ABAC model then depended on. The pool is
+retired. The general rule, and why `ignore_changes` is the wrong fix for it, is
+`infra/info/deploy-role-iam.md`'s ForceNew data-source trap.
 
 ## The claims the API turns into principal tags
 

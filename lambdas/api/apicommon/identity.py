@@ -34,9 +34,9 @@ Attributes:
     ``memberships``, which is where the reading moved, and re-exported here because this is the
     module the equivalence argument is about and the name every test of it uses. Re-exported
     rather than restated: two copies of a provider fact are two things to drift.
-  SHARED_SPACE_TAG: The session tag that claim becomes. Its agreement with the Tofu map is
-    asserted, because a hand-written slot name that drifts produces plausible-looking tags
-    matching no policy statement.
+  SHARED_SPACE_TAG: The session tag that claim becomes. Its agreement with the retired map's
+    pinned copy is asserted, because a hand-written slot name that drifts produces
+    plausible-looking tags matching no policy statement.
   ROLE_SESSION_NAME_RE: STS's own charset for a role session name, which the catalog rule is a
     strict subset of.
   MAX_ROLE_SESSION_NAME: STS's ceiling on that name.

@@ -94,8 +94,9 @@ resource "aws_cognito_user_pool" "portal" {
 }
 
 # ⚠ `data "aws_region" "current"` was REMOVED from this module and MUST NOT COME BACK. A
-# module-level depends_on defers every data source to apply time, which forced a replace on the
-# principal-tag mapping on every infra merge. README.md.
+# module-level depends_on defers every data source to apply time, and a deferred value on a
+# ForceNew attribute plans a replacement — which is how the principal-tag mapping this module
+# used to hold was replaced on every infra merge. README.md.
 
 locals {
   # ONE deployed origin. It was two through the cutover, because naming one made the other

@@ -93,9 +93,9 @@ role already holds and why it is split across one managed policy per resource fa
   from any resource-policy `Deny` that covers a read the AWS provider uses on refresh — otherwise the
   provider sees the resource as "deleted" and every plan proposes a destructive recreate. Same
   break-glass shape (`put-bucket-policy` out-of-band, then merge).
-- **`depends_on` defers data sources (benign plan noise).** `module.auth`/`module.data` declare
-  `depends_on = [module.base]`, so any PR touching `module.base` makes their data sources unknown at
-  plan → cascades to `(known after apply)` and can show a ForceNew attribute fed by one as
+- **`depends_on` defers data sources (benign plan noise).** A module declaring
+  `depends_on = [module.base]` has its data sources unknown at plan whenever a PR touches
+  `module.base` → cascades to `(known after apply)` and can show a ForceNew attribute fed by one as
   *force-replace* (the ForceNew data-source trap, below). At apply these resolve to identical values (no-op / identical recreate). This is
   **not** drift — don't panic at the plan.
 - **An unknown ARN inside `compact()`/a list silently drops the change.** A cross-module ARN that is
