@@ -100,7 +100,7 @@ def test_validate_refuses_a_message_with_no_identity_block():
 
     The old test here proved a forged TOKEN was refused, which cannot fail once no token is
     read — so it is re-expressed rather than deleted. The envelope this builds is exactly the
-    one a message enqueued before the flip carries: a flat ``actor`` naming somebody, and no
+    one a message enqueued before the cutover carried: a flat ``actor`` naming somebody, and no
     block. It must be refused, and the refusal must not fall back to that name.
     """
     install()

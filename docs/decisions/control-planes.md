@@ -133,7 +133,8 @@ inside the execution the Pipe starts.
   `Deny` there silences EVERY notifying role in the fleet, invisibly, and the fleet grows. A pre-cutover message is `unauthorized` and
   does **not** dead-letter (`FIRE_AND_FORGET`), so plane allowed-field sets stay untightened.
 - **The DLQ drain** sweeps request DLQs and notifies from **`identity.actor`**; its redaction
-  blanks the two LEGACY token fields, since a stale message still carries one. Two are undrained:
+  blanks the two LEGACY token fields, one of which holds a token in any message enqueued before the
+  API stopped sending one. Two are undrained:
   notifications (circular), feedback (no identity in its body).
 - **File operations are synchronous IFF exactly one file**; the lock is per **space** and its loser
   **waits** (cross-space takes both in digest order or neither); the **space root is refused** as an
@@ -343,9 +344,10 @@ Replaces SPEC-114 FR-005. Every control plane dead-letters a request it cannot p
 > that may write these queues — provenance rather than cryptography. So (2) is void: there is no
 > expiry to relax and no `*_ignoring_expiry` entry point left, and the per-source `token_field`
 > column is gone rather than set to one value on every row. The redaction did **not** go with it:
-> it now blanks the two LEGACY top-level token fields, because a message enqueued before the flip
-> still carries one and is exactly what this drain surfaces. It must not be pointed at `identity` —
-> top-level replacement would blank the block the recipient was just read from. Points (3) and (4),
+> it now blanks the two LEGACY top-level token fields, because a message enqueued before the API
+> stopped sending a token carries one and is exactly what this drain surfaces. It must not be
+> pointed at `identity` — top-level replacement would blank the block the recipient was just read
+> from. Points (3) and (4),
 > and the undrained notifications DLQ, are unchanged.
 >
 > **Narrowed (2026-09-10):** point (3) governs the MESSAGE and still holds. The row's `payload`

@@ -20,8 +20,8 @@ included — is enqueued, because a rename is one `CopyObject` per contained obj
 **The trusted actor is the nested `identity` block** the API stamps; the flat top-level `actor`
 carries the raw ID token only on a message enqueued before the API stopped sending one, and the
 verb never reads it — both are non-empty strings, so a fallback resolves a JWT as a username. It
-stays in the allowed-field set, or a message from before the trust flip becomes `malformed_event`
-rather than `unauthorized`.
+stays in the allowed-field set, or a pre-cutover message — a flat token and no block — becomes
+`malformed_event` rather than `unauthorized`.
 The copy/move-only fields (`destination`, `onConflict`, `submittedAt`) are **rejected for a delete**
 and emitted as explicit nulls. That is why `NeedsDestinationGuard` branches on `$.operation`: ASL's
 `IsPresent` is TRUE for a field that is present and null.

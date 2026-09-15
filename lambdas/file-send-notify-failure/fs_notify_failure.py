@@ -153,9 +153,9 @@ def _sender_from_raw_request(raw) -> str:
     which survives whatever the Catch did to the state — to make this possible.
 
     The identity block is the ONLY acceptable source of the username; the flat field beside it
-    asserts nothing about who sent it, and on this plane it held the raw token until the
-    cutover. Nothing here expires, so a failure surfacing hours later is attributable on exactly
-    the same terms as one surfacing at once.
+    asserts nothing about who sent it, and on this plane it held the raw token until the API
+    stopped sending one. Nothing here expires, so a failure surfacing hours later is attributable
+    on exactly the same terms as one surfacing at once.
 
     Args:
       raw: The Pipe's forwarded SQS batch, as RecordFailure copied it off the context object.

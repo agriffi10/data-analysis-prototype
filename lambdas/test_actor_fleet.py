@@ -212,7 +212,7 @@ def _body_names(tree: ast.AST) -> set[str]:
 
 @pytest.mark.parametrize("name", sorted(POPULATION))
 def test_no_queue_consumer_reads_the_flat_actor_or_a_token_field(name) -> None:
-    """The fallback that passes every well-formed fixture and breaks on the first stale message.
+    """The fallback that passes every well-formed fixture and breaks on a message with no block.
 
     A raw JWT and a username are both non-empty strings, so a consumer reading the flat field
     beside the block cannot be caught by any fixture-based test — it has to be caught by shape.

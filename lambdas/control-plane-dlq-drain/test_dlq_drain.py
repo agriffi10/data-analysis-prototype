@@ -139,9 +139,10 @@ def test_a_batch_of_n_messages_produces_n_notifications():
 def test_an_actor_that_is_not_a_catalog_safe_username_notifies_nobody():
     """What replaced the bad-signature case, and it fails against a presence check.
 
-    A stale message carries a raw token in the flat field and a username nowhere. Addressing a
-    notification to a 900-character string would not fail loudly — ``emit_notification`` would
-    take it as a group id and write to a prefix nobody reads.
+    Here the block's actor is itself a raw token — the value a reader that fell back to the flat
+    field would have produced on a pre-cutover message. Addressing a notification to a
+    900-character string would not fail loudly — ``emit_notification`` would take it as a group
+    id and write to a prefix nobody reads.
     """
     sqs = _install()
 
@@ -151,7 +152,7 @@ def test_an_actor_that_is_not_a_catalog_safe_username_notifies_nobody():
 
 
 def test_a_pre_cutover_message_with_no_identity_block_notifies_nobody():
-    """The envelope a message enqueued before the flip still carries: a flat token, no block."""
+    """The envelope a message enqueued before the cutover carried: a flat token, no block."""
     sqs = _install()
 
     dlq_drain.handler({"Records": [_record({"actor": JWT, "requestId": "r-1"})]}, None)
@@ -214,7 +215,9 @@ def test_a_body_without_a_usable_id_still_notifies_but_carries_no_payload(reques
 
 
 def test_the_body_is_logged_with_a_legacy_token_redacted(caplog):
-    """A stale body still carries one, and CloudWatch has a wider read audience than SQS.
+    """A body enqueued before the API stopped sending a token carries one.
+
+    CloudWatch has a wider read audience than SQS, so it is blanked before the body is logged.
 
     The block rides beside it and must NOT be redacted: it is what the recipient was taken from,
     and blanking it would remove the only readable attribution while leaving the token in place.
