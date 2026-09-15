@@ -446,16 +446,19 @@ export function validateLeafName(name: string, label: string): string | null {
  * every depth rather than only at the root, so the name means one thing wherever it is read.
  *
  * **Given the parent it would be created in, it also refuses the app's own folder names INSIDE
- * `system_settings/`.** That prefix is writable — no IAM Deny names it — so without this a user
- * can mint `system_settings/archive/` themselves, and the rules then treat it exactly as the app's:
- * read-only inside, undeletable, unrenamable, unarchivable. Permanently, at the very path the
- * restore dialog sends people to for their archive ids.
+ * `system_settings/`.** Only the receipt folder under that prefix is write-locked, so without this
+ * a user can mint `system_settings/athenaresults/` themselves, by hand, as a folder of their own —
+ * and that is the app's own Athena results folder. `system_settings/archive/` the API refuses
+ * anyway, but as a permission error telling the user to contact an admin, where this names the
+ * actual reason.
  *
- * **It covers the dialogs and nothing else, and that is worth stating plainly rather than
- * discovering.** Uploads, pastes and plane-side moves create folders without ever calling this, so
- * the same collision is still reachable by those routes. This is a courtesy on the path a user
- * actually takes, not a boundary — read as a boundary it would be worse than absent, because
- * someone downstream would stop looking for the real one.
+ * **Only a caller that passes the parent gets that check, and that is worth stating plainly rather
+ * than discovering.** Create-folder passes it twice: its dialog, for the inline reason, and
+ * `createFolder`, which knows the exact prefix it writes into and so also covers a collision's
+ * Rename. A caller that validates the name alone does not get it, and neither does an upload, which
+ * creates folders without calling this at all. This is a courtesy on the path a user actually
+ * takes, not a boundary — read as a boundary it would be worse than absent, because someone
+ * downstream would stop looking for the real one.
  *
  * @param name - The proposed leaf name.
  * @param parentPrefix - The prefix the folder would be created in, when the caller knows it.
@@ -647,7 +650,9 @@ async function sendBytes(params: TransferParams): Promise<ServiceResult<UploadRe
  * Creates an empty folder as a zero-byte `{prefix}{name}/` marker object.
  *
  * One call: the name is validated here, and the collision the browser used to `HEAD` for is the
- * write route's own `Conflict`.
+ * write route's own `Conflict`. It is validated against `prefix`, the folder it is written into,
+ * because this is the one check a collision's Rename passes through that knows where the folder
+ * lands — the prompt checks the new name alone.
  *
  * @param params.bucket - The bucket.
  * @param params.prefix - The folder to create it in.
@@ -663,7 +668,7 @@ export async function createFolder(params: {
 }): Promise<ServiceResult<CreateFolderResult>> {
   const {bucket, prefix, name, overwrite = false} = params;
 
-  const nameError = validateFolderName(name);
+  const nameError = validateFolderName(name, prefix);
   if (nameError) return {success: false, error: {message: nameError, code: 'InvalidName'}};
 
   const folderPrefix = `${prefix}${name}/`;
