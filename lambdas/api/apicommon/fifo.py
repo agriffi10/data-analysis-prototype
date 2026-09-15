@@ -144,7 +144,8 @@ def _group_shared_space(principal: Principal, payload: Mapping[str, Any]) -> str
 
     It does not serialize the runs: the Pipe starts the machine fire-and-forget, so they overlap.
     What stops two users taking one space name is the registry's create-only write, which refuses
-    the second whatever the queue does, and every other registry write is a compare-and-swap.
+    the second whatever the queue does, and every other registry write bar the final delete is a
+    compare-and-swap.
 
     Args:
       principal: The verified caller. Unused.

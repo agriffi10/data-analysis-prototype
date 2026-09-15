@@ -1952,10 +1952,15 @@ a per-table one, which is why neither appears below; the archive plane's arms ar
   owner, only `set_owner` does, so a former owner's add, remove or delete authorized before a
   transfer still lands after it; and
   `set_owner` does not check that the new owner is still on the fresh roster, so a transfer racing
-  that member's removal leaves an owner who is not a member. The Cognito membership slots are no
-  document at all: `assign_or_find_slot` reads the user's attributes and writes one slot with no
-  condition, so two spaces adding one user at once can pick the same free slot, and the user keeps
-  only one of the two grants while both rosters list them.
+  that member's removal leaves an owner who is not a member. A late add or remove also fans the
+  roster out under the owner the validator read, so every member's cache can show the former owner
+  as owner again. And CAS on an absent record writes create-only from the caller's snapshot, so an
+  owner verb landing after a teardown's final delete recreates the record; member actions are
+  refused on anything not active, so this reaches only a never-active space, such as an owner's
+  retried create racing their own delete. The Cognito membership slots are no document at all:
+  `assign_or_find_slot` reads the user's attributes and writes one slot with no condition, so two
+  spaces adding one user at once can pick the same free slot, and the user keeps only one of the
+  two grants while both rosters list them.
 - **Table builder: a create holds no lock, and a lost race reports success.** Two same-name creates
   in one database both pass `check-table-absent`, a point-in-time `GetTable` with `InspectSource` and
   `InferSchema` between it and the DDL. The first `CREATE EXTERNAL TABLE IF NOT EXISTS` makes the
@@ -1970,8 +1975,9 @@ a per-table one, which is why neither appears below; the archive plane's arms ar
   straddles the 60-second dedup bucket is enough. Anything written at
   those keys between the first copy and the second is overwritten. If the source is rewritten
   between the two runs' listings, the two can copy different object sets into the one location —
-  each builds its manifest from whichever plan is at the shared plan key when it gets there — and the
-  table then reads both snapshots.
+  each builds its manifest from whatever plan is at its plan key when it gets there, and two
+  members' shares do not even share that key, since it digests the actor — and the table then
+  reads both snapshots.
 - **File send: an overlapping send can overwrite what the recipient did with the first.** The guard
   lists the names already in `shared_files/{sender}/`, and the copy is an unconditional `CopyObject`.
   A second send of an item to one recipient, submitted before the first run's copy of that name
@@ -1997,10 +2003,13 @@ a per-table one, which is why neither appears below; the archive plane's arms ar
 spec [decided the same day](archive-and-restore.md#the-group-id-orders-the-starts-not-the-runs-and-the-restore-guard-is-not-absolute-at-the-write)
 for the archive restore's copy-back.** All three overwrite through the
 one copy engine, `cpcommon.transfer`, and the repair chosen there — `If-None-Match: *` on
-`CopyObject` and `CompleteMultipartUpload` — makes a send's "never overwrites" true at every write
-and turns table share's second run into a conflict. The same spec adds a `request_id_reused` refusal
-to file send, as archive and file-ops carry. Until it lands, the file-send and table-share arms above
-are live. The table builder's misreported create and the shared-space residuals are recorded and
+`CopyObject` and `CompleteMultipartUpload` — makes "never overwrites" true at every write on both
+planes, which is the promise the Help page already makes for a send and for a share. It does not by
+itself make the losing run report a conflict: the engine records a `412` as an ordinary per-item
+failure, and both collectors turn any failed item into `copy_failed`, so the spec owes that mapping
+too, and for table share an answer to two runs that each lose a key to the other and leave a
+half-copied prefix with no table. The same spec adds a `request_id_reused` refusal to file send, as
+archive and file-ops carry. Until it lands, the file-send and table-share arms above are live. The table builder's misreported create and the shared-space residuals are recorded and
 not yet scheduled.
 
 Every site that claimed a group id serializes runs is corrected, and each one this register or a

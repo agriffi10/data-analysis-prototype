@@ -30,8 +30,10 @@ same-account/same-Region requirement (a cross-account or cross-Region export fai
 
 ## The copy plan travels by pointer, and the admin bucket is the right home
 
-`inspect-source` **writes** the object list to `{admin_bucket}/table-share/{requestId}/` and passes a
-**key** onward; `copy-objects` reads it.
+`inspect-source` **writes** the object list to `{admin_bucket}/table-share/{digest}/copy-plan.json`
+and passes a **key** onward; `build-transfer-manifest` reads it. This plane has no request id, so the
+digest is of the actor, the source and the result name, and two overlapping shares of one request
+share the key (`tscommon.copy_plan.plan_key` says why that is bounded).
 
 The list used to ride **inline** on the Step Functions state, and **the Map's `ItemSelector` copies
 the whole state into every item** — at the then-shipped caps (1000 objects, ordinary Hive keys) that
