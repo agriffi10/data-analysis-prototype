@@ -2,6 +2,7 @@ import {describe, expect, it} from 'vitest';
 // Read through Vite's own `?raw` rather than `node:fs`: the app tsconfig carries no node types,
 // so `tsc -b` — the only typecheck CI runs — rejects an fs import here.
 import portalRolePolicy from '../../../../../infra/modules/data/policies/portal-role-permissions.json.tftpl?raw';
+import analyticsPolicy from '../../../../../infra/modules/analytics/policies/portal-role-analytics.json.tftpl?raw';
 import sharedSpacePolicy from '../../../../../infra/modules/shared-spaces/policies/portal-role-shared-space.json.tftpl?raw';
 import {isWriteLockedPrefix, writeLockRefusal} from './writeLockedPrefix';
 import {
@@ -233,6 +234,67 @@ describe('the UI write gate and the IAM Deny agree on the same prefixes', () => 
     // every shared row above agree with a root-anchored predicate, and the test would pass while
     // the browser offered writes IAM refuses.
     expect(SHARED_DENY('finance/a/b/c/system_settings/archive/x.csv')).toBe(true);
+  });
+});
+
+/**
+ * The query results folder is the second prefix the browser refuses writes into, for the opposite
+ * reason: IAM PERMITS the write and denies the DELETE, so whatever the user puts there cannot be
+ * removed. Its Denies have the receipt folder's shape — root-anchored in a personal space, any depth
+ * in a shared one — and are held the same way, as a matcher run over the same keys as the rule.
+ *
+ * Compared on the refusal's WORDS rather than on a boolean, because both folders now feed one
+ * refusal: a row inside the receipt folder is refused too, and only the sentence says which rule
+ * answered. The analytics template names the tag key through a variable, rendered here to the
+ * spelling `keyMatcher` substitutes.
+ */
+describe('the results refusal and the results DeleteObject Deny agree on the same prefixes', () => {
+  const rendered = (sid: string) => resourceOf(analyticsPolicy, sid).replace('${principal_tag_key}', 'username');
+  const PERSONAL_RESULTS_DENY = keyMatcher(rendered('ResultsNoDeleteSystemSettings'), 'alice');
+  const SHARED_RESULTS_DENY = keyMatcher(
+    resourceOf(sharedSpacePolicy, 'SharedResultsNoDeleteSystemSettings'),
+    'finance'
+  );
+  const namesResults = (refusal: string | null) => /query results/i.test(refusal ?? '');
+
+  const personal = [
+    'alice/',
+    'alice/system_settings/',
+    'alice/system_settings/athenaresults/',
+    'alice/system_settings/athenaresults/2026/09/',
+    // The depth-one name the folder left, and a nested copy of the pair: the personal Deny is
+    // root-anchored, so IAM lets the user delete what they write in either.
+    'alice/athenaresults/',
+    'alice/backups/system_settings/athenaresults/',
+    'alice/system_settings/athenaresults-old/',
+    // Refused, but by the receipt rule — so it must not be answered with the results sentence.
+    'alice/system_settings/archive/'
+  ];
+
+  it.each(personal)('personal: %s', (prefix) => {
+    expect(namesResults(writeLockRefusal(prefix, 'alice/', 'personal'))).toBe(
+      PERSONAL_RESULTS_DENY(uploadedKey(prefix))
+    );
+  });
+
+  const shared = [
+    'finance/',
+    'finance/system_settings/',
+    'finance/system_settings/athenaresults/',
+    'finance/athenaresults/',
+    // The wildcard is the space slot and matches `/`, so the pair is undeletable at any depth here.
+    'finance/backups/system_settings/athenaresults/',
+    'finance/system_settings/athenaresults-old/',
+    'finance/system_settings/archive/'
+  ];
+
+  it.each(shared)('shared: %s', (prefix) => {
+    expect(namesResults(writeLockRefusal(prefix, 'finance/', 'shared'))).toBe(SHARED_RESULTS_DENY(uploadedKey(prefix)));
+  });
+
+  it('proves the two results Denies differ at depth, so the shared rows are not an artefact', () => {
+    expect(PERSONAL_RESULTS_DENY('alice/backups/system_settings/athenaresults/x.csv')).toBe(false);
+    expect(SHARED_RESULTS_DENY('finance/backups/system_settings/athenaresults/x.csv')).toBe(true);
   });
 });
 

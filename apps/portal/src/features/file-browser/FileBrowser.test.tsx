@@ -344,6 +344,27 @@ describe('FileBrowser — write controls', () => {
       )
     );
   });
+
+  it('refuses New folder and Upload inside the query results folder, and says why', async () => {
+    // IAM permits the write there and denies the delete, so a folder or file the user makes in it
+    // can never be removed. Asserted on what the clicks DO — no dialog, no drawer, no request — and
+    // on the folder the reason names, because the receipt folder's refusal would grey the same two.
+    mock.listFiles.mockResolvedValue(
+      ok(page({files: [file('system_settings/athenaresults/q1.csv', {name: 'q1.csv'})], folders: []}))
+    );
+    const {user} = renderBrowser({prefix: 'alice/system_settings/athenaresults/'});
+    await screen.findByText('q1.csv');
+
+    await user.click(screen.getByRole('button', {name: 'New folder'}));
+    await user.click(screen.getByRole('button', {name: 'Upload'}));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(mock.createFolder).not.toHaveBeenCalled();
+    for (const name of ['New folder', 'Upload']) {
+      expect(screen.getByRole('button', {name})).toHaveAttribute('title', expect.stringMatching(/query results/i));
+    }
+    expect(screen.getByRole('note')).toHaveTextContent(/query results/i);
+  });
 });
 
 describe('FileBrowser — selection + delete', () => {

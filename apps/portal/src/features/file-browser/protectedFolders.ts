@@ -5,8 +5,8 @@
 //  - `user_settings/` — query history + saved queries. Hidden EVERYWHERE:
 //    the main file browser and the move/copy destination picker.
 //  - `athenaresults/` — Athena query results. Locked out of move/copy
-//    destinations, but still visible in the browser — inside the real `system_settings/`
-//    folder, which the user opens like any other.
+//    destinations and read-only inside (`writeLockedPrefix.ts`), but still visible in the
+//    browser — inside the real `system_settings/` folder, which the user opens like any other.
 // - `_data-quality-reports/` — the data-quality reports. Hidden
 //    EVERYWHERE, like `user_settings/`.
 // - `_directory/` — the published username directory. Hidden
