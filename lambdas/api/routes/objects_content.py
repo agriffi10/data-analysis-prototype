@@ -79,7 +79,7 @@ def write_content(context: RequestContext) -> dict[str, Any]:
 
     Raises:
       ApiError: ``AccessDenied`` on an unauthorized space, an escaping key, a write-locked
-        location, or a marker key with ``overwrite`` true — creating a marker is permitted, which
+        location, the query results folder, or a marker key with ``overwrite`` true — creating a marker is permitted, which
         is how ``ensurePrefixMarker`` holds a prefix open; ``PayloadTooLarge`` above the cap,
         refused BEFORE any S3 call; ``Conflict`` when the key is occupied and ``overwrite`` is
         false.

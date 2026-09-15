@@ -255,7 +255,8 @@ def assert_replaceable(space: ResolvedSpace, key: str) -> None:
       None.
 
     Raises:
-      ApiError: ``AccessDenied`` for a marker key or a write-locked location.
+      ApiError: ``AccessDenied`` for a marker key, a write-locked location or the query results
+        folder.
     """
     if is_marker(key):
         raise ApiError("AccessDenied", "folder markers may not be removed or replaced")

@@ -906,6 +906,46 @@ class TestTheResultsFolderTakesNothingItCouldNotGiveBack:
         assert fake.calls == []
         assert fake.assumes == 0
 
+    @pytest.mark.parametrize("path", ["/v1/objects/copy", "/v1/objects/move"])
+    def test_a_copy_or_move_INTO_it_is_refused_before_any_aws_call(self, s3, path) -> None:
+        """The destination guard, which is the natural way to write here by hand: a result copied
+        beside itself.
+
+        Args:
+          s3: The client fixture.
+          path: The copy or the move route.
+
+        Returns:
+          None.
+
+        Raises:
+          AssertionError: If the operation reached AWS or was refused by another rule.
+        """
+        fake = s3(RecordingS3(head=None))
+
+        answer = router.route(
+            "POST",
+            path,
+            bearer(),
+            "rq",
+            {
+                "source": {"kind": "personal", "name": "alice"},
+                "sourceKey": "alice/reports/q-1.csv",
+                "destination": {"kind": "personal", "name": "alice"},
+                "destinationKey": "alice/system_settings/athenaresults/q-2.csv",
+                "overwrite": True,
+            },
+        )
+
+        assert answer["statusCode"] == 403
+        error = json.loads(answer["body"])["error"]
+        assert (error["code"], error["detail"]) == (
+            "AccessDenied",
+            "the query results folder is not writable",
+        )
+        assert fake.calls == []
+        assert fake.assumes == 0
+
     def test_copying_a_result_OUT_still_reaches_s3(self, s3) -> None:
         """The control, and the reason the rule can be this strict: copying out is how results are
         saved, and a copy's source is not a write.

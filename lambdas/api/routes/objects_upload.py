@@ -63,8 +63,9 @@ def create(context: RequestContext) -> dict[str, Any]:
       ``{mode: "multipart", uploadId, partSize, partCount}``.
 
     Raises:
-      ApiError: ``AccessDenied`` on an unauthorized space, an escaping key, a marker key or a
-        write-locked location; ``PayloadTooLarge`` when no plan can serve the declared size;
+      ApiError: ``AccessDenied`` on an unauthorized space, an escaping key, a marker key, a
+        write-locked location or the query results folder; ``PayloadTooLarge`` when no plan can
+        serve the declared size;
         ``Conflict`` when the key is occupied and ``overwrite`` is false — and NOTHING is created
         in that case, neither a url nor an upload.
       IdentityUnavailableError: If the caller's role cannot be assumed.
@@ -132,8 +133,9 @@ def sign_part(context: RequestContext) -> dict[str, Any]:
       The URL and when it expires.
 
     Raises:
-      ApiError: ``AccessDenied`` on an unauthorized space, an escaping key, a marker key or a
-        write-locked location; ``InvalidRequest`` on a part number outside S3's range.
+      ApiError: ``AccessDenied`` on an unauthorized space, an escaping key, a marker key, a
+        write-locked location or the query results folder; ``InvalidRequest`` on a part number
+        outside S3's range.
       IdentityUnavailableError: If the caller's role cannot be assumed.
     """
     body = context.body if isinstance(context.body, dict) else {}
