@@ -253,9 +253,10 @@ def test_the_prefix_is_the_FULL_key_and_the_ROUTES_OWN_RULE_says_why():
     every assertion here while every link silently lands at a space root.
     """
     route = (_PORTAL / "routes" / "FilesPage.tsx").read_text()
-    assert re.search(r"prefixParam && prefixParam\.startsWith\((\w+)\.rootPrefix\)", route), (
-        "the route no longer gates ?prefix= on the space's rootPrefix — re-derive the link"
-    )
+    assert re.search(
+        r"prefixParam && prefixParam\.startsWith\((\w+)\.rootPrefix\) && prefixParam\.endsWith\('/'\)",
+        route,
+    ), "the route no longer gates ?prefix= on the space's rootPrefix and a trailing slash — re-derive the link"
 
     space = (_PORTAL / "features" / "file-browser" / "useFileSpace.ts").read_text()
     assert "rootPrefix: `${username}/`" in space, "a personal space's root is no longer {username}/"
@@ -270,6 +271,7 @@ def test_the_prefix_is_the_FULL_key_and_the_ROUTES_OWN_RULE_says_why():
         assert prefix.startswith(root), (
             f"{prefix!r} does not start with the root the route resolves, so it is discarded"
         )
+        assert prefix.endswith("/"), f"{prefix!r} does not end at a folder boundary, so it is discarded"
 
 
 def test_the_link_is_a_path_the_browsers_own_gate_accepts():

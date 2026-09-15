@@ -18,8 +18,9 @@ export function locationLabel(location: string): string {
  * The FOLDER that holds a checked location, as a prefix ending in `/`.
  *
  * A folder location is returned as-is; a file key is reduced to its parent. The file
- * case is the one that matters: `/files?prefix=` seeds the browser's current folder,
- * so passing a file key through would ask it to open a folder that does not exist.
+ * case is the one that matters: `/files?prefix=` seeds the browser's current folder
+ * only from a prefix ending in `/`, so a file key passed through would open the space
+ * root instead of the folder that holds the file.
  *
  * @example
  * sourceFolderPrefix('alice/data/sales/')    // 'alice/data/sales/'
