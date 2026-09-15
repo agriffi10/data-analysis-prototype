@@ -116,9 +116,8 @@ def _excluder(root: str, item_key: str):
     default.** Every omission here is silent, so they are stated rather than inherited:
 
       - the undeletable marker, at any depth, is EXCLUDED rather than refused. Both bucket policies
-        deny deleting it, ``saved_queries/`` ships one, and the browser partitions the root marker
-        out as a per-key error and deletes everything else — so failing a whole folder on a nested
-        marker is a regression the browser never had;
+        deny deleting it and ``saved_queries/`` ships one, so failing a whole folder on a nested
+        marker would refuse everything in it for the sake of the one file nobody can remove;
       - the portal-managed folders at the SPACE ROOT are excluded, so an expansion reaching them
         from above does not sweep the notification inbox and the connections cache into a move;
       - **zero-byte folder placeholders are KEPT**, so an empty subfolder survives an operation

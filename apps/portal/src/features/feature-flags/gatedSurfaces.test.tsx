@@ -1123,8 +1123,9 @@ describe('the registry itself', () => {
       ],
       // SPEC-190: a kill switch rather than an area. It hides the record of what this session
       // handed to the plane, and the guide for a round trip that only exists while the routing
-      // does. It does not hide Copy/Move/Delete — with the flag off those still work, just
-      // synchronously — and a registry row can only assert presence or absence.
+      // does. It does not hide Copy/Move/Delete — with the flag off a single file still goes
+      // synchronously, and a folder or multi-item selection leaves them disabled with a reason —
+      // and a registry row can only assert presence or absence.
       asyncFileOperations: ['File operations in progress', 'Background file operations guide'],
       // SPEC-223: one control, two dialogs. The completion notification's link is deliberately
       // not here — it is a `/files` link, already covered by that flag's link clause.

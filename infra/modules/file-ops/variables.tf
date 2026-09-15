@@ -4,16 +4,17 @@
 # execution role. Mirrors the shared control-plane PATTERN (not its resources); decision
 # record: infra/info/control-plane-shape.md.
 #
-# THE SEVENTH PLANE, AND THE ONE WHOSE ABSENCE IS FELT DAILY. Recursive folder copy, move
-# and delete are the last bulk data operations this product performs in the BROWSER: one
+# THE SEVENTH PLANE, AND THE ONE WHOSE ABSENCE WAS FELT DAILY. Recursive folder copy, move
+# and delete were the last bulk data operations this product performed in the BROWSER: one
 # CopyObject per object in a sequential loop from the user's laptop, with a closed tab
-# leaving the operation half-done and no record it ever started.
+# leaving the operation half-done and no record it ever started. The browser's recursive
+# functions are deleted, so a folder operation now runs here or not at all.
 #
-# This module is FOUNDATION + THE FRONT DOOR: the plumbing, the request contract, the
-# per-space lock and validate-authorize. Nothing is listed, planned, copied or deleted, and
-# the execution role holds no grant on either data bucket. Cross-module ARNs are
-# CONSTRUCTED STRINGS (passed from root locals), never another module's output, so they are
-# known at plan time and this module plans standalone.
+# This module is the whole plane: the plumbing, the request contract, the per-space lock,
+# and the verbs that authorize, expand, guard, copy, delete and notify — so the execution
+# role lists, reads, writes and deletes in both space buckets, fenced by its own Denies.
+# Cross-module ARNs are CONSTRUCTED STRINGS (passed from root locals), never another
+# module's output, so they are known at plan time and this module plans standalone.
 
 variable "project_name" {
   description = "Short name used as a prefix for AWS resource names (e.g. dat)."

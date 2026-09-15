@@ -592,8 +592,8 @@ function FileBrowserContent({
           // *Check data quality* and *Send to…* not at all: they read, and this lock does not cover
           // them.
           spaceBusyReason={dialogs.spaceBusyReasonFor(selectedItems)}
-          // The service refuses these too, but only after the user has read the
-          // "everything inside it … can't be undone" confirm and pressed Delete.
+          // The file-operations plane refuses these too, per item, but only after the user has
+          // read the "everything inside it … can't be undone" confirm and pressed Delete.
           deleteDisabledReason={undeletableSelectionRefusal(selectedItems, rootPrefix, 'delete') ?? undefined}
           moveDisabledReason={undeletableSelectionRefusal(selectedItems, rootPrefix, 'move') ?? undefined}
           isBusy={del.isBusy || move.isBusy || copy.isBusy || dl.downloadingKey !== null}

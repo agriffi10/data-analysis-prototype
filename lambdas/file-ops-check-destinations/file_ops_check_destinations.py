@@ -7,14 +7,12 @@ and every other item carries on.
 **THE REFUSAL IS PER ITEM, WHICH IS WHAT SEPARATES THIS PLANE FROM EVERY OTHER ONE.** The archive's
 guard refuses the whole restore because there is one archive and one destination; here a user
 selected five folders, and one of them colliding is not a reason to do nothing about the other four
-— that is what the browser does today, and turning it into a whole-request refusal would make a
-select-all move fail on its first conflict.
+— turning it into a whole-request refusal would make a select-all move fail on its first conflict.
 
-**THE COLLISION UNIT IS THE DERIVED DESTINATION KEY, NOT THE DESTINATION SUBTREE.** That is what
-the browser does — it intersects the keys it would write against the destination's listing — and it
-is what preserves MERGING INTO AN EXISTING FOLDER: copying ``reports/`` into ``out/`` while
-``out/reports/notes.txt`` exists, when no source key maps onto it, is legal today and stays legal.
-"The destination subtree holds anything" is a stricter test that would remove a shipped capability.
+**THE COLLISION UNIT IS THE DERIVED DESTINATION KEY, NOT THE DESTINATION SUBTREE.** It is what
+preserves MERGING INTO AN EXISTING FOLDER: copying ``reports/`` into ``out/`` while
+``out/reports/notes.txt`` exists, when no source key maps onto it, is legal. "The destination
+subtree holds anything" is a stricter test that would remove a shipped capability.
 
 **IT HEADS EVERY KEY RATHER THAN LISTING THE DESTINATION**, and a listing structurally cannot serve
 this check. ``CommonPrefixes`` carries no ``LastModified``, ``Size`` or keys, so a delimited listing

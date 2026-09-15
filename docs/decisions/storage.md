@@ -520,7 +520,13 @@ protected: the folder **itself** cannot be deleted or renamed. It appears in
 `UNDELETABLE_ROOT_FOLDERS` and in **neither** of the other two lists, and a test asserts that
 absence, because `protectedFolders.ts`'s three lists answer three questions (see / paste / destroy)
 and this folder is the second case that proves they are not a union. Rename is a move — S3 has
-neither — so `moveFolder`'s existing refusal covers both with no new guard.
+neither — so ~~`moveFolder`'s existing refusal covers both with no new guard.~~ **— superseded by
+SPEC-198:** one move refusal still covers both, though `moveFolder` is deleted. A folder move or
+rename runs on the file-operations plane, whose `source_refusal` (`focommon/protected.py`) refuses
+the folder as a move source; the browser states the refusal first, through
+`undeletableRootFolderRefusal(folderPrefix, rootPrefix, 'move')` and `undeletableSelectionRefusal`
+for a selection made only of protected folders (*The folder-recursive functions are deleted, not
+ported*, below).
 
 **What keeps the load list coherent is a FILTER, not a write lock.** Because anyone may drop a CSV
 or a folder tree in, the store offers **top-level `.sql` files and nothing else**; that filter is a
@@ -616,12 +622,18 @@ operation, and it is presentation: it removes a way of *asking* and revokes no g
 picker in the app inherits the rule from one place. The cost is real and accepted: the picker now
 requires an auth context, which one bespoke a11y tree had to be given.
 
-**The delete/rename refusal is unconditional, and structurally so** — `deleteFolder`/`moveFolder`
+**The delete/rename refusal is unconditional, and structurally so** — ~~`deleteFolder`/`moveFolder`
 take **no flag**, so there is no state in which the gate can reach them. That is the argument, and
 it is stronger than the test FR-008 AC3 asks for: a service-level test cannot render "with the flag
 off" because the service never reads one. The refusal is tested directly and the structural claim
-is recorded in the test's own comment. "You cannot see it" and "you cannot destroy it" are
-different guarantees, and only one of them survives a stale cached flag document.
+is recorded in the test's own comment.~~ **— superseded by SPEC-198:** `deleteFolder` and
+`moveFolder` are deleted, and the argument holds of what refuses in their place. Neither
+`undeletableRootFolderRefusal` nor `undeletableSelectionRefusal` in `protectedFolders.ts` takes a
+flag, and neither does the plane's `source_refusal`, so there is still no state in which the gate
+can reach the refusal. `fileBrowserPure.test.ts` tests the browser's refusal for `saved_queries/`
+directly; the test comment that recorded the structural claim went with SPEC-198's rewrite of the
+service tests. "You cannot see it" and "you cannot destroy it" are different guarantees, and only
+one of them survives a stale cached flag document.
 
 ## A save chooses its space, and one KEY rule decides what that replaces (SPEC-175)
 
@@ -829,8 +841,11 @@ The destination guard asks, per selected item, whether anything is already where
 would land. **What it compares is each derived destination KEY, never the destination subtree**, and
 the difference is a capability rather than a nuance.
 
-That is what the browser does today: `moveFolder` and `copyFolder` intersect `sourceKeys.map(destKeyFor)`
-against the listed destination. So copying `reports/` into `out/` while `out/reports/notes.txt`
+~~That is what the browser does today: `moveFolder` and `copyFolder` intersect `sourceKeys.map(destKeyFor)`
+against the listed destination.~~ **— superseded by SPEC-198:** that was the browser's rule until
+`moveFolder` and `copyFolder` were deleted. A folder operation now meets this guard only on the
+plane, where `_collisions` in `file_ops_check_destinations.py` heads each item's derived destination
+keys — the same unit, so merging survived the move. So copying `reports/` into `out/` while `out/reports/notes.txt`
 already exists — where no source key maps onto that key — is legal today and stays legal. "The
 destination subtree holds anything" is a stricter test that reads as tidier and would silently
 remove **merging into an existing folder**, which is how people actually use a file browser.
