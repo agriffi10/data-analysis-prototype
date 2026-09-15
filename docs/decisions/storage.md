@@ -485,11 +485,18 @@ from their decorators, and must: a request that dies before this state never rea
 being told would leak that the sender tried.
 
 **Why the link carries the recipient's root.** `FilesPage` keeps a `?prefix=` only when it starts
-with the resolved space's `rootPrefix`, so a root-relative prefix is silently discarded and the
-recipient lands at their space root — a link that looks like it worked. Two tests read the route's
-gate, `rootPrefix`'s own definition and `isSafeInAppPath`'s accept rule out of the TypeScript, so
-the two languages cannot drift; the first version pinned only the gate and compared against a
-hardcoded value, which would have stayed green through the rename it existed to catch.
+with the resolved space's `rootPrefix` and ends in `/`, so a root-relative prefix is silently
+discarded and the recipient lands at their space root — a link that looks like it worked. A test in
+`test_file_send_notify.py` drives the handler, reads the route's path, parameters and gate,
+`rootPrefix`'s own definition, and the literals `NotificationRow` and `isSafeInAppPath` test a link
+with, out of the TypeScript rather than restating them, and checks that each recipient's prefix is
+the inbox the copy writes to, since a link to the space root survives the route too. The check's
+first version, in SPEC-167's build, pinned only the gate and compared against a hardcoded value,
+which would have stayed green through the rename it existed to catch. The two tests SPEC-167
+shipped, one on the route rule and one on `isSafeInAppPath`, were deleted with their file when the
+suites were cut to their entry points (`a41bda69d`), which is why this one drives the handler. The
+same cut took the handler test's own link assertions, and coverage could not notice, because the
+handler still ran the function.
 
 **The link is feature-gated, and that was a review finding.** With `files` off it was a live anchor
 into the unavailable page; with `sharedWorkspaces` off the space link resolved the personal space
