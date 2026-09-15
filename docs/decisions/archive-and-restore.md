@@ -59,7 +59,7 @@ A separate `GLACIER` vault the browser has no relationship with. A restore is `R
   **whole** restore, and a **403 counts as occupied**. **It is absolute at the CHECK, not yet at the
   write:** the copy-back overwrites unconditionally for as long as its Map runs, and the FIFO group
   orders only the STARTS, so two restores of one archive run at once. Conditional copy-back is the
-  decided repair.
+  decided repair (SPEC-237).
 - **It runs TWICE**, and the second pass is the spec correcting itself: those billed hours are spent
   telling the user a restore is in flight, so re-creating a file meanwhile is the ordinary case — and
   the copy-back would have overwritten it, reported success and swept the vault.
@@ -1017,6 +1017,6 @@ limit above the 12-hour ceiling, and it leaves the single-restore window open. T
 restore's duplicate and false-failure reports are the accepted cost — **except the incomplete
 report's instruction to delete the files that came back**, which a spec review found would destroy
 the only copy once another run has swept the vault. That one is not accepted (Andrew, the same day):
-the follow-up checks the vault before any message calls the archive intact. A follow-up spec will
-carry the repair and retire every site that states this entry's live claims; until it lands,
-everything above is live.
+SPEC-237 holds every restore message to two rules, and counts the vault before any message calls the
+archive complete. SPEC-237 (Draft) carries the whole repair and names every site it retires; until
+it lands, everything above is live.
