@@ -24,11 +24,12 @@ credentials. This one never was: the browser posts to `POST /v1/feedback`, the A
 bearer, and the API sends on **its own execution role**. The portal role has no statement naming
 this queue.
 
-That is what makes a feedback record attributable. On the user plane the portal role would need
-`sqs:SendMessage` here — and then any signed-in caller could write a record directly, under
-whatever username it chose, because no SQS condition key reaches a field inside a message body.
-The route takes the username from the verified `cognito:username` claim, and the request type
-declares no username field, so there is nothing to ignore.
+That is what keeps a feedback record attributable. On the user plane the portal role would need
+`sqs:SendMessage` here — a grant carried by every session the API mints for every user, for a
+write this one route makes — and no SQS condition key reaches a field inside a message body, so IAM
+could not tie a record's username to the session that sent it. On the API plane no user-scoped
+identity can write the queue. The route takes the username from the verified `cognito:username`
+claim, and the request type declares no username field, so there is nothing to ignore.
 
 ## FIFO is what makes single-writer true without a lock
 

@@ -30,8 +30,8 @@ resource "aws_iam_role_policy" "api" {
     # site and no root change.
     admin_bucket_arn = "arn:aws:s3:::${var.admin_bucket}"
 
-    # Exactly the eight request queues. The browser's grants come off in the same change, so at
-    # no point are there two writers with nothing asserting it.
+    # Exactly the eight request queues. The portal role holds no grant on any of them, so no
+    # user-scoped session can write one.
     request_queue_arns_json = jsonencode(var.request_queue_arns)
   })
 }
@@ -72,8 +72,9 @@ module "api" {
     RESULTS_CONVERSION_QUEUE_URL = var.results_conversion_queue_url
     FEEDBACK_QUEUE_URL           = var.feedback_queue_url
 
-    # The identity layer. Same role the Identity Pool vends for, and the same variables that
-    # size its tag map — so the two key sets cannot drift by transcription.
+    # The identity layer. The portal role, and the same two variables that build its trust
+    # statement's sts:TagKeys list — so the keys stamped and the keys admitted cannot drift by
+    # transcription.
     PORTAL_ROLE_ARN        = var.portal_role_arn
     PRINCIPAL_TAG_KEY      = var.principal_tag_key
     MAX_SHARED_MEMBERSHIPS = tostring(var.max_shared_memberships)

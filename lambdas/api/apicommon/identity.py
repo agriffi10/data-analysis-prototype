@@ -34,9 +34,9 @@ Attributes:
     ``memberships``, which is where the reading moved, and re-exported here because this is the
     module the equivalence argument is about and the name every test of it uses. Re-exported
     rather than restated: two copies of a provider fact are two things to drift.
-  SHARED_SPACE_TAG: The session tag that claim becomes. Its agreement with the Tofu map is
-    asserted, because a hand-written slot name that drifts produces plausible-looking tags
-    matching no policy statement.
+  SHARED_SPACE_TAG: The session tag that claim becomes. Its agreement with the retired map's
+    pinned copy is asserted, because a hand-written slot name that drifts produces
+    plausible-looking tags matching no policy statement.
   ROLE_SESSION_NAME_RE: STS's own charset for a role session name, which the catalog rule is a
     strict subset of.
   MAX_ROLE_SESSION_NAME: STS's ceiling on that name.
@@ -742,14 +742,12 @@ def api_client(service: str) -> Any:
     about to be refused, and the refusal is the only thing standing between that route and the
     execution role's own identity.
 
-    **It has no caller in shipped code today, and that is a deviation worth naming rather than
-    leaving to be noticed.** The spec asks that the assume-role call itself be made "through the
-    API plane", and it is — on the execution role's credentials — but through the private
-    constructor rather than through this door. It cannot be otherwise: the guard refuses any route
-    that has not declared the plane, no route declares it, and assuming is framework work that
-    happens for every route including the ones that must never reach the execution role. So the
-    declaration mechanism ships with no live subject and is exercised by tests alone until the
-    first queue write arrives, which is the route-declared use it was built for.
+    **Its callers are the queue writers** — the shared sender in ``enqueue`` and the feedback
+    route — and every route that reaches them declares the API plane on its contract entry. The
+    assume-role call also runs on the execution role's credentials, but through the private
+    constructor rather than through this door, and it cannot be otherwise: the guard refuses any
+    route that has not declared the plane, and assuming is framework work that happens for every
+    route, including the ones that must never reach the execution role.
 
     Args:
       service: The AWS service name.

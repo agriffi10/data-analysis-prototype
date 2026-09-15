@@ -99,9 +99,10 @@ three times — table-builder, table-share and data-quality, all fixed since.
 
 ## The portal role is granted nothing on this queue
 
-Anywhere. The queue's contents are the operational record of what the control planes did, and a
-browser that could enqueue could **forge log events attributing arbitrary activity to arbitrary
-services**. Producers are execution roles only.
+Anywhere. The queue's contents are the operational record of what the control planes did, and the
+portal role is the identity a user's request acts as: a grant would let a user-scoped session
+**forge log events attributing arbitrary activity to arbitrary services**. Producers are execution
+roles only.
 
 The sweep is itself a producer — it instruments itself through `cpcommon.observability`, which is
 what proves the whole path end to end without instrumenting a control plane.

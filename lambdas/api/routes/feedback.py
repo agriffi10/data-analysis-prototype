@@ -7,12 +7,12 @@ the stamp. Serving it through the shared sender would mean three exemptions insi
 guards exist precisely to stop exemptions, so it builds its own message here. What it does share
 is what a failed send means, which lives in ``apicommon.queue_faults``.
 
-**The plane is ``api``, and that is what keeps a submission attributable.** The user plane would
-need the portal role to hold ``sqs:SendMessage`` on this queue — which would let the browser write
-feedback records directly, under whatever username it chose. On this plane the browser holds no
-grant on the queue at all, so the only way a record gets there is through this handler, which
-takes the username from the verified claim and never from the body. The request type declares no
-username field for the same reason: there is nothing to ignore.
+**The plane is ``api``, so the portal role holds no grant on this queue.** The user plane would
+need the portal role to hold ``sqs:SendMessage`` here — a grant carried by every session the API
+mints for every user, for a write this one handler makes. On this plane no user-scoped identity can
+write the queue, so the only way a record gets there is through this handler, which takes the
+username from the verified claim and never from the body. The request type declares no username
+field for the same reason: there is nothing to ignore.
 
 **Validation here is the control; the browser's is a courtesy.** The contract's validator has
 already refused an unknown key, a category outside the closed set and a non-string message before

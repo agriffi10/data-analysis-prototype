@@ -93,13 +93,13 @@ variable "api_execution_role_arn" {
 }
 
 variable "principal_tag_key" {
-  description = "The session-tag key carrying the username. Bounds the trust statement's sts:TagKeys list. NOT threaded into the permission templates, which hard-code the literal -- editing those is forbidden while both credential paths run, so the agreement is asserted by test instead of made structural."
+  description = "The session-tag key carrying the username. Bounds the trust statement's sts:TagKeys list. NOT threaded into the permission template, which hard-codes the literal, so the agreement is asserted by test instead of made structural."
   type        = string
   default     = "username"
 }
 
 variable "max_shared_memberships" {
-  description = "Number of shared-space membership slots. Sizes the trust statement's sts:TagKeys list, and is the same variable that sizes the Cognito attributes, the Identity Pool tag map and the portal role's shared-space policy."
+  description = "Number of shared-space membership slots. Sizes the trust statement's sts:TagKeys list, and is the same variable that sizes the Cognito attributes, the session tags the API stamps and the portal role's shared-space policy."
   type        = number
   default     = 10
 }

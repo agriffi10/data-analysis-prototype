@@ -1470,9 +1470,12 @@ Every other enqueue in this product began as a browser call to SQS on the caller
 credentials, and Arc B is porting them. Adding a sixteenth would have been adding work to the port
 in the same breath as writing it. So the browser posts to `POST /v1/feedback`, the API verifies
 the bearer, and the API sends on **its own execution role** — which means the portal role holds no
-statement naming this queue and never did. On the user plane it would have to, and then any
+statement naming this queue and never did. On the user plane it would have to, ~~and then any
 signed-in caller could write a feedback record under whatever username it chose, because no SQS
-condition key reaches a field inside a message body. The request type declares no username field,
+condition key reaches a field inside a message body~~ **— superseded since SPEC-202 retired the
+Identity Pool:** no caller holds portal-role credentials, so the grant would instead ride on every
+session the API mints for every user, and no SQS condition key reaches a field inside a message
+body to tie a record to its sender. The request type declares no username field,
 so there is nothing for the handler to ignore.
 
 **It is NOT one of the ten enqueue routes, and the reason is the wire rather than the plumbing.**

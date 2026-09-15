@@ -1,6 +1,7 @@
 # ── Portal Role (shared, trust only) ─────────────────────────────────────────
-# The single role every authenticated user assumes. Isolation is the `username` principal tag
-# the Identity Pool stamps SERVER-SIDE, never asserted by the client. README.md.
+# The single role every authenticated user's requests act as, assumed by the API on the caller's
+# behalf. Isolation is the `username` principal tag the API stamps SERVER-SIDE from the verified
+# claim, never asserted by the client. README.md.
 
 # IAM propagation guard: CreateRole/PassRole on this name is granted in the same apply that
 # creates the role.
@@ -8,8 +9,9 @@ resource "time_sleep" "wait_for_portal_role_perms" {
   create_duration = "30s"
 }
 
-# The API's second door onto this role. It assumes THE SAME ROLE with THE SAME TAGS from THE
-# SAME CLAIMS, which is why no policy anywhere was rewritten.
+# The API's door onto this role, and the only one. It assumes THE SAME ROLE with THE SAME TAGS
+# from THE SAME CLAIMS the retired Identity Pool did, which is why no policy anywhere was
+# rewritten when the pool went.
 #
 # BOTH sts:AssumeRole AND sts:TagSession are required, and either alone is a trap: the missing
 # one renders, plans, applies and unit-tests green, then fails at runtime naming neither.

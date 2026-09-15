@@ -1,7 +1,7 @@
 """The preservation claim, checked artefact by artefact rather than asserted once.
 
 Why the no-change guard is a named-absence assertion plus a git baseline rather than a snapshot,
-and why the one template this change edits needs a literal second copy of its own, are in
+and why the one template this change edits needs a guard of its own, are in
 ``infra/info/deploy-role-iam.md``.
 
 Attributes:
@@ -397,7 +397,7 @@ def test_ACCEPTED_the_portal_role_permission_templates_are_byte_identical_to_the
     resurrected = RETIRED_SINCE_BASELINE & present
     assert not resurrected, (
         f"a retired portal-role grant is back: {sorted(resurrected)}. The API is the only writer "
-        "of these queues; a browser credential that can write one can forge an actor."
+        "of these queues; a user-scoped session that can write one can forge an actor."
     )
 
     added = present - baseline - ADDED_SINCE_BASELINE

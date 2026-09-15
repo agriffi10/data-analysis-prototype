@@ -95,7 +95,7 @@ def test_no_policy_on_the_portal_role_can_write_a_request_queue():
 
     assert offenders == [], (
         f"the portal role can still write a queue: {offenders}. The API is the only writer, and "
-        "a browser credential that can write one can forge the actor the planes are about to trust."
+        "a user-scoped session that can write one can forge the actor the planes are about to trust."
     )
 
 

@@ -130,17 +130,17 @@ variable "oidc_required_claims" {
 # nothing about the running system distinguishes it from correct behaviour. README.md.
 
 variable "portal_role_arn" {
-  description = "The EXISTING portal role the API assumes to act as its caller -- the same ARN the Identity Pool's role attachment names. No new role is created: the user-space bucket policy's hand-maintained allowlist already names this one, and aws:PrincipalArn resolves an assumed-role request to the role's IAM ARN, so assuming the same role keeps that entry valid."
+  description = "The EXISTING portal role the API assumes to act as its caller -- the role the data module creates. No new role is created: the user-space bucket policy's hand-maintained allowlist already names this one, and aws:PrincipalArn resolves an assumed-role request to the role's IAM ARN, so assuming the same role keeps that entry valid."
   type        = string
 }
 
 variable "principal_tag_key" {
-  description = "The session-tag key carrying the username. Agreement with the Identity Pool's map is asserted by test rather than made structural: the map and two of the portal role's permission templates hard-code the literal, and threading a variable through them would edit templates this arc must leave byte-identical."
+  description = "The session-tag key carrying the username. Agreement with the portal role's user-space permission template is asserted by test rather than made structural: that template hard-codes the literal instead of taking this variable."
   type        = string
 }
 
 variable "max_shared_memberships" {
-  description = "Number of shared-space membership slots the API stamps tags for. The same variable that sizes the Cognito custom attributes, the Identity Pool tag map and the portal role's shared-space policy."
+  description = "Number of shared-space membership slots the API stamps tags for. The same variable that sizes the Cognito custom attributes, the portal role's trust statement (its sts:TagKeys list) and its shared-space policy."
   type        = number
 }
 

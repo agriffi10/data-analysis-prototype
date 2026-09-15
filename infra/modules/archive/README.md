@@ -130,7 +130,8 @@ never the raw path**, since SQS caps a group id at 128 characters and an S3 key 
 **Two archives from one space may select overlapping folders, and an archive deletes its source — so
 two running at once could have one deleting objects the other is still copying.**
 
-**A restore keys on the ARCHIVE, not the space:** the SHA-256 of `{archiveBucket}/{archiveRoot}`, so
+**A restore keys on the ARCHIVE, not the space:** the SHA-256 of the archive root alone,
+`{kind}/{name}/archive/{archiveId}/`, so
 two restores **of one archive** serialize while restores of different archives in the same space
 proceed in parallel. Without it **a double-submitted restore can pass the destination guard twice
 before either copy lands** — the guard is a read, and two of them see the same empty destinations.

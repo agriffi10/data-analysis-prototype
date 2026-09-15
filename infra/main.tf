@@ -229,8 +229,8 @@ locals {
   # an unknown-at-plan ARN inside a LIST attribute made OpenTofu plan NO change to that list —
   # the value was never written (infra/info/deploy-role-iam.md → "An unknown ARN inside compact()/a list
   # silently drops the change"). The module therefore exposes no role_arn output at all, so
-  # there is nothing to reach for by mistake. Apply ordering is preserved by
-  # module.user_directory's depends_on chain.
+  # there is nothing to reach for by mistake. Nothing orders the two at apply: the allowlist
+  # entry is a string match in a policy condition, and the builder writes only at runtime.
   #
   # Without the allowlist entry the builder's PutObject fails with an opaque AccessDenied that
   # looks like an IAM problem and is not — the bucket policy's Deny overrides its identity
@@ -508,8 +508,8 @@ module "auth" {
   account_id      = data.aws_caller_identity.current.account_id
   portal_role_arn = local.portal_role_arn
 
-  # Drives the ten custom:shared_space_1..N user-pool attributes + the
-  # Identity-Pool shared_space_1..N principal-tag mappings.
+  # Drives the custom:shared_space_1..N user-pool attributes, the claims the API reads to
+  # stamp the shared_space_1..N session tags.
   max_shared_memberships = var.max_shared_memberships
 
   # Both triggers import `cpcommon.observability` and emit
@@ -534,8 +534,8 @@ module "data" {
   portal_role_name       = local.portal_role_name
   deploy_role_arn        = local.deploy_role_arn
 
-  # The portal role's SECOND trust statement: the API assumes this same role to act as its
-  # caller, with the same tag set read from the same claims. The key set the statement admits is
+  # The portal role's one trust statement: the API assumes this role to act as its caller, with
+  # session tags read from the verified token's claims. The key set the statement admits is
   # built from the same two variables the function's environment carries, so the two cannot drift
   # apart by transcription.
   #
@@ -920,15 +920,15 @@ module "table_builder" {
   logs_queue_arn = module.observability.logs_queue_arn
   logs_queue_url = module.observability.logs_queue_url
 
-  # base grants the deploy role its table-builder perms (already
-  # applied); this module attaches nothing to the portal role that data creates.
-  # Settle those first. NOTE: this module is ordered BEFORE module.analytics (which
+  # base grants the deploy role its table-builder perms (already applied); settle those
+  # first. The user-space bucket reaches this module only as a string, so nothing here
+  # waits on module.data. NOTE: this module is ordered BEFORE module.analytics (which
   # depends_on it) so the shared execution role EXISTS before analytics adds it to the
   # Lake Formation admins list — LF rejects an unknown admin principal, so the role
   # must be created first (same reason module.shared_spaces precedes analytics). The
   # verbs read the analytics-owned catalog only at RUNTIME, by which point the full
   # apply has created it.
-  depends_on = [module.base, module.data]
+  depends_on = [module.base]
 }
 
 # Table-share control plane: a DEDICATED FIFO SQS → EventBridge Pipe →
@@ -981,10 +981,10 @@ module "table_share" {
   logs_queue_arn = module.observability.logs_queue_arn
   logs_queue_url = module.observability.logs_queue_url
 
-  # base grants the deploy role its table-share perms (already
-  # applied); this module attaches nothing to the portal role that data creates.
-  # Settle both first.
-  depends_on = [module.base, module.data]
+  # base grants the deploy role its table-share perms (already applied); settle those
+  # first. The user-space bucket reaches this module only as a string, so nothing here
+  # waits on module.data.
+  depends_on = [module.base]
 }
 
 # File-send control plane: a DEDICATED FIFO SQS → EventBridge Pipe → Standard
@@ -1038,9 +1038,10 @@ module "file_send" {
   logs_queue_arn = module.observability.logs_queue_arn
   logs_queue_url = module.observability.logs_queue_url
 
-  # base grants the deploy role its file-send perms (already applied); this module
-  # attaches nothing to the portal role that data creates. Settle both first.
-  depends_on = [module.base, module.data]
+  # base grants the deploy role its file-send perms (already applied); settle those first.
+  # The user-space bucket reaches this module only as a string, so nothing here waits on
+  # module.data.
+  depends_on = [module.base]
 }
 
 # File-operations control plane: a DEDICATED FIFO SQS → EventBridge Pipe → Standard Step
@@ -1061,8 +1062,8 @@ module "file_send" {
 # module.analytics does not depend on it. It passes no CSP input and no CORS origin either:
 # the browser has no relationship with it at all now: the API writes the request queue.
 #
-# base grants the deploy role its file-ops perms; this module attaches nothing to the portal
-# role that data creates. Settle both first.
+# base grants the deploy role its file-ops perms; settle those first. The user-space bucket
+# reaches this module only as a string, so nothing here waits on module.data.
 module "file_ops" {
   source = "./modules/file-ops"
 
@@ -1096,15 +1097,16 @@ module "file_ops" {
   logs_queue_arn = module.observability.logs_queue_arn
   logs_queue_url = module.observability.logs_queue_url
 
-  depends_on = [module.base, module.data]
+  depends_on = [module.base]
 }
 
 # Results-conversion control plane: a DEDICATED FIFO SQS → EventBridge Pipe → Standard Step
 # Function pipeline running single-task verb Lambdas on ONE shared execution role. Takes a
 # finished Athena execution and writes its result set into a space the actor may write to, in
 # the format they chose. This module is the whole plane: the plumbing and five verbs, of which
-# only convert reads bytes and only convert writes. base grants the deploy role its perms; data creates the portal
-# role and the bucket policy this plane's role is allowlisted in. Settle both first.
+# only convert reads bytes and only convert writes. base grants the deploy role its perms;
+# settle those first. The user-space bucket policy names this plane's role only in a condition,
+# a string match, so nothing here waits on module.data.
 module "results_conversion" {
   source = "./modules/results-conversion"
 
@@ -1138,7 +1140,7 @@ module "results_conversion" {
   logs_queue_arn = module.observability.logs_queue_arn
   logs_queue_url = module.observability.logs_queue_url
 
-  depends_on = [module.base, module.data]
+  depends_on = [module.base]
 }
 
 # Archive control plane + the archive bucket: a DEDICATED FIFO SQS → EventBridge
@@ -1197,9 +1199,9 @@ module "archive" {
   logs_queue_url = module.observability.logs_queue_url
 
   # base grants the deploy role its archive perms (including the bucket) BEFORE this
-  # module's resources land; this module attaches nothing to the portal role that data
-  # creates. Settle both first.
-  depends_on = [module.base, module.data]
+  # module's resources land. The user-space bucket reaches this module only as a string,
+  # so nothing here waits on module.data.
+  depends_on = [module.base]
 }
 
 # Data-quality control plane: a DEDICATED FIFO SQS → EventBridge Pipe →
@@ -1266,9 +1268,10 @@ module "data_quality" {
   notifications_queue_arn = local.notifications_queue_arn
   notifications_queue_url = local.notifications_queue_url
 
-  # base grants the deploy role its data-quality perms (already applied);
-  # data creates the user-space bucket the reports land in. Settle both first.
-  depends_on = [module.base, module.data]
+  # base grants the deploy role its data-quality perms (already applied); settle those
+  # first. The reports land in the user-space bucket only at RUNTIME, and this module names
+  # that bucket as a string, so nothing here waits on module.data.
+  depends_on = [module.base]
   # The nine verbs produce structured logs onto the logs queue.
   logs_queue_arn = module.observability.logs_queue_arn
   logs_queue_url = module.observability.logs_queue_url
@@ -1360,8 +1363,8 @@ module "observability" {
 #
 # The bucket ARN and the logs queue arrive as CONSTRUCTED STRINGS from the locals above rather
 # than as module.data / module.observability outputs, so this module plans standalone and its
-# IAM templates render at plan time. module.data must exist first (the builder writes into its
-# bucket), which the depends_on below orders.
+# IAM templates render at plan time. The builder writes into module.data's bucket only at
+# runtime, so nothing at apply orders the two.
 module "user_directory" {
   source = "./modules/user-directory"
 
@@ -1393,9 +1396,10 @@ module "user_directory" {
   admin_bucket_name        = local.athena_admin_bucket_name
   athena_workgroup         = local.athena_workgroup_name
 
-  # base grants the deploy role its user-directory perms (already applied);
-  # data owns the bucket this writes into.
-  depends_on = [module.base, module.data]
+  # base grants the deploy role its user-directory perms (already applied). The write into
+  # the user-space bucket happens only at RUNTIME, and this module names that bucket as a
+  # string, so nothing here waits on module.data.
+  depends_on = [module.base]
 }
 
 # ── Verification access ─────────────────────────────────────
@@ -1523,9 +1527,10 @@ module "api" {
   # this provider rather than about the verifier. Keeping it at the composition root leaves the
   # module and every Python module downstream treating the URL as opaque — so swapping the
   # provider is this line plus the four beside it.
-  # The identity layer. The role is the EXISTING portal role, named by the same local the
-  # Identity Pool's role attachment uses -- reusing it is what keeps the user-space bucket
-  # policy's hand-maintained allowlist correct without a new entry.
+  # The identity layer. The role is the EXISTING portal role: module.data creates it under
+  # local.portal_role_name, and local.portal_role_arn is built from that same name. Reusing it
+  # is what keeps the user-space bucket policy's hand-maintained allowlist correct without a
+  # new entry.
   portal_role_arn        = local.portal_role_arn
   principal_tag_key      = var.principal_tag_key
   max_shared_memberships = var.max_shared_memberships

@@ -1,7 +1,8 @@
 # The producer fragment: sqs:SendMessage on the logs queue and nothing else.
 #
-# The PORTAL role is granted NOTHING on this queue, here or anywhere — a browser that could
-# enqueue could forge log events. Producers are execution roles only. README.md.
+# The PORTAL role is granted NOTHING on this queue, here or anywhere — it is the identity a
+# user's request acts as, and a grant would let a user-scoped session forge log events.
+# Producers are execution roles only. README.md.
 data "aws_iam_policy_document" "logs_producer" {
   statement {
     sid       = "SendStructuredLogEvents"

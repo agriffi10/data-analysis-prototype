@@ -618,6 +618,16 @@ Detail: `spec-delivery/SPEC-193`.
 
 ## The API reads the same claims and assumes the same role with the same tag set (SPEC-196)
 
+> **AMENDED since SPEC-202 retired the Identity Pool.** `identity-pool.tf` and its map are gone, so
+> there is one credential path, and `lambdas/api/apicommon/identity.py` is the only declaration of
+> which claim feeds which tag. The equivalence below is the record of why no policy was rewritten.
+> The tag-key paragraph's population has moved too: only `portal-role-permissions.json.tftpl`
+> hard-codes `username` now, and `var.principal_tag_key` reaches the trust statement's key list
+> and the API's environment as well as the analytics module. The guard is no longer a read-back
+> against a declaration AWS applies. It is a pinned copy of the retired map in
+> `test_identity_apicommon.py`, the trust-to-template key comparison in
+> `test_portal_role_preservation.py`, and the `validation` on the variable.
+
 **The equivalence is not an analogy — it is the same computation over the same input.** `identity-pool.tf` declares which claim feeds which tag: `username` from `cognito:username`, `shared_space_k` from `custom:shared_space_k`, merged into one map because there is only one per (pool, provider). AWS applies that map to the ID token the browser presents. The API is handed **that same token**, verified against the provider's JWKS on every request, and applies **the same map**. Same token, same claims, same tag names, **the same role** — which is why nothing downstream can tell the two credential paths apart, and why **not one IAM policy, bucket policy or Lake Formation grant is rewritten**. A policy sees a session tag, not who stamped it.
 
 **The claim names are the only thing copied from the Identity Pool, and copying them is what makes the preservation provable.** Sourcing the membership tags from the shared-space registry instead would be defensible in isolation and would **break the equivalence**, turning a provable preservation into an argument. What else would break it, precisely: taking a tag value from a header, a query parameter, a body field, an unverified JWT, or a username re-derived from a path segment — and any route that accepts a username or space name and uses it to *select* credentials rather than to *scope* a call made with the caller's own.
