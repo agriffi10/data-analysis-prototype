@@ -182,6 +182,13 @@ only reads; the API enqueues on its behalf.
   account quotas and therefore MOVE** — unlike a documented maximum, which is a service limit —
   so raising the AWS quota and raising the constant are one change, and the guard is wrong in
   the *denying* direction until both happen.
+- **A NEW IAM policy must be KNOWN at plan time, or the plan gate refuses it**, because Checkov
+  passes a `(known after apply)` document unread; an updated one is only named in a warning. That
+  decides a plane's PR grouping: an ARN a policy's `Resource` names is built from the resource's
+  name in a local, and a `Principal` must exist when IAM writes the policy, so a role the same PR
+  creates needs an explicit dependency on it or lands a PR earlier, as does a resource whose ARN
+  AWS generates (a KMS key, a Cognito pool). Reasoning:
+  `gates-and-tests.md`, *What the scanner cannot read is refused too*.
 
 ## An account quota is invisible until the apply, and the apply is on `main` (SPEC-222)
 

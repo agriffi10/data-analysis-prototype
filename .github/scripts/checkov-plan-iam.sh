@@ -24,23 +24,45 @@
 # renamed — and in the second case it is silently accepting nothing while reading as an
 # acceptance. Both want a deliberate edit.
 #
+# A NEW IAM DOCUMENT THE PLAN CANNOT SHOW IS A HARD ERROR. A policy naming a resource created in
+# the same apply is `(known after apply)`: the plan omits it, and every IAM check Checkov still
+# runs on the resource passes without a document to read. Measured against 3.3.9 on a plan
+# `tofu show -json` rendered: a role policy granting s3:GetObject on "*" failed CKV_AWS_288 and
+# CKV_AWS_355, and the same grant beside a statement naming a queue created in the same apply
+# ran two checks, both passed; a trust policy naming a role created in the same apply passed
+# CKV_AWS_60, which one open to every principal fails while it is known. It is not
+# hypothetical. The results-conversion plane's `pipe` and `sfn` policies were unknown on the pull
+# request that added them, so this gate first read them on a later one, which a finding in them
+# would have blocked for a cause it did not contain. So the plan the scan read is the third
+# argument, and an `aws_iam_*` resource being created or replaced whose `policy` or
+# `assume_role_policy` it marks unknown is refused by address.
+#
+# AN UPDATED ONE IS NAMED, NOT REFUSED, by decision. When the split was chosen, 23 of the 27
+# unknown updates over the hundred pull-request plan runs 33009167982 to 34997976131 were the
+# observability module's documents, deferred by its `depends_on` with their content unchanged.
+# Those are now built without a data source and known at plan, so what an update leaves unknown
+# is a real edit: an existing policy gaining a new resource's ARN, or a function a plane replaces
+# by design. Refusing those was declined, and the warning says the gate did not read them.
+#
 # This is PR-only despite living in the deploy workflow: `plan` runs on pull_request, `apply`
 # runs on push/dispatch and does not depend on it. Nothing here can redden a production
 # deploy. An earlier draft made this a warning on the opposite belief and said so in five
 # places; the belief was wrong.
 #
-# Usage: checkov-plan-iam.sh <checkov-plan-json> <accepted-list-file>
+# Usage: checkov-plan-iam.sh <checkov-plan-json> <accepted-list-file> <plan-json>
 # Prints the unaccepted IAM finding count on stdout. Diagnostics go to stderr.
 
 set -euo pipefail
 
 json="${1:?checkov plan json required}"
 accepted_file="${2:?accepted list file required}"
+plan="${3:?the rendered plan the scan read is required}"
 
 err() { echo "::error title=Checkov (plan IAM)::$1" >&2; }
 
 [ -f "$json" ] || { err "$json is missing — the scan did not run."; exit 2; }
 [ -f "$accepted_file" ] || { err "$accepted_file is missing — that file IS the gate."; exit 2; }
+[ -f "$plan" ] || { err "$plan is missing, so a policy unknown until apply cannot be told from one the scan read."; exit 2; }
 
 norm='(if type=="array" then .[0] else . end)'
 
@@ -50,6 +72,56 @@ norm='(if type=="array" then .[0] else . end)'
 # (checkov-scan.sh's refusal, or a crash) would narrow to a clean zero.
 if ! jq -e "$norm | (.summary.failed // .failed) | numbers" "$json" >/dev/null 2>&1; then
   err "$json holds no Checkov result, so there is nothing to count. The scan did not run, or was refused."
+  exit 2
+fi
+
+if ! jq -e '.planned_values | objects' "$plan" >/dev/null 2>&1; then
+  err "$plan is not a rendered plan, so it cannot say which IAM documents the scan could not read."
+  exit 2
+fi
+
+# The two documents the IAM checks read, named rather than matched by a suffix. A role that
+# configures no `inline_policy` has it marked unknown on create, because the provider computes
+# it, so `policy$` refused every new role on a real plan. Checkov does not read `inline_policy`
+# at all, known or not. CKV_AWS_274 also reads a `policy_arn`, which is not a document and is
+# unknown on every new customer-managed policy's attachment, so it is not refused; the register
+# records both. The two named attributes are strings, which a rendered plan lists in
+# `after_unknown` only while unknown (measured), so a listed key counts as unknown whatever its
+# value. `after_unknown` was an object on every managed resource measured, and one that is not
+# is skipped. Managed resources only: a data source read at apply is not a document this change
+# writes. A replacement's actions hold "create" beside "delete", in either order, so it is new
+# here, as it is to IAM.
+if ! unknown=$(jq -r '
+    (.resource_changes // [])[]
+    | select(.mode == "managed" and ((.type // "") | test("^aws_iam_")))
+    | .address as $address
+    | (if ((.change.actions // []) | index("create")) then "new" else "updated" end) as $kind
+    | (.change.after_unknown // {}) | objects
+    | to_entries[] | select(.key == "policy" or .key == "assume_role_policy")
+    | "\($kind)\t\($address): its \(.key)"' "$plan"); then
+  err "could not read which IAM documents are unknown from $plan — the plan is not readable."
+  exit 2
+fi
+updated=$(printf '%s\n' "$unknown" | awk -F '\t' '$1 == "updated" { print $2 }')
+new=$(printf '%s\n' "$unknown" | awk -F '\t' '$1 == "new" { print $2 }')
+if [ -n "$updated" ]; then
+  while IFS= read -r finding; do
+    echo "::warning title=Checkov (plan IAM)::$finding is unknown until apply on an in-place update, so this gate did not read it. It is named rather than refused, by decision: read its change in the plan, because no scanner did." >&2
+  done <<< "$updated"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    {
+      echo "**IAM documents this gate did not read**, unknown until apply on an in-place update:"
+      echo
+      printf '%s\n' "$updated" | sed 's/^/- /'
+      echo
+    } >> "$GITHUB_STEP_SUMMARY"
+  fi
+fi
+if [ -n "$new" ]; then
+  while IFS= read -r finding; do
+    err "$finding is unknown until apply on a new resource, so Checkov scored the IAM checks on it without reading it."
+  done <<< "$new"
+  err "A new document the plan cannot show is one this gate has never read. Build each ARN its Resource names from that resource's name, in a local, so the plan knows it. A Principal must exist when IAM writes the policy, so a role it names needs an explicit dependency on that role, or lands in an earlier pull request, as does a resource whose ARN AWS generates, such as a KMS key or a Cognito pool."
   exit 2
 fi
 
