@@ -1525,22 +1525,35 @@ INVENTORY_GLOB_RE = re.compile(r"^\*(\.[A-Za-z0-9]+)$")
 #: A tombstone: a row recording that a file was deleted, which is a claim that it is ABSENT.
 INVENTORY_GONE_RE = re.compile(r"`([^`]+)` is \*\*gone\*\*")
 
-#: A Symbol-column code span that is ONE name, matched whole: the name, then calls, type arguments
-#: and members (``useFeature(key)``, ``Result<T>``, ``keys.list(id)``), each one bracket deep.
-INVENTORY_NAME_SPAN_RE = re.compile(r"([A-Za-z_$][\w$]*)(?:\([^()]*\)|<[^<>]*>|\.[A-Za-z_$][\w$]*)*")
+#: One name as a Symbol-column span writes it: the name, then calls, type arguments and members
+#: (``useFeature(key)``, ``Result<T>``, ``keys.list(id)``), each one bracket deep. The name is the
+#: first group.
+ONE_NAME = r"([A-Za-z_$][\w$]*)(?:\([^()]*\)|<[^<>]*>|\.[A-Za-z_$][\w$]*)*"
 
-#: The same, written as a JSX tag, ``<FeatureGate flag>`` or ``<Gizmo/>``, matched whole; its props
-#: hold no angle bracket, so a second tag after the first cannot pass as a prop.
-INVENTORY_JSX_SPAN_RE = re.compile(r"<([A-Za-z_$][\w$]*)(?:[\s.][^<>]*)?/?>")
+#: A span that claims a name: ``ONE_NAME``, matched whole.
+INVENTORY_NAME_SPAN_RE = re.compile(ONE_NAME)
 
-#: What stands between a code span and the one before it when it is that span's return, whether a
-#: type (``boolean``) or a shape (``{status, error}``): an arrow, and nothing else.
+#: The same, written as a JSX tag, ``<FeatureGate flag>`` or ``<Gizmo/>``, matched whole. Its props
+#: hold no angle bracket outside an ``{expression}``, so a second tag after the first cannot pass
+#: as a prop while ``onChange={(v) => set(v)}`` still can.
+INVENTORY_JSX_SPAN_RE = re.compile(r"<([A-Za-z_$][\w$]*)(?:[\s.](?:\{[^{}]*\}|[^<>{}])*)?/?>")
+
+#: What stands between a code span and the one before it when it is that span's return: an arrow,
+#: and nothing else.
 INVENTORY_RETURN_RE = re.compile(r"\s*(?:→|->)\s*")
 
-#: A block comment that opens a line, with the spaces after it. ``_exported_names`` removes it
+#: A span that is a return, matched whole: a shape ``{status, error}`` or a tuple ``[a, b]``, one
+#: bracket deep, or a type written as ``ONE_NAME`` alone or in a union (``string | null``). A
+#: return claims nothing, so this is what keeps a second claim from riding in one.
+INVENTORY_RETURN_SPAN_RE = re.compile(r"\{[^{}]*\}|\[[^\[\]]*\]|" + ONE_NAME + r"(?:\s*\\?\|\s*" + ONE_NAME + r")*")
+
+#: Block comments that open a line, with the spaces after each. ``_exported_names`` removes them
 #: first, so a declaration left commented out in one is not read as live, and one written after
-#: it on the same line (``/** Doc. */ export function x``) is.
-LEADING_BLOCK_COMMENT_RE = re.compile(r"^[ \t]*/\*.*?\*/[ \t]*", re.MULTILINE | re.DOTALL)
+#: them on the same line (``/** Doc. */ export function x``) is. The ``/*`` must be followed by
+#: ``*``, a space or the line's end, so a glob such as ``/*.csv`` opening a line of a template
+#: literal is not taken for a comment; a ``/* `` that does open such a line is, and an export
+#: between it and the next ``*/`` goes unread, which fails the row naming it, loudly.
+LEADING_BLOCK_COMMENT_RE = re.compile(r"^[ \t]*(?:/\*(?=[*\s]).*?\*/[ \t]*)+", re.MULTILINE | re.DOTALL)
 
 #: A declaration exported where it is written: ``export const x``, ``export async function x``,
 #: ``export default function X``, ``export type X``, ``export * as ns from`` and TypeScript's
@@ -1632,15 +1645,16 @@ def _inventory_paths(name: str, base: pathlib.Path) -> list[pathlib.Path]:
 def _inventory_names(symbol_cell: str) -> tuple[list[str], list[str]]:
     """The names a row's Symbol cell claims, and what is wrong with any span that hides one.
 
-    Each code span must be ONE name, matched whole: ``name``, ``name(args)``, ``Name<T>``,
-    ``Name.member`` and the JSX tag ``<Name prop>`` each claim ``Name``
-    (``INVENTORY_NAME_SPAN_RE``, ``INVENTORY_JSX_SPAN_RE``). Two spans claim nothing: one with an
-    arrow and nothing else before it, which is the return of the span before that, a type or a
-    shape (``INVENTORY_RETURN_RE``); and ``.list(…)``, continuing the span before it. Any other span
-    is refused, because whatever a span carries past one name — ``Role/Status``, ``mock*``,
-    ``*Props``, ``useX() / useY()`` — is a claim that, read as its first name, is half checked, and
-    skipped, is not checked at all. Brackets are read one deep, so a nested call or type argument
-    is refused too, and says so.
+    Every code span is matched WHOLE by one form, or refused. ``name``, ``name(args)``,
+    ``Name<T>``, ``Name.member`` and the JSX tag ``<Name prop>`` each claim ``Name``
+    (``INVENTORY_NAME_SPAN_RE``, ``INVENTORY_JSX_SPAN_RE``). Two forms claim nothing, and each
+    must follow another span: a return, with an arrow and nothing else before it, which is a
+    type, a union, a shape or a tuple (``INVENTORY_RETURN_RE``, ``INVENTORY_RETURN_SPAN_RE``); and
+    a member, ``.list(…)``, continuing the span before it. Any other span is refused, because
+    whatever a span carries past one name — ``Role/Status``, ``mock*``, ``*Props``,
+    ``useX() / useY()`` — is a claim that, read as its first name, is half checked, and skipped,
+    is not checked at all. Brackets are read one deep, so a nested call or type argument is
+    refused too, and says so.
 
     Args:
       symbol_cell: The row's Symbol cell, stripped; empty when the table has none.
@@ -1653,10 +1667,13 @@ def _inventory_names(symbol_cell: str) -> tuple[list[str], list[str]]:
     """
     names: list[str] = []
     problems: list[str] = []
-    end = 0
+    end: int | None = None
     for match in CODE_SPAN_RE.finditer(symbol_cell):
-        span, between, end = match.group(1), symbol_cell[end:match.start()], match.end()
-        if INVENTORY_RETURN_RE.fullmatch(between) or span.startswith("."):
+        span, between, follows = match.group(1), symbol_cell[end or 0:match.start()], end is not None
+        end = match.end()
+        if follows and INVENTORY_RETURN_RE.fullmatch(between) and INVENTORY_RETURN_SPAN_RE.fullmatch(span):
+            continue
+        if follows and span.startswith(".") and INVENTORY_NAME_SPAN_RE.fullmatch(span[1:]):
             continue
         one = INVENTORY_NAME_SPAN_RE.fullmatch(span) or INVENTORY_JSX_SPAN_RE.fullmatch(span)
         if one:
@@ -1664,7 +1681,8 @@ def _inventory_names(symbol_cell: str) -> tuple[list[str], list[str]]:
         else:
             problems.append(f"`{span}` in the Symbol column is not one name, so what it claims cannot be "
                             "read — write each name in a code span of its own, as `name`, `name(args)`, "
-                            "`Name<T>`, `name.member` or `<Name prop>`, with brackets one deep")
+                            "`Name<T>`, `name.member` or `<Name prop>`, with brackets one deep. After "
+                            "another span, a return follows an arrow, and a member `.x(…)` continues it")
     return names, problems
 
 

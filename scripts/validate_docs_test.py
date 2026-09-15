@@ -1059,7 +1059,7 @@ CASES = [
      lambda r: [_write(r, DEMO + "/util.ts",
                        "import {helper} from './other';\n/**\n * export function helper() moved out.\n */\n"
                        "// export const helper = 1;\n// export {helper} from './helper';\n"
-                       "// export default helper;\n/*\nexport function helper() {}\n*/\n"
+                       "// export default helper;\n  /*\nexport function helper() {}\n  */\n"
                        "const local = helper;\nexport const other = local;\n"),
                 _inventory(r, "| `helper()` | `util.ts` | Imported, not exported. |\n")],
      1, "`helper` is not exported from `util.ts`"),
@@ -1115,6 +1115,19 @@ CASES = [
     ("inventory_symbol_second_name_after_a_member",
      lambda r: _inventory(r, "| `Widget.size, Ghost` | `Widget.tsx` | A member, then a name. |\n"),
      1, "`Widget.size, Ghost` in the Symbol column is not one name"),
+    # The two forms that claim nothing are matched whole as well, or a second claim rides in one.
+    ("inventory_member_span_carrying_a_second_name",
+     lambda r: _inventory(r, "| `Widget.size` / `.more / Ghost()` | `Widget.tsx` | A member, and a call. |\n"),
+     1, "`.more / Ghost()` in the Symbol column is not one name"),
+    ("inventory_member_span_continuing_nothing",
+     lambda r: _inventory(r, "| `.Ghost` / `Widget` | `Widget.tsx` | A member of nothing. |\n"),
+     1, "`.Ghost` in the Symbol column is not one name"),
+    ("inventory_return_after_nothing_is_read",
+     lambda r: _inventory(r, "| → `Ghost`, `Widget` | `Widget.tsx` | An arrow with nothing before it. |\n"),
+     1, "`Ghost` is not exported from `Widget.tsx`"),
+    ("inventory_return_span_carrying_a_second_name",
+     lambda r: _inventory(r, "| `Widget()` → `string, Ghost(n)` | `Widget.tsx` | A return, and a call. |\n"),
+     1, "`string, Ghost(n)` in the Symbol column is not one name"),
     # Beside a name, a leading wildcard keeps the per-row control quiet, so only this refusal
     # stands between it and a family nobody checks.
     ("inventory_symbol_span_without_a_name",
@@ -1160,19 +1173,23 @@ CASES = [
                        "export {lL};\nexport {lM as aliasM};\nexport {type TO} from './types';\n"
                        "export type {TU} from './types';\n"
                        "export {\n  // a comment the reader skips\n  lP,\n  /* and another */ lQ,\n} from './more';\n"
-                       "export * as NSX from './ns';\n/** Documented on the line it is declared. */ export function docd() {}\n"),
+                       "export * as NSX from './ns';\n/** Documented on the line it is declared. */ export function docd() {}\n"
+                       "/* c8 ignore next */ /** Twice. */ export function twiceDocd() {}\n"),
                 _write(r, DEMO + "/Def.ts", "const DefR = 1;\nexport default DefR;\n"),
-                _write(r, DEMO + "/Bom.ts", "﻿export const BomFirst = 1;\n"),
-                # A comment is removed only where it opens a line: this glob is not one, and read
-                # as one it would swallow the export beneath it.
-                _write(r, DEMO + "/Glob.ts", "const glob = 'src/*.ts';\nexport const afterGlob = 1;\n// */\n"),
+                _write(r, DEMO + "/Bom.ts", "\ufeffexport const BomFirst = 1;\n"),
+                # A comment is removed only where it opens a line. This `/* ` sits mid-line in a
+                # string, and read as a comment it would swallow the export beneath it.
+                _write(r, DEMO + "/Glob.ts", "const hint = 'keep /* in the string';\nexport const afterGlob = 1;\n// */\n"),
+                # Nor is a glob opening a line of a template literal.
+                _write(r, DEMO + "/Help.ts", "const help = `Every CSV at the root:\n/*.csv`;\nexport const afterHelp = 1;\n// */\n"),
                 _inventory(r, "| `fnA(x)` / `fnGen()` / `fnB()` / `cC` / `lD` / `vV` / `TE<T>` / `IF` / `EG` | `forms.ts` | Declared. |\n"
                               "| `CEH` / `KI` / `KJ` / `dS` / `NS` / `DefK` | `forms.ts` | Declared too. |\n"
                               "| `lL` / `aliasM` / `TO` / `TU` / `lP` / `lQ` | `forms.ts` | Listed. |\n"
-                              "| `NSX` / `docd()` | `forms.ts` | A namespace, and one after its doc. |\n"
+                              "| `NSX` / `docd()` / `twiceDocd()` | `forms.ts` | A namespace, and two after their docs. |\n"
+                              "| `afterHelp` | `Help.ts` | Beneath a glob in a template literal. |\n"
                               "| `DefR` | `Def.ts` | A default, declared above it. |\n"
                               "| `BomFirst` | `Bom.ts` | On a first line behind a byte-order mark. |\n"
-                              "| `afterGlob` | `Glob.ts` | Beneath a glob that is not a comment. |\n")],
+                              "| `afterGlob` | `Glob.ts` | Beneath a string that is not a comment. |\n")],
      0, ""),
     # Every Symbol-cell form that claims a name, and the ones that claim nothing: a return after
     # either arrow, whatever it is, a shape, and a member continuing the span before it.
@@ -1183,6 +1200,8 @@ CASES = [
                 _inventory(r, "| `useWidget(id)` → `{status, error}` | `Widget.tsx` | A call, and a shape. |\n"
                               "| `useWidget(id)` → `boolean` | `Widget.tsx` | A call, and a type. |\n"
                               "| `useWidget(id)` -> `[flags, status]` | `Widget.tsx` | A tuple, after an ASCII arrow. |\n"
+                              "| `useWidget(id)` → `string \\| null` | `Widget.tsx` | A union. |\n"
+                              "| `<Widget onChange={(v) => set(v)}>` | `Widget.tsx` | A prop holding an arrow. |\n"
                               "| `WidgetProps<T>` | `Widget.tsx` | A type argument. |\n"
                               "| `widgetKeys.list(id)` / `.detail(id)` | `Widget.tsx` | Members. |\n"
                               "| `<Widget prop>` / `<Gadget>` / `<Gizmo/>` | `Widget.tsx` | JSX. |\n")],
@@ -1194,8 +1213,11 @@ CASES = [
                 _write(r, "apps/portal/src/lib/helper.ts", "export const helper = 1;\n"),
                 _write(r, DEMO + "/lib/shared/near.ts", "export const Near = 1;\n"),
                 _write(r, "apps/portal/src/lib/shared/far.ts", "export const Far = 1;\n"),
+                _write(r, DEMO + "/lib/near.ts", "export const nearOnly = 1;\n"),
+                _write(r, "apps/portal/src/lib/near.ts", "export const other = 1;\n"),
                 _inventory(r, "| `helper` | `lib/helper.ts` | The shared one. |\n"
-                              "| `Far` | moved to `lib/shared/` | The shared directory. |\n")],
+                              "| `Far` | moved to `lib/shared/` | The shared directory. |\n"
+                              "| `nearOnly` | `lib/near.ts` | The feature's own, which is read too. |\n")],
      0, ""),
     # A name re-exported by a directory's barrel is in the directory. The subdirectory beside it
     # is kept out by its missing suffix; the `is_file` test is for one named like a source file,
