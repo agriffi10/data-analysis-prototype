@@ -148,6 +148,7 @@ Attributes:
 """
 
 import fnmatch
+import functools
 import os
 import pathlib
 import re
@@ -1524,6 +1525,32 @@ INVENTORY_GLOB_RE = re.compile(r"^\*(\.[A-Za-z0-9]+)$")
 #: A tombstone: a row recording that a file was deleted, which is a claim that it is ABSENT.
 INVENTORY_GONE_RE = re.compile(r"`([^`]+)` is \*\*gone\*\*")
 
+#: The name a Symbol-column code span begins with, opened as JSX (``<FeatureGate flag>``) or not.
+INVENTORY_SYMBOL_RE = re.compile(r"(<?)([A-Za-z_$][\w$]*)")
+
+#: A declaration exported where it is written: ``export const x``, ``export async function x``,
+#: ``export default function X``, ``export type X`` and TypeScript's other declaration keywords.
+#: Anchored at the start of a line, so an export quoted in a comment, or indented inside a
+#: ``declare module`` block, is not read as the file's own.
+EXPORT_DECLARATION_RE = re.compile(
+    r"^export\s+(?:default\s+)?(?:declare\s+)?(?:async\s+)?(?:abstract\s+)?"
+    r"(?:function\s*\*?\s*|(?:const\s+enum|const|let|var|class|type|interface|enum|namespace)\s+)"
+    r"([A-Za-z_$][\w$]*)", re.MULTILINE)
+
+#: An export list, ``export {a, b as c}`` or ``export type {A} from './a'``, over as many lines as
+#: it takes. Its items are read by ``EXPORT_ITEM_RE``.
+EXPORT_LIST_RE = re.compile(r"^export\s+(?:type\s+)?\{([^}]*)\}", re.MULTILINE)
+
+#: One item of an export list. An item exported ``as`` another name is exported by that name only.
+EXPORT_ITEM_RE = re.compile(r"(?:type\s+)?([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?")
+
+#: ``export default name;``: a binding declared earlier in the file, exported as its default.
+EXPORT_DEFAULT_NAME_RE = re.compile(r"^export\s+default\s+([A-Za-z_$][\w$]*)\s*;?\s*$", re.MULTILINE)
+
+#: The files whose exports are read. A Markdown page or a stylesheet exports nothing, and a code
+#: sample at the start of a line in one would otherwise read as an export of its directory.
+SOURCE_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
+
 
 def _spelled_exactly(path: pathlib.Path, directory: bool) -> bool:
     """Whether ``path`` exists with every component in the case the doc spells it.
@@ -1559,8 +1586,8 @@ def _spelled_exactly(path: pathlib.Path, directory: bool) -> bool:
     return current.is_dir() if directory else current.is_file()
 
 
-def _inventory_resolves(name: str, base: pathlib.Path) -> bool:
-    """Whether a File-column name is where its row says it is.
+def _inventory_path(name: str, base: pathlib.Path) -> pathlib.Path | None:
+    """Where a File-column name is, if it is where its row says it is.
 
     A bare name must be IN the directory the page declares: letting it match further up would let
     an ``index.ts`` resolve to some other folder's. A name carrying a slash is a path the row
@@ -1573,7 +1600,7 @@ def _inventory_resolves(name: str, base: pathlib.Path) -> bool:
       base: The directory the page declares for this row.
 
     Returns:
-      ``True`` when some reading of the name exists, in the case it is spelled.
+      The first reading of the name that exists in the case it is spelled, or ``None``.
 
     Raises:
       None.
@@ -1581,7 +1608,73 @@ def _inventory_resolves(name: str, base: pathlib.Path) -> bool:
     anchors = [base]
     if "/" in name.rstrip("/"):
         anchors += [p for p in base.parents if p == ROOT or ROOT in p.parents]
-    return any(_spelled_exactly(a / name.rstrip("/"), name.endswith("/")) for a in anchors)
+    return next((a / name.rstrip("/") for a in anchors
+                 if _spelled_exactly(a / name.rstrip("/"), name.endswith("/"))), None)
+
+
+def _inventory_names(symbol_cell: str) -> tuple[list[str], list[str]]:
+    """The names a row's Symbol cell claims, and what is wrong with any span that hides one.
+
+    A code span claims the name it begins with: ``name``, ``name(args)``, ``Name<T>``,
+    ``Name.member`` and the JSX form ``<Name prop>`` all claim ``Name``, and the rest is for the
+    reader. A span that does not begin with a name claims nothing — a return shape ``{a, b}``, or
+    ``.list(…)`` continuing the span before it. A span that begins with a name and runs on past it,
+    as ``Role/Status`` and ``mock*`` do, is refused: read as its first name it checks half of what
+    it says, and skipped it checks none of it.
+
+    Args:
+      symbol_cell: The row's Symbol cell, stripped; empty when the table has none.
+
+    Returns:
+      The names claimed, in order, and one message per span refused.
+
+    Raises:
+      None.
+    """
+    names: list[str] = []
+    problems: list[str] = []
+    for span in CODE_SPAN_RE.findall(symbol_cell):
+        match = INVENTORY_SYMBOL_RE.match(span)
+        if not match:
+            continue
+        rest = span[match.end():]
+        bounds = ("(", "<", ".") + ((" ", ">", "/") if match.group(1) else ())
+        if rest and not rest.startswith(bounds):
+            problems.append(f"`{span}` in the Symbol column runs on past the name it begins with, so "
+                            "what it claims cannot be read — write each name in full, one per code span")
+        else:
+            names.append(match.group(2))
+    return names, problems
+
+
+@functools.cache
+def _exported_names(path: pathlib.Path) -> frozenset[str]:
+    """The names a source file exports, read from its text.
+
+    Declarations (``EXPORT_DECLARATION_RE``), export lists with or without ``from``
+    (``EXPORT_LIST_RE``) and ``export default name;`` (``EXPORT_DEFAULT_NAME_RE``) are read.
+    ``export *`` is not followed, so a name that reaches a file only through one is not that
+    file's, and its row is pointed at the file that declares it.
+
+    Args:
+      path: A file a row names; one whose suffix is not in ``SOURCE_SUFFIXES`` exports nothing.
+
+    Returns:
+      Every name the file exports, by the name a consumer imports.
+
+    Raises:
+      None.
+    """
+    if path.suffix not in SOURCE_SUFFIXES:
+        return frozenset()
+    text = path.read_text(encoding="utf-8", errors="replace")
+    names = set(EXPORT_DECLARATION_RE.findall(text)) | set(EXPORT_DEFAULT_NAME_RE.findall(text))
+    for body in EXPORT_LIST_RE.findall(text):
+        for item in re.sub(r"//[^\n]*|/\*.*?\*/", "", body, flags=re.DOTALL).split(","):
+            item_match = EXPORT_ITEM_RE.fullmatch(item.strip())
+            if item_match:
+                names.add(item_match.group(2) or item_match.group(1))
+    return frozenset(names)
 
 
 def _table_cells(line: str) -> list[str]:
@@ -1602,16 +1695,25 @@ def _table_cells(line: str) -> list[str]:
 
 
 def _inventory_row_problems(file_cell: str, symbol_cell: str, base: pathlib.Path, where: str) -> list[str]:
-    """What is wrong with one inventory row's File cell, if anything.
+    """What is wrong with one inventory row, if anything: its File cell, then its Symbol cell.
 
-    Four forms are read, each found in the inventory rather than assumed. A code span is a file,
-    or a directory when it ends in ``/`` (the "moved to" rows); a cell may carry several however
-    they are separated, since only the spans are read. ``(same folder)`` and ``*.tsx`` stand for
-    each symbol in the row in a file of its own name, so the Symbol cell supplies the names, and
-    ``(same folder)`` is honoured beside other names in the cell rather than only alone. And
-    a span followed by "is **gone**" records a deletion, which is checked the other way round: the
-    tombstone is false once the file is back. Anything else is refused rather than skipped,
-    because a cell this check cannot read is a row it has quietly stopped checking.
+    Four File-cell forms are read, each found in the inventory rather than assumed. A code span is
+    a file, or a directory when it ends in ``/`` (the "moved to" rows); a cell may carry several
+    however they are separated, since only the spans are read. ``(same folder)`` and ``*.tsx``
+    stand for each symbol in the row in a file of its own name, so the Symbol cell supplies the
+    names, and ``(same folder)`` is honoured beside other names in the cell rather than only
+    alone. And a span followed by "is **gone**" records a deletion, which is checked the other way
+    round: the tombstone is false once the file is back. Anything else is refused rather than
+    skipped, because a cell this check cannot read is a row it has quietly stopped checking.
+
+    Then each name the Symbol cell claims (``_inventory_names``) must be exported
+    (``_exported_names``) by a file the row names: a file span, any source file directly in a
+    directory span, or, under ``(same folder)`` and ``*.tsx``, the name's own file. ONE of them is
+    enough, since a row of several files puts each symbol in one, so a symbol moving between two
+    files of the same row is not caught. A name with no file to read — every span a tombstone, or
+    one not there, which is reported above — is not checked. And a row that names source must name
+    a symbol, or neither the derived forms nor residency has anything to read: that is also what
+    catches a table whose ``Symbol`` column was renamed, whose every row would otherwise pass.
 
     Args:
       file_cell: The row's File cell, stripped.
@@ -1625,44 +1727,63 @@ def _inventory_row_problems(file_cell: str, symbol_cell: str, base: pathlib.Path
     Raises:
       None.
     """
-    symbols = [m.group(0) for span in CODE_SPAN_RE.findall(symbol_cell)
-               if (m := re.match(r"[A-Za-z_$][\w$]*", span))]
     gone = set(INVENTORY_GONE_RE.findall(file_cell))
     spans = CODE_SPAN_RE.findall(file_cell)
     derived: list[tuple[str, tuple[str, ...]]] = []
-    problems: list[str] = []
     if "(same folder)" in file_cell:
         derived.append(("(same folder)", (".tsx", ".ts")))
     elif not spans:
         return [(f"the File cell {file_cell!r} names nothing in backticks, so nothing about it can be "
                  "checked — write the file as a code span, or `(same folder)` for symbols each in a "
                  "file of their own name")]
+    names, problems = _inventory_names(symbol_cell)
+    homes: list[tuple[str, list[pathlib.Path]]] = []
     for span in spans:
         glob = INVENTORY_GLOB_RE.match(span)
         if glob:
             derived.append((f"`{span}`", (glob.group(1),)))
-        elif not INVENTORY_NAME_RE.match(span):
+            continue
+        if not INVENTORY_NAME_RE.match(span):
             problems.append(f"`{span}` in the File column is neither a file nor a directory name, so "
                             "nothing about it can be checked — write one path per code span, with no "
                             "`.` or `..` segment, and end a directory with `/`")
-        elif span in gone:
-            if _inventory_resolves(span, base):
+            continue
+        path = _inventory_path(span, base)
+        if span in gone:
+            if path:
                 problems.append(f"`{span}` is recorded as gone, but it exists — the tombstone is false")
-        elif not _inventory_resolves(span, base):
+        elif not path:
             nested = "/" in span.rstrip("/")
             above = " or any directory above it" if nested else ""
             scope = "" if nested else " (a name with no slash inside it is read in that directory only)"
             problems.append(f"`{span}` is not in {where}{above} — the row has outlived its file: "
                             f"delete it, point it at where the symbol lives now{scope}, or record a "
                             f"deliberate deletion as `{span}` is **gone**")
-    for form, suffixes in derived:
-        if not symbols:
-            problems.append(f"{form} stands for each symbol's own file, but the row names no symbol "
-                            "in backticks in a `Symbol` column")
-        for symbol in symbols:
-            if not any(_inventory_resolves(symbol + suffix, base) for suffix in suffixes):
-                names = " or ".join(symbol + suffix for suffix in suffixes)
-                problems.append(f"`{symbol}` is filed as {form}, but {names} is not in {where}")
+        elif span.endswith("/"):
+            homes.append((f"any source file directly in `{span}`",
+                          sorted(p for p in path.iterdir() if p.is_file())))
+        else:
+            homes.append((f"`{span}`", [path]))
+    names_source = derived or any(span.endswith("/") or span.endswith(SOURCE_SUFFIXES)
+                                  for span in spans if span not in gone)
+    if names_source and not names:
+        problems.append(f"the Symbol cell {symbol_cell!r} has no code span that begins with a name, so "
+                        "nothing the row points at can be checked — write each symbol as `name`, "
+                        "`name(args)` or `<Name prop>` in a column headed `Symbol`")
+    for name in names:
+        own: list[tuple[str, list[pathlib.Path]]] = []
+        for form, suffixes in derived:
+            found = [(f"`{name + suffix}`", [p]) for suffix in suffixes
+                     if (p := _inventory_path(name + suffix, base))]
+            if not found:
+                files = " or ".join(name + suffix for suffix in suffixes)
+                problems.append(f"`{name}` is filed as {form}, but {files} is not in {where}")
+            own += found
+        if (homes or own) and not any(name in _exported_names(p) for _, paths in homes + own for p in paths):
+            places = " or ".join(label for label, _ in homes + own)
+            problems.append(f"`{name}` is not exported from {places} — the row has outlived the symbol: "
+                            "delete the name, or point the row at the file that exports it now (a prop "
+                            "is not a symbol, and goes inside its component's JSX form, `<Name prop>`)")
     return problems
 
 
