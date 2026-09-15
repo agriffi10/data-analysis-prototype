@@ -658,9 +658,6 @@ jobs:
             exit 1
           fi
 
-      # Its findings ADD to the gate's numerator rather than replacing it, so one number still
-      # decides the job and a regression in either framework blocks. Assign-then-echo, never
-      # `echo "VAR=$(script)"`, for the reason stated above the terraform narrowing.
       # ITS FINDINGS ADD TO THE GATE'S NUMERATOR, so one number still decides the job and a
       # regression in either framework blocks. Assign-then-echo, never `echo "VAR=$(script)"`,
       # for the reason stated above the terraform narrowing.

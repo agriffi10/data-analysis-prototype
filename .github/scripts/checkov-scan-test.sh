@@ -17,10 +17,11 @@
 # The wrapper cannot see a suppression written inside a scanned file: an inline
 # `checkov:skip=<ID>` comment, which Checkov records as SKIPPED rather than failed. The
 # numerators refuse those instead, and the last cases plant one for each gate and assert the
-# refusal names the check ID and the resource. One case asserts silence: a skip of an ID the
-# gate does not hold changes nothing. Each first asserts that Checkov recorded the planted
-# skip, so a scanner that stopped honouring the comment fails here rather than passing a case
-# that no longer plants anything.
+# refusal names the check ID and the resource. Silence is asserted too: a skip outside a
+# gate's count, of an ID it does not enforce or on a resource that is not IAM, changes
+# nothing. Each first asserts that Checkov recorded the planted skip, so a scanner that
+# stopped honouring the comment fails here rather than passing a case that no longer plants
+# anything.
 #
 # Every case runs with HOME pointed at an empty directory, so a config in the real home
 # directory cannot decide a case that is not about it.

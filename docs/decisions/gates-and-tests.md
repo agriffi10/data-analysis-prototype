@@ -673,15 +673,16 @@ the same `if:`.
 inline `# checkov:skip=` comment moves an enforced finding to `skipped_checks` while the ID still
 passes on another resource, and the enforced numerator read zero. The wrapper cannot see it,
 because the comment is in a scanned file rather than the configuration, so both numerators now
-read Checkov's own record of what it skipped and refuse a skipped finding on an ID they gate,
-naming the check and the resource. It is a hard error rather than a count because a skip is a
-suppression, not a finding: a skip on a resource that would have passed is recorded as skipped
-too. A skip of an ID the gate does not hold changes nothing. The plan scan as the workflow runs it
+read Checkov's own record of what it skipped and refuse a skipped finding their count would have
+held, naming the check and the resource: an enforced ID for the `.tf` and Dockerfile gates, any
+check on an IAM resource for the plan's. It is a hard error rather than a count because a skip is
+a suppression, not a finding: a skip on a resource that would have passed is recorded as skipped
+too. A skip the count would not have held changes nothing. The plan scan as the workflow runs it
 records no skip, since Checkov reads a `.tf` file's comments into a plan scan only under
 `--repo-root-for-plan-enrichment`. With that flag, a skip in a `.tf` beside the corpus's plan took
 `CKV_AWS_355` off and the IAM count fell from 2 to 1, so the plan numerator refuses one too rather
-than resting on a flag nothing checks. The corpus plants
-a skip for each gate, and one it must stay silent on, and each check was planted once.
+than resting on a flag nothing checks. The corpus plants a skip for each gate and asserts silence
+on one outside each count, and each check was planted once.
 
 **Not closed by this.** The environment variables Checkov reads directly rather than
 through a flag are a second route: `--show-config` cannot report them, and a review measured
