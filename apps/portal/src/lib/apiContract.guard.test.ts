@@ -269,7 +269,7 @@ describe('the one door', () => {
       'lib/queryClient.ts',
       // A domain property that shares the key's name: "the folder name collided, here is my
       // decision, run it again". It takes a `CollisionDecision` and re-runs a gesture.
-      'features/file-browser/useFileUpload.ts',
+      'features/file-browser/useCreateFolder.ts',
       // The same, one layer up: the type of the exploration region's "run it again" affordance.
       'features/data-explorer/useExplorationQuery.ts'
     ];

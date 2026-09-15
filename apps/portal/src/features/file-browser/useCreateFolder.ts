@@ -14,7 +14,7 @@ type PendingCollision = {
   retry: (decision: CollisionDecision) => void;
 };
 
-export type UseFileUploadResult = {
+export type UseCreateFolderResult = {
   pendingCollision: PendingCollision | null;
   error: string | null;
   isBusy: boolean;
@@ -28,18 +28,14 @@ export type UseFileUploadResult = {
  * collision for warn-and-confirm, maps a failure to user text, and invalidates the
  * current prefix's listing on success so the new folder appears.
  *
- * Despite the name, it uploads nothing. File uploads go through the upload queue
- * (`useUploadQueue().enqueue`), which owns progress, cancel and per-file collisions
- * and shows each file in `UploadList`.
- *
  * runCreateFolder is a hoisted function declaration (not useCallback) because it
  * references itself in its collision-retry closure; the returned callbacks are only
  * used in event handlers, so their identity churn is harmless.
  *
  * @example
- * const {createNewFolder, pendingCollision, error, isBusy} = useFileUpload(bucket, prefix);
+ * const {createNewFolder, pendingCollision, error, isBusy} = useCreateFolder(bucket, prefix);
  */
-export function useFileUpload(bucket: string, prefix: string): UseFileUploadResult {
+export function useCreateFolder(bucket: string, prefix: string): UseCreateFolderResult {
   const queryClient = useQueryClient();
   const [pendingCollision, setPendingCollision] = useState<PendingCollision | null>(null);
   const [error, setError] = useState<string | null>(null);
